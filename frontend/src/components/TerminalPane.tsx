@@ -2,8 +2,11 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { apiClient, getToken } from "@/lib/api";
 
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
+// Falls back to the page's own origin, not a hardcoded localhost:8000 --
+// see the matching comment in lib/api.ts.
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
 const WS_BASE = API_BASE.replace(/^http/, "ws");
 
 interface TerminalPaneProps {
@@ -62,39 +65,62 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       return true;
     });
 
-    const params = new URLSearchParams();
-    params.set("session", sessionId);
-    if (command) params.set("command", command);
-    if (cwd) params.set("cwd", cwd);
-    const ws = new WebSocket(`${WS_BASE}/api/v1/terminal/ws?${params.toString()}`);
+    // A WebSocket handshake can't carry an Authorization header, and the
+    // real session JWT is long-lived (60min) -- putting it straight in the
+    // URL would mean it sits in plaintext in nginx/Cloudflare tunnel access
+    // logs for that whole window. Exchange it for a single-use, 30s-lived
+    // ticket over a normal authenticated POST first (see terminal.py's
+    // /ws-ticket + /ws), and put only that short-lived ticket in the URL.
+    let ws: WebSocket | null = null;
+    let cancelled = false;
 
-    // The PTY is read in fixed-size chunks on the host, so the DECRQM
-    // sequence stripped below can land split across two WebSocket messages.
-    // Hold back a trailing prefix that could still grow into a full match
-    // (rather than writing it immediately) and prepend it to the next
-    // message, so the strip below can't be defeated by an unlucky chunk
-    // boundary.
-    let pendingTail = "";
-    ws.onmessage = (event) => {
-      // @xterm/xterm 6.0.0's DECRQM handler (CSI ? Pm $ p, used by CLIs like
-      // Antigravity's `agy` to probe synchronized-output support) throws
-      // "r is not defined" inside its own minified bundle and corrupts the
-      // parser for the rest of the session -- strip the query before it
-      // ever reaches xterm's parser. The app being probed just treats a
-      // missing reply as "unsupported", same as without this fix's filtering.
-      const raw = pendingTail + (event.data as string);
-      const partial = raw.match(/\x1b\[\??[0-9;]*\$?$/);
-      const safeEnd = partial ? partial.index! : raw.length;
-      pendingTail = raw.slice(safeEnd);
-      const data = raw.slice(0, safeEnd).replace(/\x1b\[\??[0-9;]*\$p/g, "");
-      term.write(data);
-    };
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-    };
+    async function connect() {
+      const params = new URLSearchParams();
+      params.set("session", sessionId);
+      if (command) params.set("command", command);
+      if (cwd) params.set("cwd", cwd);
+      try {
+        const { ticket } = await apiClient.post<{ ticket: string }>("/api/v1/terminal/ws-ticket");
+        if (cancelled) return;
+        params.set("ticket", ticket);
+      } catch {
+        if (!cancelled) term.write("\r\n\x1b[31mFailed to authenticate terminal session.\x1b[0m\r\n");
+        return;
+      }
+
+      const socket = new WebSocket(`${WS_BASE}/api/v1/terminal/ws?${params.toString()}`);
+      ws = socket;
+
+      // The PTY is read in fixed-size chunks on the host, so the DECRQM
+      // sequence stripped below can land split across two WebSocket
+      // messages. Hold back a trailing prefix that could still grow into a
+      // full match (rather than writing it immediately) and prepend it to
+      // the next message, so the strip below can't be defeated by an
+      // unlucky chunk boundary.
+      let pendingTail = "";
+      socket.onmessage = (event) => {
+        // @xterm/xterm 6.0.0's DECRQM handler (CSI ? Pm $ p, used by CLIs
+        // like Antigravity's `agy` to probe synchronized-output support)
+        // throws "r is not defined" inside its own minified bundle and
+        // corrupts the parser for the rest of the session -- strip the
+        // query before it ever reaches xterm's parser. The app being
+        // probed just treats a missing reply as "unsupported", same as
+        // without this fix's filtering.
+        const raw = pendingTail + (event.data as string);
+        const partial = raw.match(/\x1b\[\??[0-9;]*\$?$/);
+        const safeEnd = partial ? partial.index! : raw.length;
+        pendingTail = raw.slice(safeEnd);
+        const data = raw.slice(0, safeEnd).replace(/\x1b\[\??[0-9;]*\$p/g, "");
+        term.write(data);
+      };
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      };
+    }
+    connect();
 
     const inputDisposable = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "input", data }));
       }
     });
@@ -105,13 +131,18 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     // a file onto a real terminal does; CLI agents (claude/codex/agy) that
     // support image input read it by path from there.
     const uploadImageFile = (file: File) => {
-      if (ws.readyState !== WebSocket.OPEN) return;
+      if (ws?.readyState !== WebSocket.OPEN) return;
       const formData = new FormData();
       formData.append("file", file, file.name || "pasted-image.png");
-      fetch(`${API_BASE}/api/v1/terminal/upload-image`, { method: "POST", body: formData })
+      const token = getToken();
+      fetch(`${API_BASE}/api/v1/terminal/upload-image`, {
+        method: "POST",
+        body: formData,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
         .then((res) => res.json())
         .then((body: { path: string }) => {
-          if (ws.readyState === WebSocket.OPEN) {
+          if (ws?.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "input", data: `'${body.path}' ` }));
           }
         })
@@ -124,10 +155,17 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       );
       if (!imageItem) return;
       event.preventDefault();
+      // xterm's own paste handler lives on its textarea and calls
+      // stopPropagation() unconditionally (it doesn't check for images --
+      // it just reads text/plain and bails if there isn't any), which would
+      // otherwise stop this bubble-phase listener on `container` from ever
+      // seeing the event. Listening on the capture phase intercepts it on
+      // the way down, before xterm's bubble-phase handler runs.
+      event.stopPropagation();
       const file = imageItem.getAsFile();
       if (file) uploadImageFile(file);
     };
-    container.addEventListener("paste", handlePaste);
+    container.addEventListener("paste", handlePaste, true);
 
     // xterm renders rows as plain DOM text, so a dragged file landing on it
     // would otherwise just navigate the browser to the file (the default
@@ -156,19 +194,20 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       // the real size once the tab is shown again.
       if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
       fitAddon.fit();
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
       }
     });
     resizeObserver.observe(container);
 
     return () => {
+      cancelled = true;
       inputDisposable.dispose();
-      container.removeEventListener("paste", handlePaste);
+      container.removeEventListener("paste", handlePaste, true);
       container.removeEventListener("dragover", handleDragOver);
       container.removeEventListener("drop", handleDrop);
       resizeObserver.disconnect();
-      ws.close();
+      ws?.close();
       term.dispose();
     };
     // sessionId/command/cwd are fixed for the lifetime of a tab -- only mount/unmount matters.

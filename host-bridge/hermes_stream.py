@@ -38,10 +38,13 @@ def _emit(payload: dict) -> None:
 # can't be answered through this one-shot, non-interactive subprocess),
 # anything that bypasses safety (/yolo), and anything stateful/long-running
 # (/cron, /kanban, /skills, /billing) that doesn't fit a per-message process.
-SAFE_SLASH_COMMANDS = {"model", "status", "help", "usage", "version", "title", "profile"}
+# Excludes "usage": it reads agent.session_api_calls, in-memory state on the
+# `agent` object that's rebuilt from scratch by every one-shot subprocess --
+# it would always report "No API calls made yet" regardless of real usage.
+SAFE_SLASH_COMMANDS = {"model", "status", "help", "version", "title", "profile"}
 
 
-def _run_slash_command(cli_inst, message: str) -> str:
+def _run_slash_command(cli_inst, message: str, canonical: str) -> str:
     """Execute a whitelisted slash command and capture its output.
 
     process_command() doesn't return text -- commands print via _cprint()
@@ -84,7 +87,20 @@ def _run_slash_command(cli_inst, message: str) -> str:
         for p in (buf.getvalue().strip(), "\n".join(captured_ansi).strip(), stdout_buf.getvalue().strip())
         if p
     ]
-    return "\n".join(parts) or "(comando executado, sem saída)"
+    text = "\n".join(parts) or "(comando executado, sem saída)"
+
+    if canonical == "status":
+        # agent.session_total_tokens (read by _show_session_status) is
+        # in-memory state on the `agent` object, rebuilt from scratch by
+        # every one-shot subprocess -- it never reflects real usage from
+        # earlier turns in this same chat thread. Drop the line rather than
+        # show a confidently wrong number (see SAFE_SLASH_COMMANDS comment
+        # on why "usage" itself is excluded entirely for the same reason).
+        text = "\n".join(
+            line for line in text.split("\n") if not line.strip().lower().startswith("tokens:")
+        )
+
+    return text
 
 
 def _start_approval_listener(stream_id: str) -> None:
@@ -162,6 +178,7 @@ def main() -> None:
             payload = {"tool_id": str(tool_id), "name": name}
             if name in ("write_file", "patch") and isinstance(tool_args, dict) and tool_args.get("path"):
                 payload["summary"] = f"Artefato criado: {tool_args['path']}"
+                payload["path"] = tool_args["path"]
             _emit({"tool_complete": payload})
 
         def on_approval_request(approval_data: dict) -> None:
@@ -170,12 +187,16 @@ def main() -> None:
                     "stream_id": stream_id,
                     "command": approval_data.get("command", ""),
                     "description": approval_data.get("description", ""),
+                    "pattern_keys": approval_data.get("pattern_keys", []),
                 }
             })
 
-        if not cli_inst._init_agent():
-            raise RuntimeError("_init_agent() returned False")
-
+        # Check for a whitelisted slash command *before* paying for
+        # _init_agent() (credential checks, MCP discovery wait, etc.) --
+        # none of SAFE_SLASH_COMMANDS touch self.agent (status/usage even
+        # explicitly tolerate self.agent is None, see cli.py's own
+        # slash-worker-subprocess comment), so initializing the agent first
+        # only adds failure surface unrelated to what the command needs.
         from cli import _looks_like_slash_command
         from hermes_cli.commands import resolve_command
 
@@ -183,10 +204,24 @@ def main() -> None:
             base = args.message.split(None, 1)[0].lstrip("/").lower()
             resolved = resolve_command(base)
             if resolved and resolved.name in SAFE_SLASH_COMMANDS:
-                reply_text = _run_slash_command(cli_inst, args.message)
+                reply_text = _run_slash_command(cli_inst, args.message, resolved.name)
                 _emit({"delta": reply_text})
-                _emit({"done": True, "session_id": cli_inst.session_id, "reply": reply_text})
+                # Slash commands never go through _init_agent()'s resume
+                # validation or run_conversation(), so cli_inst.session_id
+                # here was never written to Hermes's own SQLite session
+                # store. Echoing it back as the thread's session_id would
+                # poison continuity: the next real message would try to
+                # --resume a session that doesn't exist, and _init_agent()
+                # would fail with "Session not found" / return False for
+                # the *whole conversation*, not just the slash command (see
+                # the bug this fixes -- a slash command run as the first
+                # message of a chat broke every real message after it).
+                # Echo back whatever session_id was already real instead.
+                _emit({"done": True, "session_id": args.session_id, "reply": reply_text})
                 return
+
+        if not cli_inst._init_agent():
+            raise RuntimeError("_init_agent() returned False")
 
         cli_inst.agent.tool_start_callback = on_tool_start
         cli_inst.agent.tool_complete_callback = on_tool_complete

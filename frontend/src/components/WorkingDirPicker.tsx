@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, Folder, FolderOpen, Loader2, X } from "lucide-react";
+import { ArrowUp, Check, Folder, FolderOpen, Loader2, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/hooks/useClickOutside";
@@ -24,6 +24,7 @@ export function WorkingDirPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [browsePath, setBrowsePath] = useState<string | undefined>(undefined);
+  const [search, setSearch] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
 
   useClickOutside(containerRef, () => setOpen(false), open);
@@ -32,7 +33,16 @@ export function WorkingDirPicker({
     if (open) setBrowsePath(workingDir);
   }, [open, workingDir]);
 
+  // A folder's contents are a different list than its parent's -- last
+  // search's filter text shouldn't silently carry over and hide entries.
+  useEffect(() => {
+    setSearch("");
+  }, [browsePath]);
+
   const { data, isLoading, isError } = useBrowseDirs(browsePath, open);
+  const filteredEntries = data?.entries.filter((entry) =>
+    entry.name.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="relative shrink-0" ref={containerRef}>
@@ -50,7 +60,7 @@ export function WorkingDirPicker({
           onClick={() => setOpen((v) => !v)}
         >
           {workingDir ? <FolderOpen className="h-3.5 w-3.5 shrink-0" /> : <Folder className="h-3.5 w-3.5 shrink-0" />}
-          <span className="max-w-[8rem] truncate">{workingDir ? basename(workingDir) : "Folder"}</span>
+          <span className="max-w-[8rem] truncate">{workingDir ? basename(workingDir) : "Pasta"}</span>
         </button>
         {workingDir && (
           <button
@@ -71,8 +81,8 @@ export function WorkingDirPicker({
               variant="ghost"
               size="icon"
               className="h-6 w-6 shrink-0"
-              title="Up one level"
-              aria-label="Up one level"
+              title="Go up one level"
+              aria-label="Go up one level"
               disabled={!data?.parent}
               onClick={() => data?.parent && setBrowsePath(data.parent)}
             >
@@ -80,6 +90,20 @@ export function WorkingDirPicker({
             </Button>
             <span className="truncate text-xs text-muted-foreground">{data?.path ?? "…"}</span>
           </div>
+
+          {data && data.entries.length > 0 && (
+            <div className="border-b border-border p-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar pasta…"
+                  className="h-8 w-full rounded-md border border-border bg-transparent pl-7 pr-2 text-xs outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="max-h-64 overflow-y-auto p-1">
             {isLoading && (
@@ -89,7 +113,7 @@ export function WorkingDirPicker({
               </div>
             )}
             {isError && <p className="p-3 text-xs text-destructive">Failed to list directory.</p>}
-            {data?.entries.map((entry) => (
+            {filteredEntries?.map((entry) => (
               <button
                 key={entry.path}
                 type="button"
@@ -102,6 +126,9 @@ export function WorkingDirPicker({
             ))}
             {data && data.entries.length === 0 && (
               <p className="p-3 text-xs italic text-muted-foreground">No subfolders here.</p>
+            )}
+            {data && data.entries.length > 0 && filteredEntries?.length === 0 && (
+              <p className="p-3 text-xs italic text-muted-foreground">Nenhuma pasta encontrada.</p>
             )}
           </div>
 
@@ -116,7 +143,7 @@ export function WorkingDirPicker({
               }}
             >
               <Check className="mr-2 h-3.5 w-3.5" />
-              Use this folder
+              Usar esta pasta
             </Button>
           </div>
         </div>

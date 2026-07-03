@@ -1,26 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowUp,
   AudioLines,
   Bot,
   Check,
   ChevronDown,
+  Copy,
+  Download,
   Feather,
   Folder,
   Loader2,
   MessageSquare,
   Mic,
   MoreVertical,
-  PanelLeftClose,
-  PanelLeftOpen,
+  History,
+  KeyRound,
+  Package,
   Paperclip,
   Pencil,
   Pin,
   PinOff,
   Plus,
+  RotateCcw,
+  Search,
   Square,
   SquareTerminal,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -35,21 +42,31 @@ import { Textarea } from "@/components/ui/textarea";
 import { TerminalPane } from "@/components/TerminalPane";
 import { Markdown } from "@/components/Markdown";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
-import { useFsList } from "@/hooks/useTerminalBrowse";
-import { apiClient } from "@/lib/api";
+import { useFsList, type FsEntry } from "@/hooks/useTerminalBrowse";
+import { apiClient, getToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAgents, type Agent } from "@/hooks/useAgent";
+import { useServers, buildSshCommand } from "@/hooks/useServers";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  chatKeys,
+  useChatArtifacts,
   useChatMessages,
+  useDeleteChatArtifact,
+  useExecChatCommand,
+  useSearchChatArtifacts,
   useChatSessions,
   useCreateChatSession,
+  useSearchChatSessions,
+  useDeleteChatMessage,
   useDeleteChatSession,
   useUpdateChatSession,
   useApproveChat,
   useSendChatMessage,
   useStreamChatMessage,
   useTranscribeAudio,
+  downloadChatArtifact,
   type ChatMessage,
   type ChatSession,
   type ChatStreamEvent,
@@ -69,14 +86,21 @@ const ACTIVE_TAB_STORAGE_KEY = "forgehub-workspace-active-tab";
 const COMPOSER_MAX_HEIGHT_PX = 240;
 
 type WorkspaceTab =
-  | { kind: "chat"; id: string; agentId: string; historyCollapsed?: boolean; composerText?: string }
+  | {
+      kind: "chat";
+      id: string;
+      agentId: string;
+      historyCollapsed?: boolean;
+      artifactsOpen?: boolean;
+      composerText?: string;
+    }
   | { kind: "terminal"; id: string; label: string; command?: string; cwd?: string };
 
 type Launcher = { label: string; command: string; icon?: string; iconBg?: string };
 
 type ChatQueueStep = { id: string; label: string; done: boolean };
 
-type ChatQueueApproval = { streamId: string; command?: string; description?: string };
+type ChatQueueApproval = { streamId: string; command?: string; description?: string; patternKeys?: string[] };
 
 type ChatQueueItem = {
   id: string;
@@ -88,7 +112,68 @@ type ChatQueueItem = {
   status: "queued" | "processing" | "error";
   error?: string;
   approval: ChatQueueApproval | null;
+  abortController: AbortController | null;
+  /** True for a "Regenerate" request: reuses the last user message's text
+   * without persisting a duplicate user turn, and its synthetic user
+   * bubble is suppressed in the queue render (the real one is already in
+   * `messages`). */
+  isRegenerate?: boolean;
+  /** Set when this turn was routed to a "#Agente"-mentioned agent other
+   * than the tab's own -- shown in the processing card instead of the
+   * generic "Pensando..." label, and passed as target_agent_id. */
+  targetAgentId?: string;
+  targetAgentName?: string;
+  /** True for the 2nd+ mentioned-agent item from the same user input --
+   * the first one already persisted the shared user message. */
+  skipUserMessage?: boolean;
+  /** True for a "!command" raw bash execution -- no agent/LLM call, see
+   * exec_chat_command. content keeps the "!" prefix. */
+  isExec?: boolean;
+  /** Date.now() when this item entered "processing" -- powers the live
+   * "Pensando há mm:ss" ticker (see ThinkingLabel). */
+  startedAt?: number;
 };
+
+function formatThinkingDuration(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** Ticks every second while processing -- shown above the steps/Parar
+ * button, same spot the frozen "Pensou por mm:ss" occupies once the
+ * reply is persisted (see MessageBubble). */
+function LiveThinkingLabel({ startedAt }: { startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
+  return <p className="text-xs text-muted-foreground">Thinking for {formatThinkingDuration(elapsed)}</p>;
+}
+
+/** Finds every "#Agente" mention in text, matching the longest agent name
+ * available (so multi-word names like "Hermes UX" aren't cut short at the
+ * first space), case-insensitive, deduped by agent id. */
+function extractMentionedAgents(text: string, agents: Agent[]): Agent[] {
+  const sortedByLongestName = [...agents].sort((a, b) => b.name.length - a.name.length);
+  const found: Agent[] = [];
+  for (const match of text.matchAll(/#/g)) {
+    const rest = text.slice((match.index ?? 0) + 1);
+    const restLower = rest.toLowerCase();
+    for (const agent of sortedByLongestName) {
+      const nameLower = agent.name.toLowerCase();
+      if (!restLower.startsWith(nameLower)) continue;
+      const nextChar = rest[agent.name.length];
+      if (nextChar === undefined || /[\s.,!?;:]/.test(nextChar)) {
+        found.push(agent);
+        break;
+      }
+    }
+  }
+  return [...new Map(found.map((a) => [a.id, a])).values()];
+}
 
 // "CLI" -- AI coding-assistant CLIs you'd run ad-hoc against this checkout.
 const CLI_LAUNCHERS: Launcher[] = [
@@ -116,6 +201,60 @@ function LauncherIcon({ icon, iconBg }: { icon?: string; iconBg?: string }) {
     <span className={cn("flex h-4 w-4 items-center justify-center rounded-sm", iconBg)}>
       <img src={icon} alt="" className="h-3 w-3" />
     </span>
+  );
+}
+
+/** "SSH" launcher: icon+label button that drops down the registered server
+ * inventory (name + IP, from the Servers page/domain) -- picking one opens
+ * a new terminal tab pre-filled with `ssh [-i key] [-p port] user@ip`
+ * (see useServers' buildSshCommand), reusing the same openTerminalTab flow
+ * as the CLI/Runtime launchers above. */
+function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, () => setOpen(false), open);
+  const { data: servers } = useServers();
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-8 shrink-0 gap-1.5 px-2"
+        title="Connect via SSH"
+        aria-label="SSH"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <KeyRound className="h-3.5 w-3.5" />
+        SSH
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </Button>
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md">
+          {(servers ?? []).length === 0 && (
+            <p className="px-3 py-3 text-xs italic text-muted-foreground">
+              No servers registered. See "Servers" in the sidebar menu.
+            </p>
+          )}
+          {(servers ?? []).map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                onLaunch(s.name, buildSshCommand(s));
+                setOpen(false);
+              }}
+            >
+              <span className="text-sm font-medium">{s.name}</span>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {s.remote_user}@{s.ip_address}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -215,7 +354,7 @@ function ChatItemMenu({
             }}
           >
             <Pencil className="h-3.5 w-3.5" />
-            Rename
+            Renomear
           </button>
           <button
             type="button"
@@ -227,7 +366,7 @@ function ChatItemMenu({
             }}
           >
             {session.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-            {session.pinned ? "Unpin" : "Pin"}
+            {session.pinned ? "Desafixar" : "Fixar"}
           </button>
           <button
             type="button"
@@ -299,11 +438,29 @@ function AgentSelectorPill({
 /** Gemini-style "+" attachment menu -- only one action applies in our
  * scope (no Drive/image/video generation), but kept as a menu since
  * that's the requested look. */
-function AttachMenuButton({ onPickFile }: { onPickFile: () => void }) {
+/** Discoverability legend for the composer's trigger characters -- lets a
+ * user who doesn't know "@"/"/"/"#"/"$" exist find them from the "+" menu
+ * instead of stumbling onto them by typing. Each entry inserts its trigger
+ * char and opens the same picker typing it would. */
+function AttachMenuButton({
+  onPickFile,
+  onInsertTrigger,
+}: {
+  onPickFile: () => void;
+  onInsertTrigger: (char: "/" | "@" | "#" | "$" | "!") => void;
+}) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useClickOutside(containerRef, () => setOpen(false), open);
+
+  const triggers: { char: "/" | "@" | "#" | "$" | "!"; label: string }[] = [
+    { char: "/", label: "Hermes command" },
+    { char: "@", label: "Directory/Files" },
+    { char: "#", label: "Agents" },
+    { char: "$", label: "Artifacts" },
+    { char: "!", label: "Direct bash command" },
+  ];
 
   return (
     <div className="relative shrink-0" ref={containerRef}>
@@ -327,31 +484,81 @@ function AttachMenuButton({ onPickFile }: { onPickFile: () => void }) {
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
           >
             <Paperclip className="h-4 w-4" />
-            Enviar arquivo
+            Send file
           </button>
+          <div className="my-1 border-t border-border" />
+          {triggers.map((t) => (
+            <button
+              key={t.char}
+              type="button"
+              onClick={() => {
+                onInsertTrigger(t.char);
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              <span className="flex h-4 w-4 items-center justify-center font-mono text-xs text-muted-foreground">
+                {t.char}
+              </span>
+              {t.label}
+            </button>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
+export interface MentionFilePickerHandle {
+  moveActive: (delta: number) => void;
+  confirmActive: () => void;
+}
+
 /** "@" mention popover -- browse host files/dirs (via the same bridge used by
  * the terminal working-dir picker) and insert a path reference into the
  * composer, instead of inlining file content client-side (the agent already
- * has filesystem tools to read whatever path it's given). */
-function MentionFilePicker({
-  rootPath,
-  onSelectPath,
-  onClose,
-}: {
-  rootPath?: string;
-  onSelectPath: (path: string) => void;
-  onClose: () => void;
-}) {
+ * has filesystem tools to read whatever path it's given).
+ *
+ * Keyboard nav (Arrow Up/Down + Enter) is driven from the composer textarea
+ * via this imperative handle -- the textarea keeps focus while "@" is open
+ * (so the user can keep typing the rest of the message), so the picker can't
+ * own its own onKeyDown. */
+const MentionFilePicker = forwardRef<
+  MentionFilePickerHandle,
+  { rootPath?: string; onSelectPath: (path: string) => void; onClose: () => void }
+>(function MentionFilePicker({ rootPath, onSelectPath, onClose }, ref) {
   const [path, setPath] = useState<string | undefined>(rootPath);
+  const [activeIndex, setActiveIndex] = useState(0);
   const { data, isLoading } = useFsList(path, true);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, onClose);
+
+  const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [data?.path]);
+
+  function selectEntry(entry: FsEntry) {
+    if (entry.type === "dir") {
+      setPath(entry.path);
+    } else {
+      onSelectPath(entry.path);
+    }
+  }
+
+  useImperativeHandle(ref, () => ({
+    moveActive(delta: number) {
+      setActiveIndex((i) => {
+        if (entries.length === 0) return i;
+        return Math.max(0, Math.min(entries.length - 1, i + delta));
+      });
+    },
+    confirmActive() {
+      const entry = entries[activeIndex];
+      if (entry) selectEntry(entry);
+    },
+  }));
 
   return (
     <div
@@ -381,13 +588,17 @@ function MentionFilePicker({
           )}
         </div>
       </div>
-      {isLoading && <p className="px-3 py-3 text-xs text-muted-foreground">Carregando…</p>}
-      {data?.entries.map((entry) => (
+      {isLoading && <p className="px-3 py-3 text-xs text-muted-foreground">Loading…</p>}
+      {entries.map((entry, index) => (
         <button
           key={entry.path}
           type="button"
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-          onClick={() => (entry.type === "dir" ? setPath(entry.path) : onSelectPath(entry.path))}
+          className={cn(
+            "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground",
+            index === activeIndex && "bg-accent text-accent-foreground"
+          )}
+          onClick={() => selectEntry(entry)}
+          onMouseEnter={() => setActiveIndex(index)}
         >
           {entry.type === "dir" ? (
             <Folder className="h-3.5 w-3.5 shrink-0" />
@@ -402,36 +613,61 @@ function MentionFilePicker({
       )}
     </div>
   );
-}
+});
 
 /** Slash commands ForgeHub actually executes via Hermes's own process_command()
  * dispatcher (see host-bridge/hermes_stream.py SAFE_SLASH_COMMANDS) instead of
  * forwarding the text to the LLM -- keep this list in sync with that one. */
 const SAFE_SLASH_COMMANDS: { command: string; description: string }[] = [
-  { command: "/model", description: "Trocar de modelo (persiste por padrão)" },
-  { command: "/status", description: "Mostrar sessão, modelo, tokens e contexto" },
-  { command: "/help", description: "Mostrar comandos disponíveis" },
-  { command: "/usage", description: "Mostrar uso de tokens e limites da sessão" },
-  { command: "/version", description: "Mostrar versão do Hermes Agent" },
-  { command: "/title", description: "Definir um título para a sessão atual" },
-  { command: "/profile", description: "Mostrar perfil ativo e diretório home" },
+  { command: "/model", description: "Switch model (persists by default)" },
+  { command: "/status", description: "Show session, model, tokens and context" },
+  { command: "/help", description: "Show available commands" },
+  { command: "/version", description: "Show Hermes Agent version" },
+  { command: "/title", description: "Set a title for the current session" },
+  { command: "/profile", description: "Show active profile and home directory" },
 ];
 
-function SlashCommandPicker({ onSelect, onClose }: { onSelect: (command: string) => void; onClose: () => void }) {
+export interface SlashCommandPickerHandle {
+  moveActive: (delta: number) => void;
+  confirmActive: () => void;
+}
+
+/** Keyboard nav (Arrow Up/Down + Enter) is driven from the composer textarea
+ * via this imperative handle, same pattern as MentionFilePickerHandle -- the
+ * textarea keeps focus while "/" is open. */
+const SlashCommandPicker = forwardRef<
+  SlashCommandPickerHandle,
+  { onSelect: (command: string) => void; onClose: () => void }
+>(function SlashCommandPicker({ onSelect, onClose }, ref) {
+  const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, onClose);
+
+  useImperativeHandle(ref, () => ({
+    moveActive(delta: number) {
+      setActiveIndex((i) => Math.max(0, Math.min(SAFE_SLASH_COMMANDS.length - 1, i + delta)));
+    },
+    confirmActive() {
+      const cmd = SAFE_SLASH_COMMANDS[activeIndex];
+      if (cmd) onSelect(cmd.command);
+    },
+  }));
 
   return (
     <div
       ref={containerRef}
       className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
     >
-      {SAFE_SLASH_COMMANDS.map((cmd) => (
+      {SAFE_SLASH_COMMANDS.map((cmd, index) => (
         <button
           key={cmd.command}
           type="button"
-          className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+          className={cn(
+            "flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+            index === activeIndex && "bg-accent text-accent-foreground"
+          )}
           onClick={() => onSelect(cmd.command)}
+          onMouseEnter={() => setActiveIndex(index)}
         >
           <span className="text-xs font-medium">{cmd.command}</span>
           <span className="text-[11px] text-muted-foreground">{cmd.description}</span>
@@ -439,7 +675,135 @@ function SlashCommandPicker({ onSelect, onClose }: { onSelect: (command: string)
       ))}
     </div>
   );
+});
+
+export interface AgentMentionPickerHandle {
+  moveActive: (delta: number) => void;
+  confirmActive: () => void;
 }
+
+/** "#Agente" picker -- routes a message directly to a different agent than
+ * the tab's own (see stream_chat_message's target_agent_id), bypassing
+ * Athos-style orchestration entirely. Filters live as you type after "#",
+ * same keyboard-nav pattern as the other two pickers. */
+const AgentMentionPicker = forwardRef<
+  AgentMentionPickerHandle,
+  { agents: Agent[]; query: string; onSelect: (agent: Agent) => void; onClose: () => void }
+>(function AgentMentionPicker({ agents, query, onSelect, onClose }, ref) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, onClose);
+
+  const filtered = useMemo(
+    () => agents.filter((a) => a.name.toLowerCase().includes(query.toLowerCase())),
+    [agents, query]
+  );
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query]);
+
+  useImperativeHandle(ref, () => ({
+    moveActive(delta: number) {
+      setActiveIndex((i) => (filtered.length === 0 ? 0 : Math.max(0, Math.min(filtered.length - 1, i + delta))));
+    },
+    confirmActive() {
+      const agent = filtered[activeIndex];
+      if (agent) onSelect(agent);
+    },
+  }));
+
+  return (
+    <div
+      ref={containerRef}
+      className="absolute bottom-full left-0 z-20 mb-2 max-h-72 w-64 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
+    >
+      {filtered.map((agent, index) => (
+        <button
+          key={agent.id}
+          type="button"
+          className={cn(
+            "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground",
+            index === activeIndex && "bg-accent text-accent-foreground"
+          )}
+          onClick={() => onSelect(agent)}
+          onMouseEnter={() => setActiveIndex(index)}
+        >
+          <Bot className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{agent.name}</span>
+        </button>
+      ))}
+      {filtered.length === 0 && (
+        <p className="px-3 py-3 text-xs italic text-muted-foreground">No agents found</p>
+      )}
+    </div>
+  );
+});
+
+export interface ArtifactMentionPickerHandle {
+  moveActive: (delta: number) => void;
+  confirmActive: () => void;
+}
+
+/** "$Artefato" picker -- global (cross-session, cross-agent) search over
+ * files created by any agent's write_file/patch tool calls (see
+ * db/models/chat.py's ChatArtifact). Selecting one inserts the real
+ * absolute path directly, same mechanic as the "@" file mention -- no
+ * "$Name" token/resolution step. */
+const ArtifactMentionPicker = forwardRef<
+  ArtifactMentionPickerHandle,
+  { query: string; onSelectPath: (path: string) => void; onClose: () => void }
+>(function ArtifactMentionPicker({ query, onSelectPath, onClose }, ref) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, onClose);
+  const { data, isLoading } = useSearchChatArtifacts(query);
+  const artifacts = data ?? [];
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query]);
+
+  useImperativeHandle(ref, () => ({
+    moveActive(delta: number) {
+      setActiveIndex((i) => (artifacts.length === 0 ? 0 : Math.max(0, Math.min(artifacts.length - 1, i + delta))));
+    },
+    confirmActive() {
+      const artifact = artifacts[activeIndex];
+      if (artifact) onSelectPath(artifact.path);
+    },
+  }));
+
+  return (
+    <div
+      ref={containerRef}
+      className="absolute bottom-full left-0 z-20 mb-2 max-h-72 w-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
+    >
+      {isLoading && <p className="px-3 py-3 text-xs text-muted-foreground">Loading…</p>}
+      {artifacts.map((artifact, index) => (
+        <button
+          key={artifact.id}
+          type="button"
+          className={cn(
+            "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground",
+            index === activeIndex && "bg-accent text-accent-foreground"
+          )}
+          onClick={() => onSelectPath(artifact.path)}
+          onMouseEnter={() => setActiveIndex(index)}
+        >
+          <Paperclip className="h-3.5 w-3.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="truncate">{artifact.name}</p>
+            <p className="truncate text-[10px] opacity-70">{artifact.agent_name}</p>
+          </div>
+        </button>
+      ))}
+      {!isLoading && artifacts.length === 0 && (
+        <p className="px-3 py-3 text-xs italic text-muted-foreground">No artifacts found</p>
+      )}
+    </div>
+  );
+});
 
 function VoiceOrb({ status, compact = false }: { status: "listening" | "processing" | "speaking"; compact?: boolean }) {
   const speaking = status === "speaking";
@@ -539,30 +903,188 @@ function formatTime(iso: string) {
   });
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+const SLASH_COMMAND_NAMES = SAFE_SLASH_COMMANDS.map((cmd) => cmd.command.slice(1));
+
+/** Slash command replies (host-bridge/hermes_stream.py's _run_slash_command)
+ * are plain CLI text -- including box-drawing ASCII tables (/help) -- not
+ * markdown. Rendering them through the Markdown component collapses single
+ * newlines and mangles ASCII alignment, so detect them (by checking whether
+ * the prior user turn was one of the whitelisted commands) and render as a
+ * preformatted monospace block instead. */
+function isSlashCommandMessage(text: string): boolean {
+  const match = /^\/(\w+)/.exec(text.trim());
+  return !!match && SLASH_COMMAND_NAMES.includes(match[1].toLowerCase());
+}
+
+/** "!command" raw bash output (see exec_chat_command) is also plain CLI
+ * text, not markdown -- same rendering treatment as a slash command reply. */
+function isBangCommandMessage(text: string): boolean {
+  return text.trim().startsWith("!");
+}
+
+function isPlainTextReply(text: string): boolean {
+  return isSlashCommandMessage(text) || isBangCommandMessage(text);
+}
+
+function MessageBubble({
+  message,
+  isCommandReply,
+  onRegenerate,
+  regenerateDisabled,
+  respondingAgentName,
+  onEdit,
+  editDisabled,
+}: {
+  message: ChatMessage;
+  isCommandReply?: boolean;
+  onRegenerate?: () => void;
+  regenerateDisabled?: boolean;
+  /** Name badge shown above a reply that came from a "#Agente"-mentioned
+   * agent other than the tab's own (message.responding_agent_id set). */
+  respondingAgentName?: string;
+  /** Only passed for the last user message in the thread -- edits it and
+   * resends (see handleEditMessage: deletes this message + its reply,
+   * then queues the new text as a fresh turn). */
+  onEdit?: (newContent: string) => void;
+  editDisabled?: boolean;
+}) {
   const isUser = message.role === "user";
+  const [copied, setCopied] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(message.content);
+
+  async function handleCopyMessage() {
+    await navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
 
   // ChatGPT-style: only the user's own turn gets a colored bubble. The
   // agent's reply is plain text flowing in the page, no card/background.
   if (!isUser) {
     return (
-      <div className="max-w-[85%] text-sm text-foreground">
+      <div className="group/msg max-w-[85%] text-sm text-foreground">
+        {message.thinking_seconds != null && !isCommandReply && (
+          <p className="mb-1 text-xs text-muted-foreground">
+            Pensou por {formatThinkingDuration(message.thinking_seconds)}
+          </p>
+        )}
+        {respondingAgentName && (
+          <span className="mb-1 flex w-fit items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-foreground">
+            <Bot className="h-2.5 w-2.5" />
+            {respondingAgentName}
+          </span>
+        )}
         {message.attachment_names && (
           <p className="mb-1 text-xs text-muted-foreground">📎 {message.attachment_names}</p>
         )}
-        <Markdown content={message.content} />
+        {isCommandReply ? (
+          <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs">
+            {message.content}
+          </pre>
+        ) : (
+          <Markdown content={message.content} />
+        )}
+        <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover/msg:opacity-100">
+          <button
+            type="button"
+            aria-label="Copy message"
+            title="Copy message"
+            onClick={handleCopyMessage}
+            className="flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+          </button>
+          {onRegenerate && (
+            <button
+              type="button"
+              aria-label="Regenerate reply"
+              title="Regenerate reply"
+              disabled={regenerateDisabled}
+              onClick={onRegenerate}
+              className="flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              <RotateCcw className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (isEditing) {
+    return (
+      <div className="flex justify-end">
+        <div className="w-full max-w-[75%] space-y-2 rounded-2xl border border-indigo-500 bg-indigo-500/10 px-4 py-2">
+          <Textarea
+            autoFocus
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onEdit?.(editText);
+                setIsEditing(false);
+              }
+              if (e.key === "Escape") {
+                setEditText(message.content);
+                setIsEditing(false);
+              }
+            }}
+            rows={2}
+            className="min-h-0 resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditText(message.content);
+                setIsEditing(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                onEdit?.(editText);
+                setIsEditing(false);
+              }}
+            >
+              Save and resend
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex justify-end">
-      <div className="max-w-[75%] rounded-2xl bg-primary px-4 py-2 text-sm text-primary-foreground shadow-sm">
-        {message.attachment_names && (
-          <p className="mb-1 text-xs text-primary-foreground/70">📎 {message.attachment_names}</p>
+    <div className="group/msg flex justify-end">
+      <div className="flex max-w-[75%] flex-col items-end">
+        <div className="rounded-2xl bg-indigo-600 px-4 py-2 text-sm text-white shadow-sm">
+          {message.attachment_names && (
+            <p className="mb-1 text-xs text-white/70">📎 {message.attachment_names}</p>
+          )}
+          <Markdown content={message.content} />
+          <p className="mt-1 text-[10px] text-primary-foreground/70">{formatTime(message.created_at)}</p>
+        </div>
+        {onEdit && (
+          <button
+            type="button"
+            aria-label="Edit message"
+            title="Edit message"
+            disabled={editDisabled}
+            onClick={() => {
+              setEditText(message.content);
+              setIsEditing(true);
+            }}
+            className="mt-1 flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover/msg:opacity-100 hover:text-foreground disabled:opacity-50"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
         )}
-        <Markdown content={message.content} />
-        <p className="mt-1 text-[10px] text-primary-foreground/70">{formatTime(message.created_at)}</p>
       </div>
     </div>
   );
@@ -580,6 +1102,8 @@ function ChatTabPanel({
   onAgentChange,
   initialComposerText,
   historyCollapsed,
+  artifactsOpen,
+  workingDir,
 }: {
   active: boolean;
   agentId: string;
@@ -587,6 +1111,10 @@ function ChatTabPanel({
   onAgentChange: (agentId: string) => void;
   initialComposerText?: string;
   historyCollapsed: boolean;
+  artifactsOpen: boolean;
+  /** Same cwd used by "New Terminal" tabs -- backs the composer's
+   * "!command" prefix so it runs in the same project context. */
+  workingDir?: string;
 }) {
   const [sessionId, setSessionId] = useState<string>("");
   const [composerText, setComposerText] = useState(initialComposerText ?? "");
@@ -599,6 +1127,14 @@ function ChatTabPanel({
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
+  const [agentMentionOpen, setAgentMentionOpen] = useState(false);
+  const [agentMentionQuery, setAgentMentionQuery] = useState("");
+  const [artifactMentionOpen, setArtifactMentionOpen] = useState(false);
+  const [artifactMentionQuery, setArtifactMentionQuery] = useState("");
+  const mentionPickerRef = useRef<MentionFilePickerHandle>(null);
+  const slashPickerRef = useRef<SlashCommandPickerHandle>(null);
+  const agentPickerRef = useRef<AgentMentionPickerHandle>(null);
+  const artifactPickerRef = useRef<ArtifactMentionPickerHandle>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -646,6 +1182,21 @@ function ChatTabPanel({
 
   const { data: sessions } = useChatSessions(agentId || undefined);
 
+  // Debounced search across session titles + message content (see
+  // search_chat_sessions in chat.py) -- 300ms so we're not hitting the DB
+  // on every keystroke.
+  const [chatSearchInput, setChatSearchInput] = useState("");
+  const [chatSearchTerm, setChatSearchTerm] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setChatSearchTerm(chatSearchInput), 300);
+    return () => clearTimeout(t);
+  }, [chatSearchInput]);
+  const { data: chatSearchResults, isFetching: isSearchingChats } = useSearchChatSessions(
+    chatSearchTerm,
+    agentId || undefined
+  );
+  const displayedSessions = chatSearchTerm.trim() ? chatSearchResults ?? [] : sessions ?? [];
+
   useEffect(() => {
     setSessionId("");
   }, [agentId]);
@@ -656,12 +1207,18 @@ function ChatTabPanel({
     }
   }, [sessionId, sessions]);
 
+  const queryClient = useQueryClient();
   const { data: messages } = useChatMessages(sessionId || undefined);
+  const { data: artifacts } = useChatArtifacts(sessionId || undefined);
+  const deleteArtifact = useDeleteChatArtifact(sessionId || undefined);
+  const [artifactSearchQuery, setArtifactSearchQuery] = useState("");
   const createSession = useCreateChatSession();
   const deleteSession = useDeleteChatSession(agentId || undefined);
   const updateSession = useUpdateChatSession(agentId || undefined);
   const sendMessage = useSendChatMessage(agentId || undefined);
   const streamMessage = useStreamChatMessage(agentId || undefined);
+  const execCommand = useExecChatCommand(agentId || undefined);
+  const deleteMessage = useDeleteChatMessage(sessionId || undefined);
   const approveChat = useApproveChat();
   const transcribe = useTranscribeAudio();
 
@@ -712,19 +1269,23 @@ function ChatTabPanel({
     e.target.value = "";
   }
 
-  async function handleSend() {
+  async function handleSend(overrideText?: string) {
     if (!agentId) return;
+    const isOverride = overrideText !== undefined;
 
-    const trimmed = composerText.trim();
+    const trimmed = (isOverride ? overrideText : composerText).trim();
     if (!trimmed && !attachedFile) {
       setComposerWarning("Digite uma mensagem antes de enviar.");
       return;
     }
 
+    // The dedupe-guard only makes sense for the normal composer flow --
+    // "edit and resend" (isOverride) deliberately allows resending the
+    // same text (e.g. user just fixed a typo elsewhere and reverted it).
     const lastUserMessage =
       queue[queue.length - 1]?.content ?? [...(messages ?? [])].reverse().find((m) => m.role === "user")?.content;
-    if (!attachedFile && trimmed && lastUserMessage?.trim() === trimmed) {
-      setComposerWarning("Você já enviou esta mensagem.");
+    if (!isOverride && !attachedFile && trimmed && lastUserMessage?.trim() === trimmed) {
+      setComposerWarning("You already sent this message.");
       return;
     }
 
@@ -735,24 +1296,75 @@ function ChatTabPanel({
       setSessionId(activeSessionId);
     }
 
-    const message = composerText;
-    const file = attachedFile;
-    setComposerText("");
-    setAttachedFile(null);
-    setComposerWarning(null);
-    setQueue((q) => [
-      ...q,
-      {
-        id: crypto.randomUUID(),
-        content: message,
-        attachmentName: file?.name ?? null,
-        file,
-        liveText: "",
-        steps: [],
-        status: "queued",
-        approval: null,
-      },
-    ]);
+    const message = isOverride ? overrideText : composerText;
+    const file = isOverride ? null : attachedFile;
+    if (!isOverride) {
+      setComposerText("");
+      setAttachedFile(null);
+      setComposerWarning(null);
+    }
+
+    // "!command" runs raw bash via the bridge -- no agent/LLM call at all,
+    // bypasses mentions/queue-target logic entirely.
+    if (!file && trimmed.startsWith("!")) {
+      setQueue((q) => [
+        ...q,
+        {
+          id: crypto.randomUUID(),
+          content: trimmed,
+          attachmentName: null,
+          file: null,
+          liveText: "",
+          steps: [],
+          status: "queued",
+          approval: null,
+          abortController: null,
+          isExec: true,
+        },
+      ]);
+      return;
+    }
+
+    // "#Agente" mentions route this turn away from the tab's own agent
+    // entirely (v1: no broadcast-plus-mentions, no shared context -- see
+    // ChatSessionParticipant's docstring). Excludes a self-mention (the
+    // tab's own agent), which just behaves as a normal send.
+    const mentionedAgents = file ? [] : extractMentionedAgents(message, chatableAgents).filter((a) => a.id !== agentId);
+
+    if (mentionedAgents.length === 0) {
+      setQueue((q) => [
+        ...q,
+        {
+          id: crypto.randomUUID(),
+          content: message,
+          attachmentName: file?.name ?? null,
+          file,
+          liveText: "",
+          steps: [],
+          status: "queued",
+          approval: null,
+          abortController: null,
+        },
+      ]);
+    } else {
+      setQueue((q) => [
+        ...q,
+        ...mentionedAgents.map((agent, index) => ({
+          id: crypto.randomUUID(),
+          content: message,
+          attachmentName: null,
+          file: null,
+          liveText: "",
+          steps: [],
+          status: "queued" as const,
+          approval: null,
+          abortController: null,
+          targetAgentId: agent.id,
+          targetAgentName: agent.name,
+          skipUserMessage: index > 0,
+        })),
+      ]);
+    }
   }
 
   // Drains the queue one request at a time -- a Hermes session is a single
@@ -787,7 +1399,12 @@ function ChatTabPanel({
         if (event.type === "approval_request") {
           return {
             ...item,
-            approval: { streamId: event.streamId, command: event.command, description: event.description },
+            approval: {
+              streamId: event.streamId,
+              command: event.command,
+              description: event.description,
+              patternKeys: event.patternKeys,
+            },
           };
         }
         return item;
@@ -795,25 +1412,107 @@ function ChatTabPanel({
     );
   }
 
-  function handleApprovalChoice(itemId: string, streamId: string, choice: "approve" | "deny") {
+  function handleApprovalChoice(itemId: string, streamId: string, choice: "once" | "session" | "deny") {
     setQueue((q) => q.map((it) => (it.id === itemId ? { ...it, approval: null } : it)));
     approveChat.mutate({ streamId, choice });
   }
 
   async function processQueueItem(item: ChatQueueItem) {
-    setQueue((q) => q.map((it) => (it.id === item.id ? { ...it, status: "processing" } : it)));
+    const abortController = item.file || item.isExec ? null : new AbortController();
+    setQueue((q) =>
+      q.map((it) => (it.id === item.id ? { ...it, status: "processing", abortController, startedAt: Date.now() } : it))
+    );
     try {
-      if (item.file) {
+      if (item.isExec) {
+        await execCommand.mutateAsync({ sessionId, command: item.content.slice(1), cwd: workingDir });
+      } else if (item.file) {
         // File uploads only support the one-shot endpoint (the SSE endpoint is GET-only).
         await sendMessage.mutateAsync({ sessionId, message: item.content, file: item.file });
       } else {
-        await streamMessage(sessionId, item.content, (event) => handleStreamEvent(item.id, event));
+        await streamMessage(sessionId, item.content, (event) => handleStreamEvent(item.id, event), abortController!.signal, {
+          regenerate: item.isRegenerate,
+          targetAgentId: item.targetAgentId,
+          skipUserMessage: item.skipUserMessage,
+        });
       }
       setQueue((q) => q.filter((it) => it.id !== item.id));
     } catch (err) {
+      if ((err as Error).name === "AbortError") {
+        // User hit Stop -- the backend already persisted whatever had been
+        // generated so far (see chat.py's CancelledError handling), just
+        // refresh to pick it up instead of showing a red error.
+        queryClient.invalidateQueries({ queryKey: chatKeys.messages(sessionId) });
+        queryClient.invalidateQueries({ queryKey: chatKeys.artifacts(sessionId) });
+        setQueue((q) => q.filter((it) => it.id !== item.id));
+        return;
+      }
       setQueue((q) => q.map((it) => (it.id === item.id ? { ...it, status: "error", error: (err as Error).message } : it)));
     }
   }
+
+  function handleStopGenerating(item: ChatQueueItem) {
+    item.abortController?.abort();
+  }
+
+  /** Deletes the last assistant reply and re-asks the preceding user
+   * message to get a fresh one. Note: the underlying Hermes CLI session
+   * (resumed via hermes_session_id) still has the old reply in its own
+   * transcript/context -- this only replaces what ForgeHub displays. */
+  async function handleRegenerate(lastAssistantMessage: ChatMessage) {
+    const list = messages ?? [];
+    const idx = list.findIndex((m) => m.id === lastAssistantMessage.id);
+    const precedingUser = idx > 0 ? list[idx - 1] : undefined;
+    if (!precedingUser || precedingUser.role !== "user") return;
+
+    // If the reply being regenerated came from a "#Agente"-mentioned agent,
+    // resend to that SAME agent (not the tab's own) so it stays targeted.
+    const targetAgentId = lastAssistantMessage.responding_agent_id ?? undefined;
+    const targetAgentName = targetAgentId
+      ? chatableAgents.find((a) => a.id === targetAgentId)?.name
+      : undefined;
+
+    await deleteMessage.mutateAsync(lastAssistantMessage.id);
+    setQueue((q) => [
+      ...q,
+      {
+        id: crypto.randomUUID(),
+        content: precedingUser.content,
+        attachmentName: null,
+        file: null,
+        liveText: "",
+        steps: [],
+        status: "queued",
+        approval: null,
+        abortController: null,
+        isRegenerate: true,
+        targetAgentId,
+        targetAgentName,
+      },
+    ]);
+  }
+
+  /** Edits the last user message: deletes it (and the reply that followed,
+   * if any) and resends the edited text as a fresh turn -- same pattern as
+   * regenerate, just starting from the user's side instead of the
+   * assistant's. */
+  async function handleEditMessage(userMessage: ChatMessage, newContent: string) {
+    const trimmed = newContent.trim();
+    if (!trimmed) return;
+    const list = messages ?? [];
+    const idx = list.findIndex((m) => m.id === userMessage.id);
+    const following = idx >= 0 ? list[idx + 1] : undefined;
+
+    await deleteMessage.mutateAsync(userMessage.id);
+    if (following && following.role === "assistant") {
+      await deleteMessage.mutateAsync(following.id);
+    }
+    await handleSend(trimmed);
+  }
+
+  // Errored items stay in `queue` (so their inline "Falhou: ..." message +
+  // dismiss button keep rendering in the thread above) but shouldn't keep
+  // cluttering this small pending-queue summary panel below.
+  const pendingQueue = useMemo(() => queue.filter((item) => item.status !== "error"), [queue]);
 
   const attachedImagePreviewUrl = useMemo(
     () => (attachedFile?.type.startsWith("image/") ? URL.createObjectURL(attachedFile) : null),
@@ -825,6 +1524,30 @@ function ChatTabPanel({
       if (attachedImagePreviewUrl) URL.revokeObjectURL(attachedImagePreviewUrl);
     };
   }, [attachedImagePreviewUrl]);
+
+  // Ghost-text suggestion: only when the agent's last message ends with a
+  // question (explicit -- no LLM call, no guessing at open-ended answers)
+  // AND the composer is empty AND nothing is queued/processing (otherwise
+  // the user already replied). Fully derived from existing state, so it
+  // naturally disappears the moment real text is typed (native placeholder
+  // behavior) or a message is sent (queue becomes non-empty, then the new
+  // reply replaces the question that triggered it). Wrapped defensively --
+  // any unexpected shape here should fall back to the normal placeholder,
+  // never break the composer.
+  let suggestedReply: string | null = null;
+  try {
+    const lastMessage = (messages ?? [])[(messages ?? []).length - 1];
+    if (
+      composerText === "" &&
+      pendingQueue.length === 0 &&
+      lastMessage?.role === "assistant" &&
+      lastMessage.content.trim().endsWith("?")
+    ) {
+      suggestedReply = "Yes";
+    }
+  } catch {
+    suggestedReply = null;
+  }
 
   function handleComposerPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const imageItem = Array.from(e.clipboardData.items).find((item) => item.type.startsWith("image/"));
@@ -841,19 +1564,66 @@ function ChatTabPanel({
   }
 
   function handleComposerKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "ArrowRight" && composerText === "" && suggestedReply) {
+      e.preventDefault();
+      setComposerText(suggestedReply);
+      return;
+    }
+    if (mentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      mentionPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (mentionOpen && e.key === "Enter") {
+      e.preventDefault();
+      mentionPickerRef.current?.confirmActive();
+      return;
+    }
+    if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      slashPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (slashOpen && e.key === "Enter") {
+      e.preventDefault();
+      slashPickerRef.current?.confirmActive();
+      return;
+    }
+    if (agentMentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      agentPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (agentMentionOpen && e.key === "Enter") {
+      e.preventDefault();
+      agentPickerRef.current?.confirmActive();
+      return;
+    }
+    if (artifactMentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      artifactPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (artifactMentionOpen && e.key === "Enter") {
+      e.preventDefault();
+      artifactPickerRef.current?.confirmActive();
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
       return;
     }
-    if (e.key === "Escape" && (mentionOpen || slashOpen)) {
+    if (e.key === "Escape" && (mentionOpen || slashOpen || agentMentionOpen || artifactMentionOpen)) {
       setMentionOpen(false);
       setSlashOpen(false);
+      setAgentMentionOpen(false);
+      setArtifactMentionOpen(false);
     }
   }
 
   function handleMentionSelect(path: string) {
-    setComposerText((t) => (t.endsWith("@") ? t.slice(0, -1) : t) + `@${path} `);
+    setComposerText((t) => (t.endsWith("@") ? t.slice(0, -1) : t) + `${path} `);
     setMentionOpen(false);
     composerTextareaRef.current?.focus();
   }
@@ -861,6 +1631,26 @@ function ChatTabPanel({
   function handleSlashSelect(command: string) {
     setComposerText(`${command} `);
     setSlashOpen(false);
+    composerTextareaRef.current?.focus();
+  }
+
+  function handleAgentMentionSelect(agent: Agent) {
+    setComposerText((t) => {
+      const hashIndex = t.lastIndexOf("#");
+      const base = hashIndex === -1 ? t : t.slice(0, hashIndex);
+      return `${base}#${agent.name} `;
+    });
+    setAgentMentionOpen(false);
+    composerTextareaRef.current?.focus();
+  }
+
+  function handleArtifactMentionSelect(path: string) {
+    setComposerText((t) => {
+      const dollarIndex = t.lastIndexOf("$");
+      const base = dollarIndex === -1 ? t : t.slice(0, dollarIndex);
+      return `${base}${path} `;
+    });
+    setArtifactMentionOpen(false);
     composerTextareaRef.current?.focus();
   }
 
@@ -927,7 +1717,7 @@ function ChatTabPanel({
     };
 
     const apiBase = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
-    const token = localStorage.getItem("access_token") ?? "";
+    const token = getToken() ?? "";
 
     fetch(`${apiBase}/api/v1/chat/tts`, {
       method: "POST",
@@ -1030,7 +1820,7 @@ function ChatTabPanel({
 
     sr.onerror = (e: any) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        setVoiceError("Microfone bloqueado. Autorize nas configurações do navegador.");
+        setVoiceError("Microphone blocked. Allow it in your browser settings.");
         stopVoice();
         return;
       }
@@ -1376,7 +2166,7 @@ function ChatTabPanel({
     voiceMsgAbortRef.current = abortCtrl;
 
     try {
-      const token = localStorage.getItem("access_token") ?? "";
+      const token = getToken() ?? "";
       const apiBase = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
       // voice=true → backend adds brevity instruction before sending to agent
       const url = `${apiBase}/api/v1/chat/sessions/${sid}/messages/stream?voice=true&message=${encodeURIComponent(text)}`;
@@ -1481,8 +2271,8 @@ function ChatTabPanel({
 
     // MediaRecorder / getUserMedia support
     const hasRecorder = Boolean(window.MediaRecorder && navigator.mediaDevices?.getUserMedia);
-    push({ id: "sr", label: "Gravação de áudio", ok: hasRecorder,
-      detail: hasRecorder ? "Suportado" : "Navegador não suporta MediaRecorder — use Chrome ou Edge." });
+    push({ id: "sr", label: "Audio recording", ok: hasRecorder,
+      detail: hasRecorder ? "Supported" : "Browser does not support MediaRecorder — use Chrome or Edge." });
     if (!hasRecorder) { setVoicePhase("error"); voiceActiveRef.current = false; return; }
 
     // SpeechSynthesis API + voices
@@ -1496,8 +2286,8 @@ function ChatTabPanel({
       voices = window.speechSynthesis.getVoices();
     }
     ttsVoicesRef.current = voices;
-    push({ id: "tts", label: "Síntese de voz (TTS)", ok: hasTTS && voices.length > 0,
-      detail: !hasTTS ? "Não suportado" : voices.length === 0 ? "Sem vozes — respostas serão exibidas sem áudio" : `${voices.length} voz(es)` });
+    push({ id: "tts", label: "Speech synthesis (TTS)", ok: hasTTS && voices.length > 0,
+      detail: !hasTTS ? "Not supported" : voices.length === 0 ? "No voices — replies will be shown without audio" : `${voices.length} voice(s)` });
 
     // Microphone permission — open stream and keep it open for the whole conversation
     let micOk = false;
@@ -1509,7 +2299,7 @@ function ChatTabPanel({
       micOk = false;
     }
     push({ id: "mic", label: "Microfone", ok: micOk,
-      detail: micOk ? "Autorizado" : "Negado — clique no cadeado da barra de endereços e permita o microfone." });
+      detail: micOk ? "Authorized" : "Denied — click the padlock in the address bar and allow the microphone." });
     if (!micOk) { setVoicePhase("error"); voiceActiveRef.current = false; return; }
 
     // Barge-in monitor runs for the whole voice session
@@ -1590,8 +2380,25 @@ function ChatTabPanel({
               <AgentPickerButton agents={chatableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
             </div>
           </div>
+          <div className="border-b border-border p-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={chatSearchInput}
+                onChange={(e) => setChatSearchInput(e.target.value)}
+                placeholder="Search conversations…"
+                className="h-8 w-full rounded-md border border-border bg-transparent pl-7 pr-2 text-xs outline-none focus:border-primary"
+              />
+            </div>
+          </div>
           <div className="flex-1 space-y-1 overflow-y-auto p-2">
-            {(sessions ?? []).map((s) => (
+            {chatSearchTerm.trim() && isSearchingChats && (
+              <p className="px-2 py-2 text-xs italic text-muted-foreground">Searching…</p>
+            )}
+            {chatSearchTerm.trim() && !isSearchingChats && displayedSessions.length === 0 && (
+              <p className="px-2 py-2 text-xs italic text-muted-foreground">No conversations found.</p>
+            )}
+            {displayedSessions.map((s) => (
               <div
                 key={s.id}
                 className={cn(
@@ -1637,8 +2444,8 @@ function ChatTabPanel({
                 )}
               </div>
             ))}
-            {(sessions ?? []).length === 0 && (
-              <p className="px-2 py-2 text-xs italic text-muted-foreground">No chats yet.</p>
+            {!chatSearchTerm.trim() && (sessions ?? []).length === 0 && (
+              <p className="px-2 py-2 text-xs italic text-muted-foreground">No conversations yet.</p>
             )}
           </div>
         </aside>
@@ -1679,10 +2486,10 @@ function ChatTabPanel({
               {voicePhase === "error" && (
                 <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
                   <p className="text-sm text-destructive text-center">
-                    {voiceError ?? "Não foi possível iniciar a conversa por voz."}
+                    {voiceError ?? "Could not start the voice conversation."}
                   </p>
                   <Button variant="outline" size="sm" onClick={stopVoice}>
-                    Fechar
+                    Close
                   </Button>
                 </div>
               )}
@@ -1701,7 +2508,7 @@ function ChatTabPanel({
                     <div className="flex-1 space-y-3 overflow-y-auto p-4">
                       {voiceMsgs.length === 0 && (
                         <p className="py-10 text-center text-sm italic text-muted-foreground">
-                          Aguardando {selectedAgent?.name}…
+                          Waiting for {selectedAgent?.name}…
                         </p>
                       )}
                       {voiceMsgs.map((m, i) => (
@@ -1709,7 +2516,7 @@ function ChatTabPanel({
                           <div className={cn(
                             "max-w-[88%] rounded-2xl px-4 py-2 text-sm shadow-sm",
                             m.role === "user"
-                              ? "bg-primary text-primary-foreground"
+                              ? "bg-indigo-600 text-white"
                               : "bg-muted text-foreground"
                           )}>
                             {m.text}
@@ -1719,7 +2526,7 @@ function ChatTabPanel({
                       {/* SR interim — real-time transcription as user speaks */}
                       {voiceInterim && (
                         <div className="flex justify-end">
-                          <div className="max-w-[88%] rounded-2xl border border-primary/40 px-4 py-2 text-sm italic text-primary/70">
+                          <div className="max-w-[88%] rounded-2xl border border-indigo-500/40 px-4 py-2 text-sm italic text-indigo-300/80">
                             {voiceInterim}
                           </div>
                         </div>
@@ -1753,8 +2560,8 @@ function ChatTabPanel({
                     <p className="text-center text-xs leading-relaxed text-muted-foreground px-3">
                       {{
                         listening: "Ouvindo…",
-                        processing: `${selectedAgent?.name}\nestá pensando…`,
-                        speaking: `${selectedAgent?.name}\nestá respondendo…`,
+                        processing: `${selectedAgent?.name}\nis thinking…`,
+                        speaking: `${selectedAgent?.name}\nis replying…`,
                       }[voiceStatus]}
                     </p>
                     {/* Mic level + status */}
@@ -1767,7 +2574,7 @@ function ChatTabPanel({
                         <span className="text-[10px] text-muted-foreground">
                           {recRunning
                             ? "Mic ativo"
-                            : voiceStatus === "speaking" ? "Agente falando" : "Aguardando…"}
+                            : voiceStatus === "speaking" ? "Agent speaking" : "Waiting…"}
                         </span>
                       </div>
                       {recRunning && (
@@ -1802,29 +2609,74 @@ function ChatTabPanel({
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {(messages ?? []).length === 0 && (
             <p className="py-12 text-center text-sm italic text-muted-foreground">
-              Send a message to start the conversation with {selectedAgent?.name}.
+              Envie uma mensagem para iniciar a conversa com {selectedAgent?.name}.
             </p>
           )}
-          {(messages ?? []).map((m) => (
-            <MessageBubble key={m.id} message={m} />
-          ))}
+          {(messages ?? []).map((m, i, list) => {
+            const prev = list[i - 1];
+            const isCommandReply =
+              m.role === "assistant" && prev?.role === "user" && isPlainTextReply(prev.content);
+            const canRegenerate =
+              i === list.length - 1 && m.role === "assistant" && !isCommandReply && pendingQueue.length === 0;
+            const isLastUserMessage =
+              m.role === "user" && !list.slice(i + 1).some((later) => later.role === "user");
+            const canEdit = isLastUserMessage && pendingQueue.length === 0 && !isPlainTextReply(m.content);
+            const respondingAgentName = m.responding_agent_id
+              ? chatableAgents.find((a) => a.id === m.responding_agent_id)?.name
+              : undefined;
+            return (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                isCommandReply={isCommandReply}
+                onRegenerate={canRegenerate ? () => handleRegenerate(m) : undefined}
+                regenerateDisabled={deleteMessage.isPending}
+                respondingAgentName={respondingAgentName}
+                onEdit={canEdit ? (newContent) => handleEditMessage(m, newContent) : undefined}
+                editDisabled={deleteMessage.isPending}
+              />
+            );
+          })}
           {queue.map((item) => (
             <div key={item.id} className="space-y-1">
-              <MessageBubble
-                message={{
-                  id: `pending-${item.id}`,
-                  session_id: sessionId,
-                  role: "user",
-                  content: item.content,
-                  attachment_names: item.attachmentName,
-                  created_at: new Date().toISOString(),
-                }}
-              />
+              {!item.isRegenerate && !item.skipUserMessage && (
+                <MessageBubble
+                  message={{
+                    id: `pending-${item.id}`,
+                    session_id: sessionId,
+                    role: "user",
+                    content: item.content,
+                    attachment_names: item.attachmentName,
+                    created_at: new Date().toISOString(),
+                  }}
+                />
+              )}
               {item.status === "queued" && (
                 <p className="pl-1 text-xs italic text-muted-foreground">Na fila…</p>
               )}
               {item.status === "processing" && (
                 <div className="flex max-w-[85%] flex-col gap-1">
+                  {(item.startedAt && !item.isExec) || item.abortController ? (
+                    <div className="flex items-center gap-2">
+                      {item.startedAt && !item.isExec && <LiveThinkingLabel startedAt={item.startedAt} />}
+                      {item.abortController && (
+                        <button
+                          type="button"
+                          className="flex w-fit items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                          onClick={() => handleStopGenerating(item)}
+                        >
+                          <Square className="h-2.5 w-2.5" />
+                          Stop
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
+                  {item.targetAgentName && (
+                    <span className="flex w-fit items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-foreground">
+                      <Bot className="h-2.5 w-2.5" />
+                      {item.targetAgentName}
+                    </span>
+                  )}
                   {item.steps.map((step) => (
                     <p key={step.id} className="flex items-center gap-2 text-xs text-muted-foreground">
                       {step.done ? (
@@ -1836,15 +2688,24 @@ function ChatTabPanel({
                     </p>
                   ))}
                   {item.liveText ? (
-                    <Markdown content={item.liveText} />
+                    isPlainTextReply(item.content) ? (
+                      <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs">
+                        {item.liveText}
+                      </pre>
+                    ) : (
+                      <Markdown content={item.liveText} />
+                    )
                   ) : (
                     item.steps.length === 0 &&
                     !item.approval && (
-                      <div className="flex items-center gap-1 py-2">
-                        <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
-                        <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
-                        <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground" />
-                      </div>
+                      <p className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                        {item.isExec
+                          ? "Executando comando…"
+                          : item.targetAgentName
+                          ? `${item.targetAgentName} is thinking…`
+                          : "Pensando…"}
+                      </p>
                     )
                   )}
                 </div>
@@ -1852,22 +2713,42 @@ function ChatTabPanel({
               {item.approval && (
                 <div className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
                   <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    O agente pede confirmação para executar uma ação privilegiada
+                    {item.targetAgentName ?? "The agent"} is requesting confirmation to run a privileged action
                   </p>
                   {item.approval.description && (
                     <p className="text-xs text-muted-foreground">{item.approval.description}</p>
                   )}
                   {item.approval.command && (
-                    <code className="block overflow-x-auto rounded bg-background/60 px-2 py-1 text-xs">
+                    <code className="block overflow-x-auto whitespace-pre-wrap break-all rounded bg-background/60 px-2 py-1 text-xs">
                       {item.approval.command}
                     </code>
                   )}
-                  <div className="flex gap-2">
+                  {item.approval.patternKeys && item.approval.patternKeys.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {item.approval.patternKeys.map((key) => (
+                        <span
+                          key={key}
+                          className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300"
+                        >
+                          {key}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
-                      onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "approve")}
+                      onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "once")}
                     >
-                      Aprovar
+                      Aprovar uma vez
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      title="Do not ask again for this same command type in this session"
+                      onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "session")}
+                    >
+                      Approve for this session
                     </Button>
                     <Button
                       size="sm"
@@ -1897,14 +2778,12 @@ function ChatTabPanel({
         </div>
 
         <div className="space-y-2 border-t border-border p-3">
-          {queue.length > 1 && (
+          {pendingQueue.length > 1 && (
             <div className="space-y-1 rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 text-xs">
-              {queue.map((item) => (
+              {pendingQueue.map((item) => (
                 <div key={item.id} className="flex items-center gap-2 text-muted-foreground">
                   {item.status === "processing" ? (
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                  ) : item.status === "error" ? (
-                    <X className="h-3 w-3 shrink-0 text-destructive" />
                   ) : (
                     <span className="h-2 w-2 shrink-0 rounded-full border border-current" />
                   )}
@@ -1931,13 +2810,64 @@ function ChatTabPanel({
           )}
           <div className="relative flex items-end gap-1 rounded-3xl border border-border bg-muted/50 px-2 py-1.5">
             {mentionOpen && (
-              <MentionFilePicker onSelectPath={handleMentionSelect} onClose={() => setMentionOpen(false)} />
+              <MentionFilePicker
+                ref={mentionPickerRef}
+                onSelectPath={handleMentionSelect}
+                onClose={() => setMentionOpen(false)}
+              />
             )}
             {slashOpen && (
-              <SlashCommandPicker onSelect={handleSlashSelect} onClose={() => setSlashOpen(false)} />
+              <SlashCommandPicker
+                ref={slashPickerRef}
+                onSelect={handleSlashSelect}
+                onClose={() => setSlashOpen(false)}
+              />
+            )}
+            {agentMentionOpen && (
+              <AgentMentionPicker
+                ref={agentPickerRef}
+                agents={chatableAgents}
+                query={agentMentionQuery}
+                onSelect={handleAgentMentionSelect}
+                onClose={() => setAgentMentionOpen(false)}
+              />
+            )}
+            {artifactMentionOpen && (
+              <ArtifactMentionPicker
+                ref={artifactPickerRef}
+                query={artifactMentionQuery}
+                onSelectPath={handleArtifactMentionSelect}
+                onClose={() => setArtifactMentionOpen(false)}
+              />
             )}
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePick} />
-            <AttachMenuButton onPickFile={() => fileInputRef.current?.click()} />
+            <AttachMenuButton
+              onPickFile={() => fileInputRef.current?.click()}
+              onInsertTrigger={(char) => {
+                if (char === "!") {
+                  // Must be the very first character (see handleSend's
+                  // trimmed.startsWith("!") check) -- prefix, don't append.
+                  setComposerText((t) => (t.startsWith("!") ? t : `!${t}`));
+                  composerTextareaRef.current?.focus();
+                  return;
+                }
+                setComposerText((t) => {
+                  const needsSpace = t.length > 0 && !/\s$/.test(t);
+                  return t + (needsSpace ? " " : "") + char;
+                });
+                if (char === "@") setMentionOpen(true);
+                if (char === "/") setSlashOpen(true);
+                if (char === "#") {
+                  setAgentMentionOpen(true);
+                  setAgentMentionQuery("");
+                }
+                if (char === "$") {
+                  setArtifactMentionOpen(true);
+                  setArtifactMentionQuery("");
+                }
+                composerTextareaRef.current?.focus();
+              }}
+            />
             <Textarea
               ref={composerTextareaRef}
               value={composerText}
@@ -1955,10 +2885,49 @@ function ChatTabPanel({
                 } else if (slashOpen && !value.startsWith("/")) {
                   setSlashOpen(false);
                 }
+                if (last === "#" && (beforeLast === "" || /\s/.test(beforeLast))) {
+                  setAgentMentionOpen(true);
+                  setAgentMentionQuery("");
+                } else if (agentMentionOpen) {
+                  const hashIndex = value.lastIndexOf("#");
+                  if (hashIndex === -1 || /\s/.test(value.slice(hashIndex + 1))) {
+                    setAgentMentionOpen(false);
+                  } else {
+                    setAgentMentionQuery(value.slice(hashIndex + 1));
+                  }
+                }
+                if (last === "$" && (beforeLast === "" || /\s/.test(beforeLast))) {
+                  setArtifactMentionOpen(true);
+                  setArtifactMentionQuery("");
+                } else if (artifactMentionOpen) {
+                  const dollarIndex = value.lastIndexOf("$");
+                  if (dollarIndex === -1 || /\s/.test(value.slice(dollarIndex + 1))) {
+                    setArtifactMentionOpen(false);
+                  } else {
+                    setArtifactMentionQuery(value.slice(dollarIndex + 1));
+                  }
+                }
               }}
               onKeyDown={handleComposerKeyDown}
               onPaste={handleComposerPaste}
-              placeholder={`Peça ao ${selectedAgent?.name ?? "agente"}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "copy";
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const path = e.dataTransfer.getData("text/plain");
+                if (!path) return;
+                setComposerText((t) => {
+                  const needsSpace = t.length > 0 && !/\s$/.test(t);
+                  return t + (needsSpace ? " " : "") + path + " ";
+                });
+              }}
+              placeholder={
+                suggestedReply
+                  ? `${suggestedReply} (→ to complete)`
+                  : `Ask ${selectedAgent?.name ?? "agent"}`
+              }
               rows={1}
               style={{ maxHeight: COMPOSER_MAX_HEIGHT_PX }}
               className="min-h-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -1994,6 +2963,78 @@ function ChatTabPanel({
           </div>
         </div>
       </div>
+
+      {artifactsOpen && (
+        <aside className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-card">
+          <div className="flex items-center justify-between border-b border-border p-3">
+            <span className="text-sm font-medium text-muted-foreground">Artifacts</span>
+          </div>
+          <div className="border-b border-border p-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={artifactSearchQuery}
+                onChange={(e) => setArtifactSearchQuery(e.target.value)}
+                placeholder="Search artifacts…"
+                className="h-8 w-full rounded-md border border-border bg-transparent pl-7 pr-2 text-xs outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+          <div className="flex-1 space-y-1 overflow-y-auto p-2">
+            {(artifacts ?? [])
+              .filter((artifact) => artifact.name.toLowerCase().includes(artifactSearchQuery.trim().toLowerCase()))
+              .map((artifact) => (
+                <div
+                  key={artifact.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/plain", artifact.path);
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
+                  title={`Drag to the message field to reference ${artifact.path}`}
+                  className="group flex cursor-grab items-center justify-between gap-1 rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground active:cursor-grabbing"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="truncate">{artifact.name}</p>
+                      <p className="truncate text-[10px] opacity-70">{formatTime(artifact.created_at)}</p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100">
+                    <button
+                      type="button"
+                      aria-label={`Download ${artifact.name}`}
+                      title="Download"
+                      onClick={() => downloadChatArtifact(artifact.id)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${artifact.name} from list`}
+                      title="Remove from list (does not delete the actual file)"
+                      onClick={() => deleteArtifact.mutate(artifact.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            {(artifacts ?? []).length === 0 && (
+              <p className="px-2 py-2 text-xs italic text-muted-foreground">
+                No artifacts created in this conversation yet.
+              </p>
+            )}
+            {(artifacts ?? []).length > 0 &&
+              artifactSearchQuery.trim() &&
+              (artifacts ?? []).filter((a) => a.name.toLowerCase().includes(artifactSearchQuery.trim().toLowerCase()))
+                .length === 0 && (
+                <p className="px-2 py-2 text-xs italic text-muted-foreground">No artifacts found.</p>
+              )}
+          </div>
+        </aside>
+      )}
     </div>
   );
 }
@@ -2017,6 +3058,28 @@ export default function WorkspacePage() {
     () => localStorage.getItem(ACTIVE_TAB_STORAGE_KEY) ?? ""
   );
   const [workingDir, setWorkingDir] = useState<string | undefined>(undefined);
+  const workspaceUploadInputRef = useRef<HTMLInputElement>(null);
+  const [workspaceUploadStatus, setWorkspaceUploadStatus] = useState<"idle" | "uploading" | "success" | "error">(
+    "idle"
+  );
+
+  async function handleWorkspaceFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // allow picking the same file(s) again to re-trigger onChange
+    if (files.length === 0 || !workingDir) return;
+    setWorkspaceUploadStatus("uploading");
+    const formData = new FormData();
+    formData.append("dir", workingDir);
+    files.forEach((f) => formData.append("files", f));
+    try {
+      await apiClient.postForm("/api/v1/terminal/upload-to-dir", formData);
+      setWorkspaceUploadStatus("success");
+    } catch {
+      setWorkspaceUploadStatus("error");
+    } finally {
+      setTimeout(() => setWorkspaceUploadStatus("idle"), 1500);
+    }
+  }
 
   // Seeds a freshly-opened chat tab's composer once at creation (e.g. from
   // the Crons/Scripts "Send to chat" handoff) -- read once via useState's
@@ -2070,6 +3133,22 @@ export default function WorkspacePage() {
     setActiveTabId(id);
   }
 
+  // Handoff from the Servers page's "open SSH" action: arrive with an
+  // openSsh router state → open a terminal tab running the ssh command,
+  // then clear the state so a refresh/back-forward doesn't re-open it.
+  // The ref guards StrictMode's double effect run in dev.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const openSshHandledRef = useRef(false);
+  useEffect(() => {
+    const openSsh = (location.state as { openSsh?: { label: string; command: string } } | null)?.openSsh;
+    if (!openSsh || openSshHandledRef.current) return;
+    openSshHandledRef.current = true;
+    openTerminalTab(openSsh.label, openSsh.command);
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
   function closeTab(id: string) {
     const tab = tabs.find((t) => t.id === id);
     const remaining = tabs.filter((t) => t.id !== id);
@@ -2090,6 +3169,12 @@ export default function WorkspacePage() {
   function toggleHistoryCollapsed(tabId: string) {
     setTabs((t) =>
       t.map((x) => (x.id === tabId && x.kind === "chat" ? { ...x, historyCollapsed: !x.historyCollapsed } : x))
+    );
+  }
+
+  function toggleArtifactsPanel(tabId: string) {
+    setTabs((t) =>
+      t.map((x) => (x.id === tabId && x.kind === "chat" ? { ...x, artifactsOpen: !x.artifactsOpen } : x))
     );
   }
 
@@ -2123,7 +3208,7 @@ export default function WorkspacePage() {
       <div className="flex h-[60vh] items-center justify-center text-center text-muted-foreground">
         <div>
           <Bot className="mx-auto mb-3 h-10 w-10" />
-          <p>No agents with a Hermes profile are available to chat with yet.</p>
+          <p>No agent with a Hermes profile available to chat with yet.</p>
         </div>
       </div>
     );
@@ -2135,40 +3220,76 @@ export default function WorkspacePage() {
         {/* Toolbar: static actions on the left, working-dir/launchers on the right. */}
         <div className="flex items-center gap-1 px-2 py-1.5">
           <Button
-            variant="outline"
+            variant={activeChatTab && !activeChatTab.historyCollapsed ? "secondary" : "outline"}
             size="icon"
             className="h-8 w-8 shrink-0"
             disabled={!activeChatTab}
-            aria-label={activeChatTab?.historyCollapsed ? "Show chat history" : "Hide chat history"}
-            title="Toggle chat history sidebar"
+            aria-label={activeChatTab?.historyCollapsed ? "Show conversation history" : "Hide conversation history"}
+            title="Conversation history"
             onClick={() => activeChatTab && toggleHistoryCollapsed(activeChatTab.id)}
           >
-            {activeChatTab?.historyCollapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
+            <History className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={activeChatTab?.artifactsOpen ? "secondary" : "outline"}
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            disabled={!activeChatTab}
+            aria-label={activeChatTab?.artifactsOpen ? "Hide artifacts panel" : "Show artifacts panel"}
+            title="Conversation artifacts"
+            onClick={() => activeChatTab && toggleArtifactsPanel(activeChatTab.id)}
+          >
+            <Package className="h-4 w-4" />
           </Button>
           <Button
             variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 shrink-0"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            title="New chat"
+            aria-label="New chat"
             onClick={() => openChatTab(defaultAgentIdForNewTab())}
           >
             <MessageSquare className="h-4 w-4" />
-            New Chat
           </Button>
           <Button
             variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 shrink-0"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            title="New terminal"
+            aria-label="New terminal"
             onClick={() => openTerminalTab("bash")}
           >
             <SquareTerminal className="h-4 w-4" />
-            New Terminal
           </Button>
+          <SshLauncherMenu onLaunch={openTerminalTab} />
           <div className="flex-1" />
           <WorkingDirPicker workingDir={workingDir} onSelect={setWorkingDir} />
+          <input
+            ref={workspaceUploadInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleWorkspaceFileUpload}
+          />
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            disabled={!workingDir || workspaceUploadStatus === "uploading"}
+            title={workingDir ? "Enviar arquivos para a pasta de trabalho" : "Selecione uma pasta de trabalho primeiro"}
+            aria-label="Enviar arquivos para a pasta de trabalho"
+            onClick={() => workspaceUploadInputRef.current?.click()}
+          >
+            {workspaceUploadStatus === "uploading" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : workspaceUploadStatus === "success" ? (
+              <Check className="h-3.5 w-3.5 text-green-500" />
+            ) : workspaceUploadStatus === "error" ? (
+              <X className="h-3.5 w-3.5 text-destructive" />
+            ) : (
+              <Upload className="h-3.5 w-3.5" />
+            )}
+          </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <span className="text-[10px] font-medium uppercase text-muted-foreground" title="Coding-assistant CLIs">
             CLI
@@ -2187,7 +3308,7 @@ export default function WorkspacePage() {
             </Button>
           ))}
           <div className="mx-1 h-5 w-px bg-border" />
-          <span className="text-[10px] font-medium uppercase text-muted-foreground" title="Agent runtimes/orchestrators">
+          <span className="text-[10px] font-medium uppercase text-muted-foreground" title="Runtimes/orquestradores de agentes">
             Runtimes
           </span>
           {RUNTIME_LAUNCHERS.map((l) => (
@@ -2282,6 +3403,8 @@ export default function WorkspacePage() {
               onAgentChange={(agentId) => handleAgentChangeForTab(t.id, agentId)}
               initialComposerText={draftSeedsRef.current.get(t.id)}
               historyCollapsed={Boolean(t.historyCollapsed)}
+              artifactsOpen={Boolean(t.artifactsOpen)}
+              workingDir={workingDir}
             />
           ) : (
             <div key={t.id} className={cn("absolute inset-0 p-2", t.id !== activeTabId && "hidden")}>
@@ -2295,7 +3418,7 @@ export default function WorkspacePage() {
             <div>
               <MessageSquare className="mx-auto mb-3 h-10 w-10" />
               <p className="font-medium">No tabs open</p>
-              <p className="text-sm">Start a chat or open a terminal using the buttons above.</p>
+              <p className="text-sm">Start a conversation or open a terminal using the buttons above.</p>
             </div>
           </div>
         )}
