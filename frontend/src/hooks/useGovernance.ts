@@ -97,14 +97,6 @@ export const approvalCreateSchema = z.object({
 
 export type ApprovalCreateInput = z.infer<typeof approvalCreateSchema>;
 
-// Payload for POST /approvals/{id}/approve|reject (ApprovalDecision).
-export const approvalDecisionSchema = z.object({
-  decided_by: z.string().min(1, "Decided by is required").max(150, "Too long"),
-  comments: z.string().max(4000, "Too long").optional().or(z.literal("")),
-});
-
-export type ApprovalDecisionInput = z.infer<typeof approvalDecisionSchema>;
-
 // ---------------------------------------------------------------------------
 // Query keys
 // ---------------------------------------------------------------------------
@@ -144,21 +136,6 @@ export function useCreateApproval() {
       apiClient.post<Approval>(`${RESOURCE}/approvals`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: governanceKeys.all });
-    },
-  });
-}
-
-// Deciding an approval is final (no further update) -- the backend
-// rejects deciding an already-decided approval with 409.
-export function useDecideApproval(id: string, decision: "approve" | "reject") {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: ApprovalDecisionInput) =>
-      apiClient.post<Approval>(`${RESOURCE}/approvals/${id}/${decision}`, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: governanceKeys.all });
-      queryClient.invalidateQueries({ queryKey: governanceKeys.detail(id) });
-      queryClient.invalidateQueries({ queryKey: governanceKeys.auditEvents });
     },
   });
 }

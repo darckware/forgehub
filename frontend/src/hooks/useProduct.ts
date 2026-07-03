@@ -101,18 +101,6 @@ export function useCreateProduct() {
   });
 }
 
-export function useUpdateProduct(id: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: Partial<ProductInput>) =>
-      apiClient.patch<Product>(`${RESOURCE}/${id}`, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      queryClient.invalidateQueries({ queryKey: ["products", id] });
-    },
-  });
-}
-
 export function useDeleteProduct() {
   const queryClient = useQueryClient();
   return useMutation({

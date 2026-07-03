@@ -22,17 +22,6 @@ export const projectForgeRouterConfigSchema = z.object({
 });
 export type ProjectForgeRouterConfig = z.infer<typeof projectForgeRouterConfigSchema>;
 
-export const projectForgeRouterStatusSchema = z.object({
-  project_path: z.string(),
-  claude: z.boolean(),
-  codex: z.boolean(),
-  antigravity: z.boolean(),
-  claude_config_path: z.string(),
-  codex_config_path: z.string(),
-  antigravity_env_path: z.string(),
-});
-export type ProjectForgeRouterStatus = z.infer<typeof projectForgeRouterStatusSchema>;
-
 export const forgeRouterGlobalAuditSchema = z.object({
   clean: z.boolean(),
   findings: z.array(z.record(z.string())),
@@ -60,16 +49,6 @@ export function useProjectForgeRouterConfig(projectId: string) {
     queryKey: projectForgeRouterKeys.config(projectId),
     queryFn: () => apiClient.get<ProjectForgeRouterConfig>(`${RESOURCE}/${projectId}/forgerouter`),
     staleTime: 30_000,
-  });
-}
-
-export function useProjectForgeRouterLive(projectId: string, enabled = true) {
-  return useQuery({
-    queryKey: projectForgeRouterKeys.live(projectId),
-    queryFn: () =>
-      apiClient.get<ProjectForgeRouterStatus>(`${RESOURCE}/${projectId}/forgerouter/live`),
-    enabled,
-    staleTime: 10_000,
   });
 }
 

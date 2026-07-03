@@ -299,16 +299,3 @@ export function useCreateExecution(taskId: string) {
   });
 }
 
-export function useUpdateExecution(taskId: string, executionId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: Partial<ExecutionCreateInput>) =>
-      apiClient.patch<TaskExecution>(
-        `/api/v1/tasks/${taskId}/executions/${executionId}`,
-        payload
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
-    },
-  });
-}

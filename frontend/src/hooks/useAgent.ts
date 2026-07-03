@@ -132,7 +132,7 @@ export const agentSchema = z.object({
 
 export type Agent = z.infer<typeof agentSchema>;
 
-/** Payload shape for create/update -- server assigns id and timestamps. */
+/** Base payload shape -- server assigns id and timestamps. */
 export const agentInputSchema = z.object({
   name: z.string().min(1, "Name is required").max(150, "Name is too long"),
   description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
@@ -140,8 +140,6 @@ export const agentInputSchema = z.object({
   status: z.enum(AGENT_STATUSES).default("active"),
   is_active: z.boolean().default(true),
 });
-
-export type AgentInput = z.infer<typeof agentInputSchema>;
 
 export const agentUpdateSchema = agentInputSchema.partial();
 export type AgentUpdateInput = z.infer<typeof agentUpdateSchema>;
@@ -187,16 +185,6 @@ export function useAgent(id: string | undefined) {
   });
 }
 
-export function useCreateAgent() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: AgentInput) => apiClient.post<Agent>(RESOURCE, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.all });
-    },
-  });
-}
-
 export function useUpdateAgent(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -209,57 +197,11 @@ export function useUpdateAgent(id: string) {
   });
 }
 
-export function useDeleteAgent() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => apiClient.delete<void>(`${RESOURCE}/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.all });
-    },
-  });
-}
-
 export function useSyncHermesAgents() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => apiClient.post<HermesSyncResult>(`${RESOURCE}/sync/hermes-foundation`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.all });
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Nested resource hooks (sub-agents)
-// ---------------------------------------------------------------------------
-
-export const subAgentInputSchema = z.object({
-  name: z.string().min(1, "Name is required").max(150, "Name is too long"),
-  description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
-  status: z.enum(AGENT_STATUSES).default("active"),
-});
-
-export type SubAgentInput = z.infer<typeof subAgentInputSchema>;
-
-export function useCreateSubAgent(agentId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: SubAgentInput) =>
-      apiClient.post<SubAgent>(`${RESOURCE}/${agentId}/sub-agents`, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
-      queryClient.invalidateQueries({ queryKey: agentKeys.all });
-    },
-  });
-}
-
-export function useDeleteSubAgent(agentId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (subAgentId: string) =>
-      apiClient.delete<void>(`${RESOURCE}/${agentId}/sub-agents/${subAgentId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
       queryClient.invalidateQueries({ queryKey: agentKeys.all });
     },
   });
@@ -277,17 +219,6 @@ export function useSkills() {
   return useQuery({
     queryKey: skillKeys.all,
     queryFn: () => apiClient.get<Skill[]>(`${RESOURCE}/skills`),
-  });
-}
-
-export function useAssignSkillToAgent(agentId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (skillId: string) =>
-      apiClient.post<AgentSkill>(`${RESOURCE}/${agentId}/skills`, { skill_id: skillId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
-    },
   });
 }
 
