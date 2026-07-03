@@ -35,7 +35,7 @@ _governance_router_mounted = False
 
 
 @pytest_asyncio.fixture
-async def client():
+async def client(auth_headers):
     global _governance_router_mounted
 
     from app.main import app
@@ -52,7 +52,7 @@ async def client():
         _governance_router_mounted = True
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=auth_headers) as ac:
         yield ac
 
 

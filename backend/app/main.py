@@ -12,8 +12,12 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from app.core.config import settings
+from app.core.security import decode_access_token
 
 from app.api.routes import (
     agent,
@@ -24,13 +28,17 @@ from app.api.routes import (
     cron_scripts,
     database,
     deploy,
+    forgerouter,
     foundation,
     foundation_docs,
     governance,
+    notifications,
     pipeline,
     product,
     profiles,
     project,
+    remote_access,
+    server,
     systemstats,
     task,
     terminal,
@@ -40,6 +48,40 @@ from app.api.routes import (
 )
 
 app = FastAPI(title="ForgeHub (ForgeHub) API", version="0.1.0")
+
+# Routes not covered by their own Depends(get_current_user)/get_current_admin
+# -- just the login endpoint itself, which is how a client gets a token in
+# the first place.
+_PUBLIC_API_PATHS = {"/api/v1/auth/token"}
+
+
+class RequireAuthMiddleware(BaseHTTPMiddleware):
+    """Almost none of the domain routers were wired up with their own auth
+    dependency (only users.py/auth.py were) -- this was fine while the app
+    was only ever reached from localhost, but terminal.py's /ws is a real
+    shell and /upload-to-dir writes arbitrary files, so it can't stay open
+    once the Dashboard's remote-access card can tunnel this app to a public
+    URL. Requiring a valid bearer token here for every /api/v1/* route
+    (except login) closes that gap in one place instead of touching every
+    router. WebSocket upgrades bypass HTTP middleware in Starlette entirely,
+    so /api/v1/terminal/ws validates its own `token` query param instead."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if request.method == "OPTIONS" or not path.startswith("/api/v1/") or path in _PUBLIC_API_PATHS:
+            return await call_next(request)
+        auth_header = request.headers.get("authorization", "")
+        token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
+        if not token or decode_access_token(token) is None:
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        return await call_next(request)
+
+
+# Added before CORSMiddleware so CORS ends up outermost (Starlette wraps
+# middleware in reverse registration order) -- otherwise a 401 from this
+# middleware would reach the browser without CORS headers and fail as an
+# opaque network error instead of a readable 401.
+app.add_middleware(RequireAuthMiddleware)
 
 # CORS: allow all origins/methods/headers for local dev. Tighten before
 # any non-local deployment.
@@ -78,10 +120,14 @@ app.include_router(toolversions.router)
 app.include_router(systemstats.router)
 app.include_router(vault.router)
 app.include_router(cron_scripts.router)
+app.include_router(notifications.router)
 app.include_router(deploy.router)
 app.include_router(database.router)
 app.include_router(users.router)
 app.include_router(profiles.router)
+app.include_router(server.router)
+app.include_router(remote_access.router)
+app.include_router(forgerouter.router)
 # ---------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)

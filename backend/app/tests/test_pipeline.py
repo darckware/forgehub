@@ -64,9 +64,9 @@ async def _setup_schema():
 
 
 @pytest_asyncio.fixture
-async def client():
+async def client(auth_headers):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=auth_headers) as ac:
         yield ac
 
 

@@ -131,9 +131,9 @@ async def db_schema():
 
 
 @pytest_asyncio.fixture
-async def client(db_schema):
+async def client(db_schema, auth_headers):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=auth_headers) as ac:
         yield ac
 
 
