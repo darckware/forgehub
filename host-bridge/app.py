@@ -26,6 +26,7 @@ shell on the host.
 import asyncio
 import base64
 import codecs
+import contextlib
 import fcntl
 import io
 import json
@@ -125,8 +126,10 @@ async def set_forgerouter_integration(tool: str, req: ForgeRouterIntegrationRequ
 #               wrapper scripts. The UI marks this as "env-based".
 # ---------------------------------------------------------------------------
 
-FORGEROUTER_BASE_URL = "http://localhost:2100/v1"
-FORGEROUTER_MODEL = "forgerouter/auto"
+FORGEROUTER_OPENAI_BASE_URL = "http://localhost:2100/v1"
+FORGEROUTER_OPENAI_MODEL = "forgerouter/auto"
+FORGEROUTER_ANTHROPIC_BASE_URL = "http://localhost:2100"
+FORGEROUTER_ANTHROPIC_MODEL = "forgerouter/auto"
 FORGEROUTER_CLAUDE_KEYS = [
     "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
@@ -168,14 +171,15 @@ def _configure_claude_forgerouter(project_dir: Path, enabled: bool, api_key: str
 
     env = current.setdefault("env", {})
     if enabled:
+        current["model"] = FORGEROUTER_ANTHROPIC_MODEL
         env.update({
-            "ANTHROPIC_BASE_URL": FORGEROUTER_BASE_URL,
+            "ANTHROPIC_BASE_URL": FORGEROUTER_ANTHROPIC_BASE_URL,
             "ANTHROPIC_AUTH_TOKEN": api_key,
-            "ANTHROPIC_MODEL": FORGEROUTER_MODEL,
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": FORGEROUTER_MODEL,
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": FORGEROUTER_MODEL,
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": FORGEROUTER_MODEL,
-            "CLAUDE_CODE_SUBAGENT_MODEL": FORGEROUTER_MODEL,
+            "ANTHROPIC_MODEL": FORGEROUTER_ANTHROPIC_MODEL,
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": FORGEROUTER_ANTHROPIC_MODEL,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": FORGEROUTER_ANTHROPIC_MODEL,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": FORGEROUTER_ANTHROPIC_MODEL,
+            "CLAUDE_CODE_SUBAGENT_MODEL": FORGEROUTER_ANTHROPIC_MODEL,
             "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
         })
     else:
@@ -183,6 +187,8 @@ def _configure_claude_forgerouter(project_dir: Path, enabled: bool, api_key: str
             env.pop(key, None)
         if not env:
             current.pop("env", None)
+        if current.get("model") == FORGEROUTER_ANTHROPIC_MODEL:
+            current.pop("model", None)
 
     settings_path.write_text(json.dumps(current, indent=2) + "\n")
     os.chmod(settings_path, 0o600)
@@ -200,11 +206,11 @@ def _configure_codex_forgerouter(project_dir: Path, enabled: bool, api_key: str)
             backup = codex_dir / "config.toml.forgerouter.bak"
             backup.write_text(config_path.read_text())
         config_path.write_text(
-            f'model = "{FORGEROUTER_MODEL}"\n'
+            f'model = "{FORGEROUTER_OPENAI_MODEL}"\n'
             f'model_provider = "forgerouter"\n'
             f'[model_providers.forgerouter]\n'
             f'name = "ForgeRouter"\n'
-            f'base_url = "{FORGEROUTER_BASE_URL}"\n'
+            f'base_url = "{FORGEROUTER_OPENAI_BASE_URL}"\n'
             f'experimental_bearer_token = "{api_key}"\n'
         )
         os.chmod(config_path, 0o600)
@@ -233,9 +239,9 @@ def _configure_antigravity_forgerouter(project_dir: Path, enabled: bool, api_key
             "#\n"
             "# NOTE: Antigravity CLI does not natively support proxy configuration.\n"
             "# These variables are provided for custom wrapper scripts.\n"
-            f'export FORGEROUTER_BASE_URL="{FORGEROUTER_BASE_URL}"\n'
+            f'export FORGEROUTER_BASE_URL="{FORGEROUTER_OPENAI_BASE_URL}"\n'
             f'export FORGEROUTER_API_KEY="{api_key}"\n'
-            f'export FORGEROUTER_MODEL="{FORGEROUTER_MODEL}"\n'
+            f'export FORGEROUTER_MODEL="{FORGEROUTER_OPENAI_MODEL}"\n'
         )
         os.chmod(env_path, 0o600)
     else:
@@ -578,7 +584,7 @@ async def chat_stream(
 
 class ChatApproveRequest(BaseModel):
     stream_id: str
-    choice: str  # "approve" | "deny"
+    choice: str  # "once" | "session" | "always" | "deny" -- see tools/approval.py's resolve_gateway_approval
 
 
 @app.post("/v1/chat/approve")
@@ -587,11 +593,53 @@ async def chat_approve(req: ChatApproveRequest, x_bridge_token: str | None = Hea
     proc = _active_streams.get(req.stream_id)
     if proc is None or proc.stdin is None:
         raise HTTPException(status_code=404, detail="No pending approval for this stream_id")
-    resolved_choice = "deny" if req.choice == "deny" else "once"
+    # Was previously collapsed to "once"/"deny" only, silently discarding
+    # "session"/"always" -- resolve_gateway_approval accepts all four and
+    # only "session"/"always" call approve_session()/approve_permanent(),
+    # so forwarding anything else as "once" broke "remember this session".
+    resolved_choice = req.choice if req.choice in {"once", "session", "always", "deny"} else "once"
     line = json.dumps({"approval_response": {"choice": resolved_choice}}) + "\n"
     proc.stdin.write(line.encode())
     await proc.stdin.drain()
     return {"status": "ok"}
+
+
+class ExecRequest(BaseModel):
+    command: str
+    cwd: str | None = None
+
+
+class ExecResponse(BaseModel):
+    stdout: str
+    stderr: str
+    exit_code: int
+
+
+@app.post("/v1/exec", response_model=ExecResponse)
+async def exec_command(req: ExecRequest, x_bridge_token: str | None = Header(default=None)) -> ExecResponse:
+    """One-shot bash execution backing the chat composer's "!" prefix --
+    runs directly, no agent/LLM involved, output shown inline in the
+    thread like a slash command reply. Not a live/interactive shell (see
+    /v1/terminal/ws for that); a single command, one captured result."""
+    _check_token(x_bridge_token)
+    loop = asyncio.get_event_loop()
+
+    def run() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", "-c", req.command],
+            cwd=req.cwd or None,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    try:
+        proc = await loop.run_in_executor(None, run)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=408, detail="Command timed out after 60s")
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail=f"cwd not found: {req.cwd}")
+    return ExecResponse(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
 
 
 @app.post("/v1/chat-with-image", response_model=ChatResponse)
@@ -715,6 +763,398 @@ async def terminal_upload_image(
     dest = UPLOAD_DIR / f"{os.urandom(8).hex()}{suffix}"
     dest.write_bytes(await image.read())
     return {"path": str(dest)}
+
+
+@app.post("/v1/workspace/upload")
+async def workspace_upload(
+    dir: str = Form(...),
+    files: list[UploadFile] = File(...),
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Write one or more browser-uploaded files straight into a host
+    directory -- backs the workspace toolbar's "send files" button next to
+    WorkingDirPicker, for pushing local files onto the box a terminal's cwd
+    points at without going through the PTY (unlike upload-image above,
+    these land in the real working directory, not a tmp dir, since the
+    point is for a CLI agent's cwd to see them as project files)."""
+    _check_token(x_bridge_token)
+    target = Path(dir)
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a directory: {dir}")
+    saved = []
+    for f in files:
+        # basename only -- an uploaded filename carrying "../" must not be
+        # able to write outside the chosen directory.
+        name = Path(f.filename or "file").name
+        if not name or name in (".", ".."):
+            continue
+        dest = target / name
+        dest.write_bytes(await f.read())
+        saved.append(str(dest))
+    return {"saved": saved}
+
+
+# ---------------------------------------------------------------------------
+# Remote access -- backs the Dashboard's remote-access card. Spawns a
+# Cloudflare "quick tunnel" (cloudflared tunnel --url ...), which needs
+# neither a Cloudflare account nor a domain: it gets a random, temporary
+# *.trycloudflare.com hostname each time it starts, torn down when stopped.
+# Points at the frontend's nginx (frontend/nginx.conf), which itself
+# reverse-proxies /api to forgehub-backend -- one tunnel covers the whole
+# app. State is process-global since host-bridge runs as a single uvicorn
+# worker (see the systemd unit).
+# ---------------------------------------------------------------------------
+
+TRYCLOUDFLARE_RE = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+
+_tunnel_proc: "asyncio.subprocess.Process | None" = None
+_tunnel_url: str | None = None
+_tunnel_pump_task: "asyncio.Task | None" = None
+
+
+async def _pump_tunnel_output(proc: "asyncio.subprocess.Process") -> None:
+    global _tunnel_url
+    assert proc.stdout is not None
+    async for raw_line in proc.stdout:
+        if _tunnel_url is not None:
+            continue
+        match = TRYCLOUDFLARE_RE.search(raw_line.decode(errors="ignore"))
+        if match:
+            _tunnel_url = match.group(0)
+
+
+@app.post("/v1/remote-access/start")
+async def remote_access_start(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    global _tunnel_proc, _tunnel_url, _tunnel_pump_task
+    if _tunnel_proc is not None and _tunnel_proc.returncode is None:
+        return {"status": "running", "url": _tunnel_url}
+    _tunnel_url = None
+    _tunnel_proc = await asyncio.create_subprocess_exec(
+        "cloudflared", "tunnel", "--url", "http://localhost:4173",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    _tunnel_pump_task = asyncio.create_task(_pump_tunnel_output(_tunnel_proc))
+    # cloudflared usually announces its assigned hostname within a couple of
+    # seconds (see the manual timing check this was based on) -- give it up
+    # to 15s before reporting back without a URL.
+    for _ in range(75):
+        if _tunnel_url is not None or _tunnel_proc.returncode is not None:
+            break
+        await asyncio.sleep(0.2)
+    if _tunnel_proc.returncode is not None:
+        _tunnel_proc = None
+        return {"status": "error", "url": None}
+    return {"status": "running", "url": _tunnel_url}
+
+
+@app.post("/v1/remote-access/stop")
+async def remote_access_stop(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    global _tunnel_proc, _tunnel_url, _tunnel_pump_task
+    if _tunnel_proc is not None and _tunnel_proc.returncode is None:
+        _tunnel_proc.terminate()
+        try:
+            await asyncio.wait_for(_tunnel_proc.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            _tunnel_proc.kill()
+    _tunnel_proc = None
+    _tunnel_url = None
+    _tunnel_pump_task = None
+    return {"status": "stopped"}
+
+
+@app.get("/v1/remote-access/status")
+async def remote_access_status(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    running = _tunnel_proc is not None and _tunnel_proc.returncode is None
+    return {"status": "running" if running else "stopped", "url": _tunnel_url if running else None}
+
+
+# ---------------------------------------------------------------------------
+# Server status -- backs the Servers page's status column. A ping/TCP check
+# alone can't tell "server is up" apart from "server is up but our key
+# isn't authorized on it" -- Marcelo's own point when this was designed --
+# so this does both: TCP reachability first, then (only if that succeeds) a
+# non-interactive SSH auth probe with the configured identity.
+# ---------------------------------------------------------------------------
+
+
+class ServerCheckEntry(BaseModel):
+    id: str
+    ip_address: str
+    remote_user: str
+    ssh_port: int = 22
+    ssh_key_path: str | None = None
+
+
+class ServerCheckRequest(BaseModel):
+    servers: list[ServerCheckEntry]
+
+
+async def _check_one_server(entry: ServerCheckEntry) -> str:
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(entry.ip_address, entry.ssh_port), timeout=3.0
+        )
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+    except Exception:
+        return "off"
+
+    ssh_args = [
+        "ssh",
+        "-o", "BatchMode=yes",  # never prompt for a password -- an auth
+                                 # failure must return promptly, not hang
+        "-o", "ConnectTimeout=3",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+    ]
+    if entry.ssh_key_path:
+        ssh_args += ["-i", entry.ssh_key_path]
+    if entry.ssh_port != 22:
+        ssh_args += ["-p", str(entry.ssh_port)]
+    ssh_args += [f"{entry.remote_user}@{entry.ip_address}", "true"]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *ssh_args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+        )
+        returncode = await asyncio.wait_for(proc.wait(), timeout=6.0)
+    except Exception:
+        return "not_installed"
+    return "active" if returncode == 0 else "not_installed"
+
+
+@app.post("/v1/servers/check-status")
+async def check_server_status(
+    req: ServerCheckRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    _check_token(x_bridge_token)
+    results = await asyncio.gather(*(_check_one_server(e) for e in req.servers))
+    return {"statuses": {e.id: status for e, status in zip(req.servers, results)}}
+
+
+# ---------------------------------------------------------------------------
+# SSH key installation -- backs the Servers page's "install key" action.
+# Parameterized, non-interactive version of /root/.hermes/scripts/
+# configure_ssh.sh (same three steps, same key-naming convention): generate
+# an ed25519 pair on THIS host (where the terminal's ssh runs), push the
+# .pub into the server's authorized_keys using the password the user typed
+# (sshpass -e: password travels via env, never argv, never logged), then
+# verify with BatchMode. Idempotent: an existing key pair is reused.
+# ---------------------------------------------------------------------------
+
+SSH_KEYS_DIR = "/root/agents/aegis/server-management/ssh_keys"
+
+
+class InstallKeyRequest(BaseModel):
+    ip_address: str
+    remote_user: str  # key owner on the server (e.g. "aegis")
+    # Password of the LOGIN account: admin_user when set, remote_user otherwise.
+    password: str
+    ssh_port: int = 22
+    # When set (and different from remote_user), log in as this account
+    # instead and CREATE remote_user on the server if it doesn't exist yet —
+    # covers inventory users (aegis) not provisioned on the box. Must be
+    # root or have passwordless sudo.
+    admin_user: str | None = None
+
+
+def _install_hint(out: str, login_user: str) -> str:
+    """Turns the raw ssh/sudo failure into an actionable hint. Crucially,
+    distinguishes an SSH *login* rejection (wrong password / password auth
+    disabled) from a *sudo* rejection (needs passwordless sudo) -- these look
+    unrelated but were being conflated into one misleading message."""
+    low = (out or "").lower()
+    if "permission denied" in low and "sudo" not in low:
+        return (
+            f" — hint: SSH login as '{login_user}' was rejected. Check the password, "
+            "or the server may not allow password login for this account "
+            "(try 'root', or another admin that permits password SSH)."
+        )
+    if "sudo" in low or "a terminal is required" in low or "a password is required" in low:
+        return f" — hint: '{login_user}' logged in but sudo failed; it needs passwordless sudo (or use 'root')."
+    if "could not resolve" in low or "connection refused" in low or "timed out" in low or "no route to host" in low:
+        return " — hint: the host is unreachable on this SSH port."
+    return ""
+
+
+async def _run_step(
+    args: list[str], timeout: float, env: dict | None = None, input_text: str | None = None
+) -> tuple[int, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdin=asyncio.subprocess.PIPE if input_text is not None else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=env,
+    )
+    try:
+        out, _ = await asyncio.wait_for(
+            proc.communicate(input_text.encode() if input_text is not None else None), timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        return 124, "timed out"
+    return proc.returncode or 0, out.decode(errors="replace")[-800:]
+
+
+class ReadPubKeyRequest(BaseModel):
+    key_path: str
+
+
+@app.post("/v1/servers/read-public-key")
+async def read_public_key(req: ReadPubKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Reads the public half of a configured SSH identity file on the host.
+    Backs the Servers page's "copy public key" button: given the row's
+    ssh_key_path, returns the contents of "<path>.pub" (or the path itself
+    when it already ends in .pub). Read-only, .pub files only -- never
+    returns a private key."""
+    _check_token(x_bridge_token)
+    path = req.key_path.strip()
+    if not path:
+        raise HTTPException(status_code=400, detail="key_path is required")
+    pub_path = path if path.endswith(".pub") else path + ".pub"
+    if not os.path.isfile(pub_path):
+        raise HTTPException(status_code=404, detail=f"Public key not found at {pub_path}")
+    with open(pub_path, encoding="utf-8", errors="replace") as fh:
+        content = fh.read().strip()
+    if not content.startswith("ssh-") and "ssh-" not in content.split(" ", 1)[0]:
+        raise HTTPException(status_code=400, detail="File does not look like an SSH public key")
+    return {"public_key": content, "pub_path": pub_path}
+
+
+@app.post("/v1/servers/install-key")
+async def install_server_key(
+    req: InstallKeyRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    _check_token(x_bridge_token)
+    if not re.fullmatch(r"[\w.:-]+", req.ip_address) or not re.fullmatch(r"[\w.-]+", req.remote_user):
+        raise HTTPException(status_code=400, detail="Invalid ip_address or remote_user")
+    if not req.password:
+        raise HTTPException(status_code=400, detail="Password is required")
+
+    key_name = re.sub(r"[.:]", "_", req.ip_address) + "_key"
+    key_path = os.path.join(SSH_KEYS_DIR, key_name)
+    pub_path = key_path + ".pub"
+    os.makedirs(SSH_KEYS_DIR, exist_ok=True)
+    steps: list[str] = []
+
+    if os.path.exists(key_path) and os.path.exists(pub_path):
+        steps.append(f"Key pair already exists at {key_path} — reusing (idempotent)")
+    else:
+        code, out = await _run_step(
+            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", f"monitoramento-{req.ip_address}"],
+            timeout=30,
+        )
+        if code != 0:
+            return {"ok": False, "step": "generate", "error": out, "steps": steps}
+        steps.append(f"Generated ed25519 key pair at {key_path}")
+    os.chmod(key_path, 0o600)
+
+    with open(pub_path, encoding="utf-8") as fh:
+        public_key = fh.read().strip()
+
+    if req.admin_user and req.admin_user != req.remote_user:
+        # Admin path: log in as admin_user, create remote_user if missing
+        # (useradd → adduser → FreeBSD pw fallbacks), prepare its ~/.ssh with
+        # correct ownership/permissions and append the public key. Both
+        # usernames are regex-validated above/below; the pubkey is
+        # host-generated base64 — safe to embed in the script.
+        if not re.fullmatch(r"[\w.-]+", req.admin_user):
+            raise HTTPException(status_code=400, detail="Invalid admin_user")
+        script = f"""set -e
+U='{req.remote_user}'
+if ! id -u "$U" >/dev/null 2>&1; then
+  useradd -m -s /bin/bash "$U" 2>/dev/null || adduser -D "$U" 2>/dev/null || pw useradd "$U" -m
+  echo "__CREATED_USER__"
+fi
+H=$(getent passwd "$U" | cut -d: -f6); [ -n "$H" ] || H=$(eval echo "~$U")
+mkdir -p "$H/.ssh"
+grep -qxF '{public_key}' "$H/.ssh/authorized_keys" 2>/dev/null || echo '{public_key}' >> "$H/.ssh/authorized_keys"
+chmod 700 "$H/.ssh"; chmod 600 "$H/.ssh/authorized_keys"
+chown -R "$U":"$U" "$H/.ssh" 2>/dev/null || chown -R "$U" "$H/.ssh"
+echo "__KEY_INSTALLED__"
+"""
+        # Carry the script as a base64 argument, NOT via stdin. sshpass owns
+        # ssh's pty and forwards its own stdin into it -- piping the script
+        # there races the password exchange and corrupts auth (surfaces as a
+        # bogus "Permission denied"). With stdin empty, sshpass only injects
+        # the password. The remote decodes and runs it via `sh` / `sudo sh`.
+        script_b64 = base64.b64encode(script.encode()).decode()
+        decode_run = "sh" if req.admin_user == "root" else "sudo -n sh"
+        remote_cmd = f"echo {script_b64} | base64 -d | {decode_run}"
+        admin_args = [
+            "sshpass", "-e", "ssh",
+            "-T",  # no remote tty -- we're not typing into it
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ConnectTimeout=15",
+            "-o", "NumberOfPasswordPrompts=1",
+            # Force password auth: don't offer the host's own identities
+            # (which would waste tries / muddy the error), the user typed a
+            # password precisely because key auth isn't set up yet. The host's
+            # ~/.ssh/config hardens 172.15.* with `PasswordAuthentication no`
+            # + `BatchMode yes` (key-only policy) -- override both here so the
+            # one-time password bootstrap can run without editing that file.
+            "-o", "PreferredAuthentications=password",
+            "-o", "PubkeyAuthentication=no",
+            "-o", "PasswordAuthentication=yes",
+            "-o", "BatchMode=no",
+        ]
+        if req.ssh_port != 22:
+            admin_args += ["-p", str(req.ssh_port)]
+        admin_args += [f"{req.admin_user}@{req.ip_address}", remote_cmd]
+        code, out = await _run_step(
+            admin_args, timeout=60, env={**os.environ, "SSHPASS": req.password}
+        )
+        if code != 0 or "__KEY_INSTALLED__" not in out:
+            return {
+                "ok": False,
+                "step": "install",
+                "error": (out or "no output") + _install_hint(out, req.admin_user),
+                "steps": steps,
+            }
+        if "__CREATED_USER__" in out:
+            steps.append(f"User '{req.remote_user}' created on the server (was missing)")
+        else:
+            steps.append(f"User '{req.remote_user}' already exists on the server")
+        steps.append(f"Public key installed in ~{req.remote_user}/.ssh/authorized_keys (via {req.admin_user})")
+    else:
+        copy_args = [
+            "sshpass", "-e", "ssh-copy-id",
+            "-i", pub_path,
+            # Same rationale as the admin path: override the host's key-only
+            # ~/.ssh/config hardening for 172.15.* so password bootstrap works.
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ConnectTimeout=15",
+            "-o", "NumberOfPasswordPrompts=1",
+            "-o", "PreferredAuthentications=password",
+            "-o", "PubkeyAuthentication=no",
+            "-o", "PasswordAuthentication=yes",
+            "-o", "BatchMode=no",
+        ]
+        if req.ssh_port != 22:
+            copy_args += ["-p", str(req.ssh_port)]
+        copy_args.append(f"{req.remote_user}@{req.ip_address}")
+        code, out = await _run_step(copy_args, timeout=45, env={**os.environ, "SSHPASS": req.password})
+        if code != 0:
+            return {"ok": False, "step": "install", "error": out + _install_hint(out, req.remote_user), "steps": steps}
+        steps.append(f"Public key installed in {req.remote_user}@{req.ip_address}:~/.ssh/authorized_keys")
+
+    verify_args = ["ssh", "-i", key_path, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
+    if req.ssh_port != 22:
+        verify_args += ["-p", str(req.ssh_port)]
+    verify_args += [f"{req.remote_user}@{req.ip_address}", "true"]
+    code, out = await _run_step(verify_args, timeout=25)
+    if code != 0:
+        return {"ok": False, "step": "verify", "error": out, "steps": steps}
+    steps.append("Key authentication verified (BatchMode)")
+
+    return {"ok": True, "key_path": key_path, "public_key": public_key, "steps": steps}
 
 
 @app.get("/v1/health")
@@ -1016,6 +1456,30 @@ async def update_tool(req: ToolUpdateRequest, x_bridge_token: str | None = Heade
 
 LAUNCHER_COMMANDS = {"hermes", "claude", "codex", "agy", "pi", "opencode"}
 
+# The Servers domain's "SSH" launcher (ForgeHub frontend's buildSshCommand)
+# sends a per-server command that can't be a fixed whitelist entry like the
+# ones above -- constrained by shape instead: `ssh`, any number of a small
+# WHITELIST of auth-related `-o Key=Value` options (the password-flow uses
+# these to override the host's key-only ~/.ssh/config for one connection),
+# optional `-i <path>`, optional `-p <port>`, then `user@host`. Only those
+# fixed option names are allowed and values are limited to word/comma/dot/
+# dash chars -- no spaces or shell metacharacters -- so this still can't be
+# turned into anything but an ssh invocation (in particular, dangerous
+# options like ProxyCommand/LocalCommand are not in the whitelist).
+SSH_LAUNCHER_RE = re.compile(
+    r"^ssh"
+    r"(?: -o (?:PubkeyAuthentication|PasswordAuthentication|BatchMode|"
+    r"PreferredAuthentications|StrictHostKeyChecking|ConnectTimeout|"
+    r"NumberOfPasswordPrompts)=[\w,.-]+)*"
+    r"(?: -i [\w./_-]+)?(?: -p \d{1,5})? [\w.-]+@[\w.:-]+$"
+)
+
+
+def _is_allowed_launcher_command(command: str | None) -> bool:
+    if command is None:
+        return False
+    return command in LAUNCHER_COMMANDS or bool(SSH_LAUNCHER_RE.match(command))
+
 
 def _set_winsize(fd: int, rows: int, cols: int) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
@@ -1121,7 +1585,7 @@ async def terminal_ws(
         # when the client has mouse reporting on. Session-scoped (no -g) so it
         # doesn't change behavior for unrelated sessions on the shared host.
         _tmux("set-option", "-t", session_name, "mouse", "on")
-        if command in LAUNCHER_COMMANDS:
+        if _is_allowed_launcher_command(command):
             # Only on creation -- reattaching to an existing session must
             # never re-type the launcher, or every reconnect would relaunch
             # claude/codex/agy on top of whatever's already running.
