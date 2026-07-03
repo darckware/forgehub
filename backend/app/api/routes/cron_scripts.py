@@ -56,6 +56,8 @@ class CronJobRef(BaseModel):
     schedule_display: str | None = None
     enabled: bool
     last_status: str | None = None
+    last_run_at: str | None = None
+    last_error: str | None = None
 
 
 class ScriptOut(BaseModel):
@@ -261,6 +263,8 @@ def _build_jobs_by_script(jobs: list[dict[str, Any]]) -> dict[str, list[CronJobR
             schedule_display=(j.get("schedule") or {}).get("display") or j.get("schedule_display"),
             enabled=bool(j.get("enabled", False)),
             last_status=j.get("last_status"),
+            last_run_at=j.get("last_run_at"),
+            last_error=j.get("last_error"),
         )
         index.setdefault(script, []).append(ref)
     return index

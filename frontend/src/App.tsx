@@ -27,6 +27,7 @@ import ObsidianPage from "@/pages/obsidian";
 import FoundationPage from "@/pages/foundation";
 import CronsPage from "@/pages/crons";
 import DeployPage from "@/pages/deploy";
+import ServersPage from "@/pages/servers";
 import DatabaseLayout from "@/pages/database/DatabaseLayout";
 import DatabaseSchemaPage from "@/pages/database/SchemaPage";
 import DatabaseDiagramPage from "@/pages/database/DiagramPage";
@@ -34,6 +35,7 @@ import DatabaseQueryPage from "@/pages/database/QueryPage";
 import UsersPage from "@/pages/users";
 import ProfilesPage from "@/pages/profiles";
 import PipelineTemplatesPage from "@/pages/pipeline-templates";
+import NotificationsPage from "@/pages/notifications";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -57,6 +59,7 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="workspace" element={<WorkspacePage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="product" element={<ProductPage />} />
         <Route path="product/:id" element={<ProductDetail />} />
         <Route path="projects" element={<ProjectPage />} />
@@ -81,6 +84,7 @@ export default function App() {
         <Route path="foundation" element={<FoundationPage />} />
         <Route path="crons" element={<CronsPage />} />
         <Route path="deploy" element={<DeployPage />} />
+        <Route path="servers" element={<ServersPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="profiles" element={<ProfilesPage />} />
         <Route path="database" element={<DatabaseLayout />}>

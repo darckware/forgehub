@@ -43,9 +43,11 @@ from app.db.models.agent import (  # noqa: F401
 )
 from app.db.models.artifact import Artifact, ArtifactVersion  # noqa: F401
 from app.db.models.governance import Policy, Approval, AuditEvent  # noqa: F401
-from app.db.models.chat import ChatSession, ChatMessage  # noqa: F401
+from app.db.models.chat import ChatSession, ChatMessage, ChatArtifact, ChatSessionParticipant  # noqa: F401
 from app.db.models.toolversions import ToolVersionStatus, ToolSyncSetting  # noqa: F401
 from app.db.models.cron_script import CronScript  # noqa: F401
 from app.db.models.deploy import DeployInstallation  # noqa: F401
 from app.db.models.profile import Profile, ProfilePermission  # noqa: F401
 from app.db.models.user import User  # noqa: F401
+from app.db.models.server import Server  # noqa: F401
+from app.db.models.notification import Notification  # noqa: F401
