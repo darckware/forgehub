@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     CHAT_BRIDGE_URL: str = "http://host.docker.internal:8910"
     CHAT_BRIDGE_TOKEN: str = ""
 
+    # ForgeRouter dashboard SSO (see api/routes/forgerouter.py). URL is the
+    # backend-to-backend address; the browser reaches ForgeRouter directly
+    # via VITE_FORGEROUTER_URL on the frontend side.
+    FORGEROUTER_URL: str = "http://host.docker.internal:2100"
+    FORGEROUTER_SSO_SECRET: str = ""
+
     # Kanboard JSON-RPC integration (see app/core/kanboard_client.py). URL
     # must be reachable from inside this container -- the `kanboard`
     # hostname on the shared hermes_foundation_pg_default network, not

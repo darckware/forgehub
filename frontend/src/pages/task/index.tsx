@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { AlertCircle, ClipboardList, Filter, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, ClipboardList, Copy, Filter, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -51,6 +51,56 @@ const PRIORITY_VARIANT: Record<
   critical: "destructive",
 };
 
+const FORGEROUTER_ANTHROPIC_PROMPT = `Implement a ForgeRouter Anthropic-compatible adapter while preserving the existing OpenAI-compatible API.
+
+Context:
+- The existing ForgeRouter endpoint is OpenAI-compatible at http://localhost:2100/v1 and must keep working for Codex, Antigravity, and other OpenAI-compatible clients.
+- Claude Code does not use OpenAI /v1/chat/completions. It sends Anthropic Messages API requests to /v1/messages.
+- Claude Code should be configured with ANTHROPIC_BASE_URL=http://localhost:2100, ANTHROPIC_AUTH_TOKEN=<agent token>, and model forgerouter/auto.
+- Do not remove or rename the existing OpenAI-compatible /v1/chat/completions route.
+
+Required implementation:
+1. Add an Anthropic-compatible HTTP surface on the same ForgeRouter service:
+   - POST /v1/messages
+   - GET /v1/models if model discovery does not already return forgerouter/auto and the virtual models Claude Code should see
+2. Accept Authorization: Bearer <agent token> using the same agent-key attribution already used by /v1/chat/completions.
+3. Support at least model="forgerouter/auto" and route it through the existing ForgeRouter demand/router chain.
+4. Translate Anthropic Messages payloads into the internal OpenAI-compatible ChatCompletionRequest format used by the current router:
+   - system string or system content blocks
+   - messages[] role/content blocks
+   - max_tokens, temperature, stop_sequences
+   - stream true/false
+5. Translate the router response back to Anthropic Messages format:
+   - non-streaming: { id, type: "message", role: "assistant", model, content, stop_reason, stop_sequence, usage }
+   - streaming: Anthropic SSE event sequence with message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop
+6. Keep OpenAI-compatible behavior unchanged:
+   - http://localhost:2100/v1/chat/completions continues to accept model forgerouter/auto
+   - http://localhost:2100/v1 remains the base URL for OpenAI-compatible clients
+7. Add tests for:
+   - non-streaming /v1/messages with model forgerouter/auto
+   - streaming /v1/messages
+   - auth failure
+   - OpenAI-compatible /v1/chat/completions still works
+
+Acceptance checks:
+curl -X POST http://localhost:2100/v1/messages \\
+  -H "Authorization: Bearer <agent token>" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -H "content-type: application/json" \\
+  -d '{"model":"forgerouter/auto","max_tokens":32,"messages":[{"role":"user","content":"Reply only OK"}]}'
+
+The curl response must be valid Anthropic Messages JSON. After that, Claude Code can use:
+{
+  "model": "forgerouter/auto",
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:2100",
+    "ANTHROPIC_AUTH_TOKEN": "<agent token>",
+    "ANTHROPIC_MODEL": "forgerouter/auto",
+    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
+  }
+}
+`;
+
 export default function TaskPage() {
   const [searchParams] = useSearchParams();
   const prefilledCrId = searchParams.get("change_request_id") ?? undefined;
@@ -64,6 +114,7 @@ export default function TaskPage() {
   const [showForm, setShowForm] = useState(false);
   const [filterProjectId, setFilterProjectId] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   const visibleTasks = filterProjectId
     ? (tasks ?? []).filter((t) => t.project_id === filterProjectId)
@@ -89,6 +140,12 @@ export default function TaskPage() {
         onSuccess: () => setShowForm(false),
       }
     );
+  }
+
+  async function handleCopyForgeRouterPrompt() {
+    await navigator.clipboard.writeText(FORGEROUTER_ANTHROPIC_PROMPT);
+    setCopiedPrompt(true);
+    window.setTimeout(() => setCopiedPrompt(false), 1800);
   }
 
   return (
@@ -121,6 +178,31 @@ export default function TaskPage() {
           </Button>
         </div>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle>ForgeRouter Anthropic adapter task</CardTitle>
+            <CardDescription>
+              Viable only if ForgeRouter adds an Anthropic Messages API surface while keeping the
+              current OpenAI-compatible surface for Codex.
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void handleCopyForgeRouterPrompt()}>
+            {copiedPrompt ? (
+              <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-500" />
+            ) : (
+              <Copy className="mr-2 h-4 w-4" />
+            )}
+            {copiedPrompt ? "Copied" : "Copy prompt"}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <pre className="max-h-56 overflow-auto rounded-md border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+            {FORGEROUTER_ANTHROPIC_PROMPT}
+          </pre>
+        </CardContent>
+      </Card>
 
       {showForm && (
         <Card>
