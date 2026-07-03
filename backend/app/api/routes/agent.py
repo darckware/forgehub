@@ -137,7 +137,7 @@ async def create_agent(payload: AgentCreate, db: AsyncSession = Depends(get_db))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An agent with this name already exists",
-        )
+        ) from None
     await db.refresh(agent)
     return agent
 
@@ -342,7 +342,7 @@ async def create_skill(payload: SkillCreate, db: AsyncSession = Depends(get_db))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A skill with this name and version already exists",
-        )
+        ) from None
     await db.refresh(skill)
     return skill
 
@@ -407,7 +407,7 @@ async def update_skill(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A skill with this name and version already exists",
-        )
+        ) from None
     await db.refresh(skill)
     return skill
 
@@ -439,7 +439,7 @@ async def update_agent(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An agent with this name already exists",
-        )
+        ) from None
     await db.refresh(agent)
     return agent
 
@@ -476,7 +476,7 @@ async def create_sub_agent(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A sub-agent with this name already exists for this agent",
-        )
+        ) from None
 
     # Explicit skill grants at creation time must obey the same
     # explicit-or-inherited boundary as the dedicated endpoint.
@@ -527,7 +527,7 @@ async def update_sub_agent(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A sub-agent with this name already exists for this agent",
-        )
+        ) from None
     await db.refresh(sub_agent)
     return sub_agent
 
@@ -568,7 +568,7 @@ async def grant_agent_skill(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This skill is already granted to this agent",
-        )
+        ) from None
     await db.refresh(agent_skill)
     return agent_skill
 
@@ -654,7 +654,7 @@ async def grant_sub_agent_skill(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This skill is already granted to this sub-agent",
-        )
+        ) from None
     await db.refresh(sub_agent_skill)
     return sub_agent_skill
 
@@ -748,7 +748,7 @@ async def create_agent_capacity(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Capacity already defined for this agent; use PATCH to update it",
-        )
+        ) from None
     await db.refresh(capacity)
     return capacity
 

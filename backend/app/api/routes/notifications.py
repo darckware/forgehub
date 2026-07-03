@@ -259,7 +259,7 @@ async def mark_read(payload: MarkReadIn, db: AsyncSession = Depends(get_db)) -> 
         try:
             ids = [uuid.UUID(i) for i in payload.ids or []]
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid notification id")
+            raise HTTPException(status_code=400, detail="Invalid notification id") from None
         stmt = stmt.where(Notification.id.in_(ids))
 
     result = await db.execute(stmt)

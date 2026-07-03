@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models.product import PRODUCT_STATUSES, PRODUCT_VERSION_STATUSES, RELEASE_STATUSES
+from app.db.models.product import PRODUCT_VERSION_STATUSES, RELEASE_STATUSES
 
 # ---------------------------------------------------------------------------
 # ProductModule

@@ -35,7 +35,7 @@ async def forgerouter_sso(user: User = Depends(get_current_admin)) -> dict:
                 headers={"X-SSO-Secret": settings.FORGEROUTER_SSO_SECRET},
             )
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"ForgeRouter unreachable: {exc}")
+        raise HTTPException(status_code=502, detail=f"ForgeRouter unreachable: {exc}") from exc
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"ForgeRouter SSO error: {resp.text[:300]}")
     return resp.json()

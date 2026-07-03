@@ -671,8 +671,6 @@ async def drop_index(name: str, db: AsyncSession = Depends(get_db)):
     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
         raise HTTPException(status_code=400, detail="Invalid index name")
     # Refuse to drop PK indexes
-    pk_q = text("SELECT COUNT(*) FROM pg_indexes WHERE schemaname=:s AND indexname=:n AND indexdef LIKE '%PRIMARY KEY%'")
-    # Actually check via pg_index
     chk = text("""
         SELECT ix.indisprimary FROM pg_index ix
         JOIN pg_class i ON i.oid = ix.indexrelid

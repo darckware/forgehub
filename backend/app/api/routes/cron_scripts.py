@@ -466,7 +466,7 @@ async def update_script(
     try:
         uid = uuid.UUID(script_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid script id")
+        raise HTTPException(status_code=400, detail="Invalid script id") from None
     result = await db.execute(select(CronScript).where(CronScript.id == uid))
     row = result.scalar_one_or_none()
     if row is None:
@@ -490,7 +490,7 @@ async def delete_script(script_id: str, db: AsyncSession = Depends(get_db)) -> d
     try:
         uid = uuid.UUID(script_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid script id")
+        raise HTTPException(status_code=400, detail="Invalid script id") from None
     result = await db.execute(select(CronScript).where(CronScript.id == uid))
     row = result.scalar_one_or_none()
     if row is None:

@@ -57,7 +57,7 @@ from app.api.schemas.product import (
 from app.db.base import get_db
 from app.db.models.product import Product, ProductModule, ProductVersion, Release
 from app.db.models.project import (
-    Project, ChangeRequest, ProjectStructureNode, ProjectForgeRouterConfig,
+    Project, ChangeRequest, ProjectStructureNode,
 )
 from app.db.models.backlog import PlanningItem
 from app.db.models.task import ProjectTask, TaskExecution, TaskAssignment
@@ -134,7 +134,7 @@ async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="A product with this name already exists"
-        )
+        ) from None
 
     # Create a Kanboard project for this product, replicating the reference
     # column structure. Non-fatal: DB product is already committed.
@@ -191,7 +191,7 @@ async def update_product(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="A product with this name already exists"
-        )
+        ) from None
 
     await db.refresh(product)
     return product
@@ -468,7 +468,7 @@ async def create_product_module(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A module with this name already exists for this product",
-        )
+        ) from None
     await db.refresh(module)
     return module
 
@@ -503,7 +503,7 @@ async def update_product_module(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A module with this name already exists for this product",
-        )
+        ) from None
     await db.refresh(module)
     return module
 
@@ -550,7 +550,7 @@ async def create_product_version(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This version string already exists for this product",
-        )
+        ) from None
     await db.refresh(version)
     return version
 
@@ -610,7 +610,7 @@ async def update_product_version(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This version string already exists for this product",
-        )
+        ) from None
     await db.refresh(version)
     return version
 

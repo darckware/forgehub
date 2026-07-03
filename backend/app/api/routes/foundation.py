@@ -891,7 +891,7 @@ async def update_agent_memory(profile: str, payload: MemoryUpdateIn) -> dict[str
     try:
         memory_path.write_text(payload.content, encoding="utf-8")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to write MEMORY.md: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to write MEMORY.md: {e}") from e
 
     return {"profile": profile, "status": "updated", "path": str(memory_path)}
 
@@ -956,7 +956,7 @@ async def update_profile_file(
     try:
         path.write_text(payload.content, encoding="utf-8")
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to write {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to write {filename}: {e}") from e
     return ProfileFileOut(profile=profile.lower(), filename=filename, content=payload.content)
 
 

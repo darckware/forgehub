@@ -247,7 +247,7 @@ async def install_server_key(
                 headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
             )
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Host bridge unreachable: {exc}")
+        raise HTTPException(status_code=502, detail=f"Host bridge unreachable: {exc}") from exc
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Host bridge error: {resp.text[:300]}")
     data = resp.json()
@@ -298,7 +298,7 @@ async def read_and_store_public_key(
                 headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
             )
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Host bridge unreachable: {exc}")
+        raise HTTPException(status_code=502, detail=f"Host bridge unreachable: {exc}") from exc
     if resp.status_code == 404:
         raise HTTPException(status_code=404, detail=resp.json().get("detail", "Public key file not found on host"))
     if resp.status_code != 200:

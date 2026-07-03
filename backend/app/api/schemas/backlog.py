@@ -13,7 +13,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.backlog import (
     BUG_SEVERITIES,
-    PLANNING_ITEM_STATUSES,
     PLANNING_ITEM_TYPES,
     TRIAGE_OUTCOMES,
 )
