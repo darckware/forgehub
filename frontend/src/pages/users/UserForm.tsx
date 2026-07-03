@@ -102,7 +102,7 @@ export default function UserForm({ user, onClose }: Props) {
     <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
       {!user && (
         <div className="flex flex-col gap-1">
-          <Label>Usuário *</Label>
+          <Label>Username *</Label>
           <Input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -113,20 +113,20 @@ export default function UserForm({ user, onClose }: Props) {
       )}
 
       <div className="flex flex-col gap-1">
-        <Label>{user ? "Nova senha (opcional)" : "Senha *"}</Label>
+        <Label>{user ? "New password (optional)" : "Password *"}</Label>
         <PasswordInput
           value={password}
           onChange={setPassword}
           required={passwordRequired}
-          placeholder={user ? "deixar em branco para manter" : "••••••••"}
+          placeholder={user ? "leave blank to keep" : "••••••••"}
         />
       </div>
 
       <div className="flex flex-col gap-1">
         <Label>
-          Confirmar senha
+          Confirm password
           {!passwordRequired && !passwordFilled && (
-            <span className="ml-1 text-muted-foreground font-normal text-xs">(opcional)</span>
+            <span className="ml-1 text-muted-foreground font-normal text-xs">(optional)</span>
           )}
         </Label>
         <PasswordInput
@@ -136,18 +136,18 @@ export default function UserForm({ user, onClose }: Props) {
           placeholder="••••••••"
         />
         {confirmMismatch && (
-          <p className="text-xs text-destructive">As senhas não coincidem</p>
+          <p className="text-xs text-destructive">Passwords do not match</p>
         )}
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label>Nome completo</Label>
-        <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="João da Silva" />
+        <Label>Full name</Label>
+        <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="John Doe" />
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label>E-mail</Label>
-        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="joao@exemplo.com" />
+        <Label>Email</Label>
+        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" />
       </div>
 
       <div className="flex items-center gap-4 col-span-2">
@@ -163,7 +163,7 @@ export default function UserForm({ user, onClose }: Props) {
           />
           <span className="text-sm font-medium">Super Admin</span>
         </label>
-        <span className="text-xs text-muted-foreground">acesso total, bypassa perfis</span>
+        <span className="text-xs text-muted-foreground">full access, bypasses profiles</span>
         {user && (
           <label className="flex items-center gap-2 cursor-pointer select-none ml-4">
             <input
@@ -172,21 +172,21 @@ export default function UserForm({ user, onClose }: Props) {
               onChange={(e) => setIsActive(e.target.checked)}
               className="h-4 w-4 rounded border-border"
             />
-            <span className="text-sm">Ativo</span>
+            <span className="text-sm">Active</span>
           </label>
         )}
       </div>
 
       {!isAdmin && (
         <div className="flex flex-col gap-1 col-span-2">
-          <Label>Perfil de Acesso</Label>
+          <Label>Access Profile</Label>
           <select
             value={profileId}
             onChange={(e) => setProfileId(e.target.value)}
             className="flex h-9 w-full rounded-md border border-input px-3 py-1 text-sm shadow-sm text-foreground"
             style={{ backgroundColor: "hsl(var(--background))" }}
           >
-            <option value="">— sem perfil —</option>
+            <option value="">— no profile —</option>
             {profiles?.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
@@ -197,10 +197,10 @@ export default function UserForm({ user, onClose }: Props) {
       {error && <p className="col-span-2 text-xs text-destructive">{error.message}</p>}
 
       <div className="col-span-2 flex gap-2 justify-end">
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
         <Button type="submit" size="sm" disabled={!canSubmit} className="gap-1.5">
           {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          Salvar
+          Save
         </Button>
       </div>
     </form>

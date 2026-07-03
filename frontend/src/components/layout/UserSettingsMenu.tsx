@@ -1,0 +1,303 @@
+import { useRef, useState } from "react";
+import { Camera, Check, KeyRound, Laptop, Loader2, Moon, Settings, Sun, User as UserIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useClickOutside } from "@/hooks/useClickOutside";
+import { useTheme } from "@/lib/theme";
+import { useAuthStore } from "@/store/authStore";
+import { useUpdateMe, useChangeMyPassword } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
+
+const THEME_OPTIONS = [
+  { value: "light" as const, label: "Light", icon: Sun },
+  { value: "dark" as const, label: "Dark", icon: Moon },
+  { value: "system" as const, label: "System", icon: Laptop },
+];
+
+/** Backdrop + centered panel, same pattern as components/ui/confirm-dialog.tsx. */
+function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl">
+        <h2 className="mb-4 text-base font-semibold">{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function AccountModal({ onClose }: { onClose: () => void }) {
+  const user = useAuthStore((s) => s.user);
+  const updateMe = useUpdateMe();
+  const [fullName, setFullName] = useState(user?.full_name ?? "");
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatar_data_url ?? null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handlePickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setAvatarPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  function handleSave() {
+    updateMe.mutate(
+      { full_name: fullName.trim() || undefined, email: email.trim() || undefined, avatar_data_url: avatarPreview },
+      { onSuccess: onClose }
+    );
+  }
+
+  return (
+    <ModalShell title="Account" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="flex justify-center">
+          <button
+            type="button"
+            className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full bg-accent"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Change user photo"
+            title="Change photo"
+          >
+            {avatarPreview ? (
+              <img src={avatarPreview} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-lg font-bold uppercase text-accent-foreground">
+                {user?.username?.[0]}
+              </div>
+            )}
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+              <Camera className="h-5 w-5 text-white" />
+            </div>
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePickPhoto} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Username</label>
+          <p className="text-sm">{user?.username}</p>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Full name</label>
+          <input
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">E-mail</label>
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        {updateMe.isError && (
+          <p className="text-xs text-destructive">Could not save. Please try again.</p>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={updateMe.isPending}>
+            {updateMe.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            Save
+          </Button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const changePassword = useChangeMyPassword();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  function handleSave() {
+    setLocalError(null);
+    if (newPassword.length < 8) {
+      setLocalError("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setLocalError("Passwords do not match.");
+      return;
+    }
+    changePassword.mutate(
+      { current_password: currentPassword, new_password: newPassword },
+      { onSuccess: onClose }
+    );
+  }
+
+  return (
+    <ModalShell title="Change password" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Current password</label>
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">New password</label>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Confirm new password</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        {(localError || changePassword.isError) && (
+          <p className="text-xs text-destructive">
+            {localError ?? "Current password is incorrect."}
+          </p>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={changePassword.isPending}>
+            {changePassword.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            Save
+          </Button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+/** Gear icon + dropdown (Conta / Alterar senha / Tema) -- replaces the
+ * standalone ThemeToggle that used to sit in the sidebar header/footer,
+ * folding theme selection into this single settings menu instead.
+ *
+ * `collapsed` controls icon-only vs icon+label. `stretch` controls whether
+ * the trigger fills its container's width (the standalone rail-mode
+ * button) or sits at its own intrinsic size (embedded inline next to the
+ * username, right-aligned via the parent's flex row). */
+export function UserSettingsMenu({
+  collapsed,
+  stretch = true,
+  avatarUrl,
+  usernameInitial,
+  avatarTrigger = false,
+}: {
+  collapsed: boolean;
+  stretch?: boolean;
+  /** Rail-mode (collapsed && stretch) or avatarTrigger: shows the user's
+   * photo (or initial) as the trigger instead of the gear icon. */
+  avatarUrl?: string | null;
+  usernameInitial?: string;
+  /** Forces the avatar-photo trigger even outside rail mode -- used
+   * inline in the expanded user row, where the avatar itself opens the
+   * Conta/Senha/Tema dropdown instead of a separate gear button. */
+  avatarTrigger?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [modal, setModal] = useState<"account" | "password" | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, () => setOpen(false), open);
+  const { theme, setTheme } = useTheme();
+
+  const railMode = collapsed && stretch;
+  const showAvatar = railMode || avatarTrigger;
+
+  return (
+    <>
+      <div className={cn("relative", stretch && "w-full")} ref={containerRef}>
+        <Button
+          variant="ghost"
+          size={collapsed || avatarTrigger ? "icon" : "default"}
+          className={cn(
+            "text-muted-foreground",
+            stretch && "w-full",
+            !collapsed && !avatarTrigger && "justify-start gap-3",
+            avatarTrigger && "h-7 w-7 rounded-full p-0"
+          )}
+          aria-label="Settings"
+          title="Settings"
+          onClick={() => setOpen((v) => !v)}
+        >
+          {showAvatar ? (
+            <span
+              className={cn(
+                "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent font-bold uppercase text-accent-foreground",
+                avatarTrigger ? "h-7 w-7 text-xs" : "h-6 w-6 text-[11px]"
+              )}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                usernameInitial
+              )}
+            </span>
+          ) : (
+            <Settings className="h-4 w-4 shrink-0" />
+          )}
+          {!collapsed && !avatarTrigger && "Settings"}
+        </Button>
+        {open && (
+          <div
+            className="absolute bottom-0 left-full z-20 ml-1 w-48 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md"
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setModal("account");
+                setOpen(false);
+              }}
+            >
+              <UserIcon className="h-3.5 w-3.5" />
+              Conta
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setModal("password");
+                setOpen(false);
+              }}
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              Alterar senha
+            </button>
+            <div className="my-1 border-t border-border" />
+            <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Tema
+            </p>
+            {THEME_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                onClick={() => setTheme(opt.value)}
+              >
+                <opt.icon className="h-3.5 w-3.5" />
+                <span className="flex-1">{opt.label}</span>
+                {theme === opt.value && <Check className="h-3.5 w-3.5" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {modal === "account" && <AccountModal onClose={() => setModal(null)} />}
+      {modal === "password" && <ChangePasswordModal onClose={() => setModal(null)} />}
+    </>
+  );
+}

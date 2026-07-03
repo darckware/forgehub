@@ -28,6 +28,7 @@ class UserOut(BaseModel):
     username: str
     email: str | None
     full_name: str | None
+    avatar_data_url: str | None
     is_active: bool
     is_admin: bool
     profile_id: uuid.UUID | None
@@ -35,6 +36,21 @@ class UserOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SelfUserUpdate(BaseModel):
+    """Self-service profile edit (GET/PATCH /users/me) -- deliberately
+    excludes password/is_admin/is_active/profile_id, which stay behind
+    get_current_admin on the /{user_id} routes."""
+
+    email: str | None = None
+    full_name: str | None = None
+    avatar_data_url: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 # Flat permissions map returned on login / GET /auth/me

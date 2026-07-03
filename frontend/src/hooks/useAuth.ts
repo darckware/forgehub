@@ -23,10 +23,12 @@ export function useLogin() {
       const form = new URLSearchParams();
       form.append("username", username);
       form.append("password", password);
-      const res = await fetch(
-        `${(import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000"}/api/v1/auth/token`,
-        { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString() }
-      );
+      const base = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
+      const res = await fetch(`${base}/api/v1/auth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { detail?: string }).detail ?? "Login failed");
@@ -70,6 +72,25 @@ export function useDeleteUser() {
   return useMutation<void, Error, string>({
     mutationFn: (id) => apiClient.delete(`/api/v1/users/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
+  });
+}
+
+// ---- Self-service (current user) ------------------------------------------
+
+/** Profile edit for the logged-in user (name/email/avatar) -- unlike
+ * useUpdateUser, this doesn't require admin rights, and can't touch
+ * password/is_admin/is_active/profile_id (see backend's SelfUserUpdate). */
+export function useUpdateMe() {
+  const updateUser = useAuthStore((s) => s.updateUser);
+  return useMutation<AuthUser, Error, Partial<{ email: string; full_name: string; avatar_data_url: string | null }>>({
+    mutationFn: (body) => apiClient.patch("/api/v1/users/me", body),
+    onSuccess: (user) => updateUser(user),
+  });
+}
+
+export function useChangeMyPassword() {
+  return useMutation<void, Error, { current_password: string; new_password: string }>({
+    mutationFn: (body) => apiClient.post("/api/v1/users/me/change-password", body),
   });
 }
 

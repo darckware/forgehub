@@ -6,6 +6,7 @@ export interface AuthUser {
   username: string;
   email: string | null;
   full_name: string | null;
+  avatar_data_url: string | null;
   is_active: boolean;
   is_admin: boolean;
   profile_id: string | null;
@@ -25,6 +26,7 @@ interface AuthState {
   user: AuthUser | null;
   permissions: PermissionMap;
   setAuth: (token: string, user: AuthUser, permissions: PermissionMap) => void;
+  updateUser: (patch: Partial<AuthUser>) => void;
   clearAuth: () => void;
 }
 
@@ -35,6 +37,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       permissions: {},
       setAuth: (token, user, permissions) => set({ token, user, permissions }),
+      updateUser: (patch) => set((s) => (s.user ? { user: { ...s.user, ...patch } } : s)),
       clearAuth: () => set({ token: null, user: null, permissions: {} }),
     }),
     { name: "forgehub-auth" }
