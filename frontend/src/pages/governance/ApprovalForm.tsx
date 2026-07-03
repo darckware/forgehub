@@ -144,7 +144,7 @@ export function ApprovalForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="approval_type">Tipo de aprovação</Label>
+          <Label htmlFor="approval_type">Approval type</Label>
           <Input
             id="approval_type"
             placeholder="ex: gate_approval, release_approval, security_review"
@@ -156,8 +156,8 @@ export function ApprovalForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="requested_by">Solicitado por</Label>
-          <Input id="requested_by" placeholder="agente ou usuário" {...register("requested_by")} />
+          <Label htmlFor="requested_by">Requested by</Label>
+          <Input id="requested_by" placeholder="agent or user" {...register("requested_by")} />
           {errors.requested_by && (
             <p className="text-sm text-destructive">{errors.requested_by.message}</p>
           )}
@@ -165,9 +165,9 @@ export function ApprovalForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="policy_id">Política (opcional)</Label>
+        <Label htmlFor="policy_id">Policy (optional)</Label>
         <Select id="policy_id" {...register("policy_id")}>
-          <option value="">Sem política vinculada</option>
+          <option value="">No policy linked</option>
           {(policies ?? []).map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -180,10 +180,10 @@ export function ApprovalForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="comments">Comentários</Label>
+        <Label htmlFor="comments">Comments</Label>
         <Textarea
           id="comments"
-          placeholder="Justificativa, condições ou contexto"
+          placeholder="Justification, conditions or context"
           {...register("comments")}
         />
         {errors.comments && (
@@ -194,7 +194,7 @@ export function ApprovalForm({
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-            Cancelar
+            Cancel
           </Button>
         )}
         <Button type="submit" disabled={isSubmitting}>

@@ -16,6 +16,7 @@ export const cronJobRefSchema = z.object({
   schedule_display: z.string().nullable(),
   enabled: z.boolean(),
   last_status: z.string().nullable(),
+  last_run_at: z.string().nullable(),
   last_error: z.string().nullable(),
 });
 

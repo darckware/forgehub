@@ -38,7 +38,7 @@ function ValidationIcon({ state, error }: { state: ValidationState; error: strin
   if (state === "checking")
     return <span title="Validando sintaxe…"><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" /></span>;
   if (state === "valid")
-    return <span title="Sintaxe válida"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" /></span>;
+    return <span title="Valid syntax"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" /></span>;
   if (state === "invalid")
     return <span title={error ?? "Erro de sintaxe"}><XCircle className="h-3.5 w-3.5 text-destructive shrink-0" /></span>;
   return null;
@@ -156,7 +156,7 @@ export function ResultsTable({ result }: { result: QueryResult }) {
       </table>
 
       {result.rows.length === 0 && (
-        <div className="py-12 text-center text-xs text-muted-foreground">Nenhum resultado retornado.</div>
+        <div className="py-12 text-center text-xs text-muted-foreground">No results returned.</div>
       )}
     </>
   );

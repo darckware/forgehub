@@ -873,9 +873,9 @@ export default function ProjectDetailPage() {
 
       <ConfirmDialog
         open={pendingDeletePlanningId !== null}
-        title="Excluir planning item?"
-        description="Isso irá excluir permanentemente o planning item e todas as suas tarefas. Esta ação não pode ser desfeita."
-        confirmLabel="Excluir"
+        title="Delete planning item?"
+        description="This will permanently delete the planning item and all of its tasks. This action cannot be undone."
+        confirmLabel="Delete"
         onConfirm={() => {
           if (pendingDeletePlanningId)
             deletePlanningItem.mutate({ id: pendingDeletePlanningId, cascadeTasks: true });
@@ -886,9 +886,9 @@ export default function ProjectDetailPage() {
 
       <ConfirmDialog
         open={pendingDeleteCrId !== null}
-        title="Excluir change request?"
-        description="Esta change request será excluída permanentemente. Esta ação não pode ser desfeita."
-        confirmLabel="Excluir"
+        title="Delete change request?"
+        description="This change request will be permanently deleted. This action cannot be undone."
+        confirmLabel="Delete"
         onConfirm={() => {
           if (pendingDeleteCrId) deleteChangeRequest.mutate(pendingDeleteCrId);
           setPendingDeleteCrId(null);

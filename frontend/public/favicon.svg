@@ -1,7 +1,7 @@
 <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path
-    d="M16 22 L42 22 L54 25 L42 28 L38 28 L34 36 L44 44 L14 44 L24 36 L20 28 L16 28 Z"
-    fill="#1e293b"
-  />
+  <polygon points="8,29 24,25 24,35" fill="#4f46e5" />
+  <rect x="22" y="24" width="28" height="11" rx="1.5" fill="#4f46e5" />
+  <rect x="29" y="35" width="10" height="9" fill="#4f46e5" />
+  <polygon points="23,44 45,44 51,53 17,53" fill="#4f46e5" />
   <path d="M52 11 L54 16 L59 18 L54 20 L52 25 L50 20 L45 18 L50 16 Z" fill="#f59e0b" />
 </svg>

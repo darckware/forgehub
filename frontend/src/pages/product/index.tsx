@@ -78,12 +78,12 @@ function EditProductRow({ product, onClose }: EditRowProps) {
         <form onSubmit={handleSubmit((v) => update.mutate(v))} className="space-y-3">
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Nome</Label>
+              <Label className="text-xs">Name</Label>
               <Input className="h-8 text-sm" {...register("name")} />
               {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Descrição</Label>
+              <Label className="text-xs">Description</Label>
               <Input className="h-8 text-sm" {...register("description")} />
             </div>
             <div className="space-y-1">
@@ -96,15 +96,15 @@ function EditProductRow({ product, onClose }: EditRowProps) {
             </div>
           </div>
           {update.isError && (
-            <p className="text-xs text-destructive">Falha ao salvar. Tente novamente.</p>
+            <p className="text-xs text-destructive">Failed to save. Please try again.</p>
           )}
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={isSubmitting || update.isPending}>
               {(isSubmitting || update.isPending) && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-              Salvar
+              Save
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={onClose}>
-              Cancelar
+              Cancel
             </Button>
           </div>
         </form>
@@ -143,9 +143,9 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
               <Upload className="h-5 w-5 text-blue-500" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">Restaurar backup</h2>
+              <h2 className="text-base font-semibold">Restore backup</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Selecione o que será restaurado a partir do arquivo ZIP.
+                Select what will be restored from the ZIP file.
               </p>
             </div>
           </div>
@@ -154,28 +154,28 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
               <input type="checkbox" checked={restoreDb} onChange={(e) => setRestoreDb(e.target.checked)} className="h-4 w-4" />
               <Database className="h-4 w-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">Dados do banco</p>
-                <p className="text-xs text-muted-foreground">Product, versões, projetos, tarefas, pipelines e planejamentos</p>
+                <p className="text-sm font-medium">Database data</p>
+                <p className="text-xs text-muted-foreground">Product, versions, projects, tasks, pipelines and planning items</p>
               </div>
             </label>
             <label className="flex items-center gap-3 rounded-lg border border-border p-3 cursor-pointer hover:bg-accent/50">
               <input type="checkbox" checked={restoreFiles} onChange={(e) => setRestoreFiles(e.target.checked)} className="h-4 w-4" />
               <FolderOpen className="h-4 w-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">Pasta do projeto</p>
-                <p className="text-xs text-muted-foreground">Arquivos e pastas do working_directory_path de cada projeto</p>
+                <p className="text-sm font-medium">Project folder</p>
+                <p className="text-xs text-muted-foreground">Files and folders from each project's working_directory_path</p>
               </div>
             </label>
           </div>
           <div className="flex justify-end gap-3 pt-1">
-            <Button variant="outline" onClick={onClose} className="min-w-[88px]">Cancelar</Button>
+            <Button variant="outline" onClick={onClose} className="min-w-[88px]">Cancel</Button>
             <Button
               onClick={() => onConfirm(restoreDb, restoreFiles)}
               disabled={loading || (!restoreDb && !restoreFiles)}
               className="min-w-[88px]"
             >
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Restaurar
+              Restore
             </Button>
           </div>
         </div>
@@ -429,7 +429,7 @@ export default function ProductPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Editar produto"
+                            title="Edit product"
                             onClick={() =>
                               setEditingId(editingId === product.id ? null : product.id)
                             }
@@ -440,7 +440,7 @@ export default function ProductPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Backup (exportar JSON)"
+                            title="Backup (export JSON)"
                             disabled={backupLoading === product.id}
                             onClick={() => handleBackup(product)}
                           >
@@ -453,7 +453,7 @@ export default function ProductPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Excluir produto"
+                            title="Delete product"
                             disabled={deleteProduct.isPending}
                             onClick={() => setPendingDeleteId(product.id)}
                           >
@@ -479,9 +479,9 @@ export default function ProductPage() {
 
       <ConfirmDialog
         open={pendingDeleteId !== null}
-        title={`Excluir "${pendingDeleteProduct?.name ?? "produto"}"`}
-        description="Esta ação é irreversível. Serão excluídos em cascata todos os projetos, pipelines, planejamentos, tarefas, execuções, artefatos e registros de governança vinculados a este produto."
-        confirmLabel="Excluir tudo"
+        title={`Delete "${pendingDeleteProduct?.name ?? "product"}"`}
+        description="This action is irreversible. All projects, pipelines, planning items, tasks, executions, artifacts and governance records linked to this product will be cascade-deleted."
+        confirmLabel="Delete all"
         onConfirm={() => {
           if (pendingDeleteId) deleteProduct.mutate(pendingDeleteId);
           setPendingDeleteId(null);

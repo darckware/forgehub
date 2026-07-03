@@ -64,8 +64,6 @@ services:
       context: ./frontend
     container_name: forgehub-frontend
     restart: unless-stopped
-    environment:
-      VITE_API_URL: http://localhost:8000
     ports:
       - "4173:4173"
     depends_on:

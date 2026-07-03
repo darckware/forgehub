@@ -127,7 +127,7 @@ function LogsModal({
           <div className="flex items-center gap-2">
             <ScrollText className="h-4 w-4 text-blue-500" />
             <span className="font-semibold text-sm">{containerName}</span>
-            <span className="text-xs text-muted-foreground">— últimas {lines} linhas</span>
+            <span className="text-xs text-muted-foreground">— last {lines} lines</span>
           </div>
           <div className="flex items-center gap-2">
             <select
@@ -136,7 +136,7 @@ function LogsModal({
               onChange={(e) => setLines(Number(e.target.value))}
             >
               {[50, 100, 200, 500, 1000].map((n) => (
-                <option key={n} value={n}>{n} linhas</option>
+                <option key={n} value={n}>{n} lines</option>
               ))}
             </select>
             <Button size="sm" variant="ghost" onClick={() => refetch()}>
@@ -152,7 +152,7 @@ function LogsModal({
           className="flex-1 overflow-auto p-4 text-xs font-mono text-foreground/90 bg-black/20 rounded-b-xl whitespace-pre-wrap break-all"
           style={{ minHeight: "300px" }}
         >
-          {isLoading ? "Carregando logs..." : data?.logs ?? "Sem logs disponíveis."}
+          {isLoading ? "Loading logs..." : data?.logs ?? "No logs available."}
         </pre>
       </div>
     </div>
@@ -267,7 +267,7 @@ function InstallationForm({
       {/* Name + group row */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">Nome *</Label>
+          <Label className="text-xs">Name *</Label>
           <Input
             value={form.name}
             onChange={(e) => f("name", e.target.value)}
@@ -277,11 +277,11 @@ function InstallationForm({
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Grupo</Label>
+          <Label className="text-xs">Group</Label>
           <Input
             value={form.group_name ?? ""}
             onChange={(e) => f("group_name", e.target.value)}
-            placeholder="ForgeHub, Infraestrutura..."
+            placeholder="ForgeHub, Infrastructure..."
             list="groups-list"
             className="h-8 text-sm"
           />
@@ -289,11 +289,11 @@ function InstallationForm({
       </div>
 
       <div className="space-y-1">
-        <Label className="text-xs">Descrição</Label>
+        <Label className="text-xs">Description</Label>
         <Input
           value={form.description ?? ""}
           onChange={(e) => f("description", e.target.value)}
-          placeholder="Breve descrição do serviço"
+          placeholder="Brief service description"
           className="h-8 text-sm"
         />
       </div>
@@ -301,13 +301,13 @@ function InstallationForm({
       {/* Container + order */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">Container Docker</Label>
+          <Label className="text-xs">Docker Container</Label>
           <select
             className="h-8 w-full rounded-md border border-border bg-background px-3 text-sm"
             value={form.container_name ?? ""}
             onChange={(e) => handleContainerChange(e.target.value)}
           >
-            <option value="">— nenhum —</option>
+            <option value="">— none —</option>
             {containers.map((c) => (
               <option key={c.name} value={c.name}>
                 {c.name}
@@ -316,7 +316,7 @@ function InstallationForm({
           </select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Ordem</Label>
+          <Label className="text-xs">Order</Label>
           <Input
             type="number"
             value={form.order_index}
@@ -328,18 +328,18 @@ function InstallationForm({
 
       {/* Restart command */}
       <div className="space-y-1">
-        <Label className="text-xs">Comando de restart</Label>
+        <Label className="text-xs">Restart command</Label>
         <Input
           value={form.restart_command ?? ""}
           onChange={(e) => f("restart_command", e.target.value)}
-          placeholder="docker restart nome-container"
+          placeholder="docker restart container-name"
           className="h-8 text-sm font-mono"
         />
       </div>
 
       {/* Compose file */}
       <div className="space-y-1">
-        <Label className="text-xs">Caminho docker-compose.yml</Label>
+        <Label className="text-xs">docker-compose.yml path</Label>
         <Input
           value={form.compose_file ?? ""}
           onChange={(e) => f("compose_file", e.target.value)}
@@ -350,13 +350,13 @@ function InstallationForm({
 
       {/* Product association */}
       <div className="space-y-1">
-        <Label className="text-xs">Produto ForgeHub (opcional)</Label>
+        <Label className="text-xs">ForgeHub Product (optional)</Label>
         <select
           className="h-8 w-full rounded-md border border-border bg-background px-3 text-sm"
           value={form.product_id ?? ""}
           onChange={(e) => f("product_id", e.target.value || null)}
         >
-          <option value="">— nenhum —</option>
+          <option value="">— none —</option>
           {products.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
@@ -365,7 +365,7 @@ function InstallationForm({
 
       {/* Ports */}
       <div className="space-y-1">
-        <Label className="text-xs">Portas expostas</Label>
+        <Label className="text-xs">Exposed ports</Label>
         <div className="flex gap-2">
           <Input
             value={portInput}
@@ -430,11 +430,11 @@ function InstallationForm({
 
       {/* Notes */}
       <div className="space-y-1">
-        <Label className="text-xs">Notas</Label>
+        <Label className="text-xs">Notes</Label>
         <Textarea
           value={form.notes ?? ""}
           onChange={(e) => f("notes", e.target.value)}
-          placeholder="Observações, credenciais, referências..."
+          placeholder="Notes, credentials, references..."
           rows={2}
           className="text-sm resize-none"
         />
@@ -442,11 +442,11 @@ function InstallationForm({
 
       <div className="flex justify-end gap-2 pt-1">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-          Cancelar
+          Cancel
         </Button>
         <Button type="submit" size="sm" disabled={isSaving}>
           {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-          {initial ? "Salvar" : "Cadastrar"}
+          {initial ? "Save" : "Register"}
         </Button>
       </div>
     </form>
@@ -551,7 +551,7 @@ function InstallCard({
               className="h-7 w-7 p-0"
               onClick={onRestart}
               disabled={restarting}
-              title="Reiniciar container"
+              title="Restart container"
             >
               {restarting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -560,10 +560,10 @@ function InstallCard({
               )}
             </Button>
           )}
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit} title="Editar">
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit} title="Edit">
             <Pencil className="h-3.5 w-3.5" />
           </Button>
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={onDelete} title="Remover">
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={onDelete} title="Remove">
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -668,7 +668,7 @@ function LiveContainersTab({ containers, onRegister }: { containers: DockerConta
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
         <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
         <div className="text-sm">
-          <p className="font-medium">Host-bridge não respondeu</p>
+          <p className="font-medium">Host-bridge did not respond</p>
           <p className="text-muted-foreground text-xs mt-1">
             Reinicie o host-bridge para ativar o controle Docker ao vivo. Execute no terminal:
           </p>
@@ -685,12 +685,12 @@ function LiveContainersTab({ containers, onRegister }: { containers: DockerConta
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">{containers.length} container(s) no host</p>
         <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Atualizar
+          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
         </Button>
       </div>
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" /> Carregando containers...
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading containers...
         </div>
       ) : (
         <div className="space-y-1">
@@ -729,7 +729,7 @@ function VolumesTab() {
     return (
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
         <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-        <p className="text-sm text-muted-foreground">Host-bridge offline — volumes indisponíveis.</p>
+        <p className="text-sm text-muted-foreground">Host-bridge offline — volumes unavailable.</p>
       </div>
     );
   }
@@ -739,15 +739,15 @@ function VolumesTab() {
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">{volumes.length} volume(s)</p>
         <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Atualizar
+          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
         </Button>
       </div>
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" /> Carregando volumes...
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading volumes...
         </div>
       ) : volumes.length === 0 ? (
-        <div className="py-12 text-center text-sm text-muted-foreground">Nenhum volume encontrado.</div>
+        <div className="py-12 text-center text-sm text-muted-foreground">No volumes found.</div>
       ) : (
         <div className="rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm">
@@ -809,7 +809,7 @@ function NetworksTab() {
     return (
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
         <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-        <p className="text-sm text-muted-foreground">Host-bridge offline — networks indisponíveis.</p>
+        <p className="text-sm text-muted-foreground">Host-bridge offline — networks unavailable.</p>
       </div>
     );
   }
@@ -827,12 +827,12 @@ function NetworksTab() {
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">{networks.length} network(s)</p>
         <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Atualizar
+          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
         </Button>
       </div>
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" /> Carregando networks...
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading networks...
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -966,7 +966,7 @@ export default function DeployPage() {
       setDeletingId(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`Erro ao remover instalação: ${msg}`);
+      alert(`Error removing installation: ${msg}`);
       setDeletingId(null);
     }
   };
@@ -1007,7 +1007,7 @@ export default function DeployPage() {
             <Server className="h-5 w-5 text-blue-500" /> Deploy Control
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Monitoramento e controle das instalações Docker
+            Monitoring and control of Docker installations
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1022,7 +1022,7 @@ export default function DeployPage() {
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               {syncResult.created > 0 && <span>{syncResult.created} criado(s)</span>}
               {syncResult.updated > 0 && <span>{syncResult.updated} atualizado(s)</span>}
-              {syncResult.created === 0 && syncResult.updated === 0 && <span>Cadastro já atualizado</span>}
+              {syncResult.created === 0 && syncResult.updated === 0 && <span>Registry already up to date</span>}
               <button type="button" onClick={() => setSyncResult(null)} className="ml-1 opacity-60 hover:opacity-100">
                 <X className="h-3 w-3" />
               </button>
@@ -1059,7 +1059,7 @@ export default function DeployPage() {
               setShowForm(true);
             }}
           >
-            <Plus className="h-3.5 w-3.5 mr-1" /> Nova Instalação
+            <Plus className="h-3.5 w-3.5 mr-1" /> New Installation
           </Button>
         </div>
       </div>
@@ -1067,7 +1067,7 @@ export default function DeployPage() {
       {/* Summary stats — clickable cards navigate to the corresponding tab */}
       <div className="grid grid-cols-7 gap-3">
         {[
-          { label: "Instalações", value: installations.length, icon: Zap, color: "text-sky-500", tab: "installations", offline: false },
+          { label: "Installations", value: installations.length, icon: Zap, color: "text-sky-500", tab: "installations", offline: false },
           { label: "Containers", value: bridgeOffline ? null : containers.length, icon: Box, color: "text-blue-500", tab: "live", offline: bridgeOffline },
           { label: "Rodando", value: bridgeOffline ? null : containers.filter((c) => c.state === "running").length, icon: Activity, color: "text-emerald-500", tab: "live", offline: bridgeOffline },
           { label: "Healthy", value: bridgeOffline ? null : containers.filter((c) => c.health === "healthy").length, icon: CheckCircle2, color: "text-emerald-600", tab: "live", offline: bridgeOffline },
@@ -1099,7 +1099,7 @@ export default function DeployPage() {
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2.5 flex items-center gap-3">
           <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
           <p className="text-sm text-muted-foreground flex-1">
-            Host-bridge offline — dados Docker indisponíveis. Reinicie com:
+            Host-bridge offline — Docker data unavailable. Restart with:
           </p>
           <code className="text-[10px] bg-muted rounded px-2 py-1 font-mono text-foreground select-all">
             kill $(pgrep -f host-bridge); cd /root/project/forgehub/host-bridge && source /root/project/forgehub/.env && nohup /usr/local/lib/hermes-agent/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8910 &gt; /tmp/host-bridge.log 2&gt;&1 &amp;
@@ -1116,14 +1116,14 @@ export default function DeployPage() {
             <div className="flex-1 min-w-0 overflow-y-auto space-y-4">
               {loadingInstall ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
                 </div>
               ) : installations.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 py-16 text-center">
                   <Server className="h-10 w-10 text-muted-foreground/30" />
-                  <p className="text-sm text-muted-foreground">Nenhuma instalação cadastrada.</p>
+                  <p className="text-sm text-muted-foreground">No installations registered.</p>
                   <p className="text-xs text-muted-foreground">
-                    Use "Nova Instalação" ou registre diretamente da aba Live Docker.
+                    Use "New Installation" or register directly from the Live Docker tab.
                   </p>
                 </div>
               ) : (
@@ -1156,7 +1156,7 @@ export default function DeployPage() {
               <div className="w-96 shrink-0 rounded-xl border border-border bg-card p-5 overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="font-semibold text-sm">
-                    {editingId ? "Editar Instalação" : "Nova Instalação"}
+                    {editingId ? "Edit Installation" : "New Installation"}
                   </h2>
                   <button
                     type="button"
@@ -1203,9 +1203,9 @@ export default function DeployPage() {
 
       <ConfirmDialog
         open={!!deletingId}
-        title="Remover instalação"
-        description={`Remover "${deletingInst?.name}" do registro? O container Docker não será afetado.`}
-        confirmLabel="Remover"
+        title="Remove installation"
+        description={`Remove "${deletingInst?.name}" from the registry? The Docker container will not be affected.`}
+        confirmLabel="Remove"
         loading={deleteMut.isPending}
         onConfirm={handleDelete}
         onCancel={() => setDeletingId(null)}
@@ -1213,10 +1213,10 @@ export default function DeployPage() {
 
       <ConfirmDialog
         open={!!confirmRestart}
-        title="Reiniciar container"
-        description={`Reiniciar o container "${confirmRestart}"? O serviço ficará offline por alguns segundos.`}
-        confirmLabel="Reiniciar"
-        cancelLabel="Cancelar"
+        title="Restart container"
+        description={`Restart container "${confirmRestart}"? The service will be offline for a few seconds.`}
+        confirmLabel="Restart"
+        cancelLabel="Cancel"
         variant="default"
         onConfirm={() => confirmRestart && handleRestart(confirmRestart)}
         onCancel={() => setConfirmRestart(null)}

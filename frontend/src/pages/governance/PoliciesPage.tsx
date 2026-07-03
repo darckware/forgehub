@@ -36,11 +36,11 @@ import { useArtifacts } from "@/hooks/useArtifact";
 import { useTasksByPolicy } from "@/hooks/useTask";
 
 const policyFormSchema = z.object({
-  name: z.string().min(1, "Nome obrigatório").max(200),
+  name: z.string().min(1, "Name is required").max(200),
   description: z.string().max(2000).optional().or(z.literal("")),
-  policy_type: z.string().min(1, "Tipo obrigatório").max(100),
+  policy_type: z.string().min(1, "Type is required").max(100),
   is_active: z.boolean().default(true),
-  entity_id: z.string().min(1, "Artefato obrigatório"),
+  entity_id: z.string().min(1, "Artifact is required"),
 });
 
 type PolicyFormValues = z.infer<typeof policyFormSchema>;
@@ -50,7 +50,7 @@ function PolicyForm({
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Salvar",
+  submitLabel = "Save",
 }: {
   defaultValues?: Partial<PolicyFormValues>;
   onSubmit: (v: PolicyFormValues) => void;
@@ -69,25 +69,25 @@ function PolicyForm({
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Nome</Label>
-          <Input placeholder="ex: Aprovação de Deploy em Produção" {...register("name")} />
+          <Label>Name</Label>
+          <Input placeholder="e.g. Production Deploy Approval" {...register("name")} />
           {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
         </div>
         <div className="space-y-2">
-          <Label>Tipo</Label>
+          <Label>Type</Label>
           <Input placeholder="ex: release_approval, security_review" {...register("policy_type")} />
           {errors.policy_type && <p className="text-xs text-destructive">{errors.policy_type.message}</p>}
         </div>
       </div>
 
       <div className="space-y-2">
-        <Label>Artefato vinculado</Label>
+        <Label>Linked artifact</Label>
         <Controller
           control={control}
           name="entity_id"
           render={({ field }) => (
             <Select value={field.value} onChange={(e) => field.onChange(e.target.value)}>
-              <option value="">Selecione um artefato…</option>
+              <option value="">Select an artifact…</option>
               {(artifacts ?? []).map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -100,9 +100,9 @@ function PolicyForm({
       </div>
 
       <div className="space-y-2">
-        <Label>Descrição</Label>
+        <Label>Description</Label>
         <Textarea
-          placeholder="Descreva o critério ou regra desta política"
+          placeholder="Describe the criteria or rule for this policy"
           rows={3}
           {...register("description")}
         />
@@ -110,12 +110,12 @@ function PolicyForm({
 
       <div className="flex items-center gap-2">
         <input type="checkbox" id="is_active" {...register("is_active")} className="rounded" />
-        <Label htmlFor="is_active" className="cursor-pointer">Ativa</Label>
+        <Label htmlFor="is_active" className="cursor-pointer">Active</Label>
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
         <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-          Cancelar
+          Cancel
         </Button>
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -154,28 +154,28 @@ export default function PoliciesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Políticas de Governança</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Governance Policies</h1>
           <p className="text-muted-foreground">
-            Regras de negócio vinculadas a artefatos — definem critérios de aprovação para transições controladas.
+            Business rules linked to artifacts — define approval criteria for controlled transitions.
           </p>
         </div>
         <Button onClick={() => { setShowCreate(true); setEditingId(null); }}>
-          <Plus className="mr-2 h-4 w-4" /> Nova política
+          <Plus className="mr-2 h-4 w-4" /> New policy
         </Button>
       </div>
 
       {showCreate && (
         <Card>
           <CardHeader>
-            <CardTitle>Nova política</CardTitle>
-            <CardDescription>Vincula uma regra de aprovação a um artefato específico.</CardDescription>
+            <CardTitle>New policy</CardTitle>
+            <CardDescription>Links an approval rule to a specific artifact.</CardDescription>
           </CardHeader>
           <CardContent>
             <PolicyForm
               onSubmit={handleCreate}
               onCancel={() => setShowCreate(false)}
               isSubmitting={createPolicy.isPending}
-              submitLabel="Criar política"
+              submitLabel="Create policy"
             />
           </CardContent>
         </Card>
@@ -183,14 +183,14 @@ export default function PoliciesPage() {
 
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" /> Carregando…
+          <Loader2 className="h-5 w-5 animate-spin" /> Loading…
         </div>
       )}
 
       {isError && (
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
-            <AlertCircle className="h-5 w-5" /> Falha ao carregar políticas.
+            <AlertCircle className="h-5 w-5" /> Failed to load policies.
           </CardContent>
         </Card>
       )}
@@ -199,10 +199,10 @@ export default function PoliciesPage() {
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <ShieldCheck className="h-10 w-10 text-muted-foreground" />
-            <p className="font-medium">Nenhuma política cadastrada</p>
-            <p className="text-sm text-muted-foreground">Crie a primeira política para vincular a aprovações.</p>
+            <p className="font-medium">No policies registered</p>
+            <p className="text-sm text-muted-foreground">Create the first policy to link to approvals.</p>
             <Button onClick={() => setShowCreate(true)}>
-              <Plus className="mr-2 h-4 w-4" /> Nova política
+              <Plus className="mr-2 h-4 w-4" /> New policy
             </Button>
           </CardContent>
         </Card>
@@ -214,13 +214,13 @@ export default function PoliciesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Artefato</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Artifact</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Descrição</TableHead>
+                  <TableHead>Description</TableHead>
                   <TableHead>Tasks</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -238,7 +238,7 @@ export default function PoliciesPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant={policy.is_active ? "success" : "secondary"}>
-                          {policy.is_active ? "Ativa" : "Inativa"}
+                          {policy.is_active ? "Active" : "Inactive"}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground max-w-sm truncate">
@@ -252,7 +252,7 @@ export default function PoliciesPage() {
                           onClick={() => setExpandedId(expandedId === policy.id ? null : policy.id)}
                         >
                           <CheckSquare className="h-3.5 w-3.5" />
-                          {expandedId === policy.id ? "Ocultar" : "Ver tasks"}
+                          {expandedId === policy.id ? "Hide" : "View tasks"}
                         </Button>
                       </TableCell>
                       <TableCell className="text-right">
@@ -269,7 +269,7 @@ export default function PoliciesPage() {
                             variant="ghost"
                             className="text-destructive hover:text-destructive"
                             onClick={() => {
-                              if (confirm(`Excluir política "${policy.name}"?`))
+                              if (confirm(`Delete policy "${policy.name}"?`))
                                 deletePolicy.mutate(policy.id);
                             }}
                             disabled={deletePolicy.isPending}
@@ -312,16 +312,16 @@ function PolicyTasksRow({ policyId }: { policyId: string }) {
 
   if (isLoading) return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-      <Loader2 className="h-3 w-3 animate-spin" /> Carregando tasks…
+      <Loader2 className="h-3 w-3 animate-spin" /> Loading tasks…
     </div>
   );
   if (!tasks || tasks.length === 0) return (
-    <p className="text-xs text-muted-foreground py-2 italic">Nenhuma task vinculada a esta política.</p>
+    <p className="text-xs text-muted-foreground py-2 italic">No tasks linked to this policy.</p>
   );
 
   return (
     <div className="space-y-1 py-1">
-      <p className="text-xs font-semibold text-muted-foreground mb-2">Tasks implementando esta política</p>
+      <p className="text-xs font-semibold text-muted-foreground mb-2">Tasks implementing this policy</p>
       <div className="space-y-1">
         {tasks.map((t) => (
           <div key={t.id} className="flex items-center gap-2 text-sm">
@@ -362,7 +362,7 @@ function EditPolicyRow({ policy, onDone }: { policy: Policy; onDone: () => void 
       onSubmit={handleUpdate}
       onCancel={onDone}
       isSubmitting={updatePolicy.isPending}
-      submitLabel="Salvar alterações"
+      submitLabel="Save changes"
     />
   );
 }

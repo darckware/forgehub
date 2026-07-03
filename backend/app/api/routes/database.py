@@ -405,7 +405,7 @@ async def validate_query(payload: ValidateRequest) -> ValidateResult:
     if not sql:
         return ValidateResult(valid=False, error="Query vazia")
     if not _ALLOWED_STARTS.match(sql):
-        return ValidateResult(valid=False, error="Somente SELECT, WITH e EXPLAIN são permitidos")
+        return ValidateResult(valid=False, error="Only SELECT, WITH and EXPLAIN are allowed")
 
     factory = _get_session_factory(payload.instance, payload.db)
     # If the user already typed EXPLAIN, run as-is; otherwise prepend it.

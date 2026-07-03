@@ -162,7 +162,7 @@ export function ToolVersionsCard() {
 
               {/* Inline error / update output panel */}
               {isExpanded && (errorText || updateOut) && (
-                <div className="mx-2 mb-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+                <div className="mx-2 mb-2 max-h-64 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
                   {updateOut && (
                     <>
                       {updateOut.output && (

@@ -91,7 +91,7 @@ function SqlEditorModal({
         <div className="flex-1 min-h-0 overflow-hidden p-4 flex flex-col gap-3">
           <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 flex items-center gap-2">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            Esta ação executa SQL diretamente no banco de dados. Revise antes de salvar.
+            This action runs SQL directly against the database. Review before saving.
           </div>
           <Textarea
             value={sql}
@@ -108,12 +108,12 @@ function SqlEditorModal({
           )}
         </div>
         <div className="flex items-center justify-between px-5 py-3 border-t border-border shrink-0">
-          <span className="text-[10px] text-muted-foreground">Ctrl+Enter para executar</span>
+          <span className="text-[10px] text-muted-foreground">Ctrl+Enter to run</span>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={onClose}>Cancelar</Button>
+            <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
             <Button size="sm" onClick={() => onSave(sql)} disabled={saving || !sql.trim()}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-              Executar
+              Run
             </Button>
           </div>
         </div>
@@ -160,23 +160,23 @@ function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreat
       <div className="relative z-10 w-full max-w-2xl rounded-xl border border-border bg-card shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0">
           <Table2 className="h-4 w-4 text-emerald-500" />
-          <h2 className="font-semibold text-sm flex-1">Criar Tabela</h2>
+          <h2 className="font-semibold text-sm flex-1">Create Table</h2>
           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onClose}><X className="h-4 w-4" /></Button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           <div>
-            <Label className="text-xs">Nome da Tabela <span className="text-destructive">*</span></Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="minha_tabela" className="h-8 mt-1 font-mono text-xs" />
+            <Label className="text-xs">Table Name <span className="text-destructive">*</span></Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="my_table" className="h-8 mt-1 font-mono text-xs" />
           </div>
           <div>
             <div className="flex items-center justify-between mb-2">
-              <Label className="text-xs">Colunas</Label>
-              <Button size="sm" variant="ghost" className="h-6 text-xs px-2 gap-1" onClick={addCol}><Plus className="h-3 w-3" /> Coluna</Button>
+              <Label className="text-xs">Columns</Label>
+              <Button size="sm" variant="ghost" className="h-6 text-xs px-2 gap-1" onClick={addCol}><Plus className="h-3 w-3" /> Column</Button>
             </div>
             <div className="space-y-2">
               {columns.map((col, i) => (
                 <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto_1fr_auto] gap-2 items-center">
-                  <Input value={col.name} onChange={(e) => updateCol(i, "name", e.target.value)} placeholder="nome" className="h-7 font-mono text-xs" />
+                  <Input value={col.name} onChange={(e) => updateCol(i, "name", e.target.value)} placeholder="name" className="h-7 font-mono text-xs" />
                   <select value={col.type} onChange={(e) => updateCol(i, "type", e.target.value)} className="h-7 text-xs rounded border border-input bg-background px-2 font-mono">
                     {PG_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
@@ -195,9 +195,9 @@ function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreat
           {error && <div className="rounded border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive font-mono whitespace-pre-wrap">{error}</div>}
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-border shrink-0">
-          <Button size="sm" variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
           <Button size="sm" onClick={save} disabled={!name.trim() || createMut.isPending}>
-            {createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null} Criar Tabela
+            {createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null} Create Table
           </Button>
         </div>
       </div>
@@ -220,7 +220,7 @@ function CreateIndexPanel({ tables, onClose, onCreated }: { tables: string[]; on
   const save = async () => {
     setError(null);
     const colList = cols.split(",").map((c) => c.trim()).filter(Boolean);
-    if (!colList.length) { setError("Informe ao menos uma coluna"); return; }
+    if (!colList.length) { setError("Provide at least one column"); return; }
     try {
       await createMut.mutateAsync({ table_name: table, column_names: colList, index_name: idxName || undefined, unique });
       onCreated();
@@ -233,23 +233,23 @@ function CreateIndexPanel({ tables, onClose, onCreated }: { tables: string[]; on
   return (
     <div className="space-y-3 p-4 rounded-lg border border-border bg-card">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold">Novo Índice</span>
+        <span className="text-xs font-semibold">New Index</span>
         <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onClose}><X className="h-3 w-3" /></Button>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label className="text-xs">Tabela</Label>
+          <Label className="text-xs">Table</Label>
           <select value={table} onChange={(e) => setTable(e.target.value)} className="mt-1 h-7 w-full text-xs rounded border border-input bg-background px-2 font-mono">
             {tables.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div>
-          <Label className="text-xs">Colunas <span className="text-muted-foreground">(vírgula)</span></Label>
+          <Label className="text-xs">Columns <span className="text-muted-foreground">(comma-separated)</span></Label>
           <Input value={cols} onChange={(e) => setCols(e.target.value)} placeholder="col1, col2" className="h-7 mt-1 text-xs font-mono" />
         </div>
         <div>
-          <Label className="text-xs">Nome do índice <span className="text-muted-foreground">(opcional)</span></Label>
-          <Input value={idxName} onChange={(e) => setIdxName(e.target.value)} placeholder="idx_tabela_col" className="h-7 mt-1 text-xs font-mono" />
+          <Label className="text-xs">Index name <span className="text-muted-foreground">(optional)</span></Label>
+          <Input value={idxName} onChange={(e) => setIdxName(e.target.value)} placeholder="idx_table_col" className="h-7 mt-1 text-xs font-mono" />
         </div>
         <div className="flex items-end pb-1">
           <label className="flex items-center gap-2 text-xs cursor-pointer">
@@ -259,9 +259,9 @@ function CreateIndexPanel({ tables, onClose, onCreated }: { tables: string[]; on
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={onClose}>Cancelar</Button>
+        <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
         <Button size="sm" onClick={save} disabled={createMut.isPending || !table || !cols}>
-          {createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null} Criar Índice
+          {createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null} Create Index
         </Button>
       </div>
     </div>
@@ -315,15 +315,15 @@ function TablesSection() {
       <div className="w-56 shrink-0 border-r border-border flex flex-col h-full">
         <div className="p-2 border-b border-border space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{tables.length} tabelas</span>
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{tables.length} tables</span>
             <div className="flex gap-1">
               <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => refetch()} disabled={isFetching}><RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} /></Button>
-              <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-emerald-600" onClick={() => setShowCreate(true)} title="Criar tabela"><Plus className="h-3 w-3" /></Button>
+              <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-emerald-600" onClick={() => setShowCreate(true)} title="Create table"><Plus className="h-3 w-3" /></Button>
             </div>
           </div>
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar..." className="h-6 pl-6 text-[10px]" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="h-6 pl-6 text-[10px]" />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto py-0.5">
@@ -342,7 +342,7 @@ function TablesSection() {
                 {t.row_count > 0 && (
                   <button
                     type="button"
-                    title="Visualizar dados"
+                    title="View data"
                     onClick={() => handleViewData(t.name)}
                     className="shrink-0 p-1.5 pr-2 text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded transition-colors opacity-0 group-hover:opacity-100"
                   >
@@ -359,7 +359,7 @@ function TablesSection() {
         {!selected ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <Table2 className="h-10 w-10 opacity-20" />
-            <p className="text-sm">Selecione uma tabela</p>
+            <p className="text-sm">Select a table</p>
           </div>
         ) : loadingDetail ? (
           <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -372,7 +372,7 @@ function TablesSection() {
 
             {dataMut.isPending && selected === detail.name && (
               <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando dados…
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading data…
               </div>
             )}
             {dataError && selected === detail.name && (
@@ -395,15 +395,15 @@ function TablesSection() {
                   <div className="flex items-center gap-2 px-1">
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                     <span className="text-xs text-muted-foreground flex-1">
-                      {dataResult.row_count} linha(s) · {dataResult.elapsed_ms.toFixed(1)} ms
+                      {dataResult.row_count} row(s) · {dataResult.elapsed_ms.toFixed(1)} ms
                     </span>
                     <Button size="sm" variant="ghost" className="h-6 px-2 gap-1 text-xs" onClick={copyCSV}>
-                      <ClipboardCopy className="h-3 w-3" /> {csvCopied ? "Copiado!" : "CSV"}
+                      <ClipboardCopy className="h-3 w-3" /> {csvCopied ? "Copied!" : "CSV"}
                     </Button>
                     {totalPages > 1 && (
                       <>
                         <span className="text-xs text-muted-foreground border-l border-border pl-2">
-                          Página {page + 1} de {totalPages} · {detail.row_count.toLocaleString()} registros
+                          Page {page + 1} of {totalPages} · {detail.row_count.toLocaleString()} records
                         </span>
                         <Button size="sm" variant="outline" className="h-6 w-6 p-0"
                           disabled={page === 0 || dataMut.isPending}
@@ -427,12 +427,12 @@ function TablesSection() {
 
             {/* Columns */}
             <div>
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Colunas</h3>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Columns</h3>
               <div className="rounded border border-border overflow-hidden">
                 <table className="w-full text-xs">
                   <thead><tr className="bg-muted/40 border-b border-border">
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Nome</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Tipo</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
                     <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Null</th>
                     <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Default</th>
                     <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Flags</th>
@@ -464,9 +464,9 @@ function TablesSection() {
                 <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Foreign Keys</h3>
                 <div className="rounded border border-border overflow-hidden">
                   <table className="w-full text-xs"><thead><tr className="bg-muted/40 border-b border-border">
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Coluna</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Referencia</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Col. ref.</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Column</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Reference</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Ref. col.</th>
                   </tr></thead>
                     <tbody className="divide-y divide-border">
                       {detail.foreign_keys.map((fk) => (
@@ -484,12 +484,12 @@ function TablesSection() {
 
             {detail.indexes.length > 0 && (
               <div>
-                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Índices</h3>
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Indexes</h3>
                 <div className="rounded border border-border overflow-hidden">
                   <table className="w-full text-xs"><thead><tr className="bg-muted/40 border-b border-border">
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Nome</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Colunas</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Tipo</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Columns</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
                   </tr></thead>
                     <tbody className="divide-y divide-border">
                       {detail.indexes.map((idx) => (
@@ -577,20 +577,20 @@ function FunctionsSection() {
       <div className="w-56 shrink-0 border-r border-border flex flex-col h-full">
         <div className="p-2 border-b border-border space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{functions.length} funções</span>
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{functions.length} functions</span>
             <div className="flex gap-1">
               <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => refetch()} disabled={isFetching}><RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} /></Button>
-              <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-emerald-600" onClick={openCreate} title="Criar função"><Plus className="h-3 w-3" /></Button>
+              <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-emerald-600" onClick={openCreate} title="Create function"><Plus className="h-3 w-3" /></Button>
             </div>
           </div>
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar..." className="h-6 pl-6 text-[10px]" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="h-6 pl-6 text-[10px]" />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto py-0.5">
           {isLoading ? <div className="flex justify-center py-6"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
-            : filtered.length === 0 ? <p className="text-center text-xs text-muted-foreground py-6">Nenhuma função encontrada</p>
+            : filtered.length === 0 ? <p className="text-center text-xs text-muted-foreground py-6">No functions found</p>
             : filtered.map((f) => (
               <button key={f.name} type="button" onClick={() => setSelected(f)}
                 className={cn("w-full flex items-center gap-1.5 px-2.5 py-1.5 text-left hover:bg-accent transition-colors group", selected?.name === f.name && "bg-accent")}>
@@ -606,8 +606,8 @@ function FunctionsSection() {
         {!selected ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <Zap className="h-10 w-10 opacity-20" />
-            <p className="text-sm">Selecione uma função</p>
-            <Button size="sm" variant="outline" onClick={openCreate} className="gap-1.5 mt-2"><Plus className="h-3.5 w-3.5" /> Nova Função</Button>
+            <p className="text-sm">Select a function</p>
+            <Button size="sm" variant="outline" onClick={openCreate} className="gap-1.5 mt-2"><Plus className="h-3.5 w-3.5" /> New Function</Button>
           </div>
         ) : loadingDetail ? (
           <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -624,7 +624,7 @@ function FunctionsSection() {
                 {detail.arg_types && <p className="text-xs text-muted-foreground font-mono mt-0.5">({detail.arg_types})</p>}
               </div>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> Editar</Button>
+                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
                 <Button size="sm" variant="ghost" className="gap-1.5 text-xs text-destructive" onClick={() => setDropTarget(detail.name)}><Trash2 className="h-3.5 w-3.5" /> Drop</Button>
               </div>
             </div>
@@ -638,7 +638,7 @@ function FunctionsSection() {
 
       {editorMode && (
         <SqlEditorModal
-          title={editorMode === "create" ? "Criar / Substituir Função" : `Editar: ${detail?.name}`}
+          title={editorMode === "create" ? "Create / Replace Function" : `Edit: ${detail?.name}`}
           initialValue={editorMode === "edit" && detail ? detail.source : FN_TEMPLATE}
           onSave={saveFunction}
           onClose={() => setEditorMode(null)}
@@ -649,7 +649,7 @@ function FunctionsSection() {
       <ConfirmDialog
         open={!!dropTarget}
         title="Drop Function"
-        description={`Remover a função "${dropTarget}" do banco? Esta ação não pode ser desfeita.`}
+        description={`Remove function "${dropTarget}" from the database? This action cannot be undone.`}
         confirmLabel="Drop"
         onConfirm={confirmDrop}
         onCancel={() => setDropTarget(null)}
@@ -699,11 +699,11 @@ function IndexesSection() {
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar índice ou tabela..." className="h-7 pl-7 text-xs" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search index or table..." className="h-7 pl-7 text-xs" />
         </div>
-        <span className="text-xs text-muted-foreground flex-1">{indexes.length} índice(s) · {Object.keys(grouped).length} tabelas</span>
+        <span className="text-xs text-muted-foreground flex-1">{indexes.length} index(es) · {Object.keys(grouped).length} tables</span>
         <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => refetch()} disabled={isFetching}><RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} /></Button>
-        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setShowCreate((v) => !v)}><Plus className="h-3.5 w-3.5" /> Novo Índice</Button>
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setShowCreate((v) => !v)}><Plus className="h-3.5 w-3.5" /> New Index</Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -717,15 +717,15 @@ function IndexesSection() {
             <div className="flex items-center gap-2 mb-1.5">
               <Table2 className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-xs font-mono font-semibold">{table}</span>
-              <span className="text-[10px] text-muted-foreground">{idxs.length} índice(s)</span>
+              <span className="text-[10px] text-muted-foreground">{idxs.length} index(es)</span>
             </div>
             <div className="rounded-lg border border-border overflow-hidden">
               <table className="w-full text-xs">
                 <thead><tr className="bg-muted/40 border-b border-border">
-                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Nome</th>
-                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Colunas</th>
-                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Tipo</th>
-                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Definição</th>
+                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Columns</th>
+                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
+                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Definition</th>
                   <th className="px-3 py-1.5 w-10"></th>
                 </tr></thead>
                 <tbody className="divide-y divide-border">
@@ -758,7 +758,7 @@ function IndexesSection() {
       <ConfirmDialog
         open={!!dropTarget}
         title="Drop Index"
-        description={`Remover o índice "${dropTarget}"? Esta ação não pode ser desfeita.`}
+        description={`Remove index "${dropTarget}"? This action cannot be undone.`}
         confirmLabel="Drop"
         onConfirm={confirmDrop}
         onCancel={() => setDropTarget(null)}
@@ -778,9 +778,9 @@ export default function SchemaPage() {
   const [section, setSection] = useState<Section>("tables");
 
   const tabs: { id: Section; label: string; icon: React.ReactNode }[] = [
-    { id: "tables", label: "Tabelas", icon: <Table2 className="h-3.5 w-3.5" /> },
-    { id: "functions", label: "Funções", icon: <Zap className="h-3.5 w-3.5" /> },
-    { id: "indexes", label: "Índices", icon: <ChevronRight className="h-3.5 w-3.5" /> },
+    { id: "tables", label: "Tables", icon: <Table2 className="h-3.5 w-3.5" /> },
+    { id: "functions", label: "Functions", icon: <Zap className="h-3.5 w-3.5" /> },
+    { id: "indexes", label: "Indexes", icon: <ChevronRight className="h-3.5 w-3.5" /> },
   ];
 
   return (

@@ -12,7 +12,7 @@ export default function ProfilesPage() {
   const [creating, setCreating] = useState(false);
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Excluir perfil "${name}"?`)) return;
+    if (!confirm(`Delete profile "${name}"?`)) return;
     await deleteMut.mutateAsync(id);
   };
 
@@ -20,10 +20,10 @@ export default function ProfilesPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5" /> Perfis de Acesso
+          <ShieldCheck className="h-5 w-5" /> Access Profiles
         </h1>
         <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
-          <Plus className="h-4 w-4" /> Novo perfil
+          <Plus className="h-4 w-4" /> New profile
         </Button>
       </div>
 
@@ -49,7 +49,7 @@ export default function ProfilesPage() {
                 <Button
                   size="icon" variant="ghost" className="h-7 w-7"
                   onClick={() => setEditing(editing === profile.id ? null : profile.id)}
-                  title="Editar"
+                  title="Edit"
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
@@ -57,7 +57,7 @@ export default function ProfilesPage() {
                   size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
                   onClick={() => handleDelete(profile.id, profile.name)}
                   disabled={deleteMut.isPending}
-                  title="Excluir"
+                  title="Delete"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -75,11 +75,11 @@ export default function ProfilesPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="sticky top-0 z-10 border-b border-border/50">
-                    <th className="px-3 py-2 text-left font-medium text-muted-foreground w-40" style={{ backgroundColor: "hsl(var(--card))" }}>Módulo</th>
-                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Visualizar</th>
-                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Consultar</th>
-                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Gravar</th>
-                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Excluir</th>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground w-40" style={{ backgroundColor: "hsl(var(--card))" }}>Module</th>
+                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>View</th>
+                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Query</th>
+                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Write</th>
+                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Delete</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/30">

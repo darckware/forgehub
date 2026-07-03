@@ -139,7 +139,7 @@ function TableSelector({
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar tabela..."
+          placeholder="Search table..."
           className="h-7 pl-6 text-xs"
         />
       </div>
@@ -148,7 +148,7 @@ function TableSelector({
           Todas
         </Button>
         <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => onChange([])}>
-          Nenhuma
+          None
         </Button>
         <span className="ml-auto text-[10px] text-muted-foreground self-center">{selected.length}/{allTables.length}</span>
       </div>
@@ -235,7 +235,7 @@ export default function DiagramPage() {
   const saveDiagram = () => {
     if (creating) {
       const id = `diag-${Date.now()}`;
-      const next = [...diagrams, { id, name: newName || "Novo Diagrama", tables: editTables }];
+      const next = [...diagrams, { id, name: newName || "New Diagram", tables: editTables }];
       setDiagrams(next);
       setActiveId(id);
     } else if (editing) {
@@ -271,7 +271,7 @@ export default function DiagramPage() {
       <div className="w-56 shrink-0 border-r border-border flex flex-col h-full bg-card">
         <div className="p-3 border-b border-border">
           <Button size="sm" className="w-full gap-1.5 text-xs h-7" onClick={startCreate}>
-            <Plus className="h-3.5 w-3.5" /> Novo Diagrama
+            <Plus className="h-3.5 w-3.5" /> New Diagram
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto py-1">
@@ -338,19 +338,19 @@ export default function DiagramPage() {
               </div>
               <span className="text-xs text-muted-foreground">{editTables.length} tabela(s) selecionada(s)</span>
               <Button size="sm" variant="ghost" onClick={cancelEdit} className="h-7 gap-1 text-xs">
-                <X className="h-3.5 w-3.5" /> Cancelar
+                <X className="h-3.5 w-3.5" /> Cancel
               </Button>
               <Button size="sm" onClick={saveDiagram} className="h-7 gap-1 text-xs" disabled={!newName.trim()}>
-                <Check className="h-3.5 w-3.5" /> Salvar
+                <Check className="h-3.5 w-3.5" /> Save
               </Button>
             </div>
             {/* Table selector + live preview side-by-side */}
             <div className="flex flex-1 min-h-0 gap-0">
               <div className="w-64 shrink-0 border-r border-border p-3 flex flex-col min-h-0">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Selecionar Tabelas</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Select Tables</p>
                 {schemaLoading ? (
                   <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando...
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...
                   </div>
                 ) : (
                   <TableSelector allTables={allTables} selected={editTables} onChange={setEditTables} />
@@ -390,7 +390,7 @@ export default function DiagramPage() {
               </Button>
               {activeDiagram.id !== "all" && (
                 <Button size="sm" variant="ghost" className="h-7 px-2 gap-1 text-xs" onClick={() => startEdit(activeDiagram)}>
-                  <Pencil className="h-3.5 w-3.5" /> Editar
+                  <Pencil className="h-3.5 w-3.5" /> Edit
                 </Button>
               )}
               <Button size="sm" variant="outline" className="h-7 px-2 gap-1 text-xs" onClick={handleDownload}>
@@ -401,7 +401,7 @@ export default function DiagramPage() {
             <div className="flex-1 min-h-0 overflow-auto bg-muted/10 relative p-4">
               {schemaLoading ? (
                 <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin" /> Carregando schema...
+                  <Loader2 className="h-5 w-5 animate-spin" /> Loading schema...
                 </div>
               ) : renderError ? (
                 <div className="flex items-center justify-center h-full">

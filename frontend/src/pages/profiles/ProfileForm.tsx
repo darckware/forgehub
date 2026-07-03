@@ -9,7 +9,7 @@ import { useCreateProfile, useUpdateProfile } from "@/hooks/useAuth";
 const MODULES = [
   "product", "projects", "pipeline", "backlog", "tasks", "agents",
   "artifacts", "governance", "forgerouter", "kanboard", "obsidian",
-  "foundation", "crons", "deploy", "database", "users", "profiles",
+  "foundation", "crons", "deploy", "servers", "database", "users", "profiles",
 ];
 
 const MODULE_LABELS: Record<string, string> = {
@@ -27,9 +27,10 @@ const MODULE_LABELS: Record<string, string> = {
   foundation: "Foundation",
   crons: "Crons",
   deploy: "Deploy Control",
+  servers: "Servers",
   database: "Database",
-  users: "Usuários",
-  profiles: "Perfis",
+  users: "Users",
+  profiles: "Profiles",
 };
 
 type PermOp = "can_view" | "can_query" | "can_write" | "can_delete";
@@ -101,22 +102,22 @@ export default function ProfileForm({ profile, onClose }: Props) {
   };
 
   const OPS: { key: PermOp; label: string }[] = [
-    { key: "can_view", label: "Visualizar" },
-    { key: "can_query", label: "Consultar" },
-    { key: "can_write", label: "Gravar" },
-    { key: "can_delete", label: "Excluir" },
+    { key: "can_view", label: "View" },
+    { key: "can_query", label: "Query" },
+    { key: "can_write", label: "Write" },
+    { key: "can_delete", label: "Delete" },
   ];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
-          <Label>Nome *</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Ex: Desenvolvedor" />
+          <Label>Name *</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="E.g. Developer" />
         </div>
         <div className="flex flex-col gap-1">
-          <Label>Descrição</Label>
-          <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descrição opcional" />
+          <Label>Description</Label>
+          <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional description" />
         </div>
       </div>
 
@@ -125,7 +126,7 @@ export default function ProfileForm({ profile, onClose }: Props) {
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-muted/50">
-              <th className="px-3 py-2 text-left font-medium text-muted-foreground">Módulo</th>
+              <th className="px-3 py-2 text-left font-medium text-muted-foreground">Module</th>
               {OPS.map(({ key, label }) => (
                 <th key={key} className="px-3 py-2 text-center font-medium text-muted-foreground">
                   <button type="button" className="hover:text-foreground transition-colors" onClick={() => toggleColumn(key)}>
@@ -158,10 +159,10 @@ export default function ProfileForm({ profile, onClose }: Props) {
       {error && <p className="text-xs text-destructive">{error.message}</p>}
 
       <div className="flex gap-2 justify-end">
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
         <Button type="submit" size="sm" disabled={isPending || !name} className="gap-1.5">
           {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          Salvar
+          Save
         </Button>
       </div>
     </form>

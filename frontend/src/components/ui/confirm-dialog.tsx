@@ -17,10 +17,10 @@ interface ConfirmDialogProps {
 
 export function ConfirmDialog({
   open,
-  title = "Confirmar exclusão",
+  title = "Confirm deletion",
   description,
-  confirmLabel = "Excluir",
-  cancelLabel = "Cancelar",
+  confirmLabel = "Delete",
+  cancelLabel = "Cancel",
   variant = "destructive",
   loading = false,
   onConfirm,

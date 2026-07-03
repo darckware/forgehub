@@ -151,7 +151,7 @@ function StageCard({
               </>
             ) : (
               <>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={openEdit} aria-label={`Editar stage ${stage.name}`}>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={openEdit} aria-label={`Edit stage ${stage.name}`}>
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
                 <Button
@@ -160,7 +160,7 @@ function StageCard({
                   className="h-7 w-7 p-0"
                   disabled={deleteStage.isPending}
                   onClick={() => deleteStage.mutate(stage.id)}
-                  aria-label={`Excluir stage ${stage.name}`}
+                  aria-label={`Delete stage ${stage.name}`}
                 >
                   <Trash2 className="h-3.5 w-3.5 text-destructive" />
                 </Button>

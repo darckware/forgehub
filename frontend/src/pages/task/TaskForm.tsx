@@ -195,9 +195,9 @@ export function TaskForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="policy_id">Política de governança (opcional)</Label>
+        <Label htmlFor="policy_id">Governance policy (optional)</Label>
         <Select id="policy_id" {...register("policy_id")}>
-          <option value="">Sem política vinculada</option>
+          <option value="">No policy linked</option>
           {(policies ?? []).map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
