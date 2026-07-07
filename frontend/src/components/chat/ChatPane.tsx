@@ -36,7 +36,6 @@ import { useFsList, type FsEntry } from "@/hooks/useTerminalBrowse";
 import { getToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { type Agent } from "@/hooks/useAgent";
-import { useCreateDemand } from "@/hooks/useDemands";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { usePromptCommands, type PromptCommand } from "@/hooks/usePromptCommands";
 import { useQueryClient } from "@tanstack/react-query";
@@ -156,15 +155,7 @@ type ChatQueueItem = {
   /** Date.now() when this item entered "processing" -- powers the live
    * "Pensando há mm:ss" ticker (see ThinkingLabel). */
   startedAt?: number;
-  /** Set for a "/demanda <instrução>" turn: the instruction still goes to
-   * the agent as a normal message (content has the prefix stripped), but
-   * once it completes the exchange (question + reply) is filed into the
-   * Demand inbox -- see DEMAND_COMMAND_RE and its handling in handleSend/
-   * processQueueItem. */
-  sendToDemandSubject?: string;
 };
-
-const DEMAND_COMMAND_RE = /^\/demanda\s+/i;
 
 function formatThinkingDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -1225,8 +1216,6 @@ export function ChatPane({
   const deleteMessage = useDeleteChatMessage(sessionId || undefined);
   const approveChat = useApproveChat();
   const transcribe = useTranscribeAudio();
-  const createDemand = useCreateDemand();
-  const [demandNotice, setDemandNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
   function handleStartRename(s: ChatSession) {
     setEditingSessionId(s.id);
@@ -1311,13 +1300,12 @@ export function ChatPane({
       setSessionId(activeSessionId);
     }
 
-    let message = isOverride ? overrideText : composerText;
+    const message = isOverride ? overrideText : composerText;
     const files = isOverride ? [] : attachedFiles;
     if (!isOverride) {
       setComposerText("");
       setAttachedFiles([]);
       setComposerWarning(null);
-      setDemandNotice(null);
     }
 
     // "!command" runs raw bash via the bridge -- no agent/LLM call at all,
@@ -1341,22 +1329,6 @@ export function ChatPane({
       return;
     }
 
-    // "/demanda <instrução>" still sends a normal message to the agent
-    // (prefix stripped) -- once the reply comes back, processQueueItem
-    // files the question+answer into the Demand inbox (POST /demands).
-    // Only the simple single-agent path supports it; combining with
-    // "#Agente" mentions isn't a case worth the complexity.
-    let sendToDemandSubject: string | undefined;
-    if (files.length === 0 && DEMAND_COMMAND_RE.test(message)) {
-      const stripped = message.replace(DEMAND_COMMAND_RE, "").trim();
-      if (!stripped) {
-        setComposerWarning("Digite a instrução depois de /demanda.");
-        return;
-      }
-      message = stripped;
-      sendToDemandSubject = stripped.slice(0, 80);
-    }
-
     // "#Agente" mentions route this turn away from the tab's own agent
     // entirely (v1: no broadcast-plus-mentions, no shared context -- see
     // ChatSessionParticipant's docstring). Excludes a self-mention (the
@@ -1377,7 +1349,6 @@ export function ChatPane({
           status: "queued",
           approval: null,
           abortController: null,
-          sendToDemandSubject,
         },
       ]);
     } else {
@@ -1463,30 +1434,6 @@ export function ChatPane({
     approveChat.mutate({ streamId, choice });
   }
 
-  /** "/demanda" post-processing: reads the just-refetched, persisted
-   * exchange (question + the agent's real final reply, not the client-side
-   * accumulator which is a stale closure by the time streamMessage
-   * resolves) and files it into the Demand inbox. Failure here doesn't
-   * touch the queue item's own success/error state -- the chat turn itself
-   * already completed fine either way. */
-  async function fileDemandFromExchange(item: ChatQueueItem) {
-    const subject = item.sendToDemandSubject!;
-    const fromAgent =
-      chatableAgents.find((a) => a.id === (item.targetAgentId ?? agentId))?.profile_slug ?? "forgehub";
-    const cached = queryClient.getQueryData<ChatMessage[]>(chatKeys.messages(sessionId));
-    const reply = [...(cached ?? [])].reverse().find((m) => m.role === "assistant");
-    const body = [
-      `**Pergunta enviada via /demanda:**\n\n${item.content}`,
-      reply ? `**Resposta do agente:**\n\n${reply.content}` : "_(sem resposta registrada)_",
-    ].join("\n\n---\n\n");
-    try {
-      await createDemand.mutateAsync({ from_agent: fromAgent, subject, body });
-      setDemandNotice({ kind: "success", text: `📤 Enviado para o Inbox de Demandas: "${subject}"` });
-    } catch (err) {
-      setDemandNotice({ kind: "error", text: `Falha ao enviar para o Inbox: ${(err as Error).message}` });
-    }
-  }
-
   async function processQueueItem(item: ChatQueueItem) {
     const abortController = item.files.length > 0 || item.isExec ? null : new AbortController();
     setQueue((q) =>
@@ -1512,9 +1459,6 @@ export function ChatPane({
       await queryClient
         .refetchQueries({ queryKey: chatKeys.messages(sessionId) })
         .catch(() => {});
-      if (item.sendToDemandSubject) {
-        await fileDemandFromExchange(item);
-      }
       setQueue((q) => q.filter((it) => it.id !== item.id));
     } catch (err) {
       if ((err as Error).name === "AbortError") {
@@ -2917,16 +2861,6 @@ export function ChatPane({
           )}
           {composerWarning && (
             <p className="px-1 text-xs text-destructive">{composerWarning}</p>
-          )}
-          {demandNotice && (
-            <p
-              className={cn(
-                "px-1 text-xs",
-                demandNotice.kind === "success" ? "text-emerald-600" : "text-destructive"
-              )}
-            >
-              {demandNotice.text}
-            </p>
           )}
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2">
