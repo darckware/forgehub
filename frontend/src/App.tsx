@@ -17,8 +17,10 @@ import TaskDetailPage from "@/pages/task/[id]";
 import AgentPage from "@/pages/agent";
 import AgentDetailPage from "@/pages/agent/[id]";
 import ToolsPage from "@/pages/tools";
+import PromptCommandsPage from "@/pages/prompt-commands";
 import SkillsPage from "@/pages/skills";
 import AuditorPage from "@/pages/auditor";
+import DemandsPage from "@/pages/demands";
 import DocsPage from "@/pages/docs";
 import ArtifactPage from "@/pages/artifact";
 import ArtifactDetailPage from "@/pages/artifact/[id]";
@@ -28,6 +30,7 @@ import PoliciesPage from "@/pages/governance/PoliciesPage";
 import ForgeRouterPage from "@/pages/forgerouter";
 import KanboardPage from "@/pages/kanboard";
 import ObsidianPage from "@/pages/obsidian";
+import HindsightPage from "@/pages/hindsight";
 import FoundationPage from "@/pages/foundation";
 import CronsPage from "@/pages/crons";
 import DeployPage from "@/pages/deploy";
@@ -78,6 +81,7 @@ export default function App() {
         <Route path="agents" element={<AgentPage />} />
         <Route path="agents/:id" element={<AgentDetailPage />} />
         <Route path="tools" element={<ToolsPage />} />
+        <Route path="prompt-commands" element={<PromptCommandsPage />} />
         <Route path="skills" element={<SkillsPage />} />
         <Route path="artifact" element={<ArtifactPage />} />
         <Route path="artifact/:id" element={<ArtifactDetailPage />} />
@@ -87,9 +91,11 @@ export default function App() {
         <Route path="forgerouter" element={<ForgeRouterPage />} />
         <Route path="kanboard" element={<KanboardPage />} />
         <Route path="obsidian" element={<ObsidianPage />} />
+        <Route path="hindsight" element={<HindsightPage />} />
         <Route path="foundation" element={<FoundationPage />} />
         <Route path="crons" element={<CronsPage />} />
         <Route path="auditor" element={<AuditorPage />} />
+        <Route path="demands" element={<DemandsPage />} />
         <Route path="docs" element={<DocsPage />} />
         <Route path="deploy" element={<DeployPage />} />
         <Route path="servers" element={<ServersPage />} />

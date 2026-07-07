@@ -29,13 +29,16 @@ from app.api.routes import (
     cron_scripts,
     database,
     deploy,
+    demand,
     docs,
     forgerouter,
     foundation,
     foundation_docs,
     governance,
+    hindsight,
     notifications,
     pipeline,
+    prompt_commands,
     product,
     profiles,
     project,
@@ -56,7 +59,7 @@ app = FastAPI(title="ForgeHub (ForgeHub) API", version="0.1.0")
 # -- just the login endpoint itself, which is how a client gets a token in
 # the first place.
 # /audit/run-internal self-guards with the shared bridge token (see audit.py).
-_PUBLIC_API_PATHS = {"/api/v1/auth/token", "/api/v1/audit/run-internal"}
+_PUBLIC_API_PATHS = {"/api/v1/auth/token", "/api/v1/audit/run-internal", "/api/v1/demands/submit"}
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -118,6 +121,7 @@ app.include_router(tool.router)
 app.include_router(artifact.router)
 app.include_router(audit.router)
 app.include_router(governance.router)
+app.include_router(hindsight.router)
 app.include_router(foundation.router)
 app.include_router(foundation_docs.router)
 app.include_router(chat.router)
@@ -126,8 +130,10 @@ app.include_router(toolversions.router)
 app.include_router(systemstats.router)
 app.include_router(vault.router)
 app.include_router(docs.router)
+app.include_router(demand.router)
 app.include_router(cron_scripts.router)
 app.include_router(notifications.router)
+app.include_router(prompt_commands.router)
 app.include_router(deploy.router)
 app.include_router(database.router)
 app.include_router(users.router)

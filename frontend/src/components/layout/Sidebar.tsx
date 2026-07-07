@@ -14,6 +14,7 @@ import {
   FileBox,
   Gavel,
   Gem,
+  Brain,
   Kanban,
   Landmark,
   Route,
@@ -27,11 +28,13 @@ import {
   ChevronDown,
   BookOpen,
   ChevronRight,
+  Inbox,
   ClipboardCheck,
   Users,
   ShieldCheck,
   Sparkles,
   Wrench,
+  Command,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
@@ -77,6 +80,12 @@ const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/", label: "Dashboard", icon: LayoutDashboard },
       { type: "link", to: "/workspace", label: "Workspace", icon: LayoutPanelLeft },
       { type: "link", to: "/notifications", label: "Notifications", icon: Bell },
+      // Inbox de demandas de agentes ("como um e-mail"), conversível em
+      // Task/Doc/Artefato/Knowledge Base (core/conversions.py).
+      { type: "link", to: "/demands", label: "Demandas", icon: Inbox, module: "demands" },
+      // Área de criação: markdown editável em /root/docs, cruzado com
+      // produtos/projetos/tasks (doc_links, fase 3).
+      { type: "link", to: "/docs", label: "Docs", icon: BookOpen, module: "docs" },
     ],
   },
   {
@@ -90,9 +99,6 @@ const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/backlog", label: "Planning", icon: ClipboardList, module: "backlog" },
       { type: "link", to: "/tasks", label: "Execution", icon: CheckSquare, module: "tasks" },
       { type: "link", to: "/artifact", label: "Artifacts", icon: FileBox, module: "artifacts" },
-      // Área de criação: markdown editável em /root/docs, cruzado com
-      // produtos/projetos/tasks (doc_links, fase 3).
-      { type: "link", to: "/docs", label: "Docs", icon: BookOpen, module: "docs" },
       { type: "link", to: "/governance", label: "Governance", icon: Gavel, module: "governance" },
       { type: "link", to: "/governance/policies", label: "Policies", icon: ShieldCheck, module: "governance" },
     ],
@@ -103,7 +109,9 @@ const NAV_SECTIONS: NavSectionEntry[] = [
     entries: [
       { type: "link", to: "/agents", label: "Agents", icon: Bot, module: "agents" },
       { type: "link", to: "/tools", label: "Agent Tools", icon: Wrench, module: "agents" },
+      { type: "link", to: "/prompt-commands", label: "Chat Commands", icon: Command, module: "agents" },
       { type: "link", to: "/skills", label: "Skills", icon: Sparkles, module: "agents" },
+      { type: "link", to: "/crons", label: "Crons", icon: Clock, module: "crons" },
       { type: "link", to: "/foundation", label: "Foundation", icon: Landmark, module: "foundation" },
       { type: "link", to: "/forgerouter", label: "ForgeRouter", icon: Route, module: "forgerouter" },
     ],
@@ -114,6 +122,7 @@ const NAV_SECTIONS: NavSectionEntry[] = [
     entries: [
       { type: "link", to: "/kanboard", label: "Kanboard", icon: Kanban, module: "kanboard" },
       { type: "link", to: "/obsidian", label: "Knowledge Base", icon: Gem, module: "obsidian" },
+      { type: "link", to: "/hindsight", label: "Hindsight", icon: Brain, module: "foundation" },
       {
         type: "group",
         label: "Database",
@@ -124,7 +133,6 @@ const NAV_SECTIONS: NavSectionEntry[] = [
           { to: "/database/query", label: "Query", icon: Code2, module: "database" },
         ],
       },
-      { type: "link", to: "/crons", label: "Crons", icon: Clock, module: "crons" },
       // Ecosystem checkpoints (audit_checks) -- admins always see it; grant
       // the "auditor" module in Access Profiles for non-admin visibility.
       { type: "link", to: "/auditor", label: "Auditor", icon: ClipboardCheck, module: "auditor" },

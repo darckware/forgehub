@@ -21,6 +21,8 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.schemas.demand import ConvertIn, ConvertOut
+from app.core import conversions
 from app.core.markdown_docs import DocNode, build_tree, resolve_doc_path
 from app.db.base import get_db
 from app.db.models.doc_link import DOC_LINK_ENTITY_TYPES, DocLink
@@ -288,3 +290,66 @@ async def delete_doc_link(link_id: uuid.UUID, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=404, detail="Link not found")
     await db.delete(link)
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Convert an existing doc/note into a Task, Artifact or Knowledge Base
+# entry -- the "anotações também podem ser convertidas" half of the same
+# feature that backs demand.py's /demands/{id}/convert (shared helpers in
+# core/conversions.py). target=doc creates a *copy* at a new path (the
+# source note is left alone) rather than colliding with the existing
+# rename/move action already on the Docs page.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/convert", response_model=ConvertOut)
+async def convert_doc(payload: ConvertIn, db: AsyncSession = Depends(get_db)) -> ConvertOut:
+    if not payload.source_path:
+        raise HTTPException(status_code=400, detail="source_path is required")
+    source = _resolve_or_400(payload.source_path)
+    if not source.is_file():
+        raise HTTPException(status_code=404, detail="Doc file not found")
+    content = source.read_text(encoding="utf-8", errors="replace")
+    title = payload.title or source.stem
+
+    try:
+        if payload.target == "task":
+            if payload.planning_item_id is None:
+                raise HTTPException(400, "planning_item_id is required for target=task")
+            entity_id, reference = await conversions.convert_to_task(
+                db, title=title, content=content, planning_item_id=payload.planning_item_id
+            )
+        elif payload.target == "doc":
+            # A copy at a new location -- the source note is left as-is
+            # (moving it is the existing rename/move action on this page).
+            dest_path = payload.path or f"{title}.md"
+            if dest_path == payload.source_path:
+                raise HTTPException(400, "destination path must differ from the source note")
+            reference = await conversions.convert_to_doc(path=dest_path, content=content)
+            entity_id = None
+        elif payload.target == "artifact":
+            if not payload.artifact_type:
+                raise HTTPException(400, "artifact_type is required for target=artifact")
+            reference_path = payload.path or f"artefatos/{title}.md"
+            entity_id, reference = await conversions.convert_to_artifact(
+                db,
+                name=title,
+                content=content,
+                artifact_type=payload.artifact_type,
+                doc_path=reference_path,
+            )
+        else:  # knowledge_base
+            if not payload.path:
+                raise HTTPException(400, "path is required for target=knowledge_base")
+            reference = await conversions.convert_to_knowledge_base(
+                path=payload.path, content=content
+            )
+            entity_id = None
+    except conversions.ConversionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ConvertOut(
+        entity_type=payload.target,
+        entity_id=str(entity_id) if entity_id else None,
+        reference=reference,
+    )

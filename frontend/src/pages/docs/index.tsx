@@ -21,6 +21,8 @@ import { Input } from "@/components/ui/input";
 import { DocTree, type DocTreeNode } from "@/components/DocTree";
 import { Markdown } from "@/components/Markdown";
 import { DocLinkPanel } from "@/components/DocLinkPanel";
+import { ConvertMenu, convertResultMessage } from "@/components/ConvertMenu";
+import { useConvertDoc } from "@/hooks/useDemands";
 import { AssistantDrawer } from "@/components/chat/AssistantDrawer";
 import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whiteboard/WhiteboardModal";
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
@@ -115,7 +117,11 @@ export default function DocsPage() {
   const [whiteboardNote, setWhiteboardNote] = useState<string | null>(null);
 
   useEffect(() => setDraft(null), [selectedPath]);
+  const convertDoc = useConvertDoc();
+  const [convertMessage, setConvertMessage] = useState<string | null>(null);
+
   useEffect(() => setWhiteboardNote(null), [selectedPath]);
+  useEffect(() => setConvertMessage(null), [selectedPath]);
 
   // New files/uploads land next to the selected file (or its folder).
   const targetFolder = selectedPath ? parentDir(selectedPath) : "";
@@ -453,6 +459,22 @@ export default function DocsPage() {
                     />
                   )}
                 </div>
+
+                {isEditable && (
+                  <ConvertMenu
+                    defaultTitle={selectedPath.split("/").pop()?.replace(/\.(md|markdown|txt)$/i, "") ?? ""}
+                    onConvert={(payload) => {
+                      setConvertMessage(null);
+                      convertDoc.mutate(
+                        { sourcePath: selectedPath, payload },
+                        { onSuccess: (result) => setConvertMessage(convertResultMessage(result)) }
+                      );
+                    }}
+                    isPending={convertDoc.isPending}
+                    error={(convertDoc.error as Error)?.message}
+                  />
+                )}
+                {convertMessage && <p className="text-xs text-emerald-600">{convertMessage}</p>}
 
                 <DocLinkPanel docPath={selectedPath} />
               </>

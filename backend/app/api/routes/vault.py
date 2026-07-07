@@ -68,9 +68,12 @@ async def get_vault_note(path: str = Query(...)) -> VaultNoteOut:
 
 @router.put("/note", response_model=VaultNoteOut)
 async def update_vault_note(payload: VaultNoteUpdateIn, path: str = Query(...)) -> VaultNoteOut:
+    """Create or overwrite. Creating is needed so content (an agent demand,
+    a Docs note) can be promoted into a brand-new Knowledge Base entry, not
+    just edit ones that already exist -- see api/routes/demand.py and
+    docs.py's /convert."""
     target = _resolve_note_path(path)
-    if not target.is_file():
-        raise HTTPException(status_code=404, detail="Note not found")
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(payload.content, encoding="utf-8")
     return VaultNoteOut(path=path, content=payload.content)
 
