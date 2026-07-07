@@ -79,8 +79,11 @@ async def _call_bridge_text(profile: str, message: str, hermes_session_id: str |
     return resp.json()
 
 
-async def _call_bridge_image(
-    profile: str, message: str, hermes_session_id: str | None, filename: str, content: bytes
+async def _call_bridge_images(
+    profile: str,
+    message: str,
+    hermes_session_id: str | None,
+    images: list[tuple[str, bytes]],
 ) -> dict:
     async with httpx.AsyncClient(timeout=650.0) as client:
         resp = await client.post(
@@ -90,7 +93,9 @@ async def _call_bridge_image(
                 "message": message,
                 **({"session_id": hermes_session_id} if hermes_session_id else {}),
             },
-            files={"image": (filename, content)},
+            # Same field name ("images") repeated -- FastAPI/Starlette on the
+            # bridge side collects it into a list[UploadFile].
+            files=[("images", (filename, content)) for filename, content in images],
             headers=_bridge_headers(),
         )
     if resp.status_code != 200:
@@ -313,42 +318,49 @@ async def delete_chat_message(message_id: uuid.UUID, db: AsyncSession = Depends(
 async def send_chat_message(
     session_id: uuid.UUID,
     message: str = Form(default=""),
-    file: UploadFile | None = File(default=None),
+    files: list[UploadFile] = File(default=[]),
     db: AsyncSession = Depends(get_db),
 ) -> ChatSendResult:
     session = await _get_session_or_404(db, session_id)
     agent = await _get_chattable_agent_or_404(db, session.agent_id)
 
-    if not message.strip() and file is None:
+    if not message.strip() and not files:
         raise HTTPException(status_code=400, detail="message or file is required")
 
-    attachment_name = file.filename if file else None
+    attachment_name = ", ".join(f.filename for f in files if f.filename) or None
     outgoing_message = message
     call_started_at = time.monotonic()
 
-    if file is not None:
-        content = await file.read()
-        is_image = (file.content_type or "").startswith("image/")
-        if is_image:
-            bridge_result = await _call_bridge_image(
-                agent.profile_slug, message or "Veja a imagem em anexo.", session.hermes_session_id,
-                file.filename or "image.png", content,
-            )
-        else:
-            try:
-                text_content = content.decode("utf-8")
-            except UnicodeDecodeError:
-                raise HTTPException(
-                    status_code=400, detail="Attached file must be a text file or an image"
-                ) from None
+    if files:
+        images: list[tuple[str, bytes]] = []
+        text_blocks: list[str] = []
+        for f in files:
+            content = await f.read()
+            if (f.content_type or "").startswith("image/"):
+                images.append((f.filename or "image.png", content))
+            else:
+                try:
+                    text_content = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    raise HTTPException(
+                        status_code=400, detail="Attached file must be a text file or an image"
+                    ) from None
+                text_blocks.append(f'Conteudo do arquivo "{f.filename}" colado abaixo:\n---\n{text_content}\n---')
+
+        if images:
             # Plain prose framing, not a bracketed "[Arquivo anexado: ...]"
             # tag -- that reads like a system attachment token to the agent
             # and makes it try to fetch the file via a tool instead of just
-            # reading the text pasted right here (confirmed during testing).
-            outgoing_message = (
-                f'Conteudo do arquivo "{file.filename}" colado abaixo:\n'
-                f"---\n{text_content}\n---\n\n{message}".strip()
+            # reading the content pasted right here (confirmed during testing).
+            combined_message = "\n\n".join([*text_blocks, message]).strip()
+            bridge_result = await _call_bridge_images(
+                agent.profile_slug,
+                combined_message or "Veja as imagens em anexo.",
+                session.hermes_session_id,
+                images,
             )
+        else:
+            outgoing_message = "\n\n".join([*text_blocks, message]).strip()
             bridge_result = await _call_bridge_text(
                 agent.profile_slug, outgoing_message, session.hermes_session_id
             )
@@ -519,9 +531,31 @@ async def stream_chat_message(
 
     accumulated: list[str] = []
     created_paths: list[str] = []
+    # Tool steps the agent ran this turn ("Running sleep 45", ...). If the
+    # stream breaks before `done`, this processing activity IS the response
+    # the user watched -- it gets persisted (see the interrupted-turn
+    # handling below) instead of vanishing with the connection.
+    steps_run: list[str] = []
     # Powers the "Pensou por mm:ss" label -- wall-clock from opening the
     # bridge stream to the agent's "done" (or a Stop-button cancellation).
     stream_started_at = time.monotonic()
+
+    def _interrupted_turn_content() -> str | None:
+        """Assistant-message content for a turn that ended before `done`:
+        the partial text plus the tool steps the user watched run -- that
+        processing activity counts as the response. None when the turn
+        produced nothing at all."""
+        parts: list[str] = []
+        if steps_run:
+            unique_steps = list(dict.fromkeys(steps_run))
+            parts.append(
+                "⚠️ Turno interrompido antes de concluir. Etapas executadas:\n"
+                + "\n".join(f"- {s}" for s in unique_steps)
+            )
+        partial = "".join(accumulated).strip()
+        if partial:
+            parts.append(partial)
+        return "\n\n".join(parts) or None
 
     async def proxy_stream():
         try:
@@ -539,6 +573,12 @@ async def stream_chat_message(
 
                     async for line in resp.aiter_lines():
                         if not line.startswith("data:"):
+                            # SSE comment = keepalive ping from the bridge
+                            # (agent thinking silently). Forward it so the
+                            # browser<->backend hops don't idle out either;
+                            # the frontend ignores non-"data:" lines.
+                            if line.startswith(":"):
+                                yield ": ping\n\n"
                             continue
                         raw = line[5:].strip()
                         data = json.loads(raw)
@@ -576,6 +616,12 @@ async def stream_chat_message(
                             yield f'data: {json.dumps({"done": True})}\n\n'
                             return
 
+                        tool_start = data.get("tool_start")
+                        if isinstance(tool_start, dict):
+                            step = tool_start.get("context") or tool_start.get("name")
+                            if step:
+                                steps_run.append(str(step))
+
                         tool_complete = data.get("tool_complete")
                         if isinstance(tool_complete, dict) and tool_complete.get("path"):
                             created_paths.append(tool_complete["path"])
@@ -583,6 +629,25 @@ async def stream_chat_message(
                         delta = data.get("delta", "")
                         accumulated.append(delta)
                         yield f"data: {raw}\n\n"
+
+                    # Bridge stream closed without a done/error event (the
+                    # agent subprocess died or the bridge connection broke).
+                    # The processing the user watched (partial text, tool
+                    # steps) counts as the response -- persist it instead of
+                    # dropping it, and tell the client explicitly; a silent
+                    # close makes the in-flight turn vanish with no trace.
+                    content = _interrupted_turn_content()
+                    if content:
+                        asst_msg = ChatMessage(
+                            session_id=session.id,
+                            role="assistant",
+                            content=content,
+                            responding_agent_id=target_agent_id,
+                            thinking_seconds=round(time.monotonic() - stream_started_at),
+                        )
+                        db.add(asst_msg)
+                        await db.commit()
+                    yield f'data: {json.dumps({"error": "agent stream ended unexpectedly"})}\n\n'
 
         except asyncio.CancelledError:
             # Client aborted (Stop button / tab closed) -- the httpx stream
@@ -595,12 +660,13 @@ async def stream_chat_message(
             # (confirmed: an unshielded `await db.commit()` here gets cut
             # off mid-flight and nothing is saved) -- shield=True is
             # required to let this specific write actually complete.
-            if accumulated:
+            cancelled_content = _interrupted_turn_content()
+            if cancelled_content:
                 with anyio.CancelScope(shield=True):
                     asst_msg = ChatMessage(
                         session_id=session.id,
                         role="assistant",
-                        content="".join(accumulated),
+                        content=cancelled_content,
                         responding_agent_id=target_agent_id,
                         thinking_seconds=round(time.monotonic() - stream_started_at),
                     )

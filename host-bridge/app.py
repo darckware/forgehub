@@ -376,7 +376,7 @@ class ChatRequest(BaseModel):
     profile: str
     message: str
     session_id: str | None = None
-    image_path: str | None = None
+    image_paths: list[str] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -403,8 +403,8 @@ def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
     ]
     if req.session_id:
         args += ["--resume", req.session_id]
-    if req.image_path:
-        args += ["--image", req.image_path]
+    for image_path in req.image_paths or []:
+        args += ["--image", image_path]
 
     try:
         proc = subprocess.run(
@@ -541,9 +541,29 @@ async def chat_stream(
             },
         )
         stream_id: str | None = None
+        # An agent turn can think/run tools for minutes without emitting a
+        # single delta. Every proxy hop between here and the browser
+        # (nginx, Cloudflare tunnel ~100s, etc.) kills a byte-silent
+        # connection, which the UI surfaces as "network error" -- so emit
+        # an SSE comment ping during silence. Only *consecutive* silence
+        # counts toward the timeout (any output resets it); the budget must
+        # cover a single long silent tool run (e.g. a ~200MB pip install),
+        # because hitting it kills the agent subprocess mid-turn.
+        idle_ping = 20
+        idle_budget = 1800
         try:
+            idle = 0
             while True:
-                line_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=660)  # type: ignore[union-attr]
+                try:
+                    line_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=idle_ping)  # type: ignore[union-attr]
+                except asyncio.TimeoutError:
+                    idle += idle_ping
+                    if idle >= idle_budget:
+                        yield f'data: {json.dumps({"error": f"agent timeout: no output for {idle_budget}s, turn aborted"})}\n\n'
+                        break
+                    yield ": ping\n\n"
+                    continue
+                idle = 0
                 if not line_bytes:
                     break
                 line = line_bytes.decode().strip()
@@ -560,8 +580,6 @@ async def chat_stream(
                 yield f"data: {line}\n\n"
                 if data.get("done") or data.get("error"):
                     break
-        except asyncio.TimeoutError:
-            yield f'data: {json.dumps({"error": "agent timeout"})}\n\n'
         finally:
             if stream_id is not None:
                 _active_streams.pop(stream_id, None)
@@ -647,24 +665,33 @@ async def chat_with_image(
     profile: str = Form(...),
     message: str = Form(...),
     session_id: str | None = Form(default=None),
-    image: UploadFile = File(...),
+    images: list[UploadFile] = File(...),
     x_bridge_token: str | None = Header(default=None),
 ) -> ChatResponse:
-    """Same as /v1/chat, but accepts the image as bytes (the backend
-    container has no path the host can resolve) and writes it to a host
-    tmp dir before invoking --image."""
+    """Same as /v1/chat, but accepts the image(s) as bytes (the backend
+    container has no path the host can resolve) and writes each to a host
+    tmp dir before invoking --image (repeated, one per image)."""
     _check_token(x_bridge_token)
 
-    suffix = Path(image.filename or "image").suffix or ".png"
-    dest = UPLOAD_DIR / f"{os.urandom(8).hex()}{suffix}"
-    dest.write_bytes(await image.read())
+    dests: list[Path] = []
+    for image in images:
+        suffix = Path(image.filename or "image").suffix or ".png"
+        dest = UPLOAD_DIR / f"{os.urandom(8).hex()}{suffix}"
+        dest.write_bytes(await image.read())
+        dests.append(dest)
 
     try:
         return _run_hermes_chat(
-            ChatRequest(profile=profile, message=message, session_id=session_id, image_path=str(dest))
+            ChatRequest(
+                profile=profile,
+                message=message,
+                session_id=session_id,
+                image_paths=[str(dest) for dest in dests],
+            )
         )
     finally:
-        dest.unlink(missing_ok=True)
+        for dest in dests:
+            dest.unlink(missing_ok=True)
 
 
 _whisper_model = None
@@ -1253,14 +1280,16 @@ async def get_system_stats(x_bridge_token: str | None = Header(default=None)) ->
 
 
 # ---------------------------------------------------------------------------
-# CLI tool version checks -- backs the Dashboard's tool-version card. Each
+# Tool version checks -- backs the Dashboard's "Tool Versions" card. Each
 # tool exposes a different update interface (hermes has a true --check flag;
 # claude/codex have neither a check-only flag nor an npm-independent version
 # probe, so we diff the installed version against the npm registry; agy has
 # no check-only mode at all -- `agy update` itself checks-and-applies in one
 # step, same as its own background auto-updater which already does this
-# every ~15 min regardless of this endpoint) -- so each check is tool-
-# specific rather than a single generic path.
+# every ~15 min regardless of this endpoint; kanboard isn't a CLI at all but
+# a Docker container whose pinned image tag is diffed against the latest
+# GitHub release) -- so each check is tool-specific rather than a single
+# generic path.
 # ---------------------------------------------------------------------------
 
 
@@ -1338,6 +1367,89 @@ def _check_npm_backed(binary: str, version_pattern: str, npm_package: str) -> To
     )
 
 
+# Same brief-cache reasoning as the npm lookups above, for the GitHub
+# "latest release" lookup the Kanboard check needs (unauthenticated GitHub
+# API is rate-limited to 60 req/h -- the 900s poll alone stays under that,
+# but there is no reason to spend it).
+_GITHUB_RELEASE_CACHE_TTL_SECONDS = 3600
+_github_release_cache: dict[str, tuple[float, str | None]] = {}
+
+
+def _github_latest_release_tag(repo: str) -> str | None:
+    now = time.monotonic()
+    cached = _github_release_cache.get(repo)
+    if cached is not None and now - cached[0] < _GITHUB_RELEASE_CACHE_TTL_SECONDS:
+        return cached[1]
+    tag: str | None = None
+    try:
+        resp = httpx.get(
+            f"https://api.github.com/repos/{repo}/releases/latest",
+            headers={"Accept": "application/vnd.github+json"},
+            timeout=20.0,
+            follow_redirects=True,
+        )
+        if resp.status_code == 200:
+            tag = resp.json().get("tag_name") or None
+    except httpx.HTTPError:
+        tag = None
+    _github_release_cache[repo] = (now, tag)
+    return tag
+
+
+# Kanboard isn't a host CLI like the other monitored tools -- it's the Docker
+# container defined by this compose file, with the image pinned to a release
+# tag (kanboard/kanboard:vX.Y.Z). "Installed" is the running container's
+# image tag; "latest" is the newest GitHub release. Updating rewrites the
+# pinned tag in the compose file and recreates the container (its data lives
+# in named volumes, so recreation is safe).
+KANBOARD_COMPOSE_FILE = Path("/root/.hermes/kanboard/docker-compose.yml")
+
+
+def _kanboard_installed_tag() -> tuple[str | None, str | None]:
+    """(image tag, error) for the kanboard container, e.g. ("v1.2.52", None)."""
+    code, out, err = _run(["docker", "inspect", "kanboard", "--format", "{{.Config.Image}}"])
+    if code != 0:
+        return None, (err.strip() or out.strip())[:500] or "docker inspect kanboard failed"
+    image = out.strip()
+    if ":" not in image:
+        return None, f"kanboard container image has no pinned tag: {image}"
+    return image.rsplit(":", 1)[1], None
+
+
+def _check_kanboard() -> ToolVersionResult:
+    tag, error = _kanboard_installed_tag()
+    if tag is None:
+        return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=error)
+    latest_tag = _github_latest_release_tag("kanboard/kanboard")
+    installed = tag.lstrip("v")
+    latest = latest_tag.lstrip("v") if latest_tag else None
+    return ToolVersionResult(
+        installed_version=installed,
+        latest_version=latest,
+        update_available=bool(latest and installed != latest),
+    )
+
+
+def _update_kanboard() -> tuple[int, str, str]:
+    """Pin the compose file to the latest GitHub release tag and recreate the
+    container -- the kanboard entry's counterpart to TOOL_UPDATE_COMMANDS."""
+    latest_tag = _github_latest_release_tag("kanboard/kanboard")
+    if latest_tag is None:
+        return 1, "", "Could not resolve the latest Kanboard release from the GitHub API"
+    try:
+        text = KANBOARD_COMPOSE_FILE.read_text()
+    except OSError as exc:
+        return 1, "", str(exc)
+    new_text, replaced = re.subn(r"(image:\s*kanboard/kanboard):\S+", rf"\1:{latest_tag}", text)
+    if replaced == 0:
+        return 1, "", f"No 'image: kanboard/kanboard:<tag>' line found in {KANBOARD_COMPOSE_FILE}"
+    KANBOARD_COMPOSE_FILE.write_text(new_text)
+    code, out, err = _run(
+        ["docker", "compose", "-f", str(KANBOARD_COMPOSE_FILE), "up", "-d"], timeout=600
+    )
+    return code, f"Pinned kanboard/kanboard:{latest_tag}\n{out}", err
+
+
 def _check_antigravity(run_update: bool = True) -> ToolVersionResult:
     """agy has no check-only mode -- `agy update` itself checks-and-applies in
     one step (confirmed via `agy update --help` / `agy --version`: there is
@@ -1372,6 +1484,7 @@ TOOL_CHECKS = {
     # claude/codex above, just with a simpler capture pattern.
     "pi": lambda: _check_npm_backed("/root/.npm-global/bin/pi", r"(\d+\.\d+\.\d+)", "@earendil-works/pi-coding-agent"),
     "opencode": lambda: _check_npm_backed("/root/.opencode/bin/opencode", r"(\d+\.\d+\.\d+)", "opencode-ai"),
+    "kanboard": _check_kanboard,
 }
 
 TOOL_UPDATE_COMMANDS = {
@@ -1436,11 +1549,15 @@ async def update_tool(req: ToolUpdateRequest, x_bridge_token: str | None = Heade
     """Run the tool's real update command -- triggered only by an explicit
     user click on the Dashboard, not by the periodic sync poll above."""
     _check_token(x_bridge_token)
-    cmd = TOOL_UPDATE_COMMANDS.get(req.tool)
-    if cmd is None:
-        raise HTTPException(status_code=400, detail=f"Unknown tool: {req.tool}")
+    if req.tool == "kanboard":
+        runner = _update_kanboard
+    else:
+        cmd = TOOL_UPDATE_COMMANDS.get(req.tool)
+        if cmd is None:
+            raise HTTPException(status_code=400, detail=f"Unknown tool: {req.tool}")
+        runner = lambda: _run(cmd, timeout=600)  # noqa: E731
     loop = asyncio.get_event_loop()
-    code, out, err = await loop.run_in_executor(None, lambda: _run(cmd, timeout=600))
+    code, out, err = await loop.run_in_executor(None, runner)
     return ToolUpdateResponse(success=code == 0, output=out[-4000:], error=(err[-2000:] or None) if code != 0 else None)
 
 
@@ -2010,6 +2127,26 @@ async def docker_restart(
     }
 
 
+@app.post("/v1/docker/rm")
+async def docker_rm(
+    req: DockerRestartRequest,   # reuse: container_name field
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Remove a Docker container by name (forced, works on running containers)."""
+    _check_token(x_bridge_token)
+    if not _CONTAINER_NAME_RE.match(req.container_name):
+        raise HTTPException(status_code=400, detail="Invalid container name")
+    result = subprocess.run(
+        ["docker", "rm", "-f", req.container_name],
+        capture_output=True, text=True, timeout=60,
+    )
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }
+
+
 @app.post("/v1/docker/logs")
 async def docker_logs(
     req: DockerLogsRequest,
@@ -2047,6 +2184,30 @@ async def docker_inspect(
         return {"inspect": data[0] if data else {}}
     except Exception:
         return {"inspect": {}}
+
+
+class DockerVolumeRmRequest(BaseModel):
+    volume_name: str
+
+
+@app.post("/v1/docker/volume-rm")
+async def docker_volume_rm(
+    req: DockerVolumeRmRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Remove a named Docker volume. Fails if the volume is in use."""
+    _check_token(x_bridge_token)
+    if not _CONTAINER_NAME_RE.match(req.volume_name):
+        raise HTTPException(status_code=400, detail="Invalid volume name")
+    result = subprocess.run(
+        ["docker", "volume", "rm", req.volume_name],
+        capture_output=True, text=True, timeout=30,
+    )
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }
 
 
 @app.post("/v1/docker/volumes")
@@ -2092,8 +2253,11 @@ async def docker_volumes(x_bridge_token: str | None = Header(default=None)) -> d
             except Exception:
                 pass
 
-    # Build volume → containers map via inspect of all containers
+    # Build volume → containers map via inspect of all containers, and
+    # collect bind mounts (host folders shared into containers) so they show
+    # up alongside named volumes.
     vol_containers: dict[str, list[str]] = {}
+    bind_mounts: dict[str, list[str]] = {}
     if container_names:
         ci = subprocess.run(
             ["docker", "inspect"] + container_names,
@@ -2107,6 +2271,10 @@ async def docker_volumes(x_bridge_token: str | None = Header(default=None)) -> d
                     vname = m.get("Name") or m.get("Source", "")
                     if vname:
                         vol_containers.setdefault(vname, []).append(cname)
+                    if m.get("Type") == "bind" and m.get("Source"):
+                        entry = bind_mounts.setdefault(m["Source"], [])
+                        if cname not in entry:
+                            entry.append(cname)
         except Exception:
             pass
 
@@ -2121,7 +2289,40 @@ async def docker_volumes(x_bridge_token: str | None = Header(default=None)) -> d
             "labels": v.get("Labels") or {},
             "containers": vol_containers.get(vname, []),
         })
+    for source in sorted(bind_mounts):
+        result.append({
+            "name": source,
+            "driver": "bind",
+            "mountpoint": source,
+            "scope": "local",
+            "labels": {},
+            "containers": bind_mounts[source],
+        })
     return {"volumes": result}
+
+
+class DockerNetworkRmRequest(BaseModel):
+    network_name: str
+
+
+@app.post("/v1/docker/network-rm")
+async def docker_network_rm(
+    req: DockerNetworkRmRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Remove a Docker network. Fails on predefined networks or if in use."""
+    _check_token(x_bridge_token)
+    if not _CONTAINER_NAME_RE.match(req.network_name):
+        raise HTTPException(status_code=400, detail="Invalid network name")
+    result = subprocess.run(
+        ["docker", "network", "rm", req.network_name],
+        capture_output=True, text=True, timeout=30,
+    )
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }
 
 
 @app.post("/v1/docker/networks")
@@ -2176,3 +2377,111 @@ async def docker_networks(x_bridge_token: str | None = Header(default=None)) -> 
             "containers": containers,
         })
     return {"networks": result}
+
+
+class DockerImageRmRequest(BaseModel):
+    ref: str
+
+
+# Repo:tag references can contain a registry host/port and namespace path
+# ("ghcr.io/vectorize-io/hindsight:latest"), unlike container/volume/network
+# names -- so this allows "/" and ":" on top of _CONTAINER_NAME_RE's charset.
+# Still just a sanity gate: subprocess.run below passes argv as a list (no
+# shell), so this isn't a shell-injection control.
+_IMAGE_REF_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._\-/:]*$')
+
+
+@app.post("/v1/docker/image-rm")
+async def docker_image_rm(
+    req: DockerImageRmRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Remove a Docker image by its "repo:tag" reference (or, for dangling/
+    untagged images, by ID).
+
+    Deliberately takes the tag rather than the bare image ID: when two tags
+    share the same underlying ID (e.g. one repo re-tagged from another),
+    `docker rmi <id>` refuses with "must be forced - image is referenced in
+    multiple repositories" -- forcing it would delete every tag at once,
+    which is surprising when the user only asked to remove one row. Removing
+    by a specific tag only drops that reference; the underlying image stays
+    until its last tag is gone.
+    """
+    _check_token(x_bridge_token)
+    if not _IMAGE_REF_RE.match(req.ref):
+        raise HTTPException(status_code=400, detail="Invalid image reference")
+    result = subprocess.run(
+        ["docker", "rmi", req.ref],
+        capture_output=True, text=True, timeout=60,
+    )
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }
+
+
+@app.post("/v1/docker/images")
+async def docker_images(x_bridge_token: str | None = Header(default=None)) -> dict:
+    """List all Docker images with size/tag info and whether any container
+    (running or stopped) currently references them."""
+    _check_token(x_bridge_token)
+    ls = subprocess.run(
+        ["docker", "images", "-a", "--format", "{{json .}}"],
+        capture_output=True, text=True, timeout=15,
+    )
+    images = []
+    for line in ls.stdout.strip().split("\n"):
+        line = line.strip()
+        if line:
+            try:
+                images.append(json.loads(line))
+            except Exception:
+                pass
+
+    # Resolve the actual image ID each container was created from (docker ps's
+    # own "Image" column is often a tag, not an ID) so it can be matched
+    # reliably against `docker images`' short ID column.
+    ps = subprocess.run(
+        ["docker", "ps", "-a", "--format", "{{json .}}"],
+        capture_output=True, text=True, timeout=15,
+    )
+    container_names = []
+    for line in ps.stdout.strip().split("\n"):
+        line = line.strip()
+        if line:
+            try:
+                container_names.append(json.loads(line).get("Names", ""))
+            except Exception:
+                pass
+
+    used_image_ids: set[str] = set()
+    if container_names:
+        ci = subprocess.run(
+            ["docker", "inspect"] + container_names,
+            capture_output=True, text=True, timeout=30,
+        )
+        try:
+            cdata = json.loads(ci.stdout)
+            for c in cdata:
+                image_ref = c.get("Image", "")
+                if image_ref:
+                    used_image_ids.add(image_ref.split(":")[-1][:12])
+        except Exception:
+            pass
+
+    result = []
+    for img in images:
+        image_id = img.get("ID", "")
+        repo = img.get("Repository", "")
+        tag = img.get("Tag", "")
+        result.append({
+            "id": image_id,
+            "repository": repo,
+            "tag": tag,
+            "size": img.get("Size", ""),
+            "created_since": img.get("CreatedSince", ""),
+            "dangling": repo == "<none>" and tag == "<none>",
+            "in_use": image_id in used_image_ids,
+        })
+    return {"images": result}

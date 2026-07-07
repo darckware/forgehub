@@ -178,15 +178,15 @@ export function useSendChatMessage(agentId: string | undefined) {
     mutationFn: async ({
       sessionId,
       message,
-      file,
+      files,
     }: {
       sessionId: string;
       message: string;
-      file?: File | null;
+      files?: File[] | null;
     }) => {
       const form = new FormData();
       form.set("message", message);
-      if (file) form.set("file", file);
+      for (const file of files ?? []) form.append("files", file);
       return apiClient.postForm<ChatSendResult>(`${RESOURCE}/sessions/${sessionId}/messages`, form);
     },
     onSuccess: (result) => {
@@ -224,7 +224,7 @@ export function useDeleteChatMessage(sessionId: string | undefined) {
 
 export type ChatStreamEvent =
   | { type: "delta"; text: string }
-  | { type: "tool_start"; toolId: string; name: string; context?: string }
+  | { type: "tool_start"; toolId: string; name: string; context?: string; detail?: string }
   | { type: "tool_complete"; toolId: string; name: string; summary?: string }
   | { type: "approval_request"; streamId: string; command?: string; description?: string; patternKeys?: string[] }
   | { type: "done"; reply: string }
@@ -245,6 +245,9 @@ function parseChatStreamLine(raw: string): ChatStreamEvent | null {
       toolId: data.tool_start.tool_id,
       name: data.tool_start.name,
       context: data.tool_start.context,
+      // Exact primary argument (full command/path/query) -- `context` is an
+      // 80-char label; the UI shows this verbatim in the shell block.
+      detail: data.tool_start.detail,
     };
   }
   if (data.tool_complete) {
@@ -280,7 +283,10 @@ export function useStreamChatMessage(agentId: string | undefined) {
     options?: { regenerate?: boolean; targetAgentId?: string; skipUserMessage?: boolean }
   ): Promise<void> {
     const token = getToken() ?? "";
-    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
+    // Same-origin by default (nginx proxies /api/ to the backend) -- a
+    // hardcoded localhost fallback breaks every chat message when the UI
+    // is opened via a LAN IP or tunnel hostname ("Failed to fetch").
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
     let extraParams = options?.regenerate ? "&regenerate=true" : "";
     if (options?.targetAgentId) extraParams += `&target_agent_id=${options.targetAgentId}`;
     if (options?.skipUserMessage) extraParams += "&skip_user_message=true";
@@ -314,6 +320,13 @@ export function useStreamChatMessage(agentId: string | undefined) {
           }
         }
       }
+      // Stream closed without a done/error event: the connection dropped
+      // mid-turn. Treating this as success made the in-flight turn vanish
+      // from the UI with no trace ("like a refresh"). The backend persists
+      // any partial reply -- refetch it, then surface the failure.
+      queryClient.invalidateQueries({ queryKey: chatKeys.messages(sessionId) });
+      queryClient.invalidateQueries({ queryKey: chatKeys.artifacts(sessionId) });
+      throw new Error("conexão interrompida no meio da resposta (o parcial gerado foi salvo na conversa)");
     } finally {
       reader.releaseLock();
     }

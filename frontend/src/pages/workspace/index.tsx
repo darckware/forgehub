@@ -81,6 +81,16 @@ import { useChatHandoffStore } from "@/store/chatHandoff";
 const TABS_STORAGE_KEY = "forgehub-workspace-tabs";
 const ACTIVE_TAB_STORAGE_KEY = "forgehub-workspace-active-tab";
 
+// Attached-file and draft-text staging per chat tab, kept outside React
+// state. Navigating to another page and back to Workspace remounts
+// ChatTabPanel from scratch (unlike switching tabs within Workspace, which
+// just CSS-hides it), so plain useState loses the pending image/draft; a
+// File can't round-trip through the tabs' localStorage persistence either,
+// and composer text isn't wired into it. These module-level maps survive
+// that remount for the lifetime of the SPA session.
+const attachmentByTabId = new Map<string, File[]>();
+const composerTextByTabId = new Map<string, string>();
+
 // Composer auto-grow ceiling -- past this it scrolls internally instead
 // of taking over the message area.
 const COMPOSER_MAX_HEIGHT_PX = 240;
@@ -98,7 +108,39 @@ type WorkspaceTab =
 
 type Launcher = { label: string; command: string; icon?: string; iconBg?: string };
 
-type ChatQueueStep = { id: string; label: string; done: boolean };
+type ChatQueueStep = { id: string; name: string; label: string; detail?: string; done: boolean };
+
+/** Tool-name → emoji, mirroring the Telegram gateway's processing feed
+ * (🔍 search_files, 📖 Reading …, 💻 terminal, 🐍 Running code, …). */
+function toolEmoji(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes("search")) return "🔍";
+  if (n.includes("read")) return "📖";
+  if (n.includes("write") || n.includes("edit")) return "📝";
+  if (n.includes("term") || n.includes("shell") || n.includes("bash") || n.includes("exec")) return "💻";
+  if (n.includes("code") || n.includes("python")) return "🐍";
+  if (n.includes("web") || n.includes("http") || n.includes("fetch") || n.includes("browser")) return "🌐";
+  if (n.includes("memory") || n.includes("recall") || n.includes("think")) return "🧠";
+  if (n.includes("image") || n.includes("vision")) return "🖼️";
+  if (n.includes("file")) return "📂";
+  return "🔧";
+}
+
+function isTerminalTool(name: string): boolean {
+  const n = name.toLowerCase();
+  return n.includes("term") || n.includes("shell") || n.includes("bash") || n.includes("exec");
+}
+
+/** Telegram-style "digitando" ellipsis. */
+function TypingDots() {
+  return (
+    <span className="inline-flex gap-0.5" aria-hidden>
+      <span className="animate-bounce">·</span>
+      <span className="animate-bounce [animation-delay:150ms]">·</span>
+      <span className="animate-bounce [animation-delay:300ms]">·</span>
+    </span>
+  );
+}
 
 type ChatQueueApproval = { streamId: string; command?: string; description?: string; patternKeys?: string[] };
 
@@ -106,7 +148,7 @@ type ChatQueueItem = {
   id: string;
   content: string;
   attachmentName: string | null;
-  file: File | null;
+  files: File[];
   liveText: string;
   steps: ChatQueueStep[];
   status: "queued" | "processing" | "error";
@@ -150,7 +192,11 @@ function LiveThinkingLabel({ startedAt }: { startedAt: number }) {
     return () => clearInterval(id);
   }, []);
   const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
-  return <p className="text-xs text-muted-foreground">Thinking for {formatThinkingDuration(elapsed)}</p>;
+  return (
+    <p className="text-xs text-muted-foreground">
+      ⏳ Trabalhando — {formatThinkingDuration(elapsed)}
+    </p>
+  );
 }
 
 /** Finds every "#Agente" mention in text, matching the longest agent name
@@ -1096,6 +1142,7 @@ function MessageBubble({
  * scroll position, same as how terminal tabs keep their tmux session
  * alive in the background. */
 function ChatTabPanel({
+  tabId,
   active,
   agentId,
   chatableAgents,
@@ -1105,6 +1152,7 @@ function ChatTabPanel({
   artifactsOpen,
   workingDir,
 }: {
+  tabId: string;
   active: boolean;
   agentId: string;
   chatableAgents: Agent[];
@@ -1117,8 +1165,35 @@ function ChatTabPanel({
   workingDir?: string;
 }) {
   const [sessionId, setSessionId] = useState<string>("");
-  const [composerText, setComposerText] = useState(initialComposerText ?? "");
-  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [composerText, setComposerText] = useState(
+    () => composerTextByTabId.get(tabId) ?? initialComposerText ?? ""
+  );
+  useEffect(() => {
+    composerTextByTabId.set(tabId, composerText);
+  }, [tabId, composerText]);
+  const [attachedFiles, setAttachedFilesState] = useState<File[]>(
+    () => attachmentByTabId.get(tabId) ?? []
+  );
+  function setAttachedFiles(files: File[]) {
+    if (files.length > 0) attachmentByTabId.set(tabId, files);
+    else attachmentByTabId.delete(tabId);
+    setAttachedFilesState(files);
+  }
+  function addAttachedFiles(newFiles: File[]) {
+    setAttachedFiles([...attachedFiles, ...newFiles]);
+  }
+  function removeAttachedFile(index: number) {
+    setAttachedFiles(attachedFiles.filter((_, i) => i !== index));
+  }
+  const [imagePreviewIndex, setImagePreviewIndex] = useState<number | null>(null);
+  useEffect(() => {
+    if (imagePreviewIndex === null) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setImagePreviewIndex(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [imagePreviewIndex]);
   const [isRecording, setIsRecording] = useState(false);
   const [queue, setQueue] = useState<ChatQueueItem[]>([]);
   const queueDrainingRef = useRef(false);
@@ -1240,9 +1315,18 @@ function ChatTabPanel({
     updateSession.mutate({ sessionId: s.id, pinned: !s.pinned });
   }
 
+  // Jump straight to the bottom (no animation) the first time a session's
+  // messages load -- e.g. opening the tab or switching sessions -- so the
+  // conversation never visibly scrolls from top to bottom on entry. Once
+  // that session has had its initial jump, later updates (new messages
+  // arriving while the user is already there) animate smoothly instead.
+  const scrolledSessionRef = useRef<string | null>(null);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, queue]);
+    if (!messages) return;
+    const isInitialForSession = scrolledSessionRef.current !== sessionId;
+    messagesEndRef.current?.scrollIntoView({ behavior: isInitialForSession ? "auto" : "smooth" });
+    if (isInitialForSession) scrolledSessionRef.current = sessionId;
+  }, [messages, queue, sessionId]);
 
   // Auto-grow the composer with its content -- the single-line height is
   // the floor (never shrinks below it), and it grows up to
@@ -1264,8 +1348,8 @@ function ChatTabPanel({
   }
 
   function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    setAttachedFile(file ?? null);
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) addAttachedFiles(files);
     e.target.value = "";
   }
 
@@ -1274,7 +1358,7 @@ function ChatTabPanel({
     const isOverride = overrideText !== undefined;
 
     const trimmed = (isOverride ? overrideText : composerText).trim();
-    if (!trimmed && !attachedFile) {
+    if (!trimmed && attachedFiles.length === 0) {
       setComposerWarning("Digite uma mensagem antes de enviar.");
       return;
     }
@@ -1284,7 +1368,7 @@ function ChatTabPanel({
     // same text (e.g. user just fixed a typo elsewhere and reverted it).
     const lastUserMessage =
       queue[queue.length - 1]?.content ?? [...(messages ?? [])].reverse().find((m) => m.role === "user")?.content;
-    if (!isOverride && !attachedFile && trimmed && lastUserMessage?.trim() === trimmed) {
+    if (!isOverride && attachedFiles.length === 0 && trimmed && lastUserMessage?.trim() === trimmed) {
       setComposerWarning("You already sent this message.");
       return;
     }
@@ -1297,23 +1381,23 @@ function ChatTabPanel({
     }
 
     const message = isOverride ? overrideText : composerText;
-    const file = isOverride ? null : attachedFile;
+    const files = isOverride ? [] : attachedFiles;
     if (!isOverride) {
       setComposerText("");
-      setAttachedFile(null);
+      setAttachedFiles([]);
       setComposerWarning(null);
     }
 
     // "!command" runs raw bash via the bridge -- no agent/LLM call at all,
     // bypasses mentions/queue-target logic entirely.
-    if (!file && trimmed.startsWith("!")) {
+    if (files.length === 0 && trimmed.startsWith("!")) {
       setQueue((q) => [
         ...q,
         {
           id: crypto.randomUUID(),
           content: trimmed,
           attachmentName: null,
-          file: null,
+          files: [],
           liveText: "",
           steps: [],
           status: "queued",
@@ -1329,7 +1413,8 @@ function ChatTabPanel({
     // entirely (v1: no broadcast-plus-mentions, no shared context -- see
     // ChatSessionParticipant's docstring). Excludes a self-mention (the
     // tab's own agent), which just behaves as a normal send.
-    const mentionedAgents = file ? [] : extractMentionedAgents(message, chatableAgents).filter((a) => a.id !== agentId);
+    const mentionedAgents =
+      files.length > 0 ? [] : extractMentionedAgents(message, chatableAgents).filter((a) => a.id !== agentId);
 
     if (mentionedAgents.length === 0) {
       setQueue((q) => [
@@ -1337,8 +1422,8 @@ function ChatTabPanel({
         {
           id: crypto.randomUUID(),
           content: message,
-          attachmentName: file?.name ?? null,
-          file,
+          attachmentName: files.length > 0 ? files.map((f) => f.name).join(", ") : null,
+          files,
           liveText: "",
           steps: [],
           status: "queued",
@@ -1353,7 +1438,7 @@ function ChatTabPanel({
           id: crypto.randomUUID(),
           content: message,
           attachmentName: null,
-          file: null,
+          files: [],
           liveText: "",
           steps: [],
           status: "queued" as const,
@@ -1388,7 +1473,19 @@ function ChatTabPanel({
         if (item.id !== itemId) return item;
         if (event.type === "delta") return { ...item, liveText: item.liveText + event.text };
         if (event.type === "tool_start") {
-          return { ...item, steps: [...item.steps, { id: event.toolId, label: event.context || event.name, done: false }] };
+          return {
+            ...item,
+            steps: [
+              ...item.steps,
+              {
+                id: event.toolId,
+                name: event.name,
+                label: event.context || event.name,
+                detail: event.detail,
+                done: false,
+              },
+            ],
+          };
         }
         if (event.type === "tool_complete") {
           return {
@@ -1418,16 +1515,16 @@ function ChatTabPanel({
   }
 
   async function processQueueItem(item: ChatQueueItem) {
-    const abortController = item.file || item.isExec ? null : new AbortController();
+    const abortController = item.files.length > 0 || item.isExec ? null : new AbortController();
     setQueue((q) =>
       q.map((it) => (it.id === item.id ? { ...it, status: "processing", abortController, startedAt: Date.now() } : it))
     );
     try {
       if (item.isExec) {
         await execCommand.mutateAsync({ sessionId, command: item.content.slice(1), cwd: workingDir });
-      } else if (item.file) {
+      } else if (item.files.length > 0) {
         // File uploads only support the one-shot endpoint (the SSE endpoint is GET-only).
-        await sendMessage.mutateAsync({ sessionId, message: item.content, file: item.file });
+        await sendMessage.mutateAsync({ sessionId, message: item.content, files: item.files });
       } else {
         await streamMessage(sessionId, item.content, (event) => handleStreamEvent(item.id, event), abortController!.signal, {
           regenerate: item.isRegenerate,
@@ -1435,14 +1532,25 @@ function ChatTabPanel({
           skipUserMessage: item.skipUserMessage,
         });
       }
+      // Only drop the pending bubbles AFTER the persisted messages have
+      // been refetched. Removing first left a window where the sent prompt
+      // vanished from the screen (long turns made it very visible); the
+      // pending bubble must stay until its persisted twin is rendered.
+      await queryClient
+        .refetchQueries({ queryKey: chatKeys.messages(sessionId) })
+        .catch(() => {});
       setQueue((q) => q.filter((it) => it.id !== item.id));
     } catch (err) {
       if ((err as Error).name === "AbortError") {
         // User hit Stop -- the backend already persisted whatever had been
         // generated so far (see chat.py's CancelledError handling), just
-        // refresh to pick it up instead of showing a red error.
-        queryClient.invalidateQueries({ queryKey: chatKeys.messages(sessionId) });
+        // refresh to pick it up instead of showing a red error. Same rule
+        // as the success path: only drop the pending bubbles after the
+        // persisted messages are back on screen.
         queryClient.invalidateQueries({ queryKey: chatKeys.artifacts(sessionId) });
+        await queryClient
+          .refetchQueries({ queryKey: chatKeys.messages(sessionId) })
+          .catch(() => {});
         setQueue((q) => q.filter((it) => it.id !== item.id));
         return;
       }
@@ -1478,7 +1586,7 @@ function ChatTabPanel({
         id: crypto.randomUUID(),
         content: precedingUser.content,
         attachmentName: null,
-        file: null,
+        files: [],
         liveText: "",
         steps: [],
         status: "queued",
@@ -1514,16 +1622,16 @@ function ChatTabPanel({
   // cluttering this small pending-queue summary panel below.
   const pendingQueue = useMemo(() => queue.filter((item) => item.status !== "error"), [queue]);
 
-  const attachedImagePreviewUrl = useMemo(
-    () => (attachedFile?.type.startsWith("image/") ? URL.createObjectURL(attachedFile) : null),
-    [attachedFile]
+  const attachedImagePreviewUrls = useMemo(
+    () => attachedFiles.map((f) => (f.type.startsWith("image/") ? URL.createObjectURL(f) : null)),
+    [attachedFiles]
   );
 
   useEffect(() => {
     return () => {
-      if (attachedImagePreviewUrl) URL.revokeObjectURL(attachedImagePreviewUrl);
+      attachedImagePreviewUrls.forEach((url) => url && URL.revokeObjectURL(url));
     };
-  }, [attachedImagePreviewUrl]);
+  }, [attachedImagePreviewUrls]);
 
   // Ghost-text suggestion: only when the agent's last message ends with a
   // question (explicit -- no LLM call, no guessing at open-ended answers)
@@ -1550,17 +1658,20 @@ function ChatTabPanel({
   }
 
   function handleComposerPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const imageItem = Array.from(e.clipboardData.items).find((item) => item.type.startsWith("image/"));
-    if (!imageItem) return;
-    const file = imageItem.getAsFile();
-    if (!file) return;
+    const imageItems = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) return;
     e.preventDefault();
-    const ext = file.type.split("/")[1] || "png";
-    setAttachedFile(
-      new File([file], file.name && file.name !== "image.png" ? file.name : `pasted-image.${ext}`, {
-        type: file.type,
+    const newFiles = imageItems
+      .map((item, index) => {
+        const file = item.getAsFile();
+        if (!file) return null;
+        const ext = file.type.split("/")[1] || "png";
+        const name =
+          file.name && file.name !== "image.png" ? file.name : `pasted-image-${Date.now()}-${index}.${ext}`;
+        return new File([file], name, { type: file.type });
       })
-    );
+      .filter((f): f is File => f !== null);
+    if (newFiles.length > 0) addAttachedFiles(newFiles);
   }
 
   function handleComposerKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1716,7 +1827,7 @@ function ChatTabPanel({
       if (!noRestart) setTimeout(() => startListening(), 300);
     };
 
-    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
     const token = getToken() ?? "";
 
     fetch(`${apiBase}/api/v1/chat/tts`, {
@@ -2167,7 +2278,7 @@ function ChatTabPanel({
 
     try {
       const token = getToken() ?? "";
-      const apiBase = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
+      const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
       // voice=true → backend adds brevity instruction before sending to agent
       const url = `${apiBase}/api/v1/chat/sessions/${sid}/messages/stream?voice=true&message=${encodeURIComponent(text)}`;
       const resp = await fetch(url, {
@@ -2652,7 +2763,7 @@ function ChatTabPanel({
                 />
               )}
               {item.status === "queued" && (
-                <p className="pl-1 text-xs italic text-muted-foreground">Na fila…</p>
+                <p className="pl-1 text-xs italic text-muted-foreground">📥 Na fila…</p>
               )}
               {item.status === "processing" && (
                 <div className="flex max-w-[85%] flex-col gap-1">
@@ -2677,43 +2788,74 @@ function ChatTabPanel({
                       {item.targetAgentName}
                     </span>
                   )}
-                  {item.steps.map((step) => (
-                    <p key={step.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                      {step.done ? (
-                        <Check className="h-3 w-3 shrink-0" />
-                      ) : (
-                        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                      )}
-                      {step.label}
-                    </p>
-                  ))}
-                  {item.liveText ? (
-                    isPlainTextReply(item.content) ? (
+                  {item.steps.map((step) => {
+                    // Telegram-gateway style: terminal/code steps show the
+                    // tool line plus the EXACT command in a `shell` block
+                    // (`detail` is verbatim from tool_args; the label is an
+                    // 80-char elision kept only as fallback). Every other
+                    // tool is a one-liner with its emoji.
+                    const isBlockTool =
+                      isTerminalTool(step.name) || step.name.toLowerCase().includes("code");
+                    const blockText = isBlockTool
+                      ? step.detail ??
+                        (step.label !== step.name ? step.label.replace(/^Running\s+/i, "") : null)
+                      : null;
+                    return (
+                      <div key={step.id} className="space-y-1">
+                        <p
+                          className="flex items-center gap-2 text-xs text-muted-foreground"
+                          title={step.detail ?? step.label}
+                        >
+                          {step.done ? (
+                            <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+                          ) : (
+                            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                          )}
+                          <span aria-hidden>{toolEmoji(step.name)}</span>
+                          {blockText ? step.name : step.label}
+                        </p>
+                        {blockText && (
+                          <div className="ml-5 max-w-lg overflow-hidden rounded-md border border-border/60 bg-muted/50">
+                            <p className="border-b border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                              shell
+                            </p>
+                            <code className="block max-h-32 overflow-auto whitespace-pre-wrap break-all px-2 py-1 font-mono text-xs">
+                              {blockText}
+                            </code>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {item.liveText &&
+                    (isPlainTextReply(item.content) ? (
                       <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs">
                         {item.liveText}
                       </pre>
                     ) : (
                       <Markdown content={item.liveText} />
-                    )
-                  ) : (
-                    item.steps.length === 0 &&
-                    !item.approval && (
-                      <p className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                        {item.isExec
-                          ? "Executando comando…"
-                          : item.targetAgentName
-                          ? `${item.targetAgentName} is thinking…`
-                          : "Pensando…"}
-                      </p>
-                    )
+                    ))}
+                  {!item.approval && (
+                    <p className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
+                      {item.isExec ? (
+                        <>
+                          <span aria-hidden>💻</span> Executando comando
+                        </>
+                      ) : (
+                        <>
+                          <span aria-hidden>✍️</span>
+                          {`${item.targetAgentName ?? selectedAgent?.name ?? "O agente"} está digitando`}
+                        </>
+                      )}
+                      <TypingDots />
+                    </p>
                   )}
                 </div>
               )}
               {item.approval && (
                 <div className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
                   <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    {item.targetAgentName ?? "The agent"} is requesting confirmation to run a privileged action
+                    🔐 {item.targetAgentName ?? selectedAgent?.name ?? "O agente"} pede autorização para executar uma ação privilegiada
                   </p>
                   {item.approval.description && (
                     <p className="text-xs text-muted-foreground">{item.approval.description}</p>
@@ -2740,7 +2882,7 @@ function ChatTabPanel({
                       size="sm"
                       onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "once")}
                     >
-                      Aprovar uma vez
+                      ✅ Aprovar uma vez
                     </Button>
                     <Button
                       size="sm"
@@ -2748,21 +2890,21 @@ function ChatTabPanel({
                       title="Do not ask again for this same command type in this session"
                       onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "session")}
                     >
-                      Approve for this session
+                      ☑️ Aprovar nesta sessão
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "deny")}
                     >
-                      Negar
+                      🚫 Negar
                     </Button>
                   </div>
                 </div>
               )}
               {item.status === "error" && (
                 <p className="flex items-center gap-2 pl-1 text-xs text-destructive">
-                  Falhou: {item.error}
+                  ❌ Falhou: {item.error}
                   <button
                     type="button"
                     aria-label="Dispensar"
@@ -2795,17 +2937,68 @@ function ChatTabPanel({
           {composerWarning && (
             <p className="px-1 text-xs text-destructive">{composerWarning}</p>
           )}
-          {attachedFile && (
-            <div className="flex w-fit items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs">
-              {attachedImagePreviewUrl ? (
-                <img src={attachedImagePreviewUrl} alt="" className="h-6 w-6 rounded object-cover" />
-              ) : (
-                <Paperclip className="h-3 w-3" />
-              )}
-              {attachedFile.name}
-              <button type="button" aria-label="Remove attachment" onClick={() => setAttachedFile(null)}>
-                <X className="h-3 w-3" />
-              </button>
+          {attachedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {attachedFiles.map((file, index) => (
+                <div key={index} className="flex w-fit items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs">
+                  {attachedImagePreviewUrls[index] ? (
+                    <button
+                      type="button"
+                      aria-label="Visualizar imagem anexada"
+                      onClick={() => setImagePreviewIndex(index)}
+                      className="shrink-0"
+                    >
+                      <img src={attachedImagePreviewUrls[index]!} alt="" className="h-6 w-6 rounded object-cover" />
+                    </button>
+                  ) : (
+                    <Paperclip className="h-3 w-3" />
+                  )}
+                  {file.name}
+                  <button type="button" aria-label="Remove attachment" onClick={() => removeAttachedFile(index)}>
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {imagePreviewIndex !== null && attachedImagePreviewUrls[imagePreviewIndex] && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              onClick={() => setImagePreviewIndex(null)}
+            >
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+              <div
+                className="relative z-10 flex max-h-[80vh] max-w-[80vw] flex-col items-center gap-3"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <img
+                  src={attachedImagePreviewUrls[imagePreviewIndex]!}
+                  alt={attachedFiles[imagePreviewIndex]?.name ?? ""}
+                  className="max-h-[70vh] max-w-[80vw] rounded-lg object-contain shadow-2xl"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="gap-2"
+                  onClick={() => {
+                    removeAttachedFile(imagePreviewIndex);
+                    setImagePreviewIndex(null);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                  Remover
+                </Button>
+                <button
+                  type="button"
+                  aria-label="Fechar"
+                  onClick={() => setImagePreviewIndex(null)}
+                  className="absolute -right-3 -top-3 rounded-full border border-border bg-card p-1.5 shadow-md hover:bg-accent"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           )}
           <div className="relative flex items-end gap-1 rounded-3xl border border-border bg-muted/50 px-2 py-1.5">
@@ -2840,7 +3033,7 @@ function ChatTabPanel({
                 onClose={() => setArtifactMentionOpen(false)}
               />
             )}
-            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePick} />
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFilePick} />
             <AttachMenuButton
               onPickFile={() => fileInputRef.current?.click()}
               onInsertTrigger={(char) => {
@@ -3154,6 +3347,8 @@ export default function WorkspacePage() {
     const remaining = tabs.filter((t) => t.id !== id);
     setTabs(remaining);
     setActiveTabId((current) => (current === id ? remaining[remaining.length - 1]?.id ?? "" : current));
+    attachmentByTabId.delete(id);
+    composerTextByTabId.delete(id);
     if (tab?.kind === "terminal") {
       // Fire-and-forget: this is the one place a tab's session should
       // actually end, as opposed to every other disconnect (tab switch,
@@ -3186,9 +3381,12 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (initRef.current || chatableAgents.length === 0) return;
     initRef.current = true;
-    const draft = consumeDraft();
-    if (draft) {
-      openChatTab(chatableAgents[0].id, draft);
+    const handoff = consumeDraft();
+    if (handoff) {
+      // Honor the handoff's target agent (e.g. a tool's responsible agent)
+      // when it is chatable here; otherwise fall back to the first agent.
+      const targetAgent = chatableAgents.find((a) => a.id === handoff.agentId);
+      openChatTab(targetAgent?.id ?? chatableAgents[0].id, handoff.draft);
     } else if (tabs.length === 0) {
       openChatTab(chatableAgents[0].id);
     }
@@ -3397,6 +3595,7 @@ export default function WorkspacePage() {
           t.kind === "chat" ? (
             <ChatTabPanel
               key={t.id}
+              tabId={t.id}
               active={t.id === activeTabId}
               agentId={t.agentId}
               chatableAgents={chatableAgents}

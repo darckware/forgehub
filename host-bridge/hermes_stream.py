@@ -172,7 +172,17 @@ def main() -> None:
                 context = build_tool_label(name, tool_args, max_len=80) or name
             except Exception:
                 context = name
-            _emit({"tool_start": {"tool_id": str(tool_id), "name": name, "context": context}})
+            payload = {"tool_id": str(tool_id), "name": name, "context": context}
+            # `context` is truncated to 80 chars -- also ship the exact
+            # primary argument (full command/path/query) so the UI can show
+            # it verbatim instead of an elided label.
+            if isinstance(tool_args, dict):
+                for key in ("command", "cmd", "code", "path", "file_path", "query", "url"):
+                    val = tool_args.get(key)
+                    if isinstance(val, str) and val.strip():
+                        payload["detail"] = val[:2000]
+                        break
+            _emit({"tool_start": payload})
 
         def on_tool_complete(tool_id, name, tool_args, result) -> None:
             payload = {"tool_id": str(tool_id), "name": name}

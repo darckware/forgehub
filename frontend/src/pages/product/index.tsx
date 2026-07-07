@@ -218,7 +218,7 @@ export default function ProductPage() {
   const handleBackup = async (product: Product) => {
     setBackupLoading(product.id);
     try {
-      const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+      const BASE_URL = import.meta.env.VITE_API_URL || window.location.origin;
       const resp = await fetch(`${BASE_URL}/api/v1/products/${product.id}/backup`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const blob = await resp.blob();
@@ -250,7 +250,7 @@ export default function ProductPage() {
     try {
       const formData = new FormData();
       formData.append("file", pendingRestoreFile);
-      const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+      const BASE_URL = import.meta.env.VITE_API_URL || window.location.origin;
       const url = `${BASE_URL}/api/v1/products/restore?restore_db=${restoreDb}&restore_files=${restoreFiles}`;
       const resp = await fetch(url, { method: "POST", body: formData });
       if (!resp.ok) {
