@@ -49,9 +49,11 @@ from app.api.schemas.agent import (
     AgentSkillOut,
     AgentUpdate,
     HermesSyncResultOut,
+    SkillAgentRef,
     SkillCreate,
     SkillOut,
     SkillUpdate,
+    SkillWithAgentsOut,
     SubAgentCreate,
     SubAgentOut,
     SubAgentSkillCreate,
@@ -347,15 +349,33 @@ async def create_skill(payload: SkillCreate, db: AsyncSession = Depends(get_db))
     return skill
 
 
-@router.get("/skills", response_model=list[SkillOut])
+@router.get("/skills", response_model=list[SkillWithAgentsOut])
 async def list_skills(
     risk_level: str | None = None, db: AsyncSession = Depends(get_db)
-) -> list[Skill]:
-    query = select(Skill).order_by(Skill.name, Skill.version)
+) -> list[SkillWithAgentsOut]:
+    """List every skill with the agents it is granted to (agent_skills),
+    so the Skills page can show and filter by holder in one request."""
+    query = (
+        select(Skill)
+        .options(selectinload(Skill.agent_skills).selectinload(AgentSkill.agent))
+        .order_by(Skill.name, Skill.version)
+    )
     if risk_level is not None:
         query = query.where(Skill.risk_level == risk_level)
     result = await db.execute(query)
-    return list(result.scalars().all())
+    return [
+        SkillWithAgentsOut(
+            **SkillOut.model_validate(skill).model_dump(),
+            agents=sorted(
+                (
+                    SkillAgentRef(agent_id=grant.agent.id, agent_name=grant.agent.name)
+                    for grant in skill.agent_skills
+                ),
+                key=lambda ref: ref.agent_name.lower(),
+            ),
+        )
+        for skill in result.scalars().all()
+    ]
 
 
 @router.get("/skills/{skill_id}", response_model=SkillOut)

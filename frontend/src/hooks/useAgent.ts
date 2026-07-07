@@ -35,6 +35,13 @@ export type RuntimeTier = (typeof RUNTIME_TIERS)[number];
 // Schemas
 // ---------------------------------------------------------------------------
 
+export const skillAgentRefSchema = z.object({
+  agent_id: z.string(),
+  agent_name: z.string(),
+});
+
+export type SkillAgentRef = z.infer<typeof skillAgentRefSchema>;
+
 export const skillSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -45,6 +52,9 @@ export const skillSchema = z.object({
   permissions: z.string().default(""),
   is_approved: z.boolean().default(false),
   security_reviewed: z.boolean().default(false),
+  // Agents holding this skill (agent_skills grants), embedded by the list
+  // endpoint so the Skills page can filter by holder.
+  agents: z.array(skillAgentRefSchema).default([]),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -203,6 +213,7 @@ export function useSyncHermesAgents() {
     mutationFn: () => apiClient.post<HermesSyncResult>(`${RESOURCE}/sync/hermes-foundation`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: skillKeys.all });
     },
   });
 }
@@ -219,6 +230,41 @@ export function useSkills() {
   return useQuery({
     queryKey: skillKeys.all,
     queryFn: () => apiClient.get<Skill[]>(`${RESOURCE}/skills`),
+  });
+}
+
+export interface SkillUpdateInput {
+  name?: string;
+  version?: string;
+  description?: string | null;
+  origin?: SkillOrigin;
+  risk_level?: SkillRiskLevel;
+  permissions?: string;
+}
+
+/** Partial update of a skill's registry metadata. The backend rejects
+ * edits (other than approval flags) on already-approved skills — approved
+ * skills must not change without a new version (SPEC 6.5 rule 8). */
+export function useUpdateSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ skillId, updates }: { skillId: string; updates: SkillUpdateInput }) =>
+      apiClient.patch<Skill>(`${RESOURCE}/skills/${skillId}`, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: skillKeys.all });
+    },
+  });
+}
+
+/** Delete the skill's registry row (grants cascade). The SKILL.md file in
+ * the profile is untouched, so a Hermes Foundation sync re-imports it. */
+export function useDeleteSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (skillId: string) => apiClient.delete<void>(`${RESOURCE}/skills/${skillId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: skillKeys.all });
+    },
   });
 }
 

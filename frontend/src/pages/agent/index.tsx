@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle, Bot, CornerDownRight, Loader2, RefreshCw, Send } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -28,14 +30,12 @@ function toRows(agents: Agent[]): AgentRow[] {
   ]);
 }
 
-const STATUS_VARIANT: Record<
-  string,
-  "default" | "secondary" | "success" | "warning" | "outline" | "destructive"
-> = {
-  active: "success",
-  inactive: "outline",
-  retired: "destructive",
-};
+// Layer/tier label as shown in the table column (minus the Telegram flag,
+// which is orthogonal to where the agent sits in the hierarchy).
+function layerTierLabel(agent: Agent): string | null {
+  if (!agent.layer) return null;
+  return `${agent.layer}${agent.runtime_tier ? ` · Tier ${agent.runtime_tier}` : ""}`;
+}
 
 const TYPE_VARIANT: Record<
   string,
@@ -49,6 +49,21 @@ const TYPE_VARIANT: Record<
 export default function AgentPage() {
   const { data: agents, isLoading, isError, error } = useAgents();
   const syncHermes = useSyncHermesAgents();
+  const [typeFilter, setTypeFilter] = useState("");
+  const [layerFilter, setLayerFilter] = useState("");
+
+  const typeOptions = [...new Set((agents ?? []).map((a) => a.agent_type))].sort();
+  const layerOptions = [
+    ...new Set((agents ?? []).flatMap((a) => (layerTierLabel(a) ? [layerTierLabel(a) as string] : []))),
+  ].sort();
+
+  // Filters apply to top-level agents; a matching agent keeps its sub-agent
+  // rows, since those only make sense under their parent.
+  const filteredAgents = (agents ?? []).filter(
+    (a) =>
+      (!typeFilter || a.agent_type === typeFilter) &&
+      (!layerFilter || layerTierLabel(a) === layerFilter)
+  );
 
   return (
     <div className="space-y-6">
@@ -62,6 +77,7 @@ export default function AgentPage() {
         </div>
         <Button
           variant="outline"
+          title="Sync agents, sub-agents and skills from Hermes Foundation"
           onClick={() => syncHermes.mutate()}
           disabled={syncHermes.isPending}
         >
@@ -70,7 +86,7 @@ export default function AgentPage() {
           ) : (
             <RefreshCw className="mr-2 h-4 w-4" />
           )}
-          Sync from Hermes Foundation
+          Sync
         </Button>
       </div>
 
@@ -121,6 +137,37 @@ export default function AgentPage() {
         </Card>
       )}
 
+      {!isLoading && !isError && agents && agents.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="w-48"
+            aria-label="Filter by type"
+          >
+            <option value="">All types</option>
+            {typeOptions.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={layerFilter}
+            onChange={(e) => setLayerFilter(e.target.value)}
+            className="w-56"
+            aria-label="Filter by layer / tier"
+          >
+            <option value="">All layers / tiers</option>
+            {layerOptions.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
+
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
@@ -151,7 +198,15 @@ export default function AgentPage() {
         </Card>
       )}
 
-      {!isLoading && !isError && agents && agents.length > 0 && (
+      {!isLoading && !isError && agents && agents.length > 0 && filteredAgents.length === 0 && (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            No agents match the selected filters.
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoading && !isError && filteredAgents.length > 0 && (
         <Card>
           <CardContent className="p-0">
             <Table>
@@ -159,14 +214,13 @@ export default function AgentPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead>Layer / Tier</TableHead>
                   <TableHead>Sub-agents</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {toRows(agents).map((row) =>
+                {toRows(filteredAgents).map((row) =>
                   row.kind === "agent" ? (
                     <TableRow key={row.agent.id}>
                       <TableCell>
@@ -188,11 +242,6 @@ export default function AgentPage() {
                       <TableCell>
                         <Badge variant={TYPE_VARIANT[row.agent.agent_type] ?? "outline"}>
                           {row.agent.agent_type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={STATUS_VARIANT[row.agent.status] ?? "outline"}>
-                          {row.agent.status}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
@@ -234,11 +283,6 @@ export default function AgentPage() {
                       <TableCell>
                         <Badge variant="outline" className="text-xs">
                           sub-agent
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={STATUS_VARIANT[row.subAgent.status] ?? "outline"}>
-                          {row.subAgent.status}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">—</TableCell>

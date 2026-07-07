@@ -90,6 +90,19 @@ class SkillOut(SkillBase):
     updated_at: datetime
 
 
+class SkillAgentRef(BaseModel):
+    """Agent granted a skill (via agent_skills), embedded in skill listings
+    so the Skills page can show/filter by the agents that hold each skill
+    without one request per skill."""
+
+    agent_id: uuid.UUID
+    agent_name: str
+
+
+class SkillWithAgentsOut(SkillOut):
+    agents: list[SkillAgentRef] = []
+
+
 # ---------------------------------------------------------------------------
 # AgentSkill / SubAgentSkill (associations)
 # ---------------------------------------------------------------------------

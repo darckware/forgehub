@@ -9,8 +9,14 @@ export function AppLayout() {
   // gutter.
   const pathname = useLocation().pathname;
   // Pages that manage their own full-bleed layout (terminal fills viewport,
-  // database/diagram needs height-constrained flex columns, etc.)
-  const isFullBleed = pathname.startsWith("/workspace") || pathname.startsWith("/database");
+  // database/diagram needs height-constrained flex columns, tools scrolls
+  // inside its own grid, etc.)
+  const isFullBleed =
+    pathname.startsWith("/workspace") ||
+    pathname.startsWith("/database") ||
+    pathname.startsWith("/tools") ||
+    pathname.startsWith("/skills") ||
+    pathname.startsWith("/notifications");
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -18,7 +24,11 @@ export function AppLayout() {
       <main
         className={cn(
           "flex-1 overflow-hidden",
-          isFullBleed ? "flex flex-col" : "overflow-y-auto p-8"
+          // h-screen, not min-h-screen growth: full-bleed pages rely on a
+          // definite height so their inner flex-1/min-h-0 panes (tools
+          // table, database diagram, terminal) get their own scrollbars
+          // instead of growing past the viewport with no way to scroll.
+          isFullBleed ? "flex h-screen flex-col" : "overflow-y-auto p-8"
         )}
       >
         <Outlet />

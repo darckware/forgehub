@@ -16,6 +16,8 @@ import TaskPage from "@/pages/task";
 import TaskDetailPage from "@/pages/task/[id]";
 import AgentPage from "@/pages/agent";
 import AgentDetailPage from "@/pages/agent/[id]";
+import ToolsPage from "@/pages/tools";
+import SkillsPage from "@/pages/skills";
 import ArtifactPage from "@/pages/artifact";
 import ArtifactDetailPage from "@/pages/artifact/[id]";
 import GovernancePage from "@/pages/governance";
@@ -73,6 +75,8 @@ export default function App() {
         <Route path="tasks/:id" element={<TaskDetailPage />} />
         <Route path="agents" element={<AgentPage />} />
         <Route path="agents/:id" element={<AgentDetailPage />} />
+        <Route path="tools" element={<ToolsPage />} />
+        <Route path="skills" element={<SkillsPage />} />
         <Route path="artifact" element={<ArtifactPage />} />
         <Route path="artifact/:id" element={<ArtifactDetailPage />} />
         <Route path="governance" element={<GovernancePage />} />
