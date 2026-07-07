@@ -402,6 +402,25 @@ def _cron_store_files() -> list[Path]:
     return stores
 
 
+def _refresh_good_snapshot(store: Path, content: str) -> None:
+    """Keep a `.jobs.json.good` copy of the last content that parsed
+    cleanly. The hermes scheduler has corrupted jobs.json with a
+    non-atomic write before (2026-07-06, athos: stale tail fragment left
+    mid-file), which silently stops EVERY cron in that profile -- this
+    snapshot, refreshed on each successful read, is the recovery point.
+    Best-effort: never let backup failure break a read path."""
+    try:
+        good = store.parent / ".jobs.json.good"
+        if good.is_file() and good.read_text(encoding="utf-8") == content:
+            return
+        fd, tmp = tempfile.mkstemp(dir=str(store.parent), suffix=".tmp", prefix=".jobs_good_")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp, good)
+    except OSError:
+        pass
+
+
 def _parse_store_jobs(store: Path) -> tuple[list[dict[str, Any]], str | None]:
     """Returns (jobs, error). A parse failure yields ([], <message>) rather
     than raising: mutation helpers skip broken stores, while the list
@@ -412,7 +431,8 @@ def _parse_store_jobs(store: Path) -> tuple[list[dict[str, Any]], str | None]:
     try:
         data = json.loads(content)
     except json.JSONDecodeError as e:
-        return [], f"invalid JSON: {e}"
+        return [], f"invalid JSON: {e} (last-good snapshot: {store.parent / '.jobs.json.good'})"
+    _refresh_good_snapshot(store, content)
     jobs = data.get("jobs", []) if isinstance(data, dict) else data
     return ([j for j in jobs if isinstance(j, dict)] if isinstance(jobs, list) else []), None
 
