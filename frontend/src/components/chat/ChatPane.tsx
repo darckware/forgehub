@@ -572,7 +572,10 @@ const SAFE_SLASH_COMMANDS: { command: string; description: string }[] = [
   { command: "/config", description: "Show current configuration" },
   { command: "/toolsets", description: "List available toolsets" },
   { command: "/platforms", description: "Show gateway/messaging platform status" },
-  { command: "/plugins", description: "List installed plugins and their status" },
+  {
+    command: "/plugins",
+    description: "List installed plugins; add an agent name (e.g. /plugins athos) to check a different profile",
+  },
 ];
 
 type SlashCommandItem =

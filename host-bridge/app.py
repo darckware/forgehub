@@ -42,6 +42,7 @@ import tempfile
 import termios
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -75,6 +76,14 @@ _active_streams: dict[str, "asyncio.subprocess.Process"] = {}
 
 def _is_valid_profile(profile: str) -> bool:
     return bool(PROFILE_NAME_RE.match(profile)) and (PROFILES_DIR / profile).is_dir()
+
+
+# "/plugins <agent>" peeks at a different profile's plugins without leaving
+# the current chat tab -- see chat_stream's handling below. Hermes's own
+# /plugins handler ignores any argument after the command, so redirecting
+# which profile-home the one-shot subprocess runs against is the only way
+# to make the argument do anything.
+PLUGINS_CROSS_AGENT_RE = re.compile(r"^/plugins\s+([a-z0-9_-]+)\s*$", re.IGNORECASE)
 
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "forgehub-chat-uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -519,10 +528,23 @@ async def chat_stream(
 
     # Subprocess path (full Hermes agent with tools, memory, etc.)
     profile_home = str(PROFILES_DIR / profile)
+    effective_session_id = session_id
+
+    cross_agent = PLUGINS_CROSS_AGENT_RE.match(message.strip())
+    if cross_agent and _is_valid_profile(cross_agent.group(1)):
+        # Stateless lookup of another agent's plugins, not a turn in this
+        # conversation -- the current session_id belongs to `profile`'s own
+        # session store, so resuming it against a different profile-home
+        # would either fail or silently start an unrelated session. Drop it;
+        # the backend already no-ops its own bookkeeping when `done` comes
+        # back without a session_id (see chat.py's `if new_hsid:` guard).
+        profile_home = str(PROFILES_DIR / cross_agent.group(1))
+        effective_session_id = None
+
     helper = str(Path(__file__).parent / "hermes_stream.py")
     cmd = [HERMES_PYTHON, "-u", helper, "--profile-home", profile_home, "--message", message]
-    if session_id:
-        cmd += ["--session-id", session_id]
+    if effective_session_id:
+        cmd += ["--session-id", effective_session_id]
 
     async def event_stream():
         proc = await asyncio.create_subprocess_exec(
@@ -2072,6 +2094,44 @@ async def fs_untar(req: FsUntarRequest, x_bridge_token: str | None = Header(defa
     return {"status": "ok", "path": str(target)}
 
 
+class HermesBackupRequest(BaseModel):
+    source_path: str = "/root/.hermes"
+    backup_dir: str = "/root/backup"
+    archive_name: str | None = None
+
+
+@app.post("/v1/system/hermes-backup")
+async def create_hermes_backup(
+    req: HermesBackupRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Create a compressed backup of /root/.hermes inside /root/backup."""
+    _check_token(x_bridge_token)
+    source = Path(req.source_path)
+    if not source.exists():
+        raise HTTPException(status_code=404, detail=f"Source not found: {req.source_path}")
+    backup_dir = Path(req.backup_dir)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    archive_name = req.archive_name or f"hermes-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    archive_path = backup_dir / archive_name
+    result = subprocess.run(
+        ["tar", "-czf", str(archive_path), "-C", str(source.parent), source.name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=f"tar failed: {result.stderr.strip() or result.stdout.strip()}",
+        )
+    return {
+        "status": "ok",
+        "source_path": str(source),
+        "archive_path": str(archive_path),
+        "size_bytes": archive_path.stat().st_size,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Docker management endpoints
 # ---------------------------------------------------------------------------
@@ -2485,3 +2545,229 @@ async def docker_images(x_bridge_token: str | None = Header(default=None)) -> di
             "in_use": image_id in used_image_ids,
         })
     return {"images": result}
+
+
+# ---------------------------------------------------------------------------
+# Hindsight memory observability
+# ---------------------------------------------------------------------------
+
+HINDSIGHT_PROFILE_DIR = Path.home() / ".hindsight" / "profiles"
+HERMES_HOME_DIR = Path.home() / ".hermes"
+HERMES_PROFILES_DIR = HERMES_HOME_DIR / "profiles"
+
+
+def _read_json_file(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _read_yaml_file(path: Path) -> dict:
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return values
+
+
+def _tail_text(path: Path, max_lines: int = 80) -> dict:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        stat = path.stat()
+        return {
+            "path": str(path),
+            "exists": True,
+            "updated_at": stat.st_mtime,
+            "lines": lines[-max_lines:],
+        }
+    except OSError:
+        return {"path": str(path), "exists": False, "updated_at": None, "lines": []}
+
+
+def _hindsight_processes() -> list[dict]:
+    try:
+        proc = subprocess.run(
+            ["ps", "-eo", "pid,etimes,cmd"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return []
+    rows = []
+    for line in proc.stdout.splitlines()[1:]:
+        lower = line.lower()
+        if "hindsight" not in lower or "rg -i" in lower:
+            continue
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3:
+            continue
+        command = parts[2]
+        command_lower = command.lower()
+        if (
+            "/api/v1/hindsight/status" in command_lower
+            or "/v1/hindsight/status" in command_lower
+            or command_lower.startswith("curl ")
+        ):
+            continue
+        rows.append({"pid": parts[0], "uptime_seconds": int(parts[1]), "command": command})
+    return rows
+
+
+async def _probe_hindsight(api_url: str | None) -> dict:
+    if not api_url:
+        return {"ok": False, "status_code": None, "error": "No api_url configured", "version": None}
+    base = api_url.rstrip("/")
+    result = {"ok": False, "status_code": None, "error": None, "version": None, "health": None}
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            health = await client.get(f"{base}/health")
+            result["status_code"] = health.status_code
+            result["ok"] = 200 <= health.status_code < 300
+            try:
+                result["health"] = health.json()
+            except Exception:
+                result["health"] = health.text[:500]
+            try:
+                version = await client.get(f"{base}/version")
+                if 200 <= version.status_code < 300:
+                    result["version"] = version.json()
+            except Exception:
+                pass
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+@app.get("/v1/hindsight/status")
+async def hindsight_status(x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Read-only operational view of Hermes' Hindsight memory provider."""
+    _check_token(x_bridge_token)
+
+    profiles = []
+    active_profiles = []
+    profile_configs = []
+    for cfg_path in sorted(HERMES_PROFILES_DIR.glob("*/config.yaml")):
+        profile = cfg_path.parent.name
+        cfg = _read_yaml_file(cfg_path)
+        memory = cfg.get("memory") if isinstance(cfg.get("memory"), dict) else {}
+        provider = memory.get("provider")
+        hindsight_config_path = cfg_path.parent / "hindsight" / "config.json"
+        hindsight_config = _read_json_file(hindsight_config_path)
+        uses_hindsight = provider == "hindsight"
+        if uses_hindsight:
+            active_profiles.append(profile)
+        if hindsight_config:
+            profile_configs.append(profile)
+        profiles.append({
+            "profile": profile,
+            "uses_hindsight": uses_hindsight,
+            "memory_enabled": memory.get("memory_enabled"),
+            "user_profile_enabled": memory.get("user_profile_enabled"),
+            "write_approval": memory.get("write_approval"),
+            "memory_char_limit": memory.get("memory_char_limit"),
+            "user_char_limit": memory.get("user_char_limit"),
+            "config_path": str(cfg_path),
+            "hindsight_config_path": str(hindsight_config_path) if hindsight_config_path.exists() else None,
+            "hindsight_configured": bool(hindsight_config),
+        })
+
+    primary_profile = profile_configs[0] if profile_configs else (active_profiles[0] if active_profiles else None)
+    primary_config_path = (
+        HERMES_PROFILES_DIR / primary_profile / "hindsight" / "config.json"
+        if primary_profile else None
+    )
+    config = _read_json_file(primary_config_path) if primary_config_path else {}
+    api_url = config.get("api_url") or os.environ.get("HINDSIGHT_API_URL")
+    env_path = HINDSIGHT_PROFILE_DIR / f"{primary_profile}.env" if primary_profile else None
+    env = _read_env_file(env_path) if env_path else {}
+
+    llm = {
+        "provider": config.get("llm_provider") or env.get("HINDSIGHT_API_LLM_PROVIDER"),
+        "model": config.get("llm_model") or env.get("HINDSIGHT_API_LLM_MODEL"),
+        "base_url": config.get("llm_base_url") or env.get("HINDSIGHT_API_LLM_BASE_URL"),
+        "api_key_present": bool(
+            config.get("llm_api_key")
+            or env.get("HINDSIGHT_API_LLM_API_KEY")
+            or os.environ.get("HINDSIGHT_LLM_API_KEY")
+        ),
+    }
+
+    connection = {
+        "mode": config.get("mode") or os.environ.get("HINDSIGHT_MODE") or "cloud",
+        "api_url": api_url,
+        "timeout": config.get("timeout"),
+        "idle_timeout": config.get("idle_timeout") or env.get("HINDSIGHT_EMBED_DAEMON_IDLE_TIMEOUT"),
+        "config_path": str(primary_config_path) if primary_config_path and primary_config_path.exists() else None,
+        "env_path": str(env_path) if env_path and env_path.exists() else None,
+    }
+    bank_id = config.get("bank_id") or os.environ.get("HINDSIGHT_BANK_ID") or "hermes"
+    banks = config.get("banks") if isinstance(config.get("banks"), dict) else {}
+    bank = banks.get(bank_id) if isinstance(banks.get(bank_id), dict) else {}
+    memory_flow = {
+        "bank_id": bank_id,
+        "bank_enabled": bank.get("enabled"),
+        "recall_budget": config.get("recall_budget") or bank.get("budget"),
+        "auto_recall": config.get("auto_recall", True),
+        "auto_retain": config.get("auto_retain", True),
+        "retain_async": config.get("retain_async", True),
+        "retain_every_n_turns": config.get("retain_every_n_turns", 1),
+        "memory_mode": config.get("memory_mode", "hybrid"),
+        "retain_tags": config.get("retain_tags"),
+        "retain_source": config.get("retain_source"),
+    }
+
+    probe = await _probe_hindsight(api_url)
+    runtime_log = _tail_text(HINDSIGHT_PROFILE_DIR / f"{primary_profile}.log") if primary_profile else {"exists": False, "lines": []}
+    default_log = _tail_text(HINDSIGHT_PROFILE_DIR / "default.log")
+    startup_log = _tail_text(HERMES_HOME_DIR / "logs" / "hindsight-embed.log")
+    latest_errors = []
+    for source, log in (("runtime", runtime_log), ("default", default_log), ("startup", startup_log)):
+        for line in log.get("lines", []):
+            if any(token in line.lower() for token in ("error", "exception", "failed", "traceback")):
+                latest_errors.append({"source": source, "line": line})
+
+    recording_configured = bool(active_profiles) and memory_flow["auto_retain"] is not False
+    return {
+        "summary": {
+            "configured": bool(active_profiles),
+            "daemon_active": bool(probe.get("ok")),
+            "recording_configured": recording_configured,
+            "recording_effective": recording_configured and bool(probe.get("ok")),
+            "active_profile_count": len(active_profiles),
+            "profile_config_count": len(profile_configs),
+            "primary_profile": primary_profile,
+        },
+        "connection": connection,
+        "probe": probe,
+        "llm": llm,
+        "memory": memory_flow,
+        "profiles": profiles,
+        "processes": _hindsight_processes(),
+        "logs": {
+            "runtime": runtime_log,
+            "default": default_log,
+            "startup": startup_log,
+            "latest_errors": latest_errors[-12:] if latest_errors else [],
+        },
+        "analysis": {
+            "storage_source": "Active memory lives in foundation_postgres schema hindsight; ForgeHub should only mirror operational metadata and control state.",
+            "database_control_recommendation": "Track daemon health, schema growth, async job status, profile coverage, and policy drift in ForgeHub. Keep raw memory content inside Hindsight unless you need export or indexing.",
+            "current_risk": "Profiles without profile-scoped hindsight/config.json inherit defaults or environment and can silently drift from athos.",
+        },
+    }
