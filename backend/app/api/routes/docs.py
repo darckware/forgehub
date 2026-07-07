@@ -30,7 +30,9 @@ router = APIRouter(prefix="/api/v1/docs", tags=["docs"])
 DOCS_ROOT = Path("/docs")
 
 # Editable inline in the page; everything else is upload/download-only.
-_EDITABLE_SUFFIXES = {".md", ".markdown", ".txt"}
+# .excalidraw is UTF-8 JSON -- read as text so the Docs page can reopen a
+# saved whiteboard scene without a dedicated endpoint.
+_EDITABLE_SUFFIXES = {".md", ".markdown", ".txt", ".excalidraw"}
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 

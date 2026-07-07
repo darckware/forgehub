@@ -8,6 +8,7 @@ import {
   FilePlus,
   FolderPlus,
   Loader2,
+  Palette,
   Pencil,
   Save,
   Trash2,
@@ -21,6 +22,8 @@ import { DocTree, type DocTreeNode } from "@/components/DocTree";
 import { Markdown } from "@/components/Markdown";
 import { DocLinkPanel } from "@/components/DocLinkPanel";
 import { AssistantDrawer } from "@/components/chat/AssistantDrawer";
+import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whiteboard/WhiteboardModal";
+import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
 import {
   downloadDoc,
   useCreateDocFolder,
@@ -33,6 +36,10 @@ import {
 } from "@/hooks/useDocs";
 
 const EDITABLE_RE = /\.(md|markdown|txt)$/i;
+const SCENE_RE = /\.excalidraw$/i;
+// Whiteboard exports always land here (see /root/docs/README.md's
+// "assets/ — imagens (inclui exports da lousa)").
+const WHITEBOARD_ASSETS_FOLDER = "assets";
 
 function parentDir(path: string): string {
   const idx = path.lastIndexOf("/");
@@ -84,8 +91,11 @@ export default function DocsPage() {
   // initial selection, so navigating the tree afterwards isn't fought.
   const [selectedPath, setSelectedPath] = useState<string | null>(() => searchParams.get("path"));
   const isEditable = selectedPath ? EDITABLE_RE.test(selectedPath) : false;
+  const isScene = selectedPath ? SCENE_RE.test(selectedPath) : false;
+  // .excalidraw is read as text too (backend allows it) so a saved scene
+  // can be reopened for editing without a dedicated endpoint.
   const { data: file, isLoading: fileLoading, isError: fileError } = useDocFile(
-    isEditable ? selectedPath : null
+    isEditable || isScene ? selectedPath : null
   );
   const saveFile = useSaveDocFile();
   const deletePath = useDeleteDocPath();
@@ -99,7 +109,13 @@ export default function DocsPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
 
+  // Whiteboard: undefined = closed; object (possibly {}) = open, reopening
+  // that scene when non-empty (see handleOpenWhiteboard).
+  const [whiteboardData, setWhiteboardData] = useState<ExcalidrawInitialDataState | undefined>();
+  const [whiteboardNote, setWhiteboardNote] = useState<string | null>(null);
+
   useEffect(() => setDraft(null), [selectedPath]);
+  useEffect(() => setWhiteboardNote(null), [selectedPath]);
 
   // New files/uploads land next to the selected file (or its folder).
   const targetFolder = selectedPath ? parentDir(selectedPath) : "";
@@ -128,6 +144,44 @@ export default function DocsPage() {
     for (const f of Array.from(files)) {
       uploadFile.mutate({ folder: targetFolder, file: f });
     }
+  }
+
+  function handleOpenNewWhiteboard() {
+    setWhiteboardData({});
+  }
+
+  function handleEditScene() {
+    if (!file) return;
+    try {
+      const scene = JSON.parse(file.content);
+      setWhiteboardData({ elements: scene.elements ?? [], appState: scene.appState, files: scene.files });
+    } catch {
+      setWhiteboardNote("Não foi possível ler esta cena (JSON inválido).");
+    }
+  }
+
+  async function handleWhiteboardSave(result: WhiteboardSaveResult) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = `whiteboard-${stamp}`;
+    const pngFile = new File([result.pngBlob], `${base}.png`, { type: "image/png" });
+    const sceneFile = new File([result.sceneJson], `${base}.excalidraw`, {
+      type: "application/json",
+    });
+    await Promise.all([
+      uploadFile.mutateAsync({ folder: WHITEBOARD_ASSETS_FOLDER, file: pngFile }),
+      uploadFile.mutateAsync({ folder: WHITEBOARD_ASSETS_FOLDER, file: sceneFile }),
+    ]);
+    const imageRef = `![lousa](${WHITEBOARD_ASSETS_FOLDER}/${base}.png)`;
+    if (selectedPath && isEditable) {
+      const currentContent = draft ?? file?.content ?? "";
+      setDraft(`${currentContent}\n\n${imageRef}\n`);
+      setWhiteboardNote(null);
+    } else {
+      setWhiteboardNote(
+        `Desenho salvo em ${WHITEBOARD_ASSETS_FOLDER}/${base}.png — abra um documento markdown para inserir a imagem, ou copie o caminho acima.`
+      );
+    }
+    setWhiteboardData(undefined);
   }
 
   return (
@@ -201,8 +255,30 @@ export default function DocsPage() {
             {uploadFile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             Upload
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            title="Desenhar e inserir a imagem no documento aberto"
+            onClick={handleOpenNewWhiteboard}
+          >
+            <Palette className="h-4 w-4" /> Lousa
+          </Button>
         </div>
       </div>
+
+      {whiteboardData !== undefined && (
+        <WhiteboardModal
+          initialData={whiteboardData}
+          onClose={() => setWhiteboardData(undefined)}
+          onSave={handleWhiteboardSave}
+        />
+      )}
+      {whiteboardNote && (
+        <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          {whiteboardNote}
+        </p>
+      )}
 
       {prompt === "new-file" && (
         <PathPrompt
@@ -336,10 +412,26 @@ export default function DocsPage() {
                 )}
 
                 <div className="min-h-0 flex-1 overflow-hidden">
-                  {!isEditable && (
+                  {!isEditable && !isScene && (
                     <p className="text-sm text-muted-foreground">
                       Arquivo binário — use Download para abrir ou substitua via Upload.
                     </p>
+                  )}
+                  {isScene && (
+                    <div className="flex flex-col items-start gap-2">
+                      <p className="text-sm text-muted-foreground">
+                        Cena da Lousa (Excalidraw). Reabra para continuar o desenho.
+                      </p>
+                      {fileLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                      {fileError && (
+                        <p className="text-xs text-destructive">Não foi possível ler a cena.</p>
+                      )}
+                      {file && (
+                        <Button size="sm" className="gap-1.5" onClick={handleEditScene}>
+                          <Palette className="h-3.5 w-3.5" /> Editar na Lousa
+                        </Button>
+                      )}
+                    </div>
                   )}
                   {isEditable && fileLoading && (
                     <Loader2 className="m-4 h-5 w-5 animate-spin text-muted-foreground" />
