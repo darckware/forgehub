@@ -42,6 +42,7 @@ from app.api.routes import (
     systemstats,
     task,
     terminal,
+    tool,
     toolversions,
     users,
     vault,
@@ -110,6 +111,7 @@ app.include_router(pipeline.router)
 app.include_router(backlog.router)
 app.include_router(task.router)
 app.include_router(agent.router)
+app.include_router(tool.router)
 app.include_router(artifact.router)
 app.include_router(governance.router)
 app.include_router(foundation.router)
