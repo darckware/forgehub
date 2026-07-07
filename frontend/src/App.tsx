@@ -19,6 +19,7 @@ import AgentDetailPage from "@/pages/agent/[id]";
 import ToolsPage from "@/pages/tools";
 import SkillsPage from "@/pages/skills";
 import AuditorPage from "@/pages/auditor";
+import DocsPage from "@/pages/docs";
 import ArtifactPage from "@/pages/artifact";
 import ArtifactDetailPage from "@/pages/artifact/[id]";
 import GovernancePage from "@/pages/governance";
@@ -89,6 +90,7 @@ export default function App() {
         <Route path="foundation" element={<FoundationPage />} />
         <Route path="crons" element={<CronsPage />} />
         <Route path="auditor" element={<AuditorPage />} />
+        <Route path="docs" element={<DocsPage />} />
         <Route path="deploy" element={<DeployPage />} />
         <Route path="servers" element={<ServersPage />} />
         <Route path="users" element={<UsersPage />} />

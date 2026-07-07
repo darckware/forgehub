@@ -36,17 +36,29 @@ class DocGraph(BaseModel):
     edges: list[GraphEdge]
 
 
-def build_tree(dir_path: Path, rel: str = "") -> list[DocNode]:
+def build_tree(
+    dir_path: Path,
+    rel: str = "",
+    *,
+    include_all_files: bool = False,
+    keep_empty_dirs: bool = False,
+) -> list[DocNode]:
+    """Defaults preserve the original vault behavior (markdown-only, empty
+    dirs hidden). The Docs area passes both flags: it manages arbitrary
+    files (uploads, whiteboard images) and freshly created folders must be
+    navigable before they have content."""
     nodes: list[DocNode] = []
     for entry in sorted(dir_path.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
         if entry.name.startswith("."):
             continue
         rel_path = f"{rel}/{entry.name}" if rel else entry.name
         if entry.is_dir():
-            children = build_tree(entry, rel_path)
-            if children:
+            children = build_tree(
+                entry, rel_path, include_all_files=include_all_files, keep_empty_dirs=keep_empty_dirs
+            )
+            if children or keep_empty_dirs:
                 nodes.append(DocNode(name=entry.name, path=rel_path, type="dir", children=children))
-        elif entry.suffix.lower() == ".md":
+        elif include_all_files or entry.suffix.lower() == ".md":
             nodes.append(DocNode(name=entry.name, path=rel_path, type="file"))
     return nodes
 

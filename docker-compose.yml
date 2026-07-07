@@ -37,6 +37,10 @@ services:
       # Hermes agents operate under, so every read/write there resolves
       # against this root and is restricted to .md files only.
       - /root/.hermes/foundation:/foundation-root
+      # Read-write: the Docs "área de criação" (api/routes/docs.py) --
+      # personal markdown docs, uploads and whiteboard assets, cross-linked
+      # to Planning entities from the Docs page.
+      - /root/docs:/docs
       # Crons/Scripts control pages (api/routes/foundation.py,
       # api/routes/cron_scripts.py) read everything through the /profiles
       # mount above: since hermes moved cron back to per-profile stores

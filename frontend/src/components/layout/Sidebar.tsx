@@ -25,6 +25,7 @@ import {
   Share2,
   Code2,
   ChevronDown,
+  BookOpen,
   ChevronRight,
   ClipboardCheck,
   Users,
@@ -89,6 +90,9 @@ const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/backlog", label: "Planning", icon: ClipboardList, module: "backlog" },
       { type: "link", to: "/tasks", label: "Execution", icon: CheckSquare, module: "tasks" },
       { type: "link", to: "/artifact", label: "Artifacts", icon: FileBox, module: "artifacts" },
+      // Área de criação: markdown editável em /root/docs, cruzado com
+      // produtos/projetos/tasks (doc_links, fase 3).
+      { type: "link", to: "/docs", label: "Docs", icon: BookOpen, module: "docs" },
       { type: "link", to: "/governance", label: "Governance", icon: Gavel, module: "governance" },
       { type: "link", to: "/governance/policies", label: "Policies", icon: ShieldCheck, module: "governance" },
     ],
