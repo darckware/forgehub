@@ -20,7 +20,7 @@ CheckConstraint instead of native enums.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, String, Text
+from sqlalchemy import CheckConstraint, DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,6 +47,10 @@ class Notification(Base, TimestampMixin):
             "severity IN ('info', 'success', 'warning', 'error')",
             name="ck_notifications_severity",
         ),
+        # Created by the a4d81f0c2b77 migration but never declared here --
+        # the drift made a later autogenerate try to drop it. Keep the
+        # migration's custom name (not the ix_company_* convention).
+        Index("ix_notifications_occurred_at", "occurred_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

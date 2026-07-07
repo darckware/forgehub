@@ -26,6 +26,7 @@ import {
   Code2,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   Users,
   ShieldCheck,
   Sparkles,
@@ -120,6 +121,9 @@ const NAV_SECTIONS: NavSectionEntry[] = [
         ],
       },
       { type: "link", to: "/crons", label: "Crons", icon: Clock, module: "crons" },
+      // Ecosystem checkpoints (audit_checks) -- admins always see it; grant
+      // the "auditor" module in Access Profiles for non-admin visibility.
+      { type: "link", to: "/auditor", label: "Auditor", icon: ClipboardCheck, module: "auditor" },
       { type: "link", to: "/deploy", label: "Deploy Control", icon: Server, module: "deploy" },
       { type: "link", to: "/servers", label: "Servers", icon: Network, module: "servers" },
     ],

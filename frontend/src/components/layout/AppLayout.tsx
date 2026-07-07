@@ -16,7 +16,8 @@ export function AppLayout() {
     pathname.startsWith("/database") ||
     pathname.startsWith("/tools") ||
     pathname.startsWith("/skills") ||
-    pathname.startsWith("/notifications");
+    pathname.startsWith("/notifications") ||
+    pathname.startsWith("/auditor");
 
   return (
     <div className="flex min-h-screen w-full bg-background">

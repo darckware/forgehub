@@ -22,6 +22,7 @@ from app.core.security import decode_access_token
 from app.api.routes import (
     agent,
     artifact,
+    audit,
     auth,
     backlog,
     chat,
@@ -53,7 +54,8 @@ app = FastAPI(title="ForgeHub (ForgeHub) API", version="0.1.0")
 # Routes not covered by their own Depends(get_current_user)/get_current_admin
 # -- just the login endpoint itself, which is how a client gets a token in
 # the first place.
-_PUBLIC_API_PATHS = {"/api/v1/auth/token"}
+# /audit/run-internal self-guards with the shared bridge token (see audit.py).
+_PUBLIC_API_PATHS = {"/api/v1/auth/token", "/api/v1/audit/run-internal"}
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -113,6 +115,7 @@ app.include_router(task.router)
 app.include_router(agent.router)
 app.include_router(tool.router)
 app.include_router(artifact.router)
+app.include_router(audit.router)
 app.include_router(governance.router)
 app.include_router(foundation.router)
 app.include_router(foundation_docs.router)

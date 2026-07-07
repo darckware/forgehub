@@ -18,6 +18,7 @@ import AgentPage from "@/pages/agent";
 import AgentDetailPage from "@/pages/agent/[id]";
 import ToolsPage from "@/pages/tools";
 import SkillsPage from "@/pages/skills";
+import AuditorPage from "@/pages/auditor";
 import ArtifactPage from "@/pages/artifact";
 import ArtifactDetailPage from "@/pages/artifact/[id]";
 import GovernancePage from "@/pages/governance";
@@ -87,6 +88,7 @@ export default function App() {
         <Route path="obsidian" element={<ObsidianPage />} />
         <Route path="foundation" element={<FoundationPage />} />
         <Route path="crons" element={<CronsPage />} />
+        <Route path="auditor" element={<AuditorPage />} />
         <Route path="deploy" element={<DeployPage />} />
         <Route path="servers" element={<ServersPage />} />
         <Route path="users" element={<UsersPage />} />
