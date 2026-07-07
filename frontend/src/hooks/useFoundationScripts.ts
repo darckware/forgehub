@@ -5,8 +5,9 @@ import { apiClient } from "@/lib/api";
 /**
  * Hermes scripts registry (backend/app/api/routes/cron_scripts.py).
  * DB-backed catalog: POST /api/v1/scripts/sync populates from the
- * mounted script dirs; GET /api/v1/scripts reads from DB with live
- * cron-job cross-references appended at query time.
+ * mounted script dirs; GET /api/v1/scripts returns only the scripts
+ * cron jobs actually reference (with live cross-references computed at
+ * query time) -- the full per-profile catalog is the Agent Tools page.
  */
 
 export const cronJobRefSchema = z.object({

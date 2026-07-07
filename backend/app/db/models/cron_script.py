@@ -28,16 +28,24 @@ SCRIPT_CATEGORIES = (
     "utility",
 )
 
-SCRIPT_LOCATIONS = ("main", "central", "profile")
+# Legacy pre-2026-07-06 location values ('main' = /hermes-scripts,
+# 'central' = /hermes-cron, 'profile' = generic per-agent dir). Since the
+# central dirs were migrated into the athos profile, `location` holds the
+# owning PROFILE NAME; the legacy values may linger in old rows until the
+# next POST /api/v1/scripts/sync re-points them (no CheckConstraint on the
+# column, so no migration is needed).
+LEGACY_SCRIPT_LOCATIONS = ("main", "central", "profile")
 
 
 class CronScript(Base, TimestampMixin):
     """One registered script in the Hermes ecosystem.
 
-    `location` is one of 'main' (/hermes-scripts), 'central' (/hermes-cron),
-    or 'profile' (a per-agent scripts/ dir). `name` is the bare filename
-    (unique across the full catalog). `path` is the container-side absolute
-    path used by the content-read endpoint.
+    `location` is the owning profile's name (e.g. 'athos' --
+    /profiles/<profile>/scripts is the only place the hermes scheduler
+    executes scripts from; legacy rows may still carry the values in
+    LEGACY_SCRIPT_LOCATIONS until the next sync). `name` is the bare
+    filename (unique across the full catalog). `path` is the container-side
+    absolute path used by the content-read endpoint.
     """
 
     __tablename__ = "cron_scripts"

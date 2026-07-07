@@ -1,7 +1,7 @@
 """Cron scripts registry routes — DB-backed catalog.
 
 Provides:
-- GET  /api/v1/scripts          list all registered scripts (from DB)
+- GET  /api/v1/scripts          list cron-referenced scripts (from DB; see list_scripts)
 - POST /api/v1/scripts/sync     scan mounted script dirs and upsert to DB
 - PUT  /api/v1/scripts/{id}     update metadata (description/category/agent)
 - DELETE /api/v1/scripts/{id}   soft-delete (sets active=False)
@@ -9,10 +9,11 @@ Provides:
 Content reads still go through /api/v1/foundation/scripts/{location}/{name}/content
 (foundation.py), which resolves the actual file from the container mounts.
 
-The three scanned locations (in priority order):
-  main     → /hermes-scripts  (/root/.hermes/scripts on host)
-  central  → /hermes-cron     (/root/.hermes/crons on host)
-  profile  → /profiles/<agent>/scripts
+Scanned locations: each profile's /profiles/<profile>/scripts dir --
+`location` is the profile name. (The old central dirs, /root/.hermes/scripts
+and /root/.hermes/crons, were migrated into the athos profile on 2026-07-06
+and removed; DB rows with the legacy locations "main"/"central"/"profile"
+get re-pointed on the next sync.)
 
 'referenced_by' is computed at query time by cross-referencing the live
 jobs.json stores, so it reflects the current scheduler state without an
@@ -35,9 +36,7 @@ from app.db.models.cron_script import CronScript
 
 router = APIRouter(prefix="/api/v1/scripts", tags=["scripts"])
 
-# Container-side mount paths (match docker-compose.yml volumes)
-HERMES_SCRIPTS_DIR = Path("/hermes-scripts")
-HERMES_CRON_DIR = Path("/hermes-cron")
+# Container-side mount path (matches docker-compose.yml volumes)
 PROFILES_DIR = Path("/profiles")
 
 _SKIP_NAMES = {"jobs.json", "README_crons.md", ".jobs.lock", ".tick.lock", "__pycache__"}
@@ -99,10 +98,10 @@ class SyncResultOut(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Targets under the removed central dirs (/root/.hermes/scripts,
+# /root/.hermes/crons) deliberately don't remap anymore -- such a symlink
+# is genuinely broken now and should be reported as such.
 _HOST_PATH_REMAPS = (
-    ("/root/.hermes/scripts/", HERMES_SCRIPTS_DIR),
-    ("/root/.hermes/cron/", HERMES_CRON_DIR),
-    ("/root/.hermes/crons/", HERMES_CRON_DIR),
     ("/root/.hermes/profiles/", PROFILES_DIR),
 )
 
@@ -127,12 +126,11 @@ def _script_exists(path: Path) -> tuple[bool, bool, str | None, bool]:
             return False, True, None, False
         if os.path.isabs(raw):
             symlink_target = raw
-            escapes = os.path.dirname(raw) not in (
-                str(path.parent),
-                "/root/.hermes/scripts",
-                "/root/.hermes/cron",
-                "/root/.hermes/crons",
-            )
+            # The hermes scheduler only executes scripts resolving inside the
+            # owning profile's own scripts dir -- anything else is an escape
+            # (including the removed central dirs the old layout allowed).
+            profile = path.parent.parent.name
+            escapes = os.path.dirname(raw) != f"/root/.hermes/profiles/{profile}/scripts"
             remapped = _remap_symlink_target(raw)
             exists = remapped is not None and (remapped.exists() or remapped.is_symlink())
         else:
@@ -203,51 +201,60 @@ def _infer_category(name: str) -> str:
 
 
 def _load_all_cron_jobs() -> list[dict[str, Any]]:
-    """Load jobs from the central store + per-profile stores (same logic as
-    foundation.py _load_raw_jobs, duplicated here to avoid cross-module
-    import between route files)."""
+    """Load jobs from every store (central + per-profile), deduplicated by
+    id/name keeping the copy from the most recently modified store -- the
+    scheduler has moved between the central and per-profile stores across
+    hermes versions, and a stale snapshot must not shadow the live jobs.
+    Same logic as foundation.py's _load_raw_jobs, duplicated here to avoid
+    cross-module import between route files."""
     import json
 
-    def _read(p: Path) -> str | None:
+    def _parse(path: Path) -> list[dict[str, Any]]:
         try:
-            return p.read_text(encoding="utf-8")
+            content = path.read_text(encoding="utf-8")
         except OSError:
-            return None
-
-    def _parse(content: str | None) -> list[dict[str, Any]]:
-        if not content:
             return []
         try:
             data = json.loads(content)
-            if isinstance(data, dict):
-                return data.get("jobs", [])
-            if isinstance(data, list):
-                return list(data)
         except json.JSONDecodeError:
-            pass
-        return []
+            return []
+        jobs = data.get("jobs", []) if isinstance(data, dict) else data
+        return [j for j in jobs if isinstance(j, dict)] if isinstance(jobs, list) else []
 
-    central = _parse(_read(HERMES_CRON_DIR / "jobs.json"))
-    central_ids = {j["id"] for j in central if j.get("id")}
-    central_names = {j["name"] for j in central if j.get("name")}
-
-    extra: list[dict[str, Any]] = []
+    stores: list[Path] = []
     if PROFILES_DIR.is_dir():
         for pdir in sorted(PROFILES_DIR.iterdir()):
-            for pjob in _parse(_read(pdir / "cron" / "jobs.json")):
-                pid, pname = pjob.get("id"), pjob.get("name")
-                if (pid and pid in central_ids) or (pname and pname in central_names):
-                    continue
-                pjob = dict(pjob)
-                if not pjob.get("profile"):
-                    pjob["profile"] = pdir.name
-                extra.append(pjob)
-                if pid:
-                    central_ids.add(pid)
-                if pname:
-                    central_names.add(pname)
+            store = pdir / "cron" / "jobs.json"
+            if store.is_file():
+                stores.append(store)
 
-    return central + extra
+    entries: list[tuple[float, dict[str, Any]]] = []
+    for store in stores:
+        try:
+            mtime = store.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        profile_default = store.parent.parent.name
+        for job in _parse(store):
+            job = dict(job)
+            if not job.get("profile"):
+                job["profile"] = profile_default
+            entries.append((mtime, job))
+
+    entries.sort(key=lambda entry: entry[0], reverse=True)
+    jobs: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    seen_names: set[str] = set()
+    for _, job in entries:
+        job_id, job_name = job.get("id"), job.get("name")
+        if (job_id and job_id in seen_ids) or (job_name and job_name in seen_names):
+            continue
+        if job_id:
+            seen_ids.add(job_id)
+        if job_name:
+            seen_names.add(job_name)
+        jobs.append(job)
+    return jobs
 
 
 def _build_jobs_by_script(jobs: list[dict[str, Any]]) -> dict[str, list[CronJobRef]]:
@@ -272,24 +279,24 @@ def _build_jobs_by_script(jobs: list[dict[str, Any]]) -> dict[str, list[CronJobR
 
 def _scan_script_paths() -> list[dict[str, Any]]:
     """Return a list of raw dicts describing every script file found in the
-    mounted directories. Deduplicates by name: main > central > profile."""
+    profiles' scripts dirs. `location` is the profile name. Deduplicates by
+    name (script names are unique in the DB): first profile in sorted order
+    wins -- in practice athos, which carries the migrated central catalog."""
     seen: dict[str, dict[str, Any]] = {}
 
-    def _add(path: Path, location: str, agent: str | None) -> None:
+    def _add(path: Path, profile: str) -> None:
         name = path.name
         if name in _SKIP_NAMES or name.startswith(".") or path.suffix not in _SCRIPT_EXTS:
             return
         if not (path.is_file() or path.is_symlink()):
             return
-        # main takes precedence over central and profile
-        priority = {"main": 0, "central": 1, "profile": 2}.get(location, 3)
-        if name in seen and priority >= {"main": 0, "central": 1, "profile": 2}.get(seen[name]["location"], 3):
+        if name in seen:
             return
         exists, is_symlink, symlink_target, escapes = _script_exists(path)
         seen[name] = {
             "name": name,
-            "location": location,
-            "agent": agent,
+            "location": profile,
+            "agent": profile,
             "path": str(path),
             "exists": exists,
             "is_symlink": is_symlink,
@@ -299,18 +306,6 @@ def _scan_script_paths() -> list[dict[str, Any]]:
             "description": _extract_description(path) if exists and not is_symlink else None,
         }
 
-    if HERMES_SCRIPTS_DIR.is_dir():
-        for entry in sorted(HERMES_SCRIPTS_DIR.iterdir()):
-            if entry.is_dir():
-                continue
-            _add(entry, "main", None)
-
-    if HERMES_CRON_DIR.is_dir():
-        for entry in sorted(HERMES_CRON_DIR.iterdir()):
-            if entry.name in _SKIP_NAMES or entry.name.startswith(".") or entry.is_dir():
-                continue
-            _add(entry, "central", None)
-
     if PROFILES_DIR.is_dir():
         for pdir in sorted(PROFILES_DIR.iterdir()):
             scripts_dir = pdir / "scripts"
@@ -319,7 +314,7 @@ def _scan_script_paths() -> list[dict[str, Any]]:
             for entry in sorted(scripts_dir.iterdir()):
                 if entry.is_dir():
                     continue
-                _add(entry, "profile", pdir.name)
+                _add(entry, pdir.name)
 
     return list(seen.values())
 
@@ -368,7 +363,12 @@ def _row_to_out(row: CronScript, jobs_by_script: dict[str, list[CronJobRef]]) ->
 
 @router.get("", response_model=ScriptListOut)
 async def list_scripts(db: AsyncSession = Depends(get_db)) -> ScriptListOut:
-    """List all registered scripts from the DB, with live cron-job references."""
+    """List only the scripts that back cron jobs: registered scripts at
+    least one live job references, plus an entry (id="", built from disk)
+    for any referenced script name with no DB row, so a job pointing at an
+    unregistered or missing file still shows up instead of vanishing. The
+    full per-profile catalog (every script, cron-related or not) is the
+    Agent Tools registry (/api/v1/tools), not this endpoint."""
     result = await db.execute(
         select(CronScript).where(CronScript.active == True).order_by(  # noqa: E712
             CronScript.location, CronScript.name
@@ -377,7 +377,38 @@ async def list_scripts(db: AsyncSession = Depends(get_db)) -> ScriptListOut:
     rows = result.scalars().all()
     jobs = _load_all_cron_jobs()
     jobs_by_script = _build_jobs_by_script(jobs)
-    return ScriptListOut(scripts=[_row_to_out(r, jobs_by_script) for r in rows])
+
+    scripts = [_row_to_out(r, jobs_by_script) for r in rows if r.name in jobs_by_script]
+
+    seen_names = {s.name for s in scripts}
+    for name, refs in sorted(jobs_by_script.items()):
+        if name in seen_names:
+            continue
+        profile = refs[0].profile
+        path = PROFILES_DIR / profile / "scripts" / name
+        exists, is_symlink, symlink_target, escapes = _script_exists(path)
+        scripts.append(
+            ScriptOut(
+                id="",
+                name=name,
+                location=profile,
+                agent=profile,
+                category=None,
+                description=None,
+                path=str(path),
+                executable=exists and os.access(path, os.X_OK),
+                active=True,
+                exists_on_disk=exists,
+                is_symlink=is_symlink,
+                symlink_target=symlink_target,
+                escapes_scripts_dir=escapes,
+                status="ok" if exists and not escapes else "broken",
+                referenced_by=refs,
+            )
+        )
+
+    scripts.sort(key=lambda s: (s.location, s.name))
+    return ScriptListOut(scripts=scripts)
 
 
 @router.post("/sync", response_model=SyncResultOut)

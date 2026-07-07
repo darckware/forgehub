@@ -9,7 +9,9 @@ import {
   Loader2,
   MessageSquare,
   Pencil,
+  Power,
   RefreshCw,
+  RotateCcw,
   ScrollText,
   Trash2,
   X,
@@ -27,11 +29,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   cronJobKeys,
   useDeleteCronJob,
   useFoundationCrons,
+  useResetCronJob,
   useUpdateCronJob,
   type CronJob,
 } from "@/hooks/useFoundationCrons";
@@ -41,34 +43,28 @@ import {
   useFoundationScripts,
   useScriptFileContent,
   useSyncScripts,
-  type Script,
   type ScriptLocationRef,
 } from "@/hooks/useFoundationScripts";
 import { useChatHandoffStore } from "@/store/chatHandoff";
 import { useQueryClient } from "@tanstack/react-query";
 
-const CRON_STATUS_VARIANT: Record<CronJob["status"], "success" | "warning" | "outline"> = {
-  active: "success",
-  paused: "warning",
-  disabled: "outline",
-};
-
-const CRON_STATUS_LABEL: Record<CronJob["status"], string> = {
-  active: "Active",
-  paused: "Paused",
-  disabled: "Disabled",
-};
-
-const SCRIPT_STATUS_VARIANT: Record<Script["status"], "success" | "destructive" | "outline"> = {
+// Keyed by `health` (real execution evidence), not `status` (which only
+// mirrors the enabled flag and used to show every job as "Active" while the
+// scheduler had silently stopped running them).
+const CRON_HEALTH_VARIANT: Record<CronJob["health"], "success" | "warning" | "destructive" | "outline"> = {
   ok: "success",
-  broken: "destructive",
-  unused: "outline",
+  error: "destructive",
+  overdue: "warning",
+  never_ran: "outline",
+  off: "outline",
 };
 
-const SCRIPT_STATUS_LABEL: Record<Script["status"], string> = {
-  ok: "OK",
-  broken: "Broken",
-  unused: "Unused",
+const CRON_HEALTH_LABEL: Record<CronJob["health"], string> = {
+  ok: "Working",
+  error: "Error",
+  overdue: "Not running",
+  never_ran: "Never ran",
+  off: "Off",
 };
 
 function formatTimestamp(value: string | null): string {
@@ -85,7 +81,7 @@ function buildCronChatMessage(job: CronJob, fileContent: string | null, filePath
     `Task: ${job.name}`,
     `Profile: ${job.profile}`,
     `Schedule: ${job.schedule_display ?? "—"}`,
-    `Status: ${job.status}`,
+    `Status: ${job.status} (health: ${job.health})`,
   ];
   if (job.deliver) lines.push(`Deliver: ${job.deliver}`);
   if (job.description) lines.push(`Description: ${job.description}`);
@@ -98,27 +94,6 @@ function buildCronChatMessage(job: CronJob, fileContent: string | null, filePath
     } else {
       lines.push("(Could not read the script file content -- it may be missing or broken.)");
     }
-  }
-  return lines.join("\n");
-}
-
-function buildScriptChatMessage(script: Script, fileContent: string | null): string {
-  const lines: string[] = [
-    "I need help with this Hermes script. Please review its functionality and suggest improvements.",
-    "",
-    `Script: ${script.name}`,
-    `Location: ${script.location === "central" ? "central catalog" : script.location}`,
-    `Executing agent: ${script.agent ?? "—"}`,
-    `Path: ${script.path}`,
-    `Status: ${script.status}`,
-  ];
-  if (script.description) lines.push(`Description: ${script.description}`);
-  lines.push("");
-
-  if (fileContent != null) {
-    lines.push("```", fileContent, "```");
-  } else {
-    lines.push("(Could not read the script file content -- it may be missing or broken.)");
   }
   return lines.join("\n");
 }
@@ -311,8 +286,17 @@ function CronEditPanel({
 }
 
 function CronsTab() {
-  const { data: jobs, isLoading, isError, error } = useFoundationCrons();
+  const { data, isLoading, isError, error } = useFoundationCrons();
+  const jobs = data?.jobs;
+  const storeErrors = data?.store_errors ?? [];
+  // Script registry (cron-referenced only) joined by filename, to show each
+  // job's script inline -- there is no separate Scripts tab anymore; the
+  // full per-profile catalog lives in Agent Tools.
+  const { data: scripts } = useFoundationScripts();
+  const scriptsByName = new Map((scripts ?? []).map((s) => [s.name, s]));
   const deleteJob = useDeleteCronJob();
+  const updateJob = useUpdateCronJob();
+  const resetJob = useResetCronJob();
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [viewingJob, setViewingJob] = useState<CronJob | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
@@ -376,6 +360,31 @@ function CronsTab() {
         </Card>
       )}
 
+      {!isError && storeErrors.length > 0 && (
+        <Card className="border-destructive/50">
+          <CardContent className="space-y-2 py-4">
+            <div className="flex items-center gap-2 font-medium text-destructive">
+              <AlertCircle className="h-5 w-5" />
+              Corrupted cron store{storeErrors.length > 1 ? "s" : ""}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              These profiles&apos; jobs are missing from the list below, and their scheduler has
+              stopped running them entirely — the gateway refuses to tick on a corrupted store.
+              Fix the file, then restart that profile&apos;s gateway.
+            </p>
+            <ul className="space-y-1 text-sm">
+              {storeErrors.map((se) => (
+                <li key={se.store}>
+                  <span className="font-medium">{se.profile}</span>{" "}
+                  <code className="text-xs text-muted-foreground">{se.store}</code>
+                  <span className="text-destructive"> — {se.error}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       {!isLoading && !isError && jobs && jobs.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
@@ -383,7 +392,9 @@ function CronsTab() {
             <div>
               <p className="font-medium">No crons found</p>
               <p className="text-sm text-muted-foreground">
-                No jobs registered in the shared `hermes cron` store.
+                {storeErrors.length > 0
+                  ? "Every parsable per-profile `hermes cron` store is empty — see the corrupted stores above."
+                  : "No jobs registered in any per-profile `hermes cron` store."}
               </p>
             </div>
           </CardContent>
@@ -418,14 +429,39 @@ function CronsTab() {
                           {job.description}
                         </p>
                       )}
+                      {job.script && (
+                        <button
+                          type="button"
+                          onClick={() => setViewingJob(job)}
+                          title={scriptsByName.get(job.script)?.path ?? `View ${job.script}`}
+                          className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          <ScrollText className="h-3 w-3 shrink-0" />
+                          <code>{job.script}</code>
+                          {scriptsByName.get(job.script)?.status === "broken" && (
+                            <span className="text-destructive">
+                              {scriptsByName.get(job.script)?.escapes_scripts_dir
+                                ? "— symlink escapes the scripts dir"
+                                : "— file not found"}
+                            </span>
+                          )}
+                        </button>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{job.profile}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       <code className="text-xs">{job.schedule_display ?? "—"}</code>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={CRON_STATUS_VARIANT[job.status]}>
-                        {CRON_STATUS_LABEL[job.status]}
+                      <Badge
+                        variant={CRON_HEALTH_VARIANT[job.health]}
+                        title={
+                          job.last_log_at
+                            ? `Last execution log: ${formatTimestamp(job.last_log_at)}`
+                            : "No execution log yet (crons/logs/)"
+                        }
+                      >
+                        {CRON_HEALTH_LABEL[job.health]}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -442,6 +478,34 @@ function CronsTab() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`${job.enabled ? "Turn off" : "Turn on"} ${job.name}`}
+                        title={job.enabled ? "Turn off" : "Turn on"}
+                        disabled={!job.id || (updateJob.isPending && updateJob.variables?.jobId === job.id)}
+                        onClick={() => updateJob.mutate({ jobId: job.id, updates: { enabled: !job.enabled } })}
+                      >
+                        {updateJob.isPending && updateJob.variables?.jobId === job.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Power className={job.enabled ? "h-4 w-4 text-emerald-600" : "h-4 w-4 text-muted-foreground"} />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Reset ${job.name}`}
+                        title="Reset (clear errors and re-arm the schedule)"
+                        disabled={!job.id || (resetJob.isPending && resetJob.variables === job.id)}
+                        onClick={() => resetJob.mutate(job.id)}
+                      >
+                        {resetJob.isPending && resetJob.variables === job.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="h-4 w-4" />
+                        )}
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -495,157 +559,7 @@ function CronsTab() {
   );
 }
 
-function ScriptsTab() {
-  const { data: scripts, isLoading, isError, error } = useFoundationScripts();
-  const [viewingScript, setViewingScript] = useState<Script | null>(null);
-  const [sendingKey, setSendingKey] = useState<string | null>(null);
-  const setDraft = useChatHandoffStore((s) => s.setDraft);
-  const navigate = useNavigate();
-
-  async function handleSendToChat(script: Script) {
-    const key = `${script.location}-${script.name}`;
-    setSendingKey(key);
-    try {
-      const fileResult = await fetchScriptContentWithFallback([
-        { location: script.location, name: script.name },
-      ]);
-      setDraft(buildScriptChatMessage(script, fileResult?.content ?? null));
-      navigate("/workspace");
-    } finally {
-      setSendingKey(null);
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      {viewingScript && (
-        <FileViewerOverlay
-          title={viewingScript.name}
-          subtitle={viewingScript.path}
-          candidates={[{ location: viewingScript.location, name: viewingScript.name }]}
-          onClose={() => setViewingScript(null)}
-        />
-      )}
-
-      {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          Loading scripts…
-        </div>
-      )}
-
-      {isError && (
-        <Card className="border-destructive/50">
-          <CardContent className="flex items-center gap-3 py-6 text-destructive">
-            <AlertCircle className="h-5 w-5" />
-            <span>Failed to load scripts: {(error as Error)?.message}</span>
-          </CardContent>
-        </Card>
-      )}
-
-      {!isLoading && !isError && scripts && scripts.length === 0 && (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-            <ScrollText className="h-10 w-10 text-muted-foreground" />
-            <p className="font-medium">No scripts found</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {!isLoading && !isError && scripts && scripts.length > 0 && (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Script</TableHead>
-                  <TableHead>Executing agent</TableHead>
-                  <TableHead>Path</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Used by</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {scripts.map((script) => {
-                  const key = `${script.location}-${script.name}`;
-                  return (
-                    <TableRow key={key}>
-                      <TableCell>
-                        <span className="font-medium">{script.name}</span>
-                        {script.description && (
-                          <p className="max-w-sm truncate text-xs text-muted-foreground" title={script.description}>
-                            {script.description}
-                          </p>
-                        )}
-                        {!script.description && (
-                          <p className="text-xs italic text-muted-foreground">Functionality not documented</p>
-                        )}
-                        {script.status === "broken" && (
-                          <p className="text-xs text-destructive" title={script.symlink_target ?? undefined}>
-                            {script.escapes_scripts_dir
-                              ? "Symlink escapes the allowed scripts directory"
-                              : "Script not found at the expected path"}
-                          </p>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{script.agent ?? "—"}</TableCell>
-                      <TableCell className="max-w-xs text-xs text-muted-foreground">
-                        <code className="break-all" title={script.symlink_target ?? script.path}>
-                          {script.path}
-                        </code>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={SCRIPT_STATUS_VARIANT[script.status]}>
-                          {SCRIPT_STATUS_LABEL[script.status]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {script.referenced_by.length === 0
-                          ? "—"
-                          : script.referenced_by
-                              .map((ref) => `${ref.job_name} (${ref.profile})`)
-                              .join(", ")}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`View file for ${script.name}`}
-                          title={`View ${script.name}`}
-                          onClick={() => setViewingScript(script)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Send ${script.name} to chat`}
-                          disabled={sendingKey === key}
-                          title="Send data and file to chat"
-                          onClick={() => handleSendToChat(script)}
-                        >
-                          {sendingKey === key ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <MessageSquare className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
 export default function CronsPage() {
-  const [tab, setTab] = useState("crons");
   const queryClient = useQueryClient();
   const [isSyncing, setIsSyncing] = useState(false);
   const { sync: syncScripts } = useSyncScripts();
@@ -683,18 +597,7 @@ export default function CronsPage() {
         </Button>
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="crons">Crons</TabsTrigger>
-          <TabsTrigger value="scripts">Scripts</TabsTrigger>
-        </TabsList>
-        <TabsContent value="crons" className="mt-4">
-          <CronsTab />
-        </TabsContent>
-        <TabsContent value="scripts" className="mt-4">
-          <ScriptsTab />
-        </TabsContent>
-      </Tabs>
+      <CronsTab />
     </div>
   );
 }

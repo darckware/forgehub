@@ -11,16 +11,16 @@ Provides endpoints to:
   (SOUL.md, MEMORY.md, TOOLS.md, AGENTS.md, HEARTBEAT.md, USER.md) for
   ANY profile under /profiles, not just the 8 baseline agents -- see
   get_profile_file/update_profile_file below.
-- List/edit/delete `hermes cron` scheduled jobs from the shared cron
-  store (jobs.json under /hermes-cron -- the same file the `hermes` CLI
-  and gateway scheduler read/write since jobs were unified into one root
-  store, see upstream issue #32091) -- see list_cron_jobs/update_cron_job/
-  delete_cron_job.
-- List the central scripts catalog (/hermes-cron's real script files,
-  the single source of truth symlinked into every profile's
-  ~/.hermes/scripts/) plus each profile's own scripts/ dir, cross
-  referenced against cron jobs that reference them, with basic
-  existence/executable/symlink-health checks -- see list_scripts below.
+- List/edit/reset/delete `hermes cron` scheduled jobs across every
+  per-profile jobs store (cron is per-profile by design, upstream issue
+  #4707 -- each profile's gateway ticks its own cron/jobs.json). Reads
+  prefer the most recently modified store per job and writes target the
+  store the job actually lives in -- see _load_raw_jobs/list_cron_jobs/
+  update_cron_job/reset_cron_job/delete_cron_job.
+- List every profile's scripts/ dir -- the only place the hermes scheduler
+  executes scripts from -- cross referenced against cron jobs that
+  reference them, with basic existence/executable/symlink-health checks --
+  see list_scripts below.
 """
 
 import fcntl
@@ -40,9 +40,21 @@ router = APIRouter(prefix="/api/v1/foundation", tags=["foundation"])
 
 VAULT_DIR = Path("/foundation-agents")
 PROFILES_DIR = Path("/profiles")
-CRON_SHARED_DIR = Path("/hermes-cron")
-CRON_JOBS_FILE = CRON_SHARED_DIR / "jobs.json"
-CRON_README = CRON_SHARED_DIR / "README_crons.md"
+# Per-profile cron layout (hermes cron is per-profile by design, upstream
+# issue #4707): each profile owns <profile>/cron/jobs.json (job store),
+# <profile>/cron/logs/ (execution logs the scripts append themselves via
+# <profile>/cron/cron_exec_log.sh -- their mtime is real execution
+# evidence, independent of what jobs.json claims) and <profile>/scripts/
+# (the only place the scheduler executes scripts from; symlinks resolving
+# outside it are blocked). The old central dirs (/root/.hermes/crons and
+# /root/.hermes/scripts, previously mounted as /hermes-cron and
+# /hermes-scripts) were migrated into the athos profile on 2026-07-06 and
+# removed, along with the stale central jobs.json snapshot.
+# How far past next_run_at a job may be before it is considered stalled
+# ("the scheduler is not actually running this") rather than merely between
+# ticks. Generous enough for slow ticks/laptop resume, small enough to catch
+# a dead scheduler within the same work session.
+_CRON_OVERDUE_GRACE = timedelta(minutes=30)
 # Every timestamp already in jobs.json (created_at, next_run_at, ...) uses
 # this fixed offset (Brasília time, no DST since 2019) -- match it when we
 # compute a new next_run_at on schedule edit, so it's consistent with what
@@ -136,15 +148,37 @@ class CronJobOut(BaseModel):
     enabled: bool
     state: str
     status: str
+    # `status` above only reflects the enabled/paused flags; `health` says
+    # whether the job is actually executing: ok | error | overdue (its
+    # next_run_at is in the past -- the scheduler is not running it) |
+    # never_ran | off. See _job_health.
+    health: str
     next_run_at: str | None = None
     last_run_at: str | None = None
     last_status: str | None = None
     last_error: str | None = None
+    # mtime of the job script's execution log under the owning profile's
+    # cron/logs/ -- written by the script itself, so it is real execution
+    # evidence.
+    last_log_at: str | None = None
     deliver: str | None = None
+
+
+class CronStoreErrorOut(BaseModel):
+    """A per-profile jobs.json that failed to parse. Surfaced on the list
+    endpoint instead of silently contributing zero jobs: a corrupted store
+    also makes that profile's gateway refuse to tick ("Cron database
+    corrupted and unrepairable"), so its jobs are not just hidden -- they
+    have stopped running, and the UI must say so."""
+
+    profile: str
+    store: str
+    error: str
 
 
 class CronJobListOut(BaseModel):
     jobs: list[CronJobOut]
+    store_errors: list[CronStoreErrorOut] = []
 
 
 class CronJobUpdateIn(BaseModel):
@@ -344,107 +378,189 @@ def _truncate_description(text: str | None) -> str | None:
     return (text or "").strip() or None
 
 
-def _cron_jobs_lock():
+def _cron_jobs_lock(store_file: Path):
     """Acquire the same advisory flock the `hermes` CLI/gateway use on
-    <cron dir>/.jobs.lock, so a delete from ForgeHub can't race a concurrent
-    write from the live scheduler. Returns an open file handle -- caller
-    must flock/unlock it (use as a context manager via contextlib if more
-    call sites need this; only delete_cron_job does today)."""
-    CRON_SHARED_DIR.mkdir(parents=True, exist_ok=True)
-    lock_path = CRON_SHARED_DIR / ".jobs.lock"
+    <store dir>/.jobs.lock, so an edit from ForgeHub can't race a concurrent
+    write from the live scheduler. Each store (central or per-profile) has
+    its own lock next to its jobs.json. Returns an open file handle --
+    caller must flock/unlock it."""
+    store_file.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = store_file.parent / ".jobs.lock"
     lock_path.touch(exist_ok=True)
     return open(lock_path, "r+")
 
 
-def _load_raw_jobs() -> list[dict[str, Any]]:
-    """Load all jobs: central store first, then per-profile cron/jobs.json
-    files for any jobs not already present (deduplicated by id and name).
-    Jobs that were never migrated to the shared store (#32091) still appear
-    this way; edit/delete operations continue to target the central store only."""
-    central_jobs: list[dict[str, Any]] = []
-    content = _read_file_safe(CRON_JOBS_FILE)
-    if content:
-        try:
-            data = json.loads(content)
-            if isinstance(data, dict):
-                central_jobs = data.get("jobs", [])
-            elif isinstance(data, list):
-                central_jobs = list(data)
-        except json.JSONDecodeError:
-            pass
-
-    central_ids: set[str] = {j["id"] for j in central_jobs if j.get("id")}
-    central_names: set[str] = {j["name"] for j in central_jobs if j.get("name")}
-
-    extra_jobs: list[dict[str, Any]] = []
+def _cron_store_files() -> list[Path]:
+    """Every per-profile jobs.json store (there is no central store anymore
+    -- see the per-profile layout note at the top of this module)."""
+    stores: list[Path] = []
     if PROFILES_DIR.is_dir():
         for profile_dir in sorted(PROFILES_DIR.iterdir()):
-            profile_cron_file = profile_dir / "cron" / "jobs.json"
-            pcontent = _read_file_safe(profile_cron_file)
-            if not pcontent:
-                continue
-            try:
-                pdata = json.loads(pcontent)
-                pjobs: list[dict[str, Any]] = (
-                    pdata.get("jobs", pdata) if isinstance(pdata, dict) else pdata
-                )
-                if not isinstance(pjobs, list):
-                    continue
-            except json.JSONDecodeError:
-                continue
-            for pjob in pjobs:
-                pid = pjob.get("id")
-                pname = pjob.get("name")
-                if (pid and pid in central_ids) or (pname and pname in central_names):
-                    continue
-                pjob = dict(pjob)
-                if not pjob.get("profile"):
-                    pjob["profile"] = profile_dir.name
-                extra_jobs.append(pjob)
-                if pid:
-                    central_ids.add(pid)
-                if pname:
-                    central_names.add(pname)
+            store = profile_dir / "cron" / "jobs.json"
+            if store.is_file():
+                stores.append(store)
+    return stores
 
-    return central_jobs + extra_jobs
+
+def _parse_store_jobs(store: Path) -> tuple[list[dict[str, Any]], str | None]:
+    """Returns (jobs, error). A parse failure yields ([], <message>) rather
+    than raising: mutation helpers skip broken stores, while the list
+    endpoint reports them via CronStoreErrorOut."""
+    content = _read_file_safe(store)
+    if not content:
+        return [], None
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        return [], f"invalid JSON: {e}"
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+    return ([j for j in jobs if isinstance(j, dict)] if isinstance(jobs, list) else []), None
+
+
+def _cron_store_errors() -> list[CronStoreErrorOut]:
+    """Per-profile stores that currently fail to parse (see
+    CronStoreErrorOut for why these must be surfaced, not swallowed)."""
+    errors: list[CronStoreErrorOut] = []
+    for store in _cron_store_files():
+        _, error = _parse_store_jobs(store)
+        if error:
+            errors.append(
+                CronStoreErrorOut(profile=store.parent.parent.name, store=str(store), error=error)
+            )
+    return errors
+
+
+def _load_raw_jobs() -> list[dict[str, Any]]:
+    """Load all jobs from every per-profile store, deduplicated by id and
+    name keeping the copy from the MOST RECENTLY MODIFIED store -- if a
+    stale copy of a job ever lingers in another store (the scheduler has
+    moved stores across hermes versions before), it must not shadow the
+    live one. Each returned job carries its source store in "_store" so
+    edit/delete/reset target the file the scheduler actually reads --
+    CronJobOut never exposes that key."""
+    entries: list[tuple[float, dict[str, Any]]] = []
+    for store in _cron_store_files():
+        try:
+            mtime = store.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        profile_default = store.parent.parent.name
+        for job in _parse_store_jobs(store)[0]:
+            job = dict(job)
+            if not job.get("profile"):
+                job["profile"] = profile_default
+            job["_store"] = str(store)
+            entries.append((mtime, job))
+
+    # Newest store first; sort is stable, so within one store the original
+    # order is preserved. First occurrence of an id or name wins.
+    entries.sort(key=lambda entry: entry[0], reverse=True)
+    jobs: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    seen_names: set[str] = set()
+    for _, job in entries:
+        job_id, job_name = job.get("id"), job.get("name")
+        if (job_id and job_id in seen_ids) or (job_name and job_name in seen_names):
+            continue
+        if job_id:
+            seen_ids.add(job_id)
+        if job_name:
+            seen_names.add(job_name)
+        jobs.append(job)
+    return jobs
+
+
+def _last_log_at(script: str | None, profile: str | None) -> str | None:
+    """mtime of the script's execution log under the owning profile's
+    cron/logs/, if any. The scripts append to these logs themselves (via
+    <profile>/cron/cron_exec_log.sh), so the mtime is direct evidence of
+    the last real execution."""
+    if not script or not profile:
+        return None
+    log_file = PROFILES_DIR / profile / "cron" / "logs" / (Path(script).stem + ".log")
+    try:
+        mtime = log_file.stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(mtime, tz=_JOBS_TZ).isoformat()
+
+
+def _job_health(
+    enabled: bool,
+    last_status: str | None,
+    last_run_at: str | None,
+    next_run_at: str | None,
+    last_log_at: str | None,
+) -> str:
+    """Whether the job is actually executing -- unlike `status`, which only
+    mirrors the enabled/paused flags (the Dashboard previously showed every
+    job as "active" while the scheduler had silently stopped running them)."""
+    if not enabled:
+        return "off"
+    if (last_status or "").lower() in ("error", "failed", "fail"):
+        return "error"
+    if next_run_at:
+        try:
+            next_run = datetime.fromisoformat(next_run_at)
+        except ValueError:
+            next_run = None
+        if next_run is not None:
+            if next_run.tzinfo is None:
+                next_run = next_run.replace(tzinfo=_JOBS_TZ)
+            if next_run < datetime.now(_JOBS_TZ) - _CRON_OVERDUE_GRACE:
+                return "overdue"
+    if not last_run_at and not last_log_at:
+        return "never_ran"
+    return "ok"
 
 
 def _raw_job_to_out(raw_job: dict[str, Any]) -> CronJobOut:
     enabled = bool(raw_job.get("enabled", False))
     state = raw_job.get("state") or "scheduled"
+    script = raw_job.get("script")
+    profile = raw_job.get("profile") or "default"
+    last_log = _last_log_at(script, profile)
     return CronJobOut(
-        profile=raw_job.get("profile") or "default",
+        profile=profile,
         id=raw_job.get("id", ""),
         name=raw_job.get("name", ""),
         description=_truncate_description(raw_job.get("prompt")),
-        script=raw_job.get("script"),
+        script=script,
         schedule_display=(raw_job.get("schedule") or {}).get("display") or raw_job.get("schedule_display"),
         enabled=enabled,
         state=state,
         status=_job_status(enabled, state),
+        health=_job_health(
+            enabled,
+            raw_job.get("last_status"),
+            raw_job.get("last_run_at"),
+            raw_job.get("next_run_at"),
+            last_log,
+        ),
         next_run_at=raw_job.get("next_run_at"),
         last_run_at=raw_job.get("last_run_at"),
         last_status=raw_job.get("last_status"),
         last_error=raw_job.get("last_error"),
+        last_log_at=last_log,
         deliver=raw_job.get("deliver"),
     )
 
 
 def _list_cron_jobs() -> list[CronJobOut]:
-    """Read the shared `hermes cron` job store (jobs.json under
-    /hermes-cron -- see module docstring re #32091) and return every job."""
+    """Read every profile's `hermes cron` job store (per-profile by design,
+    see module docstring re #4707) and return every job."""
     jobs = [_raw_job_to_out(raw_job) for raw_job in _load_raw_jobs()]
     jobs.sort(key=lambda j: (j.profile, j.name))
     return jobs
 
 
-def _atomic_write_jobs(raw_jobs: list[dict[str, Any]]) -> None:
-    """Caller must hold the .jobs.lock flock (see _cron_jobs_lock)."""
-    fd, tmp_path = tempfile.mkstemp(dir=str(CRON_JOBS_FILE.parent), suffix=".tmp", prefix=".jobs_")
+def _atomic_write_jobs(store_file: Path, raw_jobs: list[dict[str, Any]]) -> None:
+    """Caller must hold that store's .jobs.lock flock (see _cron_jobs_lock)."""
+    fd, tmp_path = tempfile.mkstemp(dir=str(store_file.parent), suffix=".tmp", prefix=".jobs_")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump({"jobs": raw_jobs}, f, indent=2)
-        os.replace(tmp_path, CRON_JOBS_FILE)
+        os.replace(tmp_path, store_file)
     except BaseException:
         try:
             os.unlink(tmp_path)
@@ -453,83 +569,136 @@ def _atomic_write_jobs(raw_jobs: list[dict[str, Any]]) -> None:
         raise
 
 
+def _find_job_store(job_id: str) -> Path | None:
+    """The store file whose copy of this job is live (see _load_raw_jobs's
+    freshest-store dedupe) -- the one all mutations must write to."""
+    for job in _load_raw_jobs():
+        if job.get("id") == job_id:
+            return Path(job["_store"])
+    return None
+
+
 def _delete_cron_job(job_id: str) -> bool:
-    """Remove a job from the shared store under the same advisory lock the
+    """Remove a job from its live store under the same advisory lock the
     `hermes` CLI/gateway use. Returns False if the job_id wasn't found."""
-    with _cron_jobs_lock() as lockf:
+    store = _find_job_store(job_id)
+    if store is None:
+        return False
+    with _cron_jobs_lock(store) as lockf:
         fcntl.flock(lockf, fcntl.LOCK_EX)
         try:
-            raw_jobs = _load_raw_jobs()
+            raw_jobs, _ = _parse_store_jobs(store)
             remaining = [j for j in raw_jobs if j.get("id") != job_id]
             if len(remaining) == len(raw_jobs):
                 return False
-            _atomic_write_jobs(remaining)
+            _atomic_write_jobs(store, remaining)
             return True
         finally:
             fcntl.flock(lockf, fcntl.LOCK_UN)
 
 
-def _update_cron_job(job_id: str, updates: CronJobUpdateIn) -> CronJobOut | None:
-    """Apply a partial update to a job in the shared store under the same
-    advisory lock the `hermes` CLI/gateway use. Returns None if the job_id
-    wasn't found. Raises ValueError if `schedule_display` is not a valid
-    cron expression."""
-    with _cron_jobs_lock() as lockf:
+def _mutate_cron_job(job_id: str, mutate) -> CronJobOut | None:
+    """Shared locate-lock-mutate-write path for update/reset: applies
+    `mutate(target)` to the job's raw dict inside its live store, under
+    that store's advisory lock. Returns None if the job_id wasn't found."""
+    store = _find_job_store(job_id)
+    if store is None:
+        return None
+    with _cron_jobs_lock(store) as lockf:
         fcntl.flock(lockf, fcntl.LOCK_EX)
         try:
-            raw_jobs = _load_raw_jobs()
+            raw_jobs, _ = _parse_store_jobs(store)
             target = next((j for j in raw_jobs if j.get("id") == job_id), None)
             if target is None:
                 return None
-
-            if updates.name is not None:
-                target["name"] = updates.name
-            if updates.description is not None:
-                target["prompt"] = updates.description
-            if updates.deliver is not None:
-                target["deliver"] = updates.deliver
-            if updates.enabled is not None:
-                target["enabled"] = updates.enabled
-                target["state"] = "scheduled" if updates.enabled else "paused"
-                target["paused_at"] = None if updates.enabled else datetime.now(_JOBS_TZ).isoformat()
-            if updates.schedule_display is not None:
-                expr = updates.schedule_display.strip()
-                try:
-                    next_run = croniter(expr, datetime.now(_JOBS_TZ)).get_next(datetime)
-                except (ValueError, KeyError) as e:
-                    raise ValueError(f"Invalid cron expression {expr!r}: {e}") from e
-                target["schedule"] = {"kind": "cron", "expr": expr, "display": expr}
-                target["schedule_display"] = expr
-                target["next_run_at"] = next_run.isoformat()
-
-            _atomic_write_jobs(raw_jobs)
+            mutate(target)
+            _atomic_write_jobs(store, raw_jobs)
+            if not target.get("profile"):
+                target = {**target, "profile": store.parent.parent.name}
             return _raw_job_to_out(target)
         finally:
             fcntl.flock(lockf, fcntl.LOCK_UN)
+
+
+def _update_cron_job(job_id: str, updates: CronJobUpdateIn) -> CronJobOut | None:
+    """Apply a partial update to a job in its live store. Returns None if
+    the job_id wasn't found. Raises ValueError if `schedule_display` is not
+    a valid cron expression."""
+
+    def mutate(target: dict[str, Any]) -> None:
+        if updates.name is not None:
+            target["name"] = updates.name
+        if updates.description is not None:
+            target["prompt"] = updates.description
+        if updates.deliver is not None:
+            target["deliver"] = updates.deliver
+        if updates.enabled is not None:
+            target["enabled"] = updates.enabled
+            target["state"] = "scheduled" if updates.enabled else "paused"
+            target["paused_at"] = None if updates.enabled else datetime.now(_JOBS_TZ).isoformat()
+        if updates.schedule_display is not None:
+            expr = updates.schedule_display.strip()
+            try:
+                next_run = croniter(expr, datetime.now(_JOBS_TZ)).get_next(datetime)
+            except (ValueError, KeyError) as e:
+                raise ValueError(f"Invalid cron expression {expr!r}: {e}") from e
+            target["schedule"] = {"kind": "cron", "expr": expr, "display": expr}
+            target["schedule_display"] = expr
+            target["next_run_at"] = next_run.isoformat()
+
+    return _mutate_cron_job(job_id, mutate)
+
+
+def _reset_cron_job(job_id: str) -> CronJobOut | None:
+    """Re-arm a job in place: clear its last error/status, force a stuck
+    state back to scheduled (or paused, per its enabled flag) and recompute
+    next_run_at from its cron expression when it has one. Deliberately does
+    NOT touch `enabled` -- activating/deactivating stays a PUT concern
+    (see _update_cron_job). Returns None if the job_id wasn't found."""
+
+    def mutate(target: dict[str, Any]) -> None:
+        enabled = bool(target.get("enabled", False))
+        target["state"] = "scheduled" if enabled else "paused"
+        target["last_status"] = None
+        target["last_error"] = None
+        expr = (target.get("schedule") or {}).get("expr") or target.get("schedule_display")
+        if enabled and expr:
+            try:
+                next_run = croniter(expr, datetime.now(_JOBS_TZ)).get_next(datetime)
+            except (ValueError, KeyError):
+                # Non-cron schedules (interval kinds) keep their own
+                # next_run_at -- clearing the error state is still useful.
+                pass
+            else:
+                target["next_run_at"] = next_run.isoformat()
+
+    return _mutate_cron_job(job_id, mutate)
 
 
 # ---------------------------------------------------------------------------
 # Scripts registry
 # ---------------------------------------------------------------------------
 
-_CRON_DIR_SKIP_NAMES = {"jobs.json", "README_crons.md", ".jobs.lock", ".tick.lock"}
-
 
 def _parse_readme_descriptions() -> dict[str, str]:
-    """Parse the `| script | função | cron | status |` table in
-    README_crons.md for human descriptions of the central scripts."""
-    content = _read_file_safe(CRON_README)
-    if content is None:
-        return {}
+    """Parse the `| script | função | cron | status |` table in each
+    profile's cron/README_crons.md (athos carries the catalog migrated from
+    the old central dir) for human descriptions of the scripts."""
     descriptions: dict[str, str] = {}
-    for line in content.splitlines():
-        line = line.strip()
-        if not line.startswith("|") or line.startswith("|--") or line.startswith("| Script"):
+    if not PROFILES_DIR.is_dir():
+        return descriptions
+    for profile_dir in sorted(PROFILES_DIR.iterdir()):
+        content = _read_file_safe(profile_dir / "cron" / "README_crons.md")
+        if content is None:
             continue
-        parts = [c.strip() for c in line.split("|") if c.strip()]
-        if len(parts) >= 2:
-            name = parts[0].replace("`", "").strip()
-            descriptions[name] = parts[1]
+        for line in content.splitlines():
+            line = line.strip()
+            if not line.startswith("|") or line.startswith("|--") or line.startswith("| Script"):
+                continue
+            parts = [c.strip() for c in line.split("|") if c.strip()]
+            if len(parts) >= 2:
+                name = parts[0].replace("`", "").strip()
+                descriptions.setdefault(name, parts[1])
     return descriptions
 
 
@@ -581,15 +750,15 @@ def _script_is_real_file(path: Path) -> bool:
 
 
 # Symlinks under a profile's scripts/ dir store their target as the
-# absolute path on the HOST (e.g. "/root/.hermes/cron/x.sh"), since that's
-# how they were created outside this container. This container doesn't
-# mount the host filesystem 1:1 -- only specific dirs, at different
-# container-side paths (PROFILES_DIR <- /root/.hermes/profiles,
-# CRON_SHARED_DIR <- /root/.hermes/cron) -- so a raw os.readlink() target
-# can't be opened directly here. Translate the known host prefixes to
-# their container-side mount before checking existence.
+# absolute path on the HOST, since that's how they were created outside
+# this container. This container doesn't mount the host filesystem 1:1 --
+# only specific dirs, at different container-side paths (PROFILES_DIR <-
+# /root/.hermes/profiles) -- so a raw os.readlink() target can't be opened
+# directly here. Translate the known host prefixes to their container-side
+# mount before checking existence. Targets under the removed central dirs
+# (/root/.hermes/crons, /root/.hermes/scripts) no longer remap -- such a
+# symlink is genuinely broken now and should show as "broken".
 _HOST_PATH_REMAPS = (
-    ("/root/.hermes/cron/", CRON_SHARED_DIR),
     ("/root/.hermes/profiles/", PROFILES_DIR),
 )
 
@@ -675,10 +844,10 @@ def _build_script_out(
 
 
 def _list_scripts() -> list[ScriptOut]:
-    """Combine the central scripts catalog (/hermes-cron's real script
-    files -- single source of truth for every profile's ~/.hermes/scripts/
-    symlinks) with each profile's own scripts/ dir, cross-referenced with
-    the cron jobs (shared store) that invoke them by filename."""
+    """List every profile's scripts/ dir (the only place the scheduler
+    executes scripts from -- the old central catalog was migrated into the
+    athos profile on 2026-07-06), cross-referenced with the cron jobs that
+    invoke them by filename."""
     jobs = _list_cron_jobs()
     jobs_by_script: dict[str, list[CronJobOut]] = {}
     for job in jobs:
@@ -687,28 +856,6 @@ def _list_scripts() -> list[ScriptOut]:
 
     descriptions = _parse_readme_descriptions()
     scripts: list[ScriptOut] = []
-    seen_central: set[str] = set()
-
-    if CRON_SHARED_DIR.is_dir():
-        for entry in sorted(CRON_SHARED_DIR.iterdir()):
-            if entry.name in _CRON_DIR_SKIP_NAMES or entry.name.startswith("."):
-                continue
-            if entry.is_dir():
-                continue
-            if not _script_is_real_file(entry):
-                continue
-            seen_central.add(entry.name)
-            scripts.append(
-                _build_script_out(
-                    name=entry.name,
-                    location="central",
-                    agent="—",
-                    path=entry,
-                    host_scripts_dir="/root/.hermes/cron",
-                    description=descriptions.get(entry.name) or _extract_script_doc(entry),
-                    jobs_by_script=jobs_by_script,
-                )
-            )
 
     if PROFILES_DIR.is_dir():
         for profile_dir in sorted(PROFILES_DIR.iterdir()):
@@ -730,10 +877,10 @@ def _list_scripts() -> list[ScriptOut]:
                     )
                 )
 
-    # Jobs that reference a script filename not found in any scanned
-    # location (central or profile) -- surfaces the "missing script" case
-    # explicitly instead of letting it silently vanish from the registry.
-    all_seen_names = seen_central | {s.name for s in scripts}
+    # Jobs that reference a script filename not found in any profile's
+    # scripts dir -- surfaces the "missing script" case explicitly instead
+    # of letting it silently vanish from the registry.
+    all_seen_names = {s.name for s in scripts}
     for script_name, refs in jobs_by_script.items():
         if script_name in all_seen_names:
             continue
@@ -751,42 +898,46 @@ def _list_scripts() -> list[ScriptOut]:
             )
         all_seen_names.add(script_name)
 
-    scripts.sort(key=lambda s: (s.location != "central", s.location, s.name))
+    scripts.sort(key=lambda s: (s.location, s.name))
     return scripts
-
-
-HERMES_SCRIPTS_DIR = Path("/hermes-scripts")
 
 
 def _resolve_script_read_path(location: str, name: str) -> Path | None:
     """Resolve a script's actual readable path for content display, same
-    symlink-remap logic as _build_script_out (a profile-owned script can be
-    a symlink whose absolute host target -- e.g. /root/.hermes/cron/x.sh --
-    isn't directly reachable from inside this container, only via the
-    CRON_SHARED_DIR/PROFILES_DIR mounts). Returns None if unreadable.
+    symlink-remap logic as _build_script_out. Returns None if unreadable.
 
-    location "main" → /hermes-scripts (added alongside the DB-backed
-    cron_scripts registry, see api/routes/cron_scripts.py)."""
-    if location == "central":
-        base = CRON_SHARED_DIR
-    elif location == "main":
-        base = HERMES_SCRIPTS_DIR
+    `location` is normally a profile name. The legacy values "central",
+    "main" and "profile" (pre-2026-07-06 central-dirs layout, still present
+    in old cron_scripts DB rows and frontend fallback candidates) resolve
+    by searching every profile's scripts dir for the name instead."""
+    if location in ("central", "main", "profile"):
+        bases = (
+            [p / "scripts" for p in sorted(PROFILES_DIR.iterdir()) if (p / "scripts").is_dir()]
+            if PROFILES_DIR.is_dir()
+            else []
+        )
     else:
-        base = PROFILES_DIR / location / "scripts"
-    candidate = base / name
+        bases = [PROFILES_DIR / location / "scripts"]
 
-    if candidate.is_symlink():
-        try:
-            raw_target = os.readlink(candidate)
-        except OSError:
-            return None
-        if os.path.isabs(raw_target):
-            remapped = _remap_host_symlink_target(raw_target)
-            return remapped if remapped is not None and remapped.is_file() else None
-        resolved = (candidate.parent / raw_target).resolve()
-        return resolved if resolved.is_file() else None
-
-    return candidate if candidate.is_file() else None
+    for base in bases:
+        candidate = base / name
+        if candidate.is_symlink():
+            try:
+                raw_target = os.readlink(candidate)
+            except OSError:
+                continue
+            if os.path.isabs(raw_target):
+                remapped = _remap_host_symlink_target(raw_target)
+                if remapped is not None and remapped.is_file():
+                    return remapped
+                continue
+            resolved = (candidate.parent / raw_target).resolve()
+            if resolved.is_file():
+                return resolved
+            continue
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _get_profile_dir_or_404(profile: str) -> Path:
@@ -906,6 +1057,86 @@ async def get_agent_memory(profile: str) -> dict[str, str | None]:
     return {"profile": profile, "memory": content}
 
 
+class SkillContentOut(BaseModel):
+    """Source SKILL.md of a registered skill, resolved from the profile
+    skills trees (the same files hermes_sync registers skills from)."""
+
+    name: str
+    profile: str
+    path: str  # host-side path, for display
+    content: str
+
+
+class SkillContentUpdateIn(BaseModel):
+    content: str
+
+
+def _find_skill_md(name: str) -> tuple[str, Path, str] | None:
+    """Find a skill's SKILL.md across every profile's skills/ tree,
+    matching the frontmatter `name:` or the skill's directory name -- the
+    same fallback hermes_sync uses when registering skills. No path is
+    built from the input (we only compare names against scanned files),
+    so there is no traversal surface. Returns (profile, path, content)."""
+    target = name.strip().lower()
+    if not target or not PROFILES_DIR.is_dir():
+        return None
+    for profile_dir in sorted(PROFILES_DIR.iterdir()):
+        skills_dir = profile_dir / "skills"
+        if not skills_dir.is_dir():
+            continue
+        for skill_md in sorted(skills_dir.rglob("SKILL.md")):
+            content = _read_file_safe(skill_md)
+            if content is None:
+                continue
+            candidates = {skill_md.parent.name.lower()}
+            for line in content.splitlines():
+                if line.startswith("name:"):
+                    candidates.add(line.split(":", 1)[1].strip().strip('"').strip("'").lower())
+                    break
+            if target in candidates:
+                return profile_dir.name, skill_md, content
+    return None
+
+
+def _skill_content_out(name: str, profile: str, skill_md: Path, content: str) -> SkillContentOut:
+    host_path = str(skill_md).replace(str(PROFILES_DIR), "/root/.hermes/profiles", 1)
+    return SkillContentOut(name=name, profile=profile, path=host_path, content=content)
+
+
+@router.get("/skills/{name}/content", response_model=SkillContentOut)
+async def get_skill_content(name: str) -> SkillContentOut:
+    """Source SKILL.md of a registered skill (see _find_skill_md)."""
+    found = _find_skill_md(name)
+    if found is None:
+        raise HTTPException(status_code=404, detail="SKILL.md not found for this skill")
+    profile, skill_md, content = found
+    return _skill_content_out(name, profile, skill_md, content)
+
+
+@router.put("/skills/{name}/content", response_model=SkillContentOut)
+async def update_skill_content(name: str, payload: SkillContentUpdateIn) -> SkillContentOut:
+    """Overwrite a skill's SKILL.md in the owning profile's skills tree
+    (atomic tmp+rename). Only the file is written -- the DB skill row keeps
+    its synced metadata until the next Hermes Foundation sync re-imports
+    the frontmatter."""
+    found = _find_skill_md(name)
+    if found is None:
+        raise HTTPException(status_code=404, detail="SKILL.md not found for this skill")
+    profile, skill_md, _ = found
+    fd, tmp_path = tempfile.mkstemp(dir=str(skill_md.parent), suffix=".tmp", prefix=".skill_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload.content)
+        os.replace(tmp_path, skill_md)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    return _skill_content_out(name, profile, skill_md, payload.content)
+
+
 @router.get("/agents/{profile}/skills")
 async def get_agent_skills(profile: str) -> list[SkillInfo]:
     """List all skills for a given agent profile."""
@@ -961,15 +1192,18 @@ async def update_profile_file(
 
 
 # ---------------------------------------------------------------------------
-# Cron jobs (shared `hermes cron` job store -- see module docstring re #32091)
+# Cron jobs (per-profile `hermes cron` job stores -- see module docstring
+# re #4707)
 # ---------------------------------------------------------------------------
 
 
 @router.get("/crons", response_model=CronJobListOut)
 async def list_cron_jobs() -> CronJobListOut:
     """List every scheduled `hermes cron` job, with its description,
-    schedule, owning profile, and active/paused/disabled status."""
-    return CronJobListOut(jobs=_list_cron_jobs())
+    schedule, owning profile, and active/paused/disabled status. Stores
+    that fail to parse are reported in `store_errors` -- a corrupted store
+    means that profile's scheduler has stopped running its jobs entirely."""
+    return CronJobListOut(jobs=_list_cron_jobs(), store_errors=_cron_store_errors())
 
 
 @router.put("/crons/{job_id}", response_model=CronJobOut)
@@ -984,6 +1218,17 @@ async def update_cron_job(job_id: str, payload: CronJobUpdateIn) -> CronJobOut:
     if updated is None:
         raise HTTPException(status_code=404, detail="Cron job not found")
     return updated
+
+
+@router.post("/crons/{job_id}/reset", response_model=CronJobOut)
+async def reset_cron_job(job_id: str) -> CronJobOut:
+    """Re-arm a job: clear its last error/status and recompute its next run
+    from the schedule, without changing whether it is enabled. Backs the
+    reset action on the Crons page and Dashboard card."""
+    reset = _reset_cron_job(job_id)
+    if reset is None:
+        raise HTTPException(status_code=404, detail="Cron job not found")
+    return reset
 
 
 @router.delete("/crons/{job_id}")
