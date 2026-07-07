@@ -18,6 +18,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { DocTree, type DocTreeNode } from "@/components/DocTree";
 import { Markdown } from "@/components/Markdown";
+import { AssistantDrawer } from "@/components/chat/AssistantDrawer";
 import {
   downloadDoc,
   useCreateDocFolder,
@@ -126,6 +127,23 @@ export default function DocsPage() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4 p-6">
+      <AssistantDrawer
+        tabId="assistant:docs"
+        workingDir="/root/docs"
+        contextLabel="Usar documento atual"
+        buildContext={() => {
+          if (!selectedPath) return null;
+          const lines = [
+            "Estou trabalhando na área Docs do ForgeHub (arquivos em /root/docs, no host).",
+            `Documento atual: /root/docs/${selectedPath}`,
+            "",
+            "Me ajude a criar/editar este documento. Escreva o resultado diretamente no arquivo (você tem acesso ao host) e me avise quando salvar.",
+          ];
+          const content = draft ?? file?.content;
+          if (content) lines.push("", "Conteúdo atual:", "```markdown", content, "```");
+          return lines.join("\n");
+        }}
+      />
       <ConfirmDialog
         open={deleting !== null}
         title={`Excluir "${deleting ?? ""}"`}
