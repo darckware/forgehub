@@ -20,6 +20,7 @@ export interface DeployInstallation {
 }
 
 export interface DockerContainer {
+  id: string;
   name: string;
   image: string;
   status: string;
@@ -44,8 +45,24 @@ export interface DeployInstallationCreate {
 
 export type DeployInstallationUpdate = Partial<DeployInstallationCreate>;
 
+export interface DeployGroup {
+  id: string;
+  name: string;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeployGroupCreate {
+  name: string;
+  order_index?: number;
+}
+
+export type DeployGroupUpdate = Partial<DeployGroupCreate>;
+
 const INSTALL_KEY = ["deploy", "installations"] as const;
 const CONTAINERS_KEY = ["deploy", "containers"] as const;
+const GROUPS_KEY = ["deploy", "groups"] as const;
 
 export function useInstallations() {
   return useQuery<DeployInstallation[]>({
@@ -103,6 +120,60 @@ export function useDeleteInstallation() {
   });
 }
 
+export function useDeployGroups() {
+  return useQuery<DeployGroup[]>({
+    queryKey: GROUPS_KEY,
+    queryFn: () => apiClient.get("/api/v1/deploy/groups"),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateDeployGroup() {
+  const qc = useQueryClient();
+  return useMutation<DeployGroup, Error, DeployGroupCreate>({
+    mutationFn: (data) => apiClient.post("/api/v1/deploy/groups", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: GROUPS_KEY }),
+  });
+}
+
+export function useUpdateDeployGroup() {
+  const qc = useQueryClient();
+  return useMutation<DeployGroup, Error, { id: string; data: DeployGroupUpdate }>({
+    mutationFn: ({ id, data }) => apiClient.put(`/api/v1/deploy/groups/${id}`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: GROUPS_KEY });
+      // Rename propagates to installations' group_name on the backend.
+      qc.invalidateQueries({ queryKey: INSTALL_KEY });
+    },
+  });
+}
+
+export function useDeleteDeployGroup() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => apiClient.delete(`/api/v1/deploy/groups/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: GROUPS_KEY });
+      qc.invalidateQueries({ queryKey: INSTALL_KEY });
+    },
+  });
+}
+
+export function useRemoveContainer() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: boolean; container: string; installations_removed: number },
+    Error,
+    string
+  >({
+    mutationFn: (name) => apiClient.delete(`/api/v1/deploy/containers/${name}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: CONTAINERS_KEY });
+      qc.invalidateQueries({ queryKey: INSTALL_KEY });
+    },
+  });
+}
+
 export function useRestartContainer() {
   const qc = useQueryClient();
   return useMutation<{ ok: boolean; container: string }, Error, string>({
@@ -143,6 +214,7 @@ export interface SyncResult {
   created: number;
   updated: number;
   skipped: number;
+  ignored: number;
   names_created: string[];
   names_updated: string[];
 }
@@ -156,12 +228,58 @@ export function useDockerVolumes() {
   });
 }
 
+export function useRemoveVolume() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean; volume: string }, Error, string>({
+    mutationFn: (name) => apiClient.delete(`/api/v1/deploy/volumes/${name}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["deploy", "volumes"] }),
+  });
+}
+
+export function useRemoveNetwork() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean; network: string }, Error, string>({
+    mutationFn: (name) => apiClient.delete(`/api/v1/deploy/networks/${name}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["deploy", "networks"] }),
+  });
+}
+
 export function useDockerNetworks() {
   return useQuery<DockerNetwork[]>({
     queryKey: ["deploy", "networks"],
     queryFn: () => apiClient.get("/api/v1/deploy/networks"),
     staleTime: 30_000,
     retry: false,
+  });
+}
+
+export interface DockerImage {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  created_since: string;
+  dangling: boolean;
+  in_use: boolean;
+}
+
+export function useDockerImages() {
+  return useQuery<DockerImage[]>({
+    queryKey: ["deploy", "images"],
+    queryFn: () => apiClient.get("/api/v1/deploy/images"),
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+export function useRemoveImage() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean; image: string }, Error, string>({
+    // `ref` is "repo:tag" (or, for dangling images, the bare ID) -- passed
+    // as a query param since a repo can contain slashes (registry
+    // namespaces), which would collide with path-segment routing.
+    mutationFn: (ref) => apiClient.delete(`/api/v1/deploy/images`, { params: { ref } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["deploy", "images"] }),
   });
 }
 

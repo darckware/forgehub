@@ -41,3 +41,34 @@ class DeployInstallation(Base, TimestampMixin):
         ForeignKey("company.products.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+
+class DeployGroup(Base, TimestampMixin):
+    """Named group used to organize DeployInstallations in the Deploy Control UI.
+
+    Installations reference groups by name (DeployInstallation.group_name string,
+    not FK) so live-docker sync and ad-hoc rows keep working without a group row.
+    The API layer keeps the two in sync: renaming a group rewrites matching
+    installations' group_name; deleting a group clears it (see routes/deploy.py).
+    """
+
+    __tablename__ = "deploy_groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class DeploySyncIgnore(Base, TimestampMixin):
+    """Container names excluded from `POST /deploy/sync` auto-registration.
+
+    When a user deletes a DeployInstallation whose container still exists in
+    Docker, the sync endpoint would otherwise recreate it on the next run.
+    Deleting an installation records its container_name here; manually
+    re-registering the same container_name removes the entry.
+    """
+
+    __tablename__ = "deploy_sync_ignores"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    container_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)

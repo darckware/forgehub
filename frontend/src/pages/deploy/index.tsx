@@ -8,8 +8,11 @@ import {
   ChevronRight,
   Circle,
   ClipboardCopy,
+  Container,
+  Folder,
   ExternalLink,
   HardDrive,
+  Layers,
   Loader2,
   Network,
   Pencil,
@@ -19,6 +22,7 @@ import {
   Save,
   ScrollText,
   Server,
+  Settings2,
   Trash2,
   X,
   Zap,
@@ -37,14 +41,27 @@ import {
   useDockerContainers,
   useDockerVolumes,
   useDockerNetworks,
+  useDockerImages,
   useCreateInstallation,
   useUpdateInstallation,
   useDeleteInstallation,
   useRestartContainer,
   useContainerLogs,
   useSyncFromDocker,
+  useRemoveContainer,
+  useRemoveVolume,
+  useRemoveNetwork,
+  useRemoveImage,
+  useDeployGroups,
+  useCreateDeployGroup,
+  useUpdateDeployGroup,
+  useDeleteDeployGroup,
+  type DeployGroup,
   type DeployInstallation,
   type DockerContainer,
+  type DockerVolume,
+  type DockerNetwork,
+  type DockerImage,
   type DeployInstallationCreate,
   type SyncResult,
 } from "@/hooks/useDeploy";
@@ -160,10 +177,188 @@ function LogsModal({
 }
 
 // ---------------------------------------------------------------------------
+// Groups management modal (create / rename / delete)
+// ---------------------------------------------------------------------------
+
+function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () => void }) {
+  const createMut = useCreateDeployGroup();
+  const updateMut = useUpdateDeployGroup();
+  const deleteMut = useDeleteDeployGroup();
+
+  const [newName, setNewName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [deleting, setDeleting] = useState<DeployGroup | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await fn();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  };
+
+  const handleCreate = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    if (await run(() => createMut.mutateAsync({ name }))) setNewName("");
+  };
+
+  const handleRename = async (group: DeployGroup) => {
+    const name = editName.trim();
+    if (!name || name === group.name) {
+      setEditingId(null);
+      return;
+    }
+    if (await run(() => updateMut.mutateAsync({ id: group.id, data: { name } }))) {
+      setEditingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    if (await run(() => deleteMut.mutateAsync(deleting.id))) setDeleting(null);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 flex w-full max-w-md flex-col rounded-xl border border-border bg-card shadow-2xl" style={{ maxHeight: "80vh" }}>
+        <div className="h-1 w-full rounded-t-xl bg-blue-500" />
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Settings2 className="h-4 w-4 text-blue-500" />
+            <span className="font-semibold text-sm">Groups</span>
+          </div>
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Create */}
+          <div className="flex gap-2">
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleCreate())}
+              placeholder="New group name"
+              className="h-8 text-sm flex-1"
+            />
+            <Button size="sm" className="h-8" onClick={handleCreate} disabled={createMut.isPending || !newName.trim()}>
+              {createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
+
+          {error && (
+            <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{error}</p>
+          )}
+
+          {/* Table */}
+          {groups.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">No groups created.</p>
+          ) : (
+            <div className="rounded-lg border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Name</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground w-24">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {groups.map((g) => (
+                    <tr key={g.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-3 py-2">
+                        {editingId === g.id ? (
+                          <Input
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") { e.preventDefault(); handleRename(g); }
+                              if (e.key === "Escape") setEditingId(null);
+                            }}
+                            autoFocus
+                            className="h-7 text-sm"
+                          />
+                        ) : (
+                          <span className="font-medium">{g.name}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center justify-end gap-1">
+                          {editingId === g.id ? (
+                            <>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleRename(g)} disabled={updateMut.isPending} title="Save">
+                                {updateMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingId(null)} title="Cancel">
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingId(g.id); setEditName(g.name); }} title="Rename">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setDeleting(g)} title="Delete">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Renaming a group updates its installations. Deleting a group leaves its installations ungrouped.
+          </p>
+        </div>
+      </div>
+
+      <ConfirmDialog
+        open={!!deleting}
+        title="Delete group"
+        description={`Delete group "${deleting?.name}"? Installations in this group will become ungrouped.`}
+        confirmLabel="Delete"
+        loading={deleteMut.isPending}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleting(null)}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Installation form (create / edit)
 // ---------------------------------------------------------------------------
 
 interface Link { label: string; url: string }
+
+// Parse live docker ps ports ("0.0.0.0:8000->8000/tcp, ...") into ["8000:8000"]
+// — same normalization the backend sync endpoint applies.
+function parseLivePorts(raw: string | undefined): string[] {
+  if (!raw) return [];
+  const out: string[] = [];
+  for (const seg of raw.split(",")) {
+    const s = seg.trim();
+    if (!s.includes("->")) continue;
+    const [hostPart, containerPart] = s.split("->");
+    const hostPort = hostPart.split(":").pop() ?? "";
+    const containerPort = containerPart.split("/")[0];
+    const mapping = `${hostPort}:${containerPort}`;
+    if (hostPort && !out.includes(mapping)) out.push(mapping);
+  }
+  return out;
+}
 
 function defaultForm(): DeployInstallationCreate {
   return {
@@ -188,6 +383,10 @@ function InstallationForm({
   onCancel,
   isSaving,
   containers,
+  volumes,
+  networks,
+  groups,
+  onManageGroups,
 }: {
   initial?: DeployInstallation;
   prefillData?: Partial<DeployInstallationCreate>;
@@ -195,10 +394,17 @@ function InstallationForm({
   onCancel: () => void;
   isSaving: boolean;
   containers: DockerContainer[];
+  volumes: DockerVolume[];
+  networks: DockerNetwork[];
+  groups: DeployGroup[];
+  onManageGroups: () => void;
 }) {
   const { data: products = [] } = useProducts();
   const [form, setForm] = useState<DeployInstallationCreate>(() => {
     if (initial) {
+      // Fill gaps with live Docker data from the server (ports, restart
+      // command) — sync-created records start with these fields empty.
+      const live = containers.find((c) => c.name === initial.container_name);
       return {
         name: initial.name,
         description: initial.description ?? "",
@@ -206,8 +412,10 @@ function InstallationForm({
         order_index: initial.order_index,
         container_name: initial.container_name ?? "",
         compose_file: initial.compose_file ?? "",
-        restart_command: initial.restart_command ?? "",
-        ports: initial.ports ?? [],
+        restart_command:
+          initial.restart_command ||
+          (initial.container_name ? `docker restart ${initial.container_name}` : ""),
+        ports: initial.ports?.length ? initial.ports : parseLivePorts(live?.ports),
         links: (initial.links as Link[] | null) ?? [],
         notes: initial.notes ?? "",
         product_id: initial.product_id ?? null,
@@ -277,14 +485,31 @@ function InstallationForm({
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Group</Label>
-          <Input
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">Group</Label>
+            <button
+              type="button"
+              onClick={onManageGroups}
+              className="text-muted-foreground hover:text-foreground"
+              title="Manage groups"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <select
+            className="h-8 w-full rounded-md border border-border bg-background px-3 text-sm"
             value={form.group_name ?? ""}
-            onChange={(e) => f("group_name", e.target.value)}
-            placeholder="ForgeHub, Infrastructure..."
-            list="groups-list"
-            className="h-8 text-sm"
-          />
+            onChange={(e) => f("group_name", e.target.value || null)}
+          >
+            <option value="">— no group —</option>
+            {/* Keep a legacy group_name selectable even if its group row is gone */}
+            {form.group_name && !groups.some((g) => g.name === form.group_name) && (
+              <option value={form.group_name}>{form.group_name}</option>
+            )}
+            {groups.map((g) => (
+              <option key={g.id} value={g.name}>{g.name}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -325,6 +550,93 @@ function InstallationForm({
           />
         </div>
       </div>
+
+      {/* Live Docker info: all data of the selected container */}
+      {form.container_name && (() => {
+        const live = containers.find((c) => c.name === form.container_name);
+        const mounts = volumes.filter((v) => v.containers.includes(form.container_name!));
+        const vols = mounts.filter((v) => v.driver !== "bind");
+        const sharedFolders = mounts.filter((v) => v.driver === "bind");
+        const nets = networks.filter((n) => n.containers.some((nc) => nc.name === form.container_name));
+        return (
+          <div className="rounded-md border border-border bg-muted/20 px-3 py-2 space-y-1.5">
+            {live ? (
+              <>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
+                    <Container className="h-3 w-3 text-blue-500" /> Container:
+                  </span>
+                  <span className="text-[10px] font-mono">{live.name}</span>
+                  {live.id && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono" title="Container ID">{live.id}</span>}
+                  <ContainerStatusBadge state={live.state} health={live.health} />
+                </div>
+                <div className="flex items-start gap-2 flex-wrap">
+                  <span className="text-xs font-medium text-foreground shrink-0">Imagem:</span>
+                  <span className="text-[10px] font-mono text-muted-foreground break-all">{live.image}</span>
+                </div>
+                <div className="flex items-start gap-2 flex-wrap">
+                  <span className="text-xs font-medium text-foreground shrink-0">Status:</span>
+                  <span className="text-[10px] font-mono text-muted-foreground">{live.status}</span>
+                </div>
+                {live.ports && (
+                  <div className="flex items-start gap-2 flex-wrap">
+                    <span className="text-xs font-medium text-foreground shrink-0">Portas:</span>
+                    <span className="text-[10px] font-mono text-muted-foreground break-all">{live.ports}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">Container offline ou não encontrado no host.</p>
+            )}
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
+                <HardDrive className="h-3 w-3 text-violet-500" /> Volumes:
+              </span>
+              {vols.length > 0 ? (
+                vols.map((v) => (
+                  <span key={v.name} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono break-all" title={v.mountpoint}>
+                    {v.name}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-muted-foreground italic">nenhum</span>
+              )}
+            </div>
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
+                <Folder className="h-3 w-3 text-amber-500" /> Pastas:
+              </span>
+              {sharedFolders.length > 0 ? (
+                sharedFolders.map((v) => (
+                  <span key={v.name} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono break-all">
+                    {v.name}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-muted-foreground italic">nenhuma</span>
+              )}
+            </div>
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
+                <Network className="h-3 w-3 text-amber-500" /> Rede:
+              </span>
+              {nets.length > 0 ? (
+                nets.map((n) => {
+                  const ip = n.containers.find((nc) => nc.name === form.container_name)?.ipv4;
+                  return (
+                    <span key={n.id} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono">
+                      {n.name}
+                      {ip && <span className="text-muted-foreground"> · {ip}</span>}
+                    </span>
+                  );
+                })
+              ) : (
+                <span className="text-xs text-muted-foreground italic">nenhuma</span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Restart command */}
       <div className="space-y-1">
@@ -460,6 +772,9 @@ function InstallationForm({
 function InstallCard({
   inst,
   liveContainers,
+  volumes,
+  networks,
+  images,
   onEdit,
   onDelete,
   onRestart,
@@ -468,6 +783,9 @@ function InstallCard({
 }: {
   inst: DeployInstallation;
   liveContainers: DockerContainer[];
+  volumes: DockerVolume[];
+  networks: DockerNetwork[];
+  images: DockerImage[];
   onEdit: () => void;
   onDelete: () => void;
   onRestart: () => void;
@@ -479,6 +797,19 @@ function InstallCard({
 
   const links = (inst.links as { label: string; url: string }[] | null) ?? [];
   const ports = inst.ports ?? [];
+  const containerVolumes = inst.container_name
+    ? volumes.filter((v) => v.containers.includes(inst.container_name!))
+    : [];
+  const containerNetworks = inst.container_name
+    ? networks.filter((n) => n.containers.some((nc) => nc.name === inst.container_name))
+    : [];
+  // `docker ps`'s Image column is "repo:tag" (or a bare ID for untagged
+  // images) -- match against either form to associate the running
+  // container with its full entry (size, in-use/dangling status) from the
+  // Images tab.
+  const containerImage = live?.image
+    ? images.find((img) => `${img.repository}:${img.tag}` === live.image || img.id === live.image)
+    : undefined;
 
   return (
     <div className={cn(
@@ -560,8 +891,8 @@ function InstallCard({
               )}
             </Button>
           )}
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit} title="Edit">
-            <Pencil className="h-3.5 w-3.5" />
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit} title="Registro do container (dados do Docker)">
+            <Container className="h-3.5 w-3.5" />
           </Button>
           <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={onDelete} title="Remove">
             <Trash2 className="h-3.5 w-3.5" />
@@ -581,9 +912,60 @@ function InstallCard({
             </div>
           )}
           {live && (
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">Status:</span> {live.status}
-              {live.image && <> &nbsp;·&nbsp; <span className="font-mono">{live.image}</span></>}
+            <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+              <Container className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+              <span className="font-medium text-foreground">Container:</span>
+              <span className="font-mono">{live.name}</span>
+              {live.id && <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{live.id}</span>}
+              <span>{live.status}</span>
+            </div>
+          )}
+
+          {live?.image && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-500" />
+              <span className="text-xs font-medium text-foreground">Imagem:</span>
+              {containerImage ? (
+                <>
+                  <span className="rounded bg-muted px-2 py-0.5 text-xs font-mono">
+                    {containerImage.repository}:{containerImage.tag}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{containerImage.size}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Em uso
+                  </span>
+                </>
+              ) : (
+                <span className="rounded bg-muted px-2 py-0.5 text-xs font-mono text-muted-foreground">{live.image}</span>
+              )}
+            </div>
+          )}
+
+          {containerVolumes.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <HardDrive className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+              <span className="text-xs font-medium text-foreground">Volumes:</span>
+              {containerVolumes.map((v) => (
+                <span key={v.name} className="rounded bg-muted px-2 py-0.5 text-xs font-mono" title={v.mountpoint}>
+                  {v.name}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {containerNetworks.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <Network className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+              <span className="text-xs font-medium text-foreground">Redes:</span>
+              {containerNetworks.map((n) => {
+                const ip = n.containers.find((nc) => nc.name === inst.container_name)?.ipv4;
+                return (
+                  <span key={n.id} className="rounded bg-muted px-2 py-0.5 text-xs font-mono">
+                    {n.name}
+                    {ip && <span className="text-muted-foreground"> · {ip}</span>}
+                  </span>
+                );
+              })}
             </div>
           )}
 
@@ -660,8 +1042,33 @@ function InstallCard({
 // Live Docker container table
 // ---------------------------------------------------------------------------
 
-function LiveContainersTab({ containers, onRegister }: { containers: DockerContainer[]; onRegister: (c: DockerContainer) => void }) {
+function LiveContainersTab({
+  containers,
+  installations,
+  onRegister,
+  onOpenInstance,
+}: {
+  containers: DockerContainer[];
+  installations: DeployInstallation[];
+  onRegister: (c: DockerContainer) => void;
+  onOpenInstance: (inst: DeployInstallation) => void;
+}) {
   const { isLoading, isError, refetch, isFetching } = useDockerContainers();
+  const removeMut = useRemoveContainer();
+  const [confirmRemove, setConfirmRemove] = useState<DockerContainer | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  const handleRemove = async () => {
+    if (!confirmRemove) return;
+    setRemoveError(null);
+    try {
+      await removeMut.mutateAsync(confirmRemove.name);
+      setConfirmRemove(null);
+    } catch (err) {
+      setConfirmRemove(null);
+      setRemoveError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   if (isError) {
     return (
@@ -688,32 +1095,68 @@ function LiveContainersTab({ containers, onRegister }: { containers: DockerConta
           <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
         </Button>
       </div>
+      {removeError && (
+        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeError}</p>
+      )}
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading containers...
         </div>
       ) : (
         <div className="space-y-1">
-          {containers.map((c) => (
-            <div key={c.name} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
-              <span className={cn("h-2 w-2 rounded-full shrink-0", statusDot(c.state, c.health))} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm font-medium">{c.name}</span>
-                  <ContainerStatusBadge state={c.state} health={c.health} />
+          {containers.map((c) => {
+            const inst = installations.find((i) => i.container_name === c.name);
+            const removing = removeMut.isPending && removeMut.variables === c.name;
+            return (
+              <div key={c.id || c.name} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+                <span className={cn("h-2 w-2 rounded-full shrink-0", statusDot(c.state, c.health))} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-medium">{c.name}</span>
+                    <ContainerStatusBadge state={c.state} health={c.health} />
+                    {c.id && <span className="text-[10px] text-muted-foreground font-mono">{c.id}</span>}
+                  </div>
+                  <div className="flex items-center gap-3 mt-0.5">
+                    <span className="text-xs text-muted-foreground font-mono truncate">{c.image}</span>
+                    {c.ports && <span className="text-xs text-muted-foreground font-mono truncate">{c.ports}</span>}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 mt-0.5">
-                  <span className="text-xs text-muted-foreground font-mono truncate">{c.image}</span>
-                  {c.ports && <span className="text-xs text-muted-foreground font-mono truncate">{c.ports}</span>}
-                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 w-7 p-0 shrink-0"
+                  onClick={() => (inst ? onOpenInstance(inst) : onRegister(c))}
+                  title={inst ? `Abrir instância "${inst.name}"` : "Registrar instância"}
+                >
+                  <Container className="h-3.5 w-3.5" />
+                </Button>
+                {!inst && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 shrink-0 text-destructive hover:text-destructive"
+                    onClick={() => setConfirmRemove(c)}
+                    disabled={removing}
+                    title="Excluir container"
+                  >
+                    {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  </Button>
+                )}
               </div>
-              <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => onRegister(c)}>
-                <Plus className="h-3 w-3 mr-1" /> Registrar
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmRemove}
+        title="Excluir container"
+        description={`Remover o container "${confirmRemove?.name}" do Docker e da base de instalações? Esta ação não pode ser desfeita (volumes não são removidos).`}
+        confirmLabel="Excluir"
+        loading={removeMut.isPending}
+        onConfirm={handleRemove}
+        onCancel={() => setConfirmRemove(null)}
+      />
     </div>
   );
 }
@@ -722,8 +1165,33 @@ function LiveContainersTab({ containers, onRegister }: { containers: DockerConta
 // Volumes tab
 // ---------------------------------------------------------------------------
 
-function VolumesTab() {
+function VolumesTab({
+  installations,
+  liveContainers,
+  onOpenInstance,
+  onRegister,
+}: {
+  installations: DeployInstallation[];
+  liveContainers: DockerContainer[];
+  onOpenInstance: (inst: DeployInstallation) => void;
+  onRegister: (c: DockerContainer) => void;
+}) {
   const { data: volumes = [], isLoading, isError, refetch, isFetching } = useDockerVolumes();
+  const removeVolMut = useRemoveVolume();
+  const [confirmRemoveVol, setConfirmRemoveVol] = useState<string | null>(null);
+  const [removeVolError, setRemoveVolError] = useState<string | null>(null);
+
+  const handleRemoveVolume = async () => {
+    if (!confirmRemoveVol) return;
+    setRemoveVolError(null);
+    try {
+      await removeVolMut.mutateAsync(confirmRemoveVol);
+      setConfirmRemoveVol(null);
+    } catch (err) {
+      setConfirmRemoveVol(null);
+      setRemoveVolError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   if (isError) {
     return (
@@ -742,6 +1210,9 @@ function VolumesTab() {
           <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
         </Button>
       </div>
+      {removeVolError && (
+        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeVolError}</p>
+      )}
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading volumes...
@@ -758,15 +1229,31 @@ function VolumesTab() {
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Scope</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Mountpoint</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Containers</th>
+                <th className="px-4 py-2.5 w-12" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {volumes.map((v) => (
+              {volumes.map((v) => {
+                const usedByRunning = v.containers.some((c) =>
+                  liveContainers.some((lc) => lc.name === c && lc.state === "running")
+                );
+                return (
                 <tr key={v.name} className="hover:bg-muted/20 transition-colors">
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
-                      <HardDrive className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                      <span className="font-mono text-xs font-medium">{v.name}</span>
+                      <span
+                        className={cn(
+                          "h-2 w-2 rounded-full shrink-0",
+                          usedByRunning ? "bg-emerald-500" : "bg-muted-foreground/30"
+                        )}
+                        title={usedByRunning ? "Ativo — em uso por container rodando" : "Inativo — sem container rodando"}
+                      />
+                      {v.driver === "bind" ? (
+                        <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                      ) : (
+                        <HardDrive className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                      )}
+                      <span className="font-mono text-xs font-medium break-all">{v.name}</span>
                     </div>
                   </td>
                   <td className="px-4 py-2.5">
@@ -779,20 +1266,70 @@ function VolumesTab() {
                   <td className="px-4 py-2.5">
                     {v.containers.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {v.containers.map((c) => (
-                          <span key={c} className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono">{c}</span>
-                        ))}
+                        {v.containers.map((cname) => {
+                          const inst = installations.find((i) => i.container_name === cname);
+                          const live = liveContainers.find((lc) => lc.name === cname);
+                          return (
+                            <button
+                              key={cname}
+                              type="button"
+                              onClick={() => {
+                                if (inst) onOpenInstance(inst);
+                                else if (live) onRegister(live);
+                              }}
+                              disabled={!inst && !live}
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono",
+                                (inst || live) ? "hover:bg-accent hover:text-foreground transition-colors" : "cursor-default"
+                              )}
+                              title={inst ? `Abrir instância "${inst.name}"` : live ? "Registrar instância" : undefined}
+                            >
+                              <Container className="h-3 w-3 text-blue-500" />
+                              {cname}
+                            </button>
+                          );
+                        })}
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground/50 italic">—</span>
                     )}
                   </td>
+                  <td className="px-2 py-2.5">
+                    {v.driver !== "bind" &&
+                      !v.containers.some((c) => installations.some((i) => i.container_name === c)) && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        onClick={() => setConfirmRemoveVol(v.name)}
+                        disabled={removeVolMut.isPending && removeVolMut.variables === v.name}
+                        title="Excluir volume"
+                      >
+                        {removeVolMut.isPending && removeVolMut.variables === v.name ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    )}
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmRemoveVol}
+        title="Excluir volume"
+        description={`Remover o volume "${confirmRemoveVol}" do Docker? Os dados armazenados nele serão perdidos. Esta ação não pode ser desfeita.`}
+        confirmLabel="Excluir"
+        loading={removeVolMut.isPending}
+        onConfirm={handleRemoveVolume}
+        onCancel={() => setConfirmRemoveVol(null)}
+      />
     </div>
   );
 }
@@ -801,9 +1338,36 @@ function VolumesTab() {
 // Networks tab
 // ---------------------------------------------------------------------------
 
-function NetworksTab() {
+const PREDEFINED_NETWORKS = ["bridge", "host", "none"];
+
+function NetworksTab({
+  installations,
+  liveContainers,
+  onOpenInstance,
+  onRegister,
+}: {
+  installations: DeployInstallation[];
+  liveContainers: DockerContainer[];
+  onOpenInstance: (inst: DeployInstallation) => void;
+  onRegister: (c: DockerContainer) => void;
+}) {
   const { data: networks = [], isLoading, isError, refetch, isFetching } = useDockerNetworks();
   const [expanded, setExpanded] = useState<string | null>(null);
+  const removeNetMut = useRemoveNetwork();
+  const [confirmRemoveNet, setConfirmRemoveNet] = useState<string | null>(null);
+  const [removeNetError, setRemoveNetError] = useState<string | null>(null);
+
+  const handleRemoveNetwork = async () => {
+    if (!confirmRemoveNet) return;
+    setRemoveNetError(null);
+    try {
+      await removeNetMut.mutateAsync(confirmRemoveNet);
+      setConfirmRemoveNet(null);
+    } catch (err) {
+      setConfirmRemoveNet(null);
+      setRemoveNetError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   if (isError) {
     return (
@@ -830,6 +1394,9 @@ function NetworksTab() {
           <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
         </Button>
       </div>
+      {removeNetError && (
+        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeNetError}</p>
+      )}
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading networks...
@@ -838,29 +1405,54 @@ function NetworksTab() {
         <div className="space-y-1.5">
           {networks.map((n) => {
             const isOpen = expanded === n.id;
+            const active = n.containers.some((nc) =>
+              liveContainers.some((lc) => lc.name === nc.name && lc.state === "running")
+            );
+            const hasInstance = n.containers.some((nc) =>
+              installations.some((i) => i.container_name === nc.name)
+            );
+            const removing = removeNetMut.isPending && removeNetMut.variables === n.name;
             return (
               <div key={n.id} className="rounded-lg border border-border bg-card overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setExpanded(isOpen ? null : n.id)}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors text-left"
-                >
-                  {isOpen
-                    ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-                  <Network className="h-3.5 w-3.5 shrink-0 text-violet-500" />
-                  <span className="font-mono text-sm font-medium flex-1">{n.name}</span>
-                  <span className="font-mono text-[10px] text-muted-foreground">{n.id}</span>
-                  <span className={cn(
-                    "rounded px-1.5 py-0.5 text-[10px] font-medium",
-                    driverColor[n.driver] ?? "text-muted-foreground bg-muted"
-                  )}>{n.driver}</span>
-                  <Badge variant="outline" className="text-[10px]">{n.scope}</Badge>
-                  {n.internal && <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">internal</Badge>}
-                  {n.containers.length > 0 && (
-                    <span className="text-xs text-muted-foreground">{n.containers.length} container(s)</span>
+                <div className="flex items-center gap-3 px-4 py-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : n.id)}
+                    className="flex flex-1 min-w-0 items-center gap-3 hover:opacity-80 transition-opacity text-left"
+                  >
+                    {isOpen
+                      ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                    <span
+                      className={cn("h-2 w-2 rounded-full shrink-0", active ? "bg-emerald-500" : "bg-muted-foreground/30")}
+                      title={active ? "Ativa — container rodando conectado" : "Inativa — sem container rodando"}
+                    />
+                    <Network className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+                    <span className="font-mono text-sm font-medium flex-1">{n.name}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{n.id}</span>
+                    <span className={cn(
+                      "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                      driverColor[n.driver] ?? "text-muted-foreground bg-muted"
+                    )}>{n.driver}</span>
+                    <Badge variant="outline" className="text-[10px]">{n.scope}</Badge>
+                    {n.internal && <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">internal</Badge>}
+                    {n.containers.length > 0 && (
+                      <span className="text-xs text-muted-foreground">{n.containers.length} container(s)</span>
+                    )}
+                  </button>
+                  {!hasInstance && !PREDEFINED_NETWORKS.includes(n.name) && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 shrink-0 text-destructive hover:text-destructive"
+                      onClick={() => setConfirmRemoveNet(n.name)}
+                      disabled={removing}
+                      title="Excluir rede"
+                    >
+                      {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </Button>
                   )}
-                </button>
+                </div>
                 {isOpen && (
                   <div className="border-t border-border px-4 py-3 space-y-3 bg-muted/10">
                     {n.subnets.length > 0 && (
@@ -885,12 +1477,33 @@ function NetworksTab() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-border">
-                              {n.containers.map((c, i) => (
-                                <tr key={i} className="hover:bg-muted/20">
-                                  <td className="px-3 py-1.5 font-mono">{c.name}</td>
-                                  <td className="px-3 py-1.5 font-mono text-muted-foreground">{c.ipv4 || "—"}</td>
-                                </tr>
-                              ))}
+                              {n.containers.map((c, i) => {
+                                const inst = installations.find((inst) => inst.container_name === c.name);
+                                const live = liveContainers.find((lc) => lc.name === c.name);
+                                return (
+                                  <tr key={i} className="hover:bg-muted/20">
+                                    <td className="px-3 py-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (inst) onOpenInstance(inst);
+                                          else if (live) onRegister(live);
+                                        }}
+                                        disabled={!inst && !live}
+                                        className={cn(
+                                          "inline-flex items-center gap-1.5 font-mono",
+                                          (inst || live) ? "hover:text-blue-500 transition-colors" : "cursor-default"
+                                        )}
+                                        title={inst ? `Abrir instância "${inst.name}"` : live ? "Registrar instância" : undefined}
+                                      >
+                                        <Container className="h-3 w-3 text-blue-500" />
+                                        {c.name}
+                                      </button>
+                                    </td>
+                                    <td className="px-3 py-1.5 font-mono text-muted-foreground">{c.ipv4 || "—"}</td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -906,6 +1519,157 @@ function NetworksTab() {
           })}
         </div>
       )}
+      <ConfirmDialog
+        open={!!confirmRemoveNet}
+        title="Excluir rede"
+        description={`Remover a rede "${confirmRemoveNet}" do Docker? Esta ação não pode ser desfeita.`}
+        confirmLabel="Excluir"
+        loading={removeNetMut.isPending}
+        onConfirm={handleRemoveNetwork}
+        onCancel={() => setConfirmRemoveNet(null)}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Images tab
+// ---------------------------------------------------------------------------
+
+function ImagesTab() {
+  const { data: images = [], isLoading, isError, refetch, isFetching } = useDockerImages();
+  const removeImgMut = useRemoveImage();
+  const [confirmRemoveImg, setConfirmRemoveImg] = useState<string | null>(null);
+  const [removeImgError, setRemoveImgError] = useState<string | null>(null);
+
+  const unusedCount = images.filter((i) => !i.in_use).length;
+
+  const handleRemoveImage = async () => {
+    if (!confirmRemoveImg) return;
+    setRemoveImgError(null);
+    try {
+      await removeImgMut.mutateAsync(confirmRemoveImg);
+      setConfirmRemoveImg(null);
+    } catch (err) {
+      setConfirmRemoveImg(null);
+      setRemoveImgError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
+        <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+        <p className="text-sm text-muted-foreground">Host-bridge offline — images unavailable.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {images.length} image(s){unusedCount > 0 && ` · ${unusedCount} não utilizada(s)`}
+        </p>
+        <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
+          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
+        </Button>
+      </div>
+      {removeImgError && (
+        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeImgError}</p>
+      )}
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading images...
+        </div>
+      ) : images.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground">No images found.</div>
+      ) : (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Repositório</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Tag</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">ID</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Tamanho</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Criada</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Status</th>
+                <th className="px-4 py-2.5 w-12" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {images.map((img) => {
+                // Two repo:tag rows can share the same underlying image ID
+                // (e.g. one re-tagged from the other) -- Docker refuses
+                // `docker rmi <id>` in that case ("referenced in multiple
+                // repositories"), so deletion always targets the specific
+                // tag, never the bare ID. Dangling images have no tag, so
+                // the ID is the only valid reference for those.
+                const ref = img.dangling ? img.id : `${img.repository}:${img.tag}`;
+                const removing = removeImgMut.isPending && removeImgMut.variables === ref;
+                return (
+                  <tr key={ref} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-500" />
+                        <span className="font-mono text-xs font-medium break-all">{img.repository}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Badge variant="outline" className="text-[10px] font-mono">{img.tag}</Badge>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <code className="text-[10px] text-muted-foreground">{img.id}</code>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{img.size}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{img.created_since}</td>
+                    <td className="px-4 py-2.5">
+                      {img.dangling ? (
+                        <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 bg-amber-500/10">
+                          Dangling
+                        </Badge>
+                      ) : img.in_use ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-emerald-600">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500" /> Em uso
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                          <span className="h-2 w-2 rounded-full bg-muted-foreground/30" /> Não utilizada
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2.5">
+                      {!img.in_use && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                          onClick={() => setConfirmRemoveImg(ref)}
+                          disabled={removing}
+                          title="Excluir imagem"
+                        >
+                          {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!confirmRemoveImg}
+        title="Excluir imagem"
+        description={`Remover a imagem "${confirmRemoveImg}" do Docker? Esta ação não pode ser desfeita.`}
+        confirmLabel="Excluir"
+        loading={removeImgMut.isPending}
+        onConfirm={handleRemoveImage}
+        onCancel={() => setConfirmRemoveImg(null)}
+      />
     </div>
   );
 }
@@ -917,9 +1681,11 @@ function NetworksTab() {
 export default function DeployPage() {
   const qc = useQueryClient();
   const { data: installations = [], isLoading: loadingInstall } = useInstallations();
+  const { data: groups = [] } = useDeployGroups();
   const { data: containers = [], isError: containersOffline } = useDockerContainers();
   const { data: volumes = [], isError: volumesOffline } = useDockerVolumes();
   const { data: networks = [], isError: networksOffline } = useDockerNetworks();
+  const { data: images = [], isError: imagesOffline } = useDockerImages();
   const bridgeOffline = containersOffline;
 
   const createMut = useCreateInstallation();
@@ -937,6 +1703,7 @@ export default function DeployPage() {
   const [restartingId, setRestartingId] = useState<string | null>(null);
   const [confirmRestart, setConfirmRestart] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<Partial<DeployInstallationCreate> | null>(null);
+  const [showGroupsModal, setShowGroupsModal] = useState(false);
 
   const editingInst = editingId ? installations.find((i) => i.id === editingId) : undefined;
   const deletingInst = deletingId ? installations.find((i) => i.id === deletingId) : undefined;
@@ -979,6 +1746,13 @@ export default function DeployPage() {
     } finally {
       setRestartingId(null);
     }
+  };
+
+  const handleOpenInstance = (inst: DeployInstallation) => {
+    setPrefill(null);
+    setShowForm(false);
+    setEditingId(inst.id);
+    setActiveTab("installations");
   };
 
   const handleRegisterFromLive = (c: DockerContainer) => {
@@ -1065,7 +1839,7 @@ export default function DeployPage() {
       </div>
 
       {/* Summary stats — clickable cards navigate to the corresponding tab */}
-      <div className="grid grid-cols-7 gap-3">
+      <div className="grid grid-cols-8 gap-3">
         {[
           { label: "Installations", value: installations.length, icon: Zap, color: "text-sky-500", tab: "installations", offline: false },
           { label: "Containers", value: bridgeOffline ? null : containers.length, icon: Box, color: "text-blue-500", tab: "live", offline: bridgeOffline },
@@ -1074,6 +1848,7 @@ export default function DeployPage() {
           { label: "Problema", value: bridgeOffline ? null : containers.filter((c) => c.state === "stopped" || c.health === "unhealthy").length, icon: AlertCircle, color: "text-red-500", tab: "live", offline: bridgeOffline },
           { label: "Volumes", value: volumesOffline ? null : volumes.length, icon: HardDrive, color: "text-violet-500", tab: "volumes", offline: volumesOffline },
           { label: "Networks", value: networksOffline ? null : networks.length, icon: Network, color: "text-amber-500", tab: "networks", offline: networksOffline },
+          { label: "Images", value: imagesOffline ? null : images.length, icon: Layers, color: "text-cyan-500", tab: "images", offline: imagesOffline },
         ].map(({ label, value, icon: Icon, color, tab, offline }) => (
           <button
             key={label}
@@ -1138,6 +1913,9 @@ export default function DeployPage() {
                           key={inst.id}
                           inst={inst}
                           liveContainers={containers}
+                          volumes={volumes}
+                          networks={networks}
+                          images={images}
                           onEdit={() => { setEditingId(inst.id); setShowForm(false); }}
                           onDelete={() => setDeletingId(inst.id)}
                           onRestart={() => setConfirmRestart(inst.container_name!)}
@@ -1156,7 +1934,7 @@ export default function DeployPage() {
               <div className="w-96 shrink-0 rounded-xl border border-border bg-card p-5 overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="font-semibold text-sm">
-                    {editingId ? "Edit Installation" : "New Installation"}
+                    {editingId ? "Container" : "New Installation"}
                   </h2>
                   <button
                     type="button"
@@ -1174,6 +1952,10 @@ export default function DeployPage() {
                   onCancel={() => { setShowForm(false); setEditingId(null); setPrefill(null); }}
                   isSaving={isSaving}
                   containers={containers}
+                  volumes={volumes}
+                  networks={networks}
+                  groups={groups}
+                  onManageGroups={() => setShowGroupsModal(true)}
                 />
               </div>
             )}
@@ -1182,23 +1964,47 @@ export default function DeployPage() {
 
         {/* Live Docker tab */}
         <TabsContent value="live" className="flex-1 min-h-0 mt-3 overflow-y-auto">
-          <LiveContainersTab containers={containers} onRegister={handleRegisterFromLive} />
+          <LiveContainersTab
+            containers={containers}
+            installations={installations}
+            onRegister={handleRegisterFromLive}
+            onOpenInstance={handleOpenInstance}
+          />
         </TabsContent>
 
         {/* Volumes tab */}
         <TabsContent value="volumes" className="flex-1 min-h-0 mt-3 overflow-y-auto">
-          <VolumesTab />
+          <VolumesTab
+            installations={installations}
+            liveContainers={containers}
+            onOpenInstance={handleOpenInstance}
+            onRegister={handleRegisterFromLive}
+          />
         </TabsContent>
 
         {/* Networks tab */}
         <TabsContent value="networks" className="flex-1 min-h-0 mt-3 overflow-y-auto">
-          <NetworksTab />
+          <NetworksTab
+            installations={installations}
+            liveContainers={containers}
+            onOpenInstance={handleOpenInstance}
+            onRegister={handleRegisterFromLive}
+          />
+        </TabsContent>
+
+        {/* Images tab */}
+        <TabsContent value="images" className="flex-1 min-h-0 mt-3 overflow-y-auto">
+          <ImagesTab />
         </TabsContent>
       </Tabs>
 
       {/* Modals */}
       {logsContainer && (
         <LogsModal containerName={logsContainer} onClose={() => setLogsContainer(null)} />
+      )}
+
+      {showGroupsModal && (
+        <GroupsModal groups={groups} onClose={() => setShowGroupsModal(false)} />
       )}
 
       <ConfirmDialog
