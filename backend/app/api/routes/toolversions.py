@@ -1,6 +1,6 @@
 """Tool-versions domain routes.
 
-Backs the Dashboard's CLI tool-version card. Every actual version check and
+Backs the Dashboard's "Tool Versions" card. Every actual version check and
 update command runs on the HOST via the chat bridge (host-bridge/app.py's
 /v1/tool-versions endpoints -- same proxy pattern as the chat/terminal
 domains, see their route modules); this router only persists the

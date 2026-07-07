@@ -8,7 +8,7 @@ worked on in ForgeHub shows up on the board its team already watches.
 Settings (app/core/config.py): KANBOARD_URL/KANBOARD_USER/KANBOARD_TOKEN/
 KANBOARD_PROJECT_ID. KANBOARD_URL must be reachable from inside this
 container (the `kanboard` hostname on the shared
-hermes_foundation_pg_default docker network), not `localhost`.
+foundation_network docker network), not `localhost`.
 """
 import httpx
 

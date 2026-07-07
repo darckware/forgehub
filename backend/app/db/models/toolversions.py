@@ -1,13 +1,14 @@
 """Tool-versions domain models: tool_version_status, tool_sync_setting.
 
-Backs the Dashboard's CLI tool-version card (Hermes/Claude/Codex/
-Antigravity). The actual `--version` checks and update commands run on the
-HOST via the chat bridge (host-bridge/app.py's /v1/tool-versions endpoints,
-same reasoning as the chat/terminal domains -- the backend container has no
-access to those CLIs); this module only persists the last-known result per
-tool and the on/off state of the periodic background poll, so the Dashboard
-has something to render without round-tripping to the host on every page
-load.
+Backs the Dashboard's tool-version card (Hermes/Claude/Codex/Antigravity/
+PI/Opencode CLIs, plus the Kanboard container). The actual version checks
+and update commands run on the HOST via the chat bridge (host-bridge/
+app.py's /v1/tool-versions endpoints, same reasoning as the chat/terminal
+domains -- the backend container has no access to those CLIs, nor to the
+docker CLI that the Kanboard check needs); this module only persists the
+last-known result per tool and the on/off state of the periodic background
+poll, so the Dashboard has something to render without round-tripping to
+the host on every page load.
 
 Conventions: same as every other domain (UUID PK with Python-side default,
 TimestampMixin for created_at/updated_at).
@@ -20,9 +21,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
 
-# Fixed set of CLIs this card monitors -- not user-configurable, so a plain
-# CheckConstraint (not a separate lookup table) is enough.
-MONITORED_TOOLS = ("hermes", "claude", "codex", "antigravity", "pi", "opencode")
+# Fixed set of tools this card monitors -- not user-configurable, so a plain
+# CheckConstraint (not a separate lookup table) is enough. All but kanboard
+# are host CLIs; kanboard is the Docker container from
+# /root/.hermes/kanboard/docker-compose.yml (see host-bridge/app.py).
+MONITORED_TOOLS = ("hermes", "claude", "codex", "antigravity", "pi", "opencode", "kanboard")
 
 
 class ToolVersionStatus(Base, TimestampMixin):
@@ -34,7 +37,7 @@ class ToolVersionStatus(Base, TimestampMixin):
         # via f-string/repr, per every other domain model's CheckConstraint
         # convention (see db/models/product.py).
         CheckConstraint(
-            "tool IN ('hermes', 'claude', 'codex', 'antigravity', 'pi', 'opencode')",
+            "tool IN ('hermes', 'claude', 'codex', 'antigravity', 'pi', 'opencode', 'kanboard')",
             name="ck_tool_version_status_tool",
         ),
     )

@@ -5,12 +5,12 @@ import { apiClient } from "@/lib/api";
 import { useToolUpdateStore } from "@/store/toolUpdate";
 
 /**
- * Tool-versions domain -- backs the Dashboard's CLI tool-version card
- * (Hermes/Claude/Codex/Antigravity/PI/Opencode). See
- * backend/app/api/routes/toolversions.py.
+ * Tool-versions domain -- backs the Dashboard's tool-version card
+ * (Hermes/Claude/Codex/Antigravity/PI/Opencode CLIs plus the Kanboard
+ * container). See backend/app/api/routes/toolversions.py.
  */
 
-export const monitoredToolSchema = z.enum(["hermes", "claude", "codex", "antigravity", "pi", "opencode"]);
+export const monitoredToolSchema = z.enum(["hermes", "claude", "codex", "antigravity", "pi", "opencode", "kanboard"]);
 export type MonitoredTool = z.infer<typeof monitoredToolSchema>;
 
 export const toolVersionSchema = z.object({

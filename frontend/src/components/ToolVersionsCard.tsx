@@ -5,6 +5,7 @@ import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
 import antigravityIcon from "@lobehub/icons-static-png/dark/antigravity-color.png";
 import opencodeIcon from "@lobehub/icons-static-png/light/opencode.png";
 import piIcon from "@/assets/icons/pi.svg";
+import kanboardIcon from "@/assets/icons/kanboard.svg";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,9 +29,10 @@ const TOOL_META: Record<MonitoredTool, { label: string; icon?: string; iconBg?: 
   antigravity: { label: "Antigravity", icon: antigravityIcon },
   pi: { label: "PI", icon: piIcon, iconBg: "bg-black" },
   opencode: { label: "Opencode", icon: opencodeIcon },
+  kanboard: { label: "Kanboard", icon: kanboardIcon },
 };
 
-const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode"];
+const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode", "kanboard"];
 
 
 export function ToolVersionsCard() {
@@ -50,7 +52,7 @@ export function ToolVersionsCard() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle>CLI Tool Versions</CardTitle>
+        <CardTitle>Tool Versions</CardTitle>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
