@@ -582,18 +582,7 @@ const SAFE_SLASH_COMMANDS: { command: string; description: string }[] = [
 
 type SlashCommandItem =
   | { kind: "hermes"; command: string; description: string }
-  | { kind: "prompt"; command: string; description: string; prompt: string }
-  | { kind: "forgehub"; command: string; description: string };
-
-// ForgeHub-native commands: handled entirely client-side (see
-// DEMAND_COMMAND_RE in handleSend), never forwarded to Hermes's
-// process_command() dispatcher like SAFE_SLASH_COMMANDS.
-const FORGEHUB_SLASH_COMMANDS: { command: string; description: string }[] = [
-  {
-    command: "/demanda",
-    description: "Envia a pergunta e a resposta do agente para o Inbox de Demandas",
-  },
-];
+  | { kind: "prompt"; command: string; description: string; prompt: string };
 
 export interface SlashCommandPickerHandle {
   moveActive: (delta: number) => void;
@@ -612,7 +601,6 @@ const SlashCommandPicker = forwardRef<
   useClickOutside(containerRef, onClose);
   const items = useMemo<SlashCommandItem[]>(
     () => [
-      ...FORGEHUB_SLASH_COMMANDS.map((cmd) => ({ kind: "forgehub" as const, ...cmd })),
       ...SAFE_SLASH_COMMANDS.map((cmd) => ({ kind: "hermes" as const, ...cmd })),
       ...promptCommands.map((cmd) => ({
         kind: "prompt" as const,
@@ -653,7 +641,7 @@ const SlashCommandPicker = forwardRef<
           <span className="flex w-full items-center justify-between gap-2">
             <span className="text-xs font-medium">{cmd.command}</span>
             <span className="rounded border border-border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-              {cmd.kind === "hermes" ? "Hermes" : cmd.kind === "forgehub" ? "ForgeHub" : "Prompt"}
+              {cmd.kind === "hermes" ? "Hermes" : "Prompt"}
             </span>
           </span>
           <span className="text-[11px] text-muted-foreground">{cmd.description}</span>
@@ -1728,7 +1716,12 @@ export function ChatPane({
   }
 
   function handleSlashSelect(item: SlashCommandItem) {
-    setComposerText(item.kind === "prompt" ? item.prompt : `${item.command} `);
+    // The backend strips trailing whitespace from a stored prompt (see
+    // prompt_command.py's strip_text validator), so a command-style prompt
+    // like "/demanda" would otherwise land with no room to keep typing --
+    // always leave exactly one trailing space regardless of kind.
+    const text = item.kind === "prompt" ? item.prompt : item.command;
+    setComposerText(text.endsWith(" ") ? text : `${text} `);
     setSlashOpen(false);
     composerTextareaRef.current?.focus();
   }
