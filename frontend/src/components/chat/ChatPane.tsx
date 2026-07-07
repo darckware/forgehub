@@ -569,6 +569,10 @@ const SAFE_SLASH_COMMANDS: { command: string; description: string }[] = [
   { command: "/version", description: "Show Hermes Agent version" },
   { command: "/title", description: "Set a title for the current session" },
   { command: "/profile", description: "Show active profile and home directory" },
+  { command: "/config", description: "Show current configuration" },
+  { command: "/toolsets", description: "List available toolsets" },
+  { command: "/platforms", description: "Show gateway/messaging platform status" },
+  { command: "/plugins", description: "List installed plugins and their status" },
 ];
 
 type SlashCommandItem =

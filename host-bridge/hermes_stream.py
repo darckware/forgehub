@@ -41,7 +41,15 @@ def _emit(payload: dict) -> None:
 # Excludes "usage": it reads agent.session_api_calls, in-memory state on the
 # `agent` object that's rebuilt from scratch by every one-shot subprocess --
 # it would always report "No API calls made yet" regardless of real usage.
-SAFE_SLASH_COMMANDS = {"model", "status", "help", "version", "title", "profile"}
+SAFE_SLASH_COMMANDS = {
+    "model", "status", "help", "version", "title", "profile",
+    # Added 2026-07: read-only, no self.agent dependency (checked against
+    # cli.py's dispatcher -- config/toolsets read cli_inst attributes set in
+    # __init__, platforms/plugins read straight from disk). "whoami" was
+    # considered too but dropped: it's registered in hermes_cli/commands.py
+    # but process_command() has no actual elif branch for it (dead entry).
+    "config", "toolsets", "platforms", "plugins",
+}
 
 
 def _run_slash_command(cli_inst, message: str, canonical: str) -> str:
