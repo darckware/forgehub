@@ -56,6 +56,24 @@ async def submit_demand(
     return demand
 
 
+@router.post("", response_model=DemandOut, status_code=status.HTTP_201_CREATED)
+async def create_demand(
+    payload: DemandSubmitIn, db: AsyncSession = Depends(get_db)
+) -> AgentDemand:
+    """Authenticated (JWT, normal RequireAuthMiddleware) counterpart to
+    /submit's bridge-token path -- backs the chat's "/demanda" command:
+    ForgeHub itself (on the logged-in user's behalf) files the agent's
+    reply into the inbox, as opposed to an autonomous host-side agent
+    submitting on its own."""
+    demand = AgentDemand(
+        from_agent=payload.from_agent, subject=payload.subject, body=payload.body
+    )
+    db.add(demand)
+    await db.commit()
+    await db.refresh(demand)
+    return demand
+
+
 @router.get("", response_model=list[DemandOut])
 async def list_demands(
     status_filter: str | None = None, db: AsyncSession = Depends(get_db)

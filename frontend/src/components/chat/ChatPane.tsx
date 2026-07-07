@@ -36,7 +36,9 @@ import { useFsList, type FsEntry } from "@/hooks/useTerminalBrowse";
 import { getToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { type Agent } from "@/hooks/useAgent";
+import { useCreateDemand } from "@/hooks/useDemands";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { usePromptCommands, type PromptCommand } from "@/hooks/usePromptCommands";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   chatKeys,
@@ -154,7 +156,15 @@ type ChatQueueItem = {
   /** Date.now() when this item entered "processing" -- powers the live
    * "Pensando há mm:ss" ticker (see ThinkingLabel). */
   startedAt?: number;
+  /** Set for a "/demanda <instrução>" turn: the instruction still goes to
+   * the agent as a normal message (content has the prefix stripped), but
+   * once it completes the exchange (question + reply) is filed into the
+   * Demand inbox -- see DEMAND_COMMAND_RE and its handling in handleSend/
+   * processQueueItem. */
+  sendToDemandSubject?: string;
 };
+
+const DEMAND_COMMAND_RE = /^\/demanda\s+/i;
 
 function formatThinkingDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -570,6 +580,21 @@ const SAFE_SLASH_COMMANDS: { command: string; description: string }[] = [
   { command: "/profile", description: "Show active profile and home directory" },
 ];
 
+type SlashCommandItem =
+  | { kind: "hermes"; command: string; description: string }
+  | { kind: "prompt"; command: string; description: string; prompt: string }
+  | { kind: "forgehub"; command: string; description: string };
+
+// ForgeHub-native commands: handled entirely client-side (see
+// DEMAND_COMMAND_RE in handleSend), never forwarded to Hermes's
+// process_command() dispatcher like SAFE_SLASH_COMMANDS.
+const FORGEHUB_SLASH_COMMANDS: { command: string; description: string }[] = [
+  {
+    command: "/demanda",
+    description: "Envia a pergunta e a resposta do agente para o Inbox de Demandas",
+  },
+];
+
 export interface SlashCommandPickerHandle {
   moveActive: (delta: number) => void;
   confirmActive: () => void;
@@ -580,28 +605,41 @@ export interface SlashCommandPickerHandle {
  * textarea keeps focus while "/" is open. */
 const SlashCommandPicker = forwardRef<
   SlashCommandPickerHandle,
-  { onSelect: (command: string) => void; onClose: () => void }
->(function SlashCommandPicker({ onSelect, onClose }, ref) {
+  { promptCommands: PromptCommand[]; onSelect: (item: SlashCommandItem) => void; onClose: () => void }
+>(function SlashCommandPicker({ promptCommands, onSelect, onClose }, ref) {
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, onClose);
+  const items = useMemo<SlashCommandItem[]>(
+    () => [
+      ...FORGEHUB_SLASH_COMMANDS.map((cmd) => ({ kind: "forgehub" as const, ...cmd })),
+      ...SAFE_SLASH_COMMANDS.map((cmd) => ({ kind: "hermes" as const, ...cmd })),
+      ...promptCommands.map((cmd) => ({
+        kind: "prompt" as const,
+        command: `/${cmd.name}`,
+        description: cmd.description,
+        prompt: cmd.prompt,
+      })),
+    ],
+    [promptCommands]
+  );
 
   useImperativeHandle(ref, () => ({
     moveActive(delta: number) {
-      setActiveIndex((i) => Math.max(0, Math.min(SAFE_SLASH_COMMANDS.length - 1, i + delta)));
+      setActiveIndex((i) => Math.max(0, Math.min(items.length - 1, i + delta)));
     },
     confirmActive() {
-      const cmd = SAFE_SLASH_COMMANDS[activeIndex];
-      if (cmd) onSelect(cmd.command);
+      const cmd = items[activeIndex];
+      if (cmd) onSelect(cmd);
     },
-  }));
+  }), [activeIndex, items, onSelect]);
 
   return (
     <div
       ref={containerRef}
-      className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
+      className="absolute bottom-full left-0 z-20 mb-2 max-h-80 w-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
     >
-      {SAFE_SLASH_COMMANDS.map((cmd, index) => (
+      {items.map((cmd, index) => (
         <button
           key={cmd.command}
           type="button"
@@ -609,10 +647,15 @@ const SlashCommandPicker = forwardRef<
             "flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
             index === activeIndex && "bg-accent text-accent-foreground"
           )}
-          onClick={() => onSelect(cmd.command)}
+          onClick={() => onSelect(cmd)}
           onMouseEnter={() => setActiveIndex(index)}
         >
-          <span className="text-xs font-medium">{cmd.command}</span>
+          <span className="flex w-full items-center justify-between gap-2">
+            <span className="text-xs font-medium">{cmd.command}</span>
+            <span className="rounded border border-border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+              {cmd.kind === "hermes" ? "Hermes" : cmd.kind === "forgehub" ? "ForgeHub" : "Prompt"}
+            </span>
+          </span>
           <span className="text-[11px] text-muted-foreground">{cmd.description}</span>
         </button>
       ))}
@@ -1099,6 +1142,7 @@ export function ChatPane({
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
+  const { data: promptCommands = [] } = usePromptCommands();
   const [agentMentionOpen, setAgentMentionOpen] = useState(false);
   const [agentMentionQuery, setAgentMentionQuery] = useState("");
   const [artifactMentionOpen, setArtifactMentionOpen] = useState(false);
@@ -1193,6 +1237,8 @@ export function ChatPane({
   const deleteMessage = useDeleteChatMessage(sessionId || undefined);
   const approveChat = useApproveChat();
   const transcribe = useTranscribeAudio();
+  const createDemand = useCreateDemand();
+  const [demandNotice, setDemandNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
   function handleStartRename(s: ChatSession) {
     setEditingSessionId(s.id);
@@ -1277,12 +1323,13 @@ export function ChatPane({
       setSessionId(activeSessionId);
     }
 
-    const message = isOverride ? overrideText : composerText;
+    let message = isOverride ? overrideText : composerText;
     const files = isOverride ? [] : attachedFiles;
     if (!isOverride) {
       setComposerText("");
       setAttachedFiles([]);
       setComposerWarning(null);
+      setDemandNotice(null);
     }
 
     // "!command" runs raw bash via the bridge -- no agent/LLM call at all,
@@ -1306,6 +1353,22 @@ export function ChatPane({
       return;
     }
 
+    // "/demanda <instrução>" still sends a normal message to the agent
+    // (prefix stripped) -- once the reply comes back, processQueueItem
+    // files the question+answer into the Demand inbox (POST /demands).
+    // Only the simple single-agent path supports it; combining with
+    // "#Agente" mentions isn't a case worth the complexity.
+    let sendToDemandSubject: string | undefined;
+    if (files.length === 0 && DEMAND_COMMAND_RE.test(message)) {
+      const stripped = message.replace(DEMAND_COMMAND_RE, "").trim();
+      if (!stripped) {
+        setComposerWarning("Digite a instrução depois de /demanda.");
+        return;
+      }
+      message = stripped;
+      sendToDemandSubject = stripped.slice(0, 80);
+    }
+
     // "#Agente" mentions route this turn away from the tab's own agent
     // entirely (v1: no broadcast-plus-mentions, no shared context -- see
     // ChatSessionParticipant's docstring). Excludes a self-mention (the
@@ -1326,6 +1389,7 @@ export function ChatPane({
           status: "queued",
           approval: null,
           abortController: null,
+          sendToDemandSubject,
         },
       ]);
     } else {
@@ -1411,6 +1475,30 @@ export function ChatPane({
     approveChat.mutate({ streamId, choice });
   }
 
+  /** "/demanda" post-processing: reads the just-refetched, persisted
+   * exchange (question + the agent's real final reply, not the client-side
+   * accumulator which is a stale closure by the time streamMessage
+   * resolves) and files it into the Demand inbox. Failure here doesn't
+   * touch the queue item's own success/error state -- the chat turn itself
+   * already completed fine either way. */
+  async function fileDemandFromExchange(item: ChatQueueItem) {
+    const subject = item.sendToDemandSubject!;
+    const fromAgent =
+      chatableAgents.find((a) => a.id === (item.targetAgentId ?? agentId))?.profile_slug ?? "forgehub";
+    const cached = queryClient.getQueryData<ChatMessage[]>(chatKeys.messages(sessionId));
+    const reply = [...(cached ?? [])].reverse().find((m) => m.role === "assistant");
+    const body = [
+      `**Pergunta enviada via /demanda:**\n\n${item.content}`,
+      reply ? `**Resposta do agente:**\n\n${reply.content}` : "_(sem resposta registrada)_",
+    ].join("\n\n---\n\n");
+    try {
+      await createDemand.mutateAsync({ from_agent: fromAgent, subject, body });
+      setDemandNotice({ kind: "success", text: `📤 Enviado para o Inbox de Demandas: "${subject}"` });
+    } catch (err) {
+      setDemandNotice({ kind: "error", text: `Falha ao enviar para o Inbox: ${(err as Error).message}` });
+    }
+  }
+
   async function processQueueItem(item: ChatQueueItem) {
     const abortController = item.files.length > 0 || item.isExec ? null : new AbortController();
     setQueue((q) =>
@@ -1436,6 +1524,9 @@ export function ChatPane({
       await queryClient
         .refetchQueries({ queryKey: chatKeys.messages(sessionId) })
         .catch(() => {});
+      if (item.sendToDemandSubject) {
+        await fileDemandFromExchange(item);
+      }
       setQueue((q) => q.filter((it) => it.id !== item.id));
     } catch (err) {
       if ((err as Error).name === "AbortError") {
@@ -1636,8 +1727,8 @@ export function ChatPane({
     composerTextareaRef.current?.focus();
   }
 
-  function handleSlashSelect(command: string) {
-    setComposerText(`${command} `);
+  function handleSlashSelect(item: SlashCommandItem) {
+    setComposerText(item.kind === "prompt" ? item.prompt : `${item.command} `);
     setSlashOpen(false);
     composerTextareaRef.current?.focus();
   }
@@ -2834,6 +2925,16 @@ export function ChatPane({
           {composerWarning && (
             <p className="px-1 text-xs text-destructive">{composerWarning}</p>
           )}
+          {demandNotice && (
+            <p
+              className={cn(
+                "px-1 text-xs",
+                demandNotice.kind === "success" ? "text-emerald-600" : "text-destructive"
+              )}
+            >
+              {demandNotice.text}
+            </p>
+          )}
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {attachedFiles.map((file, index) => (
@@ -2909,6 +3010,7 @@ export function ChatPane({
             {slashOpen && (
               <SlashCommandPicker
                 ref={slashPickerRef}
+                promptCommands={promptCommands}
                 onSelect={handleSlashSelect}
                 onClose={() => setSlashOpen(false)}
               />
@@ -3128,4 +3230,3 @@ export function ChatPane({
     </div>
   );
 }
-

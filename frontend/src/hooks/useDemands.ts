@@ -75,6 +75,19 @@ function useInvalidateDemands() {
   return () => queryClient.invalidateQueries({ queryKey: demandKeys.all });
 }
 
+/** JWT-authenticated create -- backs the chat composer's "/demanda"
+ * command (see ChatPane.tsx): ForgeHub itself files the row on the
+ * logged-in user's behalf, as opposed to /submit's bridge-token path
+ * for autonomous host-side agents. */
+export function useCreateDemand() {
+  const invalidate = useInvalidateDemands();
+  return useMutation({
+    mutationFn: (payload: { from_agent: string; subject: string; body: string }) =>
+      apiClient.post<Demand>(RESOURCE, payload),
+    onSuccess: invalidate,
+  });
+}
+
 export function useUpdateDemandStatus() {
   const invalidate = useInvalidateDemands();
   return useMutation({
