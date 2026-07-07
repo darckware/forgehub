@@ -10,8 +10,8 @@ services:
       # .env's POSTGRES_HOST/PORT (localhost:5433) are for host-side dev,
       # where the DB is reached via its published port. Inside this
       # container, "localhost" is the container itself -- reach Postgres
-      # via its container name on the shared hermes_foundation_pg_default
-      # network, on its internal port. These override the env_file values
+      # via its container name on the shared foundation_network, on its
+      # internal port. These override the env_file values
       # (docker-compose `environment:` wins over `env_file:`).
       POSTGRES_HOST: company_postgres
       POSTGRES_PORT: "5432"
@@ -37,18 +37,13 @@ services:
       # Hermes agents operate under, so every read/write there resolves
       # against this root and is restricted to .md files only.
       - /root/.hermes/foundation:/foundation-root
-      # Read-write: backs the Crons/Scripts control pages
-      # (api/routes/foundation.py list_cron_jobs/list_scripts/delete_cron_job).
-      # This is the live `hermes cron` shared job store (jobs.json, #32091)
-      # AND the single-source-of-truth dir for the central scripts catalog
-      # symlinked into every profile's ~/.hermes/scripts/ -- same files the
-      # `hermes` CLI and gateway scheduler read/write, so deletes here use
-      # the same .jobs.lock advisory file lock they use.
-      - /root/.hermes/crons:/hermes-cron
-      # Main Hermes scripts catalog (/root/.hermes/scripts -- the canonical
-      # location for every ecosystem script; cron wrappers in /hermes-cron
-      # call scripts from here).
-      - /root/.hermes/scripts:/hermes-scripts
+      # Crons/Scripts control pages (api/routes/foundation.py,
+      # api/routes/cron_scripts.py) read everything through the /profiles
+      # mount above: since hermes moved cron back to per-profile stores
+      # (upstream issue #4707) each profile owns <profile>/cron/jobs.json,
+      # <profile>/cron/logs/ (execution logs) and <profile>/scripts/. The
+      # old central dirs (/root/.hermes/crons, /root/.hermes/scripts) were
+      # migrated into the athos profile on 2026-07-06 and removed.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 10s
@@ -56,8 +51,7 @@ services:
       start_period: 15s
       retries: 10
     networks:
-      - default
-      - hermes_foundation_pg_default
+      - foundation_network
 
   forgehub-frontend:
     build:
@@ -70,8 +64,14 @@ services:
       forgehub-backend:
         condition: service_healthy
     networks:
-      - default
+      # Same network as the backend — nginx proxies /api to
+      # http://forgehub-backend:8000 by container name, so both must share it.
+      - foundation_network
 
 networks:
-  hermes_foundation_pg_default:
+  # Single shared network with the Postgres instances / Kanboard / Hindsight.
+  # Renamed from hermes_foundation_pg_default on 2026-07-03; created manually
+  # (docker network create foundation_network) and external in every project.
+  # ForgeHub deliberately has no project-default network (removed 2026-07-03).
+  foundation_network:
     external: true

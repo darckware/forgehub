@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # Kanboard JSON-RPC integration (see app/core/kanboard_client.py). URL
     # must be reachable from inside this container -- the `kanboard`
-    # hostname on the shared hermes_foundation_pg_default network, not
+    # hostname on the shared foundation_network, not
     # localhost (that only works from the host/browser, e.g. the iframe in
     # frontend/src/pages/kanboard/index.tsx).
     KANBOARD_URL: str = "http://kanboard/jsonrpc.php"
@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     KANBOARD_PUBLIC_URL: str = "http://localhost:8081"
 
     # Second PostgreSQL instance (Foundation runtime data).
-    # Inside Docker both instances share the hermes_foundation_pg_default network.
+    # Inside Docker both instances share the foundation_network docker network.
     FOUNDATION_POSTGRES_HOST: str = "foundation_postgres"
     FOUNDATION_POSTGRES_PORT: int = 5432
     FOUNDATION_POSTGRES_USER: str = "foundation"
