@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
@@ -126,3 +126,63 @@ async def test_cleanup_keep_days(client: AsyncClient):
 async def test_cleanup_keep_days_requires_days(client: AsyncClient):
     resp = await client.post("/api/v1/notifications/cleanup", json={"mode": "keep_days"})
     assert resp.status_code == 400
+
+
+async def test_cleanup_suppresses_reingestion(client: AsyncClient, monkeypatch):
+    """Runs purged by cleanup must not be re-ingested from jobs.json as new
+    unread notifications: cleanup advances the NotificationIngestState
+    watermark, and ingestion skips runs at or before it. Fresh runs (after
+    the watermark) must still ingest normally.
+
+    Shared-DB note: the watermark is global and monotonic, so this test
+    doesn't assume a clean slate — it runs a keep_days=30 cleanup itself
+    (same operation test_cleanup_keep_days already performs) and then checks
+    ingestion behavior on both sides of the resulting cutoff.
+    """
+    from app.api.routes import notifications as notifications_routes
+
+    job_id = f"test-suppress-{uuid.uuid4().hex[:8]}"
+    old_run_at = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    fresh_run_at = datetime.now(timezone.utc).isoformat()
+
+    def _fake_job(run_at: str) -> dict:
+        return {
+            "id": job_id,
+            "name": job_id,
+            "last_run_at": run_at,
+            "last_status": "ok",
+            "script": "test.sh",
+        }
+
+    async def _my_row_ids() -> list[uuid.UUID]:
+        async with AsyncSessionLocal() as session:
+            rows = await session.execute(
+                select(Notification.id).where(Notification.job_id == job_id)
+            )
+            return list(rows.scalars())
+
+    try:
+        # Cleanup advances the watermark to now-30d (creating it if needed).
+        resp = await client.post(
+            "/api/v1/notifications/cleanup", json={"mode": "keep_days", "keep_days": 30}
+        )
+        assert resp.status_code == 200, resp.text
+
+        # A 90-day-old run still sitting in jobs.json must NOT be ingested —
+        # this is the "purged notifications reappear as unread" regression.
+        monkeypatch.setattr(
+            notifications_routes, "_load_all_cron_jobs", lambda: [_fake_job(old_run_at)]
+        )
+        resp = await client.get("/api/v1/notifications")
+        assert resp.status_code == 200, resp.text
+        assert await _my_row_ids() == []
+
+        # A fresh run (after the watermark) must still ingest normally.
+        monkeypatch.setattr(
+            notifications_routes, "_load_all_cron_jobs", lambda: [_fake_job(fresh_run_at)]
+        )
+        resp = await client.get("/api/v1/notifications")
+        assert resp.status_code == 200, resp.text
+        assert any(n["job_id"] == job_id for n in resp.json()["notifications"])
+    finally:
+        await _delete_notifications(await _my_row_ids())

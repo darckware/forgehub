@@ -10,7 +10,9 @@ server-side (`read_at`), and old rows can be purged via the cleanup endpoint
 Each notification maps back to the cron that produced it via
 `job_id`/`job_name`/`profile`/`script_name`. `event_key` is the dedupe key
 (`cron:<job_id>:<last_run_at>`) so re-ingesting the same jobs.json snapshot
-never duplicates a run.
+never duplicates a run. `NotificationIngestState` keeps a per-source
+suppression watermark so runs purged via cleanup are never re-ingested
+(jobs.json still lists each job's latest run after the rows are deleted).
 
 Conventions: UUID PK (Python-side default), TimestampMixin, String +
 CheckConstraint instead of native enums.
@@ -64,3 +66,20 @@ class Notification(Base, TimestampMixin):
     event_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class NotificationIngestState(Base, TimestampMixin):
+    """Per-source ingestion watermark (one row per source, e.g. 'cron').
+
+    Events whose `occurred_at` is at or before `suppress_before` are skipped
+    by ingestion. Cleanup advances it (never backwards): 'all' → now,
+    'keep_days' → the retention cutoff. Without this, deleting rows would
+    only be temporary — the next listing re-ingests every run still present
+    in jobs.json as a fresh unread notification.
+    """
+
+    __tablename__ = "notification_ingest_state"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    suppress_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

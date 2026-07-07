@@ -72,7 +72,9 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-4">
+    // Full-bleed page (see AppLayout): header/filters stay fixed and the
+    // notification list scrolls inside its own card.
+    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold flex items-center gap-2">
           <Bell className="h-5 w-5" /> Notifications
@@ -145,8 +147,8 @@ export default function NotificationsPage() {
       )}
 
       {notifications.length > 0 && (
-        <Card>
-          <CardContent className="p-0 divide-y divide-border/50">
+        <Card className="min-h-0 flex-1 overflow-hidden">
+          <CardContent className="h-full divide-y divide-border/50 overflow-y-auto p-0">
             {notifications.map((n) => {
               const isExpanded = expanded.has(n.id);
               const detail = n.message ?? n.summary;

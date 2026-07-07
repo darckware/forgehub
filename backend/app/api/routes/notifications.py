@@ -8,7 +8,11 @@ Provides:
                                         a separate sync step
 - POST /api/v1/notifications/mark-read  mark specific ids (or all) as read
 - POST /api/v1/notifications/cleanup    delete all, or keep the last N days
-                                        (UI offers 15/30)
+                                        (UI offers 15/30); also advances the
+                                        per-source suppression watermark so
+                                        the purged runs are not re-ingested
+                                        (and re-shown as unread) on the next
+                                        listing
 
 Ingestion maps every cron to its notifications: each distinct run
 (job_id + last_run_at) becomes exactly one row, deduped by `event_key`, so
@@ -28,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes.cron_scripts import HERMES_CRON_DIR, PROFILES_DIR, _load_all_cron_jobs
+from app.api.routes.cron_scripts import PROFILES_DIR, _load_all_cron_jobs
 from app.api.schemas.notification import (
     CleanupIn,
     CleanupOut,
@@ -38,7 +42,11 @@ from app.api.schemas.notification import (
     NotificationOut,
 )
 from app.db.base import get_db
-from app.db.models.notification import NOTIFICATION_SEVERITIES, Notification
+from app.db.models.notification import (
+    NOTIFICATION_SEVERITIES,
+    Notification,
+    NotificationIngestState,
+)
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
@@ -76,7 +84,8 @@ def _candidate_output_files(job_id: str, profile: str | None) -> list[tuple[date
             except ValueError:
                 continue
 
-    _add_dir(HERMES_CRON_DIR / "output" / job_id)
+    # Per-profile only: the old central /hermes-cron/output was migrated
+    # into athos/cron/output on 2026-07-06 (see cron_scripts.py docstring).
     if profile:
         profile_out = PROFILES_DIR / profile / "cron" / "output"
         _add_dir(profile_out / job_id)
@@ -163,6 +172,24 @@ async def _ingest_cron_notifications(db: AsyncSession) -> int:
 
     if not candidates:
         return 0
+
+    # Runs at or before the suppression watermark were purged by a previous
+    # cleanup — never resurrect them as new unread rows.
+    suppress_before = (
+        await db.execute(
+            select(NotificationIngestState.suppress_before).where(
+                NotificationIngestState.source == "cron"
+            )
+        )
+    ).scalar_one_or_none()
+    if suppress_before is not None:
+        candidates = {
+            key: fields
+            for key, fields in candidates.items()
+            if fields["occurred_at"] > suppress_before
+        }
+        if not candidates:
+            return 0
 
     existing = (
         await db.execute(
@@ -269,14 +296,32 @@ async def mark_read(payload: MarkReadIn, db: AsyncSession = Depends(get_db)) -> 
 
 @router.post("/cleanup", response_model=CleanupOut)
 async def cleanup(payload: CleanupIn, db: AsyncSession = Depends(get_db)) -> CleanupOut:
-    """Purge the notification record: everything, or older than keep_days."""
+    """Purge the notification record: everything, or older than keep_days.
+
+    Also advances the ingestion suppression watermark to the purge cutoff
+    ('all' → now), so the deleted runs — still present in the jobs.json
+    stores — don't come back as unread on the next listing.
+    """
     stmt = delete(Notification)
     if payload.mode == "keep_days":
         if payload.keep_days is None:
             raise HTTPException(status_code=400, detail="keep_days is required for mode 'keep_days'")
         cutoff = datetime.now(timezone.utc) - timedelta(days=payload.keep_days)
         stmt = stmt.where(Notification.occurred_at < cutoff)
+    else:
+        cutoff = datetime.now(timezone.utc)
 
     result = await db.execute(stmt)
+
+    state = (
+        await db.execute(
+            select(NotificationIngestState).where(NotificationIngestState.source == "cron")
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        db.add(NotificationIngestState(id=uuid.uuid4(), source="cron", suppress_before=cutoff))
+    elif cutoff > state.suppress_before:
+        state.suppress_before = cutoff
+
     await db.commit()
     return CleanupOut(deleted=result.rowcount or 0)
