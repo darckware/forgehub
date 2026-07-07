@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   BookOpen,
@@ -18,6 +19,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { DocTree, type DocTreeNode } from "@/components/DocTree";
 import { Markdown } from "@/components/Markdown";
+import { DocLinkPanel } from "@/components/DocLinkPanel";
 import { AssistantDrawer } from "@/components/chat/AssistantDrawer";
 import {
   downloadDoc,
@@ -77,7 +79,10 @@ function PathPrompt({
 
 export default function DocsPage() {
   const { data: tree, isLoading, isError, error } = useDocsTree();
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  // Deep-link from EntityDocsCard (/docs?path=...) -- only seeds the
+  // initial selection, so navigating the tree afterwards isn't fought.
+  const [selectedPath, setSelectedPath] = useState<string | null>(() => searchParams.get("path"));
   const isEditable = selectedPath ? EDITABLE_RE.test(selectedPath) : false;
   const { data: file, isLoading: fileLoading, isError: fileError } = useDocFile(
     isEditable ? selectedPath : null
@@ -264,7 +269,7 @@ export default function DocsPage() {
         </Card>
 
         <Card className="min-h-0 overflow-hidden">
-          <CardContent className="flex h-full flex-col gap-2 overflow-hidden p-4">
+          <CardContent className="flex h-full flex-col gap-2 overflow-y-auto p-4">
             {!selectedPath && (
               <p className="m-auto text-sm italic text-muted-foreground">
                 Selecione um documento na árvore, ou crie um novo.
@@ -356,6 +361,8 @@ export default function DocsPage() {
                     />
                   )}
                 </div>
+
+                <DocLinkPanel docPath={selectedPath} />
               </>
             )}
           </CardContent>

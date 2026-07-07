@@ -27,6 +27,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { useProduct } from "@/hooks/useProduct";
+import { EntityDocsCard } from "@/components/EntityDocsCard";
 import { apiClient } from "@/lib/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ProductVersion } from "@/hooks/useProduct";
@@ -244,6 +245,8 @@ export default function ProductDetail() {
           )}
         </CardContent>
       </Card>
+
+      <EntityDocsCard entityType="product" entityId={product?.id} />
     </div>
   );
 }

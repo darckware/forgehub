@@ -47,6 +47,7 @@ import {
 import { useProductVersion } from "@/hooks/useProduct";
 import { useTasksByChangeRequest, useKanboardCleanup } from "@/hooks/useTask";
 import { useDeletePlanningItem } from "@/hooks/useBacklog";
+import { EntityDocsCard } from "@/components/EntityDocsCard";
 import { ProjectForm } from "./ProjectForm";
 import { StructureNodeForm } from "./StructureNodeForm";
 import { ProjectPlanForm } from "./ProjectPlanForm";
@@ -861,6 +862,8 @@ export default function ProjectDetailPage() {
               </Button>
             </CardContent>
           </Card>
+
+          <EntityDocsCard entityType="project" entityId={project.id} />
 
           <div>
             <Link to="/projects" className={buttonVariants({ variant: "outline" })}>

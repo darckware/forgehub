@@ -11,13 +11,19 @@ else flows through /upload and /download. Every write resolves the
 target through resolve_doc_path, so nothing can escape /docs.
 """
 import shutil
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.markdown_docs import DocNode, build_tree, resolve_doc_path
+from app.db.base import get_db
+from app.db.models.doc_link import DOC_LINK_ENTITY_TYPES, DocLink
 
 router = APIRouter(prefix="/api/v1/docs", tags=["docs"])
 
@@ -150,3 +156,133 @@ async def download_file(path: str = Query(min_length=1)) -> FileResponse:
     if not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(target, filename=target.name)
+
+
+# ---------------------------------------------------------------------------
+# Doc links: cross-references to Planning entities (doc_links table).
+# The label lookup is raw SQL per entity type on purpose -- importing the
+# other domains' model modules here would couple docs to every domain
+# (same reason cross-domain FKs are string-form, see db/base.py docs).
+# ---------------------------------------------------------------------------
+
+_ENTITY_LABEL_SOURCE: dict[str, tuple[str, str]] = {
+    "product": ("company.products", "name"),
+    "product_version": ("company.product_versions", "version"),
+    "project": ("company.projects", "name"),
+    "pipeline": ("company.project_pipelines", "name"),
+    "planning_item": ("company.planning_items", "title"),
+    "task": ("company.project_tasks", "title"),
+    "artifact": ("company.artifacts", "name"),
+}
+
+
+class DocLinkCreateIn(BaseModel):
+    doc_path: str = Field(min_length=1, max_length=500)
+    entity_type: str
+    entity_id: uuid.UUID
+
+    @field_validator("entity_type")
+    @classmethod
+    def _check_entity_type(cls, v: str) -> str:
+        if v not in DOC_LINK_ENTITY_TYPES:
+            raise ValueError(f"entity_type must be one of {DOC_LINK_ENTITY_TYPES}")
+        return v
+
+
+class DocLinkOut(BaseModel):
+    id: uuid.UUID
+    doc_path: str
+    entity_type: str
+    entity_id: uuid.UUID
+    # Human label resolved at read time (product name, task title, ...);
+    # None when the target row no longer exists (stale link).
+    entity_label: str | None = None
+
+
+async def _entity_label(db: AsyncSession, entity_type: str, entity_id: uuid.UUID) -> str | None:
+    table, column = _ENTITY_LABEL_SOURCE[entity_type]
+    result = await db.execute(
+        text(f"SELECT {column} FROM {table} WHERE id = :id"), {"id": str(entity_id)}  # noqa: S608
+    )
+    value = result.scalar_one_or_none()
+    return str(value) if value is not None else None
+
+
+async def _link_out(db: AsyncSession, link: DocLink) -> DocLinkOut:
+    return DocLinkOut(
+        id=link.id,
+        doc_path=link.doc_path,
+        entity_type=link.entity_type,
+        entity_id=link.entity_id,
+        entity_label=await _entity_label(db, link.entity_type, link.entity_id),
+    )
+
+
+@router.get("/links", response_model=list[DocLinkOut])
+async def list_doc_links(
+    path: str = Query(min_length=1), db: AsyncSession = Depends(get_db)
+) -> list[DocLinkOut]:
+    result = await db.execute(
+        select(DocLink).where(DocLink.doc_path == path).order_by(DocLink.entity_type)
+    )
+    return [await _link_out(db, link) for link in result.scalars().all()]
+
+
+@router.get("/links/by-entity", response_model=list[DocLinkOut])
+async def list_entity_docs(
+    entity_type: str, entity_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[DocLinkOut]:
+    """Docs linked to one Planning entity -- backs the "Docs" section on
+    the detail screens (product/project/planning/task)."""
+    if entity_type not in DOC_LINK_ENTITY_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unknown entity_type: {entity_type}")
+    result = await db.execute(
+        select(DocLink)
+        .where(DocLink.entity_type == entity_type, DocLink.entity_id == entity_id)
+        .order_by(DocLink.doc_path)
+    )
+    return [await _link_out(db, link) for link in result.scalars().all()]
+
+
+@router.post("/links", response_model=DocLinkOut, status_code=201)
+async def create_doc_link(
+    payload: DocLinkCreateIn, db: AsyncSession = Depends(get_db)
+) -> DocLinkOut:
+    """Link a doc to a Planning entity. Both sides are validated: the doc
+    must exist on disk and the entity row must exist."""
+    target = _resolve_or_400(payload.doc_path)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Doc file not found")
+    label = await _entity_label(db, payload.entity_type, payload.entity_id)
+    if label is None:
+        raise HTTPException(status_code=404, detail=f"{payload.entity_type} not found")
+    link = DocLink(
+        doc_path=payload.doc_path,
+        entity_type=payload.entity_type,
+        entity_id=payload.entity_id,
+    )
+    db.add(link)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="This link already exists") from None
+    await db.refresh(link)
+    return DocLinkOut(
+        id=link.id,
+        doc_path=link.doc_path,
+        entity_type=link.entity_type,
+        entity_id=link.entity_id,
+        entity_label=label,
+    )
+
+
+@router.delete("/links/{link_id}", status_code=204)
+async def delete_doc_link(link_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+    link = (
+        await db.execute(select(DocLink).where(DocLink.id == link_id))
+    ).scalar_one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Link not found")
+    await db.delete(link)
+    await db.commit()

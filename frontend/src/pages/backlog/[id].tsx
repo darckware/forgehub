@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { usePlanningItem } from "@/hooks/useBacklog";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { EntityDocsCard } from "@/components/EntityDocsCard";
 
 export default function PlanningItemDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -256,6 +257,8 @@ export default function PlanningItemDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          <EntityDocsCard entityType="planning_item" entityId={item.id} />
 
           <div>
             <Link to="/backlog" className={buttonVariants({ variant: "outline" })}>

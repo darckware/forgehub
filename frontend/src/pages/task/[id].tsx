@@ -39,6 +39,7 @@ import {
 } from "@/hooks/useTask";
 import { useProjects } from "@/hooks/useProject";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { EntityDocsCard } from "@/components/EntityDocsCard";
 import { usePlanningItems } from "@/hooks/useBacklog";
 
 const STATUS_VARIANT: Record<
@@ -449,6 +450,8 @@ export default function TaskDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          <EntityDocsCard entityType="task" entityId={task.id} />
 
           <div>
             <Link to="/tasks" className={buttonVariants({ variant: "outline" })}>
