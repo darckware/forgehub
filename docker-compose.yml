@@ -41,6 +41,16 @@ services:
       # personal markdown docs, uploads and whiteboard assets, cross-linked
       # to Planning entities from the Docs page.
       - /root/docs:/docs
+      # Read-write: the WHOLE host filesystem, backing multiple
+      # user-configurable "áreas de criação" (docs_creation_areas table,
+      # api/routes/docs.py's /areas endpoints) -- any absolute host path
+      # can be registered as a browsable/editable area, not just /root/docs.
+      # Deliberately broad per explicit user confirmation (2026-07-08):
+      # the backend can read/write anywhere on the host through this API,
+      # including /etc, /home, /var, and ForgeHub's own /root/project
+      # source (its .git included). Treat any Docs-domain path-handling
+      # bug as host-filesystem-wide, not container-scoped.
+      - /:/host-root
       # Crons/Scripts control pages (api/routes/foundation.py,
       # api/routes/cron_scripts.py) read everything through the /profiles
       # mount above: since hermes moved cron back to per-profile stores
@@ -70,6 +80,33 @@ services:
     networks:
       # Same network as the backend — nginx proxies /api to
       # http://forgehub-backend:8000 by container name, so both must share it.
+      - foundation_network
+
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:latest
+    container_name: hindsight
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      HINDSIGHT_API_DATABASE_BACKEND: postgresql
+      HINDSIGHT_API_DATABASE_URL: postgresql://foundation:${POSTGRES_PASSWORD}@foundation_postgres:5432/foundation
+      HINDSIGHT_API_READ_DATABASE_URL: postgresql://foundation:${POSTGRES_PASSWORD}@foundation_postgres:5432/foundation
+      HINDSIGHT_API_MIGRATION_DATABASE_URL: postgresql://foundation:${POSTGRES_PASSWORD}@foundation_postgres:5432/foundation
+      HINDSIGHT_API_DATABASE_SCHEMA: hindsight
+      HINDSIGHT_API_HOST: 0.0.0.0
+      HINDSIGHT_API_PORT: "8888"
+      HINDSIGHT_API_LLM_PROVIDER: openai
+      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY}
+      HINDSIGHT_API_LLM_BASE_URL: http://host.docker.internal:2100/v1
+      HINDSIGHT_API_LLM_MODEL: forgerouter/auto
+      HINDSIGHT_API_LOG_LEVEL: info
+      HINDSIGHT_WAIT_FOR_DEPS: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8888:8888"
+    networks:
       - foundation_network
 
 networks:

@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,10 +26,19 @@ from app.core import conversions
 from app.core.markdown_docs import DocNode, build_tree, resolve_doc_path
 from app.db.base import get_db
 from app.db.models.doc_link import DOC_LINK_ENTITY_TYPES, DocLink
+from app.db.models.docs_area import DocsArea
 
 router = APIRouter(prefix="/api/v1/docs", tags=["docs"])
 
+# The original single-area mount -- doc_links and /convert (below) still
+# assume this one area exclusively; they aren't yet area-aware (see that
+# section's docstring for why).
 DOCS_ROOT = Path("/docs")
+
+# Whole host filesystem (see docker-compose.yml) backing the
+# user-configurable "áreas de criação" (DocsArea rows, /areas endpoints
+# below) -- any absolute host path can be registered as a browsable area.
+HOST_ROOT = Path("/host-root")
 
 # Editable inline in the page; everything else is upload/download-only.
 # .excalidraw is UTF-8 JSON -- read as text so the Docs page can reopen a
@@ -57,8 +66,8 @@ class DocRenameIn(BaseModel):
     new_path: str = Field(min_length=1)
 
 
-def _resolve_or_400(relative_path: str) -> Path:
-    target = resolve_doc_path(DOCS_ROOT, relative_path)
+def _resolve_or_400(root: Path, relative_path: str) -> Path:
+    target = resolve_doc_path(root, relative_path)
     if target is None:
         raise HTTPException(status_code=400, detail="Invalid path")
     return target
@@ -72,27 +81,128 @@ def _require_editable(target: Path) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Áreas de criação: user-configurable roots for the file browser below.
+# Any absolute host path (HOST_ROOT is the whole host filesystem, see
+# docker-compose.yml). At least one area must always exist -- enforced on
+# DELETE, not a DB constraint (needs a row count check).
+# ---------------------------------------------------------------------------
+
+
+class DocsAreaOut(BaseModel):
+    class Config:
+        from_attributes = True
+
+    id: uuid.UUID
+    name: str
+    host_path: str
+
+
+class DocsAreaCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    host_path: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("host_path")
+    @classmethod
+    def _check_absolute(cls, v: str) -> str:
+        if not v.startswith("/"):
+            raise ValueError("host_path must be an absolute path")
+        return v.rstrip("/") or "/"
+
+
+def _area_root(area: DocsArea) -> Path:
+    return HOST_ROOT / area.host_path.lstrip("/")
+
+
+async def _get_area_or_404(db: AsyncSession, area_id: uuid.UUID) -> DocsArea:
+    area = (
+        await db.execute(select(DocsArea).where(DocsArea.id == area_id))
+    ).scalar_one_or_none()
+    if area is None:
+        raise HTTPException(status_code=404, detail="Area not found")
+    return area
+
+
+@router.get("/areas", response_model=list[DocsAreaOut])
+async def list_areas(db: AsyncSession = Depends(get_db)) -> list[DocsArea]:
+    result = await db.execute(select(DocsArea).order_by(DocsArea.created_at))
+    return list(result.scalars().all())
+
+
+@router.post("/areas", response_model=DocsAreaOut, status_code=201)
+async def create_area(payload: DocsAreaCreate, db: AsyncSession = Depends(get_db)) -> DocsArea:
+    host_root_resolved = HOST_ROOT.resolve()
+    resolved = (HOST_ROOT / payload.host_path.lstrip("/")).resolve()
+    if host_root_resolved != resolved and host_root_resolved not in resolved.parents:
+        raise HTTPException(status_code=400, detail="Invalid host_path")
+    # Self-service: create the folder if it doesn't exist yet, rather than
+    # requiring the user to pre-create it on the host before registering.
+    resolved.mkdir(parents=True, exist_ok=True)
+    # Store the canonical host-side path (".." components collapsed, e.g.
+    # "/root/../etc" -> "/etc") rather than the raw input, so the list/UI
+    # always shows the real path.
+    rel = resolved.relative_to(host_root_resolved)
+    canonical_host_path = "/" if rel == Path(".") else f"/{rel}"
+    area = DocsArea(name=payload.name, host_path=canonical_host_path)
+    db.add(area)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="An area with this host_path already exists") from None
+    await db.refresh(area)
+    return area
+
+
+@router.delete("/areas/{area_id}", status_code=204)
+async def delete_area(area_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+    """Removes the area from the list only -- never deletes the folder or
+    its contents on the host."""
+    area = await _get_area_or_404(db, area_id)
+    total = (await db.execute(select(func.count()).select_from(DocsArea))).scalar_one()
+    if total <= 1:
+        raise HTTPException(status_code=400, detail="At least one area must always exist")
+    await db.delete(area)
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# File browser -- every endpoint below takes area_id and resolves against
+# that area's own root (never DOCS_ROOT, which only backs doc_links/convert).
+# ---------------------------------------------------------------------------
+
+
 @router.get("/tree", response_model=list[DocNode])
-async def docs_tree() -> list[DocNode]:
-    """Full /docs tree: every file type, empty folders included."""
-    if not DOCS_ROOT.is_dir():
+async def docs_tree(area_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[DocNode]:
+    """Full area tree: every file type, empty folders included."""
+    area = await _get_area_or_404(db, area_id)
+    root = _area_root(area)
+    if not root.is_dir():
         return []
-    return build_tree(DOCS_ROOT, include_all_files=True, keep_empty_dirs=True)
+    return build_tree(root, include_all_files=True, keep_empty_dirs=True)
 
 
 @router.get("/file", response_model=DocFileOut)
-async def read_file(path: str = Query(min_length=1)) -> DocFileOut:
-    target = _resolve_or_400(path)
+async def read_file(
+    area_id: uuid.UUID, path: str = Query(min_length=1), db: AsyncSession = Depends(get_db)
+) -> DocFileOut:
+    area = await _get_area_or_404(db, area_id)
+    target = _resolve_or_400(_area_root(area), path)
     _require_editable(target)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return DocFileOut(path=path, content=target.read_text(encoding="utf-8", errors="replace"))
 
 
+class DocFileWriteWithAreaIn(DocFileWriteIn):
+    area_id: uuid.UUID
+
+
 @router.put("/file", response_model=DocFileOut)
-async def write_file(payload: DocFileWriteIn) -> DocFileOut:
+async def write_file(payload: DocFileWriteWithAreaIn, db: AsyncSession = Depends(get_db)) -> DocFileOut:
     """Create or overwrite a markdown/text file (parents auto-created)."""
-    target = _resolve_or_400(payload.path)
+    area = await _get_area_or_404(db, payload.area_id)
+    target = _resolve_or_400(_area_root(area), payload.path)
     _require_editable(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(payload.content, encoding="utf-8")
@@ -100,11 +210,15 @@ async def write_file(payload: DocFileWriteIn) -> DocFileOut:
 
 
 @router.delete("/file", status_code=204)
-async def delete_path(path: str = Query(min_length=1)) -> None:
+async def delete_path(
+    area_id: uuid.UUID, path: str = Query(min_length=1), db: AsyncSession = Depends(get_db)
+) -> None:
     """Delete a file, or a folder (recursively -- the UI confirms first)."""
-    target = _resolve_or_400(path)
-    if target == DOCS_ROOT.resolve():
-        raise HTTPException(status_code=400, detail="Cannot delete the docs root")
+    area = await _get_area_or_404(db, area_id)
+    root = _area_root(area)
+    target = _resolve_or_400(root, path)
+    if target == root.resolve():
+        raise HTTPException(status_code=400, detail="Cannot delete the area's root")
     if target.is_dir():
         shutil.rmtree(target)
     elif target.is_file():
@@ -113,22 +227,41 @@ async def delete_path(path: str = Query(min_length=1)) -> None:
         raise HTTPException(status_code=404, detail="Path not found")
 
 
+class DocFolderWithAreaIn(DocFolderIn):
+    area_id: uuid.UUID
+
+
 @router.post("/folder", response_model=DocNode, status_code=201)
-async def create_folder(payload: DocFolderIn) -> DocNode:
-    target = _resolve_or_400(payload.path)
+async def create_folder(payload: DocFolderWithAreaIn, db: AsyncSession = Depends(get_db)) -> DocNode:
+    area = await _get_area_or_404(db, payload.area_id)
+    target = _resolve_or_400(_area_root(area), payload.path)
     target.mkdir(parents=True, exist_ok=True)
     return DocNode(name=target.name, path=payload.path, type="dir", children=[])
 
 
+class DocRenameWithAreaIn(DocRenameIn):
+    area_id: uuid.UUID
+
+
 @router.post("/rename", response_model=DocNode)
-async def rename_path(payload: DocRenameIn) -> DocNode:
-    """Rename/move a file or folder inside /docs."""
-    source = _resolve_or_400(payload.path)
-    dest = _resolve_or_400(payload.new_path)
+async def rename_path(payload: DocRenameWithAreaIn, db: AsyncSession = Depends(get_db)) -> DocNode:
+    """Rename/move a file or folder inside the area (also backs
+    drag-and-drop moves in the tree -- new_path is just a different
+    parent folder with the same basename in that case)."""
+    area = await _get_area_or_404(db, payload.area_id)
+    root = _area_root(area)
+    source = _resolve_or_400(root, payload.path)
+    dest = _resolve_or_400(root, payload.new_path)
     if not source.exists():
         raise HTTPException(status_code=404, detail="Path not found")
     if dest.exists():
         raise HTTPException(status_code=409, detail="Destination already exists")
+    # dest.exists() above already catches a same-path no-op rename (source
+    # exists, so an identical dest would too); this guards the other way a
+    # move can corrupt the tree -- dropping a folder inside its own
+    # descendant, which Path.rename doesn't detect on its own.
+    if source.is_dir() and source.resolve() in (dest.resolve(), *dest.resolve().parents):
+        raise HTTPException(status_code=400, detail="Cannot move a folder into itself")
     dest.parent.mkdir(parents=True, exist_ok=True)
     source.rename(dest)
     return DocNode(
@@ -138,14 +271,17 @@ async def rename_path(payload: DocRenameIn) -> DocNode:
 
 @router.post("/upload", response_model=DocNode, status_code=201)
 async def upload_file(
+    area_id: uuid.UUID = Form(...),
     folder: str = Form(default=""),
     file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
 ) -> DocNode:
+    area = await _get_area_or_404(db, area_id)
     name = Path(file.filename or "").name
     if not name:
         raise HTTPException(status_code=400, detail="Missing filename")
     rel = f"{folder.strip('/')}/{name}" if folder.strip("/") else name
-    target = _resolve_or_400(rel)
+    target = _resolve_or_400(_area_root(area), rel)
     target.parent.mkdir(parents=True, exist_ok=True)
     content = await file.read()
     if len(content) > _MAX_UPLOAD_BYTES:
@@ -155,8 +291,11 @@ async def upload_file(
 
 
 @router.get("/download")
-async def download_file(path: str = Query(min_length=1)) -> FileResponse:
-    target = _resolve_or_400(path)
+async def download_file(
+    area_id: uuid.UUID, path: str = Query(min_length=1), db: AsyncSession = Depends(get_db)
+) -> FileResponse:
+    area = await _get_area_or_404(db, area_id)
+    target = _resolve_or_400(_area_root(area), path)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(target, filename=target.name)
@@ -254,7 +393,7 @@ async def create_doc_link(
 ) -> DocLinkOut:
     """Link a doc to a Planning entity. Both sides are validated: the doc
     must exist on disk and the entity row must exist."""
-    target = _resolve_or_400(payload.doc_path)
+    target = _resolve_or_400(DOCS_ROOT, payload.doc_path)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="Doc file not found")
     label = await _entity_label(db, payload.entity_type, payload.entity_id)
@@ -306,7 +445,7 @@ async def delete_doc_link(link_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 async def convert_doc(payload: ConvertIn, db: AsyncSession = Depends(get_db)) -> ConvertOut:
     if not payload.source_path:
         raise HTTPException(status_code=400, detail="source_path is required")
-    source = _resolve_or_400(payload.source_path)
+    source = _resolve_or_400(DOCS_ROOT, payload.source_path)
     if not source.is_file():
         raise HTTPException(status_code=404, detail="Doc file not found")
     content = source.read_text(encoding="utf-8", errors="replace")

@@ -4,6 +4,7 @@ import {
   AlertCircle,
   BookOpen,
   Bot,
+  ChevronDown,
   Download,
   Eye,
   FilePlus,
@@ -12,6 +13,7 @@ import {
   Loader2,
   Palette,
   Pencil,
+  Plus,
   Save,
   Trash2,
   Upload,
@@ -30,8 +32,11 @@ import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whitebo
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
 import {
   downloadDoc,
+  useCreateDocArea,
   useCreateDocFolder,
+  useDeleteDocArea,
   useDeleteDocPath,
+  useDocAreas,
   useDocFile,
   useDocsTree,
   useRenameDocPath,
@@ -44,6 +49,10 @@ const SCENE_RE = /\.excalidraw$/i;
 // Whiteboard exports always land here (see /root/docs/README.md's
 // "assets/ — imagens (inclui exports da lousa)").
 const WHITEBOARD_ASSETS_FOLDER = "assets";
+// doc_links/convert (backend/app/api/routes/docs.py) are deliberately not
+// area-aware -- they always resolve against the original /root/docs mount,
+// so those panels only make sense while that area is the working one.
+const DOCS_HOST_PATH = "/root/docs";
 
 /** Small inline prompt row (new file / new folder / rename). */
 function PathPrompt({
@@ -83,8 +92,162 @@ function PathPrompt({
   );
 }
 
+/** Switch between "áreas de criação" (any host folder) -- add/remove/select. */
+function AreaSwitcher({
+  areas,
+  currentAreaId,
+  onSelect,
+}: {
+  areas: { id: string; name: string; host_path: string }[];
+  currentAreaId: string | null;
+  onSelect: (areaId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPath, setNewPath] = useState("/");
+  const [deletingArea, setDeletingArea] = useState<string | null>(null);
+  const createArea = useCreateDocArea();
+  const deleteArea = useDeleteDocArea();
+  const current = areas.find((a) => a.id === currentAreaId);
+
+  function resetAddForm() {
+    setAdding(false);
+    setNewName("");
+    setNewPath("/");
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        className="flex items-center gap-1 text-sm font-normal text-muted-foreground hover:text-foreground"
+        onClick={() => setOpen((v) => !v)}
+      >
+        área de criação · <code className="text-foreground">{current?.host_path ?? "..."}</code>
+        <ChevronDown className="h-3.5 w-3.5" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <Card className="absolute left-0 top-full z-50 mt-1 w-96 shadow-xl">
+            <CardContent className="max-h-80 overflow-y-auto p-2">
+              <ConfirmDialog
+                open={deletingArea !== null}
+                title="Remover área de criação"
+                description="Remove apenas o registro da área -- os arquivos continuam no host, intactos."
+                loading={deleteArea.isPending}
+                onConfirm={() => {
+                  if (!deletingArea) return;
+                  deleteArea.mutate(deletingArea, { onSuccess: () => setDeletingArea(null) });
+                }}
+                onCancel={() => setDeletingArea(null)}
+              />
+              {areas.map((area) => (
+                <div
+                  key={area.id}
+                  className={
+                    "group flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm " +
+                    (area.id === currentAreaId
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-accent hover:text-accent-foreground")
+                  }
+                >
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 flex-col items-start text-left"
+                    onClick={() => {
+                      onSelect(area.id);
+                      setOpen(false);
+                    }}
+                  >
+                    <span className="font-medium">{area.name}</span>
+                    <code className="truncate text-xs text-muted-foreground">{area.host_path}</code>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0 text-destructive opacity-0 group-hover:opacity-100"
+                    disabled={areas.length <= 1}
+                    title={areas.length <= 1 ? "Pelo menos uma área precisa existir" : "Remover área"}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeletingArea(area.id);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+
+              {adding ? (
+                <div className="mt-1.5 flex flex-col gap-1.5 rounded-md border border-border bg-muted/30 p-2">
+                  <Input
+                    autoFocus
+                    placeholder="Nome (ex: Projeto)"
+                    value={newName}
+                    className="h-8 text-xs"
+                    onChange={(e) => setNewName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Caminho absoluto no host (ex: /root/project)"
+                    value={newPath}
+                    className="h-8 font-mono text-xs"
+                    onChange={(e) => setNewPath(e.target.value)}
+                  />
+                  {createArea.isError && (
+                    <p className="text-xs text-destructive">{(createArea.error as Error)?.message}</p>
+                  )}
+                  <div className="flex justify-end gap-1.5">
+                    <Button size="sm" variant="outline" onClick={resetAddForm}>
+                      Cancelar
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!newName.trim() || !newPath.trim() || createArea.isPending}
+                      onClick={() =>
+                        createArea.mutate(
+                          { name: newName.trim(), host_path: newPath.trim() },
+                          {
+                            onSuccess: (created) => {
+                              onSelect(created.id);
+                              resetAddForm();
+                              setOpen(false);
+                            },
+                          }
+                        )
+                      }
+                    >
+                      {createArea.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Adicionar"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button variant="ghost" size="sm" className="mt-1 w-full justify-start gap-1.5" onClick={() => setAdding(true)}>
+                  <Plus className="h-3.5 w-3.5" /> Nova área
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function DocsPage() {
-  const { data: tree, isLoading, isError, error } = useDocsTree();
+  const { data: areas } = useDocAreas();
+  const [areaId, setAreaId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!areaId && areas?.length) setAreaId(areas[0].id);
+  }, [areas, areaId]);
+  const currentArea = areas?.find((a) => a.id === areaId);
+  // doc_links/ConvertMenu only make sense against the original /root/docs
+  // mount (see DOCS_HOST_PATH comment above).
+  const isDocsArea = currentArea?.host_path === DOCS_HOST_PATH;
+
+  const { data: tree, isLoading, isError, error } = useDocsTree(areaId);
   const [searchParams] = useSearchParams();
   // Deep-link from EntityDocsCard (/docs?path=...) -- only seeds the
   // initial selection, so navigating the tree afterwards isn't fought.
@@ -94,13 +257,14 @@ export default function DocsPage() {
   // .excalidraw is read as text too (backend allows it) so a saved scene
   // can be reopened for editing without a dedicated endpoint.
   const { data: file, isLoading: fileLoading, isError: fileError } = useDocFile(
+    areaId,
     isEditable || isScene ? selectedPath : null
   );
-  const saveFile = useSaveDocFile();
-  const deletePath = useDeleteDocPath();
-  const createFolder = useCreateDocFolder();
-  const renamePath = useRenameDocPath();
-  const uploadFile = useUploadDocFile();
+  const saveFile = useSaveDocFile(areaId ?? "");
+  const deletePath = useDeleteDocPath(areaId ?? "");
+  const createFolder = useCreateDocFolder(areaId ?? "");
+  const renamePath = useRenameDocPath(areaId ?? "");
+  const uploadFile = useUploadDocFile(areaId ?? "");
 
   // null = viewing; string = editing draft. Cleared when switching files.
   const [draft, setDraft] = useState<string | null>(null);
@@ -111,7 +275,7 @@ export default function DocsPage() {
 
   // Explicit "pasta de trabalho": click a folder in the tree (or use the
   // reset button) to choose where "Novo documento"/"Nova pasta"/"Upload"
-  // and the tree's own inline create actions land. "" is the /root/docs root.
+  // and the tree's own inline create actions land. "" is the area's root.
   const [workingDir, setWorkingDir] = useState("");
 
   // Whiteboard: undefined = closed; object (possibly {}) = open, reopening
@@ -126,6 +290,21 @@ export default function DocsPage() {
 
   useEffect(() => setWhiteboardNote(null), [selectedPath]);
   useEffect(() => setConvertMessage(null), [selectedPath]);
+
+  // Switching areas invalidates every bit of per-file/per-folder state --
+  // each area is its own distinct working space (per-area selection/draft).
+  function handleSelectArea(nextAreaId: string) {
+    setAreaId(nextAreaId);
+    setSelectedPath(null);
+    setDraft(null);
+    setWorkingDir("");
+    setWhiteboardData(undefined);
+    setWhiteboardNote(null);
+    setConvertMessage(null);
+    setPrompt(null);
+    setRenameTarget(null);
+    setDeleting(null);
+  }
 
   const dirty = draft != null && draft !== (file?.content ?? "");
 
@@ -173,6 +352,21 @@ export default function DocsPage() {
     setPrompt("new-folder");
   }
 
+  // Drag-and-drop move: a move is a rename to the same basename under the
+  // destination folder (see docs.py's rename_path guard against folder-
+  // into-itself moves, which this relies on for that edge case).
+  function handleMove(sourcePath: string, destFolderPath: string) {
+    const basename = sourcePath.split("/").pop() ?? sourcePath;
+    const newPath = destFolderPath ? `${destFolderPath}/${basename}` : basename;
+    if (newPath === sourcePath) return;
+    renamePath.mutate({ path: sourcePath, newPath }, {
+      onSuccess: () => {
+        if (selectedPath === sourcePath) setSelectedPath(newPath);
+        if (workingDir === sourcePath) setWorkingDir(newPath);
+      },
+    });
+  }
+
   function handleOpenNewWhiteboard() {
     setWhiteboardData({});
   }
@@ -217,13 +411,13 @@ export default function DocsPage() {
         open={assistantOpen}
         onClose={() => setAssistantOpen(false)}
         tabId="assistant:docs"
-        workingDir="/root/docs"
+        workingDir={currentArea?.host_path ?? "/root/docs"}
         contextLabel="Usar documento atual"
         buildContext={() => {
-          if (!selectedPath) return null;
+          if (!selectedPath || !currentArea) return null;
           const lines = [
-            "Estou trabalhando na área Docs do ForgeHub (arquivos em /root/docs, no host).",
-            `Documento atual: /root/docs/${selectedPath}`,
+            `Estou trabalhando na área "${currentArea.name}" do ForgeHub Docs (arquivos em ${currentArea.host_path}, no host).`,
+            `Documento atual: ${currentArea.host_path}/${selectedPath}`,
             "",
             "Me ajude a criar/editar este documento. Escreva o resultado diretamente no arquivo (você tem acesso ao host) e me avise quando salvar.",
           ];
@@ -235,7 +429,7 @@ export default function DocsPage() {
       <ConfirmDialog
         open={deleting !== null}
         title={`Excluir "${deleting ?? ""}"`}
-        description="Remove o arquivo (ou a pasta inteira, recursivamente) de /root/docs. Esta ação não pode ser desfeita."
+        description="Remove o arquivo (ou a pasta inteira, recursivamente) desta área. Esta ação não pode ser desfeita."
         loading={deletePath.isPending}
         onConfirm={() => {
           if (deleting)
@@ -263,9 +457,7 @@ export default function DocsPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="flex items-center gap-2 text-xl font-semibold">
           <BookOpen className="h-5 w-5" /> Docs
-          <span className="text-sm font-normal text-muted-foreground">
-            área de criação · /root/docs
-          </span>
+          {areas && <AreaSwitcher areas={areas} currentAreaId={areaId} onSelect={handleSelectArea} />}
         </h1>
         <div className="flex items-center gap-1.5">
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPrompt("new-file")}>
@@ -280,7 +472,7 @@ export default function DocsPage() {
             className="gap-1.5"
             disabled={!selectedPath}
             title={selectedPath ? `Baixar ${selectedPath}` : "Selecione um documento na árvore para baixar"}
-            onClick={() => selectedPath && downloadDoc(selectedPath)}
+            onClick={() => areaId && selectedPath && downloadDoc(areaId, selectedPath)}
           >
             <Download className="h-4 w-4" /> Download
           </Button>
@@ -318,7 +510,7 @@ export default function DocsPage() {
 
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Folder className="h-3.5 w-3.5" />
-        Pasta de trabalho: <code className="text-foreground">/root/docs/{workingDir || ""}</code>
+        Pasta de trabalho: <code className="text-foreground">{currentArea?.host_path ?? ""}/{workingDir || ""}</code>
         {workingDir && (
           <button type="button" className="underline hover:text-foreground" onClick={() => setWorkingDir("")}>
             usar raiz
@@ -411,6 +603,7 @@ export default function DocsPage() {
                   onRename: handleRenamePath,
                   onDelete: handleDeletePath,
                 }}
+                onMove={handleMove}
               />
             )}
           </CardContent>
@@ -462,7 +655,7 @@ export default function DocsPage() {
                       size="icon"
                       title="Download"
                       aria-label="Download"
-                      onClick={() => downloadDoc(selectedPath)}
+                      onClick={() => areaId && downloadDoc(areaId, selectedPath)}
                     >
                       <Download className="h-4 w-4" />
                     </Button>
@@ -526,7 +719,7 @@ export default function DocsPage() {
                   )}
                 </div>
 
-                {isEditable && (
+                {isEditable && isDocsArea && (
                   <ConvertMenu
                     defaultTitle={selectedPath.split("/").pop()?.replace(/\.(md|markdown|txt)$/i, "") ?? ""}
                     onConvert={(payload) => {
@@ -542,7 +735,7 @@ export default function DocsPage() {
                 )}
                 {convertMessage && <p className="text-xs text-emerald-600">{convertMessage}</p>}
 
-                <DocLinkPanel docPath={selectedPath} />
+                {isDocsArea && <DocLinkPanel docPath={selectedPath} />}
               </>
             )}
           </CardContent>

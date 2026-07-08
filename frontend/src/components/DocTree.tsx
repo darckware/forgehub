@@ -20,6 +20,11 @@ export interface DocTreeActions {
   onDelete: (path: string) => void;
 }
 
+// Custom MIME type for the dragged node's path -- namespaced so dropping
+// something dragged from elsewhere on the page (or another app) is a no-op
+// instead of misreading unrelated drag data as a move.
+const DRAG_MIME = "application/x-forgehub-doc-path";
+
 interface DocTreeItemProps {
   node: DocTreeNode;
   depth: number;
@@ -28,6 +33,7 @@ interface DocTreeItemProps {
   workingDir?: string;
   onSelectFolder?: (path: string) => void;
   actions?: DocTreeActions;
+  onMove?: (sourcePath: string, destFolderPath: string) => void;
 }
 
 function ActionIcon({
@@ -66,17 +72,47 @@ function DocTreeItem({
   workingDir,
   onSelectFolder,
   actions,
+  onMove,
 }: DocTreeItemProps) {
   const [expanded, setExpanded] = useState(depth === 0);
+  const [dragOver, setDragOver] = useState(false);
+  const draggable = Boolean(onMove);
+
+  function handleDragStart(e: React.DragEvent) {
+    e.dataTransfer.setData(DRAG_MIME, node.path);
+    e.dataTransfer.effectAllowed = "move";
+  }
 
   if (node.type === "dir") {
     const isWorkingDir = workingDir === node.path;
     return (
       <div>
         <div
+          draggable={draggable}
+          onDragStart={handleDragStart}
+          onDragOver={(e) => {
+            if (!onMove) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDragEnter={(e) => {
+            if (!onMove) return;
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            if (!onMove) return;
+            e.preventDefault();
+            setDragOver(false);
+            const sourcePath = e.dataTransfer.getData(DRAG_MIME);
+            if (sourcePath && sourcePath !== node.path) onMove(sourcePath, node.path);
+          }}
           className={cn(
             "group flex w-full items-center gap-1.5 rounded-md pr-1 text-sm",
-            isWorkingDir
+            dragOver
+              ? "bg-accent ring-1 ring-inset ring-primary"
+              : isWorkingDir
               ? "bg-accent/70 text-accent-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           )}
@@ -115,6 +151,7 @@ function DocTreeItem({
               workingDir={workingDir}
               onSelectFolder={onSelectFolder}
               actions={actions}
+              onMove={onMove}
             />
           ))}
       </div>
@@ -123,6 +160,8 @@ function DocTreeItem({
 
   return (
     <div
+      draggable={draggable}
+      onDragStart={handleDragStart}
       className={cn(
         "group flex w-full items-center gap-1.5 rounded-md pr-1 text-sm",
         node.path === selectedPath
@@ -156,6 +195,7 @@ export function DocTree({
   workingDir,
   onSelectFolder,
   actions,
+  onMove,
 }: {
   nodes: DocTreeNode[];
   selectedPath: string | undefined;
@@ -165,9 +205,15 @@ export function DocTree({
   workingDir?: string;
   onSelectFolder?: (path: string) => void;
   actions?: DocTreeActions;
+  /** Drag-and-drop move: dragging any row and dropping it onto a folder row
+   * (or the root drop zone below the tree) calls this with (sourcePath,
+   * destFolderPath). Optional, like `actions` -- undefined disables
+   * dragging entirely (the Knowledge Base page's read-only tree). */
+  onMove?: (sourcePath: string, destFolderPath: string) => void;
 }) {
+  const [rootDragOver, setRootDragOver] = useState(false);
   return (
-    <>
+    <div className="flex min-h-full flex-col">
       {nodes.map((node) => (
         <DocTreeItem
           key={node.path}
@@ -178,8 +224,33 @@ export function DocTree({
           workingDir={workingDir}
           onSelectFolder={onSelectFolder}
           actions={actions}
+          onMove={onMove}
         />
       ))}
-    </>
+      {onMove && (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            setRootDragOver(true);
+          }}
+          onDragLeave={() => setRootDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setRootDragOver(false);
+            const sourcePath = e.dataTransfer.getData(DRAG_MIME);
+            if (sourcePath) onMove(sourcePath, "");
+          }}
+          className={cn(
+            "min-h-8 flex-1 rounded-md",
+            rootDragOver && "bg-accent ring-1 ring-inset ring-primary"
+          )}
+          title="Soltar aqui move para a raiz da área"
+        />
+      )}
+    </div>
   );
 }
