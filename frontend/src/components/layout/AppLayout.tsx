@@ -31,7 +31,10 @@ export function AppLayout() {
           // definite height so their inner flex-1/min-h-0 panes (tools
           // table, database diagram, terminal) get their own scrollbars
           // instead of growing past the viewport with no way to scroll.
-          isFullBleed ? "flex h-screen flex-col" : "overflow-y-auto p-8"
+          // Extra top clearance below md: the sidebar's mobile hamburger
+          // trigger is `fixed top-3 left-3` and would otherwise sit on top
+          // of page titles/toolbars that start right at the p-8 corner.
+          isFullBleed ? "flex h-screen flex-col pt-14 md:pt-0" : "overflow-y-auto p-4 pt-16 md:p-8"
         )}
       >
         <Outlet />

@@ -2,46 +2,19 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  Bell,
-  LayoutDashboard,
-  LayoutPanelLeft,
-  Package,
-  FolderKanban,
-  GitBranch,
-  ClipboardList,
-  CheckSquare,
-  Bot,
-  FileBox,
-  Gavel,
-  Gem,
-  Brain,
-  Kanban,
-  Landmark,
-  Route,
-  Clock,
-  Server,
-  Network,
-  Database,
-  LayoutList,
-  Share2,
-  Code2,
   ChevronDown,
-  BookOpen,
   ChevronRight,
-  Inbox,
-  ClipboardCheck,
-  Users,
-  ShieldCheck,
-  Sparkles,
-  Wrench,
-  Command,
+  Search,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserSettingsMenu } from "@/components/layout/UserSettingsMenu";
 import { NotificationBell } from "@/components/layout/NotificationBell";
+import { CommandPalette } from "@/components/layout/CommandPalette";
+import { NAV_SECTIONS, type NavGroupEntry, type NavLinkEntry } from "@/components/layout/navSections";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/authStore";
@@ -49,106 +22,6 @@ import { usePermission } from "@/hooks/usePermission";
 
 const COLLAPSE_STORAGE_KEY = "forgehub-sidebar-collapsed";
 const GROUP_COLLAPSE_STORAGE_KEY = "forgehub-sidebar-group-collapsed";
-
-interface NavLinkEntry {
-  type: "link";
-  to: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  module?: string; // if set, check can_view; undefined = always visible
-}
-
-interface NavGroupEntry {
-  type: "group";
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  items: (Omit<NavLinkEntry, "type"> & { module?: string })[];
-}
-
-interface NavSectionEntry {
-  type: "section";
-  label: string;
-  entries: (NavLinkEntry | NavGroupEntry)[];
-}
-
-
-const NAV_SECTIONS: NavSectionEntry[] = [
-  {
-    type: "section",
-    label: "General",
-    entries: [
-      { type: "link", to: "/", label: "Dashboard", icon: LayoutDashboard },
-      { type: "link", to: "/workspace", label: "Workspace", icon: LayoutPanelLeft },
-      { type: "link", to: "/notifications", label: "Notifications", icon: Bell },
-      // Inbox de demandas de agentes ("como um e-mail"), conversível em
-      // Task/Doc/Artefato/Knowledge Base (core/conversions.py).
-      { type: "link", to: "/demands", label: "Demandas", icon: Inbox, module: "demands" },
-      // Área de criação: markdown editável em /root/docs, cruzado com
-      // produtos/projetos/tasks (doc_links, fase 3).
-      { type: "link", to: "/docs", label: "Docs", icon: BookOpen, module: "docs" },
-    ],
-  },
-  {
-    type: "section",
-    label: "Planning",
-    entries: [
-      { type: "link", to: "/product", label: "Products", icon: Package, module: "product" },
-      { type: "link", to: "/projects", label: "Projects", icon: FolderKanban, module: "projects" },
-      { type: "link", to: "/pipeline", label: "Pipelines", icon: GitBranch, module: "pipeline" },
-      { type: "link", to: "/pipeline-templates", label: "Templates", icon: GitBranch, module: "pipeline" },
-      { type: "link", to: "/backlog", label: "Planning", icon: ClipboardList, module: "backlog" },
-      { type: "link", to: "/tasks", label: "Execution", icon: CheckSquare, module: "tasks" },
-      { type: "link", to: "/artifact", label: "Artifacts", icon: FileBox, module: "artifacts" },
-      { type: "link", to: "/governance", label: "Governance", icon: Gavel, module: "governance" },
-      { type: "link", to: "/governance/policies", label: "Policies", icon: ShieldCheck, module: "governance" },
-    ],
-  },
-  {
-    type: "section",
-    label: "Agents & AI",
-    entries: [
-      { type: "link", to: "/agents", label: "Agents", icon: Bot, module: "agents" },
-      { type: "link", to: "/tools", label: "Agent Tools", icon: Wrench, module: "agents" },
-      { type: "link", to: "/prompt-commands", label: "Chat Commands", icon: Command, module: "agents" },
-      { type: "link", to: "/skills", label: "Skills", icon: Sparkles, module: "agents" },
-      { type: "link", to: "/crons", label: "Crons", icon: Clock, module: "crons" },
-      { type: "link", to: "/foundation", label: "Foundation", icon: Landmark, module: "foundation" },
-      { type: "link", to: "/forgerouter", label: "ForgeRouter", icon: Route, module: "forgerouter" },
-    ],
-  },
-  {
-    type: "section",
-    label: "Tools",
-    entries: [
-      { type: "link", to: "/kanboard", label: "Kanboard", icon: Kanban, module: "kanboard" },
-      { type: "link", to: "/obsidian", label: "Knowledge Base", icon: Gem, module: "obsidian" },
-      { type: "link", to: "/hindsight", label: "Hindsight", icon: Brain, module: "foundation" },
-      {
-        type: "group",
-        label: "Database",
-        icon: Database,
-        items: [
-          { to: "/database/schema", label: "Schema", icon: LayoutList, module: "database" },
-          { to: "/database/diagram", label: "Diagram", icon: Share2, module: "database" },
-          { to: "/database/query", label: "Query", icon: Code2, module: "database" },
-        ],
-      },
-      // Ecosystem checkpoints (audit_checks) -- admins always see it; grant
-      // the "auditor" module in Access Profiles for non-admin visibility.
-      { type: "link", to: "/auditor", label: "Auditor", icon: ClipboardCheck, module: "auditor" },
-      { type: "link", to: "/deploy", label: "Deploy Control", icon: Server, module: "deploy" },
-      { type: "link", to: "/servers", label: "Servers", icon: Network, module: "servers" },
-    ],
-  },
-  {
-    type: "section",
-    label: "Administration",
-    entries: [
-      { type: "link", to: "/users", label: "Users", icon: Users, module: "users" },
-      { type: "link", to: "/profiles", label: "Access Profiles", icon: ShieldCheck, module: "profiles" },
-    ],
-  },
-];
 
 function navLinkClasses(isActive: boolean, collapsed: boolean) {
   return cn(
@@ -215,6 +88,7 @@ export function Sidebar() {
   // icon-rail/expanded preference (`collapsed`) -- there's no icon-rail
   // state on mobile, it's either fully hidden or fully shown as an overlay.
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const handleLogout = () => {
     clearAuth();
@@ -403,20 +277,55 @@ export function Sidebar() {
               <PanelLeftOpen className="h-4 w-4" />
             </Button>
           )}
-          {NAV_SECTIONS.map((section) => (
-            <div key={section.label}>
-              {!effectiveCollapsed && (
-                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                  {section.label}
-                </p>
-              )}
-              <div className="space-y-1">
-                {section.entries.map((entry, i) => (
-                  <React.Fragment key={i}>{renderEntry(entry as NavLinkEntry | NavGroupEntry)}</React.Fragment>
-                ))}
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            title="Search (Ctrl/Cmd+K)"
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+              effectiveCollapsed && "justify-center px-2"
+            )}
+          >
+            <Search className="h-4 w-4 shrink-0" />
+            {!effectiveCollapsed && (
+              <>
+                <span className="flex-1 text-left">Search</span>
+                <kbd className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px]">
+                  {navigator.platform.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K"}
+                </kbd>
+              </>
+            )}
+          </button>
+          {NAV_SECTIONS.map((section) => {
+            // Icon-rail mode ignores section collapse -- there's no label to
+            // click there, so items always render as bare icons.
+            const isSectionCollapsed = !effectiveCollapsed && (collapsedGroups[section.label] ?? false);
+            return (
+              <div key={section.label}>
+                {!effectiveCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(section.label)}
+                    className="flex w-full items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground"
+                  >
+                    <span>{section.label}</span>
+                    {isSectionCollapsed ? (
+                      <ChevronRight className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3 shrink-0" />
+                    )}
+                  </button>
+                )}
+                {!isSectionCollapsed && (
+                  <div className="space-y-1">
+                    {section.entries.map((entry, i) => (
+                      <React.Fragment key={i}>{renderEntry(entry as NavLinkEntry | NavGroupEntry)}</React.Fragment>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
 
         <div className="space-y-1 border-t border-border p-3">
@@ -461,6 +370,8 @@ export function Sidebar() {
           </Button>
         </div>
       </aside>
+
+      <CommandPalette sections={NAV_SECTIONS} open={paletteOpen} onOpenChange={setPaletteOpen} />
     </>
   );
 }

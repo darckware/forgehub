@@ -24,3 +24,6 @@ dist/
 # OS / editor
 .DS_Store
 *.swp
+
+# dev.sh state (pidfiles + logs for the local dev servers)
+.dev/
