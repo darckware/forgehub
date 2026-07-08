@@ -41,7 +41,7 @@ export function ToolVersionsCard() {
   const checkVersions = useCheckToolVersions();
   const setSyncSetting = useSetToolSyncSetting();
   const runToolUpdate = useRunToolUpdate();
-  const { updatingTool, expandedTool, lastUpdateOutput, setExpandedTool } = useToolUpdateStore();
+  const { updatingTools, expandedTool, updateOutputs, setExpandedTool } = useToolUpdateStore();
 
   const syncEnabled = syncSetting?.enabled ?? true;
 
@@ -103,7 +103,8 @@ export function ToolVersionsCard() {
             const meta = TOOL_META[tool];
             const version = versions?.find((v) => v.tool === tool);
             const isExpanded = expandedTool === tool;
-            const updateOut = lastUpdateOutput?.tool === tool ? lastUpdateOutput : null;
+            const updateOut = updateOutputs[tool] ?? null;
+            const isUpdating = updatingTools.has(tool);
             const errorText = version?.last_error;
             return (
               <div key={tool} className="rounded-md">
@@ -150,9 +151,9 @@ export function ToolVersionsCard() {
                         size="sm"
                         variant="outline"
                         onClick={() => handleUpdate(tool)}
-                        disabled={updatingTool === tool}
+                        disabled={isUpdating}
                       >
-                        {updatingTool === tool ? (
+                        {isUpdating ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
                           "Update"
