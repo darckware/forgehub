@@ -33,6 +33,7 @@ import ObsidianPage from "@/pages/obsidian";
 import HindsightPage from "@/pages/hindsight";
 import FoundationPage from "@/pages/foundation";
 import CronsPage from "@/pages/crons";
+import SystemControlPage from "@/pages/system-control";
 import DeployPage from "@/pages/deploy";
 import ServersPage from "@/pages/servers";
 import DatabaseLayout from "@/pages/database/DatabaseLayout";
@@ -94,6 +95,7 @@ export default function App() {
         <Route path="hindsight" element={<HindsightPage />} />
         <Route path="foundation" element={<FoundationPage />} />
         <Route path="crons" element={<CronsPage />} />
+        <Route path="system-control" element={<SystemControlPage />} />
         <Route path="auditor" element={<AuditorPage />} />
         <Route path="demands" element={<DemandsPage />} />
         <Route path="docs" element={<DocsPage />} />

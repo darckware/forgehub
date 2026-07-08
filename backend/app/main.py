@@ -44,6 +44,7 @@ from app.api.routes import (
     project,
     remote_access,
     server,
+    system_control,
     systemstats,
     task,
     terminal,
@@ -140,6 +141,7 @@ app.include_router(users.router)
 app.include_router(profiles.router)
 app.include_router(server.router)
 app.include_router(remote_access.router)
+app.include_router(system_control.router)
 app.include_router(forgerouter.router)
 # ---------------------------------------------------------------------------
 
