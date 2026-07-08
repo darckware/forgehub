@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bot, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
@@ -35,6 +35,17 @@ export function AssistantDrawer({
   const [agentId, setAgentId] = useState<string | null>(null);
   const effectiveAgentId = agentId ?? chatableAgents[0]?.id;
 
+  // Esc closes the drawer, same convention as the app's other overlays
+  // (ConfirmDialog, the Docs file viewers).
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   function handleUseContext() {
     const context = buildContext?.();
     if (!context) return;
@@ -47,11 +58,14 @@ export function AssistantDrawer({
     <>
       {!open && (
         <Button
-          className="fixed bottom-6 right-6 z-40 gap-2 shadow-lg"
+          size="icon"
+          variant="default"
+          className="fixed bottom-6 right-6 z-40 rounded-full shadow-lg"
           onClick={() => setOpen(true)}
           aria-label="Abrir assistente"
+          title="Abrir assistente"
         >
-          <Bot className="h-4 w-4" /> Assistente
+          <Bot className="h-5 w-5" />
         </Button>
       )}
       {open && (
@@ -71,7 +85,14 @@ export function AssistantDrawer({
                   📄 {contextLabel ?? "Usar contexto"}
                 </Button>
               )}
-              <Button variant="ghost" size="icon" aria-label="Fechar assistente" onClick={() => setOpen(false)}>
+              <Button
+                variant="outline"
+                size="icon"
+                className="shrink-0"
+                aria-label="Fechar assistente"
+                title="Fechar assistente"
+                onClick={() => setOpen(false)}
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>
