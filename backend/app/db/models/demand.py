@@ -7,16 +7,27 @@ api/routes/docs.py's /convert, without needing a demand row.
 """
 import uuid
 
-from sqlalchemy import CheckConstraint, String, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
 
 DEMAND_STATUSES = ("new", "read", "converted", "archived")
 
 # Kept in sync with core/conversions.py's CONVERT_TARGETS.
-DEMAND_CONVERT_TARGETS = ("task", "doc", "artifact", "knowledge_base")
+DEMAND_CONVERT_TARGETS = (
+    "task",
+    "doc",
+    "artifact",
+    "knowledge_base",
+    # project_id-scoped targets, added for the "console de desenvolvimento"
+    # inbox: turn a demand straight into project work instead of only a
+    # loose doc/task tied to an existing planning item.
+    "planning_item",
+    "project_doc",
+    "quick_task",
+)
 
 
 class AgentDemand(Base, TimestampMixin):
@@ -43,3 +54,38 @@ class AgentDemand(Base, TimestampMixin):
             name="ck_agent_demands_converted_entity_type",
         ),
     )
+
+    # lazy="selectin": DemandOut always includes attachments, and the async
+    # session can't do implicit lazy-load I/O once Pydantic serializes the
+    # ORM object outside the request's await chain -- eager-load up front
+    # instead of adding selectinload() at every one of demand.py's routes.
+    attachments: Mapped[list["DemandAttachment"]] = relationship(
+        "DemandAttachment",
+        back_populates="demand",
+        cascade="all, delete-orphan",
+        order_by="DemandAttachment.created_at",
+        lazy="selectin",
+    )
+
+
+class DemandAttachment(Base, TimestampMixin):
+    """A file attached to a demand, e.g. a markdown procedure doc sent
+    alongside the inbox message. Stored on disk under the same /docs
+    mount docs.py already writes to (see api/routes/demand.py's upload
+    handler), this row is just the pointer + metadata."""
+
+    __tablename__ = "demand_attachments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    demand_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="CASCADE"), nullable=False
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Relative path under /docs, e.g. "anexos/demandas/<demand_id>/<filename>".
+    path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    demand: Mapped["AgentDemand"] = relationship("AgentDemand", back_populates="attachments")

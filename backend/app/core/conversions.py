@@ -12,18 +12,35 @@ import uuid
 from pathlib import Path
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes.artifact import create_artifact
+from app.api.routes.backlog import create_planning_item
 from app.api.routes.task import create_task
 from app.api.schemas.artifact import ArtifactCreate, ArtifactVersionCreate
+from app.api.schemas.backlog import PlanningItemCreate
 from app.api.schemas.task import ProjectTaskCreate
 from app.core.markdown_docs import resolve_doc_path
+from app.db.models.doc_link import DocLink
 
 DOCS_ROOT = Path("/docs")
 VAULT_ROOT = Path("/vault")
 
-CONVERT_TARGETS = ("task", "doc", "artifact", "knowledge_base")
+# project_id-scoped targets (planning_item/project_doc/quick_task) exist
+# alongside the original four so a demand can become project work
+# directly, not just a doc/task tied to something that must already exist.
+CONVERT_TARGETS = (
+    "task",
+    "doc",
+    "artifact",
+    "knowledge_base",
+    "planning_item",
+    "project_doc",
+    "quick_task",
+)
+
+DEFAULT_ITEM_TYPE = "documentation"
 
 
 class ConversionError(Exception):
@@ -95,3 +112,49 @@ async def convert_to_knowledge_base(*, path: str, content: str) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return path
+
+
+async def convert_to_planning_item(
+    db: AsyncSession, *, title: str, content: str, project_id: uuid.UUID, item_type: str
+) -> tuple[uuid.UUID, str]:
+    """Drops the demand straight into a project's backlog (no task yet) --
+    delegates to the real create_planning_item route function so project
+    existence / item_type validation stays in one place."""
+    payload = PlanningItemCreate(title=title[:255], description=content, item_type=item_type, project_id=project_id)
+    try:
+        item = await create_planning_item(payload, db)
+    except HTTPException as exc:
+        raise ConversionError(exc.detail) from exc
+    return item.id, str(item.id)
+
+
+async def convert_to_project_doc(
+    db: AsyncSession, *, project_id: uuid.UUID, path: str, content: str
+) -> str:
+    """Writes the demand as a doc under /docs, then cross-links it to the
+    project (doc_links) -- same insert docs.py's own POST /links does, but
+    inlined here rather than imported to avoid a docs.py <-> conversions.py
+    import cycle (docs.py already imports this module for its own /convert
+    endpoint)."""
+    written_path = await convert_to_doc(path=path, content=content)
+    link = DocLink(doc_path=written_path, entity_type="project", entity_id=project_id)
+    db.add(link)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise ConversionError("This doc is already linked to that project") from exc
+    return written_path
+
+
+async def convert_to_quick_task(
+    db: AsyncSession, *, title: str, content: str, project_id: uuid.UUID, item_type: str
+) -> tuple[uuid.UUID, str]:
+    """The "task avulsa" shortcut: ForgeHub's core invariant requires every
+    task to trace back to a planning item, so this creates a minimal one
+    (title/content mirrored from the demand) and the task under it in one
+    call, instead of making the user create both by hand."""
+    planning_item_id, _ = await convert_to_planning_item(
+        db, title=title, content=content, project_id=project_id, item_type=item_type
+    )
+    return await convert_to_task(db, title=title, content=content, planning_item_id=planning_item_id)

@@ -27,6 +27,17 @@ class DemandUpdateIn(BaseModel):
         return v
 
 
+class DemandAttachmentOut(BaseModel):
+    class Config:
+        from_attributes = True
+
+    id: uuid.UUID
+    filename: str
+    size_bytes: int
+    content_type: str | None
+    created_at: datetime
+
+
 class DemandOut(BaseModel):
     class Config:
         from_attributes = True
@@ -40,6 +51,7 @@ class DemandOut(BaseModel):
     converted_reference: str | None
     created_at: datetime
     updated_at: datetime
+    attachments: list[DemandAttachmentOut] = []
 
 
 class ConvertIn(BaseModel):
@@ -56,13 +68,20 @@ class ConvertIn(BaseModel):
     # POST /docs/convert (demand.py's /demands/{id}/convert gets its
     # content from the demand row instead).
     source_path: str | None = Field(default=None, max_length=500)
-    # task
+    # task (existing planning item)
     planning_item_id: uuid.UUID | None = None
     # Destination path for target=doc / knowledge_base / artifact's
     # backing doc file. Defaulted per-target when omitted (see the routes).
     path: str | None = Field(default=None, max_length=500)
     # artifact
     artifact_type: str | None = None
+    # planning_item / project_doc / quick_task -- which project this demand
+    # becomes work for.
+    project_id: uuid.UUID | None = None
+    # planning_item / quick_task -- one of PLANNING_ITEM_TYPES; defaulted to
+    # "documentation" at the route layer when omitted (matches the common
+    # case: a procedure doc sent to a project).
+    item_type: str | None = None
 
     @field_validator("target")
     @classmethod

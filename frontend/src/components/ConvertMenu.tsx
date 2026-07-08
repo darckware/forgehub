@@ -10,8 +10,12 @@ import {
   type ConvertResult,
   type ConvertTarget,
 } from "@/hooks/useDemands";
-import { usePlanningItems } from "@/hooks/useBacklog";
+import { PLANNING_ITEM_TYPES, usePlanningItems } from "@/hooks/useBacklog";
 import { ARTIFACT_TYPES } from "@/hooks/useArtifact";
+import { useProjects } from "@/hooks/useProject";
+
+const PROJECT_SCOPED_TARGETS: ConvertTarget[] = ["planning_item", "project_doc", "quick_task"];
+const ITEM_TYPE_TARGETS: ConvertTarget[] = ["planning_item", "quick_task"];
 
 /**
  * "Converter em: Task | Documento | Artefato | Knowledge Base" -- the one
@@ -22,6 +26,7 @@ import { ARTIFACT_TYPES } from "@/hooks/useArtifact";
 export function ConvertMenu({
   defaultTitle,
   excludeTargets,
+  initialTarget,
   onConvert,
   isPending,
   error,
@@ -30,17 +35,27 @@ export function ConvertMenu({
   /** e.g. ["doc"] when converting a doc that's already a doc's own copy
    * action would be confusing to hide -- callers can still allow it. */
   excludeTargets?: ConvertTarget[];
+  /** Preselects the target -- e.g. after a drag-and-drop onto a "Projeto"
+   * drop zone in the inbox. Callers that want this to actually reset the
+   * form when it changes should remount via a `key` prop (React won't
+   * re-run useState's initializer on a prop change alone). */
+  initialTarget?: ConvertTarget;
   onConvert: (payload: ConvertPayload) => void;
   isPending: boolean;
   error?: string | null;
 }) {
   const targets = CONVERT_TARGETS.filter((t) => !excludeTargets?.includes(t));
-  const [target, setTarget] = useState<ConvertTarget>(targets[0]);
+  const [target, setTarget] = useState<ConvertTarget>(initialTarget ?? targets[0]);
   const [title, setTitle] = useState(defaultTitle);
   const [planningItemId, setPlanningItemId] = useState("");
   const [path, setPath] = useState("");
   const [artifactType, setArtifactType] = useState<string>("reference_doc");
+  const [projectId, setProjectId] = useState("");
+  const [itemType, setItemType] = useState<string>("documentation");
   const { data: planningItems, isLoading: planningLoading } = usePlanningItems();
+  const { data: projects, isLoading: projectsLoading } = useProjects();
+
+  const isProjectScoped = PROJECT_SCOPED_TARGETS.includes(target);
 
   function handleSubmit() {
     const payload: ConvertPayload = { target, title };
@@ -50,12 +65,16 @@ export function ConvertMenu({
       payload.artifact_type = artifactType;
       if (path) payload.path = path;
     }
+    if (isProjectScoped) payload.project_id = projectId;
+    if (ITEM_TYPE_TARGETS.includes(target)) payload.item_type = itemType;
+    if (target === "project_doc" && path) payload.path = path;
     onConvert(payload);
   }
 
   const canSubmit =
     (target !== "task" || Boolean(planningItemId)) &&
-    (target !== "knowledge_base" || Boolean(path));
+    (target !== "knowledge_base" || Boolean(path)) &&
+    (!isProjectScoped || Boolean(projectId));
 
   return (
     <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
@@ -104,7 +123,31 @@ export function ConvertMenu({
             ))}
           </Select>
         )}
-        {(target === "doc" || target === "knowledge_base" || target === "artifact") && (
+        {isProjectScoped && (
+          <Select
+            value={projectId}
+            className="h-8 w-56 text-xs"
+            disabled={projectsLoading}
+            onChange={(e) => setProjectId(e.target.value)}
+          >
+            <option value="">{projectsLoading ? "Carregando…" : "Selecione o Projeto…"}</option>
+            {(projects ?? []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        )}
+        {ITEM_TYPE_TARGETS.includes(target) && (
+          <Select value={itemType} className="h-8 w-40 text-xs" onChange={(e) => setItemType(e.target.value)}>
+            {PLANNING_ITEM_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+        )}
+        {(target === "doc" || target === "knowledge_base" || target === "artifact" || target === "project_doc") && (
           <Input
             value={path}
             onChange={(e) => setPath(e.target.value)}
@@ -134,6 +177,12 @@ export function convertResultMessage(result: ConvertResult): string {
     case "artifact":
       return "Artefato criado com sucesso.";
     case "knowledge_base":
-      return `Nota salva na Knowledge Base em ${result.reference}.`;
+      return `Nota salva na Base de Conhecimento em ${result.reference}.`;
+    case "planning_item":
+      return "Item adicionado ao planejamento do projeto.";
+    case "project_doc":
+      return `Documento vinculado ao projeto em ${result.reference}.`;
+    case "quick_task":
+      return "Task avulsa criada (com item de planejamento próprio).";
   }
 }
