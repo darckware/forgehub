@@ -6,6 +6,7 @@ import {
   Download,
   Eye,
   FilePlus,
+  Folder,
   FolderPlus,
   Loader2,
   Palette,
@@ -42,11 +43,6 @@ const SCENE_RE = /\.excalidraw$/i;
 // Whiteboard exports always land here (see /root/docs/README.md's
 // "assets/ — imagens (inclui exports da lousa)").
 const WHITEBOARD_ASSETS_FOLDER = "assets";
-
-function parentDir(path: string): string {
-  const idx = path.lastIndexOf("/");
-  return idx === -1 ? "" : path.slice(0, idx);
-}
 
 /** Small inline prompt row (new file / new folder / rename). */
 function PathPrompt({
@@ -108,8 +104,14 @@ export default function DocsPage() {
   // null = viewing; string = editing draft. Cleared when switching files.
   const [draft, setDraft] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<"new-file" | "new-folder" | "rename" | null>(null);
+  const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
+
+  // Explicit "pasta de trabalho": click a folder in the tree (or use the
+  // reset button) to choose where "Novo documento"/"Nova pasta"/"Upload"
+  // and the tree's own inline create actions land. "" is the /root/docs root.
+  const [workingDir, setWorkingDir] = useState("");
 
   // Whiteboard: undefined = closed; object (possibly {}) = open, reopening
   // that scene when non-empty (see handleOpenWhiteboard).
@@ -123,8 +125,6 @@ export default function DocsPage() {
   useEffect(() => setWhiteboardNote(null), [selectedPath]);
   useEffect(() => setConvertMessage(null), [selectedPath]);
 
-  // New files/uploads land next to the selected file (or its folder).
-  const targetFolder = selectedPath ? parentDir(selectedPath) : "";
   const dirty = draft != null && draft !== (file?.content ?? "");
 
   function handleSave() {
@@ -148,8 +148,27 @@ export default function DocsPage() {
   function handleUpload(files: FileList | null) {
     if (!files?.length) return;
     for (const f of Array.from(files)) {
-      uploadFile.mutate({ folder: targetFolder, file: f });
+      uploadFile.mutate({ folder: workingDir, file: f });
     }
+  }
+
+  function handleDeletePath(path: string) {
+    setDeleting(path);
+  }
+
+  function handleRenamePath(path: string) {
+    setRenameTarget(path);
+    setPrompt("rename");
+  }
+
+  function handleCreateFileIn(folder: string) {
+    setWorkingDir(folder);
+    setPrompt("new-file");
+  }
+
+  function handleCreateFolderIn(folder: string) {
+    setWorkingDir(folder);
+    setPrompt("new-folder");
   }
 
   function handleOpenNewWhiteboard() {
@@ -219,6 +238,7 @@ export default function DocsPage() {
             deletePath.mutate(deleting, {
               onSuccess: () => {
                 if (selectedPath?.startsWith(deleting)) setSelectedPath(null);
+                if (workingDir === deleting || workingDir.startsWith(`${deleting}/`)) setWorkingDir("");
                 setDeleting(null);
               },
             });
@@ -255,7 +275,7 @@ export default function DocsPage() {
             variant="outline"
             className="gap-1.5"
             disabled={uploadFile.isPending}
-            title={`Upload para ${targetFolder || "a raiz"}`}
+            title={`Upload para ${workingDir || "a raiz"}`}
             onClick={() => uploadRef.current?.click()}
           >
             {uploadFile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -273,6 +293,16 @@ export default function DocsPage() {
         </div>
       </div>
 
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Folder className="h-3.5 w-3.5" />
+        Pasta de trabalho: <code className="text-foreground">/root/docs/{workingDir || ""}</code>
+        {workingDir && (
+          <button type="button" className="underline hover:text-foreground" onClick={() => setWorkingDir("")}>
+            usar raiz
+          </button>
+        )}
+      </p>
+
       {whiteboardData !== undefined && (
         <WhiteboardModal
           initialData={whiteboardData}
@@ -289,7 +319,7 @@ export default function DocsPage() {
       {prompt === "new-file" && (
         <PathPrompt
           label="Caminho do novo .md:"
-          initial={targetFolder ? `${targetFolder}/` : ""}
+          initial={workingDir ? `${workingDir}/` : ""}
           pending={saveFile.isPending}
           onConfirm={handleCreateFile}
           onCancel={() => setPrompt(null)}
@@ -298,29 +328,34 @@ export default function DocsPage() {
       {prompt === "new-folder" && (
         <PathPrompt
           label="Caminho da nova pasta:"
-          initial={targetFolder ? `${targetFolder}/` : ""}
+          initial={workingDir ? `${workingDir}/` : ""}
           pending={createFolder.isPending}
           onConfirm={(p) => createFolder.mutate(p, { onSuccess: () => setPrompt(null) })}
           onCancel={() => setPrompt(null)}
         />
       )}
-      {prompt === "rename" && selectedPath && (
+      {prompt === "rename" && renameTarget && (
         <PathPrompt
-          label={`Renomear ${selectedPath} para:`}
-          initial={selectedPath}
+          label={`Renomear ${renameTarget} para:`}
+          initial={renameTarget}
           pending={renamePath.isPending}
           onConfirm={(p) =>
             renamePath.mutate(
-              { path: selectedPath, newPath: p },
+              { path: renameTarget, newPath: p },
               {
                 onSuccess: () => {
                   setPrompt(null);
-                  setSelectedPath(p);
+                  if (renameTarget === selectedPath) setSelectedPath(p);
+                  if (renameTarget === workingDir) setWorkingDir(p);
+                  setRenameTarget(null);
                 },
               }
             )
           }
-          onCancel={() => setPrompt(null)}
+          onCancel={() => {
+            setPrompt(null);
+            setRenameTarget(null);
+          }}
         />
       )}
 
@@ -345,6 +380,14 @@ export default function DocsPage() {
                 nodes={tree as DocTreeNode[]}
                 selectedPath={selectedPath ?? undefined}
                 onSelectFile={setSelectedPath}
+                workingDir={workingDir}
+                onSelectFolder={setWorkingDir}
+                actions={{
+                  onCreateFile: handleCreateFileIn,
+                  onCreateFolder: handleCreateFolderIn,
+                  onRename: handleRenamePath,
+                  onDelete: handleDeletePath,
+                }}
               />
             )}
           </CardContent>
@@ -387,7 +430,7 @@ export default function DocsPage() {
                       size="icon"
                       title="Renomear/mover"
                       aria-label="Renomear"
-                      onClick={() => setPrompt("rename")}
+                      onClick={() => handleRenamePath(selectedPath)}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
