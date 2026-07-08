@@ -1040,7 +1040,12 @@ function MessageBubble({
             <p className="mb-1 text-xs text-white/70">📎 {message.attachment_names}</p>
           )}
           <Markdown content={message.content} />
-          <p className="mt-1 text-[10px] text-primary-foreground/70">{formatTime(message.created_at)}</p>
+          {/* Fixed indigo-600 bubble in both themes -- the timestamp must
+              be a fixed light tint too. text-primary-foreground flips to
+              near-black in dark mode (it's meant to pair with the *theme's*
+              bg-primary, not this hardcoded bubble color), which read as
+              unreadably dark-on-dark against this background. */}
+          <p className="mt-1 text-[10px] text-indigo-100/80">{formatTime(message.created_at)}</p>
         </div>
         {onEdit && (
           <button
