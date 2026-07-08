@@ -97,7 +97,13 @@ export function AssistantDrawer({
               </Button>
             </div>
           </div>
-          <div className="min-h-0 flex-1">
+          {/* ChatPane's root is `absolute inset-0` (it assumes a positioned
+              ancestor, true in the Workspace tab layout it was extracted
+              from). Without `relative` here, that inset-0 skips this div
+              (not a positioning context) and resolves against the drawer's
+              own `fixed` box instead -- covering this panel's header,
+              including the close button, entirely. */}
+          <div className="relative min-h-0 flex-1">
             {effectiveAgentId ? (
               <ChatPane
                 key={epoch}
