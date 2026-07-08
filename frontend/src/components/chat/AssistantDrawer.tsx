@@ -10,19 +10,26 @@ import { useAgents } from "@/hooks/useAgent";
  * drawer's draft/attachments per page (staging survives open/close);
  * `buildContext` produces the screen's context (e.g. the open doc) that
  * "Usar contexto" seeds into a fresh composer.
+ *
+ * Controlled (`open`/`onClose`): the host page owns where the trigger to
+ * open it lives -- e.g. inline in its own toolbar, next to its other
+ * actions, instead of this component imposing its own floating button.
  */
 export function AssistantDrawer({
+  open,
+  onClose,
   tabId,
   buildContext,
   contextLabel,
   workingDir,
 }: {
+  open: boolean;
+  onClose: () => void;
   tabId: string;
   buildContext?: () => string | null;
   contextLabel?: string;
   workingDir?: string;
 }) {
-  const [open, setOpen] = useState(false);
   // Bumping the epoch remounts ChatPane so initialComposerText re-applies
   // (staged text otherwise wins -- see ChatPane's per-tab staging maps).
   const [epoch, setEpoch] = useState(0);
@@ -40,11 +47,11 @@ export function AssistantDrawer({
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open]);
+  }, [open, onClose]);
 
   function handleUseContext() {
     const context = buildContext?.();
@@ -54,75 +61,61 @@ export function AssistantDrawer({
     setEpoch((e) => e + 1);
   }
 
+  if (!open) return null;
+
   return (
-    <>
-      {!open && (
-        <Button
-          size="icon"
-          variant="default"
-          className="fixed bottom-6 right-6 z-40 rounded-full shadow-lg"
-          onClick={() => setOpen(true)}
-          aria-label="Abrir assistente"
-          title="Abrir assistente"
-        >
-          <Bot className="h-5 w-5" />
-        </Button>
-      )}
-      {open && (
-        <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-xl flex-col border-l border-border bg-background shadow-2xl">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <p className="flex items-center gap-2 text-sm font-medium">
-              <Bot className="h-4 w-4" /> Assistente
-            </p>
-            <div className="flex items-center gap-1.5">
-              {buildContext && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  title="Preenche o chat com o contexto da tela para o agente trabalhar nele"
-                  onClick={handleUseContext}
-                >
-                  📄 {contextLabel ?? "Usar contexto"}
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="icon"
-                className="shrink-0"
-                aria-label="Fechar assistente"
-                title="Fechar assistente"
-                onClick={() => setOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-          {/* ChatPane's root is `absolute inset-0` (it assumes a positioned
-              ancestor, true in the Workspace tab layout it was extracted
-              from). Without `relative` here, that inset-0 skips this div
-              (not a positioning context) and resolves against the drawer's
-              own `fixed` box instead -- covering this panel's header,
-              including the close button, entirely. */}
-          <div className="relative min-h-0 flex-1">
-            {effectiveAgentId ? (
-              <ChatPane
-                key={epoch}
-                tabId={tabId}
-                active
-                agentId={effectiveAgentId}
-                chatableAgents={chatableAgents}
-                onAgentChange={setAgentId}
-                initialComposerText={seed}
-                historyCollapsed
-                artifactsOpen={false}
-                workingDir={workingDir}
-              />
-            ) : (
-              <p className="p-4 text-sm text-muted-foreground">Nenhum agente com profile disponível.</p>
-            )}
-          </div>
+    <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-xl flex-col border-l border-border bg-background shadow-2xl">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <p className="flex items-center gap-2 text-sm font-medium">
+          <Bot className="h-4 w-4" /> Assistente
+        </p>
+        <div className="flex items-center gap-1.5">
+          {buildContext && (
+            <Button
+              size="sm"
+              variant="outline"
+              title="Preenche o chat com o contexto da tela para o agente trabalhar nele"
+              onClick={handleUseContext}
+            >
+              📄 {contextLabel ?? "Usar contexto"}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-label="Fechar assistente"
+            title="Fechar assistente"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-      )}
-    </>
+      </div>
+      {/* ChatPane's root is `absolute inset-0` (it assumes a positioned
+          ancestor, true in the Workspace tab layout it was extracted
+          from). Without `relative` here, that inset-0 skips this div
+          (not a positioning context) and resolves against the drawer's
+          own `fixed` box instead -- covering this panel's header,
+          including the close button, entirely. */}
+      <div className="relative min-h-0 flex-1">
+        {effectiveAgentId ? (
+          <ChatPane
+            key={epoch}
+            tabId={tabId}
+            active
+            agentId={effectiveAgentId}
+            chatableAgents={chatableAgents}
+            onAgentChange={setAgentId}
+            initialComposerText={seed}
+            historyCollapsed
+            artifactsOpen={false}
+            workingDir={workingDir}
+          />
+        ) : (
+          <p className="p-4 text-sm text-muted-foreground">Nenhum agente com profile disponível.</p>
+        )}
+      </div>
+    </div>
   );
 }

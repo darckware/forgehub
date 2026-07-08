@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   BookOpen,
+  Bot,
   Download,
   Eye,
   FilePlus,
@@ -117,6 +118,7 @@ export default function DocsPage() {
   // that scene when non-empty (see handleOpenWhiteboard).
   const [whiteboardData, setWhiteboardData] = useState<ExcalidrawInitialDataState | undefined>();
   const [whiteboardNote, setWhiteboardNote] = useState<string | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   useEffect(() => setDraft(null), [selectedPath]);
   const convertDoc = useConvertDoc();
@@ -212,6 +214,8 @@ export default function DocsPage() {
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4 p-6">
       <AssistantDrawer
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
         tabId="assistant:docs"
         workingDir="/root/docs"
         contextLabel="Usar documento atual"
@@ -289,6 +293,15 @@ export default function DocsPage() {
             onClick={handleOpenNewWhiteboard}
           >
             <Palette className="h-4 w-4" /> Lousa
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            title="Abrir o assistente para ajudar a criar/preencher este documento"
+            onClick={() => setAssistantOpen(true)}
+          >
+            <Bot className="h-4 w-4" /> Agente
           </Button>
         </div>
       </div>
