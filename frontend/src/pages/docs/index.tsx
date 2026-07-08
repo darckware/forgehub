@@ -278,6 +278,16 @@ export default function DocsPage() {
             size="sm"
             variant="outline"
             className="gap-1.5"
+            disabled={!selectedPath}
+            title={selectedPath ? `Baixar ${selectedPath}` : "Selecione um documento na árvore para baixar"}
+            onClick={() => selectedPath && downloadDoc(selectedPath)}
+          >
+            <Download className="h-4 w-4" /> Download
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
             disabled={uploadFile.isPending}
             title={`Upload para ${workingDir || "a raiz"}`}
             onClick={() => uploadRef.current?.click()}
