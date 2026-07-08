@@ -449,6 +449,47 @@ async def chat(req: ChatRequest, x_bridge_token: str | None = Header(default=Non
     return _run_hermes_chat(req)
 
 
+class MessageSendRequest(BaseModel):
+    # "telegram" (home channel) or "telegram:<chat_id>" -- same format
+    # send_message_tool itself takes.
+    target: str
+    message: str
+
+
+@app.post("/v1/messages/send")
+async def send_message(
+    req: MessageSendRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Forward a message through Hermes's cross-channel gateway (Telegram,
+    Discord, Slack, ...) -- shells out to send_message.py (HERMES_PYTHON,
+    same subprocess pattern as _run_hermes_chat / hermes_stream.py) since
+    the gateway's `tools`/`gateway` packages aren't importable from this
+    process directly (see that script's docstring)."""
+    _check_token(x_bridge_token)
+    helper = str(Path(__file__).parent / "send_message.py")
+    try:
+        proc = subprocess.run(
+            [HERMES_PYTHON, "-u", helper, "--target", req.target, "--message", req.message],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Message send timed out") from None
+
+    try:
+        result = json.loads(proc.stdout.strip().splitlines()[-1]) if proc.stdout.strip() else {}
+    except (json.JSONDecodeError, IndexError):
+        result = {}
+
+    if proc.returncode != 0 or "error" in result:
+        raise HTTPException(
+            status_code=502,
+            detail=result.get("error") or proc.stderr.strip()[-2000:] or "Message send failed",
+        )
+    return result
+
+
 def _load_profile_llm_config(profile: str) -> dict:
     """Read ForgeRouter URL, API key, and model from the profile's config.yaml."""
     cfg_path = PROFILES_DIR / profile / "config.yaml"
@@ -2687,7 +2728,19 @@ async def hindsight_status(x_bridge_token: str | None = Header(default=None)) ->
             "hindsight_configured": bool(hindsight_config),
         })
 
-    primary_profile = profile_configs[0] if profile_configs else (active_profiles[0] if active_profiles else None)
+    # "athos" is Hermes' designated primary/default profile in this
+    # install -- pick it deterministically when it's a candidate. Falling
+    # back to "first alphabetically" only made sense back when athos was
+    # the *only* profile with its own hindsight/config.json; now that
+    # every profile has one (see forgehub_dev's config replication,
+    # 2026-07-08), that tiebreaker becomes arbitrary (picks "aegis").
+    primary_profile = (
+        "athos" if "athos" in profile_configs
+        else profile_configs[0] if profile_configs
+        else "athos" if "athos" in active_profiles
+        else active_profiles[0] if active_profiles
+        else None
+    )
     primary_config_path = (
         HERMES_PROFILES_DIR / primary_profile / "hindsight" / "config.json"
         if primary_profile else None
@@ -2771,3 +2824,56 @@ async def hindsight_status(x_bridge_token: str | None = Header(default=None)) ->
             "current_risk": "Profiles without profile-scoped hindsight/config.json inherit defaults or environment and can silently drift from athos.",
         },
     }
+
+
+def _primary_hindsight_profile() -> str | None:
+    """Same primary-profile selection as hindsight_status (profile with its
+    own hindsight/config.json wins, else the first active-hindsight
+    profile) -- recomputed standalone here rather than refactoring that
+    endpoint's larger body."""
+    active_profiles, profile_configs = [], []
+    for cfg_path in sorted(HERMES_PROFILES_DIR.glob("*/config.yaml")):
+        profile = cfg_path.parent.name
+        cfg = _read_yaml_file(cfg_path)
+        memory = cfg.get("memory") if isinstance(cfg.get("memory"), dict) else {}
+        if memory.get("provider") == "hindsight":
+            active_profiles.append(profile)
+        if _read_json_file(cfg_path.parent / "hindsight" / "config.json"):
+            profile_configs.append(profile)
+    if "athos" in profile_configs:
+        return "athos"
+    if profile_configs:
+        return profile_configs[0]
+    if "athos" in active_profiles:
+        return "athos"
+    return active_profiles[0] if active_profiles else None
+
+
+_HINDSIGHT_LOG_TARGETS = {"runtime", "default", "startup"}
+
+
+@app.post("/v1/hindsight/clear-log")
+async def clear_hindsight_log(
+    body: dict, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Truncates one of the log files hindsight_status reads (stale crash
+    traces otherwise sit there indefinitely -- these processes don't log-
+    rotate on their own)."""
+    _check_token(x_bridge_token)
+    target = body.get("target")
+    if target not in _HINDSIGHT_LOG_TARGETS:
+        raise HTTPException(status_code=400, detail=f"target must be one of {sorted(_HINDSIGHT_LOG_TARGETS)}")
+
+    if target == "startup":
+        path = HERMES_HOME_DIR / "logs" / "hindsight-embed.log"
+    else:
+        primary_profile = _primary_hindsight_profile()
+        if target == "default" or not primary_profile:
+            path = HINDSIGHT_PROFILE_DIR / "default.log"
+        else:
+            path = HINDSIGHT_PROFILE_DIR / f"{primary_profile}.log"
+
+    if not path.exists():
+        return {"success": True, "path": str(path), "cleared": False, "note": "File did not exist"}
+    path.write_text("", encoding="utf-8")
+    return {"success": True, "path": str(path), "cleared": True}
