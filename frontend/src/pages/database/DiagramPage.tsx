@@ -35,7 +35,7 @@ interface DiagramConfig {
 const STORAGE_KEY = "forgehub-db-diagrams";
 
 const DEFAULT_DIAGRAMS: DiagramConfig[] = [
-  { id: "all", name: "Esquema Completo", tables: "all" },
+  { id: "all", name: "Full Schema", tables: "all" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ function TableSelector({
       </div>
       <div className="flex gap-1 shrink-0">
         <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => onChange(allTables)}>
-          Todas
+          All
         </Button>
         <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => onChange([])}>
           None
@@ -292,7 +292,7 @@ export default function DiagramPage() {
                 <Layers className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
                 <div className="flex-1 min-w-0">
                   <p className={cn("text-xs truncate", isActive && "font-medium")}>{d.name}</p>
-                  <p className="text-[10px] text-muted-foreground">{count} tabela(s)</p>
+                  <p className="text-[10px] text-muted-foreground">{count} table(s)</p>
                 </div>
                 {isActive && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
                 {d.id !== "all" && (
@@ -330,13 +330,13 @@ export default function DiagramPage() {
                 <Input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder={creating ? "Nome do diagrama..." : editDiagram?.name}
+                  placeholder={creating ? "Diagram name..." : editDiagram?.name}
                   className="h-8 max-w-xs text-sm font-medium"
                   autoFocus
                   onKeyDown={(e) => e.key === "Enter" && saveDiagram()}
                 />
               </div>
-              <span className="text-xs text-muted-foreground">{editTables.length} tabela(s) selecionada(s)</span>
+              <span className="text-xs text-muted-foreground">{editTables.length} table(s) selected</span>
               <Button size="sm" variant="ghost" onClick={cancelEdit} className="h-7 gap-1 text-xs">
                 <X className="h-3.5 w-3.5" /> Cancel
               </Button>
@@ -360,7 +360,7 @@ export default function DiagramPage() {
               <div className="flex-1 min-w-0 overflow-auto p-4 bg-muted/10">
                 {editTables.length === 0 ? (
                   <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-                    Selecione ao menos uma tabela para visualizar o diagrama
+                    Select at least one table to preview the diagram
                   </div>
                 ) : schema ? (
                   <DiagramPreview schema={schema} tables={editTables} />
@@ -375,7 +375,7 @@ export default function DiagramPage() {
               <span className="text-xs font-medium flex-1">
                 {activeDiagram.name}
                 <Badge variant="outline" className="ml-2 text-[10px]">
-                  {activeDiagram.tables === "all" ? allTables.length : activeDiagram.tables.length} tabelas
+                  {activeDiagram.tables === "all" ? allTables.length : activeDiagram.tables.length} tables
                 </Badge>
               </span>
               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setZoom((z) => Math.max(0.2, z - 0.15))} title="Zoom out">
@@ -406,7 +406,7 @@ export default function DiagramPage() {
               ) : renderError ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 max-w-lg">
-                    <p className="text-sm text-destructive font-medium mb-1">Erro ao renderizar</p>
+                    <p className="text-sm text-destructive font-medium mb-1">Render error</p>
                     <pre className="text-xs text-muted-foreground whitespace-pre-wrap">{renderError}</pre>
                   </div>
                 </div>

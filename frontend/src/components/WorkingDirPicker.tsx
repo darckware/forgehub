@@ -60,7 +60,7 @@ export function WorkingDirPicker({
           onClick={() => setOpen((v) => !v)}
         >
           {workingDir ? <FolderOpen className="h-3.5 w-3.5 shrink-0" /> : <Folder className="h-3.5 w-3.5 shrink-0" />}
-          <span className="max-w-[8rem] truncate">{workingDir ? basename(workingDir) : "Pasta"}</span>
+          <span className="max-w-[8rem] truncate">{workingDir ? basename(workingDir) : "Folder"}</span>
         </button>
         {workingDir && (
           <button
@@ -98,7 +98,7 @@ export function WorkingDirPicker({
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar pasta…"
+                  placeholder="Search folder…"
                   className="h-8 w-full rounded-md border border-border bg-transparent pl-7 pr-2 text-xs outline-none focus:border-primary"
                 />
               </div>
@@ -128,7 +128,7 @@ export function WorkingDirPicker({
               <p className="p-3 text-xs italic text-muted-foreground">No subfolders here.</p>
             )}
             {data && data.entries.length > 0 && filteredEntries?.length === 0 && (
-              <p className="p-3 text-xs italic text-muted-foreground">Nenhuma pasta encontrada.</p>
+              <p className="p-3 text-xs italic text-muted-foreground">No folder found.</p>
             )}
           </div>
 
@@ -143,7 +143,7 @@ export function WorkingDirPicker({
               }}
             >
               <Check className="mr-2 h-3.5 w-3.5" />
-              Usar esta pasta
+              Use this folder
             </Button>
           </div>
         </div>

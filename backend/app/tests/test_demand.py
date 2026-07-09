@@ -23,7 +23,7 @@ from sqlalchemy import delete
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
 from app.db.models.backlog import PlanningItem
-from app.db.models.demand import AgentDemand, DemandAttachment
+from app.db.models.demand import AgentDemand, DemandAttachment, DemandGroup
 from app.db.models.notification import Notification
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
@@ -231,6 +231,69 @@ async def test_convert_to_project_doc(client: AsyncClient, project_id, monkeypat
         await _delete_demand(demand["id"])
 
 
+async def test_convert_to_doc_in_area(client: AsyncClient, monkeypatch, tmp_path):
+    """area_id routes the write through resolve_area_root (HOST_ROOT +
+    the área's host_path) instead of the fixed DOCS_ROOT."""
+    from app.core import conversions
+    from app.db.models.docs_area import DocsArea
+
+    monkeypatch.setattr(conversions, "HOST_ROOT", tmp_path)
+
+    async with AsyncSessionLocal() as session:
+        area = DocsArea(name=f"Test Area {uuid.uuid4().hex[:8]}", host_path="")
+        session.add(area)
+        await session.commit()
+        await session.refresh(area)
+        area_id = area.id
+
+    demand = await _create_demand(client)
+    try:
+        resp = await client.post(
+            f"/api/v1/demands/{demand['id']}/convert",
+            json={"target": "doc", "path": "minha-area/nota.md", "area_id": str(area_id)},
+        )
+        assert resp.status_code == 200, resp.text
+        assert (tmp_path / "minha-area" / "nota.md").is_file()
+    finally:
+        await _delete_demand(demand["id"])
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(DocsArea).where(DocsArea.id == area_id))
+            await session.commit()
+
+
+async def test_convert_to_doc_copies_attachments(client: AsyncClient, monkeypatch, tmp_path):
+    """Converting to Documento with an attachment must land the attachment
+    file next to the note, not just write the markdown body."""
+    from app.api.routes import demand as demand_routes
+    from app.core import conversions
+
+    monkeypatch.setattr(demand_routes, "DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(conversions, "DOCS_ROOT", tmp_path)
+
+    demand = await _create_demand(client)
+    try:
+        resp = await client.post(
+            f"/api/v1/demands/{demand['id']}/attachments",
+            files={"file": ("checklist.pdf", b"%PDF-fake-bytes", "application/pdf")},
+        )
+        assert resp.status_code == 201, resp.text
+
+        resp = await client.post(
+            f"/api/v1/demands/{demand['id']}/convert",
+            json={"target": "doc", "path": "procedimentos/meu-doc.md"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["reference"] == "procedimentos/meu-doc.md"
+        assert (tmp_path / "procedimentos" / "meu-doc.md").is_file()
+
+        copied = tmp_path / "procedimentos" / "checklist.pdf"
+        assert copied.is_file()
+        assert copied.read_bytes() == b"%PDF-fake-bytes"
+    finally:
+        await _delete_demand(demand["id"])
+
+
 async def test_notify_telegram_proxies_to_bridge(client: AsyncClient, monkeypatch):
     """Doesn't hit the real host-bridge (no host-bridge running against
     this test DB, and a real send would spam Telegram on every test run)
@@ -280,6 +343,119 @@ async def test_notify_telegram_proxies_to_bridge(client: AsyncClient, monkeypatc
         assert "conteúdo importante" in calls["json"]["message"]
     finally:
         await _delete_demand(demand["id"])
+
+
+async def test_update_demand_status_only(client: AsyncClient):
+    """Regression: DemandUpdateIn.status became optional (exclude_unset,
+    for the group_id-only PATCH the Inbox's drag-and-drop needs) -- a
+    plain {"status": "archived"} PATCH must still work exactly as before,
+    without touching group_id."""
+    demand = await _create_demand(client)
+    try:
+        resp = await client.patch(f"/api/v1/demands/{demand['id']}", json={"status": "archived"})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "archived"
+        assert body["group_id"] is None
+    finally:
+        await _delete_demand(demand["id"])
+
+
+async def test_patch_demand_group_id_forces_archived(client: AsyncClient):
+    """Sending group_id alone (no explicit status) is the drag-and-drop
+    case: filing a demand into an Arquivados subfolder must archive it."""
+    resp = await client.post("/api/v1/demands/groups", json={"name": f"Tema {uuid.uuid4().hex[:8]}"})
+    assert resp.status_code == 201, resp.text
+    group_id = resp.json()["id"]
+
+    demand = await _create_demand(client)
+    try:
+        resp = await client.patch(f"/api/v1/demands/{demand['id']}", json={"group_id": group_id})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "archived"
+        assert body["group_id"] == group_id
+
+        # Moving back to Entrada: group_id: null, explicit status.
+        resp = await client.patch(
+            f"/api/v1/demands/{demand['id']}", json={"group_id": None, "status": "read"}
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "read"
+        assert body["group_id"] is None
+    finally:
+        await _delete_demand(demand["id"])
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(DemandGroup).where(DemandGroup.id == uuid.UUID(group_id)))
+            await session.commit()
+
+
+async def test_demand_group_nesting_and_cycle_prevention(client: AsyncClient):
+    resp = await client.post("/api/v1/demands/groups", json={"name": f"Root {uuid.uuid4().hex[:8]}"})
+    assert resp.status_code == 201, resp.text
+    root_id = resp.json()["id"]
+
+    resp = await client.post(
+        "/api/v1/demands/groups", json={"name": f"Child {uuid.uuid4().hex[:8]}", "parent_id": root_id}
+    )
+    assert resp.status_code == 201, resp.text
+    child = resp.json()
+    assert child["parent_id"] == root_id
+
+    try:
+        # Moving root under its own child would create a cycle -- rejected.
+        resp = await client.patch(f"/api/v1/demands/groups/{root_id}", json={"parent_id": child["id"]})
+        assert resp.status_code == 400, resp.text
+
+        # Renaming without touching parent_id leaves it alone.
+        resp = await client.patch(f"/api/v1/demands/groups/{child['id']}", json={"name": "Renamed"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["name"] == "Renamed"
+        assert resp.json()["parent_id"] == root_id
+    finally:
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(DemandGroup).where(DemandGroup.id == uuid.UUID(root_id)))
+            await session.commit()
+
+
+async def test_delete_demand_group_cascades_subfolders_and_unsets_demands():
+    """Deleting a folder deletes its subfolders (parent_id ondelete=CASCADE)
+    but only unsets group_id on demands filed under it (ondelete=SET NULL)
+    -- the demand itself must survive, just falls back to the Arquivados
+    root."""
+    async with AsyncSessionLocal() as session:
+        root = DemandGroup(name=f"Root {uuid.uuid4().hex[:8]}")
+        session.add(root)
+        await session.flush()
+        child = DemandGroup(name=f"Child {uuid.uuid4().hex[:8]}", parent_id=root.id)
+        session.add(child)
+        demand = AgentDemand(
+            from_agent="test-suite",
+            subject=f"Cascade test {uuid.uuid4().hex[:8]}",
+            body="body",
+            status="archived",
+            group_id=root.id,
+        )
+        session.add(demand)
+        await session.commit()
+        root_id, child_id, demand_id = root.id, child.id, demand.id
+
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(DemandGroup).where(DemandGroup.id == root_id))
+            await session.commit()
+
+        async with AsyncSessionLocal() as session:
+            assert await session.get(DemandGroup, root_id) is None
+            assert await session.get(DemandGroup, child_id) is None
+            survivor = await session.get(AgentDemand, demand_id)
+            assert survivor is not None
+            assert survivor.group_id is None
+    finally:
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(AgentDemand).where(AgentDemand.id == demand_id))
+            await session.commit()
 
 
 async def test_attachment_upload_download_delete(client: AsyncClient, monkeypatch, tmp_path):

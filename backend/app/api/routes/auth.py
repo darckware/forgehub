@@ -102,10 +102,18 @@ async def get_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> TokenOut:
-    """Returns the current user with a refreshed permissions map."""
+    """Sliding-session refresh: the frontend's activity tracker (see
+    useSessionKeepAlive) calls this periodically while the user is active,
+    each call re-minting a fresh access_token here so an actively-used
+    session never expires out from under the user -- only a truly idle
+    session (no calls for a full token lifetime) hits the 401 in
+    lib/api.ts and gets logged out. get_current_user already requires the
+    *current* token to still be valid, so this can't resurrect an
+    already-expired session, only extend one that hasn't expired yet."""
+    token = create_access_token(subject=current_user.username)
     permissions = await _build_permissions(current_user, db)
     return TokenOut(
-        access_token="",
+        access_token=token,
         token_type="bearer",
         user=UserOut.model_validate(current_user),
         permissions=permissions,

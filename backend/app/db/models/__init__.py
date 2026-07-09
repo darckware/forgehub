@@ -54,6 +54,6 @@ from app.db.models.notification import Notification, NotificationIngestState  # 
 from app.db.models.tool import AgentTool  # noqa: F401
 from app.db.models.audit import AuditCheck, AuditCheckRun  # noqa: F401
 from app.db.models.doc_link import DocLink  # noqa: F401
-from app.db.models.demand import AgentDemand, DemandAttachment  # noqa: F401
+from app.db.models.demand import AgentDemand, DemandAttachment, DemandGroup  # noqa: F401
 from app.db.models.docs_area import DocsArea  # noqa: F401
 from app.db.models.prompt_command import PromptCommand  # noqa: F401

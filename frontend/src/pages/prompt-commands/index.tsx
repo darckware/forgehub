@@ -58,19 +58,19 @@ function CommandFormModal({
   function handleSave() {
     setError(null);
     if (!normalizedName) {
-      setError("Informe um nome curto, como review-pr ou plano.");
+      setError("Enter a short name, like review-pr or plan.");
       return;
     }
     if (RESERVED_PROMPT_COMMAND_NAMES.includes(normalizedName)) {
-      setError(`/${normalizedName} já é um comando Hermes reservado.`);
+      setError(`/${normalizedName} is already a reserved Hermes command.`);
       return;
     }
     if (!draft.description.trim()) {
-      setError("Informe uma descrição curta.");
+      setError("Enter a short description.");
       return;
     }
     if (!draft.prompt.trim()) {
-      setError("Informe o prompt em Markdown.");
+      setError("Enter the prompt in Markdown.");
       return;
     }
     const payload = {
@@ -80,7 +80,7 @@ function CommandFormModal({
     };
     const opts = {
       onSuccess: onClose,
-      onError: (e: Error) => setError(e.message || "Não foi possível salvar."),
+      onError: (e: Error) => setError(e.message || "Could not save."),
     };
     if (initial) updateCommand.mutate({ id: initial.id, payload }, opts);
     else createCommand.mutate(payload, opts);
@@ -92,17 +92,17 @@ function CommandFormModal({
       <div className="relative z-10 flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold">{initial ? "Editar comando" : "Novo comando"}</h2>
-            <p className="text-xs text-muted-foreground">Aparece no chat como /{normalizedName || "nome"}.</p>
+            <h2 className="text-base font-semibold">{initial ? "Edit command" : "New command"}</h2>
+            <p className="text-xs text-muted-foreground">Appears in chat as /{normalizedName || "name"}.</p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Fechar" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-auto p-5">
           <div className="grid gap-4 md:grid-cols-[220px_1fr]">
             <div className="space-y-1.5">
-              <Label htmlFor="command-name">Nome curto</Label>
+              <Label htmlFor="command-name">Short name</Label>
               <Input
                 id="command-name"
                 value={draft.name}
@@ -111,23 +111,23 @@ function CommandFormModal({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="command-description">Descrição</Label>
+              <Label htmlFor="command-description">Description</Label>
               <Input
                 id="command-description"
                 value={draft.description}
                 onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-                placeholder="Revisar um PR com foco em riscos e testes"
+                placeholder="Review a PR focused on risks and tests"
               />
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="command-prompt">Prompt Markdown</Label>
+            <Label htmlFor="command-prompt">Markdown prompt</Label>
             <Textarea
               id="command-prompt"
               value={draft.prompt}
               onChange={(e) => setDraft((d) => ({ ...d, prompt: e.target.value }))}
               className="min-h-[320px] font-mono text-xs"
-              placeholder={"## Objetivo\nRevise o código atual e liste bugs, riscos e testes ausentes.\n\n## Saída esperada\n- Achados por severidade\n- Arquivos afetados\n- Comandos de verificação"}
+              placeholder={"## Goal\nReview the current code and list bugs, risks, and missing tests.\n\n## Expected output\n- Findings by severity\n- Affected files\n- Verification commands"}
               spellCheck={false}
             />
           </div>
@@ -135,11 +135,11 @@ function CommandFormModal({
         </div>
         <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
           <Button variant="outline" onClick={onClose}>
-            Cancelar
+            Cancel
           </Button>
           <Button onClick={handleSave} disabled={pending}>
             {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {initial ? "Salvar" : "Cadastrar"}
+            {initial ? "Save" : "Create"}
           </Button>
         </div>
       </div>
@@ -160,12 +160,12 @@ export default function PromptCommandsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Chat Commands</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Cadastre prompts reutilizáveis para aparecerem junto dos comandos Hermes ao digitar / no chat.
+            Register reusable prompts to show up alongside Hermes commands when typing / in chat.
           </p>
         </div>
         <Button onClick={() => setCreating(true)} className="gap-2">
           <Plus className="h-4 w-4" />
-          Novo comando
+          New command
         </Button>
       </div>
 
@@ -174,10 +174,10 @@ export default function PromptCommandsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Comando</TableHead>
-                <TableHead>Descrição</TableHead>
+                <TableHead>Command</TableHead>
+                <TableHead>Description</TableHead>
                 <TableHead>Prompt</TableHead>
-                <TableHead className="w-28 text-right">Ações</TableHead>
+                <TableHead className="w-28 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -192,10 +192,10 @@ export default function PromptCommandsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" aria-label="Editar" onClick={() => setEditing(command)}>
+                      <Button variant="ghost" size="icon" aria-label="Edit" onClick={() => setEditing(command)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" aria-label="Excluir" onClick={() => setDeleting(command)}>
+                      <Button variant="ghost" size="icon" aria-label="Delete" onClick={() => setDeleting(command)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -213,10 +213,10 @@ export default function PromptCommandsPage() {
                       )}
                       <p className="text-sm">
                         {isLoading
-                          ? "Carregando comandos..."
+                          ? "Loading commands..."
                           : isError
-                            ? `Erro ao carregar: ${(error as Error)?.message}`
-                            : "Nenhum comando cadastrado."}
+                            ? `Failed to load: ${(error as Error)?.message}`
+                            : "No commands registered yet."}
                       </p>
                     </div>
                   </TableCell>
@@ -231,9 +231,9 @@ export default function PromptCommandsPage() {
       {editing && <CommandFormModal initial={editing} onClose={() => setEditing(null)} />}
       <ConfirmDialog
         open={Boolean(deleting)}
-        title="Excluir comando"
-        description={`Excluir /${deleting?.name ?? ""}? Ele deixará de aparecer no chat.`}
-        confirmLabel="Excluir"
+        title="Delete command"
+        description={`Delete /${deleting?.name ?? ""}? It will no longer appear in chat.`}
+        confirmLabel="Delete"
         onCancel={() => setDeleting(null)}
         onConfirm={() => {
           if (!deleting) return;

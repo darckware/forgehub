@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
 import { useAuthStore, type AuthUser, type PermissionMap } from "@/store/authStore";
@@ -40,6 +41,48 @@ export function useLogin() {
       qc.clear();
     },
   });
+}
+
+// The JWT has a fixed 60-minute expiry (backend ACCESS_TOKEN_EXPIRE_MINUTES)
+// with no server-side session state to extend -- left alone, an actively
+// working user gets hard-redirected to /login the moment it lapses,
+// regardless of how recently they moved the mouse (see lib/api.ts's 401
+// handler). This makes the session "slide": any tracked activity event
+// re-mints a fresh token via GET /auth/me (throttled so it isn't called on
+// every mousemove), well inside the expiry window, for as long as the user
+// keeps interacting. A truly idle tab still expires and gets logged out
+// normally -- this only prevents the *false* logout of an active session.
+const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "wheel", "touchstart"] as const;
+const REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000; // 12x margin inside the 60min token lifetime
+
+export function useSessionKeepAlive() {
+  const token = useAuthStore((s) => s.token);
+  const setAuth = useAuthStore((s) => s.setAuth);
+  const lastRefreshRef = useRef(0);
+
+  useEffect(() => {
+    if (!token) return;
+
+    function onActivity() {
+      const now = Date.now();
+      if (now - lastRefreshRef.current < REFRESH_MIN_INTERVAL_MS) return;
+      lastRefreshRef.current = now;
+      apiClient
+        .get<TokenOut>("/api/v1/auth/me")
+        .then((data) => {
+          if (data.access_token) setAuth(data.access_token, data.user, data.permissions ?? {});
+        })
+        .catch(() => {
+          // Token already invalid -- lib/api.ts's 401 handler already
+          // redirects to /login, nothing extra to do here.
+        });
+    }
+
+    for (const evt of ACTIVITY_EVENTS) window.addEventListener(evt, onActivity, { passive: true });
+    return () => {
+      for (const evt of ACTIVITY_EVENTS) window.removeEventListener(evt, onActivity);
+    };
+  }, [token, setAuth]);
 }
 
 // ---- Users ----------------------------------------------------------------

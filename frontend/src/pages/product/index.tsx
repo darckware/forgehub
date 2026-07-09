@@ -229,7 +229,7 @@ export default function ProductPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Falha ao gerar backup.");
+      alert("Failed to generate backup.");
     } finally {
       setBackupLoading(null);
     }
@@ -260,9 +260,9 @@ export default function ProductPage() {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       setRestoreModalOpen(false);
       setPendingRestoreFile(null);
-      alert("Backup restaurado com sucesso.");
+      alert("Backup restored successfully.");
     } catch (err) {
-      alert(`Falha ao restaurar: ${err instanceof Error ? err.message : "Erro desconhecido."}`);
+      alert(`Failed to restore: ${err instanceof Error ? err.message : "Unknown error."}`);
     } finally {
       setRestoreLoading(false);
     }
@@ -288,7 +288,7 @@ export default function ProductPage() {
           <Button
             variant="outline"
             onClick={() => restoreInputRef.current?.click()}
-            title="Restaurar produto de um backup JSON"
+            title="Restore product from a JSON backup"
           >
             <Upload className="mr-2 h-4 w-4" />
             Restore

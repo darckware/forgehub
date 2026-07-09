@@ -42,8 +42,8 @@ import {
 
 const RUN_STATUS_BADGE: Record<string, { variant: "success" | "destructive" | "warning" | "outline"; label: string }> = {
   ok: { variant: "success", label: "✅ OK" },
-  fail: { variant: "destructive", label: "❌ Falhou" },
-  error: { variant: "destructive", label: "⚠️ Erro" },
+  fail: { variant: "destructive", label: "❌ Failed" },
+  error: { variant: "destructive", label: "⚠️ Error" },
   timeout: { variant: "warning", label: "⏱ Timeout" },
 };
 
@@ -88,8 +88,8 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-xl rounded-lg border border-border bg-card" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h3 className="font-semibold">{initial ? `Editar checagem: ${initial.name}` : "Nova checagem"}</h3>
-          <Button variant="ghost" size="icon" aria-label="Fechar" onClick={onClose}>
+          <h3 className="font-semibold">{initial ? `Edit check: ${initial.name}` : "New check"}</h3>
+          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -97,11 +97,11 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
           {error && <p className="text-sm text-destructive">{error.message}</p>}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Nome</label>
+              <label className="text-xs font-medium text-muted-foreground">Name</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Categoria</label>
+              <label className="text-xs font-medium text-muted-foreground">Category</label>
               <Input
                 value={form.category ?? ""}
                 placeholder="infra, cron, kanboard…"
@@ -109,14 +109,14 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Agente responsável</label>
+              <label className="text-xs font-medium text-muted-foreground">Responsible agent</label>
               <Input
                 value={form.agent_profile}
                 onChange={(e) => setForm((f) => ({ ...f, agent_profile: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Timeout (s, máx 55)</label>
+              <label className="text-xs font-medium text-muted-foreground">Timeout (s, max 55)</label>
               <Input
                 type="number"
                 min={1}
@@ -128,7 +128,7 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              Comando (bash no host — exit 0 = OK)
+              Command (bash on the host — exit 0 = OK)
             </label>
             <Textarea
               value={form.command}
@@ -139,7 +139,7 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Diretório (opcional)</label>
+              <label className="text-xs font-medium text-muted-foreground">Directory (optional)</label>
               <Input
                 value={form.workdir ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, workdir: e.target.value }))}
@@ -154,12 +154,12 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
                 onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
               />
               <label htmlFor="check-enabled" className="text-sm">
-                Ativa
+                Enabled
               </label>
             </div>
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Descrição</label>
+            <label className="text-xs font-medium text-muted-foreground">Description</label>
             <Textarea
               value={form.description ?? ""}
               rows={2}
@@ -168,11 +168,11 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>
-              Cancelar
+              Cancel
             </Button>
             <Button onClick={handleSave} disabled={pending || !form.name || !form.command}>
               {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Salvar
+              Save
             </Button>
           </div>
         </div>
@@ -188,15 +188,15 @@ function CheckHistory({ check }: { check: AuditCheck }) {
     <div className="space-y-2 border-t border-border/60 bg-muted/20 px-4 py-3">
       {check.last_run?.output && (
         <div>
-          <p className="mb-1 text-[10px] uppercase text-muted-foreground">Última saída</p>
+          <p className="mb-1 text-[10px] uppercase text-muted-foreground">Latest output</p>
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 text-xs">
             {check.last_run.output}
           </pre>
         </div>
       )}
-      <p className="text-[10px] uppercase text-muted-foreground">Histórico recente</p>
+      <p className="text-[10px] uppercase text-muted-foreground">Recent history</p>
       {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-      {runs && runs.length === 0 && <p className="text-xs text-muted-foreground">Nunca executada.</p>}
+      {runs && runs.length === 0 && <p className="text-xs text-muted-foreground">Never run.</p>}
       {runs?.map((run) => (
         <p key={run.id} className="flex items-center gap-2 text-xs text-muted-foreground">
           <Badge variant={RUN_STATUS_BADGE[run.status]?.variant ?? "outline"} className="text-[10px]">
@@ -238,8 +238,8 @@ export default function AuditorPage() {
       )}
       <ConfirmDialog
         open={deleting !== null}
-        title={`Excluir checagem "${deleting?.name ?? ""}"`}
-        description="Remove o ponto de checagem e todo o seu histórico de execuções."
+        title={`Delete check "${deleting?.name ?? ""}"`}
+        description="Removes the checkpoint and its entire run history."
         loading={deleteCheck.isPending}
         onConfirm={() => {
           if (deleting) deleteCheck.mutate(deleting.id, { onSuccess: () => setDeleting(null) });
@@ -254,9 +254,9 @@ export default function AuditorPage() {
             <span className="flex items-center gap-2 text-sm font-normal">
               <Badge variant="success">✅ {status.ok}</Badge>
               <Badge variant={status.fail > 0 ? "destructive" : "outline"}>❌ {status.fail}</Badge>
-              {status.never_ran > 0 && <Badge variant="outline">🕐 {status.never_ran} sem execução</Badge>}
+              {status.never_ran > 0 && <Badge variant="outline">🕐 {status.never_ran} never run</Badge>}
               <span className="text-xs text-muted-foreground">
-                última checagem: {formatTimestamp(status.last_run_at)}
+                last check: {formatTimestamp(status.last_run_at)}
               </span>
             </span>
           )}
@@ -266,20 +266,20 @@ export default function AuditorPage() {
             size="sm"
             className="gap-1.5"
             disabled={runAll.isPending}
-            title="Dispara todas as checagens ativas agora"
+            title="Trigger all enabled checks now"
             onClick={() => runAll.mutate()}
           >
             {runAll.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-            Executar checklist
+            Run checklist
           </Button>
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setFormCheck("new")}>
-            <Plus className="h-4 w-4" /> Nova checagem
+            <Plus className="h-4 w-4" /> New check
           </Button>
         </div>
       </div>
 
       {runAll.isError && (
-        <p className="text-sm text-destructive">Falha ao executar o checklist: {(runAll.error as Error)?.message}</p>
+        <p className="text-sm text-destructive">Failed to run the checklist: {(runAll.error as Error)?.message}</p>
       )}
 
       {isLoading && (
@@ -292,7 +292,7 @@ export default function AuditorPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Falha ao carregar as checagens: {(error as Error)?.message}</span>
+            <span>Failed to load checks: {(error as Error)?.message}</span>
           </CardContent>
         </Card>
       )}
@@ -300,7 +300,7 @@ export default function AuditorPage() {
       {!isLoading && !isError && (checks ?? []).length === 0 && (
         <Card>
           <CardContent className="py-10 text-center text-sm italic text-muted-foreground">
-            Nenhum ponto de checagem cadastrado. Use “Nova checagem” para criar o primeiro.
+            No checkpoints registered yet. Use "New check" to create the first one.
           </CardContent>
         </Card>
       )}
@@ -311,12 +311,12 @@ export default function AuditorPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Checagem</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Agente</TableHead>
+                  <TableHead>Check</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Agent</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Última execução</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
+                  <TableHead>Last run</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -356,11 +356,11 @@ export default function AuditorPage() {
                         <TableCell className="text-sm text-muted-foreground">{check.agent_profile}</TableCell>
                         <TableCell>
                           {!check.enabled ? (
-                            <Badge variant="outline">Desativada</Badge>
+                            <Badge variant="outline">Disabled</Badge>
                           ) : badge ? (
                             <Badge variant={badge.variant}>{badge.label}</Badge>
                           ) : (
-                            <Badge variant="outline">🕐 Nunca executada</Badge>
+                            <Badge variant="outline">🕐 Never run</Badge>
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
@@ -374,8 +374,8 @@ export default function AuditorPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              aria-label={`Executar ${check.name}`}
-                              title="Executar agora"
+                              aria-label={`Run ${check.name}`}
+                              title="Run now"
                               disabled={runOne.isPending && runOne.variables === check.id}
                               onClick={() => runOne.mutate(check.id)}
                             >
@@ -388,8 +388,8 @@ export default function AuditorPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              aria-label={`${check.enabled ? "Desativar" : "Ativar"} ${check.name}`}
-                              title={check.enabled ? "Desativar" : "Ativar"}
+                              aria-label={`${check.enabled ? "Disable" : "Enable"} ${check.name}`}
+                              title={check.enabled ? "Disable" : "Enable"}
                               onClick={() =>
                                 updateCheck.mutate({ checkId: check.id, updates: { enabled: !check.enabled } })
                               }
@@ -399,8 +399,8 @@ export default function AuditorPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              aria-label={`Editar ${check.name}`}
-                              title="Editar"
+                              aria-label={`Edit ${check.name}`}
+                              title="Edit"
                               onClick={() => setFormCheck(check)}
                             >
                               <Pencil className="h-4 w-4" />
@@ -408,8 +408,8 @@ export default function AuditorPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              aria-label={`Excluir ${check.name}`}
-                              title="Excluir"
+                              aria-label={`Delete ${check.name}`}
+                              title="Delete"
                               className="text-destructive"
                               onClick={() => setDeleting(check)}
                             >

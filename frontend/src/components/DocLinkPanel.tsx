@@ -92,12 +92,12 @@ export function DocLinkPanel({ docPath }: { docPath: string }) {
   return (
     <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
       <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <Link2 className="h-3.5 w-3.5" /> Vínculos com o Planning
+        <Link2 className="h-3.5 w-3.5" /> Planning links
       </p>
 
       {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
       {links && links.length === 0 && (
-        <p className="text-xs italic text-muted-foreground">Nenhum vínculo ainda.</p>
+        <p className="text-xs italic text-muted-foreground">No links yet.</p>
       )}
       {links?.map((link) => (
         <div key={link.id} className="flex items-center justify-between gap-2 text-sm">
@@ -117,7 +117,7 @@ export function DocLinkPanel({ docPath }: { docPath: string }) {
             variant="ghost"
             size="icon"
             className="h-6 w-6 shrink-0"
-            aria-label="Remover vínculo"
+            aria-label="Remove link"
             onClick={() => deleteLink.mutate(link.id)}
           >
             <X className="h-3 w-3" />
@@ -146,7 +146,7 @@ export function DocLinkPanel({ docPath }: { docPath: string }) {
           disabled={optionsLoading}
           onChange={(e) => setEntityId(e.target.value)}
         >
-          <option value="">{optionsLoading ? "Carregando…" : "Selecione…"}</option>
+          <option value="">{optionsLoading ? "Loading…" : "Select…"}</option>
           {options.map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}
@@ -154,7 +154,7 @@ export function DocLinkPanel({ docPath }: { docPath: string }) {
           ))}
         </Select>
         <Button size="sm" disabled={!entityId || createLink.isPending} onClick={handleLink}>
-          {createLink.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Vincular"}
+          {createLink.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Link"}
         </Button>
       </div>
       {createLink.isError && (

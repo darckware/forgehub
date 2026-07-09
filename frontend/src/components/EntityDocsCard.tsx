@@ -34,7 +34,7 @@ export function EntityDocsCard({
         {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         {links && links.length === 0 && (
           <p className="text-xs italic text-muted-foreground">
-            Nenhum documento vinculado. Abra a página Docs e vincule um documento a este item.
+            No documents linked. Open the Docs page and link a document to this item.
           </p>
         )}
         {links?.map((link) => (
@@ -51,8 +51,8 @@ export function EntityDocsCard({
               variant="ghost"
               size="icon"
               className="h-6 w-6 shrink-0"
-              aria-label="Desvincular"
-              title="Desvincular"
+              aria-label="Unlink"
+              title="Unlink"
               onClick={() => deleteLink.mutate(link.id)}
             >
               <X className="h-3 w-3" />

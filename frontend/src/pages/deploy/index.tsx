@@ -571,7 +571,7 @@ function InstallationForm({
                   <ContainerStatusBadge state={live.state} health={live.health} />
                 </div>
                 <div className="flex items-start gap-2 flex-wrap">
-                  <span className="text-xs font-medium text-foreground shrink-0">Imagem:</span>
+                  <span className="text-xs font-medium text-foreground shrink-0">Image:</span>
                   <span className="text-[10px] font-mono text-muted-foreground break-all">{live.image}</span>
                 </div>
                 <div className="flex items-start gap-2 flex-wrap">
@@ -580,13 +580,13 @@ function InstallationForm({
                 </div>
                 {live.ports && (
                   <div className="flex items-start gap-2 flex-wrap">
-                    <span className="text-xs font-medium text-foreground shrink-0">Portas:</span>
+                    <span className="text-xs font-medium text-foreground shrink-0">Ports:</span>
                     <span className="text-[10px] font-mono text-muted-foreground break-all">{live.ports}</span>
                   </div>
                 )}
               </>
             ) : (
-              <p className="text-xs text-muted-foreground italic">Container offline ou não encontrado no host.</p>
+              <p className="text-xs text-muted-foreground italic">Container offline or not found on the host.</p>
             )}
             <div className="flex items-start gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
@@ -599,12 +599,12 @@ function InstallationForm({
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground italic">nenhum</span>
+                <span className="text-xs text-muted-foreground italic">none</span>
               )}
             </div>
             <div className="flex items-start gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                <Folder className="h-3 w-3 text-amber-500" /> Pastas:
+                <Folder className="h-3 w-3 text-amber-500" /> Folders:
               </span>
               {sharedFolders.length > 0 ? (
                 sharedFolders.map((v) => (
@@ -613,12 +613,12 @@ function InstallationForm({
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground italic">nenhuma</span>
+                <span className="text-xs text-muted-foreground italic">none</span>
               )}
             </div>
             <div className="flex items-start gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                <Network className="h-3 w-3 text-amber-500" /> Rede:
+                <Network className="h-3 w-3 text-amber-500" /> Network:
               </span>
               {nets.length > 0 ? (
                 nets.map((n) => {
@@ -631,7 +631,7 @@ function InstallationForm({
                   );
                 })
               ) : (
-                <span className="text-xs text-muted-foreground italic">nenhuma</span>
+                <span className="text-xs text-muted-foreground italic">none</span>
               )}
             </div>
           </div>
@@ -891,7 +891,7 @@ function InstallCard({
               )}
             </Button>
           )}
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit} title="Registro do container (dados do Docker)">
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit} title="Container registration (Docker data)">
             <Container className="h-3.5 w-3.5" />
           </Button>
           <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={onDelete} title="Remove">
@@ -905,7 +905,7 @@ function InstallCard({
         <div className="border-t border-border px-4 py-3 space-y-2">
           {inst.product_name && (
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-foreground">Produto:</span>
+              <span className="text-xs font-medium text-foreground">Product:</span>
               <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-2 py-0.5 text-xs text-blue-600 font-medium">
                 <Box className="h-2.5 w-2.5" /> {inst.product_name}
               </span>
@@ -924,7 +924,7 @@ function InstallCard({
           {live?.image && (
             <div className="flex items-center gap-2 flex-wrap">
               <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-500" />
-              <span className="text-xs font-medium text-foreground">Imagem:</span>
+              <span className="text-xs font-medium text-foreground">Image:</span>
               {containerImage ? (
                 <>
                   <span className="rounded bg-muted px-2 py-0.5 text-xs font-mono">
@@ -932,7 +932,7 @@ function InstallCard({
                   </span>
                   <span className="text-xs text-muted-foreground">{containerImage.size}</span>
                   <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Em uso
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> In use
                   </span>
                 </>
               ) : (
@@ -956,7 +956,7 @@ function InstallCard({
           {containerNetworks.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               <Network className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <span className="text-xs font-medium text-foreground">Redes:</span>
+              <span className="text-xs font-medium text-foreground">Networks:</span>
               {containerNetworks.map((n) => {
                 const ip = n.containers.find((nc) => nc.name === inst.container_name)?.ipv4;
                 return (
@@ -971,7 +971,7 @@ function InstallCard({
 
           {ports.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-medium text-foreground">Portas:</span>
+              <span className="text-xs font-medium text-foreground">Ports:</span>
               {ports.map((p) => (
                 <span key={p} className="rounded bg-muted px-2 py-0.5 text-xs font-mono">{p}</span>
               ))}
@@ -982,7 +982,7 @@ function InstallCard({
           )}
           {!ports.length && live?.ports && (
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-foreground">Portas (live):</span>
+              <span className="text-xs font-medium text-foreground">Ports (live):</span>
               <span className="text-xs font-mono text-muted-foreground">{live.ports}</span>
             </div>
           )}
@@ -1013,7 +1013,7 @@ function InstallCard({
                 type="button"
                 onClick={() => navigator.clipboard.writeText(inst.restart_command!)}
                 className="text-muted-foreground hover:text-foreground"
-                title="Copiar comando"
+                title="Copy command"
               >
                 <ClipboardCopy className="h-3 w-3" />
               </button>
@@ -1126,7 +1126,7 @@ function LiveContainersTab({
                   variant="outline"
                   className="h-7 w-7 p-0 shrink-0"
                   onClick={() => (inst ? onOpenInstance(inst) : onRegister(c))}
-                  title={inst ? `Abrir instância "${inst.name}"` : "Registrar instância"}
+                  title={inst ? `Open instance "${inst.name}"` : "Register instance"}
                 >
                   <Container className="h-3.5 w-3.5" />
                 </Button>
@@ -1137,7 +1137,7 @@ function LiveContainersTab({
                     className="h-7 w-7 p-0 shrink-0 text-destructive hover:text-destructive"
                     onClick={() => setConfirmRemove(c)}
                     disabled={removing}
-                    title="Excluir container"
+                    title="Delete container"
                   >
                     {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </Button>
@@ -1150,9 +1150,9 @@ function LiveContainersTab({
 
       <ConfirmDialog
         open={!!confirmRemove}
-        title="Excluir container"
-        description={`Remover o container "${confirmRemove?.name}" do Docker e da base de instalações? Esta ação não pode ser desfeita (volumes não são removidos).`}
-        confirmLabel="Excluir"
+        title="Delete container"
+        description={`Remove the container "${confirmRemove?.name}" from Docker and from the installation database? This action cannot be undone (volumes are not removed).`}
+        confirmLabel="Delete"
         loading={removeMut.isPending}
         onConfirm={handleRemove}
         onCancel={() => setConfirmRemove(null)}
@@ -1224,7 +1224,7 @@ function VolumesTab({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Nome</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Name</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Driver</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Scope</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Mountpoint</th>
@@ -1246,7 +1246,7 @@ function VolumesTab({
                           "h-2 w-2 rounded-full shrink-0",
                           usedByRunning ? "bg-emerald-500" : "bg-muted-foreground/30"
                         )}
-                        title={usedByRunning ? "Ativo — em uso por container rodando" : "Inativo — sem container rodando"}
+                        title={usedByRunning ? "Active — in use by a running container" : "Inactive — no running container"}
                       />
                       {v.driver === "bind" ? (
                         <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
@@ -1282,7 +1282,7 @@ function VolumesTab({
                                 "inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono",
                                 (inst || live) ? "hover:bg-accent hover:text-foreground transition-colors" : "cursor-default"
                               )}
-                              title={inst ? `Abrir instância "${inst.name}"` : live ? "Registrar instância" : undefined}
+                              title={inst ? `Open instance "${inst.name}"` : live ? "Register instance" : undefined}
                             >
                               <Container className="h-3 w-3 text-blue-500" />
                               {cname}
@@ -1303,7 +1303,7 @@ function VolumesTab({
                         className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                         onClick={() => setConfirmRemoveVol(v.name)}
                         disabled={removeVolMut.isPending && removeVolMut.variables === v.name}
-                        title="Excluir volume"
+                        title="Delete volume"
                       >
                         {removeVolMut.isPending && removeVolMut.variables === v.name ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1323,9 +1323,9 @@ function VolumesTab({
 
       <ConfirmDialog
         open={!!confirmRemoveVol}
-        title="Excluir volume"
-        description={`Remover o volume "${confirmRemoveVol}" do Docker? Os dados armazenados nele serão perdidos. Esta ação não pode ser desfeita.`}
-        confirmLabel="Excluir"
+        title="Delete volume"
+        description={`Remove the volume "${confirmRemoveVol}" from Docker? Data stored in it will be lost. This action cannot be undone.`}
+        confirmLabel="Delete"
         loading={removeVolMut.isPending}
         onConfirm={handleRemoveVolume}
         onCancel={() => setConfirmRemoveVol(null)}
@@ -1447,7 +1447,7 @@ function NetworksTab({
                       className="h-7 w-7 p-0 shrink-0 text-destructive hover:text-destructive"
                       onClick={() => setConfirmRemoveNet(n.name)}
                       disabled={removing}
-                      title="Excluir rede"
+                      title="Delete network"
                     >
                       {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                     </Button>
@@ -1494,7 +1494,7 @@ function NetworksTab({
                                           "inline-flex items-center gap-1.5 font-mono",
                                           (inst || live) ? "hover:text-blue-500 transition-colors" : "cursor-default"
                                         )}
-                                        title={inst ? `Abrir instância "${inst.name}"` : live ? "Registrar instância" : undefined}
+                                        title={inst ? `Open instance "${inst.name}"` : live ? "Register instance" : undefined}
                                       >
                                         <Container className="h-3 w-3 text-blue-500" />
                                         {c.name}
@@ -1510,7 +1510,7 @@ function NetworksTab({
                       </div>
                     )}
                     {n.containers.length === 0 && n.subnets.length === 0 && (
-                      <p className="text-xs text-muted-foreground italic">Sem containers ou subnets configuradas.</p>
+                      <p className="text-xs text-muted-foreground italic">No containers or subnets configured.</p>
                     )}
                   </div>
                 )}
@@ -1521,9 +1521,9 @@ function NetworksTab({
       )}
       <ConfirmDialog
         open={!!confirmRemoveNet}
-        title="Excluir rede"
-        description={`Remover a rede "${confirmRemoveNet}" do Docker? Esta ação não pode ser desfeita.`}
-        confirmLabel="Excluir"
+        title="Delete network"
+        description={`Remove the network "${confirmRemoveNet}" from Docker? This action cannot be undone.`}
+        confirmLabel="Delete"
         loading={removeNetMut.isPending}
         onConfirm={handleRemoveNetwork}
         onCancel={() => setConfirmRemoveNet(null)}
@@ -1569,7 +1569,7 @@ function ImagesTab() {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          {images.length} image(s){unusedCount > 0 && ` · ${unusedCount} não utilizada(s)`}
+          {images.length} image(s){unusedCount > 0 && ` · ${unusedCount} unused`}
         </p>
         <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
           <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
@@ -1589,7 +1589,7 @@ function ImagesTab() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Repositório</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Repository</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Tag</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">ID</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Tamanho</th>
@@ -1635,7 +1635,7 @@ function ImagesTab() {
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
-                          <span className="h-2 w-2 rounded-full bg-muted-foreground/30" /> Não utilizada
+                          <span className="h-2 w-2 rounded-full bg-muted-foreground/30" /> Unused
                         </span>
                       )}
                     </td>
@@ -1647,7 +1647,7 @@ function ImagesTab() {
                           className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                           onClick={() => setConfirmRemoveImg(ref)}
                           disabled={removing}
-                          title="Excluir imagem"
+                          title="Delete image"
                         >
                           {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                         </Button>
@@ -1663,9 +1663,9 @@ function ImagesTab() {
 
       <ConfirmDialog
         open={!!confirmRemoveImg}
-        title="Excluir imagem"
-        description={`Remover a imagem "${confirmRemoveImg}" do Docker? Esta ação não pode ser desfeita.`}
-        confirmLabel="Excluir"
+        title="Delete image"
+        description={`Remove the image "${confirmRemoveImg}" from Docker? This action cannot be undone.`}
+        confirmLabel="Delete"
         loading={removeImgMut.isPending}
         onConfirm={handleRemoveImage}
         onCancel={() => setConfirmRemoveImg(null)}
@@ -1843,9 +1843,9 @@ export default function DeployPage() {
         {[
           { label: "Installations", value: installations.length, icon: Zap, color: "text-sky-500", tab: "installations", offline: false },
           { label: "Containers", value: bridgeOffline ? null : containers.length, icon: Box, color: "text-blue-500", tab: "live", offline: bridgeOffline },
-          { label: "Rodando", value: bridgeOffline ? null : containers.filter((c) => c.state === "running").length, icon: Activity, color: "text-emerald-500", tab: "live", offline: bridgeOffline },
+          { label: "Running", value: bridgeOffline ? null : containers.filter((c) => c.state === "running").length, icon: Activity, color: "text-emerald-500", tab: "live", offline: bridgeOffline },
           { label: "Healthy", value: bridgeOffline ? null : containers.filter((c) => c.health === "healthy").length, icon: CheckCircle2, color: "text-emerald-600", tab: "live", offline: bridgeOffline },
-          { label: "Problema", value: bridgeOffline ? null : containers.filter((c) => c.state === "stopped" || c.health === "unhealthy").length, icon: AlertCircle, color: "text-red-500", tab: "live", offline: bridgeOffline },
+          { label: "Issues", value: bridgeOffline ? null : containers.filter((c) => c.state === "stopped" || c.health === "unhealthy").length, icon: AlertCircle, color: "text-red-500", tab: "live", offline: bridgeOffline },
           { label: "Volumes", value: volumesOffline ? null : volumes.length, icon: HardDrive, color: "text-violet-500", tab: "volumes", offline: volumesOffline },
           { label: "Networks", value: networksOffline ? null : networks.length, icon: Network, color: "text-amber-500", tab: "networks", offline: networksOffline },
           { label: "Images", value: imagesOffline ? null : images.length, icon: Layers, color: "text-cyan-500", tab: "images", offline: imagesOffline },

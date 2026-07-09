@@ -42,6 +42,14 @@ class AgentDemand(Base, TimestampMixin):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="new")
 
+    # Only meaningful while status="archived" -- which "Arquivados" subpasta
+    # this demand was filed under. NULL + archived = sits in the Arquivados
+    # root (uncategorized). Deleting the group sets this back to NULL
+    # instead of deleting the demand (see DemandGroup's ondelete note).
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.demand_groups.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Set together when /convert succeeds -- what this demand became and
     # where to find it (task id / doc path / artifact id / vault note path).
     converted_entity_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -89,3 +97,28 @@ class DemandAttachment(Base, TimestampMixin):
     content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     demand: Mapped["AgentDemand"] = relationship("AgentDemand", back_populates="attachments")
+
+
+class DemandGroup(Base, TimestampMixin):
+    """A user-created subfolder inside the Inbox's "Arquivados" bucket --
+    freely nestable (folder-within-folder, self-referencing parent_id) so
+    archived demands can be organized by theme. "Entrada" and the
+    "Arquivados" root itself are NOT rows here -- they're derived purely
+    from AgentDemand.status/group_id (see that model's group_id docstring);
+    only user-created subfolders under Arquivados get a row.
+
+    ondelete="CASCADE" on parent_id: deleting a folder deletes its
+    subfolders too (a real folder-tree deletion, not a "promote children"
+    move). Contrast with AgentDemand.group_id's ondelete="SET NULL" --
+    deleting a folder never deletes the demands inside it, they just fall
+    back to the Arquivados root."""
+
+    __tablename__ = "demand_groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.demand_groups.id", ondelete="CASCADE"), nullable=True
+    )

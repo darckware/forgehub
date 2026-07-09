@@ -22,13 +22,13 @@ export const DOC_LINK_ENTITY_TYPES = [
 export type DocLinkEntityType = (typeof DOC_LINK_ENTITY_TYPES)[number];
 
 export const DOC_LINK_ENTITY_LABELS: Record<DocLinkEntityType, string> = {
-  product: "Produto",
-  product_version: "Versão",
-  project: "Projeto",
+  product: "Product",
+  product_version: "Version",
+  project: "Project",
   pipeline: "Pipeline",
   planning_item: "Planning",
   task: "Task",
-  artifact: "Artefato",
+  artifact: "Artifact",
 };
 
 export const docLinkSchema = z.object({

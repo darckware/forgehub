@@ -64,13 +64,13 @@ export function WhiteboardModal({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background">
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <p className="text-sm font-medium">🎨 Lousa</p>
+        <p className="text-sm font-medium">🎨 Whiteboard</p>
         <div className="flex items-center gap-2">
           <Button size="sm" className="gap-1.5" onClick={handleSave}>
-            <Save className="h-3.5 w-3.5" /> Salvar e inserir
+            <Save className="h-3.5 w-3.5" /> Save and insert
           </Button>
           <Button variant="outline" size="sm" onClick={onClose}>
-            <X className="mr-1.5 h-3.5 w-3.5" /> Fechar
+            <X className="mr-1.5 h-3.5 w-3.5" /> Close
           </Button>
         </div>
       </div>
@@ -78,7 +78,7 @@ export function WhiteboardModal({
         <Suspense
           fallback={
             <div className="flex h-full items-center justify-center gap-2 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" /> Carregando a lousa…
+              <Loader2 className="h-5 w-5 animate-spin" /> Loading the whiteboard…
             </div>
           }
         >

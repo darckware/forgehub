@@ -50,11 +50,11 @@ import { useChatHandoffStore } from "@/store/chatHandoff";
  * leads with the file path so the agent has the maintenance context. */
 function buildMaintenanceMessage(tool: AgentTool): string {
   return [
-    `Manutenção da ferramenta "${tool.name}" (categoria: ${tool.category}).`,
-    `Arquivo: ${tool.file_path}`,
-    `Funcionalidade registrada: ${tool.description}`,
+    `Maintenance for tool "${tool.name}" (category: ${tool.category}).`,
+    `File: ${tool.file_path}`,
+    `Registered functionality: ${tool.description}`,
     "",
-    "Analise o arquivo acima e me ajude com a manutenção desta ferramenta.",
+    "Review the file above and help me maintain this tool.",
   ].join("\n");
 }
 
@@ -250,13 +250,13 @@ function ToolFileModal({
           <div className="flex items-center gap-2 shrink-0">
             {!editing && data?.exists && (
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-                <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
               </Button>
             )}
             {editing && (
               <Button size="sm" onClick={handleSave} disabled={saveMut.isPending}>
                 {saveMut.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-                Salvar
+                Save
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={onClose}>
@@ -272,7 +272,7 @@ function ToolFileModal({
           ) : isError ? (
             <p className="text-sm text-destructive">{(error as Error)?.message ?? "Could not read file."}</p>
           ) : !data?.exists ? (
-            <p className="text-sm text-muted-foreground italic">Arquivo não encontrado no disco.</p>
+            <p className="text-sm text-muted-foreground italic">File not found on disk.</p>
           ) : editing ? (
             <Textarea
               value={content}
@@ -441,7 +441,7 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Visualizar arquivo"
+                          title="View file"
                           onClick={() => setFileModal({ tool, editing: false })}
                         >
                           <Eye className="h-4 w-4" />
@@ -449,7 +449,7 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Editar arquivo"
+                          title="Edit file"
                           onClick={() => setFileModal({ tool, editing: true })}
                         >
                           <Pencil className="h-4 w-4" />
@@ -457,7 +457,7 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Alterar registro"
+                          title="Edit registration"
                           onClick={() => setFormTool(tool)}
                         >
                           <Settings2 className="h-4 w-4" />
@@ -465,7 +465,7 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Excluir arquivo e registro"
+                          title="Delete file and registration"
                           className="text-destructive"
                           onClick={() => setDeleting(tool)}
                         >
@@ -496,9 +496,9 @@ export default function ToolsPage() {
 
       <ConfirmDialog
         open={deleting !== null}
-        title={`Excluir "${deleting?.name ?? ""}"`}
-        description={`Remove o registro e exclui o arquivo ${deleting?.file_path ?? ""} do disco. Esta ação não pode ser desfeita.`}
-        confirmLabel="Excluir"
+        title={`Delete "${deleting?.name ?? ""}"`}
+        description={`Removes the registration and deletes the file ${deleting?.file_path ?? ""} from disk. This action cannot be undone.`}
+        confirmLabel="Delete"
         loading={deleteTool.isPending}
         onConfirm={() => {
           if (deleting)

@@ -26,21 +26,21 @@ interface ValidateResult {
 }
 
 const EXAMPLES = [
-  { label: "Tabelas", sql: "SELECT table_name, table_type\nFROM information_schema.tables\nWHERE table_schema = 'company'\nORDER BY table_name" },
-  { label: "Produtos", sql: "SELECT id, name, created_at\nFROM company.products\nORDER BY created_at DESC" },
-  { label: "Projetos", sql: "SELECT p.name, p.status, v.version\nFROM company.projects p\nJOIN company.product_versions v ON v.id = p.product_version_id\nORDER BY p.created_at DESC" },
-  { label: "Tasks recentes", sql: "SELECT title, status, created_at\nFROM company.project_tasks\nORDER BY created_at DESC\nLIMIT 20" },
+  { label: "Tables", sql: "SELECT table_name, table_type\nFROM information_schema.tables\nWHERE table_schema = 'company'\nORDER BY table_name" },
+  { label: "Products", sql: "SELECT id, name, created_at\nFROM company.products\nORDER BY created_at DESC" },
+  { label: "Projects", sql: "SELECT p.name, p.status, v.version\nFROM company.projects p\nJOIN company.product_versions v ON v.id = p.product_version_id\nORDER BY p.created_at DESC" },
+  { label: "Recent tasks", sql: "SELECT title, status, created_at\nFROM company.project_tasks\nORDER BY created_at DESC\nLIMIT 20" },
 ];
 
 type ValidationState = "idle" | "checking" | "valid" | "invalid";
 
 function ValidationIcon({ state, error }: { state: ValidationState; error: string | null }) {
   if (state === "checking")
-    return <span title="Validando sintaxe…"><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" /></span>;
+    return <span title="Validating syntax…"><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" /></span>;
   if (state === "valid")
     return <span title="Valid syntax"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" /></span>;
   if (state === "invalid")
-    return <span title={error ?? "Erro de sintaxe"}><XCircle className="h-3.5 w-3.5 text-destructive shrink-0" /></span>;
+    return <span title={error ?? "Syntax error"}><XCircle className="h-3.5 w-3.5 text-destructive shrink-0" /></span>;
   return null;
 }
 
@@ -194,7 +194,7 @@ export default function QueryPage() {
       try {
         const r = await apiClient.post<ValidateResult>("/api/v1/database/validate", { sql, instance, db, schema });
         if (r.valid) { setValidationState("valid"); setValidationError(null); }
-        else { setValidationState("invalid"); setValidationError(r.error ?? "Erro de sintaxe"); }
+        else { setValidationState("invalid"); setValidationError(r.error ?? "Syntax error"); }
       } catch {
         setValidationState("idle");
         setValidationError(null);
@@ -232,7 +232,7 @@ export default function QueryPage() {
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SQL Editor</span>
           <ValidationIcon state={validationState} error={validationError} />
           <span className="flex-1" />
-          <span className="text-[10px] text-muted-foreground">Ctrl+Enter para executar · somente SELECT/WITH/EXPLAIN</span>
+          <span className="text-[10px] text-muted-foreground">Ctrl+Enter to run · SELECT/WITH/EXPLAIN only</span>
           <div className="flex gap-1">
             {EXAMPLES.map((ex) => (
               <Button key={ex.label} size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setSql(ex.sql)}>
@@ -257,7 +257,7 @@ export default function QueryPage() {
             <div className="absolute top-2 right-2 flex gap-0.5">
               <button
                 type="button"
-                title={sqlCopied ? "Copiado!" : "Copiar query"}
+                title={sqlCopied ? "Copied!" : "Copy query"}
                 onClick={copySql}
                 className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
               >
@@ -265,7 +265,7 @@ export default function QueryPage() {
               </button>
               <button
                 type="button"
-                title="Limpar editor"
+                title="Clear editor"
                 onClick={() => { setSql(""); setResult(null); setQueryError(null); }}
                 className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
               >
@@ -285,11 +285,11 @@ export default function QueryPage() {
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={run} disabled={executeMut.isPending || !sql.trim()} className="gap-1.5">
             {executeMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            Executar
+            Run
           </Button>
           {result && (
             <Badge variant="outline" className="text-emerald-600 border-emerald-500/30 gap-1">
-              <CheckCircle2 className="h-3 w-3" /> {result.row_count} linha(s) · {result.elapsed_ms}ms
+              <CheckCircle2 className="h-3 w-3" /> {result.row_count} row(s) · {result.elapsed_ms}ms
             </Badge>
           )}
           {queryError && (
@@ -303,13 +303,13 @@ export default function QueryPage() {
 
       {!result && !queryError && (
         <div className="flex items-center justify-center rounded-lg border border-border bg-muted/10 py-12">
-          <p className="text-xs text-muted-foreground">Execute uma query para ver os resultados</p>
+          <p className="text-xs text-muted-foreground">Run a query to see the results</p>
         </div>
       )}
       {queryError && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
           <p className="text-xs font-semibold text-destructive mb-1 flex items-center gap-1.5">
-            <AlertCircle className="h-3.5 w-3.5" /> Erro na query
+            <AlertCircle className="h-3.5 w-3.5" /> Query error
           </p>
           <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono">{queryError}</pre>
         </div>
@@ -319,8 +319,8 @@ export default function QueryPage() {
           <div className="flex items-center gap-2 px-1 -mb-1">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
             <span className="text-xs text-muted-foreground flex-1">
-              {result.row_count.toLocaleString()} linha(s) · {result.elapsed_ms.toFixed(1)} ms
-              {result.truncated && <span className="ml-2 text-amber-600 font-medium">(truncado em 1000 linhas)</span>}
+              {result.row_count.toLocaleString()} row(s) · {result.elapsed_ms.toFixed(1)} ms
+              {result.truncated && <span className="ml-2 text-amber-600 font-medium">(truncated to 1000 rows)</span>}
             </span>
             <Button
               size="sm" variant="ghost" className="h-6 px-2 gap-1 text-xs"
@@ -332,7 +332,7 @@ export default function QueryPage() {
                 setTimeout(() => setCsvCopied(false), 2000);
               }}
             >
-              <ClipboardCopy className="h-3 w-3" /> {csvCopied ? "Copiado!" : "CSV"}
+              <ClipboardCopy className="h-3 w-3" /> {csvCopied ? "Copied!" : "CSV"}
             </Button>
           </div>
           <div className="rounded-lg border border-border" style={{ maxHeight: "calc(100vh - 370px)", overflow: "auto" }}>

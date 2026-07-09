@@ -326,7 +326,7 @@ export function useStreamChatMessage(agentId: string | undefined) {
       // any partial reply -- refetch it, then surface the failure.
       queryClient.invalidateQueries({ queryKey: chatKeys.messages(sessionId) });
       queryClient.invalidateQueries({ queryKey: chatKeys.artifacts(sessionId) });
-      throw new Error("conexão interrompida no meio da resposta (o parcial gerado foi salvo na conversa)");
+      throw new Error("connection interrupted mid-response (the partial reply was saved to the conversation)");
     } finally {
       reader.releaseLock();
     }

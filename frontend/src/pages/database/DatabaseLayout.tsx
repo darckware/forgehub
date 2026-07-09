@@ -65,13 +65,13 @@ function LayoutInner() {
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-bold leading-none">Database</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {tables.length} tabela(s) · <span className="font-mono">{instance}/{db}/{schema}</span>
+            {tables.length} table(s) · <span className="font-mono">{instance}/{db}/{schema}</span>
           </p>
         </div>
 
         <div className="flex items-end gap-3 shrink-0">
           <Select
-            label="Instância"
+            label="Instance"
             value={instance}
             options={instances.map((i) => i.key)}
             onChange={(v) => {

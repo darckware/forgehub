@@ -345,7 +345,7 @@ async def send_chat_message(
                     raise HTTPException(
                         status_code=400, detail="Attached file must be a text file or an image"
                     ) from None
-                text_blocks.append(f'Conteudo do arquivo "{f.filename}" colado abaixo:\n---\n{text_content}\n---')
+                text_blocks.append(f'Content of file "{f.filename}" pasted below:\n---\n{text_content}\n---')
 
         if images:
             # Plain prose framing, not a bracketed "[Arquivo anexado: ...]"
@@ -355,7 +355,7 @@ async def send_chat_message(
             combined_message = "\n\n".join([*text_blocks, message]).strip()
             bridge_result = await _call_bridge_images(
                 agent.profile_slug,
-                combined_message or "Veja as imagens em anexo.",
+                combined_message or "See the attached images.",
                 session.hermes_session_id,
                 images,
             )

@@ -41,7 +41,7 @@ function EntitySelect({
 
   const makeSelect = (options: { id: string; label: string }[]) => (
     <Select value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">Selecione…</option>
+      <option value="">Select…</option>
       {options.map((o) => (
         <option key={o.id} value={o.id}>
           {o.label}
@@ -72,7 +72,7 @@ function EntitySelect({
     <Input
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      placeholder="UUID da entidade"
+      placeholder="Entity UUID"
     />
   );
 }
@@ -110,7 +110,7 @@ export function ApprovalForm({
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="entity_type">Tipo de entidade</Label>
+          <Label htmlFor="entity_type">Entity type</Label>
           <Select id="entity_type" {...register("entity_type")}>
             {APPROVAL_ENTITY_TYPES.map((type) => (
               <option key={type} value={type}>
@@ -124,7 +124,7 @@ export function ApprovalForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="entity_id">Entidade</Label>
+          <Label htmlFor="entity_id">Entity</Label>
           <Controller
             control={control}
             name="entity_id"

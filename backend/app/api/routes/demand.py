@@ -23,6 +23,9 @@ from app.api.schemas.demand import (
     ConvertIn,
     ConvertOut,
     DemandAttachmentOut,
+    DemandGroupCreateIn,
+    DemandGroupOut,
+    DemandGroupUpdateIn,
     DemandOut,
     DemandSubmitIn,
     DemandUpdateIn,
@@ -32,7 +35,7 @@ from app.core.config import settings
 from app.core.markdown_docs import resolve_doc_path
 from app.db.base import get_db
 from app.db.models.backlog import PLANNING_ITEM_TYPES
-from app.db.models.demand import AgentDemand, DemandAttachment
+from app.db.models.demand import AgentDemand, DemandAttachment, DemandGroup
 from app.db.models.notification import Notification
 
 router = APIRouter(prefix="/api/v1/demands", tags=["demands"])
@@ -51,6 +54,29 @@ async def _get_demand_or_404(db: AsyncSession, demand_id: uuid.UUID) -> AgentDem
     if demand is None:
         raise HTTPException(status_code=404, detail="Demand not found")
     return demand
+
+
+async def _get_group_or_404(db: AsyncSession, group_id: uuid.UUID) -> DemandGroup:
+    group = (
+        await db.execute(select(DemandGroup).where(DemandGroup.id == group_id))
+    ).scalar_one_or_none()
+    if group is None:
+        raise HTTPException(status_code=404, detail="Demand group not found")
+    return group
+
+
+async def _would_create_cycle(db: AsyncSession, group_id: uuid.UUID, new_parent_id: uuid.UUID) -> bool:
+    """True if reparenting `group_id` under `new_parent_id` would create a
+    cycle -- walks up from new_parent_id toward the root, bailing out if it
+    reaches group_id itself (moving a folder into its own descendant)."""
+    current_id: uuid.UUID | None = new_parent_id
+    while current_id is not None:
+        if current_id == group_id:
+            return True
+        current_id = (
+            await db.execute(select(DemandGroup.parent_id).where(DemandGroup.id == current_id))
+        ).scalar_one_or_none()
+    return False
 
 
 def _demand_preview(body: str, limit: int = 200) -> str:
@@ -72,7 +98,7 @@ async def _create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) -
     notification = Notification(
         source="system",
         severity="info",
-        title=f"Novo no Inbox: {demand.subject}",
+        title=f"New in Inbox: {demand.subject}",
         message=_demand_preview(payload.body),
         event_key=f"demand:{demand.id}",
         occurred_at=datetime.now(timezone.utc),
@@ -122,12 +148,76 @@ async def list_demands(
     return list(result.scalars().all())
 
 
+@router.get("/groups", response_model=list[DemandGroupOut])
+async def list_demand_groups(db: AsyncSession = Depends(get_db)) -> list[DemandGroup]:
+    """Flat list -- the frontend builds the tree from parent_id, same as
+    DocTree builds its tree from filesystem path segments."""
+    result = await db.execute(select(DemandGroup).order_by(DemandGroup.name))
+    return list(result.scalars().all())
+
+
+@router.post("/groups", response_model=DemandGroupOut, status_code=status.HTTP_201_CREATED)
+async def create_demand_group(
+    payload: DemandGroupCreateIn, db: AsyncSession = Depends(get_db)
+) -> DemandGroup:
+    if payload.parent_id is not None:
+        await _get_group_or_404(db, payload.parent_id)
+    group = DemandGroup(name=payload.name, parent_id=payload.parent_id)
+    db.add(group)
+    await db.commit()
+    await db.refresh(group)
+    return group
+
+
+@router.patch("/groups/{group_id}", response_model=DemandGroupOut)
+async def update_demand_group(
+    group_id: uuid.UUID, payload: DemandGroupUpdateIn, db: AsyncSession = Depends(get_db)
+) -> DemandGroup:
+    """Rename and/or reparent (drag a folder onto another folder, or onto
+    the Arquivados root by sending parent_id: null explicitly)."""
+    group = await _get_group_or_404(db, group_id)
+    data = payload.model_dump(exclude_unset=True)
+    if "parent_id" in data:
+        new_parent_id = data["parent_id"]
+        if new_parent_id is not None:
+            await _get_group_or_404(db, new_parent_id)
+            if await _would_create_cycle(db, group_id, new_parent_id):
+                raise HTTPException(status_code=400, detail="Cannot move a folder into its own descendant")
+        group.parent_id = new_parent_id
+    if "name" in data:
+        group.name = data["name"]
+    await db.commit()
+    await db.refresh(group)
+    return group
+
+
+@router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_demand_group(group_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+    """Cascades to subfolders (DemandGroup.parent_id's ondelete=CASCADE);
+    demands filed directly under this folder fall back to the Arquivados
+    root instead of being deleted (AgentDemand.group_id's ondelete=SET NULL)."""
+    group = await _get_group_or_404(db, group_id)
+    await db.delete(group)
+    await db.commit()
+
+
 @router.patch("/{demand_id}", response_model=DemandOut)
 async def update_demand(
     demand_id: uuid.UUID, payload: DemandUpdateIn, db: AsyncSession = Depends(get_db)
 ) -> AgentDemand:
     demand = await _get_demand_or_404(db, demand_id)
-    demand.status = payload.status
+    data = payload.model_dump(exclude_unset=True)
+    if "group_id" in data:
+        if data["group_id"] is not None:
+            await _get_group_or_404(db, data["group_id"])
+        demand.group_id = data["group_id"]
+    if "status" in data:
+        demand.status = data["status"]
+    elif "group_id" in data and data["group_id"] is not None:
+        # Filing a demand into an Arquivados subfolder always archives it,
+        # even if the caller only sent group_id (the Inbox drag-and-drop
+        # case -- see InboxGroupTree's drop handler).
+        demand.status = "archived"
     await db.commit()
     await db.refresh(demand)
     return demand
@@ -246,8 +336,21 @@ async def convert_demand(
         elif payload.target == "doc":
             if not payload.path:
                 raise HTTPException(400, "path is required for target=doc")
-            reference = await conversions.convert_to_doc(path=payload.path, content=demand.body)
+            doc_root = (
+                await conversions.resolve_area_root(db, payload.area_id)
+                if payload.area_id is not None
+                else conversions.DOCS_ROOT
+            )
+            reference = await conversions.convert_to_doc(path=payload.path, content=demand.body, root=doc_root)
             entity_id = None
+            if demand.attachments:
+                # Attached files land next to the note itself, not just the
+                # markdown body -- see copy_attachments_to_folder's docstring.
+                await conversions.copy_attachments_to_folder(
+                    attachments=[(a.filename, a.path) for a in demand.attachments],
+                    dest_path=payload.path,
+                    dest_root=doc_root,
+                )
         elif payload.target == "artifact":
             if not payload.artifact_type:
                 raise HTTPException(400, "artifact_type is required for target=artifact")

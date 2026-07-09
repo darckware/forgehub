@@ -175,7 +175,7 @@ function LiveThinkingLabel({ startedAt }: { startedAt: number }) {
   const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
   return (
     <p className="text-xs text-muted-foreground">
-      ⏳ Trabalhando — {formatThinkingDuration(elapsed)}
+      ⏳ Working — {formatThinkingDuration(elapsed)}
     </p>
   );
 }
@@ -298,7 +298,7 @@ function ChatItemMenu({
             }}
           >
             <Pencil className="h-3.5 w-3.5" />
-            Renomear
+            Rename
           </button>
           <button
             type="button"
@@ -310,7 +310,7 @@ function ChatItemMenu({
             }}
           >
             {session.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-            {session.pinned ? "Desafixar" : "Fixar"}
+            {session.pinned ? "Unpin" : "Pin"}
           </button>
           <button
             type="button"
@@ -516,7 +516,7 @@ const MentionFilePicker = forwardRef<
         <div className="flex items-center gap-1 shrink-0">
           {data?.path && (
             <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => onSelectPath(data.path)}>
-              Usar pasta
+              Use folder
             </Button>
           )}
           {data?.parent && (
@@ -524,7 +524,7 @@ const MentionFilePicker = forwardRef<
               size="icon"
               variant="ghost"
               className="h-6 w-6"
-              aria-label="Pasta acima"
+              aria-label="Parent folder"
               onClick={() => setPath(data.parent!)}
             >
               <ArrowUp className="h-3 w-3" />
@@ -553,7 +553,7 @@ const MentionFilePicker = forwardRef<
         </button>
       ))}
       {data && data.entries.length === 0 && !isLoading && (
-        <p className="px-3 py-3 text-xs italic text-muted-foreground">Pasta vazia</p>
+        <p className="px-3 py-3 text-xs italic text-muted-foreground">Empty folder</p>
       )}
     </div>
   );
@@ -578,7 +578,14 @@ const SAFE_SLASH_COMMANDS: { command: string; description: string }[] = [
   },
 ];
 
+/** Handled entirely client-side (never sent as a message) -- unlike
+ * SAFE_SLASH_COMMANDS, which forward to Hermes's process_command(). */
+const LOCAL_SLASH_COMMANDS: { command: string; description: string }[] = [
+  { command: "/new", description: "Start a new chat" },
+];
+
 type SlashCommandItem =
+  | { kind: "local"; command: string; description: string }
   | { kind: "hermes"; command: string; description: string }
   | { kind: "prompt"; command: string; description: string; prompt: string };
 
@@ -599,6 +606,7 @@ const SlashCommandPicker = forwardRef<
   useClickOutside(containerRef, onClose);
   const items = useMemo<SlashCommandItem[]>(
     () => [
+      ...LOCAL_SLASH_COMMANDS.map((cmd) => ({ kind: "local" as const, ...cmd })),
       ...SAFE_SLASH_COMMANDS.map((cmd) => ({ kind: "hermes" as const, ...cmd })),
       ...promptCommands.map((cmd) => ({
         kind: "prompt" as const,
@@ -639,7 +647,7 @@ const SlashCommandPicker = forwardRef<
           <span className="flex w-full items-center justify-between gap-2">
             <span className="text-xs font-medium">{cmd.command}</span>
             <span className="rounded border border-border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-              {cmd.kind === "hermes" ? "Hermes" : "Prompt"}
+              {cmd.kind === "local" ? "Local" : cmd.kind === "hermes" ? "Hermes" : "Prompt"}
             </span>
           </span>
           <span className="text-[11px] text-muted-foreground">{cmd.description}</span>
@@ -938,7 +946,7 @@ function MessageBubble({
       <div className="group/msg max-w-[85%] text-sm text-foreground">
         {message.thinking_seconds != null && !isCommandReply && (
           <p className="mb-1 text-xs text-muted-foreground">
-            Pensou por {formatThinkingDuration(message.thinking_seconds)}
+            Thought for {formatThinkingDuration(message.thinking_seconds)}
           </p>
         )}
         {respondingAgentName && (
@@ -1082,6 +1090,10 @@ export function ChatPane({
   historyCollapsed,
   artifactsOpen,
   workingDir,
+  startNewSession,
+  emptyStateText,
+  firstMessagePrefix,
+  onAssistantMessage,
 }: {
   tabId: string;
   active: boolean;
@@ -1094,6 +1106,29 @@ export function ChatPane({
   /** Same cwd used by "New Terminal" tabs -- backs the composer's
    * "!command" prefix so it runs in the same project context. */
   workingDir?: string;
+  /** Skips auto-resuming the agent's most recent session on mount --
+   * AssistantDrawer wants a blank chat every time it opens (see its
+   * docstring), unlike Workspace's persistent tabs, which should pick up
+   * where the user left off. */
+  startNewSession?: boolean;
+  /** Overrides the default "Send a message to start the conversation..."
+   * placeholder shown while the session has no messages yet -- purely
+   * client-side, no agent turn spent on it. */
+  emptyStateText?: string;
+  /** Silently prepended to the very first message of a fresh session (the
+   * one that actually creates it) -- e.g. AssistantDrawer's "read
+   * docs/MANUAL.md before answering" grounding note. Stripped back off
+   * before rendering that message (see visibleMessages below), so the user
+   * never sees it despite it being a real, stored part of the message
+   * (there's no hidden/system channel in the send API). Not resent on
+   * later turns in the same session. */
+  firstMessagePrefix?: string;
+  /** Fires once per completed assistant turn, with that message's full
+   * text -- AssistantDrawer uses this to notice a ```forgehub-fill fenced
+   * block and apply it to the page's form. Generic on purpose (just a
+   * content string, no ForgeHub-specific parsing here): Workspace doesn't
+   * pass it and isn't affected. */
+  onAssistantMessage?: (content: string) => void;
 }) {
   const [sessionId, setSessionId] = useState<string>("");
   const [composerText, setComposerText] = useState(
@@ -1209,13 +1244,44 @@ export function ChatPane({
   }, [agentId]);
 
   useEffect(() => {
+    if (startNewSession) return;
     if (!sessionId && sessions && sessions.length > 0) {
       setSessionId(sessions[0].id);
     }
-  }, [sessionId, sessions]);
+  }, [sessionId, sessions, startNewSession]);
 
   const queryClient = useQueryClient();
   const { data: messages } = useChatMessages(sessionId || undefined);
+  // firstMessagePrefix is real, stored message content -- there's no
+  // hidden/system channel -- but it's internal grounding, not something
+  // the user typed, so it's stripped back off before rendering. Everything
+  // else (dedupe-guard, scroll tracking, etc.) still reads the raw
+  // `messages` so the agent's reply lines up correctly.
+  const visibleMessages = useMemo(
+    () =>
+      (messages ?? []).map((m) =>
+        firstMessagePrefix && m.role === "user" && m.content.startsWith(firstMessagePrefix)
+          ? { ...m, content: m.content.slice(firstMessagePrefix.length).replace(/^\s+/, "") }
+          : m
+      ),
+    [messages, firstMessagePrefix]
+  );
+
+  // Notifies onAssistantMessage exactly once per completed assistant turn
+  // -- `messages` only gets a turn once it's fully streamed and refetched
+  // (see processQueueItem's invalidateQueries below), so this never fires
+  // on partial/streaming text.
+  const notifiedAssistantIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!onAssistantMessage) return;
+    for (const m of messages ?? []) {
+      if (m.role === "assistant" && !notifiedAssistantIdsRef.current.has(m.id)) {
+        notifiedAssistantIdsRef.current.add(m.id);
+        onAssistantMessage(m.content);
+      }
+    }
+  }, [messages, onAssistantMessage]);
+
   const { data: artifacts } = useChatArtifacts(sessionId || undefined);
   const deleteArtifact = useDeleteChatArtifact(sessionId || undefined);
   const [artifactSearchQuery, setArtifactSearchQuery] = useState("");
@@ -1291,7 +1357,18 @@ export function ChatPane({
 
     const trimmed = (isOverride ? overrideText : composerText).trim();
     if (!trimmed && attachedFiles.length === 0) {
-      setComposerWarning("Digite uma mensagem antes de enviar.");
+      setComposerWarning("Type a message before sending.");
+      return;
+    }
+
+    // "/new" is a local command (see LOCAL_SLASH_COMMANDS) -- catches the
+    // paste-then-click-Send path, which never opens the slash picker (that
+    // only triggers on typing "/" as a fresh keystroke) so handleSlashSelect
+    // never runs for it.
+    if (!isOverride && attachedFiles.length === 0 && trimmed.toLowerCase() === "/new") {
+      handleNewChat();
+      setComposerText("");
+      setComposerWarning(null);
       return;
     }
 
@@ -1306,13 +1383,19 @@ export function ChatPane({
     }
 
     let activeSessionId = sessionId;
+    const isFirstSendOfSession = !activeSessionId;
     if (!activeSessionId) {
       const created = await createSession.mutateAsync({ agent_id: agentId });
       activeSessionId = created.id;
       setSessionId(activeSessionId);
     }
 
-    const message = isOverride ? overrideText : composerText;
+    const rawMessage = isOverride ? overrideText : composerText;
+    // Grounding note goes out with the session's first real turn only --
+    // see firstMessagePrefix's docstring for why it's silent (stripped
+    // back off in visibleMessages) rather than a separate priming turn.
+    const message =
+      isFirstSendOfSession && firstMessagePrefix ? `${firstMessagePrefix}\n\n${rawMessage}` : rawMessage;
     const files = isOverride ? [] : attachedFiles;
     if (!isOverride) {
       setComposerText("");
@@ -1672,13 +1755,22 @@ export function ChatPane({
   }
 
   function handleSlashSelect(item: SlashCommandItem) {
+    setSlashOpen(false);
+    // Local commands run immediately -- never sent as a message, and the
+    // composer (which may still hold the "/" the user typed to open this
+    // picker) is cleared rather than filled with the command text.
+    if (item.kind === "local") {
+      if (item.command === "/new") handleNewChat();
+      setComposerText("");
+      composerTextareaRef.current?.focus();
+      return;
+    }
     // The backend strips trailing whitespace from a stored prompt (see
     // prompt_command.py's strip_text validator), so a command-style prompt
     // like "/demanda" would otherwise land with no room to keep typing --
     // always leave exactly one trailing space regardless of kind.
     const text = item.kind === "prompt" ? item.prompt : item.command;
     setComposerText(text.endsWith(" ") ? text : `${text} `);
-    setSlashOpen(false);
     composerTextareaRef.current?.focus();
   }
 
@@ -1954,7 +2046,7 @@ export function ChatPane({
 
       const blob = new Blob(chunks, { type: mimeType });
       setVoiceStatusSync("processing");
-      setVoiceLiveText("Transcrevendo…");
+      setVoiceLiveText("Transcribing…");
       try {
         const result = await transcribe.mutateAsync(blob);
         const text = result.text?.trim();
@@ -2014,7 +2106,7 @@ export function ChatPane({
             speechStart = now;
             voiceChunksRef.current = [];
             if (recorder.state === "inactive") recorder.start(100);
-            setVoiceLiveText("🔴 Gravando…");
+            setVoiceLiveText("🔴 Recording…");
             maxTimer = setTimeout(() => { if (speaking) { speaking = false; flushRecording(); } }, MAX_RECORD_MS);
           }
         } else if (speaking) {
@@ -2288,7 +2380,7 @@ export function ChatPane({
       if (voiceActiveRef.current) {
         setVoiceStatusSync("listening");
         startListening();
-        setVoiceError(`Falha ao obter resposta: ${String(err)}`);
+        setVoiceError(`Failed to get a response: ${String(err)}`);
       }
     }
   }
@@ -2346,7 +2438,7 @@ export function ChatPane({
     } catch {
       micOk = false;
     }
-    push({ id: "mic", label: "Microfone", ok: micOk,
+    push({ id: "mic", label: "Microphone", ok: micOk,
       detail: micOk ? "Authorized" : "Denied — click the padlock in the address bar and allow the microphone." });
     if (!micOk) { setVoicePhase("error"); voiceActiveRef.current = false; return; }
 
@@ -2378,10 +2470,10 @@ export function ChatPane({
     setVoicePhase("active");
     setVoiceStatusSync("speaking");
 
-    const agentName = selectedAgent?.name ?? "Assistente";
+    const agentName = selectedAgent?.name ?? "Assistant";
     const h = new Date().getHours();
-    const period = h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite";
-    const greeting = `${period}! Sou ${agentName}. Como posso ajudar você agora?`;
+    const period = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    const greeting = `${period}! I'm ${agentName}. How can I help you now?`;
     setVoiceMsgs([{ role: "assistant", text: greeting }]);
 
     if (hasTTS && voices.length > 0) {
@@ -2513,7 +2605,7 @@ export function ChatPane({
               {/* Header */}
               <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
                 <span className="text-sm font-medium text-muted-foreground">
-                  Conversa por voz · {selectedAgent?.name}
+                  Voice conversation · {selectedAgent?.name}
                 </span>
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={stopVoice}>
                   <X className="h-4 w-4" />
@@ -2528,7 +2620,7 @@ export function ChatPane({
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                   />
-                  <p className="text-xs text-muted-foreground">Iniciando…</p>
+                  <p className="text-xs text-muted-foreground">Starting…</p>
                 </div>
               )}
               {voicePhase === "error" && (
@@ -2607,7 +2699,7 @@ export function ChatPane({
                     <VoiceOrb status={voiceStatus} compact />
                     <p className="text-center text-xs leading-relaxed text-muted-foreground px-3">
                       {{
-                        listening: "Ouvindo…",
+                        listening: "Listening…",
                         processing: `${selectedAgent?.name}\nis thinking…`,
                         speaking: `${selectedAgent?.name}\nis replying…`,
                       }[voiceStatus]}
@@ -2645,7 +2737,7 @@ export function ChatPane({
                 <div className="flex justify-center">
                   <Button variant="outline" size="sm" onClick={stopVoice} className="gap-2">
                     <X className="h-4 w-4" />
-                    Encerrar conversa por voz
+                    End voice conversation
                   </Button>
                 </div>
               </div>
@@ -2655,12 +2747,12 @@ export function ChatPane({
         {/* ── end voice overlay ───────────────────────────────────── */}
 
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
-          {(messages ?? []).length === 0 && (
+          {visibleMessages.length === 0 && (
             <p className="py-12 text-center text-sm italic text-muted-foreground">
-              Envie uma mensagem para iniciar a conversa com {selectedAgent?.name}.
+              {emptyStateText ?? `Send a message to start the conversation with ${selectedAgent?.name}.`}
             </p>
           )}
-          {(messages ?? []).map((m, i, list) => {
+          {visibleMessages.map((m, i, list) => {
             const prev = list[i - 1];
             const isCommandReply =
               m.role === "assistant" && prev?.role === "user" && isPlainTextReply(prev.content);
@@ -2776,12 +2868,12 @@ export function ChatPane({
                     <p className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
                       {item.isExec ? (
                         <>
-                          <span aria-hidden>💻</span> Executando comando
+                          <span aria-hidden>💻</span> Running command
                         </>
                       ) : (
                         <>
                           <span aria-hidden>✍️</span>
-                          {`${item.targetAgentName ?? selectedAgent?.name ?? "O agente"} está digitando`}
+                          {`${item.targetAgentName ?? selectedAgent?.name ?? "The agent"} is typing`}
                         </>
                       )}
                       <TypingDots />
@@ -2792,7 +2884,7 @@ export function ChatPane({
               {item.approval && (
                 <div className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
                   <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    🔐 {item.targetAgentName ?? selectedAgent?.name ?? "O agente"} pede autorização para executar uma ação privilegiada
+                    🔐 {item.targetAgentName ?? selectedAgent?.name ?? "The agent"} requests authorization to run a privileged action
                   </p>
                   {item.approval.description && (
                     <p className="text-xs text-muted-foreground">{item.approval.description}</p>
@@ -2819,7 +2911,7 @@ export function ChatPane({
                       size="sm"
                       onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "once")}
                     >
-                      ✅ Aprovar uma vez
+                      ✅ Approve once
                     </Button>
                     <Button
                       size="sm"
@@ -2827,24 +2919,24 @@ export function ChatPane({
                       title="Do not ask again for this same command type in this session"
                       onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "session")}
                     >
-                      ☑️ Aprovar nesta sessão
+                      ☑️ Approve for this session
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "deny")}
                     >
-                      🚫 Negar
+                      🚫 Deny
                     </Button>
                   </div>
                 </div>
               )}
               {item.status === "error" && (
                 <p className="flex items-center gap-2 pl-1 text-xs text-destructive">
-                  ❌ Falhou: {item.error}
+                  ❌ Failed: {item.error}
                   <button
                     type="button"
-                    aria-label="Dispensar"
+                    aria-label="Dismiss"
                     onClick={() => setQueue((q) => q.filter((it) => it.id !== item.id))}
                   >
                     <X className="h-3 w-3" />
@@ -2881,7 +2973,7 @@ export function ChatPane({
                   {attachedImagePreviewUrls[index] ? (
                     <button
                       type="button"
-                      aria-label="Visualizar imagem anexada"
+                      aria-label="View attached image"
                       onClick={() => setImagePreviewIndex(index)}
                       className="shrink-0"
                     >
@@ -2925,11 +3017,11 @@ export function ChatPane({
                   }}
                 >
                   <X className="h-4 w-4" />
-                  Remover
+                  Remove
                 </Button>
                 <button
                   type="button"
-                  aria-label="Fechar"
+                  aria-label="Close"
                   onClick={() => setImagePreviewIndex(null)}
                   className="absolute -right-3 -top-3 rounded-full border border-border bg-card p-1.5 shadow-md hover:bg-accent"
                 >
@@ -3084,8 +3176,8 @@ export function ChatPane({
               variant={voiceActive ? "default" : "ghost"}
               size="icon"
               className="h-8 w-8 rounded-full shrink-0"
-              aria-label={voiceActive ? "Encerrar conversa por voz" : `Conversa por voz com ${selectedAgent?.name ?? "agente"}`}
-              title={voiceActive ? "Encerrar conversa por voz" : `Conversa por voz com ${selectedAgent?.name ?? "agente"}`}
+              aria-label={voiceActive ? "End voice conversation" : `Voice conversation with ${selectedAgent?.name ?? "agent"}`}
+              title={voiceActive ? "End voice conversation" : `Voice conversation with ${selectedAgent?.name ?? "agent"}`}
               onClick={voiceActive ? stopVoice : startVoice}
               disabled={isRecording}
             >

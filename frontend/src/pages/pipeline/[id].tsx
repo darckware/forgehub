@@ -135,7 +135,7 @@ function StageCard({
                 variant={STAGE_STATUS_VARIANT[stage.status] ?? "outline"}
                 className="cursor-pointer"
                 onClick={() => setEditStatus(true)}
-                title="Clique para alterar status"
+                title="Click to change status"
               >
                 {stage.status.replace("_", " ")}
               </Badge>

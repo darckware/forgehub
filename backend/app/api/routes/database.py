@@ -427,7 +427,7 @@ async def validate_query(payload: ValidateRequest) -> ValidateResult:
         msg = str(getattr(cause, "message", None) or cause)
         # Strip SQLAlchemy boilerplate prefix if present
         msg = re.sub(r"^\(.*?\) ", "", msg).strip()
-        return ValidateResult(valid=False, error=msg or "Erro de sintaxe")
+        return ValidateResult(valid=False, error=msg or "Syntax error")
 
 
 @router.post("/query", response_model=QueryResult)

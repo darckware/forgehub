@@ -125,7 +125,7 @@ function DocTreeItem({
             }}
             className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left"
             style={{ paddingLeft: `${depth * 0.9 + 0.5}rem` }}
-            title={onSelectFolder ? "Selecionar como pasta de trabalho" : undefined}
+            title={onSelectFolder ? "Select as working folder" : undefined}
           >
             {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
             <Folder className="h-3.5 w-3.5 shrink-0" />
@@ -133,10 +133,10 @@ function DocTreeItem({
           </button>
           {actions && (
             <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-              <ActionIcon icon={FilePlus} label="Novo documento aqui" onClick={() => actions.onCreateFile(node.path)} />
-              <ActionIcon icon={FolderPlus} label="Nova pasta aqui" onClick={() => actions.onCreateFolder(node.path)} />
-              <ActionIcon icon={Pencil} label="Renomear pasta" onClick={() => actions.onRename(node.path)} />
-              <ActionIcon icon={Trash2} label="Excluir pasta" destructive onClick={() => actions.onDelete(node.path)} />
+              <ActionIcon icon={FilePlus} label="New document here" onClick={() => actions.onCreateFile(node.path)} />
+              <ActionIcon icon={FolderPlus} label="New folder here" onClick={() => actions.onCreateFolder(node.path)} />
+              <ActionIcon icon={Pencil} label="Rename folder" onClick={() => actions.onRename(node.path)} />
+              <ActionIcon icon={Trash2} label="Delete folder" destructive onClick={() => actions.onDelete(node.path)} />
             </div>
           )}
         </div>
@@ -180,8 +180,8 @@ function DocTreeItem({
       </button>
       {actions && (
         <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-          <ActionIcon icon={Pencil} label="Renomear arquivo" onClick={() => actions.onRename(node.path)} />
-          <ActionIcon icon={Trash2} label="Excluir arquivo" destructive onClick={() => actions.onDelete(node.path)} />
+          <ActionIcon icon={Pencil} label="Rename file" onClick={() => actions.onRename(node.path)} />
+          <ActionIcon icon={Trash2} label="Delete file" destructive onClick={() => actions.onDelete(node.path)} />
         </div>
       )}
     </div>
@@ -248,7 +248,7 @@ export function DocTree({
             "min-h-8 flex-1 rounded-md",
             rootDragOver && "bg-accent ring-1 ring-inset ring-primary"
           )}
-          title="Soltar aqui move para a raiz da área"
+          title="Drop here to move to the area's root"
         />
       )}
     </div>

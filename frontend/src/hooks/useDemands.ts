@@ -24,13 +24,13 @@ export const CONVERT_TARGETS = [
 export type ConvertTarget = (typeof CONVERT_TARGETS)[number];
 
 export const CONVERT_TARGET_LABELS: Record<ConvertTarget, string> = {
-  task: "Task (item existente)",
-  doc: "Documento",
-  artifact: "Artefato",
-  knowledge_base: "Base de Conhecimento",
-  project_doc: "Projeto específico (doc)",
-  quick_task: "Task avulsa (novo item)",
-  planning_item: "Planejamento do projeto",
+  task: "Task (existing item)",
+  doc: "Document",
+  artifact: "Artifact",
+  knowledge_base: "Knowledge Base",
+  project_doc: "Specific project (doc)",
+  quick_task: "Standalone task (new item)",
+  planning_item: "Project planning",
 };
 
 export const attachmentSchema = z.object({
@@ -49,6 +49,10 @@ export const demandSchema = z.object({
   subject: z.string(),
   body: z.string(),
   status: z.enum(DEMAND_STATUSES),
+  // Only meaningful while status="archived" -- which Archived subfolder
+  // (demand_groups row) this demand is filed under. Null while unarchived,
+  // or archived-but-uncategorized (sits in the Archived root).
+  group_id: z.string().nullable(),
   converted_entity_type: z.enum(CONVERT_TARGETS).nullable(),
   converted_reference: z.string().nullable(),
   created_at: z.string(),
@@ -57,6 +61,21 @@ export const demandSchema = z.object({
 });
 
 export type Demand = z.infer<typeof demandSchema>;
+
+/** A user-created subfolder inside the Inbox's "Archived" bucket --
+ * freely nestable via parent_id. "Incoming" and the "Archived" root
+ * itself are NOT rows here, they're derived from Demand.status/group_id
+ * (see demandSchema's group_id comment) -- only user-created subfolders
+ * get a row. */
+export const demandGroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  parent_id: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type DemandGroup = z.infer<typeof demandGroupSchema>;
 
 const convertResultSchema = z.object({
   entity_type: z.enum(CONVERT_TARGETS),
@@ -77,6 +96,9 @@ export interface ConvertPayload {
   /** planning_item / quick_task -- one of PLANNING_ITEM_TYPES, defaults to
    * "documentation" server-side when omitted. */
   item_type?: string;
+  /** doc -- which área de criação (docs_creation_areas) to write into.
+   * Omitted = falls back to the original /root/docs mount server-side. */
+  area_id?: string;
 }
 
 const RESOURCE = "/api/v1/demands";
@@ -88,6 +110,7 @@ export const demandKeys = {
 export function useDemands(statusFilter?: DemandStatus) {
   return useQuery({
     queryKey: [...demandKeys.all, statusFilter ?? "all"],
+    refetchInterval: 30_000,
     queryFn: async () => {
       const data = await apiClient.get<unknown>(RESOURCE, {
         params: statusFilter ? { status_filter: statusFilter } : undefined,
@@ -115,7 +138,7 @@ export function useCreateDemand() {
   });
 }
 
-/** "Encaminhar pro Telegram" -- proxies through the backend to Hermes's
+/** "Notify via Telegram" -- proxies through the backend to Hermes's
  * cross-channel gateway (backend/app/api/routes/demand.py's
  * /notify-telegram, host-bridge/send_message.py). No target picker: it
  * always goes to the configured home channel (the user's own Telegram). */
@@ -131,6 +154,18 @@ export function useUpdateDemandStatus() {
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: DemandStatus }) =>
       apiClient.patch<Demand>(`${RESOURCE}/${id}`, { status }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Inbox drag-and-drop: file a demand into an Archived subfolder
+ * (groupId set -- the backend forces status="archived") or drag it back
+ * to Incoming (groupId: null, explicit status so it doesn't stay archived). */
+export function useMoveDemand() {
+  const invalidate = useInvalidateDemands();
+  return useMutation({
+    mutationFn: ({ id, groupId, status }: { id: string; groupId: string | null; status?: DemandStatus }) =>
+      apiClient.patch<Demand>(`${RESOURCE}/${id}`, status ? { group_id: groupId, status } : { group_id: groupId }),
     onSuccess: invalidate,
   });
 }
@@ -181,6 +216,65 @@ export async function downloadDemandAttachment(demandId: string, attachment: Dem
   a.download = attachment.filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+const GROUPS_RESOURCE = `${RESOURCE}/groups`;
+
+export const demandGroupKeys = {
+  all: ["demand-groups"] as const,
+};
+
+export function useDemandGroups() {
+  return useQuery({
+    queryKey: demandGroupKeys.all,
+    queryFn: async () => {
+      const data = await apiClient.get<unknown>(GROUPS_RESOURCE);
+      return z.array(demandGroupSchema).parse(data);
+    },
+  });
+}
+
+function useInvalidateDemandGroups() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: demandGroupKeys.all });
+}
+
+export function useCreateDemandGroup() {
+  const invalidate = useInvalidateDemandGroups();
+  return useMutation({
+    mutationFn: (payload: { name: string; parent_id?: string | null }) =>
+      apiClient.post<DemandGroup>(GROUPS_RESOURCE, payload),
+    onSuccess: invalidate,
+  });
+}
+
+/** Rename and/or reparent (drag a folder onto another folder, or onto the
+ * Archived root by passing parentId: null). */
+export function useUpdateDemandGroup() {
+  const invalidate = useInvalidateDemandGroups();
+  return useMutation({
+    mutationFn: ({ id, name, parentId }: { id: string; name?: string; parentId?: string | null }) => {
+      const payload: { name?: string; parent_id?: string | null } = {};
+      if (name !== undefined) payload.name = name;
+      if (parentId !== undefined) payload.parent_id = parentId;
+      return apiClient.patch<DemandGroup>(`${GROUPS_RESOURCE}/${id}`, payload);
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteDemandGroup() {
+  const invalidate = useInvalidateDemandGroups();
+  const invalidateDemands = useInvalidateDemands();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<void>(`${GROUPS_RESOURCE}/${id}`),
+    onSuccess: () => {
+      invalidate();
+      // Demands filed under the deleted folder fall back to the Archived
+      // root server-side (ondelete=SET NULL) -- refresh the list too.
+      invalidateDemands();
+    },
+  });
 }
 
 /** Convert an existing /root/docs note/annotation the same way a demand

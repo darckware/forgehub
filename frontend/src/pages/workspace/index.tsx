@@ -376,8 +376,8 @@ export default function WorkspacePage() {
             size="icon"
             className="h-7 w-7 shrink-0"
             disabled={!workingDir || workspaceUploadStatus === "uploading"}
-            title={workingDir ? "Enviar arquivos para a pasta de trabalho" : "Selecione uma pasta de trabalho primeiro"}
-            aria-label="Enviar arquivos para a pasta de trabalho"
+            title={workingDir ? "Upload files to the working folder" : "Select a working folder first"}
+            aria-label="Upload files to the working folder"
             onClick={() => workspaceUploadInputRef.current?.click()}
           >
             {workspaceUploadStatus === "uploading" ? (
@@ -408,7 +408,7 @@ export default function WorkspacePage() {
             </Button>
           ))}
           <div className="mx-1 h-5 w-px bg-border" />
-          <span className="text-[10px] font-medium uppercase text-muted-foreground" title="Runtimes/orquestradores de agentes">
+          <span className="text-[10px] font-medium uppercase text-muted-foreground" title="Agent runtimes/orchestrators">
             Runtimes
           </span>
           {RUNTIME_LAUNCHERS.map((l) => (

@@ -37,7 +37,7 @@ import {
 import { useAuthStore } from "@/store/authStore";
 
 function formatLogTimestamp(epochSeconds: number | null | undefined): string {
-  if (!epochSeconds) return "sem data";
+  if (!epochSeconds) return "no date";
   return new Date(epochSeconds * 1000).toLocaleString();
 }
 
@@ -466,10 +466,10 @@ export default function HindsightPage() {
 
       <ConfirmDialog
         open={clearLogConfirmOpen}
-        title="Limpar log do Hindsight"
-        description={`Apaga o conteúdo de ${latestLog.path ?? "este arquivo"} -- não afeta o daemon em execução, só o histórico exibido aqui.`}
-        confirmLabel="Limpar"
-        cancelLabel="Cancelar"
+        title="Clear Hindsight log"
+        description={`Clears the contents of ${latestLog.path ?? "this file"} -- doesn't affect the running daemon, only the history shown here.`}
+        confirmLabel="Clear"
+        cancelLabel="Cancel"
         variant="default"
         loading={clearLogMut.isPending}
         onCancel={() => setClearLogConfirmOpen(false)}
@@ -501,14 +501,14 @@ export default function HindsightPage() {
                   ) : (
                     <Eraser className="h-3.5 w-3.5" />
                   )}
-                  Limpar log
+                  Clear log
                 </Button>
               )}
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="break-all text-xs text-muted-foreground">{latestLog.path ?? "No log file found"}</p>
               <p className="shrink-0 text-xs text-muted-foreground">
-                Atualizado em {formatLogTimestamp(latestLog.updated_at)}
+                Updated at {formatLogTimestamp(latestLog.updated_at)}
               </p>
             </div>
             <pre className="max-h-80 overflow-auto rounded-md bg-muted/40 p-3 text-xs">

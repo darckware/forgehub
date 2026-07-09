@@ -23,9 +23,14 @@ from app.api.schemas.backlog import PlanningItemCreate
 from app.api.schemas.task import ProjectTaskCreate
 from app.core.markdown_docs import resolve_doc_path
 from app.db.models.doc_link import DocLink
+from app.db.models.docs_area import DocsArea
 
 DOCS_ROOT = Path("/docs")
 VAULT_ROOT = Path("/vault")
+# Whole host filesystem (docker-compose.yml bind mount) backing the
+# user-configurable "áreas de criação" -- see resolve_area_root below and
+# docs.py's own _area_root, which this mirrors.
+HOST_ROOT = Path("/host-root")
 
 # project_id-scoped targets (planning_item/project_doc/quick_task) exist
 # alongside the original four so a demand can become project work
@@ -72,15 +77,69 @@ async def convert_to_task(
     return task.id, str(task.id)
 
 
-async def convert_to_doc(*, path: str, content: str) -> str:
-    """Write `content` as a new (or overwritten) markdown file under
-    /root/docs -- the same write path docs.py's own PUT /file uses."""
-    target = _resolve_or_raise(DOCS_ROOT, path)
+async def resolve_area_root(db: AsyncSession, area_id: uuid.UUID) -> Path:
+    """Resolves a docs_creation_areas row to its filesystem root, same as
+    docs.py's own _area_root -- lets a demand's Documento conversion land
+    in any registered área de criação, not just the original /root/docs
+    mount (DOCS_ROOT)."""
+    area = await db.get(DocsArea, area_id)
+    if area is None:
+        raise ConversionError("area_id must reference an existing creation area")
+    return HOST_ROOT / area.host_path.lstrip("/")
+
+
+async def convert_to_doc(*, path: str, content: str, root: Path | None = None) -> str:
+    """Write `content` as a new (or overwritten) markdown file under `root`
+    (defaults to /root/docs -- the same write path docs.py's own PUT /file
+    uses; pass an área de criação's resolved root, see resolve_area_root,
+    to write into a different area instead).
+
+    `root` defaults to None (resolved to the module-level DOCS_ROOT inside
+    the body) rather than `= DOCS_ROOT` directly -- a default *parameter*
+    value is bound once at function-definition time, so tests that
+    monkeypatch `conversions.DOCS_ROOT` to a tmp_path wouldn't be seen by
+    an already-bound default; looking it up here every call keeps that
+    working."""
+    if root is None:
+        root = DOCS_ROOT
+    target = _resolve_or_raise(root, path)
     if target.suffix.lower() not in (".md", ".markdown", ".txt"):
         raise ConversionError("Doc path must end in .md, .markdown or .txt")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return path
+
+
+async def copy_attachments_to_folder(
+    *, attachments: list[tuple[str, str]], dest_path: str, dest_root: Path | None = None
+) -> list[str]:
+    """Copies each (filename, source_relative_path-under-DOCS_ROOT)
+    attachment into the same folder `dest_path` (a just-written doc) lives
+    in under `dest_root` -- so a demand's attached files land next to its
+    note instead of only the markdown body making it into Docs. Attachment
+    sources always live under DOCS_ROOT regardless of `dest_root` (they're
+    uploaded via the fixed /demands/{id}/attachments endpoint); `dest_root`
+    only affects where the copy lands, e.g. an área de criação other than
+    the original /root/docs mount. Missing source files are skipped rather
+    than failing the whole conversion (an attachment row can outlive its
+    file if something else already moved/deleted it).
+
+    `dest_root` defaults to None (resolved to DOCS_ROOT in the body), same
+    late-binding reason as convert_to_doc's `root` param -- see its
+    docstring."""
+    if dest_root is None:
+        dest_root = DOCS_ROOT
+    dest_folder = _resolve_or_raise(dest_root, dest_path).parent
+    copied: list[str] = []
+    for filename, source_rel in attachments:
+        source = _resolve_or_raise(DOCS_ROOT, source_rel)
+        if not source.is_file():
+            continue
+        target = dest_folder / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+        copied.append(str(target.relative_to(dest_root)))
+    return copied
 
 
 async def convert_to_artifact(

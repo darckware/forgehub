@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Camera, Check, KeyRound, Laptop, Loader2, Moon, Settings, Sun, User as UserIcon } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Camera, Check, KeyRound, Laptop, LogOut, Loader2, Moon, Settings, Sun, User as UserIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useTheme } from "@/lib/theme";
@@ -182,9 +183,10 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Gear icon + dropdown (Conta / Alterar senha / Tema) -- replaces the
- * standalone ThemeToggle that used to sit in the sidebar header/footer,
- * folding theme selection into this single settings menu instead.
+/** Gear icon + dropdown (Account / Change password / Theme / Log out) --
+ * replaces the standalone ThemeToggle and the standalone "Log out" button
+ * that used to sit in the sidebar header/footer, folding all
+ * account-adjacent actions into this single settings menu instead.
  *
  * `collapsed` controls icon-only vs icon+label. `stretch` controls whether
  * the trigger fills its container's width (the standalone rail-mode
@@ -205,7 +207,7 @@ export function UserSettingsMenu({
   usernameInitial?: string;
   /** Forces the avatar-photo trigger even outside rail mode -- used
    * inline in the expanded user row, where the avatar itself opens the
-   * Conta/Senha/Tema dropdown instead of a separate gear button. */
+   * Account/Password/Theme dropdown instead of a separate gear button. */
   avatarTrigger?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -213,6 +215,14 @@ export function UserSettingsMenu({
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
   const { theme, setTheme } = useTheme();
+  const navigate = useNavigate();
+  const clearAuth = useAuthStore((s) => s.clearAuth);
+
+  function handleLogout() {
+    setOpen(false);
+    clearAuth();
+    navigate("/login", { replace: true });
+  }
 
   const railMode = collapsed && stretch;
   const showAvatar = railMode || avatarTrigger;
@@ -255,6 +265,9 @@ export function UserSettingsMenu({
           <div
             className="absolute bottom-0 left-full z-20 ml-1 w-48 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md"
           >
+            <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Account
+            </p>
             <button
               type="button"
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
@@ -264,7 +277,7 @@ export function UserSettingsMenu({
               }}
             >
               <UserIcon className="h-3.5 w-3.5" />
-              Conta
+              Account
             </button>
             <button
               type="button"
@@ -275,11 +288,11 @@ export function UserSettingsMenu({
               }}
             >
               <KeyRound className="h-3.5 w-3.5" />
-              Alterar senha
+              Change password
             </button>
             <div className="my-1 border-t border-border" />
             <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-              Tema
+              Theme
             </p>
             {THEME_OPTIONS.map((opt) => (
               <button
@@ -293,6 +306,15 @@ export function UserSettingsMenu({
                 {theme === opt.value && <Check className="h-3.5 w-3.5" />}
               </button>
             ))}
+            <div className="my-1 border-t border-border" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              onClick={handleLogout}
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Log out
+            </button>
           </div>
         )}
       </div>

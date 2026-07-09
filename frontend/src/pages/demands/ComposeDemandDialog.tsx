@@ -10,11 +10,29 @@ import { useCreateDemand, useUploadDemandAttachment } from "@/hooks/useDemands";
 /** "Nova nota" -- lets the logged-in user file their own inbox item (not
  * just agents via /submit), per the "console de desenvolvimento" use case:
  * day-to-day notes/procedures land here first, get triaged later. Files
- * as `from_agent = username` so the inbox shows a real sender either way. */
-export function ComposeDemandDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+ * as `from_agent = username` so the inbox shows a real sender either way.
+ *
+ * `subject`/`body` are controlled (lifted to DemandsPage) rather than local
+ * state -- DemandsPage registers them as an AssistantForm while this dialog
+ * is open, so the assistant can fill them on request (see AssistantDrawer's
+ * forgehub-fill protocol); it needs to be able to set these values from
+ * outside, which local state wouldn't allow. */
+export function ComposeDemandDialog({
+  open,
+  onClose,
+  subject,
+  onSubjectChange,
+  body,
+  onBodyChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  subject: string;
+  onSubjectChange: (value: string) => void;
+  body: string;
+  onBodyChange: (value: string) => void;
+}) {
   const user = useAuthStore((s) => s.user);
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createDemand = useCreateDemand();
@@ -24,8 +42,8 @@ export function ComposeDemandDialog({ open, onClose }: { open: boolean; onClose:
   if (!open) return null;
 
   function reset() {
-    setSubject("");
-    setBody("");
+    onSubjectChange("");
+    onBodyChange("");
     setFiles([]);
     setError(null);
   }
@@ -34,7 +52,7 @@ export function ComposeDemandDialog({ open, onClose }: { open: boolean; onClose:
     setError(null);
     try {
       const demand = await createDemand.mutateAsync({
-        from_agent: user?.username ?? "você",
+        from_agent: user?.username ?? "you",
         subject,
         body,
       });
@@ -44,7 +62,7 @@ export function ComposeDemandDialog({ open, onClose }: { open: boolean; onClose:
       reset();
       onClose();
     } catch (e) {
-      setError((e as Error)?.message ?? "Falha ao enviar nota");
+      setError((e as Error)?.message ?? "Failed to send note");
     }
   }
 
@@ -62,23 +80,23 @@ export function ComposeDemandDialog({ open, onClose }: { open: boolean; onClose:
       />
       <div className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
         <div className="p-6">
-          <h2 className="text-base font-semibold">Nova nota</h2>
+          <h2 className="text-base font-semibold">New note</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Registrada no inbox como enviada por você -- classifique depois em Base de
-            Conhecimento, um projeto, ou planejamento.
+            Filed in the inbox as sent by you -- triage it later into the Knowledge
+            Base, a project, or planning.
           </p>
 
           <div className="mt-4 space-y-3">
             <Input
               value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="Assunto"
+              onChange={(e) => onSubjectChange(e.target.value)}
+              placeholder="Subject"
               maxLength={255}
             />
             <Textarea
               value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Conteúdo em markdown..."
+              onChange={(e) => onBodyChange(e.target.value)}
+              placeholder="Markdown content..."
               rows={8}
               className="font-mono text-sm"
             />
@@ -102,7 +120,7 @@ export function ComposeDemandDialog({ open, onClose }: { open: boolean; onClose:
                 className="gap-1.5"
                 onClick={() => fileInputRef.current?.click()}
               >
-                <Paperclip className="h-3.5 w-3.5" /> Anexar arquivo
+                <Paperclip className="h-3.5 w-3.5" /> Attach file
               </Button>
               {files.length > 0 && (
                 <ul className="mt-2 space-y-1">
@@ -136,11 +154,11 @@ export function ComposeDemandDialog({ open, onClose }: { open: boolean; onClose:
                 onClose();
               }}
             >
-              Cancelar
+              Cancel
             </Button>
             <Button disabled={!canSubmit} onClick={handleSubmit} className="min-w-[88px] gap-1.5">
               {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Enviar
+              Send
             </Button>
           </div>
         </div>

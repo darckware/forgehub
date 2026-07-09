@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
   ChevronRight,
   Search,
-  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
@@ -71,8 +70,7 @@ const MOBILE_BREAKPOINT = 768;
 
 export function Sidebar() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const { user, clearAuth } = useAuthStore();
+  const { user } = useAuthStore();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(COLLAPSE_STORAGE_KEY) === "1"
   );
@@ -89,11 +87,6 @@ export function Sidebar() {
   // state on mobile, it's either fully hidden or fully shown as an overlay.
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-
-  const handleLogout = () => {
-    clearAuth();
-    navigate("/login", { replace: true });
-  };
 
   useEffect(() => {
     localStorage.setItem(COLLAPSE_STORAGE_KEY, collapsed ? "1" : "0");
@@ -357,17 +350,6 @@ export function Sidebar() {
               <NotificationBell collapsed />
             </>
           )}
-          <Button
-            variant="ghost"
-            size={effectiveCollapsed ? "icon" : "default"}
-            className={cn("w-full text-muted-foreground", !effectiveCollapsed && "justify-start gap-3")}
-            aria-label="Log out"
-            title="Log out"
-            onClick={handleLogout}
-          >
-            <LogOut className="h-4 w-4 shrink-0" />
-            {!effectiveCollapsed && "Log out"}
-          </Button>
         </div>
       </aside>
 
