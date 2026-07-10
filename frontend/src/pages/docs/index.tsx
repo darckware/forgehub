@@ -4,7 +4,6 @@ import {
   AlertCircle,
   ArrowRightCircle,
   BookOpen,
-  Bot,
   ChevronDown,
   Download,
   Eye,
@@ -29,7 +28,7 @@ import { Markdown } from "@/components/Markdown";
 import { ConvertMenu, convertResultMessage } from "@/components/ConvertMenu";
 import { useConvertDoc } from "@/hooks/useDemands";
 import { useAssistantContext } from "@/hooks/useAssistant";
-import { useAssistantStore } from "@/store/assistantStore";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whiteboard/WhiteboardModal";
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
 import {
@@ -275,8 +274,6 @@ export default function DocsPage() {
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
-  const assistantOpen = useAssistantStore((s) => s.open);
-  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
 
   useAssistantContext({
     label: "Use current document",
@@ -500,15 +497,10 @@ export default function DocsPage() {
           >
             <Palette className="h-4 w-4" /> Whiteboard
           </Button>
-          <Button
+          <AssistantToggleButton
             size="sm"
-            variant={assistantOpen ? "secondary" : "outline"}
-            className="gap-1.5"
-            title={assistantOpen ? "Close assistant" : "Open the assistant to help create/fill this document"}
-            onClick={() => setAssistantOpen(!assistantOpen)}
-          >
-            <Bot className="h-4 w-4" /> Assistant
-          </Button>
+            openTitle="Open the assistant to help create/fill this document"
+          />
         </div>
       </div>
 
@@ -608,6 +600,20 @@ export default function DocsPage() {
                   onDelete: handleDeletePath,
                 }}
                 onMove={handleMove}
+                getAssistantDragPayload={areaId && currentArea ? (node) =>
+                  node.type === "dir"
+                    ? {
+                        source: "host-folder",
+                        path: `${currentArea.host_path.replace(/\/$/, "")}/${node.path}`,
+                        name: node.name,
+                      }
+                    : {
+                        source: "docs",
+                        areaId,
+                        path: node.path,
+                        name: node.name,
+                      }
+                : undefined}
               />
             )}
           </CardContent>

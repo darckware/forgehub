@@ -39,6 +39,7 @@ import {
   type AuditCheck,
   type AuditCheckInput,
 } from "@/hooks/useAudit";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
 const RUN_STATUS_BADGE: Record<string, { variant: "success" | "destructive" | "warning" | "outline"; label: string }> = {
   ok: { variant: "success", label: "✅ OK" },
@@ -261,7 +262,7 @@ export default function AuditorPage() {
             </span>
           )}
         </h1>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button
             size="sm"
             className="gap-1.5"
@@ -275,6 +276,7 @@ export default function AuditorPage() {
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setFormCheck("new")}>
             <Plus className="h-4 w-4" /> New check
           </Button>
+          <AssistantToggleButton size="sm" />
         </div>
       </div>
 

@@ -23,6 +23,7 @@ Provides endpoints to:
   see list_scripts below.
 """
 
+import asyncio
 import fcntl
 import json
 import os
@@ -33,8 +34,13 @@ from pathlib import Path
 from typing import Any
 
 from croniter import croniter
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.base import get_db
+from app.db.models.audit import AuditCheck
 
 router = APIRouter(prefix="/api/v1/foundation", tags=["foundation"])
 
@@ -217,6 +223,14 @@ class ScriptOut(BaseModel):
     escapes_scripts_dir: bool = False
     status: str  # "ok" | "broken" | "unused"
     referenced_by: list[CronJobRefOut] = []
+    # Non-cron reference sources -- a script counts as "ok" if referenced by
+    # ANY of the three: a cron job (referenced_by above), an enabled Auditor
+    # check's command (referenced_by_audit_checks), or another script that is
+    # itself referenced and calls this one (referenced_by_scripts, e.g. a
+    # cron-wrapper .sh invoking its .py implementation). See
+    # _audit_check_script_refs/_list_scripts for how these are computed.
+    referenced_by_audit_checks: list[str] = []
+    referenced_by_scripts: list[str] = []
 
 
 class ScriptListOut(BaseModel):
@@ -790,6 +804,37 @@ def _remap_host_symlink_target(raw_target: str) -> Path | None:
     return None
 
 
+# Matches a bare script filename (no directory component) ending in a known
+# script extension, e.g. "foundation_checklist_verifier.sh" inside a command
+# string or another script's source -- used both to pull script references
+# out of Auditor check commands and to detect a wrapper script's chained
+# call into another script it invokes by path.
+_SCRIPT_NAME_RE = re.compile(r"\b[\w.-]+\.(?:sh|py|bash)\b")
+
+
+async def _audit_check_script_refs(db: AsyncSession) -> dict[str, list[str]]:
+    """Scripts named in an enabled Auditor check's command count as
+    referenced -- the Auditor page (audit_checks table) invokes them
+    directly by shell command, with no corresponding cron job, so the
+    cron-only cross-reference in _list_scripts wrongly flagged them
+    "unused" (see system_control.py's Cleanup card, reported 2026-07-09)."""
+    result = await db.execute(select(AuditCheck.name, AuditCheck.command).where(AuditCheck.enabled.is_(True)))
+    refs: dict[str, list[str]] = {}
+    for check_name, command in result.all():
+        for match in _SCRIPT_NAME_RE.finditer(command or ""):
+            refs.setdefault(match.group(0), []).append(check_name)
+    return refs
+
+
+def _script_content_refs(content: str) -> set[str]:
+    """Script filenames mentioned in another script's own source -- a
+    cron-referenced or Auditor-referenced wrapper (e.g. foundation_audit.sh)
+    routinely shells out to a same-purpose .py it isn't itself registered
+    as a cron job for (foundation_audit.py). Treat that as a reference too,
+    so the chain doesn't dead-end at the wrapper."""
+    return set(_SCRIPT_NAME_RE.findall(content))
+
+
 def _build_script_out(
     *,
     name: str,
@@ -799,7 +844,11 @@ def _build_script_out(
     host_scripts_dir: str,
     description: str | None,
     jobs_by_script: dict[str, list[CronJobOut]],
+    audit_check_names: list[str] | None = None,
+    chained_from: list[str] | None = None,
 ) -> ScriptOut:
+    audit_check_names = audit_check_names or []
+    chained_from = chained_from or []
     is_symlink = path.is_symlink()
     symlink_target: str | None = None
     escapes_scripts_dir = False
@@ -831,10 +880,10 @@ def _build_script_out(
 
     if not exists or escapes_scripts_dir:
         status = "broken"
-    elif not refs:
-        status = "unused"
-    else:
+    elif refs or audit_check_names or chained_from:
         status = "ok"
+    else:
+        status = "unused"
 
     return ScriptOut(
         name=name,
@@ -860,23 +909,51 @@ def _build_script_out(
             )
             for j in refs
         ],
+        referenced_by_audit_checks=audit_check_names,
+        referenced_by_scripts=chained_from,
     )
 
 
-def _list_scripts() -> list[ScriptOut]:
+def _read_files_sync(paths: dict[tuple[str, str], Path]) -> dict[tuple[str, str], bytes]:
+    result: dict[tuple[str, str], bytes] = {}
+    for key, path in paths.items():
+        try:
+            result[key] = path.read_bytes()
+        except OSError:
+            continue
+    return result
+
+
+async def _list_scripts(db: AsyncSession) -> tuple[list[ScriptOut], dict[tuple[str, str], bytes]]:
     """List every profile's scripts/ dir (the only place the scheduler
     executes scripts from -- the old central catalog was migrated into the
-    athos profile on 2026-07-06), cross-referenced with the cron jobs that
-    invoke them by filename."""
+    athos profile on 2026-07-06), cross-referenced against three reference
+    sources: cron jobs (by filename), enabled Auditor checks (by filename
+    inside their command), and other scripts from either of those two
+    sources that call this one by path in their own source (one wrapper
+    calling its .py implementation, chased to a fixed point so a wrapper of
+    a wrapper still resolves).
+
+    Also returns the raw (location, name) -> bytes content read while
+    building the list, so callers that also need file content (e.g.
+    system_control.py's duplicate-script hashing) don't read every script
+    off disk a second time.
+    """
     jobs = _list_cron_jobs()
     jobs_by_script: dict[str, list[CronJobOut]] = {}
     for job in jobs:
         if job.script:
             jobs_by_script.setdefault(job.script, []).append(job)
 
-    descriptions = _parse_readme_descriptions()
-    scripts: list[ScriptOut] = []
+    audit_refs_by_script = await _audit_check_script_refs(db)
 
+    descriptions = _parse_readme_descriptions()
+
+    # (profile, name) -> (location, agent, path, host_scripts_dir). Keyed by
+    # the pair, not just the bare filename -- two profiles can each have a
+    # same-named script (e.g. cleanup.sh), and both must still show up here
+    # rather than one silently overwriting the other.
+    candidates: dict[tuple[str, str], tuple[str, str, Path, str]] = {}
     if PROFILES_DIR.is_dir():
         for profile_dir in sorted(PROFILES_DIR.iterdir()):
             scripts_dir = profile_dir / "scripts"
@@ -885,17 +962,54 @@ def _list_scripts() -> list[ScriptOut]:
             for entry in sorted(scripts_dir.iterdir()):
                 if entry.is_dir() or not _script_is_real_file(entry):
                     continue
-                scripts.append(
-                    _build_script_out(
-                        name=entry.name,
-                        location=profile_dir.name,
-                        agent=profile_dir.name,
-                        path=entry,
-                        host_scripts_dir=f"/root/.hermes/profiles/{profile_dir.name}/scripts",
-                        description=descriptions.get(entry.name) or _extract_script_doc(entry),
-                        jobs_by_script=jobs_by_script,
-                    )
+                candidates[(profile_dir.name, entry.name)] = (
+                    profile_dir.name,
+                    profile_dir.name,
+                    entry,
+                    f"/root/.hermes/profiles/{profile_dir.name}/scripts",
                 )
+
+    # Blocking filesystem reads for every script's full content -- run off
+    # the event loop thread so a large/slow scripts tree doesn't stall every
+    # other in-flight request on this worker.
+    contents = await asyncio.to_thread(
+        _read_files_sync, {key: c[2] for key, c in candidates.items()}
+    )
+
+    # Reference-chain resolution matches by bare filename (cron jobs and
+    # Auditor check commands only ever name a script, not its owning
+    # profile), same ambiguity that already existed pre-refactor.
+    used = set(jobs_by_script) | set(audit_refs_by_script)
+    chained_from: dict[str, set[str]] = {}
+    changed = True
+    while changed:
+        changed = False
+        for (_profile, referrer), raw in contents.items():
+            if referrer not in used:
+                continue
+            text = raw.decode("utf-8", errors="ignore")
+            for other_name in _script_content_refs(text):
+                if other_name == referrer or other_name in used:
+                    continue
+                used.add(other_name)
+                chained_from.setdefault(other_name, set()).add(referrer)
+                changed = True
+
+    scripts: list[ScriptOut] = []
+    for (_profile, name), (location, agent, path, host_scripts_dir) in candidates.items():
+        scripts.append(
+            _build_script_out(
+                name=name,
+                location=location,
+                agent=agent,
+                path=path,
+                host_scripts_dir=host_scripts_dir,
+                description=descriptions.get(name) or _extract_script_doc(path),
+                jobs_by_script=jobs_by_script,
+                audit_check_names=audit_refs_by_script.get(name),
+                chained_from=sorted(chained_from.get(name, ())) or None,
+            )
+        )
 
     # Jobs that reference a script filename not found in any profile's
     # scripts dir -- surfaces the "missing script" case explicitly instead
@@ -914,12 +1028,13 @@ def _list_scripts() -> list[ScriptOut]:
                     host_scripts_dir=f"/root/.hermes/profiles/{ref_job.profile}/scripts",
                     description=None,
                     jobs_by_script=jobs_by_script,
+                    audit_check_names=audit_refs_by_script.get(script_name),
                 )
             )
         all_seen_names.add(script_name)
 
     scripts.sort(key=lambda s: (s.location, s.name))
-    return scripts
+    return scripts, contents
 
 
 def _resolve_script_read_path(location: str, name: str) -> Path | None:
@@ -1267,11 +1382,13 @@ async def delete_cron_job(job_id: str) -> dict[str, str]:
 
 
 @router.get("/scripts", response_model=ScriptListOut)
-async def list_scripts() -> ScriptListOut:
+async def list_scripts(db: AsyncSession = Depends(get_db)) -> ScriptListOut:
     """List the central scripts catalog plus every profile's own scripts/
     dir, each with its owning agent, description, and a health check
-    (exists / symlink escapes its scripts dir / referenced by a cron job)."""
-    return ScriptListOut(scripts=_list_scripts())
+    (exists / symlink escapes its scripts dir / referenced by a cron job,
+    an Auditor check, or another referenced script's chained call)."""
+    scripts, _contents = await _list_scripts(db)
+    return ScriptListOut(scripts=scripts)
 
 
 @router.get("/scripts/{location}/{name}/content", response_model=ScriptContentOut)

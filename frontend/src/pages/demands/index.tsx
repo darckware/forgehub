@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Archive,
-  Bot,
   CheckCheck,
   CheckCircle2,
   Download,
@@ -23,7 +22,7 @@ import { Markdown } from "@/components/Markdown";
 import { ConvertMenu } from "@/components/ConvertMenu";
 import { ComposeDemandDialog } from "@/pages/demands/ComposeDemandDialog";
 import { useAssistantContext } from "@/hooks/useAssistant";
-import { useAssistantStore } from "@/store/assistantStore";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { DEMAND_DRAG_MIME, InboxGroupTree } from "@/components/InboxGroupTree";
 import {
   CONVERT_TARGET_LABELS,
@@ -269,8 +268,6 @@ export default function DemandsPage() {
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
   const [inboxDragOver, setInboxDragOver] = useState(false);
-  const assistantOpen = useAssistantStore((s) => s.open);
-  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
 
   const filtered = useMemo(() => {
     const all = demands ?? [];
@@ -355,15 +352,10 @@ export default function DemandsPage() {
           <Button size="sm" className="gap-1.5" onClick={() => setComposeOpen(true)}>
             <Plus className="h-4 w-4" /> New note
           </Button>
-          <Button
+          <AssistantToggleButton
             size="sm"
-            variant={assistantOpen ? "secondary" : "outline"}
-            className="gap-1.5"
-            title={assistantOpen ? "Close assistant" : "Open the assistant to help triage this message"}
-            onClick={() => setAssistantOpen(!assistantOpen)}
-          >
-            <Bot className="h-4 w-4" /> Assistant
-          </Button>
+            openTitle="Open the assistant to help triage this message"
+          />
         </div>
       </div>
 

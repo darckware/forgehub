@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import {
   useAgents,
   useDeleteAgent,
@@ -22,7 +23,6 @@ import {
   type Agent,
   type SubAgent,
 } from "@/hooks/useAgent";
-import { useAssistantStore } from "@/store/assistantStore";
 
 type AgentRow =
   | { kind: "agent"; agent: Agent }
@@ -63,8 +63,6 @@ export default function AgentPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [layerFilter, setLayerFilter] = useState("");
   const [deleting, setDeleting] = useState<AgentRow | null>(null);
-  const assistantOpen = useAssistantStore((s) => s.open);
-  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
 
   const typeOptions = [...new Set((agents ?? []).map((a) => a.agent_type))].sort();
   const layerOptions = [
@@ -103,14 +101,7 @@ export default function AgentPage() {
             )}
             Sync
           </Button>
-          <Button
-            variant={assistantOpen ? "secondary" : "outline"}
-            className="gap-1.5"
-            title={assistantOpen ? "Close assistant" : "Open the assistant"}
-            onClick={() => setAssistantOpen(!assistantOpen)}
-          >
-            <Bot className="h-4 w-4" /> Assistant
-          </Button>
+          <AssistantToggleButton />
         </div>
       </div>
 

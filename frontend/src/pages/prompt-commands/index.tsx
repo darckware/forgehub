@@ -23,6 +23,7 @@ import {
   useUpdatePromptCommand,
   type PromptCommand,
 } from "@/hooks/usePromptCommands";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
 type Draft = {
   name: string;
@@ -163,10 +164,13 @@ export default function PromptCommandsPage() {
             Register reusable prompts to show up alongside Hermes commands when typing / in chat.
           </p>
         </div>
-        <Button onClick={() => setCreating(true)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          New command
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => setCreating(true)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            New command
+          </Button>
+          <AssistantToggleButton className="gap-2" />
+        </div>
       </div>
 
       <Card>

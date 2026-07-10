@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -340,17 +341,20 @@ export default function ToolsPage() {
           <Wrench className="h-5 w-5" /> Agent Tools
           {tools && <span className="text-sm font-normal text-muted-foreground">{tools.length} registered</span>}
         </h1>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          disabled={scanTools.isPending}
-          title="Scan every profile's scripts dir and register new tools; unowned files go to Athos"
-          onClick={handleScan}
-        >
-          {scanTools.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Sync
-        </Button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={scanTools.isPending}
+            title="Scan every profile's scripts dir and register new tools; unowned files go to Athos"
+            onClick={handleScan}
+          >
+            {scanTools.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sync
+          </Button>
+          <AssistantToggleButton size="sm" />
+        </div>
       </div>
 
       {scanSummary && <p className="text-xs text-muted-foreground">{scanSummary}</p>}

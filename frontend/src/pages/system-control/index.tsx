@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, GitBranch, GitCommit, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,7 +7,15 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useCommitChanges, useDeleteBackup, useHermesBackup, useSystemControlStatus } from "@/hooks/useSystemControl";
+import {
+  useCleanupScan,
+  useCommitChanges,
+  useDeleteBackup,
+  useHermesBackup,
+  useRunCleanup,
+  useSystemControlStatus,
+} from "@/hooks/useSystemControl";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
 function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null) return "—";
@@ -17,6 +25,11 @@ function formatBytes(bytes: number | null | undefined): string {
   const mb = kb / 1024;
   if (mb < 1024) return `${mb.toFixed(1)} MB`;
   return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
 export default function SystemControlPage() {
@@ -31,6 +44,9 @@ export default function SystemControlPage() {
   const commitMut = useCommitChanges();
   const [showCommitForm, setShowCommitForm] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
+  const { data: scan, isLoading: scanLoading, isError: scanError } = useCleanupScan();
+  const runCleanup = useRunCleanup();
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -61,10 +77,13 @@ export default function SystemControlPage() {
             Git status for this repository and compressed Hermes backups written to /root/backup.
           </p>
         </div>
-        <Button variant="outline" onClick={() => refetch()} disabled={isFetching} className="gap-2">
-          {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => refetch()} disabled={isFetching} className="gap-2">
+            {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Refresh
+          </Button>
+          <AssistantToggleButton className="gap-2" />
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -288,6 +307,103 @@ export default function SystemControlPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-base font-semibold">Cleanup</h2>
+              {scan && (
+                <span className="text-xs text-muted-foreground">
+                  {scan.total_count} file(s), {formatBytes(scan.total_size)} under {scan.root}
+                </span>
+              )}
+            </div>
+            <Button
+              size="sm"
+              onClick={() => runCleanup.mutate()}
+              disabled={runCleanup.isPending}
+              className="gap-2"
+              title="Sweeps eligible rotated logs/cron output/old backups into /root/trash, then empties it"
+            >
+              {runCleanup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Run Cleanup
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Inventory of logs, backup files, cron output snapshots, and old/duplicate scripts across the Hermes
+            ecosystem, grouped by type. "Run Cleanup" sweeps rotated logs (never the live log a running agent has
+            open), cron output, and backups older than 30 days into /root/trash, then empties it -- scripts are
+            never touched automatically.
+          </p>
+          {runCleanup.isSuccess && (
+            <div className="space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
+              <p>Swept {runCleanup.data.swept_count} file(s) into /root/trash, then emptied it.</p>
+              {runCleanup.data.sweep_errors.length > 0 && (
+                <p className="text-amber-600">{runCleanup.data.sweep_errors.length} sweep error(s) -- see below.</p>
+              )}
+              <pre className="whitespace-pre-wrap">{runCleanup.data.output || "Trash was already empty."}</pre>
+              {runCleanup.data.sweep_errors.length > 0 && (
+                <pre className="whitespace-pre-wrap text-amber-600">{runCleanup.data.sweep_errors.join("\n")}</pre>
+              )}
+            </div>
+          )}
+          {runCleanup.isError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {(runCleanup.error as Error)?.message ?? "Cleanup failed"}
+            </div>
+          )}
+          {scanLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Scanning...
+            </div>
+          )}
+          {scanError && <p className="text-sm text-destructive">Failed to scan for cleanup candidates.</p>}
+          {scan && scan.categories.length === 0 && (
+            <p className="text-sm text-muted-foreground">Nothing found.</p>
+          )}
+          {scan && scan.categories.length > 0 && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {scan.categories.map((cat) => {
+                const expanded = expandedCategory === cat.category;
+                return (
+                  <button
+                    key={cat.category}
+                    type="button"
+                    onClick={() => setExpandedCategory(expanded ? null : cat.category)}
+                    className="rounded-md border border-border p-3 text-left hover:bg-accent"
+                  >
+                    <span className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-medium uppercase text-muted-foreground">{cat.category}</span>
+                      {expanded ? (
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                    </span>
+                    <span className="mt-1 block text-lg font-semibold">{cat.count} file(s)</span>
+                    <span className="text-xs text-muted-foreground">{formatBytes(cat.total_size)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {expandedCategory && (
+            <div className="max-h-64 space-y-1 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs">
+              {scan?.categories
+                .find((c) => c.category === expandedCategory)
+                ?.files.map((f) => (
+                  <div key={f.path} className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 flex-1 truncate" title={f.path}>{f.path}</span>
+                    <span className="shrink-0 text-muted-foreground">{formatDateTime(f.mtime)}</span>
+                    <span className="shrink-0 text-muted-foreground">{formatBytes(f.size)}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

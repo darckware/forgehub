@@ -46,6 +46,7 @@ import {
   type ScriptLocationRef,
 } from "@/hooks/useFoundationScripts";
 import { useChatHandoffStore } from "@/store/chatHandoff";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { useQueryClient } from "@tanstack/react-query";
 
 // Keyed by `health` (real execution evidence), not `status` (which only
@@ -587,14 +588,17 @@ export default function CronsPage() {
             description, interval, executing agent, and run status.
           </p>
         </div>
-        <Button variant="outline" onClick={handleSync} disabled={isSyncing}>
-          {isSyncing ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 h-4 w-4" />
-          )}
-          Sync
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={handleSync} disabled={isSyncing}>
+            {isSyncing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Sync
+          </Button>
+          <AssistantToggleButton />
+        </div>
       </div>
 
       <CronsTab />

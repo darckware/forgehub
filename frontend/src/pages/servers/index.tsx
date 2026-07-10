@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import {
   useServers,
   useCreateServer,
@@ -527,7 +528,7 @@ export default function ServersPage() {
           </h1>
           <p className="text-sm text-muted-foreground">Inventory of servers with SSH access.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={checkAll} disabled={checkingIds.size > 0}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${checkingIds.size > 0 ? "animate-spin" : ""}`} />
             Check status
@@ -540,6 +541,7 @@ export default function ServersPage() {
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             New server
           </Button>
+          <AssistantToggleButton size="sm" />
         </div>
       </div>
 

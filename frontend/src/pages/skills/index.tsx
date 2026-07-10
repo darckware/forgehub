@@ -40,6 +40,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSkillFileContent, useUpdateSkillFileContent } from "@/hooks/useSkillFile";
 import { apiClient } from "@/lib/api";
 import { useChatHandoffStore } from "@/store/chatHandoff";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
 /** Draft seeded into the workspace chat composer, mirroring Agent Tools'
  * maintenance message: skill metadata first, then the SKILL.md source. */
@@ -384,21 +385,24 @@ export default function SkillsPage() {
             </span>
           )}
         </h1>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          title="Sync skills and grants from Hermes Foundation"
-          disabled={syncHermes.isPending}
-          onClick={() => syncHermes.mutate()}
-        >
-          {syncHermes.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          Sync
-        </Button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            title="Sync skills and grants from Hermes Foundation"
+            disabled={syncHermes.isPending}
+            onClick={() => syncHermes.mutate()}
+          >
+            {syncHermes.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Sync
+          </Button>
+          <AssistantToggleButton size="sm" />
+        </div>
       </div>
 
       {syncHermes.isError && (
