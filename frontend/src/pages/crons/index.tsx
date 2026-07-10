@@ -1,13 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
+  Bot,
   Check,
   Clock,
   Copy,
   Eye,
   Loader2,
-  MessageSquare,
   Pencil,
   Power,
   RefreshCw,
@@ -45,7 +44,7 @@ import {
   useSyncScripts,
   type ScriptLocationRef,
 } from "@/hooks/useFoundationScripts";
-import { useChatHandoffStore } from "@/store/chatHandoff";
+import { useAssistantStore } from "@/store/assistantStore";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -301,8 +300,8 @@ function CronsTab() {
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [viewingJob, setViewingJob] = useState<CronJob | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
-  const setDraft = useChatHandoffStore((s) => s.setDraft);
-  const navigate = useNavigate();
+  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
+  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
 
   function handleDelete(job: CronJob) {
     if (!window.confirm(`Delete the cron "${job.name}" (profile ${job.profile})? This action cannot be undone.`))
@@ -310,7 +309,7 @@ function CronsTab() {
     deleteJob.mutate(job.id);
   }
 
-  async function handleSendToChat(job: CronJob) {
+  async function handleSendToAssistant(job: CronJob) {
     setSendingId(job.id);
     try {
       const candidates: ScriptLocationRef[] = job.script
@@ -320,8 +319,8 @@ function CronsTab() {
           ]
         : [];
       const fileResult = candidates.length > 0 ? await fetchScriptContentWithFallback(candidates) : null;
-      setDraft(buildCronChatMessage(job, fileResult?.content ?? null, fileResult?.path ?? null));
-      navigate("/workspace");
+      setPendingSeed(buildCronChatMessage(job, fileResult?.content ?? null, fileResult?.path ?? null));
+      setAssistantOpen(true);
     } finally {
       setSendingId(null);
     }
@@ -520,15 +519,15 @@ function CronsTab() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label={`Send ${job.name} to chat`}
+                        aria-label={`Send ${job.name} to the assistant`}
                         disabled={sendingId === job.id}
-                        title="Send data and file to chat"
-                        onClick={() => handleSendToChat(job)}
+                        title="Open the assistant with this job's data and script as context"
+                        onClick={() => handleSendToAssistant(job)}
                       >
                         {sendingId === job.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          <MessageSquare className="h-4 w-4" />
+                          <Bot className="h-4 w-4" />
                         )}
                       </Button>
                       <Button

@@ -49,6 +49,12 @@ interface AssistantState {
   setOpen: (open: boolean) => void;
   context: AssistantContext | null;
   setContext: (context: AssistantContext | null) => void;
+  /** One-shot message text a page can push into the Assistant panel's
+   * composer (e.g. "send this cron job's script to the assistant") --
+   * AssistantDrawer applies it and clears it back to null as soon as it's
+   * consumed, so it never leaks into a later, unrelated open. */
+  pendingSeed: string | null;
+  setPendingSeed: (seed: string | null) => void;
 }
 
 export const useAssistantStore = create<AssistantState>((set) => ({
@@ -56,4 +62,6 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   setOpen: (open) => set({ open }),
   context: null,
   setContext: (context) => set({ context }),
+  pendingSeed: null,
+  setPendingSeed: (pendingSeed) => set({ pendingSeed }),
 }));
