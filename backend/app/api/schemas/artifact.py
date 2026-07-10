@@ -56,6 +56,7 @@ class ArtifactCreate(BaseModel):
     pipeline_stage_id: uuid.UUID | None = None
     task_execution_id: uuid.UUID | None = None
     requires_approval: bool = False
+    is_locked: bool = False
     # Optional first version supplied at creation time.
     initial_version: ArtifactVersionCreate | None = None
 
@@ -67,6 +68,7 @@ class ArtifactUpdate(BaseModel):
     task_execution_id: uuid.UUID | None = None
     requires_approval: bool | None = None
     status: ArtifactStatus | None = None
+    is_locked: bool | None = None
 
 
 class ArtifactOut(BaseModel):
@@ -80,6 +82,7 @@ class ArtifactOut(BaseModel):
     pipeline_stage_id: uuid.UUID | None
     task_execution_id: uuid.UUID | None
     requires_approval: bool
+    is_locked: bool
     created_at: datetime
     updated_at: datetime
 

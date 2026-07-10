@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertCircle, Gavel, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Gavel, Loader2, Plus } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -21,10 +21,10 @@ import {
 import {
   useApprovals,
   useCreateApproval,
-  useDeleteApproval,
   type ApprovalCreateInput,
 } from "@/hooks/useGovernance";
 import { ApprovalForm } from "./ApprovalForm";
+import { EntityRef } from "@/components/EntityRef";
 
 const STATUS_VARIANT: Record<
   string,
@@ -33,22 +33,18 @@ const STATUS_VARIANT: Record<
   pending: "warning",
   approved: "success",
   rejected: "destructive",
-  withdrawn: "secondary",
 };
 
 export default function GovernancePage() {
   const { data: approvals, isLoading, isError, error } = useApprovals();
   const createApproval = useCreateApproval();
-  const deleteApproval = useDeleteApproval();
   const [showForm, setShowForm] = useState(false);
 
   function handleCreate(values: ApprovalCreateInput) {
     createApproval.mutate(
       {
         ...values,
-        requested_by: values.requested_by || undefined,
-        approved_by: values.approved_by || undefined,
-        decision_notes: values.decision_notes || undefined,
+        comments: values.comments || undefined,
         policy_id: values.policy_id || undefined,
       },
       {
@@ -136,10 +132,10 @@ export default function GovernancePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Subject</TableHead>
+                  <TableHead>Entity</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Requested by</TableHead>
-                  <TableHead>Approved by</TableHead>
+                  <TableHead>Decided by</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -151,10 +147,10 @@ export default function GovernancePage() {
                         to={`/governance/${approval.id}`}
                         className="font-medium hover:underline"
                       >
-                        {approval.subject_type.replace(/_/g, " ")}
+                        {approval.entity_type.replace(/_/g, " ")}
                       </Link>
                       <p className="line-clamp-1 text-sm text-muted-foreground">
-                        {approval.subject_id}
+                        <EntityRef entityType={approval.entity_type} entityId={approval.entity_id} />
                       </p>
                     </TableCell>
                     <TableCell>
@@ -166,26 +162,15 @@ export default function GovernancePage() {
                       {approval.requested_by ?? "—"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {approval.approved_by ?? "—"}
+                      {approval.decided_by ?? "—"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Link
-                          to={`/governance/${approval.id}`}
-                          className={buttonVariants({ variant: "outline", size: "sm" })}
-                        >
-                          View
-                        </Link>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => deleteApproval.mutate(approval.id)}
-                          disabled={deleteApproval.isPending}
-                          aria-label={`Delete approval for ${approval.subject_id}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
+                      <Link
+                        to={`/governance/${approval.id}`}
+                        className={buttonVariants({ variant: "outline", size: "sm" })}
+                      >
+                        View
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}

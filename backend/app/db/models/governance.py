@@ -60,6 +60,10 @@ class Policy(Base, TimestampMixin):
     # entity types, severity levels, etc.).
     rules: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Polymorphic target — the entity this policy governs (optional; a policy
+    # may also be general-purpose with no specific entity binding).
+    entity_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
 
 class Approval(Base, TimestampMixin):

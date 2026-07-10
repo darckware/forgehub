@@ -106,6 +106,9 @@ export const planningItemSchema = z.object({
   priority: z.enum(PLANNING_ITEM_PRIORITIES).default("medium"),
   product_version_id: z.string().nullable().optional(),
   project_id: z.string().nullable().optional(),
+  // Relative path within the project's working directory where this item's
+  // output should be written (e.g. "docs/api.md", "src/auth/").
+  output_path: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
   feature_request: featureRequestSchema.nullable().optional(),
@@ -124,7 +127,9 @@ export const planningItemCreateSchema = z.object({
   status: z.enum(PLANNING_ITEM_STATUSES).default("new"),
   priority: z.enum(PLANNING_ITEM_PRIORITIES).default("medium"),
   product_version_id: z.string().optional().or(z.literal("")),
-  project_id: z.string().optional().or(z.literal("")),
+  project_id: z.string().min(1, "Project is required"),
+  // Relative output path within the project's working directory.
+  output_path: z.string().max(1024).optional().or(z.literal("")),
   // Bug-specific (only meaningful when item_type === "bug" / "hotfix")
   severity: z.enum(BUG_SEVERITIES).optional().or(z.literal("")),
   environment: z.string().max(500).optional().or(z.literal("")),
@@ -151,10 +156,23 @@ const RESOURCE = "/api/v1/planning-items";
 // Hooks
 // ---------------------------------------------------------------------------
 
-export function usePlanningItems() {
+export function usePlanningItems(projectId?: string) {
   return useQuery({
-    queryKey: planningItemKeys.all,
-    queryFn: () => apiClient.get<PlanningItem[]>(RESOURCE),
+    queryKey: projectId ? [...planningItemKeys.all, "project", projectId] : planningItemKeys.all,
+    queryFn: () =>
+      apiClient.get<PlanningItem[]>(projectId ? `${RESOURCE}?project_id=${projectId}` : RESOURCE),
+  });
+}
+
+export function useDeletePlanningItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, cascadeTasks = false }: { id: string; cascadeTasks?: boolean }) =>
+      apiClient.delete(`${RESOURCE}/${id}${cascadeTasks ? "?cascade_tasks=true" : ""}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: planningItemKeys.all });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
   });
 }
 
@@ -185,16 +203,6 @@ export function useUpdatePlanningItem(id: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: planningItemKeys.all });
       queryClient.invalidateQueries({ queryKey: planningItemKeys.detail(id) });
-    },
-  });
-}
-
-export function useDeletePlanningItem() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => apiClient.delete<void>(`${RESOURCE}/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: planningItemKeys.all });
     },
   });
 }

@@ -45,6 +45,17 @@ class ArtifactType(str, enum.Enum):
     PULL_REQUEST = "pull_request"
     DEPLOYMENT_PACKAGE = "deployment_package"
     APPROVAL_RECORD = "approval_record"
+    # Fine-grained deliverable types (added so individual screens, DB
+    # objects, etc. can be registered/governed/locked one-by-one instead
+    # of only as a section inside a bigger spec document).
+    SCREEN = "screen"
+    COMPONENT = "component"
+    REPORT = "report"
+    DATABASE_SCHEMA = "database_schema"
+    TABLE = "table"
+    STORED_PROCEDURE = "stored_procedure"
+    REFERENCE_DOC = "reference_doc"
+    CONTEXT_BRIEF = "context_brief"
     OTHER = "other"
 
 
@@ -101,6 +112,15 @@ class Artifact(Base, TimestampMixin):
     )
 
     requires_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    # Advisory "do not touch" flag (not a file-system permission): once
+    # set, the API layer rejects further mutation of this artifact
+    # (new versions, edits, approve/reject) until it is explicitly
+    # unlocked, so an agent reading ForgeHub knows this deliverable is
+    # finalized and must not be altered.
+    is_locked: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
 

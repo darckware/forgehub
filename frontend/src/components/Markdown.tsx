@@ -1,6 +1,41 @@
+import { useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+/** Code blocks (```...```) get a hover-reveal copy button -- reads
+ * .textContent off the rendered <pre> rather than re-serializing the
+ * markdown AST, so it copies exactly what's on screen regardless of
+ * nested inline markup. */
+function CodeBlock({ children }: { children?: React.ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  async function handleCopy() {
+    const text = preRef.current?.textContent ?? "";
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div className="group/code relative mb-2 last:mb-0">
+      <pre ref={preRef} className="overflow-x-auto rounded-md bg-black/10 p-2">
+        {children}
+      </pre>
+      <button
+        type="button"
+        aria-label="Copy code"
+        title="Copy code"
+        onClick={handleCopy}
+        className="absolute right-1.5 top-1.5 rounded bg-black/20 p-1 opacity-0 transition-opacity group-hover/code:opacity-100 hover:bg-black/30"
+      >
+        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      </button>
+    </div>
+  );
+}
 
 const markdownComponents: Components = {
   p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
@@ -18,9 +53,7 @@ const markdownComponents: Components = {
     ) : (
       <code className="rounded bg-black/10 px-1 py-0.5 font-mono text-[0.85em]">{children}</code>
     ),
-  pre: ({ children }) => (
-    <pre className="mb-2 overflow-x-auto rounded-md bg-black/10 p-2 last:mb-0">{children}</pre>
-  ),
+  pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
   blockquote: ({ children }) => (
     <blockquote className="mb-2 border-l-2 border-current/30 pl-2 italic last:mb-0">{children}</blockquote>
   ),

@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2 } from "lucide-react";
+import { FolderOpen, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,8 @@ import {
   planningItemCreateSchema,
   type PlanningItemCreateInput,
 } from "@/hooks/useBacklog";
+import { useProjects } from "@/hooks/useProject";
+import { useProducts, useProductVersions } from "@/hooks/useProduct";
 
 interface PlanningItemFormProps {
   defaultValues?: Partial<PlanningItemCreateInput>;
@@ -34,6 +37,7 @@ export function PlanningItemForm({
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<PlanningItemCreateInput>({
     resolver: zodResolver(planningItemCreateSchema),
@@ -45,6 +49,7 @@ export function PlanningItemForm({
       priority: "medium",
       product_version_id: "",
       project_id: "",
+      output_path: "",
       severity: "",
       environment: "",
       detected_in_version: "",
@@ -54,6 +59,15 @@ export function PlanningItemForm({
 
   const itemType = watch("item_type");
   const isBugLike = itemType === "bug" || itemType === "hotfix";
+  const isDocLike = itemType === "documentation" || itemType === "research";
+
+  const { data: products, isLoading: isLoadingProducts } = useProducts();
+  const { data: projects, isLoading: isLoadingProjects } = useProjects();
+
+  const [selectedProductId, setSelectedProductId] = useState("");
+  const { data: versions, isLoading: isLoadingVersions } = useProductVersions(
+    selectedProductId || undefined
+  );
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -119,24 +133,92 @@ export function PlanningItemForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="product_version_id">Product version ID</Label>
-          <Input
+          <Label htmlFor="product_id">Product</Label>
+          <Select
+            id="product_id"
+            value={selectedProductId}
+            disabled={isLoadingProducts}
+            onChange={(e) => {
+              setSelectedProductId(e.target.value);
+              setValue("product_version_id", "");
+            }}
+          >
+            <option value="">
+              {isLoadingProducts ? "Loading products…" : "Select a product"}
+            </option>
+            {products?.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="product_version_id">Version</Label>
+          <Select
             id="product_version_id"
-            placeholder="uuid of target product version"
-            {...register("product_version_id")}
-          />
+            disabled={!selectedProductId || isLoadingVersions}
+            value={watch("product_version_id") ?? ""}
+            onChange={(e) => setValue("product_version_id", e.target.value)}
+          >
+            <option value="">
+              {!selectedProductId
+                ? "Select a product first"
+                : isLoadingVersions
+                  ? "Loading versions…"
+                  : "Select a version"}
+            </option>
+            {versions?.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.version} ({v.status.replace(/_/g, " ")})
+              </option>
+            ))}
+          </Select>
           {errors.product_version_id && (
             <p className="text-sm text-destructive">{errors.product_version_id.message}</p>
           )}
         </div>
+      </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="project_id">Project ID</Label>
-          <Input id="project_id" placeholder="uuid of linked project" {...register("project_id")} />
-          {errors.project_id && (
-            <p className="text-sm text-destructive">{errors.project_id.message}</p>
+      <div className="space-y-2">
+        <Label htmlFor="project_id">Project</Label>
+        <Select id="project_id" disabled={isLoadingProjects} {...register("project_id")}>
+          <option value="">
+            {isLoadingProjects ? "Loading projects…" : "Select a project (optional)"}
+          </option>
+          {projects?.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </Select>
+        {errors.project_id && (
+          <p className="text-sm text-destructive">{errors.project_id.message}</p>
+        )}
+      </div>
+
+      {/* Output path — always shown but highlighted for doc/research types */}
+      <div className="space-y-2">
+        <Label htmlFor="output_path" className="flex items-center gap-2">
+          <FolderOpen className="h-4 w-4 text-muted-foreground" />
+          Output path
+          {isDocLike && (
+            <span className="text-xs font-normal text-muted-foreground">(recommended for this type)</span>
           )}
-        </div>
+        </Label>
+        <Input
+          id="output_path"
+          placeholder="e.g. docs/api.md  or  src/modules/auth/"
+          {...register("output_path")}
+          className={isDocLike ? "border-primary/50 focus-visible:ring-primary/30" : ""}
+        />
+        <p className="text-xs text-muted-foreground">
+          Relative path within the project working directory where this item's output should land.
+        </p>
+        {errors.output_path && (
+          <p className="text-sm text-destructive">{errors.output_path.message}</p>
+        )}
       </div>
 
       {isBugLike && (

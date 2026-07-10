@@ -1,49 +1,58 @@
-import { useState } from "react";
-import { Loader2, RefreshCw, Wifi, WifiOff } from "lucide-react";
+import { ChevronDown, ChevronRight, Feather, Loader2, RefreshCw, BellRing, BellOff } from "lucide-react";
 import hermesIcon from "@lobehub/icons-static-png/light/hermesagent.png";
 import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
 import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
 import antigravityIcon from "@lobehub/icons-static-png/dark/antigravity-color.png";
+import opencodeIcon from "@lobehub/icons-static-png/light/opencode.png";
+import piIcon from "@/assets/icons/pi.svg";
+import kanboardIcon from "@/assets/icons/kanboard.svg";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   type MonitoredTool,
   useCheckToolVersions,
+  useRunToolUpdate,
   useSetToolSyncSetting,
   useToolSyncSetting,
   useToolVersions,
-  useUpdateTool,
 } from "@/hooks/useToolVersions";
+import { useToolUpdateStore } from "@/store/toolUpdate";
 
-const TOOL_META: Record<MonitoredTool, { label: string; icon: string }> = {
+// pi's mark is a plain white glyph with no built-in background, so it needs
+// a dark backing square to read against this card's light background --
+// unlike the other PNGs below, which are already self-contained color icons.
+const TOOL_META: Record<MonitoredTool, { label: string; icon?: string; iconBg?: string }> = {
   hermes: { label: "Hermes", icon: hermesIcon },
   claude: { label: "Claude Code", icon: claudeIcon },
   codex: { label: "Codex", icon: codexIcon },
   antigravity: { label: "Antigravity", icon: antigravityIcon },
+  pi: { label: "PI", icon: piIcon, iconBg: "bg-black" },
+  opencode: { label: "Opencode", icon: opencodeIcon },
+  kanboard: { label: "Kanboard", icon: kanboardIcon },
 };
 
-const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity"];
+const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode", "kanboard"];
+
 
 export function ToolVersionsCard() {
   const { data: versions, isLoading } = useToolVersions();
   const { data: syncSetting } = useToolSyncSetting();
   const checkVersions = useCheckToolVersions();
   const setSyncSetting = useSetToolSyncSetting();
-  const updateTool = useUpdateTool();
-  const [updatingTool, setUpdatingTool] = useState<MonitoredTool | null>(null);
+  const runToolUpdate = useRunToolUpdate();
+  const { updatingTools, expandedTool, updateOutputs, setExpandedTool } = useToolUpdateStore();
 
   const syncEnabled = syncSetting?.enabled ?? true;
 
   const handleUpdate = (tool: MonitoredTool) => {
-    setUpdatingTool(tool);
-    updateTool.mutate(tool, { onSettled: () => setUpdatingTool(null) });
+    void runToolUpdate(tool);
   };
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle>CLI Tool Versions</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+        <CardTitle>Tool Versions</CardTitle>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -70,19 +79,17 @@ export function ToolVersionsCard() {
             disabled={setSyncSetting.isPending}
           >
             {syncEnabled ? (
-              <Wifi className="h-4 w-4 text-emerald-600" />
+              <BellRing className="h-4 w-4 text-emerald-600" />
             ) : (
-              <WifiOff className="h-4 w-4 text-muted-foreground" />
+              <BellOff className="h-4 w-4 text-muted-foreground" />
             )}
           </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-1">
-        {(checkVersions.isError || updateTool.isError) && (
+        {checkVersions.isError && (
           <p className="px-2 pb-1 text-xs text-destructive">
-            {checkVersions.isError
-              ? "Failed to reach the host bridge -- is forgehub-chat-bridge running?"
-              : "Update failed -- see backend logs for details."}
+            Failed to reach the host bridge — is forgehub-chat-bridge running?
           </p>
         )}
         {isLoading && (
@@ -95,48 +102,90 @@ export function ToolVersionsCard() {
           TOOL_ORDER.map((tool) => {
             const meta = TOOL_META[tool];
             const version = versions?.find((v) => v.tool === tool);
+            const isExpanded = expandedTool === tool;
+            const updateOut = updateOutputs[tool] ?? null;
+            const isUpdating = updatingTools.has(tool);
+            const errorText = version?.last_error;
             return (
-              <div
-                key={tool}
-                className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-accent/50"
-              >
-                <div className="flex items-center gap-3">
-                  <img src={meta.icon} alt="" className="h-6 w-6 rounded" />
-                  <div>
-                    <div className="text-sm font-medium">{meta.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {version?.installed_version ?? (version?.last_error ? "Error" : "Unknown")}
+              <div key={tool} className="rounded-md">
+                <div className="flex items-center justify-between gap-3 px-2 py-1.5 hover:bg-accent/50">
+                  <div className="flex items-center gap-3">
+                    {meta.icon ? (
+                      meta.iconBg ? (
+                        <span className={`flex h-6 w-6 items-center justify-center rounded ${meta.iconBg}`}>
+                          <img src={meta.icon} alt="" className="h-4 w-4" />
+                        </span>
+                      ) : (
+                        <img src={meta.icon} alt="" className="h-6 w-6 rounded" />
+                      )
+                    ) : (
+                      <Feather className="h-6 w-6 text-muted-foreground" />
+                    )}
+                    <div>
+                      <div className="text-sm font-medium">{meta.label}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {version?.installed_version ?? (errorText ? "Error" : "Unknown")}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {version?.update_available ? (
-                    <Badge variant="warning">{version.latest_version ?? "Update available"}</Badge>
-                  ) : version?.installed_version ? (
-                    <Badge variant="success">Up to date</Badge>
-                  ) : version?.last_error ? (
-                    <Badge variant="destructive" title={version.last_error}>
-                      Check failed
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">Not checked</Badge>
-                  )}
-                  {version?.update_available && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleUpdate(tool)}
-                      disabled={updatingTool === tool}
-                    >
-                      {updatingTool === tool ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        "Update"
-                      )}
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {version?.update_available ? (
+                      <Badge variant="warning">{version.latest_version ?? "Update available"}</Badge>
+                    ) : version?.installed_version ? (
+                      <Badge variant="success">Up to date</Badge>
+                    ) : errorText ? (
+                      <button
+                        className="flex items-center gap-1 rounded"
+                        onClick={() => setExpandedTool(isExpanded ? null : tool)}
+                      >
+                        <Badge variant="destructive" className="gap-1">
+                          {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                          Check failed
+                        </Badge>
+                      </button>
+                    ) : (
+                      <Badge variant="outline">Not checked</Badge>
+                    )}
+                    {version?.update_available && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleUpdate(tool)}
+                        disabled={isUpdating}
+                      >
+                        {isUpdating ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          "Update"
+                        )}
+                      </Button>
+                    )}
                 </div>
               </div>
+
+              {/* Inline error / update output panel */}
+              {isExpanded && (errorText || updateOut) && (
+                <div className="mx-2 mb-2 max-h-64 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+                  {updateOut && (
+                    <>
+                      {updateOut.output && (
+                        <pre className="whitespace-pre-wrap break-words text-[11px] text-foreground/80 font-mono">
+                          {updateOut.output.trim()}
+                        </pre>
+                      )}
+                      {updateOut.error && (
+                        <p className="mt-1 text-[11px] text-destructive font-mono">{updateOut.error}</p>
+                      )}
+                    </>
+                  )}
+                  {!updateOut && errorText && (
+                    <pre className="whitespace-pre-wrap break-words text-[11px] text-destructive font-mono">
+                      {errorText}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
             );
           })}
       </CardContent>

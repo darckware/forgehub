@@ -35,6 +35,13 @@ export type RuntimeTier = (typeof RUNTIME_TIERS)[number];
 // Schemas
 // ---------------------------------------------------------------------------
 
+export const skillAgentRefSchema = z.object({
+  agent_id: z.string(),
+  agent_name: z.string(),
+});
+
+export type SkillAgentRef = z.infer<typeof skillAgentRefSchema>;
+
 export const skillSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -45,6 +52,9 @@ export const skillSchema = z.object({
   permissions: z.string().default(""),
   is_approved: z.boolean().default(false),
   security_reviewed: z.boolean().default(false),
+  // Agents holding this skill (agent_skills grants), embedded by the list
+  // endpoint so the Skills page can filter by holder.
+  agents: z.array(skillAgentRefSchema).default([]),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -132,7 +142,7 @@ export const agentSchema = z.object({
 
 export type Agent = z.infer<typeof agentSchema>;
 
-/** Payload shape for create/update -- server assigns id and timestamps. */
+/** Base payload shape -- server assigns id and timestamps. */
 export const agentInputSchema = z.object({
   name: z.string().min(1, "Name is required").max(150, "Name is too long"),
   description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
@@ -141,13 +151,10 @@ export const agentInputSchema = z.object({
   is_active: z.boolean().default(true),
 });
 
-export type AgentInput = z.infer<typeof agentInputSchema>;
-
 export const agentUpdateSchema = agentInputSchema.partial();
 export type AgentUpdateInput = z.infer<typeof agentUpdateSchema>;
 
 export const hermesSyncResultSchema = z.object({
-  hermes_agent_id: z.string(),
   agents: z.object({ created: z.number(), updated: z.number() }),
   sub_agents: z.object({ created: z.number(), updated: z.number() }),
   skills: z.object({ created: z.number(), updated: z.number() }),
@@ -187,16 +194,6 @@ export function useAgent(id: string | undefined) {
   });
 }
 
-export function useCreateAgent() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: AgentInput) => apiClient.post<Agent>(RESOURCE, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.all });
-    },
-  });
-}
-
 export function useUpdateAgent(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -213,8 +210,21 @@ export function useDeleteAgent() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiClient.delete<void>(`${RESOURCE}/${id}`),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: agentKeys.detail(id) });
+    },
+  });
+}
+
+export function useDeleteSubAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentId, subAgentId }: { agentId: string; subAgentId: string }) =>
+      apiClient.delete<void>(`${RESOURCE}/${agentId}/sub-agents/${subAgentId}`),
+    onSuccess: (_data, { agentId }) => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
     },
   });
 }
@@ -225,42 +235,7 @@ export function useSyncHermesAgents() {
     mutationFn: () => apiClient.post<HermesSyncResult>(`${RESOURCE}/sync/hermes-foundation`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.all });
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Nested resource hooks (sub-agents)
-// ---------------------------------------------------------------------------
-
-export const subAgentInputSchema = z.object({
-  name: z.string().min(1, "Name is required").max(150, "Name is too long"),
-  description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
-  status: z.enum(AGENT_STATUSES).default("active"),
-});
-
-export type SubAgentInput = z.infer<typeof subAgentInputSchema>;
-
-export function useCreateSubAgent(agentId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: SubAgentInput) =>
-      apiClient.post<SubAgent>(`${RESOURCE}/${agentId}/sub-agents`, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
-      queryClient.invalidateQueries({ queryKey: agentKeys.all });
-    },
-  });
-}
-
-export function useDeleteSubAgent(agentId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (subAgentId: string) =>
-      apiClient.delete<void>(`${RESOURCE}/${agentId}/sub-agents/${subAgentId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
-      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: skillKeys.all });
     },
   });
 }
@@ -280,13 +255,37 @@ export function useSkills() {
   });
 }
 
-export function useAssignSkillToAgent(agentId: string) {
+export interface SkillUpdateInput {
+  name?: string;
+  version?: string;
+  description?: string | null;
+  origin?: SkillOrigin;
+  risk_level?: SkillRiskLevel;
+  permissions?: string;
+}
+
+/** Partial update of a skill's registry metadata. The backend rejects
+ * edits (other than approval flags) on already-approved skills — approved
+ * skills must not change without a new version (SPEC 6.5 rule 8). */
+export function useUpdateSkill() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (skillId: string) =>
-      apiClient.post<AgentSkill>(`${RESOURCE}/${agentId}/skills`, { skill_id: skillId }),
+    mutationFn: ({ skillId, updates }: { skillId: string; updates: SkillUpdateInput }) =>
+      apiClient.patch<Skill>(`${RESOURCE}/skills/${skillId}`, updates),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
+      queryClient.invalidateQueries({ queryKey: skillKeys.all });
+    },
+  });
+}
+
+/** Delete the skill's registry row (grants cascade). The SKILL.md file in
+ * the profile is untouched, so a Hermes Foundation sync re-imports it. */
+export function useDeleteSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (skillId: string) => apiClient.delete<void>(`${RESOURCE}/skills/${skillId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: skillKeys.all });
     },
   });
 }

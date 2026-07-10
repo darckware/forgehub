@@ -14,3 +14,5 @@ pytest
 pytest-asyncio
 httpx
 websockets
+croniter
+paramiko

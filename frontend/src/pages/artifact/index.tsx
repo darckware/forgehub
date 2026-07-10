@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertCircle, FileBox, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, FileBox, Loader2, Lock, Plus, Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -25,6 +25,7 @@ import {
   type ArtifactCreateInput,
 } from "@/hooks/useArtifact";
 import { ArtifactForm } from "./ArtifactForm";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const STATUS_VARIANT: Record<
   string,
@@ -42,6 +43,7 @@ export default function ArtifactPage() {
   const createArtifact = useCreateArtifact();
   const deleteArtifact = useDeleteArtifact();
   const [showForm, setShowForm] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   function handleCreate(values: ArtifactCreateInput) {
     createArtifact.mutate(
@@ -153,6 +155,12 @@ export default function ArtifactPage() {
                       <Link to={`/artifact/${artifact.id}`} className="font-medium hover:underline">
                         {artifact.name}
                       </Link>
+                      {artifact.is_locked && (
+                        <Badge variant="outline" className="ml-2 gap-1 text-xs">
+                          <Lock className="h-3 w-3" />
+                          locked
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground capitalize">
                       {artifact.artifact_type.replace(/_/g, " ")}
@@ -179,7 +187,7 @@ export default function ArtifactPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => deleteArtifact.mutate(artifact.id)}
+                          onClick={() => setPendingDeleteId(artifact.id)}
                           disabled={deleteArtifact.isPending}
                           aria-label={`Delete ${artifact.name}`}
                         >
@@ -194,6 +202,17 @@ export default function ArtifactPage() {
           </CardContent>
         </Card>
       )}
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete artifact?"
+        description="This will permanently delete the artifact. Locked artifacts should be unlocked first."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          if (pendingDeleteId) deleteArtifact.mutate(pendingDeleteId);
+          setPendingDeleteId(null);
+        }}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

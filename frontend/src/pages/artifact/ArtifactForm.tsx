@@ -12,6 +12,7 @@ import {
   artifactCreateSchema,
   type ArtifactCreateInput,
 } from "@/hooks/useArtifact";
+import { useProjects } from "@/hooks/useProject";
 
 interface ArtifactFormProps {
   defaultValues?: Partial<ArtifactCreateInput>;
@@ -28,6 +29,8 @@ export function ArtifactForm({
   isSubmitting,
   submitLabel = "Create artifact",
 }: ArtifactFormProps) {
+  const { data: projects, isLoading: isLoadingProjects } = useProjects();
+
   const {
     register,
     handleSubmit,
@@ -42,6 +45,7 @@ export function ArtifactForm({
       project_id: "",
       pipeline_stage_id: "",
       task_execution_id: "",
+      is_locked: false,
       ...defaultValues,
     },
   });
@@ -95,12 +99,17 @@ export function ArtifactForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="project_id">Project ID</Label>
-        <Input
-          id="project_id"
-          placeholder="uuid of the owning project (optional)"
-          {...register("project_id")}
-        />
+        <Label htmlFor="project_id">Project (optional)</Label>
+        <Select id="project_id" disabled={isLoadingProjects} {...register("project_id")}>
+          <option value="">
+            {isLoadingProjects ? "Loading projects…" : "Select a project"}
+          </option>
+          {projects?.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </Select>
         {errors.project_id && (
           <p className="text-sm text-destructive">{errors.project_id.message}</p>
         )}
@@ -130,6 +139,18 @@ export function ArtifactForm({
             <p className="text-sm text-destructive">{errors.task_execution_id.message}</p>
           )}
         </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="is_locked"
+          type="checkbox"
+          className="h-4 w-4 rounded border-input"
+          {...register("is_locked")}
+        />
+        <Label htmlFor="is_locked" className="cursor-pointer">
+          Locked (finalized — block further edits until explicitly unlocked)
+        </Label>
       </div>
 
       <div className="flex justify-end gap-2 pt-2">

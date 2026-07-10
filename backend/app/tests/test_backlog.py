@@ -34,6 +34,7 @@ from app.db.models.backlog import (  # noqa: F401  (ensures tables register on B
     VersionScopeItem,
 )
 from app.db.models.product import Product, ProductVersion
+from app.db.models.project import Project
 from app.main import app
 from app.api.routes import backlog as backlog_routes
 
@@ -77,9 +78,9 @@ async def _setup_schema():
 
 
 @pytest_asyncio.fixture
-async def client():
+async def client(auth_headers):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=auth_headers) as ac:
         yield ac
 
 
@@ -96,6 +97,7 @@ async def created_ids():
         "planning_items": [],
         "product_versions": [],
         "products": [],
+        "projects": [],
     }
     yield ids
     async with engine.begin() as conn:
@@ -105,6 +107,7 @@ async def created_ids():
             "bug_reports",
             "feature_requests",
             "planning_items",
+            "projects",
             "product_versions",
             "products",
         ):
@@ -116,13 +119,39 @@ async def created_ids():
                 )
 
 
+@pytest_asyncio.fixture
+async def project_id(created_ids):
+    """A real Project (via a real Product -> ProductVersion chain), since
+    PlanningItem.project_id is now required on create (core traceability
+    invariant) -- see create_planning_item in app/api/routes/backlog.py."""
+    async with AsyncSessionLocal() as session:
+        product = Product(name=f"Backlog Test Product {uuid.uuid4()}")
+        session.add(product)
+        await session.flush()
+        version = ProductVersion(product_id=product.id, version="0.1.0")
+        session.add(version)
+        await session.flush()
+        project = Project(
+            name=f"Backlog Test Project {uuid.uuid4()}", product_version_id=version.id
+        )
+        session.add(project)
+        await session.commit()
+        pid = project.id
+
+    created_ids["projects"].append(pid)
+    created_ids["product_versions"].append(version.id)
+    created_ids["products"].append(product.id)
+    yield pid
+
+
 @pytest.mark.asyncio
-async def test_create_get_list_planning_item(client: AsyncClient, created_ids):
+async def test_create_get_list_planning_item(client: AsyncClient, created_ids, project_id):
     payload = {
         "title": "Add dark mode",
         "description": "Users want a dark theme",
         "item_type": "feature",
         "priority": "high",
+        "project_id": str(project_id),
     }
     create_resp = await client.post("/api/v1/planning-items", json=payload)
     assert create_resp.status_code == 201, create_resp.text
@@ -144,22 +173,45 @@ async def test_create_get_list_planning_item(client: AsyncClient, created_ids):
 
 
 @pytest.mark.asyncio
-async def test_invalid_item_type_rejected(client: AsyncClient):
+async def test_invalid_item_type_rejected(client: AsyncClient, project_id):
     payload = {
         "title": "Bad type",
         "item_type": "not_a_real_type",
+        "project_id": str(project_id),
     }
     resp = await client.post("/api/v1/planning-items", json=payload)
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
+async def test_missing_project_id_returns_422(client: AsyncClient):
+    payload = {"title": "No project", "item_type": "feature"}
+    resp = await client.post("/api/v1/planning-items", json=payload)
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_nonexistent_project_id_returns_400(client: AsyncClient):
+    payload = {
+        "title": "Bad project",
+        "item_type": "feature",
+        "project_id": str(uuid.uuid4()),
+    }
+    resp = await client.post("/api/v1/planning-items", json=payload)
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_baselined_planning_item_cannot_be_mutated(
-    client: AsyncClient, created_ids
+    client: AsyncClient, created_ids, project_id
 ):
     create_resp = await client.post(
         "/api/v1/planning-items",
-        json={"title": "Baseline me", "item_type": "improvement"},
+        json={
+            "title": "Baseline me",
+            "item_type": "improvement",
+            "project_id": str(project_id),
+        },
     )
     item_id = create_resp.json()["id"]
     created_ids["planning_items"].append(item_id)
@@ -184,7 +236,7 @@ async def test_baselined_planning_item_cannot_be_mutated(
 
 
 @pytest.mark.asyncio
-async def test_feature_request_convert_flow(client: AsyncClient, created_ids):
+async def test_feature_request_convert_flow(client: AsyncClient, created_ids, project_id):
     fr_resp = await client.post(
         "/api/v1/feature-requests",
         json={
@@ -198,7 +250,8 @@ async def test_feature_request_convert_flow(client: AsyncClient, created_ids):
     created_ids["feature_requests"].append(fr_id)
 
     convert_resp = await client.post(
-        f"/api/v1/feature-requests/{fr_id}/convert", json={"priority": "high"}
+        f"/api/v1/feature-requests/{fr_id}/convert",
+        json={"priority": "high", "project_id": str(project_id)},
     )
     assert convert_resp.status_code == 200
     planning_item = convert_resp.json()
@@ -208,7 +261,8 @@ async def test_feature_request_convert_flow(client: AsyncClient, created_ids):
 
     # Re-converting must fail.
     second_convert = await client.post(
-        f"/api/v1/feature-requests/{fr_id}/convert", json={}
+        f"/api/v1/feature-requests/{fr_id}/convert",
+        json={"project_id": str(project_id)},
     )
     assert second_convert.status_code == 409
 
@@ -224,11 +278,15 @@ async def test_bug_report_severity_validation(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_triage_decision_advances_status_and_scope_requires_triage(
-    client: AsyncClient, created_ids
+    client: AsyncClient, created_ids, project_id
 ):
     item_resp = await client.post(
         "/api/v1/planning-items",
-        json={"title": "Improve logging", "item_type": "improvement"},
+        json={
+            "title": "Improve logging",
+            "item_type": "improvement",
+            "project_id": str(project_id),
+        },
     )
     item_id = item_resp.json()["id"]
     created_ids["planning_items"].append(item_id)

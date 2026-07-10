@@ -10,7 +10,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5433}:5432"
     volumes:
-      - /root/.hermes/foundation/data/postgres-company/pgdata:/var/lib/postgresql/data
+      - /root/.hermes/database/data/postgres-company/pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-foundation} -d ${POSTGRES_DB:-foundation_company}"]
       interval: 10s
@@ -18,14 +18,18 @@ services:
       start_period: 15s
       retries: 10
     networks:
-      default: {}
-      hermes_foundation_pg_default:
+      # Only the shared foundation_network — the project-default network this
+      # compose used to create (postgres-company_default) was redundant (no
+      # other container ever joined it) and was removed on 2026-07-03.
+      foundation_network:
         aliases:
           - forgecompany_postgres
           - postgres_company
 
 networks:
-  hermes_foundation_pg_default:
+  # Renamed from hermes_foundation_pg_default on 2026-07-03 (created manually,
+  # external in every project that uses it).
+  foundation_network:
     external: true
 
 # Observação: este compose reconstrói a definição do container `company_postgres`,

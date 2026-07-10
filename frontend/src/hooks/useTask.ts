@@ -23,7 +23,8 @@ export const TASK_STATUSES = [
   "assigned",
   "in_progress",
   "blocked",
-  "completed",
+  "done",
+  "deployed",
   "cancelled",
 ] as const;
 
@@ -32,16 +33,19 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_PRIORITIES = ["low", "medium", "high", "critical"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
-export const TASK_EXECUTION_OUTCOMES = [
+export const EXECUTION_STATUSES = [
   "pending",
-  "in_progress",
-  "succeeded",
+  "running",
   "failed",
   "retried",
   "verified",
+  "completed",
 ] as const;
 
-export type TaskExecutionOutcome = (typeof TASK_EXECUTION_OUTCOMES)[number];
+export const EXECUTOR_TYPES = ["agent", "sub_agent", "human", "system"] as const;
+
+export type ExecutionStatus = (typeof EXECUTION_STATUSES)[number];
+export type ExecutorType = (typeof EXECUTOR_TYPES)[number];
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -50,18 +54,35 @@ export type TaskExecutionOutcome = (typeof TASK_EXECUTION_OUTCOMES)[number];
 export const taskExecutionSchema = z.object({
   id: z.string(),
   task_id: z.string(),
+  assignment_id: z.string().nullable().optional(),
+  attempt_number: z.number().int().optional(),
   executor_type: z.string().nullable().optional(),
-  executor_id: z.string().nullable().optional(),
-  outcome: z.enum(TASK_EXECUTION_OUTCOMES).default("pending"),
+  status: z.enum(EXECUTION_STATUSES).default("pending"),
   started_at: z.string().nullable().optional(),
-  completed_at: z.string().nullable().optional(),
+  finished_at: z.string().nullable().optional(),
+  outcome_summary: z.string().nullable().optional(),
+  evidence_ref: z.string().nullable().optional(),
   actual_cost: z.number().nullable().optional(),
-  evidence_url: z.string().nullable().optional(),
-  notes: z.string().nullable().optional(),
   created_at: z.string().optional(),
+  updated_at: z.string().optional(),
 });
 
 export type TaskExecution = z.infer<typeof taskExecutionSchema>;
+
+export const executionCreateSchema = z.object({
+  executor_type: z.enum(EXECUTOR_TYPES).default("agent"),
+  status: z.enum(EXECUTION_STATUSES).default("pending"),
+  started_at: z.string().optional().or(z.literal("")),
+  finished_at: z.string().optional().or(z.literal("")),
+  outcome_summary: z.string().max(2000).optional().or(z.literal("")),
+  evidence_ref: z.string().max(500).optional().or(z.literal("")),
+  actual_cost: z
+    .union([z.coerce.number(), z.literal("")])
+    .optional()
+    .transform((v) => (v === "" || v === undefined ? undefined : Number(v))),
+});
+
+export type ExecutionCreateInput = z.infer<typeof executionCreateSchema>;
 
 export const taskDependencySchema = z.object({
   id: z.string(),
@@ -92,14 +113,17 @@ export type TaskAssignment = z.infer<typeof taskAssignmentSchema>;
 export const projectTaskSchema = z.object({
   id: z.string(),
   planning_item_id: z.string().nullable().optional(),
+  change_request_id: z.string().nullable().optional(),
   project_id: z.string().nullable().optional(),
   parent_task_id: z.string().nullable().optional(),
+  policy_id: z.string().nullable().optional(),
   title: z.string(),
   description: z.string().nullable().optional(),
   status: z.enum(TASK_STATUSES).default("planned"),
   priority: z.enum(TASK_PRIORITIES).default("medium"),
   estimated_cost: z.number().nullable().optional(),
   due_date: z.string().nullable().optional(),
+  kanboard_task_id: z.number().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
   executions: z.array(taskExecutionSchema).nullable().optional(),
@@ -107,13 +131,21 @@ export const projectTaskSchema = z.object({
 
 export type ProjectTask = z.infer<typeof projectTaskSchema>;
 
-// Payload schemas (what the create/edit form submits).
-export const taskCreateSchema = z.object({
+export const projectTaskKanboardSyncSchema = projectTaskSchema.extend({
+  kanboard_url: z.string().nullable().optional(),
+});
+
+export type ProjectTaskKanboardSync = z.infer<typeof projectTaskKanboardSyncSchema>;
+
+// Base object (no refine) so .partial() can be derived from it.
+const _taskBaseSchema = z.object({
   title: z.string().min(1, "Title is required").max(200, "Title is too long"),
   description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
   project_id: z.string().optional().or(z.literal("")),
   planning_item_id: z.string().optional().or(z.literal("")),
+  change_request_id: z.string().optional().or(z.literal("")),
   parent_task_id: z.string().optional().or(z.literal("")),
+  policy_id: z.string().optional().or(z.literal("")),
   status: z.enum(TASK_STATUSES).default("planned"),
   priority: z.enum(TASK_PRIORITIES).default("medium"),
   estimated_cost: z
@@ -123,9 +155,18 @@ export const taskCreateSchema = z.object({
   due_date: z.string().optional().or(z.literal("")),
 });
 
+// Payload schemas (what the create/edit form submits).
+export const taskCreateSchema = _taskBaseSchema.refine(
+  (d) => Boolean(d.planning_item_id) || Boolean(d.change_request_id),
+  {
+    message: "At least one of Planning item or Change request must be set",
+    path: ["planning_item_id"],
+  }
+);
+
 export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
 
-export const taskUpdateSchema = taskCreateSchema.partial();
+export const taskUpdateSchema = _taskBaseSchema.partial();
 export type TaskUpdateInput = z.infer<typeof taskUpdateSchema>;
 
 // ---------------------------------------------------------------------------
@@ -141,10 +182,31 @@ export const taskKeys = {
 // Hooks
 // ---------------------------------------------------------------------------
 
-export function useTasks() {
+export function useTasks(planningItemId?: string) {
   return useQuery({
-    queryKey: taskKeys.all,
-    queryFn: () => apiClient.get<ProjectTask[]>("/api/v1/tasks"),
+    queryKey: planningItemId ? ["tasks", "by-planning-item", planningItemId] : taskKeys.all,
+    queryFn: () =>
+      apiClient.get<ProjectTask[]>(
+        planningItemId ? `/api/v1/tasks?planning_item_id=${planningItemId}` : "/api/v1/tasks"
+      ),
+  });
+}
+
+export function useTasksByChangeRequest(changeRequestId: string | undefined) {
+  return useQuery({
+    queryKey: ["tasks", "by-change-request", changeRequestId ?? ""],
+    queryFn: () =>
+      apiClient.get<ProjectTask[]>(`/api/v1/tasks?change_request_id=${changeRequestId}`),
+    enabled: Boolean(changeRequestId),
+  });
+}
+
+export function useTasksByPolicy(policyId: string | undefined) {
+  return useQuery({
+    queryKey: ["tasks", "by-policy", policyId ?? ""],
+    queryFn: () =>
+      apiClient.get<ProjectTask[]>(`/api/v1/tasks?policy_id=${policyId}`),
+    enabled: Boolean(policyId),
   });
 }
 
@@ -169,7 +231,8 @@ export function useCreateTask() {
 export function useUpdateTask(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: TaskUpdateInput) => apiClient.put<ProjectTask>(`/api/v1/tasks/${id}`, payload),
+    // Backend only exposes PATCH /api/v1/tasks/{id} (no PUT route).
+    mutationFn: (payload: TaskUpdateInput) => apiClient.patch<ProjectTask>(`/api/v1/tasks/${id}`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.all });
       queryClient.invalidateQueries({ queryKey: taskKeys.detail(id) });
@@ -186,3 +249,53 @@ export function useDeleteTask() {
     },
   });
 }
+
+export function useSyncTaskToKanboard(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiClient.post<ProjectTaskKanboardSync>(`/api/v1/tasks/${id}/sync-kanboard`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.all });
+      queryClient.invalidateQueries({ queryKey: taskKeys.detail(id) });
+    },
+  });
+}
+
+export function usePullKanboard(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiClient.post<ProjectTask>(`/api/v1/tasks/${taskId}/pull-kanboard`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.all });
+      queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
+    },
+  });
+}
+
+export function useKanboardCleanup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) =>
+      apiClient.post<{ closed: number; skipped: number; errors: string[] }>(
+        `/api/v1/tasks/kanboard-cleanup?project_id=${projectId}`,
+        {}
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.all });
+    },
+  });
+}
+
+export function useCreateExecution(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ExecutionCreateInput) =>
+      apiClient.post<TaskExecution>(`/api/v1/tasks/${taskId}/executions`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
+    },
+  });
+}
+

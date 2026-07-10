@@ -1,5 +1,4 @@
 import { ArrowDownToLine, ArrowUpFromLine, HardDrive, Loader2, MemoryStick, Network } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useSystemStats } from "@/hooks/useSystemStats";
 
@@ -76,46 +75,41 @@ export function SystemStatsCard() {
   const { data, isLoading, isError } = useSystemStats();
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>System Resources</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {isLoading && (
-          <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading...
-          </div>
-        )}
-        {isError && (
-          <p className="text-xs text-destructive">
-            Failed to reach the host bridge -- is forgehub-chat-bridge running?
-          </p>
-        )}
-        {data && (
-          <>
-            <UsageRow
-              icon={<MemoryStick className="h-4 w-4 text-muted-foreground" />}
-              label="Memory"
-              usedBytes={data.memory.used_bytes}
-              totalBytes={data.memory.total_bytes}
-              percent={data.memory.percent_used}
-            />
-            <UsageRow
-              icon={<HardDrive className="h-4 w-4 text-muted-foreground" />}
-              label="Disk"
-              usedBytes={data.disk.used_bytes}
-              totalBytes={data.disk.total_bytes}
-              percent={data.disk.percent_used}
-            />
-            <NetworkRow
-              interface={data.network.interface}
-              rxBytes={data.network.rx_bytes}
-              txBytes={data.network.tx_bytes}
-            />
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <div className="space-y-4">
+      {isLoading && (
+        <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading...
+        </div>
+      )}
+      {isError && (
+        <p className="text-xs text-destructive">
+          Failed to reach the host bridge -- is forgehub-chat-bridge running?
+        </p>
+      )}
+      {data && (
+        <>
+          <UsageRow
+            icon={<MemoryStick className="h-4 w-4 text-muted-foreground" />}
+            label="Memory"
+            usedBytes={data.memory.used_bytes}
+            totalBytes={data.memory.total_bytes}
+            percent={data.memory.percent_used}
+          />
+          <UsageRow
+            icon={<HardDrive className="h-4 w-4 text-muted-foreground" />}
+            label="Disk"
+            usedBytes={data.disk.used_bytes}
+            totalBytes={data.disk.total_bytes}
+            percent={data.disk.percent_used}
+          />
+          <NetworkRow
+            interface={data.network.interface}
+            rxBytes={data.network.rx_bytes}
+            txBytes={data.network.tx_bytes}
+          />
+        </>
+      )}
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useForm } from "react-hook-form";
+import { useForm, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,11 +7,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import {
-  APPROVAL_STATUSES,
-  APPROVAL_SUBJECT_TYPES,
+  APPROVAL_ENTITY_TYPES,
   approvalCreateSchema,
   type ApprovalCreateInput,
+  usePolicies,
 } from "@/hooks/useGovernance";
+import { useTasks } from "@/hooks/useTask";
+import { useArtifacts } from "@/hooks/useArtifact";
+import { useAllProductVersions } from "@/hooks/useProduct";
+import { useAllGates } from "@/hooks/usePipeline";
 
 interface ApprovalFormProps {
   defaultValues?: Partial<ApprovalCreateInput>;
@@ -21,6 +25,58 @@ interface ApprovalFormProps {
   submitLabel?: string;
 }
 
+function EntitySelect({
+  entityType,
+  value,
+  onChange,
+}: {
+  entityType: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const tasks = useTasks();
+  const artifacts = useArtifacts();
+  const versions = useAllProductVersions();
+  const gates = useAllGates();
+
+  const makeSelect = (options: { id: string; label: string }[]) => (
+    <Select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Select…</option>
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.label}
+        </option>
+      ))}
+    </Select>
+  );
+
+  if (entityType === "project_task") {
+    const opts = (tasks.data ?? []).map((t) => ({ id: t.id, label: t.title }));
+    return makeSelect(opts);
+  }
+  if (entityType === "artifact") {
+    const opts = (artifacts.data ?? []).map((a) => ({ id: a.id, label: a.name }));
+    return makeSelect(opts);
+  }
+  if (entityType === "release") {
+    const opts = (versions.data ?? []).map((v) => ({ id: v.id, label: v.version }));
+    return makeSelect(opts);
+  }
+  if (entityType === "pipeline_stage_gate") {
+    const opts = (gates.data ?? []).map((g) => ({ id: g.id, label: g.name }));
+    return makeSelect(opts);
+  }
+
+  // Fallback for types without a list endpoint (skill, change_request, etc.)
+  return (
+    <Input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="Entity UUID"
+    />
+  );
+}
+
 export function ApprovalForm({
   defaultValues,
   onSubmit,
@@ -28,105 +84,110 @@ export function ApprovalForm({
   isSubmitting,
   submitLabel = "Create approval",
 }: ApprovalFormProps) {
+  const { data: policies } = usePolicies();
+
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors },
   } = useForm<ApprovalCreateInput>({
     resolver: zodResolver(approvalCreateSchema),
     defaultValues: {
-      subject_type: "pipeline_stage_gate",
-      subject_id: "",
-      status: "pending",
+      entity_type: "pipeline_stage_gate",
+      entity_id: "",
+      approval_type: "",
       requested_by: "",
-      approved_by: "",
-      decision_notes: "",
+      comments: "",
       policy_id: "",
       ...defaultValues,
     },
   });
 
+  const entityType = useWatch({ control, name: "entity_type" });
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="subject_type">Subject type</Label>
-          <Select id="subject_type" {...register("subject_type")}>
-            {APPROVAL_SUBJECT_TYPES.map((type) => (
+          <Label htmlFor="entity_type">Entity type</Label>
+          <Select id="entity_type" {...register("entity_type")}>
+            {APPROVAL_ENTITY_TYPES.map((type) => (
               <option key={type} value={type}>
                 {type.replace(/_/g, " ")}
               </option>
             ))}
           </Select>
-          {errors.subject_type && (
-            <p className="text-sm text-destructive">{errors.subject_type.message}</p>
+          {errors.entity_type && (
+            <p className="text-sm text-destructive">{errors.entity_type.message}</p>
           )}
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="subject_id">Subject ID</Label>
-          <Input
-            id="subject_id"
-            placeholder="uuid of the gate, release, skill, etc."
-            {...register("subject_id")}
+          <Label htmlFor="entity_id">Entity</Label>
+          <Controller
+            control={control}
+            name="entity_id"
+            render={({ field }) => (
+              <EntitySelect
+                entityType={entityType}
+                value={field.value}
+                onChange={field.onChange}
+              />
+            )}
           />
-          {errors.subject_id && (
-            <p className="text-sm text-destructive">{errors.subject_id.message}</p>
+          {errors.entity_id && (
+            <p className="text-sm text-destructive">{errors.entity_id.message}</p>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="status">Status</Label>
-          <Select id="status" {...register("status")}>
-            {APPROVAL_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </Select>
-          {errors.status && <p className="text-sm text-destructive">{errors.status.message}</p>}
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="requested_by">Requested by</Label>
-          <Input id="requested_by" placeholder="agent or user id" {...register("requested_by")} />
-          {errors.requested_by && (
-            <p className="text-sm text-destructive">{errors.requested_by.message}</p>
+          <Label htmlFor="approval_type">Approval type</Label>
+          <Input
+            id="approval_type"
+            placeholder="ex: gate_approval, release_approval, security_review"
+            {...register("approval_type")}
+          />
+          {errors.approval_type && (
+            <p className="text-sm text-destructive">{errors.approval_type.message}</p>
           )}
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="approved_by">Approved by</Label>
-          <Input id="approved_by" placeholder="agent or user id" {...register("approved_by")} />
-          {errors.approved_by && (
-            <p className="text-sm text-destructive">{errors.approved_by.message}</p>
+          <Label htmlFor="requested_by">Requested by</Label>
+          <Input id="requested_by" placeholder="agent or user" {...register("requested_by")} />
+          {errors.requested_by && (
+            <p className="text-sm text-destructive">{errors.requested_by.message}</p>
           )}
         </div>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="policy_id">Policy ID</Label>
-        <Input
-          id="policy_id"
-          placeholder="uuid of the governing policy (optional)"
-          {...register("policy_id")}
-        />
+        <Label htmlFor="policy_id">Policy (optional)</Label>
+        <Select id="policy_id" {...register("policy_id")}>
+          <option value="">No policy linked</option>
+          {(policies ?? []).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </Select>
         {errors.policy_id && (
           <p className="text-sm text-destructive">{errors.policy_id.message}</p>
         )}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="decision_notes">Decision notes</Label>
+        <Label htmlFor="comments">Comments</Label>
         <Textarea
-          id="decision_notes"
-          placeholder="Rationale for the decision, conditions, or context"
-          {...register("decision_notes")}
+          id="comments"
+          placeholder="Justification, conditions or context"
+          {...register("comments")}
         />
-        {errors.decision_notes && (
-          <p className="text-sm text-destructive">{errors.decision_notes.message}</p>
+        {errors.comments && (
+          <p className="text-sm text-destructive">{errors.comments.message}</p>
         )}
       </div>
 

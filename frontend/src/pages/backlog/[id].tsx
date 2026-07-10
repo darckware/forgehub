@@ -1,8 +1,8 @@
 import { Link, useParams } from "react-router-dom";
 import {
   AlertCircle,
-  ArrowLeft,
   Bug,
+  FolderOpen,
   Gavel,
   Layers,
   Lightbulb,
@@ -12,6 +12,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { usePlanningItem } from "@/hooks/useBacklog";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { EntityDocsCard } from "@/components/EntityDocsCard";
 
 export default function PlanningItemDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,13 +21,12 @@ export default function PlanningItemDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Link
-        to="/backlog"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to backlog
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: "Planning", href: "/backlog" },
+          { label: item?.title ?? "…" },
+        ]}
+      />
 
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
@@ -61,6 +62,20 @@ export default function PlanningItemDetailPage() {
               </Badge>
             </div>
           </div>
+
+          {item.output_path && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="flex items-center gap-3 py-4">
+                <FolderOpen className="h-5 w-5 shrink-0 text-primary" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Output path
+                  </p>
+                  <p className="truncate font-mono text-sm">{item.output_path}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid gap-4 lg:grid-cols-2">
             {item.feature_request && (
@@ -242,6 +257,8 @@ export default function PlanningItemDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          <EntityDocsCard entityType="planning_item" entityId={item.id} />
 
           <div>
             <Link to="/backlog" className={buttonVariants({ variant: "outline" })}>

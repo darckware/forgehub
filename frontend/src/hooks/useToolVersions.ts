@@ -1,13 +1,16 @@
+import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { apiClient } from "@/lib/api";
+import { useToolUpdateStore } from "@/store/toolUpdate";
 
 /**
- * Tool-versions domain -- backs the Dashboard's CLI tool-version card
- * (Hermes/Claude/Codex/Antigravity). See backend/app/api/routes/toolversions.py.
+ * Tool-versions domain -- backs the Dashboard's tool-version card
+ * (Hermes/Claude/Codex/Antigravity/PI/Opencode CLIs plus the Kanboard
+ * container). See backend/app/api/routes/toolversions.py.
  */
 
-export const monitoredToolSchema = z.enum(["hermes", "claude", "codex", "antigravity"]);
+export const monitoredToolSchema = z.enum(["hermes", "claude", "codex", "antigravity", "pi", "opencode", "kanboard"]);
 export type MonitoredTool = z.infer<typeof monitoredToolSchema>;
 
 export const toolVersionSchema = z.object({
@@ -55,12 +58,29 @@ export function useCheckToolVersions() {
   });
 }
 
-export function useUpdateTool() {
+/** Fire-and-forget update that survives SPA navigation.
+ *
+ * The request runs as a plain async function (not tied to a mutation observer),
+ * so navigating away and coming back does not cancel it or lose its result —
+ * progress and output live in useToolUpdateStore (Zustand), not component state.
+ */
+export function useRunToolUpdate() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (tool: MonitoredTool) => apiClient.post<ToolUpdateResult>(`${RESOURCE}/${tool}/update`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: toolVersionKeys.list }),
-  });
+  const { startUpdate, finishUpdate, failUpdate } = useToolUpdateStore();
+
+  return useCallback(
+    async (tool: MonitoredTool) => {
+      startUpdate(tool);
+      try {
+        const result = await apiClient.post<ToolUpdateResult>(`${RESOURCE}/${tool}/update`);
+        finishUpdate({ tool, output: result.output, error: result.error ?? null });
+        queryClient.invalidateQueries({ queryKey: toolVersionKeys.list });
+      } catch (err) {
+        failUpdate(tool, String(err));
+      }
+    },
+    [queryClient, startUpdate, finishUpdate, failUpdate],
+  );
 }
 
 export function useToolSyncSetting() {

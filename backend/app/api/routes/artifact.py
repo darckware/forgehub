@@ -18,6 +18,20 @@ Business rules encoded here:
   reopens governance review) -- mirrors "approved versions must not
   change without a new version" spirit from the adjacent Skill rules
   (SPEC 6.5.8) applied here to artifacts.
+- pipeline_stage_id/task_execution_id stay nullable by design (per
+  db/models/artifact.py docstring -- not every artifact need be tied to
+  a stage or execution, e.g. ad hoc registration before a pipeline
+  exists), but WHEN provided they must reference a real row -- enforced
+  here on create/update rather than as a DB constraint.
+- Approving/rejecting an artifact writes a companion AuditEvent
+  (SPEC 6.4.4 "every major entity transition must be auditable").
+- is_locked is an advisory "finalized, do not alter" flag (not a
+  filesystem permission): once an artifact is locked, every mutating
+  action below (PATCH, delete, new version, version edit/delete,
+  approve/reject) is rejected with 409 until it is explicitly unlocked
+  via PATCH {"is_locked": false} -- so an agent reading the artifact
+  before acting sees the flag and any attempt to write anyway is
+  blocked and alerted via the 409 detail message.
 """
 import uuid
 
@@ -43,8 +57,40 @@ from app.db.models.artifact import (
     ArtifactVersion,
     ArtifactVersionStatus,
 )
+from app.db.models.governance import AuditEvent
+from app.db.models.pipeline import PipelineStage
+from app.db.models.task import TaskExecution
 
 router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
+
+
+async def _validate_artifact_links(
+    db: AsyncSession, pipeline_stage_id: uuid.UUID | None, task_execution_id: uuid.UUID | None
+) -> None:
+    if pipeline_stage_id is not None and await db.get(PipelineStage, pipeline_stage_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="pipeline_stage_id must reference an existing pipeline stage",
+        )
+    if task_execution_id is not None and await db.get(TaskExecution, task_execution_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="task_execution_id must reference an existing task execution",
+        )
+
+
+def _assert_not_locked(artifact: Artifact) -> None:
+    """Block mutation of a locked artifact (see Artifact.is_locked
+    docstring) -- the only way to act on a locked artifact is to first
+    unlock it via PATCH {"is_locked": false}."""
+    if artifact.is_locked:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Artifact is locked and cannot be modified; unlock it first "
+                'via PATCH /artifacts/{id} with {"is_locked": false}.'
+            ),
+        )
 
 
 async def _get_artifact_or_404(db: AsyncSession, artifact_id: uuid.UUID) -> Artifact:
@@ -65,6 +111,17 @@ async def _get_artifact_or_404(db: AsyncSession, artifact_id: uuid.UUID) -> Arti
 async def create_artifact(
     payload: ArtifactCreate, db: AsyncSession = Depends(get_db)
 ) -> Artifact:
+    await _validate_artifact_links(db, payload.pipeline_stage_id, payload.task_execution_id)
+    if (
+        payload.initial_version is not None
+        and payload.initial_version.produced_by_task_execution_id is not None
+        and await db.get(TaskExecution, payload.initial_version.produced_by_task_execution_id) is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="initial_version.produced_by_task_execution_id must reference an existing task execution",
+        )
+
     artifact = Artifact(
         name=payload.name,
         artifact_type=payload.artifact_type,
@@ -72,6 +129,7 @@ async def create_artifact(
         pipeline_stage_id=payload.pipeline_stage_id,
         task_execution_id=payload.task_execution_id,
         requires_approval=payload.requires_approval,
+        is_locked=payload.is_locked,
     )
 
     if payload.initial_version is not None:
@@ -133,6 +191,21 @@ async def update_artifact(
         )
 
     update_data = payload.model_dump(exclude_unset=True, exclude={"status"})
+
+    # Unlocking (is_locked: false) is always allowed -- it's the only way
+    # out of a locked state. Any other change while currently locked is
+    # rejected unless this same request also unlocks it.
+    is_unlocking = update_data.get("is_locked") is False
+    if artifact.is_locked and not is_unlocking:
+        _assert_not_locked(artifact)
+
+    if "pipeline_stage_id" in update_data or "task_execution_id" in update_data:
+        await _validate_artifact_links(
+            db,
+            update_data.get("pipeline_stage_id", artifact.pipeline_stage_id),
+            update_data.get("task_execution_id", artifact.task_execution_id),
+        )
+
     for field, value in update_data.items():
         setattr(artifact, field, value)
 
@@ -152,6 +225,7 @@ async def delete_artifact(
     artifact_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> None:
     artifact = await _get_artifact_or_404(db, artifact_id)
+    _assert_not_locked(artifact)
     await db.delete(artifact)
     await db.commit()
 
@@ -172,6 +246,7 @@ async def decide_artifact_approval(
     satisfied for a gate that requires approval.
     """
     artifact = await _get_artifact_or_404(db, artifact_id)
+    _assert_not_locked(artifact)
 
     if artifact.status == ArtifactStatus.APPROVED and decision.approve is False:
         raise HTTPException(
@@ -195,6 +270,16 @@ async def decide_artifact_approval(
     else:
         artifact.status = ArtifactStatus.REJECTED
 
+    db.add(
+        AuditEvent(
+            entity_type="artifact",
+            entity_id=artifact.id,
+            event_type="artifact_approved" if decision.approve else "artifact_rejected",
+            actor="system",
+            payload={"artifact_type": artifact.artifact_type.value},
+        )
+    )
+
     await db.commit()
     # See update_artifact for why this re-fetches instead of db.refresh
     # with a restricted attribute_names.
@@ -215,6 +300,7 @@ async def create_artifact_version(
     db: AsyncSession = Depends(get_db),
 ) -> ArtifactVersion:
     artifact = await _get_artifact_or_404(db, artifact_id)
+    _assert_not_locked(artifact)
 
     next_version_number = (
         max((v.version_number for v in artifact.versions), default=0) + 1
@@ -284,6 +370,9 @@ async def update_artifact_version(
     payload: ArtifactVersionUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> ArtifactVersion:
+    artifact = await db.get(Artifact, artifact_id)
+    if artifact is not None:
+        _assert_not_locked(artifact)
     version = await get_artifact_version(artifact_id, version_id, db)
 
     if version.status == ArtifactVersionStatus.SUPERSEDED:
@@ -309,6 +398,9 @@ async def delete_artifact_version(
     version_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    artifact = await db.get(Artifact, artifact_id)
+    if artifact is not None:
+        _assert_not_locked(artifact)
     version = await get_artifact_version(artifact_id, version_id, db)
     await db.delete(version)
     await db.commit()

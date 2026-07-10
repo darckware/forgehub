@@ -62,6 +62,7 @@ from app.api.schemas.pipeline import (
     ProjectPipelineUpdate,
 )
 from app.db.base import get_db
+from app.db.models.governance import AuditEvent
 from app.db.models.pipeline import (
     PipelineStage,
     PipelineStageDependency,
@@ -214,6 +215,22 @@ async def list_template_stages(
     return list(result.scalars().all())
 
 
+@router.patch("/template-stages/{stage_id}", response_model=PipelineTemplateStageOut)
+async def update_template_stage(
+    stage_id: uuid.UUID,
+    payload: PipelineTemplateStageCreate,
+    db: AsyncSession = Depends(get_db),
+) -> PipelineTemplateStage:
+    stage = await db.get(PipelineTemplateStage, stage_id)
+    if stage is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template stage not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(stage, field, value)
+    await db.commit()
+    await db.refresh(stage)
+    return stage
+
+
 @router.delete("/template-stages/{stage_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_template_stage(stage_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     stage = await db.get(PipelineTemplateStage, stage_id)
@@ -221,6 +238,57 @@ async def delete_template_stage(stage_id: uuid.UUID, db: AsyncSession = Depends(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template stage not found")
     await db.delete(stage)
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Import pipeline → template
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as _BaseModel
+
+
+class ImportAsTemplatePayload(_BaseModel):
+    pipeline_id: uuid.UUID
+    name: str
+    description: str | None = None
+
+
+@router.post("/import-as-template", response_model=PipelineTemplateOut, status_code=status.HTTP_201_CREATED)
+async def import_pipeline_as_template(
+    payload: ImportAsTemplatePayload,
+    db: AsyncSession = Depends(get_db),
+) -> PipelineTemplate:
+    """Create a new PipelineTemplate by copying the stages of an existing pipeline."""
+    pipeline = await db.execute(
+        select(ProjectPipeline)
+        .where(ProjectPipeline.id == payload.pipeline_id)
+        .options(selectinload(ProjectPipeline.stages))
+    )
+    pipeline_obj = pipeline.scalar_one_or_none()
+    if pipeline_obj is None:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+
+    existing = await db.execute(select(PipelineTemplate).where(PipelineTemplate.name == payload.name))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Template name already exists")
+
+    template = PipelineTemplate(name=payload.name, description=payload.description)
+    db.add(template)
+    await db.flush()
+
+    for stage in sorted(pipeline_obj.stages, key=lambda s: s.order_index):
+        db.add(PipelineTemplateStage(
+            template_id=template.id,
+            name=stage.name,
+            stage_type=stage.stage_type,
+            order_index=stage.order_index,
+            requires_approval=stage.requires_approval,
+            requires_verification=stage.requires_verification,
+        ))
+
+    await db.commit()
+    await db.refresh(template)
+    return template
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +506,18 @@ async def update_stage(
 
     for field, value in updates.items():
         setattr(stage, field, value)
+
+    if new_status == "completed":
+        db.add(
+            AuditEvent(
+                entity_type="pipeline_stage",
+                entity_id=stage.id,
+                event_type="stage_completed",
+                actor="system",
+                payload={"pipeline_id": str(stage.pipeline_id), "name": stage.name},
+            )
+        )
+
     await db.commit()
     return await _get_stage_or_404(db, stage_id)
 
@@ -635,6 +715,21 @@ async def create_stage_gate(
 async def list_stage_gates(stage_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[PipelineStageGate]:
     result = await db.execute(select(PipelineStageGate).where(PipelineStageGate.stage_id == stage_id))
     return list(result.scalars().all())
+
+
+@router.get("/gates", response_model=list[PipelineStageGateOut])
+async def list_all_gates(db: AsyncSession = Depends(get_db)) -> list[PipelineStageGate]:
+    """Flat list of all gates across all stages — used for comboboxes."""
+    result = await db.execute(select(PipelineStageGate).order_by(PipelineStageGate.name))
+    return list(result.scalars().all())
+
+
+@router.get("/gates/{gate_id}", response_model=PipelineStageGateOut)
+async def get_stage_gate(gate_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> PipelineStageGate:
+    gate = await db.get(PipelineStageGate, gate_id)
+    if gate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gate not found")
+    return gate
 
 
 @router.patch("/gates/{gate_id}", response_model=PipelineStageGateOut)

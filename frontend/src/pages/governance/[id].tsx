@@ -4,6 +4,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useApproval, useAuditEvents, usePolicy } from "@/hooks/useGovernance";
+import { EntityRef } from "@/components/EntityRef";
 
 const STATUS_VARIANT: Record<
   string,
@@ -12,7 +13,6 @@ const STATUS_VARIANT: Record<
   pending: "warning",
   approved: "success",
   rejected: "destructive",
-  withdrawn: "secondary",
 };
 
 export default function ApprovalDetailPage() {
@@ -56,10 +56,10 @@ export default function ApprovalDetailPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold tracking-tight capitalize">
-                {approval.subject_type.replace(/_/g, " ")}
+                {approval.entity_type.replace(/_/g, " ")}
               </h1>
               <p className="mt-1 max-w-2xl text-muted-foreground">
-                Subject ID: {approval.subject_id}
+                <EntityRef entityType={approval.entity_type} entityId={approval.entity_id} />
               </p>
             </div>
             <Badge variant={STATUS_VARIANT[approval.status] ?? "outline"} className="text-sm">
@@ -79,29 +79,21 @@ export default function ApprovalDetailPage() {
               <CardContent>
                 <dl className="space-y-3 text-sm">
                   <div>
-                    <dt className="font-medium text-muted-foreground">Requested by</dt>
-                    <dd>{approval.requested_by ?? "Unknown"}</dd>
+                    <dt className="font-medium text-muted-foreground">Approval type</dt>
+                    <dd>{approval.approval_type}</dd>
                   </div>
                   <div>
-                    <dt className="font-medium text-muted-foreground">Approved by</dt>
-                    <dd>{approval.approved_by ?? "Not yet decided"}</dd>
+                    <dt className="font-medium text-muted-foreground">Requested by</dt>
+                    <dd>{approval.requested_by}</dd>
                   </div>
-                  {approval.requested_at && (
+                  <div>
+                    <dt className="font-medium text-muted-foreground">Decided by</dt>
+                    <dd>{approval.decided_by ?? "Not yet decided"}</dd>
+                  </div>
+                  {approval.comments && (
                     <div>
-                      <dt className="font-medium text-muted-foreground">Requested at</dt>
-                      <dd>{approval.requested_at}</dd>
-                    </div>
-                  )}
-                  {approval.decided_at && (
-                    <div>
-                      <dt className="font-medium text-muted-foreground">Decided at</dt>
-                      <dd>{approval.decided_at}</dd>
-                    </div>
-                  )}
-                  {approval.decision_notes && (
-                    <div>
-                      <dt className="font-medium text-muted-foreground">Decision notes</dt>
-                      <dd className="whitespace-pre-wrap">{approval.decision_notes}</dd>
+                      <dt className="font-medium text-muted-foreground">Comments</dt>
+                      <dd className="whitespace-pre-wrap">{approval.comments}</dd>
                     </div>
                   )}
                 </dl>
@@ -130,10 +122,10 @@ export default function ApprovalDetailPage() {
                       </div>
                     )}
                     <div className="flex items-center gap-2">
-                      <dt className="font-medium text-muted-foreground">Risk level</dt>
+                      <dt className="font-medium text-muted-foreground">Policy type</dt>
                       <dd>
                         <Badge variant="outline" className="capitalize">
-                          {policy.risk_level}
+                          {policy.policy_type}
                         </Badge>
                       </dd>
                     </div>
@@ -174,20 +166,15 @@ export default function ApprovalDetailPage() {
                     <li key={event.id} className="rounded-md border border-border p-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium capitalize">
-                          {event.action.replace(/_/g, " ")}
+                          {event.event_type.replace(/_/g, " ")}
                         </span>
-                        {event.occurred_at && (
+                        {event.created_at && (
                           <span className="text-xs text-muted-foreground">
-                            {event.occurred_at}
+                            {event.created_at}
                           </span>
                         )}
                       </div>
-                      {event.summary && (
-                        <p className="mt-1 text-muted-foreground">{event.summary}</p>
-                      )}
-                      {event.actor && (
-                        <p className="mt-1 text-xs text-muted-foreground">By {event.actor}</p>
-                      )}
+                      <p className="mt-1 text-xs text-muted-foreground">By {event.actor}</p>
                     </li>
                   ))}
                 </ul>

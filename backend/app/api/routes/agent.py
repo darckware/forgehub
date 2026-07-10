@@ -49,9 +49,11 @@ from app.api.schemas.agent import (
     AgentSkillOut,
     AgentUpdate,
     HermesSyncResultOut,
+    SkillAgentRef,
     SkillCreate,
     SkillOut,
     SkillUpdate,
+    SkillWithAgentsOut,
     SubAgentCreate,
     SubAgentOut,
     SubAgentSkillCreate,
@@ -137,7 +139,7 @@ async def create_agent(payload: AgentCreate, db: AsyncSession = Depends(get_db))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An agent with this name already exists",
-        )
+        ) from None
     await db.refresh(agent)
     return agent
 
@@ -175,6 +177,15 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
     name/status/is_active/agent_type/description are set once at first
     creation and never touched again, so manual edits made in ForgeHub
     survive a re-sync.
+
+    The roster is sourced from the real, provisioned profile directories
+    under /root/.hermes/profiles/ (`hermes_sync.list_provisioned_profiles`)
+    -- NOT from the registry docs (ECOSYSTEM_AGENTS.md etc.), which can
+    list agents that are only planned/documented and not actually
+    provisioned (e.g. `forgenet`), or go stale. A registry entry is used
+    only to enrich a provisioned profile's metadata (name, layer, role,
+    telegram, runtime tier) when one exists; a profile with no matching
+    entry is still registered, just without that metadata.
     """
     warnings: list[str] = []
     agents_created = agents_updated = 0
@@ -182,27 +193,24 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
     skills_created = skills_updated = 0
     agent_skills_created = 0
 
-    # 1. Ensure the "Hermes" ecosystem coordinator agent.
-    result = await db.execute(select(Agent).where(Agent.name == "Hermes"))
-    hermes_agent = result.scalar_one_or_none()
-    if hermes_agent is None:
-        hermes_agent = Agent(
-            name="Hermes",
-            description="Coordinator representing the Hermes ecosystem as a whole.",
-            agent_type="coordinator",
-            status="active",
-            is_active=True,
-        )
-        db.add(hermes_agent)
-        await db.flush()
-        agents_created += 1
-
-    # 2. Agent roster.
+    # 1. Agent roster.
+    registry_by_slug = {e["profile_slug"]: e for e in hermes_sync.parse_agent_registry()}
     agent_by_slug: dict[str, Agent] = {}
-    for entry in hermes_sync.parse_agent_registry():
-        slug = entry["profile_slug"]
+    for slug in hermes_sync.list_provisioned_profiles():
+        has_registry_entry = slug in registry_by_slug
+        entry = registry_by_slug.get(slug)
+        if entry is None:
+            warnings.append(
+                f"Profile '{slug}' has no ECOSYSTEM_AGENTS.md entry; registered with defaults."
+            )
+            entry = {
+                "profile_slug": slug,
+                "name": slug,
+                "layer": None,
+                "telegram_required": False,
+                "runtime_tier": None,
+            }
         mission, source_path = hermes_sync.parse_agent_mission(slug)
-        has_profile = hermes_sync.profile_exists(slug)
 
         result = await db.execute(select(Agent).where(Agent.profile_slug == slug))
         agent = result.scalar_one_or_none()
@@ -217,24 +225,29 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
                 layer=entry["layer"],
                 runtime_tier=entry["runtime_tier"],
                 telegram_required=entry["telegram_required"],
-                has_profile=has_profile,
+                has_profile=True,
                 mission=mission,
                 source_path=source_path,
             )
             db.add(agent)
             agents_created += 1
         else:
-            agent.layer = entry["layer"]
-            agent.runtime_tier = entry["runtime_tier"]
-            agent.telegram_required = entry["telegram_required"]
-            agent.has_profile = has_profile
+            # Only refresh the registry-mirrored fields when this run actually
+            # found registry data for the slug -- a transient/empty read of
+            # ECOSYSTEM_AGENTS.md must never wipe an existing agent's real
+            # layer/runtime_tier/telegram_required back to defaults.
+            if has_registry_entry:
+                agent.layer = entry["layer"]
+                agent.runtime_tier = entry["runtime_tier"]
+                agent.telegram_required = entry["telegram_required"]
+            agent.has_profile = True
             agent.mission = mission
             agent.source_path = source_path
             agents_updated += 1
         await db.flush()
         agent_by_slug[slug] = agent
 
-    # 3. Sub-agent WORKER/ROLE catalog, per owning agent.
+    # 2. Sub-agent WORKER/ROLE catalog, per owning agent.
     for slug, roles in hermes_sync.parse_subagent_catalog().items():
         agent = agent_by_slug.get(slug)
         if agent is None:
@@ -263,12 +276,9 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
                 sub_agents_updated += 1
         await db.flush()
 
-    # 4 & 5. Skills (deduped by name+version) and their agent grants,
-    # scoped to agents whose profile directory actually exists on disk.
+    # 3. Skills (deduped by name+version) and their agent grants.
     skill_cache: dict[tuple[str, str], Skill] = {}
     for slug, agent in agent_by_slug.items():
-        if not agent.has_profile:
-            continue
         for skill_data in hermes_sync.parse_profile_skills(slug):
             key = (skill_data["name"], skill_data["version"])
             skill = skill_cache.get(key)
@@ -307,7 +317,6 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
     await db.commit()
 
     return HermesSyncResultOut(
-        hermes_agent_id=hermes_agent.id,
         agents=SyncCounts(created=agents_created, updated=agents_updated),
         sub_agents=SyncCounts(created=sub_agents_created, updated=sub_agents_updated),
         skills=SyncCounts(created=skills_created, updated=skills_updated),
@@ -342,20 +351,38 @@ async def create_skill(payload: SkillCreate, db: AsyncSession = Depends(get_db))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A skill with this name and version already exists",
-        )
+        ) from None
     await db.refresh(skill)
     return skill
 
 
-@router.get("/skills", response_model=list[SkillOut])
+@router.get("/skills", response_model=list[SkillWithAgentsOut])
 async def list_skills(
     risk_level: str | None = None, db: AsyncSession = Depends(get_db)
-) -> list[Skill]:
-    query = select(Skill).order_by(Skill.name, Skill.version)
+) -> list[SkillWithAgentsOut]:
+    """List every skill with the agents it is granted to (agent_skills),
+    so the Skills page can show and filter by holder in one request."""
+    query = (
+        select(Skill)
+        .options(selectinload(Skill.agent_skills).selectinload(AgentSkill.agent))
+        .order_by(Skill.name, Skill.version)
+    )
     if risk_level is not None:
         query = query.where(Skill.risk_level == risk_level)
     result = await db.execute(query)
-    return list(result.scalars().all())
+    return [
+        SkillWithAgentsOut(
+            **SkillOut.model_validate(skill).model_dump(),
+            agents=sorted(
+                (
+                    SkillAgentRef(agent_id=grant.agent.id, agent_name=grant.agent.name)
+                    for grant in skill.agent_skills
+                ),
+                key=lambda ref: ref.agent_name.lower(),
+            ),
+        )
+        for skill in result.scalars().all()
+    ]
 
 
 @router.get("/skills/{skill_id}", response_model=SkillOut)
@@ -407,7 +434,7 @@ async def update_skill(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A skill with this name and version already exists",
-        )
+        ) from None
     await db.refresh(skill)
     return skill
 
@@ -439,7 +466,7 @@ async def update_agent(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An agent with this name already exists",
-        )
+        ) from None
     await db.refresh(agent)
     return agent
 
@@ -476,7 +503,7 @@ async def create_sub_agent(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A sub-agent with this name already exists for this agent",
-        )
+        ) from None
 
     # Explicit skill grants at creation time must obey the same
     # explicit-or-inherited boundary as the dedicated endpoint.
@@ -527,7 +554,7 @@ async def update_sub_agent(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A sub-agent with this name already exists for this agent",
-        )
+        ) from None
     await db.refresh(sub_agent)
     return sub_agent
 
@@ -568,7 +595,7 @@ async def grant_agent_skill(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This skill is already granted to this agent",
-        )
+        ) from None
     await db.refresh(agent_skill)
     return agent_skill
 
@@ -654,7 +681,7 @@ async def grant_sub_agent_skill(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This skill is already granted to this sub-agent",
-        )
+        ) from None
     await db.refresh(sub_agent_skill)
     return sub_agent_skill
 
@@ -748,7 +775,7 @@ async def create_agent_capacity(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Capacity already defined for this agent; use PATCH to update it",
-        )
+        ) from None
     await db.refresh(capacity)
     return capacity
 

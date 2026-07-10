@@ -17,6 +17,8 @@ import {
   useProjects,
   type ProjectCreateInput,
 } from "@/hooks/useProject";
+import { useProducts } from "@/hooks/useProduct";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ProjectForm } from "./ProjectForm";
 
 const STATUS_VARIANT: Record<
@@ -32,16 +34,26 @@ const STATUS_VARIANT: Record<
 
 export default function ProjectPage() {
   const { data: projects, isLoading, isError, error } = useProjects();
+  const { data: products } = useProducts();
   const createProject = useCreateProject();
   const deleteProject = useDeleteProject();
   const [showForm, setShowForm] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const versionLabel = (versionId: string): string => {
+    for (const product of products ?? []) {
+      const v = product.versions?.find((ver) => ver.id === versionId);
+      if (v) return `${product.name} — v${v.version}`;
+    }
+    return versionId.slice(0, 8) + "…";
+  };
 
   function handleCreate(values: ProjectCreateInput) {
     createProject.mutate(
       {
         ...values,
         description: values.description || undefined,
-        product_version_id: values.product_version_id || undefined,
+        working_directory_path: values.working_directory_path || undefined,
       },
       {
         onSuccess: () => setShowForm(false),
@@ -138,7 +150,7 @@ export default function ProjectPage() {
               </CardHeader>
               <CardContent className="flex-1 text-sm text-muted-foreground">
                 {project.product_version_id ? (
-                  <p>Version: {project.product_version_id}</p>
+                  <p>{versionLabel(project.product_version_id)}</p>
                 ) : (
                   <p className="italic">No product version linked</p>
                 )}
@@ -153,7 +165,7 @@ export default function ProjectPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => deleteProject.mutate(project.id)}
+                  onClick={() => setPendingDeleteId(project.id)}
                   disabled={deleteProject.isPending}
                   aria-label={`Delete ${project.name}`}
                 >
@@ -164,6 +176,17 @@ export default function ProjectPage() {
           ))}
         </div>
       )}
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete project?"
+        description="This will permanently delete the project and all related records. This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          if (pendingDeleteId) deleteProject.mutate(pendingDeleteId);
+          setPendingDeleteId(null);
+        }}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

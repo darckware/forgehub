@@ -11,8 +11,11 @@
  * segments elsewhere.
  */
 
-const BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
+// Falls back to the page's own origin (not a hardcoded localhost:8000) so
+// the same build works whether it's loaded from localhost, a LAN IP, or a
+// Cloudflare tunnel hostname -- nginx (frontend/nginx.conf) proxies /api on
+// that same origin to the backend, so there's no cross-origin call to make.
+const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
 
 export class ApiError extends Error {
   status: number;
@@ -42,17 +45,48 @@ function buildUrl(path: string, params?: RequestOptions["params"]) {
   return url.toString();
 }
 
+export function getToken(): string | null {
+  try {
+    const raw = localStorage.getItem("forgehub-auth");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.state?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, params, headers, ...rest } = options;
+
+  const token = getToken();
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
   const res = await fetch(buildUrl(path, params), {
     ...rest,
     headers: {
       "Content-Type": "application/json",
+      ...authHeader,
       ...headers,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+
+  if (res.status === 401) {
+    // Token expired or invalid — clear stored auth and redirect to login
+    try {
+      const raw = localStorage.getItem("forgehub-auth");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        parsed.state.token = null;
+        parsed.state.user = null;
+        localStorage.setItem("forgehub-auth", JSON.stringify(parsed));
+      }
+    } catch {
+      // ignore
+    }
+    window.location.href = "/login";
+  }
 
   if (!res.ok) {
     let parsedBody: unknown = undefined;
@@ -74,7 +108,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 /** POST multipart/form-data (file uploads) -- bypasses the JSON request()
  * helper since fetch must set its own multipart boundary header. */
 async function postForm<T>(path: string, formData: FormData, params?: RequestOptions["params"]): Promise<T> {
-  const res = await fetch(buildUrl(path, params), { method: "POST", body: formData });
+  const token = getToken();
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetch(buildUrl(path, params), { method: "POST", body: formData, headers: authHeader });
 
   if (!res.ok) {
     let parsedBody: unknown = undefined;
@@ -93,6 +129,26 @@ async function postForm<T>(path: string, formData: FormData, params?: RequestOpt
   return (await res.json()) as T;
 }
 
+/** GET a file response (Content-Disposition: attachment) as a Blob + the
+ * server-provided filename -- a plain <a href> download can't carry the
+ * Bearer auth header this API requires, so callers must fetch the blob
+ * here and trigger the save themselves via URL.createObjectURL. */
+async function downloadFile(path: string): Promise<{ blob: Blob; filename: string }> {
+  const token = getToken();
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetch(buildUrl(path), { headers: authHeader });
+
+  if (!res.ok) {
+    throw new ApiError(`Request to ${path} failed with status ${res.status}`, res.status, undefined);
+  }
+
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const filename = match?.[1] ?? path.split("/").pop() ?? "download";
+  const blob = await res.blob();
+  return { blob, filename };
+}
+
 export const apiClient = {
   get: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "GET" }),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
@@ -103,4 +159,5 @@ export const apiClient = {
   patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>(path, { ...options, method: "PATCH", body }),
   delete: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "DELETE" }),
+  downloadFile,
 };

@@ -6,6 +6,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.db.models.task import TASK_STATUSES as _TASK_STATUSES_TUPLE
+
 # --------------------------------------------------------------------------
 # ProjectTask
 # --------------------------------------------------------------------------
@@ -21,12 +23,19 @@ TASK_TYPES = {
     "documentation",
     "other",
 }
-TASK_STATUSES = {"planned", "assigned", "in_progress", "blocked", "done", "cancelled"}
+# Re-exported from the model so the DB CheckConstraint and this schema-layer
+# validation can never drift apart -- see db/models/task.py for the
+# rationale behind each status, notably "done" vs "deployed".
+TASK_STATUSES = set(_TASK_STATUSES_TUPLE)
 TASK_PRIORITIES = {"low", "medium", "high", "critical"}
 
 
 class ProjectTaskBase(BaseModel):
+    # At least one source (planning_item_id or change_request_id) is required
+    # on create -- enforced at the API layer (routes/task.py) rather than here
+    # so the error message can be domain-specific.
     planning_item_id: uuid.UUID | None = None
+    change_request_id: uuid.UUID | None = None
     parent_task_id: uuid.UUID | None = None
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
@@ -35,6 +44,7 @@ class ProjectTaskBase(BaseModel):
     estimated_cost: float | None = None
     planned_start_date: date | None = None
     planned_end_date: date | None = None
+    policy_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def _validate_choices(self) -> "ProjectTaskBase":
@@ -67,6 +77,8 @@ class ProjectTaskUpdate(BaseModel):
     planned_end_date: date | None = None
     parent_task_id: uuid.UUID | None = None
     planning_item_id: uuid.UUID | None = None
+    change_request_id: uuid.UUID | None = None
+    policy_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def _validate_choices(self) -> "ProjectTaskUpdate":
@@ -83,12 +95,24 @@ class ProjectTaskOut(ProjectTaskBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    planning_item_id: uuid.UUID | None = None
+    change_request_id: uuid.UUID | None = None
+    policy_id: uuid.UUID | None = None
     status: str
     actual_cost: float | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    kanboard_task_id: int | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectTaskKanboardSyncOut(ProjectTaskOut):
+    """Response for POST /tasks/{id}/sync-kanboard -- adds the browser-facing
+    card URL, which is computed (KANBOARD_PUBLIC_URL + id), not a stored
+    column."""
+
+    kanboard_url: str | None = None
 
 
 # --------------------------------------------------------------------------

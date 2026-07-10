@@ -13,7 +13,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.backlog import (
     BUG_SEVERITIES,
-    PLANNING_ITEM_STATUSES,
     PLANNING_ITEM_TYPES,
     TRIAGE_OUTCOMES,
 )
@@ -28,8 +27,16 @@ class PlanningItemBase(BaseModel):
     description: str | None = None
     item_type: str = Field(..., description=f"One of {PLANNING_ITEM_TYPES}")
     priority: str = Field(default="medium", max_length=16)
-    project_id: uuid.UUID | None = None
+    project_id: uuid.UUID
+    # Populated once the item is scoped into a version (SPEC 8.1 step 3) --
+    # legitimately absent at intake time, so stays optional here.
     target_version_id: uuid.UUID | None = None
+    # Optional link to which part of the project's real structure this
+    # planning item touches.
+    structure_node_id: uuid.UUID | None = None
+    # Relative path within the project's working_directory_path where the
+    # output of this item should land (e.g. "docs/api.md", "src/auth/").
+    output_path: str | None = Field(default=None, max_length=1024)
 
 
 class PlanningItemCreate(PlanningItemBase):
@@ -44,6 +51,8 @@ class PlanningItemUpdate(BaseModel):
     priority: str | None = None
     project_id: uuid.UUID | None = None
     target_version_id: uuid.UUID | None = None
+    structure_node_id: uuid.UUID | None = None
+    output_path: str | None = Field(default=None, max_length=1024)
 
 
 class PlanningItemOut(PlanningItemBase):
@@ -91,7 +100,7 @@ class FeatureRequestOut(FeatureRequestBase):
 class FeatureRequestConvert(BaseModel):
     """Body for POST /feature-requests/{id}/convert."""
 
-    project_id: uuid.UUID | None = None
+    project_id: uuid.UUID
     target_version_id: uuid.UUID | None = None
     priority: str = Field(default="medium", max_length=16)
 
@@ -139,7 +148,7 @@ class BugReportOut(BugReportBase):
 class BugReportConvert(BaseModel):
     """Body for POST /bug-reports/{id}/convert."""
 
-    project_id: uuid.UUID | None = None
+    project_id: uuid.UUID
     target_version_id: uuid.UUID | None = None
     priority: str = Field(default="medium", max_length=16)
 

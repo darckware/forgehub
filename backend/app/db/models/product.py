@@ -30,8 +30,8 @@ foundation convention.
 """
 import uuid
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -44,13 +44,26 @@ PRODUCT_VERSION_STATUSES = ("planned", "in_development", "in_test", "published",
 # Allowed values for Release.status.
 RELEASE_STATUSES = ("draft", "ready", "released", "cancelled")
 
+# Allowed values for Product.status.
+PRODUCT_STATUSES = ("active", "inactive", "archived")
+
 
 class Product(Base, TimestampMixin):
     __tablename__ = "products"
+    __table_args__ = (
+        CheckConstraint(f"status IN {PRODUCT_STATUSES!r}", name="ck_products_status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active", server_default="active")
+
+    # Kanboard project created when this product is registered.
+    # kanboard_column_ids maps ForgeHub task status → Kanboard column id for
+    # this specific Kanboard project (since each project has its own column IDs).
+    kanboard_project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kanboard_column_ids: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     modules: Mapped[list["ProductModule"]] = relationship(
         "ProductModule", back_populates="product", cascade="all, delete-orphan"

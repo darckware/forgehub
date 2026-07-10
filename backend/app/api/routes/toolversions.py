@@ -1,6 +1,6 @@
 """Tool-versions domain routes.
 
-Backs the Dashboard's CLI tool-version card. Every actual version check and
+Backs the Dashboard's "Tool Versions" card. Every actual version check and
 update command runs on the HOST via the chat bridge (host-bridge/app.py's
 /v1/tool-versions endpoints -- same proxy pattern as the chat/terminal
 domains, see their route modules); this router only persists the
@@ -10,6 +10,7 @@ periodic background poll (see app/main.py's startup hook).
 """
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,11 @@ from app.db.models.toolversions import (
 )
 
 router = APIRouter(prefix="/api/v1/tool-versions", tags=["tool-versions"])
+
+
+class ForgeRouterConfigUpdate(BaseModel):
+    enabled: bool
+    api_key: str = ""
 
 # Excluded from the unattended periodic poll (see app/main.py) -- antigravity
 # has no check-only mode, so "checking" it means running a real `agy update`,
@@ -184,3 +190,17 @@ async def update_sync_setting(
     await db.commit()
     await db.refresh(setting)
     return setting
+
+
+@router.put("/{tool}/forgerouter-config")
+async def set_forgerouter_config(tool: str, body: ForgeRouterConfigUpdate) -> dict:
+    if tool not in {"claude", "codex"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ForgeRouter configuration is supported only for Claude and Codex")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.put(
+            f"{settings.CHAT_BRIDGE_URL}/v1/tool-integrations/{tool}",
+            json=body.model_dump(), headers=_bridge_headers(),
+        )
+    if response.status_code != 200:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Chat bridge error: {response.text[:500]}")
+    return response.json()

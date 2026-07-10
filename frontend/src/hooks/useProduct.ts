@@ -15,9 +15,8 @@ export const productVersionSchema = z.object({
   id: z.string(),
   product_id: z.string(),
   version: z.string(), // semantic version, e.g. "0.1.0"
-  status: z.enum(["planned", "in_development", "in_test", "published", "archived"]),
-  release_date: z.string().nullable().optional(),
-  notes: z.string().nullable().optional(),
+  status: z.enum(["planned", "in_development", "in_test", "published", "deprecated"]),
+  release_notes: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -62,24 +61,42 @@ export function useProduct(id: string | undefined) {
   });
 }
 
+export function useProductVersion(id: string | undefined) {
+  return useQuery({
+    queryKey: ["product-versions", id],
+    queryFn: () => apiClient.get<ProductVersion>(`${RESOURCE}/versions/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+/** Versions for one product. NOTE: the plain `GET /api/v1/products` list
+ * (useProducts) does NOT include nested `versions` -- only the single
+ * `GET /api/v1/products/{id}` does. Use this hook (backed by the
+ * dedicated `/products/{id}/versions` endpoint) whenever you need a
+ * specific product's versions without fetching the whole product list
+ * with versions attached. */
+export function useProductVersions(productId: string | undefined) {
+  return useQuery({
+    queryKey: ["products", productId, "versions"],
+    queryFn: () => apiClient.get<ProductVersion[]>(`${RESOURCE}/${productId}/versions`),
+    enabled: Boolean(productId),
+  });
+}
+
+export function useAllProductVersions() {
+  return useQuery({
+    queryKey: ["product-versions", "all"],
+    queryFn: () => apiClient.get<ProductVersion[]>(`${RESOURCE}/versions`),
+    staleTime: 60_000,
+  });
+}
+
 export function useCreateProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: ProductInput) => apiClient.post<Product>(RESOURCE, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
-    },
-  });
-}
-
-export function useUpdateProduct(id: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: Partial<ProductInput>) =>
-      apiClient.patch<Product>(`${RESOURCE}/${id}`, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      queryClient.invalidateQueries({ queryKey: ["products", id] });
     },
   });
 }

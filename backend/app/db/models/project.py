@@ -23,11 +23,39 @@ centrally (see app/db/models/__init__.py).
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
+
+PROJECT_STATUSES = ("planned", "active", "on_hold", "completed", "cancelled")
+
+FORGEROUTER_TOOLS = ("claude", "codex", "antigravity")
+PROJECT_PLAN_STATUSES = ("draft", "approved", "baselined", "superseded")
+CHANGE_REQUEST_STATUSES = ("pending", "approved", "rejected", "applied")
+
+# A ProjectStructureNode classifies one element of the project's real
+# system/folder structure (e.g. a top-level folder, a module, a UI
+# screen, a component, a DB table, a stored procedure) so it can be
+# linked to a PlanningItem and, like an Artifact, flagged is_locked.
+STRUCTURE_NODE_TYPES = (
+    "folder",
+    "module",
+    "component",
+    "screen",
+    "table",
+    "stored_procedure",
+)
 
 
 class Project(Base, TimestampMixin):
@@ -37,6 +65,9 @@ class Project(Base, TimestampMixin):
     """
 
     __tablename__ = "projects"
+    __table_args__ = (
+        CheckConstraint(f"status IN {PROJECT_STATUSES!r}", name="ck_projects_status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -48,7 +79,7 @@ class Project(Base, TimestampMixin):
     # Product domain owns product_versions; referenced by string FK only.
     product_version_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("company.product_versions.id"),
+        ForeignKey("company.product_versions.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -62,6 +93,11 @@ class Project(Base, TimestampMixin):
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     target_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
+    # Where this project's real code/repo lives on disk, so ForgeHub (and
+    # any agent consulting it) knows which working directory the
+    # project's structure_nodes' `path` values are relative to.
+    working_directory_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
 
 class ProjectPlan(Base, TimestampMixin):
     """Scope, schedule, baseline, and estimate planning for a project.
@@ -72,6 +108,11 @@ class ProjectPlan(Base, TimestampMixin):
     """
 
     __tablename__ = "project_plans"
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN {PROJECT_PLAN_STATUSES!r}", name="ck_project_plans_status"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -79,7 +120,7 @@ class ProjectPlan(Base, TimestampMixin):
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("company.projects.id"),
+        ForeignKey("company.projects.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -116,7 +157,7 @@ class PlanBaseline(Base, TimestampMixin):
 
     project_plan_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("company.project_plans.id"),
+        ForeignKey("company.project_plans.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -144,6 +185,11 @@ class ChangeRequest(Base, TimestampMixin):
     """
 
     __tablename__ = "change_requests"
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN {CHANGE_REQUEST_STATUSES!r}", name="ck_change_requests_status"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -151,13 +197,13 @@ class ChangeRequest(Base, TimestampMixin):
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("company.projects.id"),
+        ForeignKey("company.projects.id", ondelete="CASCADE"),
         nullable=False,
     )
 
     plan_baseline_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("company.plan_baselines.id"),
+        ForeignKey("company.plan_baselines.id", ondelete="SET NULL"),
         nullable=True,
     )
 
@@ -190,3 +236,87 @@ class ChangeRequest(Base, TimestampMixin):
 
     requested_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProjectStructureNode(Base, TimestampMixin):
+    """One element of a project's real system/folder structure.
+
+    A self-referencing tree (via parent_node_id) documenting the actual
+    working-directory layout of a project -- e.g. a top-level folder,
+    a module, an individual screen/component, or a DB table/stored
+    procedure -- so a PlanningItem (Backlog domain, string FK) can point
+    at exactly which part of the system it touches, and a node can be
+    flagged is_locked (mirrors Artifact.is_locked) to advise agents that
+    this part of the system is finalized and must not be altered.
+    """
+
+    __tablename__ = "project_structure_nodes"
+    __table_args__ = (
+        CheckConstraint(
+            f"node_type IN {STRUCTURE_NODE_TYPES!r}", name="ck_project_structure_nodes_node_type"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=False
+    )
+    parent_node_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.project_structure_nodes.id", ondelete="SET NULL"), nullable=True
+    )
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    node_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Relative to the owning Project.working_directory_path.
+    path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Advisory "do not touch" flag -- see Artifact.is_locked docstring.
+    is_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+
+class ProjectForgeRouterConfig(Base, TimestampMixin):
+    """Per-project ForgeRouter integration state.
+
+    One row per project (unique project_id FK). Created on first enable,
+    kept through disable/re-enable cycles so configured_at history is
+    preserved. Config files are written inside the project's
+    working_directory_path (never in global user dirs).
+
+    Tools:
+      claude       → {project}/.claude/settings.local.json
+      codex        → {project}/.codex/config.toml  (project-local override)
+      antigravity  → {project}/.forgerouter/antigravity.env (shell-source)
+    """
+
+    __tablename__ = "project_forgerouter_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.projects.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    claude_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    codex_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    antigravity_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    configured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

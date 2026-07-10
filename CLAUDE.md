@@ -25,14 +25,28 @@ When implementing, follow `docs/TECHNOLOGY.md` over `docs/SPEC.md` wherever they
 
 All commands assume `.env` at the repo root (Postgres + Kanboard credentials) is present.
 
-**Run the full stack (Docker):**
+**Fast iteration (recommended day-to-day — no Docker rebuild per change):**
+```bash
+./dev.sh            # backend :8001 (uvicorn --reload) + frontend :5173 (vite dev, hot-reload)
+./dev.sh status       # what's currently up
+./dev.sh stop         # stop both
+./dev.sh restart      # stop + start
+```
+Deliberately on different ports than the Docker deploy (8000/4173) so both can run at once.
+Auto-checks `.env`/`backend/.venv`/`frontend/node_modules` and creates/installs what's missing.
+Won't kill a process it didn't start; stop targets whoever's actually listening on the port
+(`lsof -tiTCP:<port> -sTCP:LISTEN`), not a captured PID — `uvicorn --reload` and `npm run dev`'s
+wrapper both fork workers with a different pid than `$!` captures. Use this for verification
+(pytest/tsc still apply); only run the Docker command below when a deploy is actually requested.
+
+**Run the full stack (Docker) — only when a deploy is explicitly requested:**
 ```bash
 docker compose up -d --build
 curl http://localhost:8000/health        # → {"status":"ok"}
 open http://localhost:4173               # frontend (served via `serve`, built dist)
 ```
 
-**Backend, local dev:**
+**Backend, local dev (manual, if not using dev.sh):**
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
@@ -78,7 +92,7 @@ api/schemas/<domain>.py   Pydantic request/response schemas
 api/routes/<domain>.py    APIRouter with the domain's full CRUD surface
 ```
 
-Domains: `product`, `project`, `pipeline`, `backlog`, `task`, `agent`, `artifact`, `governance`, plus `foundation` (special — see below) and `auth` (placeholder — see below).
+Domains: `product`, `project`, `pipeline`, `backlog`, `task`, `agent`, `artifact`, `governance`, `demand` (the Inbox — see below), `prompt_commands`, plus `foundation`, `system_control`, `hindsight` (all three host-bridge proxy domains — no DB table of their own, see below) and `auth` (placeholder — see below).
 
 Key conventions, binding for any new domain code (stated in docstrings across `db/base.py` and the model files — read one model file like `db/models/product.py` before adding to a domain):
 
@@ -94,14 +108,20 @@ Key conventions, binding for any new domain code (stated in docstrings across `d
 ### Backend: non-domain pieces
 
 - **`auth.py` is an explicit placeholder.** It checks credentials against a single hardcoded dev user from `settings.DEV_USER_USERNAME`/`DEV_USER_PASSWORD` — there is no real Users/Auth domain yet (out of scope per PRD/SPEC at this stage). Its docstring asks that a future real implementation keep the same contract (`POST /api/v1/auth/token`, `OAuth2PasswordRequestForm` in, `{access_token, token_type}` out).
-- **`foundation.py` is a different kind of router** — it doesn't touch the database at all. It reads from filesystem mounts (`/vault/Agents`, `/profiles`) to expose Hermes Foundation agent metadata (SOUL.md, sub-agents, skills, MEMORY.md) over HTTP. Those mounts come from `docker-compose.yml`'s bind mounts of `/root/.hermes/foundation/vault` and `/root/.hermes/profiles` — this router will 404/return empty data if run outside that container or without equivalent local mounts.
-- **`docker-compose.yml`** also joins the external `hermes_foundation_pg_default` network (for reaching `company_postgres`) in addition to backend↔frontend's own default network.
+- **`foundation.py` is mostly a filesystem-only router**, with one deliberate exception. It reads from filesystem mounts (`/vault/Agents`, `/profiles`) to expose Hermes Foundation agent metadata (SOUL.md, sub-agents, skills, MEMORY.md) over HTTP. It also owns the per-profile `hermes cron` job stores (`<profile>/cron/jobs.json`): the list endpoint reports unparsable stores via `store_errors` (a corrupted store silently stops every cron in that profile — never swallow that) and refreshes a `.jobs.json.good` recovery snapshot on each clean read. SKILL.md read/write for the Skills page lives here too (`/foundation/skills/{name}/content`). Its **`/scripts` endpoint is the one place this router touches the database**: `_audit_check_script_refs` queries the `audit` domain's `audit_checks` table (enabled checks only) so a script invoked solely by an Auditor check's command — no corresponding cron job — isn't wrongly reported as `"unused"` (2026-07-09). `_list_scripts` reads every profile's `scripts/` dir off the event loop via `asyncio.to_thread` and returns the raw file content alongside the list so `system_control.py`'s cleanup-scan can reuse it (hashing for duplicates) instead of re-reading every script from disk a second time; script identity there is keyed by `(profile, filename)`, not filename alone, since two profiles can each have a same-named script.
+- **`demand.py` is the Inbox** — ForgeHub's "console de desenvolvimento" intake: any agent (via the bridge-token `/demands/submit`) or the logged-in user (via the JWT `/demands`, backing both the chat's `/demanda` command and the Inbox page's "Nova nota" compose dialog) files a note here, which a human then reads and converts. `core/conversions.py`'s `CONVERT_TARGETS` has 7 targets: `task`/`doc`/`artifact`/`knowledge_base` (the original four) plus `planning_item`, `project_doc`, and `quick_task` (project-scoped — create a planning item, a project-linked doc, or a planning item + task together in one call, since a task can never exist without a planning item per the core traceability invariant). Every new demand also inserts a `Notification(source="system")` so arrivals surface in the existing bell, and `POST /demands/{id}/notify-telegram` forwards a demand through the host-bridge's cross-channel messaging proxy (see below). `demand_attachments` stores uploaded files under the same `/docs` mount `docs.py` writes to.
+- **`system_control.py` and `hindsight.py` are host-bridge proxy domains, like `foundation.py`** — no DB table of their own. `system_control.py` surfaces this repo's git status/last-commit and triggers a compressed `/root/.hermes` backup, both via host-bridge (`/v1/exec`, `/v1/system/hermes-backup`) since the backend container has neither a git checkout of the host repo nor a `git` binary. `hindsight.py` surfaces Hermes' Hindsight memory-daemon status/logs (`/v1/hindsight/status`) and two admin-gated mutations: `/restart` (docker restart) and `/clear-log` (truncates whichever log file the status view reads — these processes never rotate their own logs).
+- **Chat streaming is a 3-hop SSE proxy** (browser → nginx → `chat.py` → host-bridge on port 8910 → `hermes_stream.py` subprocess). Two hard-won rules: frontend fetches must be same-origin (`VITE_API_URL || window.location.origin` — a hardcoded localhost fallback breaks every call from LAN/tunnel origins), and silent periods are covered by `: ping` SSE comments (proxies kill byte-silent connections ~100s; agent turns think for minutes). A stream that ends without `done` must persist the partial reply + tool steps and surface an explicit error — never end silently (the turn "vanishes" from the UI). The bridge runs under systemd (`forgehub-chat-bridge.service`), restart with systemctl, not docker. Those mounts come from `docker-compose.yml`'s bind mounts of `/root/.hermes/knowledge_base/vault` and `/root/.hermes/profiles` — this router will 404/return empty data if run outside that container or without equivalent local mounts.
+- **The host-bridge (`host-bridge/app.py`) also proxies Hermes' cross-channel messaging gateway** — `POST /v1/messages/send` shells out to `host-bridge/send_message.py` (a `HERMES_PYTHON` subprocess, same pattern as `hermes_stream.py`, since the bridge's own process doesn't have Hermes' `tools`/`gateway` packages on its `sys.path`) to forward a message via `send_message_tool` to Telegram/Discord/Slack/etc. Target format `"platform:chat_id"`, or just `"platform"` to resolve the configured home channel (`~/.hermes/config.yaml`, `hermes config set <PLATFORM>_HOME_CHANNEL <chat_id>` if unset). `demand.py`'s `/notify-telegram` is the only current caller.
+- **`docker-compose.yml`** puts both containers on the single external `foundation_network` (renamed from `hermes_foundation_pg_default` on 2026-07-03), shared with `company_postgres`, `foundation_postgres`, Kanboard and Hindsight. There is no ForgeHub-only network (the old `forgehub_default` was removed): backend needs the shared net to reach `company_postgres`, and the frontend's nginx proxies `/api` to `http://forgehub-backend:8000` by container name, so it sits on the same network. `foundation_network` is created manually (`docker network create foundation_network`) and referenced as `external: true` by every compose that uses it.
 
 ### Frontend: per-domain page + hook pairing
 
-Each backend domain has a matching `frontend/src/pages/<domain>/` (typically `index.tsx` list view, `[id].tsx` detail view, `<Domain>Form.tsx`) and a `frontend/src/hooks/use<Domain>.ts` (TanStack Query hooks). `src/lib/api.ts` is the single fetch wrapper everything goes through — domain hooks call `apiClient.get/post/put/patch/delete` with the exact `/api/v1/<resource>` path; never hardcode `BASE_URL` or add path segments elsewhere. `BASE_URL` comes from `VITE_API_URL` (defaults to `http://localhost:8000`).
+Each backend domain has a matching `frontend/src/pages/<domain>/` (typically `index.tsx` list view, `[id].tsx` detail view, `<Domain>Form.tsx`) and a `frontend/src/hooks/use<Domain>.ts` (TanStack Query hooks). Pages whose main table should scroll internally (tools, skills, notifications, database, workspace) are "full-bleed": listed in `AppLayout.tsx`'s `isFullBleed` so `<main>` gets a definite `h-screen` height — without it the `flex-1 min-h-0 → overflow-auto` chain never binds and the table overflows the viewport with no scrollbar. `src/lib/api.ts` is the single fetch wrapper everything goes through — domain hooks call `apiClient.get/post/put/patch/delete` with the exact `/api/v1/<resource>` path; never hardcode `BASE_URL` or add path segments elsewhere. `BASE_URL` comes from `VITE_API_URL` (defaults to `http://localhost:8000`).
 
 `src/components/ui/` holds shadcn/ui primitives (button, card, input, select, table, etc.) — extend this set via the shadcn CLI/pattern rather than hand-rolling alternatives.
+
+**Sidebar navigation** (`src/components/layout/Sidebar.tsx`) is data-driven from `src/components/layout/navSections.ts`'s `NAV_SECTIONS` — shared with `CommandPalette.tsx` (Cmd/Ctrl+K quick nav, filtered by the same `usePermission` checks) so the route list is never duplicated. Each top-level section groups by a single semantic criterion (e.g. "Agents & AI" is agent config only, "Operations" is infra/ops tooling, "Integrations" is external tool links) — when a new nav entry doesn't clearly fit an existing section, that's a signal to add a section rather than force it into a "misc" one. Section headers are independently collapsible (state in `localStorage`). The `/demands` route is labeled "Inbox" in the sidebar, not "Demandas" — see `demand.py`'s domain description above for why.
 
 ## UI library governance
 

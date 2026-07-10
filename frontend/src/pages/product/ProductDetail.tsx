@@ -27,6 +27,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { useProduct } from "@/hooks/useProduct";
+import { EntityDocsCard } from "@/components/EntityDocsCard";
 import { apiClient } from "@/lib/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ProductVersion } from "@/hooks/useProduct";
@@ -36,7 +37,7 @@ const versionStatusBadge: Record<string, "success" | "secondary" | "outline" | "
   in_development: "secondary",
   in_test: "default",
   published: "success",
-  archived: "outline",
+  deprecated: "outline",
 };
 
 const productVersionInputSchema = z.object({
@@ -44,9 +45,8 @@ const productVersionInputSchema = z.object({
     .string()
     .min(1, "Version is required")
     .regex(/^\d+\.\d+\.\d+(-[\w.]+)?$/, "Use semantic versioning, e.g. 0.1.0"),
-  status: z.enum(["planned", "in_development", "in_test", "published", "archived"]).default("planned"),
-  release_date: z.string().optional().or(z.literal("")),
-  notes: z.string().max(2000).optional().or(z.literal("")),
+  status: z.enum(["planned", "in_development", "in_test", "published", "deprecated"]).default("planned"),
+  release_notes: z.string().max(2000).optional().or(z.literal("")),
 });
 
 type ProductVersionInput = z.infer<typeof productVersionInputSchema>;
@@ -55,10 +55,7 @@ function useCreateProductVersion(productId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: ProductVersionInput) =>
-      apiClient.post<ProductVersion>("/api/v1/product-versions", {
-        ...payload,
-        product_id: productId,
-      }),
+      apiClient.post<ProductVersion>(`/api/v1/products/${productId}/versions`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products", productId] });
       queryClient.invalidateQueries({ queryKey: ["products"] });
@@ -79,7 +76,7 @@ export default function ProductDetail() {
     formState: { errors, isSubmitting },
   } = useForm<ProductVersionInput>({
     resolver: zodResolver(productVersionInputSchema),
-    defaultValues: { version: "", status: "planned", release_date: "", notes: "" },
+    defaultValues: { version: "", status: "planned", release_notes: "" },
   });
 
   const onSubmit = async (values: ProductVersionInput) => {
@@ -170,20 +167,19 @@ export default function ProductDetail() {
                   <option value="in_development">In Development</option>
                   <option value="in_test">In Test</option>
                   <option value="published">Published</option>
-                  <option value="archived">Archived</option>
+                  <option value="deprecated">Deprecated</option>
                 </Select>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="release_date">Release Date</Label>
-                <Input id="release_date" type="date" {...register("release_date")} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea id="notes" placeholder="Optional release notes" {...register("notes")} />
-                {errors.notes && (
-                  <p className="text-sm text-destructive">{errors.notes.message}</p>
+                <Label htmlFor="release_notes">Release Notes</Label>
+                <Textarea
+                  id="release_notes"
+                  placeholder="Optional release notes"
+                  {...register("release_notes")}
+                />
+                {errors.release_notes && (
+                  <p className="text-sm text-destructive">{errors.release_notes.message}</p>
                 )}
               </div>
 
@@ -227,8 +223,7 @@ export default function ProductDetail() {
                 <TableRow>
                   <TableHead>Version</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Release Date</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>Release Notes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -240,9 +235,8 @@ export default function ProductDetail() {
                         {v.status.replace("_", " ")}
                       </Badge>
                     </TableCell>
-                    <TableCell>{v.release_date ?? "—"}</TableCell>
                     <TableCell className="max-w-xs truncate text-muted-foreground">
-                      {v.notes ?? "—"}
+                      {v.release_notes ?? "—"}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -251,6 +245,8 @@ export default function ProductDetail() {
           )}
         </CardContent>
       </Card>
+
+      <EntityDocsCard entityType="product" entityId={product?.id} />
     </div>
   );
 }

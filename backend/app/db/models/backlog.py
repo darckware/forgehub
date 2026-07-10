@@ -82,12 +82,31 @@ class PlanningItem(Base, TimestampMixin):
     )
 
     # Other-domain FKs by string reference (no cross-module import).
+    # project_id is required (core traceability invariant, CLAUDE.md /
+    # SPEC 5.4) -- enforced at the API layer (app/api/routes/backlog.py),
+    # not as a DB-level NOT NULL, per the foundation convention that
+    # existence checks against another domain's table belong at the route
+    # layer. target_version_id legitimately starts empty at intake and is
+    # populated once the item is triaged/scoped into a version (SPEC 8.1
+    # step 3), so it stays nullable here.
     project_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.projects.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=True
     )
     target_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.product_versions.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("company.product_versions.id", ondelete="SET NULL"), nullable=True
     )
+    # Optional pointer to which part of the project's real structure
+    # (Project domain's ProjectStructureNode) this planning item touches
+    # -- e.g. a specific screen, module, or DB table.
+    structure_node_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.project_structure_nodes.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Relative path (within the project's working_directory_path) where the
+    # output of this planning item should be written -- e.g. "docs/api.md"
+    # or "src/modules/auth/". Only meaningful for items that produce a
+    # specific file/folder artifact (documentation, generated code, etc.).
+    output_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     # Set once baseline approval happens (SPEC 6.3 rule 1: "Approved
     # planning becomes baseline"). Post-baseline edits should flow through
@@ -123,7 +142,7 @@ class FeatureRequest(Base, TimestampMixin):
     # Populated once converted into a PlanningItem (SPEC 8.1 step 2).
     planning_item_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("company.planning_items.id"),
+        ForeignKey("company.planning_items.id", ondelete="SET NULL"),
         nullable=True,
         unique=True,
     )
@@ -149,17 +168,17 @@ class BugReport(Base, TimestampMixin):
 
     # Other-domain FKs (product_versions) by string reference.
     detected_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.product_versions.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("company.product_versions.id", ondelete="SET NULL"), nullable=True
     )
     # PRD 8.2 Bug Done: "fixed_in_version is populated" before closure.
     fixed_in_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.product_versions.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("company.product_versions.id", ondelete="SET NULL"), nullable=True
     )
 
     # Populated once converted into a PlanningItem (SPEC 8.2 step 3).
     planning_item_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("company.planning_items.id"),
+        ForeignKey("company.planning_items.id", ondelete="SET NULL"),
         nullable=True,
         unique=True,
     )
@@ -186,10 +205,10 @@ class VersionScopeItem(Base, TimestampMixin):
     )
 
     planning_item_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.planning_items.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("company.planning_items.id", ondelete="CASCADE"), nullable=False
     )
     product_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.product_versions.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("company.product_versions.id", ondelete="CASCADE"), nullable=False
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -220,7 +239,7 @@ class TriageDecision(Base, TimestampMixin):
     )
 
     planning_item_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.planning_items.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("company.planning_items.id", ondelete="CASCADE"), nullable=False
     )
     outcome: Mapped[str] = mapped_column(String(32), nullable=False)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)

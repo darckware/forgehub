@@ -18,14 +18,25 @@ Business rules implemented (SPEC.md section 6.1):
    scope for this domain (belongs to Backlog/Planning domains); not
    implemented here (see model file docstring).
 """
+import base64
+import io
+import json
 import uuid
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from app.core import kanboard_client
+from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 
+from app.core.config import settings
+from app.db.models.product import PRODUCT_STATUSES as VALID_PRODUCT_STATUSES
 from app.api.schemas.product import (
     ProductCreate,
     ProductModuleCreate,
@@ -45,6 +56,26 @@ from app.api.schemas.product import (
 )
 from app.db.base import get_db
 from app.db.models.product import Product, ProductModule, ProductVersion, Release
+from app.db.models.project import (
+    Project, ChangeRequest, ProjectStructureNode,
+)
+from app.db.models.backlog import PlanningItem
+from app.db.models.task import ProjectTask, TaskExecution, TaskAssignment
+from app.db.models.pipeline import ProjectPipeline, PipelineStage
+
+
+async def _bridge_request(method: str, path: str, **kwargs) -> dict:
+    """Call the host-bridge. Returns parsed JSON on success, raises HTTPException on error."""
+    url = f"{settings.CHAT_BRIDGE_URL}{path}"
+    headers = {"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await getattr(client, method.lower())(url, headers=headers, **kwargs)
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Bridge error {resp.status_code}: {resp.text[:200]}",
+        )
+    return resp.json()
 
 router = APIRouter(prefix="/api/v1/products", tags=["products"])
 
@@ -70,7 +101,12 @@ async def _get_version_or_404(db: AsyncSession, version_id: uuid.UUID) -> Produc
 
 @router.post("", response_model=ProductWithVersionsOut, status_code=status.HTTP_201_CREATED)
 async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_db)) -> Product:
-    product = Product(name=payload.name, description=payload.description)
+    if payload.status not in VALID_PRODUCT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid product status '{payload.status}'",
+        )
+    product = Product(name=payload.name, description=payload.description, status=payload.status)
 
     initial_version_payload = payload.initial_version or ProductVersionCreate(
         version="0.1.0", status="planned"
@@ -98,8 +134,24 @@ async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="A product with this name already exists"
-        )
+        ) from None
 
+    # Create a Kanboard project for this product, replicating the reference
+    # column structure. Non-fatal: DB product is already committed.
+    try:
+        kb_project_id, col_map = await kanboard_client.create_project_with_columns(
+            name=product.name,
+            description=product.description or "",
+        )
+        product.kanboard_project_id = kb_project_id
+        product.kanboard_column_ids = col_map
+        await db.commit()
+    except Exception:
+        pass  # Kanboard creation failure never blocks product creation
+
+    # Refresh everything: the second commit (Kanboard) expires all scalar
+    # attributes, so attribute_names=["versions","modules"] is not enough.
+    await db.refresh(product)
     await db.refresh(product, attribute_names=["versions", "modules"])
     return product
 
@@ -139,10 +191,252 @@ async def update_product(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="A product with this name already exists"
-        )
+        ) from None
 
     await db.refresh(product)
     return product
+
+
+def _row_to_dict(obj) -> dict:
+    """Serialize any SQLAlchemy mapped instance to a plain dict (columns only)."""
+    from sqlalchemy import inspect as sa_inspect
+    mapper = sa_inspect(type(obj))
+    return {col.key: getattr(obj, col.key) for col in mapper.column_attrs}
+
+
+def _json_default(obj):
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    try:
+        from decimal import Decimal
+        if isinstance(obj, Decimal):
+            return float(obj)
+    except ImportError:
+        pass
+    raise TypeError(f"Type {type(obj)} not JSON serializable")
+
+
+# ---------------------------------------------------------------------------
+# Product Backup  GET /api/v1/products/{id}/backup
+# ---------------------------------------------------------------------------
+
+@router.get("/{product_id}/backup")
+async def backup_product(product_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Full snapshot of a product: all DB entities + project working-directory
+    files. Returns a ZIP containing db.json and (optional) files/*.tar.gz.
+
+    The backup is a self-contained snapshot: every row is serialized with its
+    original UUID so it can be restored exactly via POST /api/v1/products/restore.
+    """
+    # --- 1. Load product + versions + modules --------------------------------
+    result = await db.execute(
+        select(Product)
+        .where(Product.id == product_id)
+        .options(selectinload(Product.versions), selectinload(Product.modules))
+    )
+    product = result.scalar_one_or_none()
+    if product is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    version_ids = [v.id for v in product.versions]
+
+    # --- 2. Load projects linked to those versions ---------------------------
+    projects_result = await db.execute(
+        select(Project).where(Project.product_version_id.in_(version_ids))
+    )
+    projects = list(projects_result.scalars().all())
+    project_ids = [p.id for p in projects]
+
+    # --- 3. Load all downstream entities per project -------------------------
+    def _load_list(rows):
+        return [_row_to_dict(r) for r in rows]
+
+    cr_result = await db.execute(
+        select(ChangeRequest).where(ChangeRequest.project_id.in_(project_ids))
+    )
+    struct_result = await db.execute(
+        select(ProjectStructureNode).where(ProjectStructureNode.project_id.in_(project_ids))
+    )
+    pipeline_result = await db.execute(
+        select(ProjectPipeline).where(ProjectPipeline.project_id.in_(project_ids))
+    )
+    pipelines = list(pipeline_result.scalars().all())
+    pipeline_ids = [p.id for p in pipelines]
+
+    stage_result = await db.execute(
+        select(PipelineStage).where(PipelineStage.pipeline_id.in_(pipeline_ids))
+    )
+    pi_result = await db.execute(
+        select(PlanningItem).where(PlanningItem.project_id.in_(project_ids))
+    )
+    planning_items = list(pi_result.scalars().all())
+    pi_ids = [p.id for p in planning_items]
+
+    task_result = await db.execute(
+        select(ProjectTask).where(ProjectTask.planning_item_id.in_(pi_ids))
+    )
+    tasks = list(task_result.scalars().all())
+    task_ids = [t.id for t in tasks]
+
+    exec_result = await db.execute(
+        select(TaskExecution).where(TaskExecution.task_id.in_(task_ids))
+    )
+    assign_result = await db.execute(
+        select(TaskAssignment).where(TaskAssignment.task_id.in_(task_ids))
+    )
+
+    # --- 4. Build the JSON payload -------------------------------------------
+    db_data = {
+        "format": "forgehub-product-backup",
+        "schema_version": 2,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "product": _row_to_dict(product),
+        "versions": [_row_to_dict(v) for v in product.versions],
+        "modules": [_row_to_dict(m) for m in product.modules],
+        "projects": [_row_to_dict(p) for p in projects],
+        "change_requests": _load_list(cr_result.scalars().all()),
+        "structure_nodes": _load_list(struct_result.scalars().all()),
+        "pipelines": [_row_to_dict(p) for p in pipelines],
+        "pipeline_stages": _load_list(stage_result.scalars().all()),
+        "planning_items": [_row_to_dict(p) for p in planning_items],
+        "tasks": [_row_to_dict(t) for t in tasks],
+        "task_executions": _load_list(exec_result.scalars().all()),
+        "task_assignments": _load_list(assign_result.scalars().all()),
+    }
+
+    db_json_bytes = json.dumps(db_data, default=_json_default, indent=2).encode()
+
+    # --- 5. Archive project working directories via host-bridge --------------
+    files_archives: dict[str, bytes] = {}
+    for proj in projects:
+        path = proj.working_directory_path
+        if not path:
+            continue
+        try:
+            bridge_resp = await _bridge_request("POST", "/v1/fs/tar", json={"path": path})
+            raw = base64.b64decode(bridge_resp["archive_b64"])
+            safe_name = str(proj.id)
+            files_archives[safe_name] = raw
+        except Exception:
+            pass  # non-fatal: backup still includes DB data
+
+    # --- 6. Pack into a ZIP --------------------------------------------------
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("db.json", db_json_bytes)
+        for proj_id, raw in files_archives.items():
+            zf.writestr(f"files/{proj_id}.tar.gz", raw)
+
+    zip_buf.seek(0)
+    fname = f"product-backup-{product.name.replace(' ', '_').lower()}.zip"
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Product Restore  POST /api/v1/products/restore
+# ---------------------------------------------------------------------------
+
+@router.post("/restore", status_code=status.HTTP_201_CREATED)
+async def restore_product(
+    file: UploadFile = File(...),
+    restore_db: str = "true",
+    restore_files: str = "true",
+    db: AsyncSession = Depends(get_db),
+):
+    """Restore a product from a ZIP backup (produced by GET …/backup).
+
+    All entities are upserted with their original UUIDs so the snapshot is
+    reproduced exactly. If rows already exist (same UUID) they are updated
+    to match the backup state.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    content = await file.read()
+    zf = zipfile.ZipFile(io.BytesIO(content), "r")
+    if "db.json" not in zf.namelist():
+        raise HTTPException(status_code=400, detail="Invalid backup: db.json not found in ZIP")
+
+    data = json.loads(zf.read("db.json"))
+    if data.get("format") != "forgehub-product-backup":
+        raise HTTPException(status_code=400, detail="Invalid backup format")
+
+    def _uuids(d: dict) -> dict:
+        """Convert string UUID values back to uuid.UUID objects for FK correctness."""
+        out = {}
+        for k, v in d.items():
+            if isinstance(v, str):
+                try:
+                    out[k] = uuid.UUID(v)
+                except ValueError:
+                    out[k] = v
+            else:
+                out[k] = v
+        return out
+
+    async def _upsert(model_cls, rows: list[dict]):
+        for row in rows:
+            values = _uuids(row)
+            values.pop("created_at", None)
+            values.pop("updated_at", None)
+            stmt = (
+                pg_insert(model_cls.__table__)
+                .values(**values)
+                .on_conflict_do_update(
+                    index_elements=["id"],
+                    set_={k: v for k, v in values.items() if k != "id"},
+                )
+            )
+            await db.execute(stmt)
+
+    do_db = restore_db.lower() not in ("false", "0", "no")
+    do_files = restore_files.lower() not in ("false", "0", "no")
+
+    if do_db:
+        # Upsert in FK order: parents before children
+        await _upsert(Product, [data["product"]])
+        await _upsert(ProductVersion, data.get("versions", []))
+        await _upsert(ProductModule, data.get("modules", []))
+        await _upsert(Project, data.get("projects", []))
+        await _upsert(ChangeRequest, data.get("change_requests", []))
+        await _upsert(ProjectStructureNode, data.get("structure_nodes", []))
+        await _upsert(ProjectPipeline, data.get("pipelines", []))
+        await _upsert(PipelineStage, data.get("pipeline_stages", []))
+        await _upsert(PlanningItem, data.get("planning_items", []))
+        await _upsert(ProjectTask, data.get("tasks", []))
+        await _upsert(TaskAssignment, data.get("task_assignments", []))
+        await _upsert(TaskExecution, data.get("task_executions", []))
+
+        try:
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"Restore failed: {exc}") from exc
+
+    if do_files:
+        # Restore project files via host-bridge
+        for proj in data.get("projects", []):
+            path = proj.get("working_directory_path")
+            proj_id = proj.get("id", "")
+            archive_name = f"files/{proj_id}.tar.gz"
+            if not path or archive_name not in zf.namelist():
+                continue
+            try:
+                raw = zf.read(archive_name)
+                b64 = base64.b64encode(raw).decode()
+                parent = str(Path(path).parent)
+                await _bridge_request("POST", "/v1/fs/untar", json={"path": parent, "archive_b64": b64})
+            except Exception:
+                pass  # non-fatal: DB was restored, files are best-effort
+
+    zf.close()
+    product_id = data["product"]["id"]
+    return {"status": "ok", "product_id": product_id}
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -174,7 +468,7 @@ async def create_product_module(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A module with this name already exists for this product",
-        )
+        ) from None
     await db.refresh(module)
     return module
 
@@ -209,7 +503,7 @@ async def update_product_module(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A module with this name already exists for this product",
-        )
+        ) from None
     await db.refresh(module)
     return module
 
@@ -256,7 +550,7 @@ async def create_product_version(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This version string already exists for this product",
-        )
+        ) from None
     await db.refresh(version)
     return version
 
@@ -271,6 +565,13 @@ async def list_product_versions(
         .where(ProductVersion.product_id == product_id)
         .order_by(ProductVersion.created_at)
     )
+    return list(result.scalars().all())
+
+
+@router.get("/versions", response_model=list[ProductVersionOut])
+async def list_all_product_versions(db: AsyncSession = Depends(get_db)) -> list[ProductVersion]:
+    """Flat list of all versions across all products — used for comboboxes."""
+    result = await db.execute(select(ProductVersion).order_by(ProductVersion.created_at))
     return list(result.scalars().all())
 
 
@@ -309,7 +610,7 @@ async def update_product_version(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This version string already exists for this product",
-        )
+        ) from None
     await db.refresh(version)
     return version
 

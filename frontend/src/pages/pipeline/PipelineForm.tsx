@@ -9,7 +9,9 @@ import {
   PIPELINE_STATUSES,
   pipelineCreateSchema,
   type PipelineCreateInput,
+  usePipelineTemplates,
 } from "@/hooks/usePipeline";
+import { useProjects } from "@/hooks/useProject";
 
 interface PipelineFormProps {
   defaultValues?: Partial<PipelineCreateInput>;
@@ -26,6 +28,9 @@ export function PipelineForm({
   isSubmitting,
   submitLabel = "Create pipeline",
 }: PipelineFormProps) {
+  const { data: projects, isLoading: isLoadingProjects } = useProjects();
+  const { data: templates, isLoading: isLoadingTemplates } = usePipelineTemplates();
+
   const {
     register,
     handleSubmit,
@@ -51,8 +56,17 @@ export function PipelineForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="project_id">Project ID</Label>
-        <Input id="project_id" placeholder="uuid of the owning project" {...register("project_id")} />
+        <Label htmlFor="project_id">Project</Label>
+        <Select id="project_id" disabled={isLoadingProjects} {...register("project_id")}>
+          <option value="">
+            {isLoadingProjects ? "Loading projects…" : "Select a project"}
+          </option>
+          {projects?.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </Select>
         {errors.project_id && (
           <p className="text-sm text-destructive">{errors.project_id.message}</p>
         )}
@@ -60,12 +74,17 @@ export function PipelineForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="pipeline_template_id">Template ID</Label>
-          <Input
-            id="pipeline_template_id"
-            placeholder="uuid of pipeline template (optional)"
-            {...register("pipeline_template_id")}
-          />
+          <Label htmlFor="pipeline_template_id">Template (optional)</Label>
+          <Select id="pipeline_template_id" disabled={isLoadingTemplates} {...register("pipeline_template_id")}>
+            <option value="">
+              {isLoadingTemplates ? "Loading templates…" : "No template"}
+            </option>
+            {templates?.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
           {errors.pipeline_template_id && (
             <p className="text-sm text-destructive">{errors.pipeline_template_id.message}</p>
           )}

@@ -1,17 +1,19 @@
 import { Link, useParams } from "react-router-dom";
 import {
   AlertCircle,
-  ArrowLeft,
   CheckCircle2,
   CircleDashed,
   FileText,
   Loader2,
+  Lock,
+  Unlock,
 } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { useArtifact, type ArtifactVersion } from "@/hooks/useArtifact";
+import { useArtifact, useUpdateArtifact, type ArtifactVersion } from "@/hooks/useArtifact";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 const STATUS_VARIANT: Record<
   string,
@@ -68,6 +70,7 @@ function VersionRow({ version }: { version: ArtifactVersion }) {
 export default function ArtifactDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: artifact, isLoading, isError, error } = useArtifact(id);
+  const updateArtifact = useUpdateArtifact(id ?? "");
 
   const sortedVersions = artifact?.versions
     ? [...artifact.versions].sort((a, b) => a.version.localeCompare(b.version, undefined, { numeric: true }))
@@ -75,13 +78,12 @@ export default function ArtifactDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Link
-        to="/artifact"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to artifacts
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: "Artifacts", href: "/artifact" },
+          { label: artifact?.name ?? "…" },
+        ]}
+      />
 
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
@@ -118,8 +120,38 @@ export default function ArtifactDetailPage() {
               <Badge variant="outline" className="text-sm capitalize">
                 {artifact.artifact_type.replace(/_/g, " ")}
               </Badge>
+              {artifact.is_locked ? (
+                <Badge variant="outline" className="gap-1 text-sm">
+                  <Lock className="h-3 w-3" />
+                  locked
+                </Badge>
+              ) : null}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={updateArtifact.isPending}
+                onClick={() => updateArtifact.mutate({ is_locked: !artifact.is_locked })}
+              >
+                {artifact.is_locked ? (
+                  <>
+                    <Unlock className="mr-2 h-4 w-4" />
+                    Unlock
+                  </>
+                ) : (
+                  <>
+                    <Lock className="mr-2 h-4 w-4" />
+                    Lock
+                  </>
+                )}
+              </Button>
             </div>
           </div>
+
+          {updateArtifact.isError && (
+            <p className="text-sm text-destructive">
+              {(updateArtifact.error as Error)?.message}
+            </p>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Card>

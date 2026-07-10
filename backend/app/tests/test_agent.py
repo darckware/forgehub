@@ -62,11 +62,11 @@ async def _ensure_agent_tables():
 
 
 @pytest_asyncio.fixture
-async def client():
+async def client(auth_headers):
     app = FastAPI()
     app.include_router(agent_routes.router)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=auth_headers) as ac:
         yield ac
 
 

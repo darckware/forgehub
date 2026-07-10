@@ -25,7 +25,10 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-from app.db.base import Base, engine
+from app.db.base import AsyncSessionLocal, Base, engine
+from app.db.models.backlog import PlanningItem
+from app.db.models.product import Product, ProductVersion
+from app.db.models.project import Project
 from app.db.models.task import (  # noqa: F401  (ensures tables register on Base.metadata)
     ProjectTask,
     TaskAssignment,
@@ -77,9 +80,9 @@ async def _setup_schema():
 
 
 @pytest_asyncio.fixture
-async def client():
+async def client(auth_headers):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=auth_headers) as ac:
         yield ac
 
 
@@ -112,8 +115,92 @@ async def created_ids():
                 )
 
 
-def _task_payload(**overrides):
+@pytest_asyncio.fixture
+async def planning_item_id():
+    """A real PlanningItem (via a real Project -> ProductVersion -> Product
+    chain), since ProjectTask.planning_item_id is now required on create
+    (core traceability invariant) -- see create_task in
+    app/api/routes/task.py."""
+    async with AsyncSessionLocal() as session:
+        product = Product(name=f"Task Test Product {uuid.uuid4()}")
+        session.add(product)
+        await session.flush()
+        version = ProductVersion(product_id=product.id, version="0.1.0")
+        session.add(version)
+        await session.flush()
+        project = Project(
+            name=f"Task Test Project {uuid.uuid4()}", product_version_id=version.id
+        )
+        session.add(project)
+        await session.flush()
+        item = PlanningItem(
+            title="Task domain test planning item",
+            item_type="feature",
+            project_id=project.id,
+        )
+        session.add(item)
+        await session.commit()
+        item_id, project_id, version_id, product_id = (
+            item.id,
+            project.id,
+            version.id,
+            product.id,
+        )
+
+    yield item_id
+
+    async with engine.begin() as conn:
+        # Defensively clear any project_tasks (and their children) still
+        # pointing at this planning item -- fixture teardown order relative
+        # to the test's own `created_ids` cleanup isn't guaranteed, so don't
+        # rely on the test having already deleted its tasks.
+        task_ids_result = await conn.execute(
+            text("SELECT id FROM company.project_tasks WHERE planning_item_id = :id"),
+            {"id": item_id},
+        )
+        task_ids = [row[0] for row in task_ids_result.all()]
+        if task_ids:
+            await conn.execute(
+                text("DELETE FROM company.task_executions WHERE task_id = ANY(:ids)"),
+                {"ids": task_ids},
+            )
+            await conn.execute(
+                text("DELETE FROM company.task_assignments WHERE task_id = ANY(:ids)"),
+                {"ids": task_ids},
+            )
+            await conn.execute(
+                text(
+                    "DELETE FROM company.task_dependencies "
+                    "WHERE task_id = ANY(:ids) OR depends_on_task_id = ANY(:ids)"
+                ),
+                {"ids": task_ids},
+            )
+            await conn.execute(
+                text("DELETE FROM company.task_required_skills WHERE task_id = ANY(:ids)"),
+                {"ids": task_ids},
+            )
+            await conn.execute(
+                text("DELETE FROM company.project_tasks WHERE id = ANY(:ids)"),
+                {"ids": task_ids},
+            )
+        await conn.execute(
+            text("DELETE FROM company.planning_items WHERE id = :id"), {"id": item_id}
+        )
+        await conn.execute(
+            text("DELETE FROM company.projects WHERE id = :id"), {"id": project_id}
+        )
+        await conn.execute(
+            text("DELETE FROM company.product_versions WHERE id = :id"),
+            {"id": version_id},
+        )
+        await conn.execute(
+            text("DELETE FROM company.products WHERE id = :id"), {"id": product_id}
+        )
+
+
+def _task_payload(planning_item_id, **overrides):
     payload = {
+        "planning_item_id": str(planning_item_id),
         "title": "Implement task domain backend",
         "description": "Build CRUD + business rules",
         "task_type": "feature",
@@ -124,8 +211,8 @@ def _task_payload(**overrides):
 
 
 @pytest.mark.asyncio
-async def test_create_get_list_task(client: AsyncClient, created_ids):
-    resp = await client.post("/api/v1/tasks", json=_task_payload())
+async def test_create_get_list_task(client: AsyncClient, created_ids, planning_item_id):
+    resp = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id))
     assert resp.status_code == 201, resp.text
     body = resp.json()
     created_ids["project_tasks"].append(body["id"])
@@ -152,17 +239,41 @@ async def test_get_nonexistent_task_returns_404(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_invalid_task_type_returns_422(client: AsyncClient):
-    resp = await client.post("/api/v1/tasks", json=_task_payload(task_type="not_a_real_type"))
+async def test_invalid_task_type_returns_422(client: AsyncClient, planning_item_id):
+    resp = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, task_type="not_a_real_type")
+    )
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_execution_requires_evidence_when_completed(client: AsyncClient, created_ids):
+async def test_missing_source_returns_400(client: AsyncClient):
+    # Neither planning_item_id nor change_request_id -- 400 from route layer.
+    payload = {"title": "No source", "task_type": "feature", "priority": "high"}
+    resp = await client.post("/api/v1/tasks", json=payload)
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_nonexistent_planning_item_id_returns_400(client: AsyncClient):
+    payload = {
+        "planning_item_id": str(uuid.uuid4()),
+        "title": "Bad planning item",
+        "task_type": "feature",
+        "priority": "high",
+    }
+    resp = await client.post("/api/v1/tasks", json=payload)
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_execution_requires_evidence_when_completed(
+    client: AsyncClient, created_ids, planning_item_id
+):
     """Business rule 6.4.3: every execution must have evidence -- creating
     an execution with status=completed and no evidence_ref must be
     rejected (422), and the rule must also be re-checked on PATCH."""
-    resp = await client.post("/api/v1/tasks", json=_task_payload())
+    resp = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id))
     assert resp.status_code == 201
     task_id = resp.json()["id"]
     created_ids["project_tasks"].append(task_id)
@@ -201,16 +312,22 @@ async def test_execution_requires_evidence_when_completed(client: AsyncClient, c
 
 
 @pytest.mark.asyncio
-async def test_task_cannot_complete_with_unfinished_dependency(client: AsyncClient, created_ids):
+async def test_task_cannot_complete_with_unfinished_dependency(
+    client: AsyncClient, created_ids, planning_item_id
+):
     """Mirrors SPEC 6.2.9 (blocked stages prevent dependents from
     advancing), applied at task granularity: a task depending on a
     not-done task cannot be marked done."""
-    dep_resp = await client.post("/api/v1/tasks", json=_task_payload(title="Dependency task"))
+    dep_resp = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Dependency task")
+    )
     assert dep_resp.status_code == 201
     dep_id = dep_resp.json()["id"]
     created_ids["project_tasks"].append(dep_id)
 
-    main_resp = await client.post("/api/v1/tasks", json=_task_payload(title="Main task"))
+    main_resp = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Main task")
+    )
     assert main_resp.status_code == 201
     main_id = main_resp.json()["id"]
     created_ids["project_tasks"].append(main_id)
@@ -234,8 +351,10 @@ async def test_task_cannot_complete_with_unfinished_dependency(client: AsyncClie
 
 
 @pytest.mark.asyncio
-async def test_self_dependency_rejected(client: AsyncClient, created_ids):
-    resp = await client.post("/api/v1/tasks", json=_task_payload(title="Solo task"))
+async def test_self_dependency_rejected(client: AsyncClient, created_ids, planning_item_id):
+    resp = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Solo task")
+    )
     assert resp.status_code == 201
     task_id = resp.json()["id"]
     created_ids["project_tasks"].append(task_id)
@@ -248,8 +367,12 @@ async def test_self_dependency_rejected(client: AsyncClient, created_ids):
 
 
 @pytest.mark.asyncio
-async def test_assignment_requires_exactly_one_target(client: AsyncClient, created_ids):
-    resp = await client.post("/api/v1/tasks", json=_task_payload(title="Assignable task"))
+async def test_assignment_requires_exactly_one_target(
+    client: AsyncClient, created_ids, planning_item_id
+):
+    resp = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Assignable task")
+    )
     assert resp.status_code == 201
     task_id = resp.json()["id"]
     created_ids["project_tasks"].append(task_id)

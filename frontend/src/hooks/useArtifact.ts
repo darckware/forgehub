@@ -31,6 +31,14 @@ export const ARTIFACT_TYPES = [
   "pull_request",
   "deployment_package",
   "approval_record",
+  "screen",
+  "component",
+  "report",
+  "database_schema",
+  "table",
+  "stored_procedure",
+  "reference_doc",
+  "context_brief",
   "other",
 ] as const;
 
@@ -72,6 +80,7 @@ export const artifactSchema = z.object({
   project_id: z.string().nullable().optional(),
   pipeline_stage_id: z.string().nullable().optional(),
   task_execution_id: z.string().nullable().optional(),
+  is_locked: z.boolean().optional().default(false),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
   versions: z.array(artifactVersionSchema).optional().default([]),
@@ -88,6 +97,7 @@ export const artifactCreateSchema = z.object({
   project_id: z.string().optional().or(z.literal("")),
   pipeline_stage_id: z.string().optional().or(z.literal("")),
   task_execution_id: z.string().optional().or(z.literal("")),
+  is_locked: z.boolean().optional().default(false),
 });
 
 export type ArtifactCreateInput = z.infer<typeof artifactCreateSchema>;

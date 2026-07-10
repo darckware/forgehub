@@ -27,3 +27,29 @@ export function useBrowseDirs(path: string | undefined, enabled: boolean) {
     enabled,
   });
 }
+
+export interface FsEntry {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  size: number | null;
+}
+
+export interface FsListResult {
+  path: string;
+  parent: string | null;
+  entries: FsEntry[];
+}
+
+/** Files + dirs (unlike useBrowseDirs, which is dirs-only) -- backs the chat
+ * composer's "@" file-mention picker. */
+export function useFsList(path: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["terminal-fs-list", path ?? ""],
+    queryFn: () =>
+      apiClient.get<FsListResult>("/api/v1/terminal/fs-list", {
+        params: path ? { path } : undefined,
+      }),
+    enabled,
+  });
+}

@@ -21,6 +21,8 @@ class PolicyBase(BaseModel):
     policy_type: str = Field(max_length=100)
     rules: dict[str, Any] | None = None
     is_active: bool = True
+    entity_type: str | None = Field(default=None, max_length=100)
+    entity_id: uuid.UUID | None = None
 
 
 class PolicyCreate(PolicyBase):
@@ -33,6 +35,8 @@ class PolicyUpdate(BaseModel):
     policy_type: str | None = Field(default=None, max_length=100)
     rules: dict[str, Any] | None = None
     is_active: bool | None = None
+    entity_type: str | None = Field(default=None, max_length=100)
+    entity_id: uuid.UUID | None = None
 
 
 class PolicyOut(PolicyBase):

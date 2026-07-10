@@ -2,6 +2,10 @@
 requests, bug reports, version scope items, and triage decisions.
 
 Business rules encoded here (see SPEC.md section 6, PRD.md sections 5/7/8):
+- A PlanningItem must trace back to a project (core traceability
+  invariant, CLAUDE.md / SPEC 5.4): project_id is required on create
+  (and on conversion from a FeatureRequest/BugReport) and must reference
+  an existing project; it cannot be cleared via update.
 - A PlanningItem that has been baselined cannot be mutated directly
   (SPEC 6.3 rule 1-2: "Approved planning becomes baseline" / "Post-baseline
   changes require a Change Request" -- that CR flow lives in the Project
@@ -49,6 +53,8 @@ from app.db.models.backlog import (
     TriageDecision,
     VersionScopeItem,
 )
+from app.db.models.project import Project, ProjectStructureNode
+from app.db.models.task import ProjectTask
 
 planning_items_router = APIRouter(
     prefix="/api/v1/planning-items", tags=["planning-items"]
@@ -78,6 +84,18 @@ async def create_planning_item(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"item_type must be one of {PLANNING_ITEM_TYPES}",
+        )
+    if await db.get(Project, payload.project_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="project_id must reference an existing project",
+        )
+    if payload.structure_node_id is not None and await db.get(
+        ProjectStructureNode, payload.structure_node_id
+    ) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="structure_node_id must reference an existing project structure node",
         )
     item = PlanningItem(**payload.model_dump())
     db.add(item)
@@ -135,6 +153,24 @@ async def update_planning_item(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"item_type must be one of {PLANNING_ITEM_TYPES}",
         )
+    if "project_id" in data:
+        if data["project_id"] is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="project_id cannot be cleared; a planning item must always trace back to a project",
+            )
+        if await db.get(Project, data["project_id"]) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="project_id must reference an existing project",
+            )
+    if data.get("structure_node_id") is not None and await db.get(
+        ProjectStructureNode, data["structure_node_id"]
+    ) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="structure_node_id must reference an existing project structure node",
+        )
     for field, value in data.items():
         setattr(item, field, value)
 
@@ -145,7 +181,9 @@ async def update_planning_item(
 
 @planning_items_router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_planning_item(
-    item_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    item_id: uuid.UUID,
+    cascade_tasks: bool = False,
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     item = await _get_or_404(db, PlanningItem, item_id)
     if item.baselined:
@@ -153,6 +191,22 @@ async def delete_planning_item(
             status_code=status.HTTP_409_CONFLICT,
             detail="Planning item is baselined and cannot be deleted directly.",
         )
+    # Find tasks linked to this planning item.
+    result = await db.execute(
+        select(ProjectTask).where(ProjectTask.planning_item_id == item_id)
+    )
+    linked_tasks = list(result.scalars().all())
+    if linked_tasks:
+        if not cascade_tasks:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Planning item has {len(linked_tasks)} task(s). "
+                    "Pass cascade_tasks=true to delete them together."
+                ),
+            )
+        for task in linked_tasks:
+            await db.delete(task)
     await db.delete(item)
     await db.commit()
 
@@ -218,6 +272,11 @@ async def convert_feature_request(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Feature request has already been converted to a planning item.",
+        )
+    if await db.get(Project, payload.project_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="project_id must reference an existing project",
         )
 
     item = PlanningItem(
@@ -309,6 +368,11 @@ async def convert_bug_report(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Bug report has already been converted to a planning item.",
+        )
+    if await db.get(Project, payload.project_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="project_id must reference an existing project",
         )
 
     item = PlanningItem(

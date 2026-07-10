@@ -6,7 +6,7 @@ populate the Agent domain from the Hermes ecosystem's canonical docs.
 
 Canonical source (confirmed by /root/.hermes/foundation/agents/README.md
 and the `hermes-foundation-agent-registry` skill -- NOT
-/root/.hermes/foundation/vault/Agents/, which is a derived mirror of only
+/root/.hermes/knowledge_base/vault/Agents/, which is a derived mirror of only
 the 8 baseline profiles and explicitly points back here):
   - ECOSYSTEM_AGENTS.md   -- registry: profile/name/layer/role/telegram
   - AGENT_RUNTIME_MATRIX.md -- runtime tier (A/B/C) per profile
@@ -69,11 +69,24 @@ def _parse_md_table(content: str) -> list[list[str]]:
     return rows
 
 
+def list_provisioned_profiles() -> list[str]:
+    """Slugs of every real, provisioned agent under /root/.hermes/profiles/
+    (mounted at PROFILES_DIR). This -- not the registry docs below -- is
+    the source of truth for which agents exist: the docs can list agents
+    that are only planned/documented (e.g. `forgenet`) or go stale and
+    miss a profile that was added without a doc update yet."""
+    if not PROFILES_DIR.is_dir():
+        return []
+    return sorted(p.name for p in PROFILES_DIR.iterdir() if p.is_dir())
+
+
 def parse_agent_registry() -> list[dict[str, Any]]:
-    """Roster of every Hermes agent: profile_slug, name, layer, role,
-    telegram_required, runtime_tier. Includes agents documented in the
-    registry that have no provisioned profile directory yet (e.g.
-    `forgenet`) -- callers should check profile_exists() separately."""
+    """Roster of every Hermes agent *documented* in ECOSYSTEM_AGENTS.md:
+    profile_slug, name, layer, role, telegram_required, runtime_tier.
+    Includes entries with no provisioned profile directory yet (e.g.
+    `forgenet`) -- this is metadata to enrich a provisioned profile with,
+    not itself the list of agents to register (see
+    list_provisioned_profiles)."""
     matrix_content = _read_file_safe(RUNTIME_MATRIX_PATH) or ""
     tier_by_slug: dict[str, str] = {}
     for cells in _parse_md_table(matrix_content):
@@ -144,10 +157,6 @@ def parse_subagent_catalog() -> dict[str, list[dict[str, str]]]:
             catalog[current_slug].append({"name": name, "description": description.strip()})
 
     return catalog
-
-
-def profile_exists(profile_slug: str) -> bool:
-    return (PROFILES_DIR / profile_slug).is_dir()
 
 
 def _parse_skill_frontmatter(content: str) -> dict[str, Any]:

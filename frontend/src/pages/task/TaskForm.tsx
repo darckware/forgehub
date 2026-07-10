@@ -11,7 +11,11 @@ import {
   TASK_STATUSES,
   taskCreateSchema,
   type TaskCreateInput,
+  useTasks,
 } from "@/hooks/useTask";
+import { usePlanningItems } from "@/hooks/useBacklog";
+import { useChangeRequests, useProjects } from "@/hooks/useProject";
+import { usePolicies } from "@/hooks/useGovernance";
 
 interface TaskFormProps {
   defaultValues?: Partial<TaskCreateInput>;
@@ -19,6 +23,8 @@ interface TaskFormProps {
   onCancel?: () => void;
   isSubmitting?: boolean;
   submitLabel?: string;
+  // When set, project context is available so we can load its CRs.
+  projectId?: string;
 }
 
 export function TaskForm({
@@ -27,6 +33,7 @@ export function TaskForm({
   onCancel,
   isSubmitting,
   submitLabel = "Create task",
+  projectId,
 }: TaskFormProps) {
   const {
     register,
@@ -39,13 +46,21 @@ export function TaskForm({
       description: "",
       project_id: "",
       planning_item_id: "",
+      change_request_id: "",
       parent_task_id: "",
+      policy_id: "",
       status: "planned",
       priority: "medium",
       due_date: "",
       ...defaultValues,
     },
   });
+
+  const { data: projects, isLoading: isLoadingProjects } = useProjects();
+  const { data: planningItems, isLoading: isLoadingPlanningItems } = usePlanningItems();
+  const { data: changeRequests, isLoading: isLoadingCRs } = useChangeRequests(projectId ?? defaultValues?.project_id);
+  const { data: allTasks, isLoading: isLoadingTasks } = useTasks();
+  const { data: policies } = usePolicies();
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -69,34 +84,78 @@ export function TaskForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="project_id">Project ID</Label>
-          <Input id="project_id" placeholder="uuid of the owning project" {...register("project_id")} />
+          <Label htmlFor="project_id">Project</Label>
+          <Select id="project_id" disabled={isLoadingProjects} {...register("project_id")}>
+            <option value="">
+              {isLoadingProjects ? "Loading projects…" : "Select a project"}
+            </option>
+            {projects?.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
           {errors.project_id && (
             <p className="text-sm text-destructive">{errors.project_id.message}</p>
           )}
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="planning_item_id">Planning item ID</Label>
-          <Input
+          <Label htmlFor="planning_item_id">Planning item</Label>
+          <Select
             id="planning_item_id"
-            placeholder="uuid of the source planning item"
+            disabled={isLoadingPlanningItems}
             {...register("planning_item_id")}
-          />
+          >
+            <option value="">
+              {isLoadingPlanningItems ? "Loading…" : "Select a planning item (optional)"}
+            </option>
+            {planningItems?.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.title}
+              </option>
+            ))}
+          </Select>
           {errors.planning_item_id && (
             <p className="text-sm text-destructive">{errors.planning_item_id.message}</p>
           )}
         </div>
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor="change_request_id">Change request (source)</Label>
+        <Select
+          id="change_request_id"
+          disabled={isLoadingCRs}
+          {...register("change_request_id")}
+        >
+          <option value="">
+            {isLoadingCRs ? "Loading…" : "Select a change request (optional)"}
+          </option>
+          {changeRequests?.map((cr) => (
+            <option key={cr.id} value={cr.id}>
+              [{cr.status}] {cr.title}
+            </option>
+          ))}
+        </Select>
+        {errors.change_request_id && (
+          <p className="text-sm text-destructive">{errors.change_request_id.message}</p>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="parent_task_id">Parent task ID</Label>
-          <Input
-            id="parent_task_id"
-            placeholder="uuid of parent task (for subtasks)"
-            {...register("parent_task_id")}
-          />
+          <Label htmlFor="parent_task_id">Parent task (subtask of)</Label>
+          <Select id="parent_task_id" disabled={isLoadingTasks} {...register("parent_task_id")}>
+            <option value="">
+              {isLoadingTasks ? "Loading tasks…" : "No parent (top-level task)"}
+            </option>
+            {allTasks?.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
+            ))}
+          </Select>
           {errors.parent_task_id && (
             <p className="text-sm text-destructive">{errors.parent_task_id.message}</p>
           )}
@@ -109,7 +168,7 @@ export function TaskForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="status">Status</Label>
           <Select id="status" {...register("status")}>
@@ -133,20 +192,21 @@ export function TaskForm({
           </Select>
           {errors.priority && <p className="text-sm text-destructive">{errors.priority.message}</p>}
         </div>
+      </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="estimated_cost">Estimated cost</Label>
-          <Input
-            id="estimated_cost"
-            type="number"
-            step="0.01"
-            placeholder="0.00"
-            {...register("estimated_cost")}
-          />
-          {errors.estimated_cost && (
-            <p className="text-sm text-destructive">{errors.estimated_cost.message}</p>
-          )}
-        </div>
+      <div className="space-y-2">
+        <Label htmlFor="policy_id">Governance policy (optional)</Label>
+        <Select id="policy_id" {...register("policy_id")}>
+          <option value="">No policy linked</option>
+          {(policies ?? []).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </Select>
+        {errors.policy_id && (
+          <p className="text-sm text-destructive">{errors.policy_id.message}</p>
+        )}
       </div>
 
       <div className="flex justify-end gap-2 pt-2">

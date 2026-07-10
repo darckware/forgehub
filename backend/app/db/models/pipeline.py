@@ -104,7 +104,7 @@ class ProjectPipeline(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.projects.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=False
     )
     template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.pipeline_templates.id"), nullable=True
@@ -132,7 +132,7 @@ class PipelineStage(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     pipeline_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.project_pipelines.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("company.project_pipelines.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     stage_type: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -170,10 +170,10 @@ class PipelineStageDependency(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     stage_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.pipeline_stages.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("company.pipeline_stages.id", ondelete="CASCADE"), nullable=False
     )
     depends_on_stage_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.pipeline_stages.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("company.pipeline_stages.id", ondelete="CASCADE"), nullable=False
     )
 
     stage: Mapped["PipelineStage"] = relationship(
@@ -194,7 +194,7 @@ class PipelineStageRequiredArtifact(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     stage_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.pipeline_stages.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("company.pipeline_stages.id", ondelete="CASCADE"), nullable=False
     )
     artifact_type: Mapped[str] = mapped_column(String(100), nullable=False)
     is_mandatory: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -219,7 +219,7 @@ class PipelineStageGate(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     stage_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.pipeline_stages.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("company.pipeline_stages.id", ondelete="CASCADE"), nullable=False
     )
     gate_type: Mapped[str] = mapped_column(String(50), nullable=False)  # approval | verification
     name: Mapped[str] = mapped_column(String(255), nullable=False)

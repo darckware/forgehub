@@ -35,6 +35,8 @@ class ChatMessageOut(BaseModel):
     role: str
     content: str
     attachment_names: str | None
+    responding_agent_id: uuid.UUID | None
+    thinking_seconds: int | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -47,3 +49,36 @@ class ChatSendResult(BaseModel):
     user_message: ChatMessageOut
     assistant_message: ChatMessageOut
     session: ChatSessionOut
+
+
+class ChatArtifactOut(BaseModel):
+    id: uuid.UUID
+    session_id: uuid.UUID
+    path: str
+    name: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChatArtifactGlobalOut(ChatArtifactOut):
+    """Same as ChatArtifactOut, plus who made it -- used by the "$Artefato"
+    picker's global (cross-session, cross-agent) search."""
+
+    agent_name: str
+
+
+class ChatApproveRequest(BaseModel):
+    """Answers a pending approval_request SSE event from /messages/stream.
+    stream_id addresses the live agent subprocess directly (see
+    host-bridge/hermes_stream.py); no session_id needed."""
+
+    stream_id: str
+    choice: str  # "once" | "session" | "always" | "deny"
+
+
+class ChatExecRequest(BaseModel):
+    """Backs the composer's "!command" prefix -- see exec_chat_command."""
+
+    command: str
+    cwd: str | None = None
