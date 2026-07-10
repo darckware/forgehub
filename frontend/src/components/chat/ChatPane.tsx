@@ -34,6 +34,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/Markdown";
 import { useFsList, type FsEntry } from "@/hooks/useTerminalBrowse";
 import { getToken } from "@/lib/api";
+import {
+  getAssistantFileDragData,
+  loadAssistantDraggedFile,
+} from "@/lib/assistantFileDrag";
 import { cn } from "@/lib/utils";
 import { type Agent } from "@/hooks/useAgent";
 import { useClickOutside } from "@/hooks/useClickOutside";
@@ -1135,7 +1139,15 @@ export function ChatPane({
     () => composerTextByTabId.get(tabId) ?? initialComposerText ?? ""
   );
   useEffect(() => {
-    composerTextByTabId.set(tabId, composerText);
+    // An empty composer has no draft worth preserving across a remount --
+    // and staging "" here would otherwise permanently win over a later
+    // initialComposerText (a seed pushed in after this first empty mount),
+    // since the lookup below only falls through on null/undefined, not "".
+    if (composerText) {
+      composerTextByTabId.set(tabId, composerText);
+    } else {
+      composerTextByTabId.delete(tabId);
+    }
   }, [tabId, composerText]);
   const [attachedFiles, setAttachedFilesState] = useState<File[]>(
     () => attachmentByTabId.get(tabId) ?? []
@@ -1146,10 +1158,19 @@ export function ChatPane({
     setAttachedFilesState(files);
   }
   function addAttachedFiles(newFiles: File[]) {
-    setAttachedFiles([...attachedFiles, ...newFiles]);
+    setAttachedFilesState((current) => {
+      const next = [...current, ...newFiles];
+      attachmentByTabId.set(tabId, next);
+      return next;
+    });
   }
   function removeAttachedFile(index: number) {
-    setAttachedFiles(attachedFiles.filter((_, i) => i !== index));
+    setAttachedFilesState((current) => {
+      const next = current.filter((_, i) => i !== index);
+      if (next.length > 0) attachmentByTabId.set(tabId, next);
+      else attachmentByTabId.delete(tabId);
+      return next;
+    });
   }
   const [imagePreviewIndex, setImagePreviewIndex] = useState<number | null>(null);
   useEffect(() => {
@@ -1166,6 +1187,7 @@ export function ChatPane({
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
+  const [composerDragActive, setComposerDragActive] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
   const { data: promptCommands = [] } = usePromptCommands();
@@ -1687,6 +1709,45 @@ export function ChatPane({
       })
       .filter((f): f is File => f !== null);
     if (newFiles.length > 0) addAttachedFiles(newFiles);
+  }
+
+  async function handleComposerDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setComposerDragActive(false);
+    setComposerWarning(null);
+
+    const internalFile = getAssistantFileDragData(e.dataTransfer);
+    if (internalFile) {
+      if (internalFile.source === "host-folder") {
+        setComposerText((text) => {
+          const separator = text.length > 0 && !text.endsWith("\n") ? "\n" : "";
+          return `${text}${separator}Folder: ${internalFile.path}\n`;
+        });
+        composerTextareaRef.current?.focus();
+        return;
+      }
+      try {
+        addAttachedFiles([await loadAssistantDraggedFile(internalFile)]);
+        composerTextareaRef.current?.focus();
+      } catch {
+        setComposerWarning(`Could not attach ${internalFile.name}.`);
+      }
+      return;
+    }
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      addAttachedFiles(droppedFiles);
+      composerTextareaRef.current?.focus();
+      return;
+    }
+
+    const path = e.dataTransfer.getData("text/plain");
+    if (!path) return;
+    setComposerText((text) => {
+      const needsSpace = text.length > 0 && !/\s$/.test(text);
+      return text + (needsSpace ? " " : "") + path + " ";
+    });
   }
 
   function handleComposerKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -3030,7 +3091,30 @@ export function ChatPane({
               </div>
             </div>
           )}
-          <div className="relative flex items-end gap-1 rounded-3xl border border-border bg-muted/50 px-2 py-1.5">
+          <div
+            className={cn(
+              "relative flex items-end gap-1 rounded-3xl border bg-muted/50 px-2 py-1.5 transition-colors",
+              composerDragActive ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border"
+            )}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setComposerDragActive(true);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+              setComposerDragActive(true);
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setComposerDragActive(false);
+            }}
+            onDrop={handleComposerDrop}
+          >
+            {composerDragActive && (
+              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-background/90 text-sm font-medium text-primary">
+                <Paperclip className="mr-2 h-4 w-4" /> Drop into assistant
+              </div>
+            )}
             {mentionOpen && (
               <MentionFilePicker
                 ref={mentionPickerRef}
@@ -3133,19 +3217,6 @@ export function ChatPane({
               }}
               onKeyDown={handleComposerKeyDown}
               onPaste={handleComposerPaste}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "copy";
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                const path = e.dataTransfer.getData("text/plain");
-                if (!path) return;
-                setComposerText((t) => {
-                  const needsSpace = t.length > 0 && !/\s$/.test(t);
-                  return t + (needsSpace ? " " : "") + path + " ";
-                });
-              }}
               placeholder={
                 suggestedReply
                   ? `${suggestedReply} (→ to complete)`
