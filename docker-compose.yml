@@ -15,6 +15,9 @@ services:
       # (docker-compose `environment:` wins over `env_file:`).
       POSTGRES_HOST: company_postgres
       POSTGRES_PORT: "5432"
+      # Same host-vs-container-network split as above, for the other
+      # Postgres instance (Hindsight/Foundation data, port 5433->5432).
+      FOUNDATION_POSTGRES_HOST: foundation_postgres
       # The real Hermes agents (Athos, Atlas, ...) only exist as host
       # processes -- this container reaches them through the chat bridge
       # (host-bridge/app.py) running directly on the host, via the

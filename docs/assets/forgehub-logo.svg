@@ -1,0 +1,15 @@
+<svg width="260" height="64" viewBox="0 0 260 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ForgeHub">
+  <style>
+    .wordmark { fill: #111827; }
+    @media (prefers-color-scheme: dark) {
+      .wordmark { fill: #f3f4f6; }
+    }
+  </style>
+  <!-- Brand mark: identical paths to frontend/src/components/Logo.tsx's LogoMark -->
+  <polygon points="8,29 24,25 24,35" fill="#4f46e5" />
+  <rect x="22" y="24" width="28" height="11" rx="1.5" fill="#4f46e5" />
+  <rect x="29" y="35" width="10" height="9" fill="#4f46e5" />
+  <polygon points="23,44 45,44 51,53 17,53" fill="#4f46e5" />
+  <path d="M52 11 L54 16 L59 18 L54 20 L52 25 L50 20 L45 18 L50 16 Z" fill="#f59e0b" />
+  <text x="76" y="43" class="wordmark" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" font-weight="600" letter-spacing="-0.5">ForgeHub</text>
+</svg>

@@ -155,7 +155,6 @@ export const agentUpdateSchema = agentInputSchema.partial();
 export type AgentUpdateInput = z.infer<typeof agentUpdateSchema>;
 
 export const hermesSyncResultSchema = z.object({
-  hermes_agent_id: z.string(),
   agents: z.object({ created: z.number(), updated: z.number() }),
   sub_agents: z.object({ created: z.number(), updated: z.number() }),
   skills: z.object({ created: z.number(), updated: z.number() }),
@@ -203,6 +202,29 @@ export function useUpdateAgent(id: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.all });
       queryClient.invalidateQueries({ queryKey: agentKeys.detail(id) });
+    },
+  });
+}
+
+export function useDeleteAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<void>(`${RESOURCE}/${id}`),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: agentKeys.detail(id) });
+    },
+  });
+}
+
+export function useDeleteSubAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentId, subAgentId }: { agentId: string; subAgentId: string }) =>
+      apiClient.delete<void>(`${RESOURCE}/${agentId}/sub-agents/${subAgentId}`),
+    onSuccess: (_data, { agentId }) => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
     },
   });
 }

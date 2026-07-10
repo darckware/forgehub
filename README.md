@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="frontend/public/favicon.svg" width="88" height="88" alt="ForgeHub logo" />
+  <img src="docs/assets/forgehub-logo.svg" width="260" height="64" alt="ForgeHub" />
 </p>
-
-<h1 align="center">ForgeHub</h1>
 
 <p align="center">
   <strong>The control plane for planning, governing, and executing software projects with AI agents.</strong>

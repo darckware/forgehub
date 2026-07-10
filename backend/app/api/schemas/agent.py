@@ -335,7 +335,6 @@ class SyncCounts(BaseModel):
 
 
 class HermesSyncResultOut(BaseModel):
-    hermes_agent_id: uuid.UUID
     agents: SyncCounts
     sub_agents: SyncCounts
     skills: SyncCounts

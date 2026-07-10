@@ -37,7 +37,10 @@ _INSTANCES: dict[str, dict] = {
         "label": "foundation_postgres",
         "host": settings.FOUNDATION_POSTGRES_HOST,
         "port": settings.FOUNDATION_POSTGRES_PORT,
-        "databases": ["foundation", "forgerouter", "hermes_control"],
+        # "hermes_control" was a standalone database (schema git_control, 1
+        # table) folded into foundation's own git_control schema on
+        # 2026-07-09 -- see docs/governance/POSTGRESQL_TOPOLOGY.md.
+        "databases": ["foundation", "forgerouter"],
         "default_db": "foundation",
     },
 }
@@ -104,10 +107,20 @@ async def list_instances():
 
 @router.get("/schemas", response_model=list[str])
 async def list_schemas(db: AsyncSession = Depends(_get_dynamic_db)):
-    """Return all non-system schemas for the selected instance+database."""
+    """Return all non-system schemas for the selected instance+database.
+
+    Excludes pg_toast%% and pg_temp_%%/pg_toast_temp_%% -- the latter are
+    per-session temporary schemas Postgres creates on demand (e.g. a
+    client running CREATE TEMP TABLE); they aren't real user schemas and
+    normally disappear when their owning session disconnects, so surfacing
+    them in the schema picker is just noise, not something to "clean up"
+    by hand.
+    """
     q = text("""
         SELECT schema_name FROM information_schema.schemata
         WHERE schema_name NOT LIKE 'pg_toast%'
+          AND schema_name NOT LIKE 'pg_temp_%'
+          AND schema_name NOT LIKE 'pg_toast_temp_%'
           AND schema_name NOT IN ('pg_catalog', 'information_schema')
         ORDER BY schema_name
     """)

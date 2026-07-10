@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertCircle, Bot, CornerDownRight, Loader2, RefreshCw, Send } from "lucide-react";
+import { AlertCircle, Bot, CornerDownRight, Loader2, RefreshCw, Send, Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { useAgents, useSyncHermesAgents, type Agent, type SubAgent } from "@/hooks/useAgent";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  useAgents,
+  useDeleteAgent,
+  useDeleteSubAgent,
+  useSyncHermesAgents,
+  type Agent,
+  type SubAgent,
+} from "@/hooks/useAgent";
+import { useAssistantStore } from "@/store/assistantStore";
 
 type AgentRow =
   | { kind: "agent"; agent: Agent }
@@ -49,8 +58,13 @@ const TYPE_VARIANT: Record<
 export default function AgentPage() {
   const { data: agents, isLoading, isError, error } = useAgents();
   const syncHermes = useSyncHermesAgents();
+  const deleteAgent = useDeleteAgent();
+  const deleteSubAgent = useDeleteSubAgent();
   const [typeFilter, setTypeFilter] = useState("");
   const [layerFilter, setLayerFilter] = useState("");
+  const [deleting, setDeleting] = useState<AgentRow | null>(null);
+  const assistantOpen = useAssistantStore((s) => s.open);
+  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
 
   const typeOptions = [...new Set((agents ?? []).map((a) => a.agent_type))].sort();
   const layerOptions = [
@@ -75,19 +89,29 @@ export default function AgentPage() {
             skills, cost rates, and capacities.
           </p>
         </div>
-        <Button
-          variant="outline"
-          title="Sync agents, sub-agents and skills from Hermes Foundation"
-          onClick={() => syncHermes.mutate()}
-          disabled={syncHermes.isPending}
-        >
-          {syncHermes.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 h-4 w-4" />
-          )}
-          Sync
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            title="Sync agents, sub-agents and skills from Hermes Foundation"
+            onClick={() => syncHermes.mutate()}
+            disabled={syncHermes.isPending}
+          >
+            {syncHermes.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Sync
+          </Button>
+          <Button
+            variant={assistantOpen ? "secondary" : "outline"}
+            className="gap-1.5"
+            title={assistantOpen ? "Close assistant" : "Open the assistant"}
+            onClick={() => setAssistantOpen(!assistantOpen)}
+          >
+            <Bot className="h-4 w-4" /> Assistant
+          </Button>
+        </div>
       </div>
 
       {syncHermes.isError && (
@@ -259,12 +283,23 @@ export default function AgentPage() {
                         {row.agent.sub_agents?.length ?? 0}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Link
-                          to={`/agents/${row.agent.id}`}
-                          className={buttonVariants({ variant: "outline", size: "sm" })}
-                        >
-                          View
-                        </Link>
+                        <div className="flex justify-end gap-1">
+                          <Link
+                            to={`/agents/${row.agent.id}`}
+                            className={buttonVariants({ variant: "outline", size: "sm" })}
+                          >
+                            View
+                          </Link>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive"
+                            title="Delete agent"
+                            onClick={() => setDeleting(row)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -288,12 +323,23 @@ export default function AgentPage() {
                       <TableCell className="text-sm text-muted-foreground">—</TableCell>
                       <TableCell className="text-sm text-muted-foreground">—</TableCell>
                       <TableCell className="text-right">
-                        <Link
-                          to={`/agents/${row.agent.id}`}
-                          className={buttonVariants({ variant: "ghost", size: "sm" })}
-                        >
-                          View parent
-                        </Link>
+                        <div className="flex justify-end gap-1">
+                          <Link
+                            to={`/agents/${row.agent.id}`}
+                            className={buttonVariants({ variant: "ghost", size: "sm" })}
+                          >
+                            View parent
+                          </Link>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive"
+                            title="Delete sub-agent"
+                            onClick={() => setDeleting(row)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
@@ -303,6 +349,34 @@ export default function AgentPage() {
           </CardContent>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title={
+          deleting?.kind === "sub-agent"
+            ? `Delete sub-agent "${deleting.subAgent.name}"`
+            : `Delete agent "${deleting?.agent.name ?? ""}"`
+        }
+        description={
+          deleting?.kind === "sub-agent"
+            ? "Removes this sub-agent's registration. This action cannot be undone."
+            : "Removes the agent, its sub-agents and skill grants. This action cannot be undone."
+        }
+        confirmLabel="Delete"
+        loading={deleteAgent.isPending || deleteSubAgent.isPending}
+        onConfirm={() => {
+          if (!deleting) return;
+          if (deleting.kind === "sub-agent") {
+            deleteSubAgent.mutate(
+              { agentId: deleting.agent.id, subAgentId: deleting.subAgent.id },
+              { onSuccess: () => setDeleting(null) }
+            );
+          } else {
+            deleteAgent.mutate(deleting.agent.id, { onSuccess: () => setDeleting(null) });
+          }
+        }}
+        onCancel={() => setDeleting(null)}
+      />
     </div>
   );
 }
