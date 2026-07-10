@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, FilePlus, FileText, Folder, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  setAssistantFileDragData,
+  type AssistantFileDragPayload,
+} from "@/lib/assistantFileDrag";
 import { cn } from "@/lib/utils";
 
 export interface DocTreeNode {
@@ -34,6 +38,7 @@ interface DocTreeItemProps {
   onSelectFolder?: (path: string) => void;
   actions?: DocTreeActions;
   onMove?: (sourcePath: string, destFolderPath: string) => void;
+  getAssistantDragPayload?: (node: DocTreeNode) => AssistantFileDragPayload | undefined;
 }
 
 function ActionIcon({
@@ -73,14 +78,17 @@ function DocTreeItem({
   onSelectFolder,
   actions,
   onMove,
+  getAssistantDragPayload,
 }: DocTreeItemProps) {
   const [expanded, setExpanded] = useState(depth === 0);
   const [dragOver, setDragOver] = useState(false);
-  const draggable = Boolean(onMove);
+  const assistantDragPayload = getAssistantDragPayload?.(node);
+  const draggable = Boolean(onMove || assistantDragPayload);
 
   function handleDragStart(e: React.DragEvent) {
-    e.dataTransfer.setData(DRAG_MIME, node.path);
-    e.dataTransfer.effectAllowed = "move";
+    if (onMove) e.dataTransfer.setData(DRAG_MIME, node.path);
+    if (assistantDragPayload) setAssistantFileDragData(e.dataTransfer, assistantDragPayload);
+    e.dataTransfer.effectAllowed = onMove && assistantDragPayload ? "copyMove" : onMove ? "move" : "copy";
   }
 
   if (node.type === "dir") {
@@ -90,6 +98,7 @@ function DocTreeItem({
         <div
           draggable={draggable}
           onDragStart={handleDragStart}
+          title={assistantDragPayload ? "Drag to the assistant to reference this folder" : undefined}
           onDragOver={(e) => {
             if (!onMove) return;
             e.preventDefault();
@@ -110,6 +119,7 @@ function DocTreeItem({
           }}
           className={cn(
             "group flex w-full items-center gap-1.5 rounded-md pr-1 text-sm",
+            draggable && "cursor-grab active:cursor-grabbing",
             dragOver
               ? "bg-accent ring-1 ring-inset ring-primary"
               : isWorkingDir
@@ -152,6 +162,7 @@ function DocTreeItem({
               onSelectFolder={onSelectFolder}
               actions={actions}
               onMove={onMove}
+              getAssistantDragPayload={getAssistantDragPayload}
             />
           ))}
       </div>
@@ -162,8 +173,16 @@ function DocTreeItem({
     <div
       draggable={draggable}
       onDragStart={handleDragStart}
+      title={
+        assistantDragPayload?.source === "host-folder"
+          ? "Drag to the assistant to reference this folder"
+          : assistantDragPayload
+            ? "Drag to the assistant to attach this file"
+            : undefined
+      }
       className={cn(
         "group flex w-full items-center gap-1.5 rounded-md pr-1 text-sm",
+        draggable && "cursor-grab active:cursor-grabbing",
         node.path === selectedPath
           ? "bg-accent text-accent-foreground"
           : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -196,6 +215,7 @@ export function DocTree({
   onSelectFolder,
   actions,
   onMove,
+  getAssistantDragPayload,
 }: {
   nodes: DocTreeNode[];
   selectedPath: string | undefined;
@@ -210,6 +230,8 @@ export function DocTree({
    * destFolderPath). Optional, like `actions` -- undefined disables
    * dragging entirely (the Knowledge Base page's read-only tree). */
   onMove?: (sourcePath: string, destFolderPath: string) => void;
+  /** Makes rows attachable or referenceable in the global assistant. */
+  getAssistantDragPayload?: (node: DocTreeNode) => AssistantFileDragPayload | undefined;
 }) {
   const [rootDragOver, setRootDragOver] = useState(false);
   return (
@@ -225,6 +247,7 @@ export function DocTree({
           onSelectFolder={onSelectFolder}
           actions={actions}
           onMove={onMove}
+          getAssistantDragPayload={getAssistantDragPayload}
         />
       ))}
       {onMove && (

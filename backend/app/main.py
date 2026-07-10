@@ -34,6 +34,7 @@ from app.api.routes import (
     forgerouter,
     foundation,
     foundation_docs,
+    foundation_script,
     governance,
     hindsight,
     notifications,
@@ -125,6 +126,7 @@ app.include_router(governance.router)
 app.include_router(hindsight.router)
 app.include_router(foundation.router)
 app.include_router(foundation_docs.router)
+app.include_router(foundation_script.router)
 app.include_router(chat.router)
 app.include_router(terminal.router)
 app.include_router(toolversions.router)
