@@ -55,6 +55,12 @@ interface AssistantState {
    * consumed, so it never leaks into a later, unrelated open. */
   pendingSeed: string | null;
   setPendingSeed: (seed: string | null) => void;
+  /** Optional one-shot companion to pendingSeed: which agent the panel
+   * should target for this seed (e.g. a tool's responsible agent for a
+   * maintenance chat), instead of whatever agent happens to already be
+   * selected. Consumed and cleared alongside pendingSeed. */
+  pendingAgentId: string | null;
+  setPendingAgentId: (agentId: string | null) => void;
 }
 
 export const useAssistantStore = create<AssistantState>((set) => ({
@@ -64,4 +70,6 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   setContext: (context) => set({ context }),
   pendingSeed: null,
   setPendingSeed: (pendingSeed) => set({ pendingSeed }),
+  pendingAgentId: null,
+  setPendingAgentId: (pendingAgentId) => set({ pendingAgentId }),
 }));

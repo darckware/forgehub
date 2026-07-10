@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
+  Bot,
   Eye,
   Loader2,
-  MessageSquare,
   Pencil,
   RefreshCw,
   Search,
@@ -39,7 +38,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useSkillFileContent, useUpdateSkillFileContent } from "@/hooks/useSkillFile";
 import { apiClient } from "@/lib/api";
-import { useChatHandoffStore } from "@/store/chatHandoff";
+import { useAssistantStore } from "@/store/assistantStore";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
 /** Draft seeded into the workspace chat composer, mirroring Agent Tools'
@@ -312,8 +311,8 @@ export default function SkillsPage() {
   const { data: skills, isLoading, isError, error } = useSkills();
   const syncHermes = useSyncHermesAgents();
   const deleteSkill = useDeleteSkill();
-  const navigate = useNavigate();
-  const setChatDraft = useChatHandoffStore((s) => s.setDraft);
+  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
+  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
   const [search, setSearch] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
   const [viewing, setViewing] = useState<{ skill: Skill; editing: boolean } | null>(null);
@@ -321,7 +320,7 @@ export default function SkillsPage() {
   const [deleting, setDeleting] = useState<Skill | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
 
-  async function handleSendToChat(skill: Skill) {
+  async function handleSendToAssistant(skill: Skill) {
     setSendingId(skill.id);
     try {
       let content: string | null = null;
@@ -335,8 +334,8 @@ export default function SkillsPage() {
       } catch {
         // no SKILL.md found -- send the metadata anyway
       }
-      setChatDraft(buildSkillChatMessage(skill, content, path));
-      navigate("/workspace");
+      setPendingSeed(buildSkillChatMessage(skill, content, path));
+      setAssistantOpen(true);
     } finally {
       setSendingId(null);
     }
@@ -544,15 +543,15 @@ export default function SkillsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label={`Send ${skill.name} to chat`}
-                            title="Send data and SKILL.md to chat"
+                            aria-label={`Send ${skill.name} to the assistant`}
+                            title="Open the assistant with this skill's data and SKILL.md as context"
                             disabled={sendingId === skill.id}
-                            onClick={() => handleSendToChat(skill)}
+                            onClick={() => handleSendToAssistant(skill)}
                           >
                             {sendingId === skill.id ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
-                              <MessageSquare className="h-4 w-4" />
+                              <Bot className="h-4 w-4" />
                             )}
                           </Button>
                           <Button

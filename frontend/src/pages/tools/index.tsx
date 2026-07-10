@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
+  Bot,
   Eye,
   Loader2,
-  MessageSquare,
   Pencil,
   RefreshCw,
   Save,
@@ -45,7 +44,7 @@ import {
   type AgentToolStatus,
   type ToolCreateInput,
 } from "@/hooks/useTools";
-import { useChatHandoffStore } from "@/store/chatHandoff";
+import { useAssistantStore } from "@/store/assistantStore";
 
 /** Draft seeded into the responsible agent's workspace chat composer —
  * leads with the file path so the agent has the maintenance context. */
@@ -317,8 +316,9 @@ export default function ToolsPage() {
   const deleteTool = useDeleteTool();
   const scanTools = useScanTools();
   const [scanSummary, setScanSummary] = useState<string | null>(null);
-  const setDraft = useChatHandoffStore((s) => s.setDraft);
-  const navigate = useNavigate();
+  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
+  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+  const setPendingAgentId = useAssistantStore((s) => s.setPendingAgentId);
 
   function handleScan() {
     setScanSummary(null);
@@ -330,8 +330,9 @@ export default function ToolsPage() {
   }
 
   function openMaintenanceChat(tool: AgentTool) {
-    setDraft(buildMaintenanceMessage(tool), tool.agent_id);
-    navigate("/workspace");
+    setPendingSeed(buildMaintenanceMessage(tool));
+    setPendingAgentId(tool.agent_id);
+    setAssistantOpen(true);
   }
 
   return (
@@ -437,10 +438,11 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title={`Open maintenance chat with ${tool.agent_name ?? "the responsible agent"}`}
+                          aria-label={`Send ${tool.name} to the assistant`}
+                          title={`Open the assistant with ${tool.agent_name ?? "the responsible agent"} for maintenance`}
                           onClick={() => openMaintenanceChat(tool)}
                         >
-                          <MessageSquare className="h-4 w-4" />
+                          <Bot className="h-4 w-4" />
                         </Button>
                         <Button
                           size="icon"

@@ -27,7 +27,6 @@ import { apiClient } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useServers, buildSshCommand } from "@/hooks/useServers";
 import { useClickOutside } from "@/hooks/useClickOutside";
-import { useChatHandoffStore } from "@/store/chatHandoff";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { useAgents } from "@/hooks/useAgent";
 
@@ -177,12 +176,6 @@ export default function WorkspacePage() {
     }
   }
 
-  // Seeds a freshly-opened chat tab's composer once at creation (e.g. from
-  // the Crons/Scripts "Send to chat" handoff) -- read once via useState's
-  // initializer in ChatTabPanel, never re-applied after.
-  const draftSeedsRef = useRef<Map<string, string>>(new Map());
-  const consumeDraft = useChatHandoffStore((s) => s.consumeDraft);
-
   // Native HTML5 drag-and-drop for tab reordering -- a ref (not state) so
   // dragging doesn't trigger re-renders; only the drop commits a change.
   const dragTabIdRef = useRef<string | null>(null);
@@ -216,9 +209,8 @@ export default function WorkspacePage() {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTabId);
   }, [activeTabId]);
 
-  function openChatTab(agentId: string, draft?: string) {
+  function openChatTab(agentId: string) {
     const id = crypto.randomUUID();
-    if (draft) draftSeedsRef.current.set(id, draft);
     setTabs((t) => [...t, { kind: "chat", id, agentId }]);
     setActiveTabId(id);
   }
@@ -275,23 +267,14 @@ export default function WorkspacePage() {
     );
   }
 
-  // Runs once chatableAgents is available: consume a pending "send to
-  // chat" draft into a brand-new tab, or (if there's no draft and no tabs
-  // were restored from storage) open one default chat tab so the page
-  // isn't empty on first visit.
+  // Runs once chatableAgents is available: if no tabs were restored from
+  // storage, open one default chat tab so the page isn't empty on first
+  // visit.
   const initRef = useRef(false);
   useEffect(() => {
     if (initRef.current || chatableAgents.length === 0) return;
     initRef.current = true;
-    const handoff = consumeDraft();
-    if (handoff) {
-      // Honor the handoff's target agent (e.g. a tool's responsible agent)
-      // when it is chatable here; otherwise fall back to the first agent.
-      const targetAgent = chatableAgents.find((a) => a.id === handoff.agentId);
-      openChatTab(targetAgent?.id ?? chatableAgents[0].id, handoff.draft);
-    } else if (tabs.length === 0) {
-      openChatTab(chatableAgents[0].id);
-    }
+    if (tabs.length === 0) openChatTab(chatableAgents[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatableAgents]);
 
@@ -502,7 +485,6 @@ export default function WorkspacePage() {
               agentId={t.agentId}
               chatableAgents={chatableAgents}
               onAgentChange={(agentId) => handleAgentChangeForTab(t.id, agentId)}
-              initialComposerText={draftSeedsRef.current.get(t.id)}
               historyCollapsed={Boolean(t.historyCollapsed)}
               artifactsOpen={Boolean(t.artifactsOpen)}
               workingDir={workingDir}

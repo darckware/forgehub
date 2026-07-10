@@ -63,23 +63,31 @@ export function AssistantDrawer() {
   const context = useAssistantStore((s) => s.context);
   const pendingSeed = useAssistantStore((s) => s.pendingSeed);
   const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+  const pendingAgentId = useAssistantStore((s) => s.pendingAgentId);
+  const setPendingAgentId = useAssistantStore((s) => s.setPendingAgentId);
   const tabId = `assistant:${useLocation().pathname}`;
 
   // Bumping the epoch remounts ChatPane so initialComposerText re-applies
   // (staged text otherwise wins -- see ChatPane's per-tab staging maps).
   const [epoch, setEpoch] = useState(0);
   const [seed, setSeed] = useState<string | undefined>(undefined);
+  const [agentId, setAgentId] = useState<string | null>(null);
 
   // A page pushed a one-shot message (e.g. "send this cron job's script to
   // the assistant") via setPendingSeed + setOpen(true) -- apply it exactly
   // like the "Use current X" button does, then clear it so it can't replay
-  // on a later, unrelated open.
+  // on a later, unrelated open. A companion pendingAgentId (e.g. a tool's
+  // responsible agent) pins which agent the panel targets, if provided.
   useEffect(() => {
     if (!open || pendingSeed == null) return;
     clearChatTabStaging(tabId);
     setSeed(pendingSeed);
     setEpoch((e) => e + 1);
     setPendingSeed(null);
+    if (pendingAgentId != null) {
+      setAgentId(pendingAgentId);
+      setPendingAgentId(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, pendingSeed]);
   const { data: allAgents } = useAgents();
@@ -87,7 +95,6 @@ export function AssistantDrawer() {
     () => (allAgents ?? []).filter((a) => Boolean(a.profile_slug)),
     [allAgents]
   );
-  const [agentId, setAgentId] = useState<string | null>(null);
   const effectiveAgentId = agentId ?? chatableAgents[0]?.id;
 
   function onClose() {
