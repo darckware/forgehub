@@ -31,6 +31,7 @@ import {
   Sparkles,
   Wrench,
   Command,
+  Newspaper,
 } from "lucide-react";
 
 export interface NavLinkEntry {
@@ -62,6 +63,9 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/", label: "Dashboard", icon: LayoutDashboard },
       { type: "link", to: "/workspace", label: "Workspace", icon: LayoutPanelLeft },
       { type: "link", to: "/notifications", label: "Notifications", icon: Bell },
+      // AI news digests archived by report-generating crons (e.g.
+      // ai-news-noon), see news.py -- filesystem-only, no DB table.
+      { type: "link", to: "/news", label: "News", icon: Newspaper },
       // Inbox de demandas de agentes ("como um e-mail"), conversível em
       // Task/Doc/Artefato/Knowledge Base (core/conversions.py).
       { type: "link", to: "/demands", label: "Inbox", icon: Inbox, module: "demands" },

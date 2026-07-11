@@ -30,6 +30,8 @@ class ProjectBase(BaseModel):
     start_date: date | None = None
     target_end_date: date | None = None
     working_directory_path: str | None = Field(default=None, max_length=1024)
+    github_repo_url: str | None = Field(default=None, max_length=500)
+    backup_enabled: bool = False
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ProjectBase":
@@ -50,6 +52,8 @@ class ProjectUpdate(BaseModel):
     start_date: date | None = None
     target_end_date: date | None = None
     working_directory_path: str | None = Field(default=None, max_length=1024)
+    github_repo_url: str | None = Field(default=None, max_length=500)
+    backup_enabled: bool | None = None
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ProjectUpdate":

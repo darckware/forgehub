@@ -1,15 +1,19 @@
-"""Tests for System Control: per-repo Git status (KNOWN_REPOS) and the
-Hermes backup delete endpoint. Doesn't hit the real host-bridge (none runs
-against this test environment) -- a fake httpx client scoped to
+"""Tests for System Control: per-repo Git status (KNOWN_REPOS + registered
+Projects) and the backup endpoints. Doesn't hit the real host-bridge (none
+runs against this test environment) -- a fake httpx client scoped to
 system_control.py's own `httpx` name stands in, same pattern as
 test_demand.py's test_notify_telegram_proxies_to_bridge.
 """
+import uuid
 from pathlib import Path
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.core.security import create_access_token
+from app.db.base import AsyncSessionLocal
+from app.db.models.product import Product, ProductVersion
+from app.db.models.project import Project
 
 
 def _admin_headers() -> dict[str, str]:
@@ -27,6 +31,34 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test", headers=_admin_headers()) as ac:
         yield ac
+
+
+@pytest_asyncio.fixture
+async def test_project():
+    """A real registered Project with a working_directory_path -- Git
+    Control/Backup's only source for non-Hermes entries now that there's no
+    separate ad-hoc registry (see system_control.py's module docstring)."""
+    async with AsyncSessionLocal() as session:
+        product = Product(name=f"System Control Test Product {uuid.uuid4()}")
+        session.add(product)
+        await session.flush()
+        version = ProductVersion(product_id=product.id, version="0.1.0")
+        session.add(version)
+        await session.flush()
+        project = Project(
+            name=f"System Control Test Project {uuid.uuid4()}",
+            product_version_id=version.id,
+            working_directory_path="/root/project/forgerouter",
+            backup_enabled=True,
+        )
+        session.add(project)
+        await session.commit()
+        await session.refresh(project)
+        yield project
+        await session.delete(project)
+        await session.delete(version)
+        await session.delete(product)
+        await session.commit()
 
 
 class FakeResponse:
@@ -90,6 +122,17 @@ class FakeBridgeClient:
             return FakeResponse({"entries": []})
         if url.endswith("/v1/fs/delete"):
             return FakeResponse({"status": "ok"})
+        if url.endswith("/v1/system/hermes-backup"):
+            backup_dir = (json or {}).get("backup_dir", "/root/backup")
+            archive_name = (json or {}).get("archive_name", "backup-20260101-000000.tar.gz")
+            return FakeResponse(
+                {
+                    "status": "ok",
+                    "source_path": (json or {}).get("source_path"),
+                    "archive_path": f"{backup_dir}/{archive_name}",
+                    "size_bytes": 1024,
+                }
+            )
         raise AssertionError(f"Unexpected bridge call: {method} {url}")
 
     calls: list = []
@@ -104,25 +147,29 @@ async def test_status_defaults_to_default_repo(client: AsyncClient, monkeypatch)
     resp = await client.get("/api/v1/system-control/status")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["git"]["repo_key"] == "forgehub"
-    assert body["git"]["repo_root"] == "/root/project/forgehub"
-    assert {"key": "forgehub", "path": "/root/project/forgehub"} in body["available_repos"]
-    assert {"key": "forgerouter", "path": "/root/project/forgerouter"} in body["available_repos"]
+    assert body["git"]["repo_key"] == "hermes"
+    assert body["git"]["repo_root"] == "/root/.hermes"
+    assert any(r["key"] == "hermes" and r["path"] == "/root/.hermes" for r in body["available_repos"])
 
 
-async def test_status_with_known_repo_key_switches_repo_root(client: AsyncClient, monkeypatch):
+async def test_status_with_known_repo_key_switches_repo_root(client: AsyncClient, monkeypatch, test_project):
     from app.api.routes import system_control as sc
 
     FakeBridgeClient.calls = []
     monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBridgeClient)
 
-    resp = await client.get("/api/v1/system-control/status", params={"repo": "forgerouter"})
+    repo_key = f"project:{test_project.id}"
+    resp = await client.get("/api/v1/system-control/status", params={"repo": repo_key})
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["git"]["repo_key"] == "forgerouter"
-    assert body["git"]["repo_root"] == "/root/project/forgerouter"
+    assert body["git"]["repo_key"] == repo_key
+    assert body["git"]["repo_root"] == test_project.working_directory_path
+    assert any(
+        r["key"] == repo_key and r["kind"] == "project" and r["label"] == test_project.name
+        for r in body["available_repos"]
+    )
     exec_commands = [c[2]["command"] for c in FakeBridgeClient.calls if c[1].endswith("/v1/exec")]
-    assert all("/root/project/forgerouter" in cmd for cmd in exec_commands)
+    assert all(test_project.working_directory_path in cmd for cmd in exec_commands)
 
 
 async def test_status_unknown_repo_key_falls_back_to_default(client: AsyncClient, monkeypatch):
@@ -133,7 +180,7 @@ async def test_status_unknown_repo_key_falls_back_to_default(client: AsyncClient
 
     resp = await client.get("/api/v1/system-control/status", params={"repo": "does-not-exist"})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["git"]["repo_key"] == "forgehub"
+    assert resp.json()["git"]["repo_key"] == "hermes"
 
 
 async def test_delete_backup_rejects_path_traversal(client: AsyncClient, monkeypatch):
@@ -151,7 +198,7 @@ async def test_delete_backup_rejects_path_traversal(client: AsyncClient, monkeyp
     # the time Starlette decodes it into the `filename` path param, the
     # in-handler check is the only thing standing between it and the
     # bridge, which is exactly what this test is for.
-    resp = await client.delete("/api/v1/system-control/backup/%2e%2e")
+    resp = await client.delete("/api/v1/system-control/backups/hermes/%2e%2e")
     assert resp.status_code == 400
     assert FakeBridgeClient.calls == []
 
@@ -165,28 +212,29 @@ async def test_commit_stages_and_commits(client: AsyncClient, monkeypatch):
     resp = await client.post("/api/v1/system-control/commit", json={"message": "Fix the thing"})
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["repo_key"] == "forgehub"
+    assert body["repo_key"] == "hermes"
     assert body["hash"] == "abc1234"
     assert body["subject"] == "A commit"
 
     exec_commands = [c[2]["command"] for c in FakeBridgeClient.calls if c[1].endswith("/v1/exec")]
-    assert any("add -A" in cmd and "/root/project/forgehub" in cmd for cmd in exec_commands)
+    assert any("add -A" in cmd and "/root/.hermes" in cmd for cmd in exec_commands)
     assert any("commit -m" in cmd and "Fix the thing" in cmd for cmd in exec_commands)
 
 
-async def test_commit_with_specific_repo(client: AsyncClient, monkeypatch):
+async def test_commit_with_specific_repo(client: AsyncClient, monkeypatch, test_project):
     from app.api.routes import system_control as sc
 
     FakeBridgeClient.calls = []
     monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBridgeClient)
 
+    repo_key = f"project:{test_project.id}"
     resp = await client.post(
-        "/api/v1/system-control/commit", json={"message": "Router fix", "repo": "forgerouter"}
+        "/api/v1/system-control/commit", json={"message": "Router fix", "repo": repo_key}
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["repo_key"] == "forgerouter"
+    assert resp.json()["repo_key"] == repo_key
     exec_commands = [c[2]["command"] for c in FakeBridgeClient.calls if c[1].endswith("/v1/exec")]
-    assert any("/root/project/forgerouter" in cmd and "add -A" in cmd for cmd in exec_commands)
+    assert any(test_project.working_directory_path in cmd and "add -A" in cmd for cmd in exec_commands)
 
 
 async def test_commit_rejects_empty_message(client: AsyncClient, monkeypatch):
@@ -206,11 +254,48 @@ async def test_delete_backup_calls_bridge_delete(client: AsyncClient, monkeypatc
     FakeBridgeClient.calls = []
     monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBridgeClient)
 
-    resp = await client.delete("/api/v1/system-control/backup/hermes-backup-20260101-000000.tar.gz")
+    resp = await client.delete("/api/v1/system-control/backups/hermes/hermes-backup-20260101-000000.tar.gz")
     assert resp.status_code == 204, resp.text
     delete_calls = [c for c in FakeBridgeClient.calls if c[1].endswith("/v1/fs/delete")]
     assert len(delete_calls) == 1
     assert delete_calls[0][3] == {"path": "/root/backup/hermes-backup-20260101-000000.tar.gz", "recursive": False}
+
+
+async def test_backup_targets_lists_hermes_and_enabled_projects(client: AsyncClient, monkeypatch, test_project):
+    from app.api.routes import system_control as sc
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBridgeClient)
+
+    resp = await client.get("/api/v1/system-control/backup-targets")
+    assert resp.status_code == 200, resp.text
+    targets = {t["key"]: t for t in resp.json()["targets"]}
+    assert targets["hermes"] == {"key": "hermes", "label": "Hermes", "kind": "system", "ready": True}
+    project_key = f"project:{test_project.id}"
+    assert targets[project_key]["label"] == test_project.name
+    assert targets[project_key]["ready"] is True
+
+
+async def test_run_backup_all_fans_out_to_hermes_and_projects(client: AsyncClient, monkeypatch, test_project):
+    from app.api.routes import system_control as sc
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBridgeClient)
+
+    resp = await client.post("/api/v1/system-control/backups/run", json={"target": "all"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["errors"] == []
+    # Superset, not equality -- "all" also fans out to any other
+    # already-registered backup_enabled project (e.g. ForgeHub/ForgeRouter
+    # in a real environment), not just this test's own fixture.
+    result_targets = {r["target"] for r in body["results"]}
+    assert result_targets >= {"hermes", f"project:{test_project.id}"}
+
+    backup_calls = [c for c in FakeBridgeClient.calls if c[1].endswith("/v1/system/hermes-backup")]
+    backup_dirs = {c[2]["backup_dir"] for c in backup_calls}
+    assert "/root/backup" in backup_dirs
+    assert f"/root/backup/projects/{test_project.id}" in backup_dirs
 
 
 async def test_cleanup_scan_groups_logs_by_category(client: AsyncClient, monkeypatch):

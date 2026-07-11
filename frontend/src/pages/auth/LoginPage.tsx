@@ -104,6 +104,7 @@ function PipelineGraph() {
           r={3}
           fill="#818cf8"
           style={{ filter: "drop-shadow(0 0 4px rgba(129,140,248,0.9))" }}
+          initial={{ cx: DAG_NODES[a].x, cy: DAG_NODES[a].y }}
           animate={{
             cx: [DAG_NODES[a].x, DAG_NODES[b].x],
             cy: [DAG_NODES[a].y, DAG_NODES[b].y],

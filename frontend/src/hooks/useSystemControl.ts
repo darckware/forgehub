@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
 
 export interface SystemControlStatus {
@@ -17,7 +17,11 @@ export interface SystemControlStatus {
       subject: string | null;
     };
   };
-  available_repos: { key: string; path: string }[];
+  /** "hermes" (fixed system entry) or every registered Project with a
+   * working_directory_path set -- there is no separate ad-hoc registry
+   * anymore, Project registration is the one source of truth (see
+   * backend/app/api/routes/system_control.py's module-level comment). */
+  available_repos: { key: string; path: string; removable: boolean; label: string; kind: "system" | "project" }[];
   backups: {
     path: string;
     count: number;
@@ -25,23 +29,86 @@ export interface SystemControlStatus {
   };
 }
 
-/** `repo` is the KNOWN_REPOS key from a previous call's `available_repos`
- * (see backend/app/api/routes/system_control.py) -- omitted/unknown falls
- * back to the backend's default repo rather than erroring. */
+/** `repo` is an available_repos key from a previous call ("hermes" or
+ * "project:<uuid>") -- omitted/unknown falls back to the backend's default
+ * repo rather than erroring. */
 export function useSystemControlStatus(repo?: string) {
   return useQuery<SystemControlStatus>({
     queryKey: ["system-control", "status", repo ?? "default"],
     queryFn: () => apiClient.get("/api/v1/system-control/status", { params: repo ? { repo } : undefined }),
     refetchInterval: 30_000,
     retry: false,
+    // Keeps showing the previously-selected repo's numbers (branch,
+    // working tree, last commit) while the new one loads, instead of the
+    // whole page (including the picker itself) blanking to a spinner on
+    // every dropdown change -- see SystemControlPage's `isLoading` guard.
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useHermesBackup() {
+export interface BackupTarget {
+  key: string; // "hermes" | "project:<uuid>"
+  label: string;
+  kind: "system" | "project";
+  /** false when a project has backup_enabled but no working_directory_path
+   * yet -- selectable but running a backup on it will fail. */
+  ready: boolean;
+}
+
+/** "hermes" (always present) plus every Project with backup_enabled=true
+ * -- what POST /backups/run's `target` (or its "all" pseudo-target) can
+ * act on, and what GET /backups can list. */
+export function useBackupTargets() {
+  return useQuery<{ targets: BackupTarget[] }>({
+    queryKey: ["system-control", "backup-targets"],
+    queryFn: () => apiClient.get("/api/v1/system-control/backup-targets"),
+    retry: false,
+  });
+}
+
+export interface BackupListing {
+  target: string;
+  path: string;
+  count: number;
+  entries: { name: string; path: string; size: number | null; type: string }[];
+}
+
+/** Archives for ONE target only -- Hermes and each project's backups are
+ * stored in separate directories and never listed together (see the
+ * module docstring in backend/app/api/routes/system_control.py). */
+export function useBackupListing(target: string) {
+  return useQuery<BackupListing>({
+    queryKey: ["system-control", "backups", target],
+    queryFn: () => apiClient.get("/api/v1/system-control/backups", { params: { target } }),
+    retry: false,
+    // Same reasoning as useSystemControlStatus -- avoid blanking the table
+    // to a spinner every time the backup target dropdown changes.
+    placeholderData: keepPreviousData,
+  });
+}
+
+export interface BackupRunResult {
+  target: string;
+  label: string;
+  status: string;
+  archive_path: string;
+  size_bytes: number;
+}
+
+export interface BackupRunResponse {
+  results: BackupRunResult[];
+  errors: { target: string; detail: string }[];
+}
+
+/** target = "hermes" | "project:<uuid>" | "all" (fans out to Hermes + every
+ * ready backup_enabled project, each still landing in its own directory --
+ * see POST /backups/run's docstring). */
+export function useRunBackup() {
   const queryClient = useQueryClient();
-  return useMutation<{ status: string; archive_path: string; size_bytes: number }, Error>({
-    mutationFn: () => apiClient.post("/api/v1/system-control/backup-hermes", {}),
+  return useMutation<BackupRunResponse, Error, { target: string }>({
+    mutationFn: (payload) => apiClient.post("/api/v1/system-control/backups/run", payload),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["system-control", "backups"] });
       await queryClient.invalidateQueries({ queryKey: ["system-control", "status"] });
     },
   });
@@ -49,9 +116,13 @@ export function useHermesBackup() {
 
 export function useDeleteBackup() {
   const queryClient = useQueryClient();
-  return useMutation<void, Error, string>({
-    mutationFn: (filename) => apiClient.delete(`/api/v1/system-control/backup/${encodeURIComponent(filename)}`),
+  return useMutation<void, Error, { target: string; filename: string }>({
+    mutationFn: ({ target, filename }) =>
+      apiClient.delete(
+        `/api/v1/system-control/backups/${encodeURIComponent(target)}/${encodeURIComponent(filename)}`
+      ),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["system-control", "backups"] });
       await queryClient.invalidateQueries({ queryKey: ["system-control", "status"] });
     },
   });

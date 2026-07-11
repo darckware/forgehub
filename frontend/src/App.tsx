@@ -44,6 +44,7 @@ import UsersPage from "@/pages/users";
 import ProfilesPage from "@/pages/profiles";
 import PipelineTemplatesPage from "@/pages/pipeline-templates";
 import NotificationsPage from "@/pages/notifications";
+import NewsPage from "@/pages/news";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -68,6 +69,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="workspace" element={<WorkspacePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="news" element={<NewsPage />} />
         <Route path="product" element={<ProductPage />} />
         <Route path="product/:id" element={<ProductDetail />} />
         <Route path="projects" element={<ProjectPage />} />

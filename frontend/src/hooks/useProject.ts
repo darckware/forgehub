@@ -180,6 +180,12 @@ export const projectSchema = z.object({
   product_version_id: z.string().nullable().optional(),
   status: z.enum(PROJECT_STATUSES).default("planned"),
   working_directory_path: z.string().nullable().optional(),
+  // Both consumed by System Control's Git Control/Backup cards (see
+  // backend/app/api/routes/system_control.py) -- registering a project
+  // here is the one place these get set, there's no separate "add repo"
+  // flow anymore.
+  github_repo_url: z.string().nullable().optional(),
+  backup_enabled: z.boolean().default(false),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -193,6 +199,8 @@ export const projectCreateSchema = z.object({
   product_version_id: z.string().min(1, "Product version is required"),
   status: z.enum(PROJECT_STATUSES).default("planned"),
   working_directory_path: z.string().max(1024, "Path is too long").optional().or(z.literal("")),
+  github_repo_url: z.string().max(500, "URL is too long").optional().or(z.literal("")),
+  backup_enabled: z.boolean().default(false),
 });
 
 export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;

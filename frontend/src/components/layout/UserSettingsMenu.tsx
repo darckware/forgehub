@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useTheme } from "@/lib/theme";
 import { useAuthStore } from "@/store/authStore";
-import { useUpdateMe, useChangeMyPassword } from "@/hooks/useAuth";
+import { useUpdateMe, useChangeMyPassword, useClearQueryCacheOnLogout } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 
 const THEME_OPTIONS = [
@@ -217,9 +217,11 @@ export function UserSettingsMenu({
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const clearAuth = useAuthStore((s) => s.clearAuth);
+  const clearQueryCache = useClearQueryCacheOnLogout();
 
   function handleLogout() {
     setOpen(false);
+    clearQueryCache();
     clearAuth();
     navigate("/login", { replace: true });
   }

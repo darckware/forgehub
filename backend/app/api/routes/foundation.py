@@ -11,12 +11,14 @@ Provides endpoints to:
   (SOUL.md, MEMORY.md, TOOLS.md, AGENTS.md, HEARTBEAT.md, USER.md) for
   ANY profile under /profiles, not just the 8 baseline agents -- see
   get_profile_file/update_profile_file below.
-- List/edit/reset/delete `hermes cron` scheduled jobs across every
+- List/edit/reset/delete/run-now `hermes cron` scheduled jobs across every
   per-profile jobs store (cron is per-profile by design, upstream issue
   #4707 -- each profile's gateway ticks its own cron/jobs.json). Reads
   prefer the most recently modified store per job and writes target the
   store the job actually lives in -- see _load_raw_jobs/list_cron_jobs/
-  update_cron_job/reset_cron_job/delete_cron_job.
+  update_cron_job/reset_cron_job/delete_cron_job/run_cron_job_now (the
+  last one shells out to the real `hermes cron run` CLI over the
+  host-bridge, see _run_cron_job_now).
 - List every profile's scripts/ dir -- the only place the hermes scheduler
   executes scripts from -- cross referenced against cron jobs that
   reference them, with basic existence/executable/symlink-health checks --
@@ -28,17 +30,20 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 from croniter import croniter
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.base import get_db
 from app.db.models.audit import AuditCheck
 
@@ -195,6 +200,16 @@ class CronJobUpdateIn(BaseModel):
     schedule_display: str | None = None  # raw cron expression, e.g. "*/5 * * * *"
     deliver: str | None = None
     enabled: bool | None = None
+
+
+class CronRunOut(BaseModel):
+    """Result of firing a job immediately, see run_cron_job_now."""
+
+    profile: str
+    id: str
+    executed: bool
+    success: bool | None = None
+    message: str
 
 
 class CronJobRefOut(BaseModel):
@@ -612,6 +627,13 @@ def _find_job_store(job_id: str) -> Path | None:
     return None
 
 
+def _find_raw_job(job_id: str) -> dict[str, Any] | None:
+    for job in _load_raw_jobs():
+        if job.get("id") == job_id:
+            return job
+    return None
+
+
 def _delete_cron_job(job_id: str) -> bool:
     """Remove a job from its live store under the same advisory lock the
     `hermes` CLI/gateway use. Returns False if the job_id wasn't found."""
@@ -685,16 +707,25 @@ def _update_cron_job(job_id: str, updates: CronJobUpdateIn) -> CronJobOut | None
 
 def _reset_cron_job(job_id: str) -> CronJobOut | None:
     """Re-arm a job in place: clear its last error/status, force a stuck
-    state back to scheduled (or paused, per its enabled flag) and recompute
-    next_run_at from its cron expression when it has one. Deliberately does
-    NOT touch `enabled` -- activating/deactivating stays a PUT concern
-    (see _update_cron_job). Returns None if the job_id wasn't found."""
+    state back to scheduled (or paused, per its enabled flag), release a
+    stuck `fire_claim`, and recompute next_run_at from its cron expression
+    when it has one. Deliberately does NOT touch `enabled` --
+    activating/deactivating stays a PUT concern (see _update_cron_job).
+    Returns None if the job_id wasn't found.
+
+    fire_claim is hermes's own "this job is currently executing" lock
+    (see cronjob_tools._execute_job_now) -- it's supposed to self-clear
+    when the run finishes, but a run killed mid-flight (e.g. host-bridge's
+    /v1/exec 60s hard timeout on a "Run now" that overran) never gets the
+    chance, leaving every future run refused with "already being fired by
+    the scheduler" even though nothing is actually running (2026-07-11)."""
 
     def mutate(target: dict[str, Any]) -> None:
         enabled = bool(target.get("enabled", False))
         target["state"] = "scheduled" if enabled else "paused"
         target["last_status"] = None
         target["last_error"] = None
+        target["fire_claim"] = None
         expr = (target.get("schedule") or {}).get("expr") or target.get("schedule_display")
         if enabled and expr:
             try:
@@ -707,6 +738,84 @@ def _reset_cron_job(job_id: str) -> CronJobOut | None:
                 target["next_run_at"] = next_run.isoformat()
 
     return _mutate_cron_job(job_id, mutate)
+
+
+_RUN_DISPATCH_TIMEOUT = 15.0
+_RUN_POLL_INTERVAL = 2.0
+_RUN_POLL_TIMEOUT = 100.0
+
+
+async def _run_cron_job_now(job_id: str, profile: str) -> CronRunOut:
+    """Fire a job immediately via the real `hermes cron run <id>` CLI path
+    (over the host-bridge's generic /v1/exec, same proxy system_control.py
+    uses for git) rather than reimplementing execution here -- that command
+    calls straight into `_execute_job_now`, which runs the job synchronously
+    even when no gateway/ticker is active for the profile (upstream #41037),
+    so this works for a stopped scheduler too, and for both no_agent script
+    jobs and agent-driven ones. `HERMES_PROFILE` picks the right per-profile
+    store/gateway context, since the CLI otherwise falls back to the sticky
+    ~/.hermes/active_profile.
+
+    Dispatched detached (`nohup ... & disown`) instead of awaited directly:
+    host-bridge's /v1/exec hard-kills its subprocess at 60s, and a run that
+    overran it used to die mid-flight -- the script itself often kept
+    running as an orphan and finished fine (wrote its output, e.g. the News
+    archive), but the CLI process holding the job's `fire_claim` lock was
+    the one that got killed, so it never released it, wedging every future
+    run with "already being fired by the scheduler" until someone noticed
+    and hit Reset (2026-07-12, ai-news-noon: scrape_limit + translation
+    pushed its typical runtime to 45-60s+, right at that edge).
+
+    Firing detached means nothing kills the real work no matter how long it
+    takes; this instead polls the job's own state on disk (PROFILES_DIR is
+    a local mount, no host-bridge round-trip needed) for a more generous
+    window, and degrades to "still running" instead of a false failure if
+    that window elapses -- the job keeps running either way."""
+    pre_last_run_at = (_find_raw_job(job_id) or {}).get("last_run_at")
+
+    log_path = f"/tmp/forgehub_cron_run_{job_id}.log"
+    inner = f"HERMES_PROFILE={profile} hermes cron run {job_id}"
+    command = f"nohup bash -c {shlex.quote(inner)} > {shlex.quote(log_path)} 2>&1 & disown; echo dispatched"
+    async with httpx.AsyncClient(timeout=_RUN_DISPATCH_TIMEOUT) as client:
+        resp = await client.post(
+            f"{settings.CHAT_BRIDGE_URL}/v1/exec",
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+            json={"command": command},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host-bridge error: {resp.text[:500]}")
+    data = resp.json()
+    if data.get("exit_code") != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=(data.get("stderr") or "").strip() or "Failed to dispatch the run",
+        )
+
+    elapsed = 0.0
+    while elapsed < _RUN_POLL_TIMEOUT:
+        await asyncio.sleep(_RUN_POLL_INTERVAL)
+        elapsed += _RUN_POLL_INTERVAL
+        job = _find_raw_job(job_id)
+        if job is None or job.get("fire_claim") is not None:
+            continue
+        if job.get("last_run_at") == pre_last_run_at:
+            continue
+        success = (job.get("last_status") or "").lower() in ("ok", "success")
+        return CronRunOut(
+            profile=profile,
+            id=job_id,
+            executed=True,
+            success=success,
+            message=f"Ran now: {'succeeded' if success else 'failed'}.",
+        )
+
+    return CronRunOut(
+        profile=profile,
+        id=job_id,
+        executed=True,
+        success=None,
+        message="Still running in the background -- it wasn't killed, check back shortly (Sync on the News page, or this job's Last run).",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1364,6 +1473,17 @@ async def reset_cron_job(job_id: str) -> CronJobOut:
     if reset is None:
         raise HTTPException(status_code=404, detail="Cron job not found")
     return reset
+
+
+@router.post("/crons/{job_id}/run", response_model=CronRunOut)
+async def run_cron_job_now(job_id: str) -> CronRunOut:
+    """Fire a job immediately, outside its schedule. Backs the "play"
+    action on the Crons page."""
+    store = _find_job_store(job_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Cron job not found")
+    profile = store.parent.parent.name
+    return await _run_cron_job_now(job_id, profile)
 
 
 @router.delete("/crons/{job_id}")

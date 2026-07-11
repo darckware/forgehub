@@ -98,6 +98,28 @@ class Project(Base, TimestampMixin):
     # project's structure_nodes' `path` values are relative to.
     working_directory_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
+    # The GitHub remote for working_directory_path, if any -- lets a
+    # project registered here be one-click-registered with System
+    # Control's Git Control card (POST /api/v1/system-control/repos, using
+    # this URL as clone_url and working_directory_path as path) instead of
+    # re-entering both by hand. Purely descriptive at the DB layer: nothing
+    # here validates it's reachable or matches the checkout's actual
+    # `origin` remote -- System Control owns that check at clone/register
+    # time (git/source-control operations are a ForgeHub responsibility,
+    # never a Foundation one, see governance/FOUNDATION.md's 2026-07-11
+    # ForgeRouter note).
+    github_repo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Whether this project participates in per-project backup (System
+    # Control's project-backup endpoints, archives written under
+    # /root/backup/projects/<project_id>/) -- kept SEPARATE from the
+    # ecosystem-wide "Backup .hermes" button (always /root/.hermes ->
+    # /root/backup/ directly), per explicit operator request: a project's
+    # backup lifecycle must be controllable independently of Hermes's.
+    # Off by default so registering a project never silently starts
+    # backing up an arbitrary working_directory_path.
+    backup_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
 
 class ProjectPlan(Base, TimestampMixin):
     """Scope, schedule, baseline, and estimate planning for a project.

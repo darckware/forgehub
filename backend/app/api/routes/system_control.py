@@ -12,11 +12,13 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.db.base import get_db
+from app.db.models.project import Project
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/system-control", tags=["system-control"])
@@ -33,16 +35,36 @@ class CommitRequest(BaseModel):
 # the host-bridge's /v1/exec (same bridge already used below for fs/backup
 # ops; the container image doesn't even have a `git` binary installed).
 #
-# Known checkouts under /root/project that Git Control can switch between --
-# hardcoded rather than auto-discovered (same host-bridge round-trip either
-# way; this only changes when a new project actually gets checked out on
-# the host). Add an entry here when a new repo shows up.
+# Only ONE hardcoded system-level entry: Hermes/Foundation itself, which is
+# deliberately not a ForgeHub Project (it's the underlying agent platform,
+# not something planned/executed through ForgeHub's domain model). Every
+# other checkout -- including ForgeHub's own -- is a registered Project
+# (working_directory_path + github_repo_url, set at project registration)
+# merged in dynamically by _registered_project_repos below. There is
+# deliberately no separate ad-hoc "add a repo" registry anymore: project
+# registration is the one source of truth for what Git Control/Backup can
+# see (2026-07-11 -- a prior KNOWN_REPOS+extras-file version of this lived
+# here briefly and was removed once Project gained github_repo_url/
+# backup_enabled).
+#
+# NOTE: a checkout path must have its own `.git` boundary. A path that's
+# actually a subdirectory *inside* a larger monorepo (e.g. ForgeRouter used
+# to live as a tracked folder inside the Hermes repo, at
+# /root/.hermes/forgerouter, with /root/project/forgerouter just a symlink
+# to it) has no `.git` of its own, so any `git -C <path>` call silently
+# walks up to the parent repo's root and reports THAT repo's branch/status
+# instead -- which looks like "the wrong repo" in the UI without erroring
+# (see governance/FOUNDATION.md's 2026-07-11 ForgeRouter note for the
+# incident this comment describes).
 KNOWN_REPOS: dict[str, str] = {
-    "forgehub": "/root/project/forgehub",
-    "forgerouter": "/root/project/forgerouter",
+    "hermes": "/root/.hermes",
 }
-DEFAULT_REPO = "forgehub"
+DEFAULT_REPO = "hermes"
 BACKUP_DIR = "/root/backup"
+
+
+def _all_repos() -> dict[str, str]:
+    return dict(KNOWN_REPOS)
 
 # The "foundation-clear" Hermes cron (renamed from foundation-trash-cleanup-
 # auto, see docs/screens -- runs weekly now instead of every 45 days) just
@@ -126,14 +148,28 @@ async def _run_git(repo_root: str, *args: str) -> str:
     return (data["stdout"] or "").strip()
 
 
+async def _registered_project_repos(db: AsyncSession) -> dict[str, tuple[str, str]]:
+    """Every registered Project with a working_directory_path, as
+    additional Git Control picker entries -- key f"project:{id}" (colon
+    can't collide with a REPO_KEY_RE-validated manual key, which forbids
+    it) mapped to (path, display label = project name). Projects without a
+    working_directory_path set yet are omitted rather than shown as a
+    broken entry."""
+    result = await db.execute(select(Project).where(Project.working_directory_path.isnot(None)))
+    return {f"project:{p.id}": (p.working_directory_path, p.name) for p in result.scalars().all()}
+
+
 @router.get("/status")
 async def get_system_control_status(
-    repo: str | None = None, _admin: User = Depends(get_current_admin)
+    repo: str | None = None, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     # Unknown/omitted repo key falls back to the default instead of 400ing --
     # a stale key in a saved link/bookmark should still load something.
-    repo_key = repo if repo in KNOWN_REPOS else DEFAULT_REPO
-    repo_root = KNOWN_REPOS[repo_key]
+    static_repos = _all_repos()
+    project_repos = await _registered_project_repos(db)
+    all_repos = {**static_repos, **{k: v[0] for k, v in project_repos.items()}}
+    repo_key = repo if repo in all_repos else DEFAULT_REPO
+    repo_root = all_repos[repo_key]
     branch = await _run_git(repo_root, "branch", "--show-current")
     head = await _run_git(repo_root, "rev-parse", "HEAD")
     short_head = await _run_git(repo_root, "rev-parse", "--short", "HEAD")
@@ -173,7 +209,14 @@ async def get_system_control_status(
                 "subject": commit_lines[3] if len(commit_lines) > 3 else None,
             },
         },
-        "available_repos": [{"key": key, "path": path} for key, path in KNOWN_REPOS.items()],
+        "available_repos": [
+            {"key": key, "path": path, "removable": key not in KNOWN_REPOS, "label": key, "kind": "system"}
+            for key, path in sorted(static_repos.items())
+        ]
+        + [
+            {"key": key, "path": path, "removable": False, "label": label, "kind": "project"}
+            for key, (path, label) in sorted(project_repos.items(), key=lambda kv: kv[1][1].lower())
+        ],
         "backups": {
             "path": BACKUP_DIR,
             "count": len(backups),
@@ -183,14 +226,18 @@ async def get_system_control_status(
 
 
 @router.post("/commit")
-async def commit_changes(payload: CommitRequest, _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+async def commit_changes(
+    payload: CommitRequest, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
     """Stages everything (`git add -A`) and commits with the given message --
     no partial/selective staging, since Git Control only ever shows the
     flat status_lines list, not a per-file selection UI. Never pushes:
     that's a separate, more consequential action this button deliberately
     doesn't take on."""
-    repo_key = payload.repo if payload.repo in KNOWN_REPOS else DEFAULT_REPO
-    repo_root = KNOWN_REPOS[repo_key]
+    project_repos = await _registered_project_repos(db)
+    all_repos = {**_all_repos(), **{k: v[0] for k, v in project_repos.items()}}
+    repo_key = payload.repo if payload.repo in all_repos else DEFAULT_REPO
+    repo_root = all_repos[repo_key]
     await _run_git(repo_root, "add", "-A")
     await _run_git(repo_root, "commit", "-m", payload.message)
     last_commit = await _run_git(repo_root, "log", "-1", "--pretty=format:%H%n%an%n%ad%n%s")
@@ -204,23 +251,143 @@ async def commit_changes(payload: CommitRequest, _admin: User = Depends(get_curr
     }
 
 
-@router.post("/backup-hermes")
-async def backup_hermes(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
-    return await _bridge(
+# ---------------------------------------------------------------------------
+# Backups -- targets are "hermes" (fixed, archives written flat into
+# BACKUP_DIR, unchanged since before this system existed) or "project:<id>"
+# (only for a Project with backup_enabled=true, archives written under
+# their own BACKUP_DIR/projects/<id> subdirectory). Deliberately separate
+# storage per target -- per explicit operator request, a project's backups
+# must never intermix with Hermes's or another project's. "all" is a
+# write-only pseudo-target for POST /backups/run (fan-out to every
+# currently-eligible target, each still landing in its own directory); it
+# is not a listable target.
+# ---------------------------------------------------------------------------
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+async def _get_project_or_404(project_id: str, db: AsyncSession) -> Project:
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return project
+
+
+def _backup_dir_for_target(target: str) -> str:
+    if target == "hermes":
+        return BACKUP_DIR
+    if target.startswith("project:"):
+        return f"{BACKUP_DIR}/projects/{target.split(':', 1)[1]}"
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown backup target '{target}'")
+
+
+@router.get("/backup-targets")
+async def list_backup_targets(
+    _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    result = await db.execute(select(Project).where(Project.backup_enabled.is_(True)))
+    targets = [{"key": "hermes", "label": "Hermes", "kind": "system", "ready": True}]
+    for project in result.scalars().all():
+        targets.append(
+            {
+                "key": f"project:{project.id}",
+                "label": project.name,
+                "kind": "project",
+                "ready": bool(project.working_directory_path),
+            }
+        )
+    return {"targets": targets}
+
+
+async def _run_backup_for_target(target: str, db: AsyncSession) -> dict[str, Any]:
+    if target == "hermes":
+        result = await _bridge(
+            "POST", "/v1/system/hermes-backup", json={"source_path": "/root/.hermes", "backup_dir": BACKUP_DIR}
+        )
+        return {"target": target, "label": "Hermes", **result}
+
+    if not target.startswith("project:"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown backup target '{target}'")
+    project = await _get_project_or_404(target.split(":", 1)[1], db)
+    if not project.backup_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Backup is not enabled for project '{project.name}' -- enable it on its registration first",
+        )
+    if not project.working_directory_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Project '{project.name}' has no working_directory_path set",
+        )
+    slug = _SLUG_RE.sub("-", project.name.lower()).strip("-") or str(project.id)
+    archive_name = f"{slug}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    result = await _bridge(
         "POST",
         "/v1/system/hermes-backup",
-        json={"source_path": "/root/.hermes", "backup_dir": BACKUP_DIR},
+        json={
+            "source_path": project.working_directory_path,
+            "backup_dir": _backup_dir_for_target(target),
+            "archive_name": archive_name,
+        },
     )
+    return {"target": target, "label": project.name, **result}
 
 
-@router.delete("/backup/{filename}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_backup(filename: str, _admin: User = Depends(get_current_admin)) -> None:
-    # Backup entries are flat files directly inside BACKUP_DIR (see
-    # get_system_control_status) -- a bare filename only, reject anything
-    # that could climb out of that directory.
+class BackupRunRequest(BaseModel):
+    target: str = "hermes"  # "hermes" | "project:<uuid>" | "all"
+
+
+@router.post("/backups/run")
+async def run_backup(
+    payload: BackupRunRequest, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    if payload.target != "all":
+        return {"results": [await _run_backup_for_target(payload.target, db)], "errors": []}
+
+    result = await db.execute(
+        select(Project).where(Project.backup_enabled.is_(True), Project.working_directory_path.isnot(None))
+    )
+    targets = ["hermes"] + [f"project:{p.id}" for p in result.scalars().all()]
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for t in targets:
+        try:
+            results.append(await _run_backup_for_target(t, db))
+        except HTTPException as e:
+            errors.append({"target": t, "detail": e.detail})
+    return {"results": results, "errors": errors}
+
+
+@router.get("/backups")
+async def list_backups(
+    target: str = "hermes", _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    if target.startswith("project:"):
+        await _get_project_or_404(target.split(":", 1)[1], db)
+    backup_dir = _backup_dir_for_target(target)
+    try:
+        await _bridge("POST", "/v1/fs/mkdir", json={"path": backup_dir})
+    except HTTPException:
+        pass
+    listing = await _bridge("GET", "/v1/fs/list", params={"path": backup_dir})
+    entries = [
+        {"name": e.get("name"), "path": e.get("path"), "size": e.get("size"), "type": e.get("type")}
+        for e in listing.get("entries", [])
+        if e.get("type") == "file"
+    ]
+    entries.sort(key=lambda item: item["name"] or "")
+    return {"target": target, "path": backup_dir, "count": len(entries), "entries": entries}
+
+
+@router.delete("/backups/{target}/{filename}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_backup(
+    target: str, filename: str, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> None:
+    if target.startswith("project:"):
+        await _get_project_or_404(target.split(":", 1)[1], db)
     if "/" in filename or "\\" in filename or filename in (".", ".."):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
-    await _bridge("DELETE", "/v1/fs/delete", params={"path": f"{BACKUP_DIR}/{filename}", "recursive": False})
+    backup_dir = _backup_dir_for_target(target)
+    await _bridge("DELETE", "/v1/fs/delete", params={"path": f"{backup_dir}/{filename}", "recursive": False})
 
 
 async def _scan_find(find_expr: str) -> list[dict[str, Any]]:

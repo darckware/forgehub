@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import {
   AlertCircle,
+  Archive,
   ArrowLeft,
   CalendarRange,
   CheckCircle2,
@@ -23,7 +24,9 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ProjectFileBrowser } from "@/components/ProjectFileBrowser";
+import { useBackupListing, useDeleteBackup, useRunBackup } from "@/hooks/useSystemControl";
 import {
   useApproveProjectPlan,
   useChangeRequests,
@@ -245,6 +248,107 @@ function ChangeRequestCard({
   );
 }
 
+function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+/** This project's own backup archives -- kept in their own directory,
+ * separate from Hermes's and every other project's (see System Control's
+ * Backups card / backend/app/api/routes/system_control.py). Only rendered
+ * when the project has backup_enabled. */
+function ProjectBackups({ projectId, projectName }: { projectId: string; projectName: string }) {
+  const target = `project:${projectId}`;
+  const { data: listing, isLoading } = useBackupListing(target);
+  const runBackup = useRunBackup();
+  const deleteBackup = useDeleteBackup();
+  const [deletingBackup, setDeletingBackup] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">{projectName}'s backups</span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-2"
+          onClick={() => runBackup.mutate({ target })}
+          disabled={runBackup.isPending}
+        >
+          {runBackup.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+          Backup now
+        </Button>
+      </div>
+      {runBackup.isError && (
+        <p className="text-xs text-destructive">{(runBackup.error as Error)?.message ?? "Backup failed"}</p>
+      )}
+      {deleteBackup.isError && (
+        <p className="text-xs text-destructive">
+          {(deleteBackup.error as Error)?.message ?? "Failed to delete backup"}
+        </p>
+      )}
+      <ConfirmDialog
+        open={deletingBackup !== null}
+        title={`Delete "${deletingBackup ?? ""}"`}
+        description="Permanently removes this backup archive. This action cannot be undone."
+        loading={deleteBackup.isPending}
+        onConfirm={() => {
+          if (deletingBackup) {
+            deleteBackup.mutate({ target, filename: deletingBackup }, { onSuccess: () => setDeletingBackup(null) });
+          }
+        }}
+        onCancel={() => setDeletingBackup(null)}
+      />
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading archives...
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Archive</TableHead>
+              <TableHead>Size</TableHead>
+              <TableHead className="w-10" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(listing?.entries ?? []).map((entry) => (
+              <TableRow key={entry.path}>
+                <TableCell className="font-mono text-xs">{entry.name}</TableCell>
+                <TableCell>{formatBytes(entry.size)}</TableCell>
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-destructive"
+                    aria-label={`Delete ${entry.name}`}
+                    onClick={() => setDeletingBackup(entry.name)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+            {(listing?.entries ?? []).length === 0 && (
+              <TableRow>
+                <TableCell colSpan={3} className="text-xs text-muted-foreground">
+                  No backup archives yet.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  );
+}
+
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: project, isLoading, isError, error } = useProject(id);
@@ -359,6 +463,8 @@ export default function ProjectDetailPage() {
                     product_version_id: project.product_version_id ?? "",
                     status: project.status as ProjectCreateInput["status"],
                     working_directory_path: project.working_directory_path ?? "",
+                    github_repo_url: project.github_repo_url ?? "",
+                    backup_enabled: project.backup_enabled,
                   }}
                   onSubmit={handleUpdate}
                   onCancel={() => setShowEditForm(false)}
@@ -603,6 +709,39 @@ export default function ProjectDetailPage() {
                   {(updateProject.error as Error)?.message}
                 </p>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl">GitHub &amp; backups</CardTitle>
+              <CardDescription>
+                Feeds System Control's Git Control and Backups cards -- edit above to change.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">GitHub repository</span>
+                {project.github_repo_url ? (
+                  <a
+                    href={project.github_repo_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="truncate font-mono text-xs text-primary hover:underline"
+                  >
+                    {project.github_repo_url}
+                  </a>
+                ) : (
+                  <span className="italic text-muted-foreground">Not set</span>
+                )}
+              </div>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">Backup</span>
+                <Badge variant={project.backup_enabled ? "success" : "outline"}>
+                  {project.backup_enabled ? "Enabled" : "Disabled"}
+                </Badge>
+              </div>
+              {project.backup_enabled && <ProjectBackups projectId={project.id} projectName={project.name} />}
             </CardContent>
           </Card>
 

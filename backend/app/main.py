@@ -37,6 +37,7 @@ from app.api.routes import (
     foundation_script,
     governance,
     hindsight,
+    news,
     notifications,
     pipeline,
     prompt_commands,
@@ -124,6 +125,7 @@ app.include_router(artifact.router)
 app.include_router(audit.router)
 app.include_router(governance.router)
 app.include_router(hindsight.router)
+app.include_router(news.router)
 app.include_router(foundation.router)
 app.include_router(foundation_docs.router)
 app.include_router(foundation_script.router)

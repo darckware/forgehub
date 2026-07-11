@@ -177,6 +177,33 @@ export function ProjectForm({
         )}
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor="github_repo_url">GitHub repository URL</Label>
+        <Input
+          id="github_repo_url"
+          placeholder="https://github.com/org/repo.git"
+          {...register("github_repo_url")}
+        />
+        {errors.github_repo_url && (
+          <p className="text-sm text-destructive">{errors.github_repo_url.message}</p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Used by System Control's Git Control card to show this project's branch/status/commit.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="backup_enabled"
+          type="checkbox"
+          className="h-4 w-4 rounded border-input"
+          {...register("backup_enabled")}
+        />
+        <Label htmlFor="backup_enabled" className="cursor-pointer">
+          Enable backup (System Control's Backups card can archive the working directory)
+        </Label>
+      </div>
+
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>

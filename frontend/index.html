@@ -3,6 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Chrome's Google Translate widget rewrites text nodes into <font>
+    wrappers; when React then reconciles that same subtree (e.g. the
+    sidebar's collapse/expand swap), it tries to remove/insert nodes at
+    positions the browser has since mutated and throws "Failed to execute
+    'removeChild' on 'Node'", which unmounts the whole app. `notranslate`
+    opts the SPA root out of translation so its DOM stays exactly what
+    React expects. -->
+    <meta name="google" content="notranslate" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>ForgeHub</title>
     <script>
@@ -19,7 +27,7 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" class="notranslate" translate="no"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

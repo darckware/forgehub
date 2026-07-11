@@ -17,7 +17,6 @@ interface LoginPayload {
 
 export function useLogin() {
   const setAuth = useAuthStore((s) => s.setAuth);
-  const qc = useQueryClient();
 
   return useMutation<TokenOut, Error, LoginPayload>({
     mutationFn: async ({ username, password }) => {
@@ -38,9 +37,19 @@ export function useLogin() {
     },
     onSuccess: (data) => {
       setAuth(data.access_token, data.user, data.permissions ?? {});
-      qc.clear();
     },
   });
+}
+
+// Clears every cached query so a new login never shows the previous
+// session's data. Called on logout (UserSettingsMenu's handleLogout), not
+// on login success -- clearing there raced the fresh post-login navigation
+// into AppLayout, which mounts several data-fetching widgets that expect a
+// query cache to exist a moment before their first render, causing an
+// intermittent blank screen recoverable only by a manual reload.
+export function useClearQueryCacheOnLogout() {
+  const qc = useQueryClient();
+  return () => qc.clear();
 }
 
 // The JWT has a fixed 60-minute expiry (backend ACCESS_TOKEN_EXPIRE_MINUTES)

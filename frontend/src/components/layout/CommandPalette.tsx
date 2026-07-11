@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
 import type { NavGroupEntry, NavSectionEntry } from "@/components/layout/navSections";
@@ -137,9 +137,16 @@ export function CommandPalette({
             placeholder="Jump to a page..."
             className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
-          <kbd className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            Esc
-          </kbd>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Sair"
+            title="Sair"
+            className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            <X className="h-3 w-3" />
+            Sair
+          </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {visibleEntries.length === 0 && (

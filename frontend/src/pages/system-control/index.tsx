@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
+  useBackupListing,
+  useBackupTargets,
   useCleanupScan,
   useCommitChanges,
   useDeleteBackup,
-  useHermesBackup,
+  useRunBackup,
   useRunCleanup,
   useSystemControlStatus,
 } from "@/hooks/useSystemControl";
@@ -38,12 +40,21 @@ export default function SystemControlPage() {
   // unset instead of guessing a key before the first response arrives.
   const [repo, setRepo] = useState<string | undefined>(undefined);
   const { data, isLoading, isError, error, refetch, isFetching } = useSystemControlStatus(repo);
-  const backupMut = useHermesBackup();
-  const deleteBackup = useDeleteBackup();
-  const [deletingBackup, setDeletingBackup] = useState<string | null>(null);
   const commitMut = useCommitChanges();
   const [showCommitForm, setShowCommitForm] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
+
+  // "hermes" | "project:<uuid>" | "all" -- "all" has no listing (backups
+  // stay separated by target on disk), only a "Backup all" action.
+  const [backupTarget, setBackupTarget] = useState("hermes");
+  const { data: backupTargets } = useBackupTargets();
+  const { data: backupListing, isLoading: backupListingLoading } = useBackupListing(
+    backupTarget === "all" ? "hermes" : backupTarget
+  );
+  const runBackup = useRunBackup();
+  const deleteBackup = useDeleteBackup();
+  const [deletingBackup, setDeletingBackup] = useState<string | null>(null);
+
   const { data: scan, isLoading: scanLoading, isError: scanError } = useCleanupScan();
   const runCleanup = useRunCleanup();
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
@@ -67,6 +78,9 @@ export default function SystemControlPage() {
 
   const dirtyCount = data.git.dirty_count;
   const lastCommit = data.git.last_commit;
+  const targets = backupTargets?.targets ?? [];
+  const selectedTarget = targets.find((t) => t.key === backupTarget);
+  const isAllBackups = backupTarget === "all";
 
   return (
     <div className="space-y-6">
@@ -74,7 +88,7 @@ export default function SystemControlPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">System Control</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Git status for this repository and compressed Hermes backups written to /root/backup.
+            Git status for registered projects and compressed backups written to /root/backup.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -128,15 +142,30 @@ export default function SystemControlPage() {
               <div className="flex items-center gap-1.5">
                 <Select
                   value={data.git.repo_key}
-                  className="h-8 w-32 text-xs"
+                  className="h-8 w-40 text-xs"
                   onChange={(e) => setRepo(e.target.value)}
                   aria-label="Repository"
                 >
-                  {data.available_repos.map((r) => (
-                    <option key={r.key} value={r.key}>
-                      {r.key}
-                    </option>
-                  ))}
+                  <optgroup label="System">
+                    {data.available_repos
+                      .filter((r) => r.kind === "system")
+                      .map((r) => (
+                        <option key={r.key} value={r.key}>
+                          {r.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                  {data.available_repos.some((r) => r.kind === "project") && (
+                    <optgroup label="Projects">
+                      {data.available_repos
+                        .filter((r) => r.kind === "project")
+                        .map((r) => (
+                          <option key={r.key} value={r.key}>
+                            {r.label}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
                 </Select>
                 <Button
                   size="sm"
@@ -150,6 +179,10 @@ export default function SystemControlPage() {
                 </Button>
               </div>
             </div>
+            <p className="text-[11px] text-muted-foreground">
+              "Hermes" plus every registered project with a working directory -- add one from the project's own
+              registration page, not here.
+            </p>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Commit</span>
@@ -228,29 +261,62 @@ export default function SystemControlPage() {
 
         <Card>
           <CardContent className="space-y-3 p-4">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Archive className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-base font-semibold">Hermes Backup</h2>
+                <h2 className="text-base font-semibold">Backups</h2>
               </div>
-              <Button
-                size="sm"
-                onClick={() => backupMut.mutate()}
-                disabled={backupMut.isPending}
-                className="gap-2"
-              >
-                {backupMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
-                Backup .hermes
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Select
+                  value={backupTarget}
+                  className="h-8 w-40 text-xs"
+                  onChange={(e) => setBackupTarget(e.target.value)}
+                  aria-label="Backup target"
+                >
+                  {targets.map((t) => (
+                    <option key={t.key} value={t.key}>
+                      {t.label}
+                    </option>
+                  ))}
+                  {targets.length > 1 && <option value="all">All</option>}
+                </Select>
+                <Button
+                  size="sm"
+                  onClick={() => runBackup.mutate({ target: backupTarget })}
+                  disabled={runBackup.isPending || (selectedTarget != null && !selectedTarget.ready)}
+                  className="gap-2"
+                  title={
+                    selectedTarget && !selectedTarget.ready
+                      ? "This project has no working directory set yet"
+                      : undefined
+                  }
+                >
+                  {runBackup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                  Backup {isAllBackups ? "all" : "now"}
+                </Button>
+              </div>
             </div>
-            {backupMut.isSuccess && (
-              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
-                Created {backupMut.data.archive_path} ({formatBytes(backupMut.data.size_bytes)})
+            <p className="text-[11px] text-muted-foreground">
+              Archives are kept separate per target -- Hermes and each project write to their own directory, never
+              intermixed. Enable backup for a project from its own registration page.
+            </p>
+            {runBackup.isSuccess && (
+              <div className="space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
+                {runBackup.data.results.map((r) => (
+                  <p key={r.target}>
+                    {r.label}: created {r.archive_path} ({formatBytes(r.size_bytes)})
+                  </p>
+                ))}
+                {runBackup.data.errors.map((e) => (
+                  <p key={e.target} className="text-destructive">
+                    {e.target}: {e.detail}
+                  </p>
+                ))}
               </div>
             )}
-            {backupMut.isError && (
+            {runBackup.isError && (
               <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                {(backupMut.error as Error)?.message ?? "Backup failed"}
+                {(runBackup.error as Error)?.message ?? "Backup failed"}
               </div>
             )}
             {deleteBackup.isError && (
@@ -261,49 +327,64 @@ export default function SystemControlPage() {
             <ConfirmDialog
               open={deletingBackup !== null}
               title={`Delete "${deletingBackup ?? ""}"`}
-              description="Permanently removes this backup archive from /root/backup. This action cannot be undone."
+              description="Permanently removes this backup archive. This action cannot be undone."
               loading={deleteBackup.isPending}
               onConfirm={() => {
-                if (deletingBackup) deleteBackup.mutate(deletingBackup, { onSuccess: () => setDeletingBackup(null) });
+                if (deletingBackup) {
+                  deleteBackup.mutate(
+                    { target: backupTarget, filename: deletingBackup },
+                    { onSuccess: () => setDeletingBackup(null) }
+                  );
+                }
               }}
               onCancel={() => setDeletingBackup(null)}
             />
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Archive</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.backups.entries.map((entry) => (
-                  <TableRow key={entry.path}>
-                    <TableCell className="font-mono text-xs">{entry.name}</TableCell>
-                    <TableCell>{formatBytes(entry.size)}</TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive"
-                        aria-label={`Delete ${entry.name}`}
-                        title={`Delete ${entry.name}`}
-                        onClick={() => setDeletingBackup(entry.name)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {data.backups.entries.length === 0 && (
+            {isAllBackups ? (
+              <p className="text-sm text-muted-foreground">
+                Pick a single target above to browse or delete its archives -- "All" is only for running backups.
+              </p>
+            ) : backupListingLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading archives...
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={3} className="text-sm text-muted-foreground">
-                      No backup archives found in /root/backup.
-                    </TableCell>
+                    <TableHead>Archive</TableHead>
+                    <TableHead>Size</TableHead>
+                    <TableHead className="w-10" />
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {(backupListing?.entries ?? []).map((entry) => (
+                    <TableRow key={entry.path}>
+                      <TableCell className="font-mono text-xs">{entry.name}</TableCell>
+                      <TableCell>{formatBytes(entry.size)}</TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          aria-label={`Delete ${entry.name}`}
+                          title={`Delete ${entry.name}`}
+                          onClick={() => setDeletingBackup(entry.name)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {(backupListing?.entries ?? []).length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-sm text-muted-foreground">
+                        No backup archives found{backupListing ? ` in ${backupListing.path}` : ""}.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>

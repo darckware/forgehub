@@ -21,6 +21,7 @@ Must be run from HERMES_HOME set to the target profile directory, e.g.:
 """
 import json
 import os
+import re
 import sys
 import threading
 import uuid
@@ -29,6 +30,20 @@ import uuid
 def _emit(payload: dict) -> None:
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
+
+
+# Codex/Harmony tool-call serialization (``to=functions.search_files {...}``,
+# optionally prefixed with ``assistant`` or a ``<|channel|>`` marker) that the
+# model sometimes emits as plain assistant text instead of a real structured
+# tool call -- e.g. because the target profile's model.api_mode is
+# "chat_completions", which doesn't get the Responses-API leak recovery in
+# hermes-agent's agent/codex_responses_adapter.py. Mirrors that module's
+# _TOOL_CALL_LEAK_PATTERN so this stream never persists the raw leaked tokens
+# as the assistant's reply (see forgehub#chat garbled-reply reports).
+_TOOL_CALL_LEAK_PATTERN = re.compile(
+    r"(?:^|[\s>|])to=functions\.[A-Za-z_][\w.]*",
+    re.IGNORECASE,
+)
 
 
 # Slash commands ForgeHub's web chat will actually execute via Hermes's own
@@ -169,12 +184,15 @@ def main() -> None:
         cli_inst.tool_progress_mode = "off"  # keep the CLI's own print()s out of our JSON-line stdout
 
         full_parts: list[str] = []
+        any_tool_ran = False
 
         def on_delta(delta: str) -> None:
             full_parts.append(delta)
             _emit({"delta": delta})
 
         def on_tool_start(tool_id, name, tool_args) -> None:
+            nonlocal any_tool_ran
+            any_tool_ran = True
             try:
                 from agent.display import build_tool_label
                 context = build_tool_label(name, tool_args, max_len=80) or name
@@ -255,6 +273,16 @@ def main() -> None:
         )
         new_sid = cli_inst.session_id
         full_reply = result.get("final_response", "".join(full_parts))
+        if not any_tool_ran and _TOOL_CALL_LEAK_PATTERN.search(full_reply):
+            # The model tried to call a tool and degenerated into emitting
+            # the raw serialization as text instead (no tool actually ran).
+            # Persisting that garbage as the reply is worse than saying we
+            # don't have a real answer -- ask the user to retry the turn.
+            full_reply = (
+                "O agente tentou chamar uma ferramenta, mas o modelo não formatou "
+                "a chamada corretamente e nenhuma ferramenta rodou. Tente reenviar "
+                "a mensagem."
+            )
         _emit({"done": True, "session_id": new_sid, "reply": full_reply})
 
     except Exception as exc:

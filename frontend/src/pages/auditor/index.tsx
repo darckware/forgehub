@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   AlertCircle,
+  Bot,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
@@ -40,6 +41,7 @@ import {
   type AuditCheckInput,
 } from "@/hooks/useAudit";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
+import { useAssistantStore } from "@/store/assistantStore";
 
 const RUN_STATUS_BADGE: Record<string, { variant: "success" | "destructive" | "warning" | "outline"; label: string }> = {
   ok: { variant: "success", label: "✅ OK" },
@@ -52,6 +54,31 @@ function formatTimestamp(value: string | null | undefined): string {
   if (!value) return "—";
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+}
+
+/** Draft seeded into the assistant composer, mirroring Crons'/Agent Tools'
+ * maintenance message: check metadata first, then the command and last result. */
+function buildAuditCheckChatMessage(check: AuditCheck): string {
+  const lines: string[] = [
+    "I need help with this Auditor checkpoint. Please review it and suggest fixes.",
+    "",
+    `Check: ${check.name}`,
+    `Category: ${check.category ?? "—"}`,
+    `Responsible agent: ${check.agent_profile}`,
+    `Enabled: ${check.enabled ? "yes" : "no"}`,
+    `Timeout: ${check.timeout_seconds}s`,
+  ];
+  if (check.workdir) lines.push(`Directory: ${check.workdir}`);
+  if (check.description) lines.push(`Description: ${check.description}`);
+  lines.push("", "Command:", "```", check.command, "```");
+  if (check.last_run) {
+    lines.push(
+      "",
+      `Last run: ${check.last_run.status} at ${formatTimestamp(check.last_run.created_at)}`,
+    );
+    if (check.last_run.output) lines.push("```", check.last_run.output, "```");
+  }
+  return lines.join("\n");
 }
 
 /** Create/edit form for one checkpoint. */
@@ -222,6 +249,13 @@ export default function AuditorPage() {
   const [formCheck, setFormCheck] = useState<AuditCheck | "new" | null>(null);
   const [deleting, setDeleting] = useState<AuditCheck | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
+  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+
+  function handleSendToAssistant(check: AuditCheck) {
+    setPendingSeed(buildAuditCheckChatMessage(check));
+    setAssistantOpen(true);
+  }
 
   function toggleExpand(id: string) {
     setExpanded((prev) => {
@@ -386,6 +420,15 @@ export default function AuditorPage() {
                               ) : (
                                 <Play className="h-4 w-4" />
                               )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Send ${check.name} to the assistant`}
+                              title="Open the assistant with this check's data and command as context"
+                              onClick={() => handleSendToAssistant(check)}
+                            >
+                              <Bot className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"

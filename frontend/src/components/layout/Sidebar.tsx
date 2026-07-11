@@ -14,7 +14,7 @@ import { UserSettingsMenu } from "@/components/layout/UserSettingsMenu";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { NAV_SECTIONS, type NavGroupEntry, type NavLinkEntry } from "@/components/layout/navSections";
-import { Logo } from "@/components/Logo";
+import { Logo, LogoMark } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/authStore";
 import { usePermission } from "@/hooks/usePermission";
@@ -243,7 +243,25 @@ export function Sidebar() {
             effectiveCollapsed ? "justify-center px-2" : "justify-between px-6"
           )}
         >
-          <Logo iconOnly={effectiveCollapsed} />
+          {effectiveCollapsed && !isMobile ? (
+            // Icon-rail mode: the logo itself is the expand trigger -- hover
+            // (or click) swaps the mark for the expand icon, same affordance
+            // as the collapse button in expanded mode below.
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label="Expandir sidebar"
+              className="group relative flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent"
+            >
+              <LogoMark className="h-8 w-8 shrink-0 transition-opacity group-hover:opacity-0" />
+              <PanelLeftOpen className="absolute h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
+              <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                Abrir barra lateral
+              </span>
+            </button>
+          ) : (
+            <Logo iconOnly={effectiveCollapsed} />
+          )}
           {!effectiveCollapsed && !isMobile && (
             <Button
               variant="ghost"
@@ -258,18 +276,6 @@ export function Sidebar() {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
-          {effectiveCollapsed && !isMobile && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="w-full"
-              aria-label="Expandir sidebar"
-              title="Expandir sidebar"
-              onClick={toggleSidebar}
-            >
-              <PanelLeftOpen className="h-4 w-4" />
-            </Button>
-          )}
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}

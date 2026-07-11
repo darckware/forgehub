@@ -8,6 +8,7 @@ import {
   Eye,
   Loader2,
   Pencil,
+  Play,
   Power,
   RefreshCw,
   RotateCcw,
@@ -33,6 +34,7 @@ import {
   useDeleteCronJob,
   useFoundationCrons,
   useResetCronJob,
+  useRunCronJob,
   useUpdateCronJob,
   type CronJob,
 } from "@/hooks/useFoundationCrons";
@@ -297,6 +299,7 @@ function CronsTab() {
   const deleteJob = useDeleteCronJob();
   const updateJob = useUpdateCronJob();
   const resetJob = useResetCronJob();
+  const runJob = useRunCronJob();
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [viewingJob, setViewingJob] = useState<CronJob | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
@@ -307,6 +310,14 @@ function CronsTab() {
     if (!window.confirm(`Delete the cron "${job.name}" (profile ${job.profile})? This action cannot be undone.`))
       return;
     deleteJob.mutate(job.id);
+  }
+
+  function handleRun(job: CronJob) {
+    runJob.mutate(job.id, {
+      onError: (err) => {
+        window.alert(`Failed to run "${job.name}": ${(err as Error)?.message ?? "unknown error"}`);
+      },
+    });
   }
 
   async function handleSendToAssistant(job: CronJob) {
@@ -408,12 +419,12 @@ function CronsTab() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Task</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Interval</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Next run</TableHead>
-                  <TableHead>Last run</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="whitespace-nowrap">Agent</TableHead>
+                  <TableHead className="whitespace-nowrap">Interval</TableHead>
+                  <TableHead className="whitespace-nowrap">Status</TableHead>
+                  <TableHead className="whitespace-nowrap">Next run</TableHead>
+                  <TableHead className="whitespace-nowrap">Last run</TableHead>
+                  <TableHead className="whitespace-nowrap text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -478,75 +489,91 @@ function CronsTab() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`${job.enabled ? "Turn off" : "Turn on"} ${job.name}`}
-                        title={job.enabled ? "Turn off" : "Turn on"}
-                        disabled={!job.id || (updateJob.isPending && updateJob.variables?.jobId === job.id)}
-                        onClick={() => updateJob.mutate({ jobId: job.id, updates: { enabled: !job.enabled } })}
-                      >
-                        {updateJob.isPending && updateJob.variables?.jobId === job.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Power className={job.enabled ? "h-4 w-4 text-emerald-600" : "h-4 w-4 text-muted-foreground"} />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Reset ${job.name}`}
-                        title="Reset (clear errors and re-arm the schedule)"
-                        disabled={!job.id || (resetJob.isPending && resetJob.variables === job.id)}
-                        onClick={() => resetJob.mutate(job.id)}
-                      >
-                        {resetJob.isPending && resetJob.variables === job.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <RotateCcw className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`View file for ${job.name}`}
-                        disabled={!job.script}
-                        title={job.script ? `View ${job.script}` : "No script attached"}
-                        onClick={() => setViewingJob(job)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Send ${job.name} to the assistant`}
-                        disabled={sendingId === job.id}
-                        title="Open the assistant with this job's data and script as context"
-                        onClick={() => handleSendToAssistant(job)}
-                      >
-                        {sendingId === job.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Bot className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Edit ${job.name}`}
-                        onClick={() => setEditingJob(job)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Delete ${job.name}`}
-                        disabled={deleteJob.isPending}
-                        onClick={() => handleDelete(job)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Run ${job.name} now`}
+                          title="Run now (outside the schedule)"
+                          disabled={runJob.isPending && runJob.variables === job.id}
+                          onClick={() => handleRun(job)}
+                        >
+                          {runJob.isPending && runJob.variables === job.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Play className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`${job.enabled ? "Turn off" : "Turn on"} ${job.name}`}
+                          title={job.enabled ? "Turn off" : "Turn on"}
+                          disabled={!job.id || (updateJob.isPending && updateJob.variables?.jobId === job.id)}
+                          onClick={() => updateJob.mutate({ jobId: job.id, updates: { enabled: !job.enabled } })}
+                        >
+                          {updateJob.isPending && updateJob.variables?.jobId === job.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Power className={job.enabled ? "h-4 w-4 text-emerald-600" : "h-4 w-4 text-muted-foreground"} />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Reset ${job.name}`}
+                          title="Reset (clear errors and re-arm the schedule)"
+                          disabled={!job.id || (resetJob.isPending && resetJob.variables === job.id)}
+                          onClick={() => resetJob.mutate(job.id)}
+                        >
+                          {resetJob.isPending && resetJob.variables === job.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`View file for ${job.name}`}
+                          disabled={!job.script}
+                          title={job.script ? `View ${job.script}` : "No script attached"}
+                          onClick={() => setViewingJob(job)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Send ${job.name} to the assistant`}
+                          disabled={sendingId === job.id}
+                          title="Open the assistant with this job's data and script as context"
+                          onClick={() => handleSendToAssistant(job)}
+                        >
+                          {sendingId === job.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Bot className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Edit ${job.name}`}
+                          onClick={() => setEditingJob(job)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Delete ${job.name}`}
+                          disabled={deleteJob.isPending}
+                          onClick={() => handleDelete(job)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

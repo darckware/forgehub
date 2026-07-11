@@ -105,3 +105,29 @@ export function useResetCronJob() {
     },
   });
 }
+
+export const cronRunResultSchema = z.object({
+  profile: z.string(),
+  id: z.string(),
+  executed: z.boolean(),
+  success: z.boolean().nullable(),
+  message: z.string(),
+});
+
+export type CronRunResult = z.infer<typeof cronRunResultSchema>;
+
+/** Fire a job immediately, outside its schedule -- runs synchronously on
+ * the host even if that profile's gateway/ticker isn't up, via the real
+ * `hermes cron run` CLI (see foundation.py's _run_cron_job_now). */
+export function useRunCronJob() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (jobId: string) => {
+      const data = await apiClient.post<unknown>(`/api/v1/foundation/crons/${jobId}/run`);
+      return cronRunResultSchema.parse(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: cronJobKeys.list });
+    },
+  });
+}
