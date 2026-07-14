@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +39,7 @@ from app.db.models.orchestration import (
     ProjectLoopPolicy,
     TaskExecutionReview,
 )
-from app.db.models.project import ChangeRequest, Project, ProjectForgeRouterConfig
+from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution, TaskRequiredSkill
 
 router = APIRouter(prefix="/api/v1/orchestration", tags=["orchestration"])
@@ -559,149 +559,6 @@ async def dispatch_task(
             "ExecutionWave, build and issue an immutable Work Package, then use "
             "POST /api/v1/work-packages/{id}:dispatch."
         ),
-    )
-
-
-async def _legacy_dispatch_task_unreachable(
-    task_id: uuid.UUID,
-    payload: TaskDispatchCreate,
-    db: AsyncSession,
-) -> TaskDispatchOut:
-    """Retained temporarily so old rows/contracts remain readable during migration."""
-    task = await _get_or_404(db, ProjectTask, task_id, "Task")
-    project_id = await _task_project_id(db, task)
-    project = await _get_or_404(db, Project, project_id, "Project")
-    if not project.working_directory_path:
-        raise HTTPException(status_code=409, detail="Project has no working_directory_path")
-
-    assignment = await _get_or_404(db, TaskAssignment, payload.assignment_id, "Assignment")
-    if assignment.task_id != task.id or assignment.status != "active" or not assignment.membership_id:
-        raise HTTPException(status_code=409, detail="Dispatch requires an active project membership assignment")
-    membership = await _get_or_404(
-        db, ProjectAgentMembership, assignment.membership_id, "Project membership"
-    )
-    if membership.project_id != project_id or membership.status != "active":
-        raise HTTPException(status_code=409, detail="Assignment membership is not active in this project")
-
-    profile = await _get_or_404(db, AgentRuntimeProfile, payload.runtime_profile_id, "Runtime profile")
-    if not profile.is_active or not _profile_matches_membership(profile, membership):
-        raise HTTPException(status_code=422, detail="Runtime profile does not belong to the assigned member")
-    if membership.allowed_runtimes and profile.runtime_type not in membership.allowed_runtimes:
-        raise HTTPException(status_code=422, detail="Runtime is not authorized by project membership")
-
-    credential_agent_id = membership.agent_id
-    if credential_agent_id is None and membership.sub_agent_id is not None:
-        sub_agent = await _get_or_404(db, SubAgent, membership.sub_agent_id, "Sub-agent")
-        credential_agent_id = sub_agent.agent_id
-    credential_agent = await _get_or_404(db, Agent, credential_agent_id, "Credential agent")
-    if not credential_agent.forgerouter_api_key_encrypted:
-        raise HTTPException(status_code=409, detail="Assigned agent has no ForgeRouter API key configured")
-    try:
-        agent_api_key = decrypt_secret(credential_agent.forgerouter_api_key_encrypted)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail="Assigned agent credential cannot be decrypted") from exc
-
-    fr_config = await db.execute(
-        select(ProjectForgeRouterConfig).where(ProjectForgeRouterConfig.project_id == project_id)
-    )
-    config = fr_config.scalar_one_or_none()
-    enabled = bool(config and getattr(config, f"{profile.runtime_type}_enabled"))
-    if not enabled:
-        raise HTTPException(
-            status_code=409,
-            detail=f"{profile.runtime_type} is not enabled through ForgeRouter for this project",
-        )
-
-    policy = None
-    loop_iteration = 1
-    if payload.loop_policy_id:
-        policy = await _get_or_404(db, ProjectLoopPolicy, payload.loop_policy_id, "Loop policy")
-        if policy.project_id != project_id or not policy.is_active:
-            raise HTTPException(status_code=422, detail="Loop policy is not active for this project")
-        count = await db.scalar(
-            select(func.count(TaskExecution.id)).where(
-                TaskExecution.task_id == task_id,
-                TaskExecution.loop_policy_id == policy.id,
-            )
-        )
-        loop_iteration = int(count or 0) + 1
-        if loop_iteration > policy.max_iterations:
-            raise HTTPException(status_code=409, detail="Loop policy maximum iterations reached")
-
-    max_attempt = await db.scalar(
-        select(func.max(TaskExecution.attempt_number)).where(TaskExecution.task_id == task_id)
-    )
-    execution = TaskExecution(
-        task_id=task_id,
-        assignment_id=assignment.id,
-        runtime_profile_id=profile.id,
-        loop_policy_id=policy.id if policy else None,
-        attempt_number=int(max_attempt or 0) + 1,
-        executor_type="sub_agent" if membership.sub_agent_id else "agent",
-        runtime_type=profile.runtime_type,
-        loop_iteration=loop_iteration,
-        status="pending",
-    )
-    db.add(execution)
-    await db.flush()
-
-    prompt = _build_task_prompt(task, project, payload.prompt_addendum)
-    run_body = {
-        "run_id": str(execution.id),
-        "runtime_type": profile.runtime_type,
-        "project_path": project.working_directory_path,
-        "prompt": prompt,
-        "model_ref": profile.model_ref,
-        "routing_group": profile.routing_group,
-        "api_key": agent_api_key,
-        "mode": payload.mode,
-        "max_seconds": payload.max_seconds,
-        "max_budget_usd": float(profile.max_budget_usd) if profile.max_budget_usd is not None else None,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                f"{settings.CHAT_BRIDGE_URL}/v1/agent-runs",
-                json=run_body,
-                headers=_bridge_headers(),
-            )
-            response.raise_for_status()
-            run = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        execution.status = "failed"
-        execution.outcome_summary = f"Runner dispatch failed: {exc}"
-        execution.finished_at = datetime.now(timezone.utc)
-        await db.commit()
-        raise HTTPException(status_code=502, detail=f"CLI runner dispatch failed: {exc}") from exc
-
-    execution.status = "running"
-    execution.started_at = datetime.now(timezone.utc)
-    execution.runtime_session_ref = run["run_id"]
-    if task.status in {"planned", "assigned"}:
-        task.status = "in_progress"
-    db.add(
-        AuditEvent(
-            entity_type="task_execution",
-            entity_id=execution.id,
-            event_type="execution_dispatched",
-            actor=str(membership.id),
-            payload={
-                "task_id": str(task.id),
-                "runtime_type": profile.runtime_type,
-                "model_ref": profile.model_ref,
-                "routing_group": profile.routing_group,
-                "loop_iteration": loop_iteration,
-            },
-        )
-    )
-    await db.commit()
-    return TaskDispatchOut(
-        execution_id=execution.id,
-        run_id=run["run_id"],
-        status=execution.status,
-        runtime_type=profile.runtime_type,
-        model_ref=profile.model_ref,
-        loop_iteration=loop_iteration,
     )
 
 
