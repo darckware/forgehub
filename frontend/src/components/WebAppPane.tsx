@@ -380,7 +380,7 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
             </div>
           )}
           {busy && <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-white" />}
-          {cursorPosition && lastPointer && (
+          {cursorPosition && lastPointer && state.data?.control_owner === "agent" && (
             <div
               key={lastPointer.at}
               className="pointer-events-none absolute z-10 animate-agent-cursor"
