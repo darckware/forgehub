@@ -1,5 +1,7 @@
 # ForgeHub — Product Requirements Document (PRD)
 
+> **Status documental:** baseline original do produto. Este arquivo não contém a arquitetura posterior de concepção, System Blueprint, três macrofluxos, orquestração durável e Delivery. Para a direção atual, consulte `PLANNING_DELIVERY_ARCHITECTURE.md`; para saber o que já existe, confirme código, `DATA_MODEL.md` e `BUSINESS_RULES.md`.
+
 ## 1. Product Vision
 ForgeHub is a control plane for planning, governing, and executing software projects with AI agents.
 It combines project management, version scope control, task orchestration, artifact governance, execution traceability, cost awareness, and independent validation into one operating model.

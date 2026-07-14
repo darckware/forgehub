@@ -21,8 +21,12 @@ import uuid
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 
+from app.core.security import create_access_token, hash_password
+from app.db.base import AsyncSessionLocal
 from app.db.models.governance import Approval, AuditEvent, Policy  # noqa: F401
+from app.db.models.user import User
 
 # All async tests/fixtures in this module share one event loop so that the
 # module-scoped DB engine (created at import time in app.db.base) is used
@@ -34,7 +38,7 @@ _governance_router_mounted = False
 
 
 @pytest_asyncio.fixture
-async def client(auth_headers):
+async def client():
     global _governance_router_mounted
 
     from app.main import app
@@ -50,9 +54,17 @@ async def client(auth_headers):
         app.include_router(governance.router)
         _governance_router_mounted = True
 
+    username = f"governance-admin-{uuid.uuid4().hex}"
+    async with AsyncSessionLocal() as db:
+        user = User(username=username, hashed_password=hash_password("test"), is_admin=True)
+        db.add(user); await db.commit(); await db.refresh(user)
+        user_id = user.id
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test", headers=auth_headers) as ac:
+    headers = {"Authorization": f"Bearer {create_access_token(username)}"}
+    async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as ac:
         yield ac
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(User).where(User.id == user_id)); await db.commit()
 
 
 async def test_create_policy(client: AsyncClient):
@@ -108,6 +120,7 @@ async def test_create_get_list_approval(client: AsyncClient):
     assert create_resp.status_code == 201, create_resp.text
     created = create_resp.json()
     assert created["status"] == "pending"
+    assert created["requested_by"].startswith("governance-admin-")
     assert created["entity_type"] == "pipeline_stage_gate"
     approval_id = created["id"]
 

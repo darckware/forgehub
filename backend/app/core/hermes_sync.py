@@ -40,6 +40,39 @@ _RISK_LEVEL_MAP = {"L": "low", "M": "medium", "H": "high", "C": "critical"}
 _SUBAGENT_HEADING_RE = re.compile(r"^###\s+.+\(`([a-z0-9\-]+)`\)\s*$")
 _SUBAGENT_ITEM_RE = re.compile(r"^-\s+`([a-z0-9\-]+)`\s+—\s+(.*)$")
 
+# ForgeHub's organizational projection of the Hermes roster. Hermes remains
+# the canonical identity/mission source; these fields make reporting lines
+# explicit instead of overloading the technical `layer` label.
+HERMES_ORGANIZATION: dict[str, tuple[str, str, str | None]] = {
+    "athos": ("Executive Orchestration", "Portfolio & Delivery Orchestration", None),
+    "atlas": ("Product & Planning", "Demand Engineering", "athos"),
+    "nomos": ("Product & Planning", "Business Rules & State Design", "atlas"),
+    "daedalus": ("Engineering", "Engineering Leadership", "athos"),
+    "archimedes": ("Engineering", "Architecture & Integration Design", "daedalus"),
+    "datalus": ("Engineering", "Data Engineering", "daedalus"),
+    "hermes-ux": ("Engineering", "Product Design & UX", "daedalus"),
+    "koios": ("Engineering", "AI & Retrieval Engineering", "daedalus"),
+    "forge": ("Engineering", "Implementation & Maintenance", "daedalus"),
+    "mnemosyne": ("Knowledge & Context", "Context Governance & Handoffs", "athos"),
+    "mnemon": ("Knowledge & Context", "Runtime Memory", "mnemosyne"),
+    "scriba": ("Documentation", "Technical Documentation", "athos"),
+    "themis": ("Governance & Compliance", "Privacy & Regulatory Governance", "athos"),
+    "prometheus": ("Governance & Compliance", "Integration Governance", "themis"),
+    "hephaestus": ("Platform & Operations", "Platform Operations", "athos"),
+    "hermod": ("Platform & Operations", "FinOps & Model Operations", "hephaestus"),
+    "iris": ("Platform & Operations", "Release & Feature Management", "hephaestus"),
+    "soteria": ("Platform & Operations", "Reliability & Disaster Recovery", "hephaestus"),
+    "talos": ("Platform & Operations", "Workflow Automation", "hephaestus"),
+    "aegis": ("Security & Assurance", "Security Leadership", "athos"),
+    "argus": ("Security & Assurance", "Code Quality", "aegis"),
+    "chronos": ("Security & Assurance", "Regression & Performance", "aegis"),
+    "oracle": ("Security & Assurance", "Acceptance & Evidence", "aegis"),
+}
+
+
+def organization_for_profile(profile_slug: str) -> tuple[str | None, str | None, str | None]:
+    return HERMES_ORGANIZATION.get(profile_slug, (None, None, None))
+
 
 def _read_file_safe(path: Path) -> str | None:
     try:
@@ -78,6 +111,23 @@ def list_provisioned_profiles() -> list[str]:
     if not PROFILES_DIR.is_dir():
         return []
     return sorted(p.name for p in PROFILES_DIR.iterdir() if p.is_dir())
+
+
+def read_profile_forgerouter_api_key(profile_slug: str) -> str | None:
+    """Return an already-provisioned agent key without logging it.
+
+    ForgeHub imports this into its encrypted credential column during the
+    governed Hermes sync. Placeholder/env-reference values are ignored.
+    """
+    config_path = PROFILES_DIR / profile_slug / "config.yaml"
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except (FileNotFoundError, yaml.YAMLError):
+        return None
+    api_key = str((config.get("model") or {}).get("api_key") or "").strip()
+    if not api_key or api_key.startswith("${"):
+        return None
+    return api_key
 
 
 def parse_agent_registry() -> list[dict[str, Any]]:

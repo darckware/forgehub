@@ -182,6 +182,7 @@ class TaskAssignmentCreate(BaseModel):
     task_id: uuid.UUID
     agent_id: uuid.UUID | None = None
     sub_agent_id: uuid.UUID | None = None
+    membership_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def _validate(self) -> "TaskAssignmentCreate":
@@ -197,6 +198,7 @@ class TaskAssignmentOut(BaseModel):
     task_id: uuid.UUID
     agent_id: uuid.UUID | None = None
     sub_agent_id: uuid.UUID | None = None
+    membership_id: uuid.UUID | None = None
     status: str
     assigned_at: datetime
     unassigned_at: datetime | None = None
@@ -209,13 +211,23 @@ class TaskAssignmentOut(BaseModel):
 # --------------------------------------------------------------------------
 
 EXECUTOR_TYPES = {"agent", "sub_agent", "human", "system"}
-EXECUTION_STATUSES = {"pending", "running", "failed", "retried", "verified", "completed"}
+RUNTIME_TYPES = {"claude", "codex", "agy", "antigravity"}
+EXECUTION_STATUSES = {
+    "pending", "running", "blocked", "paused", "reconciling", "recovering",
+    "failed", "retried", "verified", "completed",
+}
 EXECUTION_TERMINAL_STATUSES = {"verified", "completed"}
 
 
 class TaskExecutionCreate(BaseModel):
     assignment_id: uuid.UUID | None = None
+    runtime_profile_id: uuid.UUID | None = None
+    loop_policy_id: uuid.UUID | None = None
+    parent_execution_id: uuid.UUID | None = None
     executor_type: str = "agent"
+    runtime_type: str | None = None
+    runtime_session_ref: str | None = Field(default=None, max_length=255)
+    loop_iteration: int = Field(default=1, ge=1, le=20)
     status: str = "pending"
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -227,6 +239,8 @@ class TaskExecutionCreate(BaseModel):
     def _validate(self) -> "TaskExecutionCreate":
         if self.executor_type not in EXECUTOR_TYPES:
             raise ValueError(f"executor_type must be one of {sorted(EXECUTOR_TYPES)}")
+        if self.runtime_type is not None and self.runtime_type not in RUNTIME_TYPES:
+            raise ValueError(f"runtime_type must be one of {sorted(RUNTIME_TYPES)}")
         if self.status not in EXECUTION_STATUSES:
             raise ValueError(f"status must be one of {sorted(EXECUTION_STATUSES)}")
         # Business rule 6.4.3: every execution must have evidence -- enforced
@@ -268,8 +282,18 @@ class TaskExecutionOut(BaseModel):
     id: uuid.UUID
     task_id: uuid.UUID
     assignment_id: uuid.UUID | None = None
+    runtime_profile_id: uuid.UUID | None = None
+    loop_policy_id: uuid.UUID | None = None
+    parent_execution_id: uuid.UUID | None = None
     attempt_number: int
     executor_type: str
+    runtime_type: str | None = None
+    runtime_session_ref: str | None = None
+    work_package_id: uuid.UUID | None = None
+    adapter_version: str | None = None
+    process_ref: str | None = None
+    exit_code: int | None = None
+    loop_iteration: int = 1
     status: str
     started_at: datetime | None = None
     finished_at: datetime | None = None

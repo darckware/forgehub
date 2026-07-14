@@ -4,7 +4,7 @@
 
 - Route: `/workspace` (registered in `frontend/src/App.tsx:31`, label "Workspace" in `frontend/src/components/layout/Sidebar.tsx:49`).
 - Component: `frontend/src/pages/workspace/index.tsx` (`WorkspacePage`, default export).
-- Purpose: a single tabbed surface combining (a) chat with Hermes Foundation agents that have a `profile_slug`, and (b) real terminal sessions on the host (plain bash, or a CLI/runtime launcher such as Claude, Codex, Antigravity, Hermes), so a user can plan/converse with an agent and drop into a live shell against the same checkout without leaving the page. It is the renamed/evolved former "chat" page (`git status` shows `frontend/src/pages/chat/index.tsx` → `frontend/src/pages/workspace/index.tsx`).
+- Purpose: a single tabbed surface combining (a) chat with Hermes Foundation agents that have a `profile_slug`, (b) real terminal sessions on the host, and (c) embedded web application previews. A Web App tab can switch between ForgeHub and the configured development URL while the global assistant remains docked beside it, allowing Athos to receive the current URL and working directory as explicit context.
 
 ## Components
 
@@ -19,6 +19,10 @@
 | `frontend/src/pages/workspace/index.tsx` (`MessageBubble`, local) | Renders one chat message (markdown content, attachment name, timestamp). |
 | `frontend/src/components/TerminalPane.tsx` | xterm.js terminal bound over a WebSocket to a host tmux session; one instance per terminal tab. |
 | `frontend/src/components/WorkingDirPicker.tsx` | Pill + popover folder browser used to set the working directory applied to newly-opened terminal tabs. |
+| `frontend/src/components/WebAppPane.tsx` | Full-width live view of the shared Chromium CDP session, with URL bar, ForgeHub/Application shortcuts, manual input, and pointer-aware scrolling/dragging. |
+| `frontend/src/hooks/useWorkspaceBrowser.ts` | Polls the browser image/state and exposes guarded browser commands. |
+| `backend/app/api/routes/workspace_browser.py` | Authenticated proxy; injects configured ForgeHub credentials only for explicit login. |
+| `host-bridge/app.py` (`/v1/workspace-browser/*`) | Owns persistent Chromium/CDP startup, capture, navigation, pointer/text input and login. |
 | `frontend/src/components/Markdown.tsx` | Shared markdown renderer (react-markdown + remark-gfm) used for assistant/user message content. |
 | `frontend/src/components/ui/button.tsx`, `textarea.tsx` | shadcn/ui primitives used throughout. |
 
@@ -45,6 +49,11 @@ Backend routes are thin proxies: `backend/app/api/routes/chat.py` persists `chat
 
 - **New Chat** (toolbar button) — opens a new chat tab for the currently-active tab's agent (or the first chatable agent if none active).
 - **New Terminal** (toolbar button) — opens a new plain-bash terminal tab (`openTerminalTab("bash")`).
+- **Internal browser toggle** (globe toolbar button) — opens or hides only the existing Web App tab without destroying its Chromium session; it does not open the assistant. The default development URL is `http://localhost:5174`; **Set as app** persists another current URL.
+- **Shared interaction** — the displayed image comes from the same Chromium page controlled through CDP. Human clicks are scaled against the viewport dimensions reported by the page and become CDP pointer events; mouse-wheel movement inside the browser becomes a CDP scroll event; the focused-field bar sends text to the selected field.
+- **Athos** — opens the docked assistant, targets the `athos` profile, keeps prompt/tool steps/final return visible, and supplies current URL, working directory, and browser contract.
+- **Command rail** — describes Navigate, Inspect, Click, Type, Back, Reload, and Screenshot.
+- **ForgeHub login** — sends `DEV_USER_USERNAME`/`DEV_USER_PASSWORD` directly from backend settings to the bridge for that command. The bridge neither persists nor returns them. The authorized development credential is `admin/admin`.
 - **CLI launcher icons** (Claude / Codex / Antigravity) — open a terminal tab that auto-types the corresponding CLI command (`claude`, `codex`, `agy`) once the tmux session is created.
 - **Runtime launcher icon** (Hermes) — same mechanism, types `hermes`.
 - **Working-directory picker** — browse host folders and select one; applied as `cwd` to terminal tabs opened afterward (does not retroactively affect already-open tabs).
@@ -87,6 +96,8 @@ None directly enforced here against `docs/BUSINESS_RULES.md` — that document's
 
 - Tab state (`tabs`, `activeTabId`) is persisted to `localStorage` under fixed keys `forgehub-workspace-tabs`/`forgehub-workspace-active-tab` (`index.tsx:53-54`) with no schema versioning — a future shape change to `WorkspaceTab` would silently misrender or crash on `JSON.parse` of stale stored data rather than migrating it. The `try { … } catch { return [] }` guard (`index.tsx:676-680`) only protects against parse errors, not shape drift.
 - Terminal WebSocket has no reconnect/backoff logic and no visible "disconnected" state in `TerminalPane.tsx` — if the WS drops (e.g. backend restart), the pane just stops updating with no user-facing indication; the user has to close and reopen the tab.
+- Athos's external config must keep `browser.allow_private_urls: true` and `browser.cdp_url: http://127.0.0.1:9223` in `/root/.hermes/profiles/athos/config.yaml`. This required external change binds Hermes browser tools to the displayed session.
+- Browser state persists at `/root/.forgehub/browser/athos`; it can contain authenticated cookies/localStorage and must be protected. Raw passwords are not stored by this browser module.
 - Closing a terminal tab's "kill" call is fire-and-forget (`index.tsx:748`, `.catch(() => {})`) — a failed kill leaves an orphaned tmux session on the host with no feedback to the user or retry path.
 - `AttachMenuButton`'s single menu item is hardcoded in Portuguese ("Enviar arquivo", `index.tsx:286`), while most of the rest of the UI strings are in English (e.g. "New Chat", "No chats yet.") — inconsistent i18n; likely leftover from earlier copy.
 - The composer placeholder ("Peça ao {agent}", `index.tsx:638`) is also Portuguese, same inconsistency.

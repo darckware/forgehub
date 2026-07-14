@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, ChevronDown, ChevronRight, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, Eraser, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import {
   useCleanupScan,
   useCommitChanges,
   useDeleteBackup,
+  useEmptyTrash,
   useRunBackup,
   useRunCleanup,
   useSystemControlStatus,
@@ -57,6 +58,8 @@ export default function SystemControlPage() {
 
   const { data: scan, isLoading: scanLoading, isError: scanError } = useCleanupScan();
   const runCleanup = useRunCleanup();
+  const emptyTrash = useEmptyTrash();
+  const [confirmingEmptyTrash, setConfirmingEmptyTrash] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   if (isLoading) {
@@ -296,6 +299,11 @@ export default function SystemControlPage() {
                 </Button>
               </div>
             </div>
+            {!isAllBackups && selectedTarget && (
+              <p className="font-mono text-xs text-muted-foreground">
+                {selectedTarget.source ?? "(no working directory set)"} → {selectedTarget.location}
+              </p>
+            )}
             <p className="text-[11px] text-muted-foreground">
               Archives are kept separate per target -- Hermes and each project write to their own directory, never
               intermixed. Enable backup for a project from its own registration page.
@@ -401,38 +409,74 @@ export default function SystemControlPage() {
                 </span>
               )}
             </div>
-            <Button
-              size="sm"
-              onClick={() => runCleanup.mutate()}
-              disabled={runCleanup.isPending}
-              className="gap-2"
-              title="Sweeps eligible rotated logs/cron output/old backups into /root/trash, then empties it"
-            >
-              {runCleanup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              Run Cleanup
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmingEmptyTrash(true)}
+                disabled={emptyTrash.isPending}
+                className="gap-2"
+                title="Permanently deletes everything currently in the trash folder -- cannot be undone"
+              >
+                {emptyTrash.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />}
+                Empty trash
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => runCleanup.mutate()}
+                disabled={runCleanup.isPending}
+                className="gap-2"
+                title="Sweeps eligible rotated logs/cron output/old backups into the trash folder -- does not delete anything"
+              >
+                {runCleanup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Run Cleanup
+              </Button>
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">
             Inventory of logs, backup files, cron output snapshots, and old/duplicate scripts across the Hermes
             ecosystem, grouped by type. "Run Cleanup" sweeps rotated logs (never the live log a running agent has
-            open), cron output, and backups older than 30 days into /root/trash, then empties it -- scripts are
-            never touched automatically.
+            open), cron output, and backups older than 30 days into the trash folder -- reversible, nothing is
+            deleted. "Empty trash" is the separate, permanent step. Scripts are never touched automatically. Trash
+            folder is configurable in Settings.
           </p>
+          <ConfirmDialog
+            open={confirmingEmptyTrash}
+            title="Empty trash?"
+            description="Permanently deletes everything currently in the trash folder. This action cannot be undone."
+            confirmLabel="Empty trash"
+            loading={emptyTrash.isPending}
+            onConfirm={() =>
+              emptyTrash.mutate(undefined, { onSuccess: () => setConfirmingEmptyTrash(false) })
+            }
+            onCancel={() => setConfirmingEmptyTrash(false)}
+          />
           {runCleanup.isSuccess && (
             <div className="space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
-              <p>Swept {runCleanup.data.swept_count} file(s) into /root/trash, then emptied it.</p>
+              <p>
+                Swept {runCleanup.data.swept_count} file(s) into <span className="font-mono">{runCleanup.data.trash_root}</span>.
+              </p>
               {runCleanup.data.sweep_errors.length > 0 && (
-                <p className="text-amber-600">{runCleanup.data.sweep_errors.length} sweep error(s) -- see below.</p>
-              )}
-              <pre className="whitespace-pre-wrap">{runCleanup.data.output || "Trash was already empty."}</pre>
-              {runCleanup.data.sweep_errors.length > 0 && (
-                <pre className="whitespace-pre-wrap text-amber-600">{runCleanup.data.sweep_errors.join("\n")}</pre>
+                <>
+                  <p className="text-amber-600">{runCleanup.data.sweep_errors.length} sweep error(s) -- see below.</p>
+                  <pre className="whitespace-pre-wrap text-amber-600">{runCleanup.data.sweep_errors.join("\n")}</pre>
+                </>
               )}
             </div>
           )}
           {runCleanup.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
               {(runCleanup.error as Error)?.message ?? "Cleanup failed"}
+            </div>
+          )}
+          {emptyTrash.isSuccess && (
+            <div className="space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
+              <pre className="whitespace-pre-wrap">{emptyTrash.data.output || "Trash was already empty."}</pre>
+            </div>
+          )}
+          {emptyTrash.isError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {(emptyTrash.error as Error)?.message ?? "Failed to empty trash"}
             </div>
           )}
           {scanLoading && (

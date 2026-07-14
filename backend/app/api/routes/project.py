@@ -838,7 +838,15 @@ async def toggle_project_forgerouter(
     payload: ProjectForgeRouterToggle,
     db: AsyncSession = Depends(get_db),
 ) -> ProjectForgeRouterConfig:
-    """Enable or disable ForgeRouter for this project.
+    """Enable or disable ForgeRouter per tool for this project.
+
+    `claude`/`codex`/`antigravity` describe the DESIRED end-state for each
+    tool independently — a caller can flip just one (e.g. turn Codex off
+    while leaving Claude on). Only tools whose desired state differs from
+    the stored config are sent to the host bridge, so an untouched tool's
+    config file on disk is never rewritten or removed. `enabled` is kept
+    for API compatibility (true when any tool is desired on) but no longer
+    drives which tools get applied — the per-tool booleans do.
 
     When enabled, config files are written inside the project's
     working_directory_path — never in global user directories.
@@ -851,38 +859,48 @@ async def toggle_project_forgerouter(
             detail="Project has no working_directory_path — set it before configuring ForgeRouter.",
         )
 
-    tools_to_apply = []
-    if payload.enabled:
-        if payload.claude:
-            tools_to_apply.append("claude")
-        if payload.codex:
-            tools_to_apply.append("codex")
-        if payload.antigravity:
-            tools_to_apply.append("antigravity")
-    else:
-        tools_to_apply = ["claude", "codex", "antigravity"]
-
-    await _bridge_request(
-        "PUT",
-        "/v1/project-forgerouter",
-        json={
-            "project_path": project.working_directory_path,
-            "tools": tools_to_apply,
-            "enabled": payload.enabled,
-            "api_key": payload.api_key,
-        },
-    )
-
     cfg = await _get_or_create_fr_config(db, project_id)
-    if payload.enabled:
-        cfg.api_key = payload.api_key or cfg.api_key
-        cfg.claude_enabled = payload.claude
-        cfg.codex_enabled = payload.codex
-        cfg.antigravity_enabled = payload.antigravity
-    else:
-        cfg.claude_enabled = False
-        cfg.codex_enabled = False
-        cfg.antigravity_enabled = False
+    current = {
+        "claude": cfg.claude_enabled,
+        "codex": cfg.codex_enabled,
+        "antigravity": cfg.antigravity_enabled,
+    }
+    desired = {
+        "claude": payload.claude,
+        "codex": payload.codex,
+        "antigravity": payload.antigravity,
+    }
+    to_enable = [tool for tool, want in desired.items() if want and not current[tool]]
+    to_disable = [tool for tool, want in desired.items() if not want and current[tool]]
+
+    if to_enable:
+        await _bridge_request(
+            "PUT",
+            "/v1/project-forgerouter",
+            json={
+                "project_path": project.working_directory_path,
+                "tools": to_enable,
+                "enabled": True,
+                "api_key": payload.api_key or cfg.api_key or "",
+            },
+        )
+    if to_disable:
+        await _bridge_request(
+            "PUT",
+            "/v1/project-forgerouter",
+            json={
+                "project_path": project.working_directory_path,
+                "tools": to_disable,
+                "enabled": False,
+                "api_key": "",
+            },
+        )
+
+    if payload.api_key:
+        cfg.api_key = payload.api_key
+    cfg.claude_enabled = desired["claude"]
+    cfg.codex_enabled = desired["codex"]
+    cfg.antigravity_enabled = desired["antigravity"]
     cfg.configured_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(cfg)

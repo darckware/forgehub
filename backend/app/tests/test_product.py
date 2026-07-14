@@ -44,12 +44,17 @@ async def test_create_get_list_product(client: AsyncClient):
     unique_name = f"Test Product {uuid.uuid4()}"
     create_resp = await client.post(
         "/api/v1/products",
-        json={"name": unique_name, "description": "A product created in tests"},
+        json={
+            "name": unique_name,
+            "description": "A product created in tests",
+            "application_url": "http://localhost:4173/login",
+        },
     )
     try:
         assert create_resp.status_code == 201, create_resp.text
         body = create_resp.json()
         assert body["name"] == unique_name
+        assert body["application_url"] == "http://localhost:4173/login"
         # Business rule 6.1.3: a product is created with at least one version.
         assert len(body["versions"]) == 1
         assert body["versions"][0]["version"] == "0.1.0"
@@ -60,6 +65,13 @@ async def test_create_get_list_product(client: AsyncClient):
         get_resp = await client.get(f"/api/v1/products/{product_id}")
         assert get_resp.status_code == 200
         assert get_resp.json()["name"] == unique_name
+
+        update_resp = await client.put(
+            f"/api/v1/products/{product_id}",
+            json={"application_url": "https://example.test/app"},
+        )
+        assert update_resp.status_code == 200, update_resp.text
+        assert update_resp.json()["application_url"] == "https://example.test/app"
 
         list_resp = await client.get("/api/v1/products")
         assert list_resp.status_code == 200

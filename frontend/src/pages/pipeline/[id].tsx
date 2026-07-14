@@ -13,6 +13,8 @@ import {
   Plus,
   Save,
   ShieldCheck,
+  RotateCcw,
+  Waypoints,
   Trash2,
   X,
 } from "lucide-react";
@@ -33,9 +35,15 @@ import {
   useCreateStage,
   useDeleteStage,
   useUpdateStage,
+  useProjectProgress,
+  useProgressTimeline,
+  useEvaluateStageCompletion,
+  useCompleteStage,
+  type StageProgress,
 } from "@/hooks/usePipeline";
 import { useProjects } from "@/hooks/useProject";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { useActionPermission } from "@/hooks/usePermission";
 
 const STAGE_STATUS_VARIANT: Record<
   string,
@@ -63,10 +71,14 @@ function StageCard({
   stage,
   index,
   pipelineId,
+  projectId,
+  progress,
 }: {
   stage: PipelineStage;
   index: number;
   pipelineId: string;
+  projectId: string;
+  progress?: StageProgress;
 }) {
   const [editStatus, setEditStatus] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -82,6 +94,10 @@ function StageCard({
 
   const updateStage = useUpdateStage(pipelineId, stage.id);
   const deleteStage = useDeleteStage(pipelineId);
+  const evaluateCompletion = useEvaluateStageCompletion(projectId, stage.id);
+  const completeStage = useCompleteStage(projectId, pipelineId, stage.id);
+  const canViewProgress = useActionPermission("planning.progress.view");
+  const canComplete = useActionPermission("planning.stage.complete");
 
   const saveEdit = () => {
     updateStage.mutate(
@@ -104,7 +120,7 @@ function StageCard({
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-              {stage.order ?? index + 1}
+              {stage.order_index ?? index + 1}
             </span>
             {editing ? (
               <Input value={editName} onChange={(e) => setEditName(e.target.value)} className="h-7 text-sm font-medium" />
@@ -124,7 +140,7 @@ function StageCard({
                 onBlur={() => setEditStatus(false)}
                 autoFocus
               >
-                {STAGE_STATUSES.map((s) => (
+                {STAGE_STATUSES.filter((s) => s !== "completed").map((s) => (
                   <option key={s} value={s}>
                     {s.replace("_", " ")}
                   </option>
@@ -227,13 +243,13 @@ function StageCard({
             <ul className="space-y-1.5">
               {artifacts.map((artifact) => (
                 <li key={artifact.id} className="flex items-center gap-2 text-sm">
-                  {artifact.is_satisfied ? (
+                  {artifact.is_fulfilled ? (
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
                   ) : (
                     <CircleDashed className="h-4 w-4 shrink-0 text-muted-foreground" />
                   )}
-                  <span className={cn(!artifact.is_satisfied && "text-muted-foreground")}>
-                    {artifact.name}
+                  <span className={cn(!artifact.is_fulfilled && "text-muted-foreground")}>
+                    {artifact.artifact_type}
                   </span>
                 </li>
               ))}
@@ -251,12 +267,12 @@ function StageCard({
             <ul className="space-y-1.5">
               {gates.map((gate) => (
                 <li key={gate.id} className="flex items-center gap-2 text-sm">
-                  {gate.is_passed ? (
+                  {gate.status === "approved" ? (
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
                   ) : (
                     <CircleDashed className="h-4 w-4 shrink-0 text-muted-foreground" />
                   )}
-                  <span className={cn(!gate.is_passed && "text-muted-foreground")}>
+                  <span className={cn(gate.status !== "approved" && "text-muted-foreground")}>
                     {gate.name}
                   </span>
                 </li>
@@ -270,6 +286,40 @@ function StageCard({
             Depends on {stage.depends_on_stage_ids.length} stage
             {stage.depends_on_stage_ids.length > 1 ? "s" : ""}
           </p>
+        )}
+
+        {canViewProgress && (
+          <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">Completion control</span>
+              <span>{progress?.requirement_completed ?? 0}/{progress?.requirement_total ?? 0} confirmed</span>
+            </div>
+            {progress?.last_checkpoint ? (
+              <div className="space-y-1 text-muted-foreground">
+                <p>Last checkpoint: {progress.last_checkpoint.step_label}</p>
+                <p>{new Date(progress.last_checkpoint.last_confirmed_at).toLocaleString()} · {progress.last_checkpoint.actor_name}</p>
+                {progress.stopped_reason && <p className="text-destructive">Stopped: {progress.stopped_reason}</p>}
+                {progress.resume_from && <p>Resume from: {progress.resume_from}</p>}
+              </div>
+            ) : <p className="text-muted-foreground">No checkpoint recorded.</p>}
+            {progress?.missing_requirements?.length ? (
+              <ul className="space-y-1 text-muted-foreground">
+                {progress.missing_requirements.slice(0, 3).map((item) => <li key={item.key}>Pending: {item.label}</li>)}
+              </ul>
+            ) : null}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button size="sm" variant="outline" disabled={evaluateCompletion.isPending} onClick={() => evaluateCompletion.mutate()}>
+                {evaluateCompletion.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
+                Evaluate
+              </Button>
+              {canComplete && progress?.completion_assessment?.result === "ready" && stage.status !== "completed" && (
+                <Button size="sm" disabled={completeStage.isPending} onClick={() => completeStage.mutate(progress.completion_assessment!.id)}>
+                  <CheckCircle2 className="mr-1 h-3 w-3" /> Complete stage
+                </Button>
+              )}
+            </div>
+            {(evaluateCompletion.isError || completeStage.isError) && <p className="text-destructive">{String((evaluateCompletion.error ?? completeStage.error) as Error)}</p>}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -340,7 +390,7 @@ function AddStageForm({
             <div className="space-y-2">
               <Label htmlFor="stage_status">Status</Label>
               <Select id="stage_status" {...register("status")}>
-                {STAGE_STATUSES.map((s) => (
+                {STAGE_STATUSES.filter((s) => s !== "completed").map((s) => (
                   <option key={s} value={s}>
                     {s.replace("_", " ")}
                   </option>
@@ -382,17 +432,20 @@ export default function PipelineDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: pipeline, isLoading, isError, error } = usePipeline(id);
   const { data: projects } = useProjects();
+  const canViewProgress = useActionPermission("planning.progress.view");
+  const { data: progress } = useProjectProgress(canViewProgress ? pipeline?.project_id : undefined);
+  const { data: timeline } = useProgressTimeline(canViewProgress ? pipeline?.project_id : undefined);
   const [showAddStage, setShowAddStage] = useState(false);
 
   const projectName = (pid: string): string =>
     projects?.find((p) => p.id === pid)?.name ?? pid.slice(0, 8) + "…";
 
   const sortedStages = pipeline?.stages
-    ? [...pipeline.stages].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    ? [...pipeline.stages].sort((a, b) => a.order_index - b.order_index)
     : [];
 
   const nextOrder = sortedStages.length > 0
-    ? Math.max(...sortedStages.map((s) => s.order ?? 0)) + 1
+    ? Math.max(...sortedStages.map((s) => s.order_index)) + 1
     : 0;
 
   return (
@@ -441,12 +494,26 @@ export default function PipelineDetailPage() {
           </div>
 
           <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2"><Waypoints className="h-5 w-5" /><CardTitle className="text-xl">Project progress</CardTitle></div>
+              <CardDescription>Authoritative checkpoints and the exact safe resume point.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-3">
+              <div><p className="text-xs text-muted-foreground">Macroflow</p><p className="font-medium capitalize">{progress?.macroflow ?? "—"}</p></div>
+              <div><p className="text-xs text-muted-foreground">Last confirmation</p><p className="font-medium">{progress?.last_confirmed_at ? new Date(progress.last_confirmed_at).toLocaleString() : "No checkpoint"}</p></div>
+              <div><p className="text-xs text-muted-foreground">Next safe action</p><p className="font-medium">{progress?.first_safe_action ?? "Evaluate the current stage"}</p></div>
+              {progress?.stopped_at && <div className="md:col-span-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"><strong>Stopped at {progress.stopped_at.step_label}:</strong> {progress.stopped_at.reason ?? progress.stopped_at.type}</div>}
+              {timeline?.length ? <div className="md:col-span-3 space-y-2"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Timeline · {timeline.length} checkpoint(s)</p><div className="space-y-1">{timeline.slice(-5).reverse().map((checkpoint) => <div key={checkpoint.id} className="flex flex-wrap items-center justify-between gap-2 rounded border px-2 py-1.5 text-xs"><span><Badge variant={checkpoint.checkpoint_type === "completed" || checkpoint.checkpoint_type === "resumed" ? "success" : checkpoint.checkpoint_type === "blocked" || checkpoint.checkpoint_type === "failed" ? "destructive" : "outline"}>{checkpoint.checkpoint_type.replace(/_/g, " ")}</Badge> <span className="ml-2">{checkpoint.step_label}</span></span><span className="text-muted-foreground">{new Date(checkpoint.last_confirmed_at).toLocaleString()}</span></div>)}</div></div> : null}
+            </CardContent>
+          </Card>
+
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-xl">Stages</CardTitle>
                 <CardDescription>
                   Stages execute in order. A stage cannot complete until its required artifacts
-                  exist and its gates pass. Click a status badge to advance a stage.
+                  exist, its gates pass, and a current completion assessment confirms readiness.
                 </CardDescription>
               </div>
               <Button size="sm" onClick={() => setShowAddStage((v) => !v)}>
@@ -468,6 +535,8 @@ export default function PipelineDetailPage() {
                       stage={stage}
                       index={index}
                       pipelineId={pipeline.id}
+                      projectId={pipeline.project_id}
+                      progress={progress?.stages.find((item) => item.stage_id === stage.id)}
                     />
                   ))}
                   {showAddStage && (

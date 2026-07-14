@@ -186,6 +186,7 @@ export const projectSchema = z.object({
   // flow anymore.
   github_repo_url: z.string().nullable().optional(),
   backup_enabled: z.boolean().default(false),
+  backup_location: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -201,6 +202,7 @@ export const projectCreateSchema = z.object({
   working_directory_path: z.string().max(1024, "Path is too long").optional().or(z.literal("")),
   github_repo_url: z.string().max(500, "URL is too long").optional().or(z.literal("")),
   backup_enabled: z.boolean().default(false),
+  backup_location: z.string().max(1024, "Path is too long").optional().or(z.literal("")),
 });
 
 export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;

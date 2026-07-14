@@ -39,6 +39,7 @@ from app.api.schemas.governance import (
 )
 from app.db.base import get_db
 from app.db.models.governance import Approval, AuditEvent, Policy
+from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 
 router = APIRouter(prefix="/api/v1/governance", tags=["governance"])
 
@@ -48,8 +49,10 @@ router = APIRouter(prefix="/api/v1/governance", tags=["governance"])
 # ---------------------------------------------------------------------------
 @router.post("/approvals", response_model=ApprovalOut, status_code=status.HTTP_201_CREATED)
 async def create_approval(
-    payload: ApprovalCreate, db: AsyncSession = Depends(get_db)
+    payload: ApprovalCreate, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
 ) -> Approval:
+    await authorize_action(db, principal, "governance.approval.decide")
     if payload.policy_id is not None:
         policy = await db.get(Policy, payload.policy_id)
         if policy is None:
@@ -58,7 +61,7 @@ async def create_approval(
                 detail="policy_id does not reference an existing policy",
             )
 
-    approval = Approval(**payload.model_dump(), status="pending")
+    approval = Approval(**payload.model_dump(exclude={"requested_by"}), requested_by=principal.display_name, status="pending")
     db.add(approval)
     await db.commit()
     await db.refresh(approval)
@@ -109,16 +112,18 @@ async def get_approval(approval_id: uuid.UUID, db: AsyncSession = Depends(get_db
 
 @router.post("/approvals/{approval_id}/approve", response_model=ApprovalOut)
 async def approve_approval(
-    approval_id: uuid.UUID, payload: ApprovalDecision, db: AsyncSession = Depends(get_db)
+    approval_id: uuid.UUID, payload: ApprovalDecision, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
 ) -> Approval:
-    return await _decide_approval(approval_id, payload, "approved", db)
+    return await _decide_approval(approval_id, payload, "approved", db, principal)
 
 
 @router.post("/approvals/{approval_id}/reject", response_model=ApprovalOut)
 async def reject_approval(
-    approval_id: uuid.UUID, payload: ApprovalDecision, db: AsyncSession = Depends(get_db)
+    approval_id: uuid.UUID, payload: ApprovalDecision, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
 ) -> Approval:
-    return await _decide_approval(approval_id, payload, "rejected", db)
+    return await _decide_approval(approval_id, payload, "rejected", db, principal)
 
 
 async def _decide_approval(
@@ -126,7 +131,9 @@ async def _decide_approval(
     payload: ApprovalDecision,
     new_status: str,
     db: AsyncSession,
+    principal: ActorPrincipal,
 ) -> Approval:
+    await authorize_action(db, principal, "governance.approval.decide")
     approval = await db.get(Approval, approval_id)
     if approval is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
@@ -139,7 +146,7 @@ async def _decide_approval(
         )
 
     approval.status = new_status
-    approval.decided_by = payload.decided_by
+    approval.decided_by = principal.display_name
     if payload.comments is not None:
         approval.comments = payload.comments
     await db.commit()
@@ -150,7 +157,7 @@ async def _decide_approval(
             entity_type="approval",
             entity_id=approval.id,
             event_type=f"approval_{new_status}",
-            actor=payload.decided_by,
+            actor=principal.display_name,
             payload={
                 "target_entity_type": approval.entity_type,
                 "target_entity_id": str(approval.entity_id),

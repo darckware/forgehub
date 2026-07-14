@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Camera, Check, KeyRound, Laptop, LogOut, Loader2, Moon, Settings, Sun, User as UserIcon } from "lucide-react";
+import { Camera, Check, KeyRound, Laptop, LogOut, Loader2, Moon, Settings, Settings2, Sun, User as UserIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useTheme } from "@/lib/theme";
@@ -216,6 +216,7 @@ export function UserSettingsMenu({
   useClickOutside(containerRef, () => setOpen(false), open);
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const clearQueryCache = useClearQueryCacheOnLogout();
 
@@ -292,6 +293,19 @@ export function UserSettingsMenu({
               <KeyRound className="h-3.5 w-3.5" />
               Change password
             </button>
+            {user?.is_admin && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                onClick={() => {
+                  setOpen(false);
+                  navigate("/settings");
+                }}
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                System settings
+              </button>
+            )}
             <div className="my-1 border-t border-border" />
             <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
               Theme

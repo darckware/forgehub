@@ -50,32 +50,35 @@ export type StageType = (typeof STAGE_TYPES)[number];
 
 export const stageRequiredArtifactSchema = z.object({
   id: z.string(),
-  pipeline_stage_id: z.string(),
-  name: z.string(),
-  description: z.string().nullable().optional(),
-  is_satisfied: z.boolean().optional().default(false),
+  stage_id: z.string(),
+  artifact_type: z.string(),
+  artifact_id: z.string().nullable().optional(),
+  is_mandatory: z.boolean().default(true),
+  is_fulfilled: z.boolean().default(false),
 });
 
 export type StageRequiredArtifact = z.infer<typeof stageRequiredArtifactSchema>;
 
 export const stageGateSchema = z.object({
   id: z.string(),
-  pipeline_stage_id: z.string(),
+  stage_id: z.string(),
   name: z.string(),
-  requires_approval: z.boolean().optional().default(false),
-  requires_verification: z.boolean().optional().default(false),
-  is_passed: z.boolean().optional().default(false),
+  gate_type: z.string(),
+  is_mandatory: z.boolean().default(true),
+  status: z.string(),
+  approved_by: z.string().nullable().optional(),
 });
 
 export type StageGate = z.infer<typeof stageGateSchema>;
 
 export const pipelineStageSchema = z.object({
   id: z.string(),
-  project_pipeline_id: z.string(),
+  pipeline_id: z.string(),
   name: z.string(),
   stage_type: z.enum(STAGE_TYPES).optional(),
-  order: z.number().int().optional(),
+  order_index: z.number().int(),
   status: z.enum(STAGE_STATUSES).default("pending"),
+  revision: z.number().int().default(1),
   requires_approval: z.boolean().optional().default(false),
   requires_verification: z.boolean().optional().default(false),
   depends_on_stage_ids: z.array(z.string()).optional().default([]),
@@ -91,7 +94,7 @@ export const projectPipelineSchema = z.object({
   id: z.string(),
   project_id: z.string(),
   name: z.string(),
-  pipeline_template_id: z.string().nullable().optional(),
+  template_id: z.string().nullable().optional(),
   status: z.enum(PIPELINE_STATUSES).default("draft"),
   is_active: z.boolean().optional().default(true),
   created_at: z.string().optional(),
@@ -133,6 +136,8 @@ export const pipelineKeys = {
   all: ["pipelines"] as const,
   detail: (id: string) => ["pipelines", id] as const,
   templates: ["pipeline-templates"] as const,
+  progress: (projectId: string) => ["project-progress", projectId] as const,
+  timeline: (projectId: string) => ["project-progress", projectId, "timeline"] as const,
 };
 
 const RESOURCE = "/api/v1/pipelines";
@@ -336,5 +341,103 @@ export function useAllGates() {
     queryKey: ["pipeline-gates", "all"],
     queryFn: () => apiClient.get<StageGate[]>("/api/v1/pipelines/gates"),
     staleTime: 60_000,
+  });
+}
+
+export interface ProgressCheckpoint {
+  id: string;
+  project_id: string;
+  pipeline_stage_id: string | null;
+  task_id: string | null;
+  task_execution_id: string | null;
+  sequence: number;
+  checkpoint_type: string;
+  step_key: string;
+  step_label: string;
+  evidence_refs: string[];
+  last_confirmed_at: string;
+  resume_from_step_key: string | null;
+  blocker_code: string | null;
+  error_code: string | null;
+  message: string | null;
+  actor_name: string;
+}
+
+export interface StageCompletionAssessment {
+  id: string;
+  pipeline_stage_id: string;
+  stage_revision: number;
+  input_hash: string;
+  result: "ready" | "not_ready" | "stale";
+  requirement_results: Array<{ key: string; kind: string; label: string; passed: boolean; value?: unknown }>;
+  missing_requirements: Array<{ key: string; kind: string; label: string; passed: boolean; value?: unknown }>;
+  blocking_reasons: Array<{ code: string; message?: string; resume_from?: string }>;
+  evidence_refs: string[];
+  evaluated_at: string;
+}
+
+export interface StageProgress {
+  stage_id: string;
+  pipeline_id: string;
+  stage_name: string;
+  order_index: number;
+  effective_status: string;
+  requirement_total: number;
+  requirement_completed: number;
+  missing_requirements: StageCompletionAssessment["missing_requirements"];
+  last_checkpoint: ProgressCheckpoint | null;
+  stopped_reason: string | null;
+  resume_from: string | null;
+  completion_assessment: StageCompletionAssessment | null;
+}
+
+export interface ProjectProgress {
+  project_id: string;
+  macroflow: "conception" | "delivery" | "operations";
+  pipeline_id: string | null;
+  current_stage_id: string | null;
+  stages: StageProgress[];
+  last_confirmed_at: string | null;
+  stopped_at: { checkpoint_id: string; type: string; step_key: string; step_label: string; reason: string | null; task_execution_id: string | null } | null;
+  first_safe_action: string | null;
+}
+
+export function useProjectProgress(projectId: string | undefined) {
+  return useQuery({
+    queryKey: pipelineKeys.progress(projectId ?? ""),
+    queryFn: () => apiClient.get<ProjectProgress>(`/api/v1/projects/${projectId}/progress`),
+    enabled: Boolean(projectId),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useProgressTimeline(projectId: string | undefined) {
+  return useQuery({
+    queryKey: pipelineKeys.timeline(projectId ?? ""),
+    queryFn: () => apiClient.get<ProgressCheckpoint[]>(`/api/v1/projects/${projectId}/progress-timeline`),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function useEvaluateStageCompletion(projectId: string, stageId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<StageCompletionAssessment>(`/api/v1/pipeline-stages/${stageId}:evaluate-completion`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: pipelineKeys.progress(projectId) }),
+  });
+}
+
+export function useCompleteStage(projectId: string, pipelineId: string, stageId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assessmentId: string) => apiClient.post(`/api/v1/pipeline-stages/${stageId}:complete`, {
+      assessment_id: assessmentId,
+      idempotency_key: crypto.randomUUID(),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: pipelineKeys.progress(projectId) });
+      qc.invalidateQueries({ queryKey: pipelineKeys.detail(pipelineId) });
+      qc.invalidateQueries({ queryKey: pipelineKeys.timeline(projectId) });
+    },
   });
 }

@@ -33,6 +33,27 @@ const MODULE_LABELS: Record<string, string> = {
   profiles: "Profiles",
 };
 
+const SENSITIVE_ACTIONS = [
+  ["planning.concept.view", "View concept details"],
+  ["planning.concept.edit", "Create and revise concepts"],
+  ["planning.concept.submit", "Submit concepts for approval"],
+  ["planning.concept.decide", "Legacy concept decision (disabled)"],
+  ["planning.blueprint.edit", "Edit System Maps"],
+  ["planning.blueprint.approve", "Approve System Maps"],
+  ["planning.delivery.authorize", "Authorize delivery planning"],
+  ["planning.progress.view", "View project progress and checkpoints"],
+  ["planning.progress.manage", "Manage checkpoints and recovery"],
+  ["planning.stage.complete", "Complete pipeline stages"],
+  ["planning.execution.view", "View execution waves and runner state"],
+  ["planning.execution.manage", "Create and manage execution waves"],
+  ["planning.execution.release", "Approve execution waves"],
+  ["planning.execution.dispatch", "Issue and dispatch work packages"],
+  ["planning.execution.cancel", "Cancel and reconcile CLI executions"],
+  ["governance.approval.view", "View governed approvals"],
+  ["governance.approval.decide", "Decide governed approvals"],
+  ["governance.delegation.manage", "Manage Athos delegations"],
+] as const;
+
 type PermOp = "can_view" | "can_query" | "can_write" | "can_delete";
 type PermRow = Record<PermOp, boolean>;
 
@@ -61,6 +82,9 @@ export default function ProfileForm({ profile, onClose }: Props) {
   const [perms, setPerms] = useState<Record<string, PermRow>>(
     profile ? profileToPerms(profile) : defaultPerms()
   );
+  const [actions, setActions] = useState<Record<string, boolean>>(() => Object.fromEntries(
+    SENSITIVE_ACTIONS.map(([key]) => [key, profile?.action_permissions?.find((item) => item.action_key === key)?.allowed ?? false])
+  ));
 
   const createMut = useCreateProfile();
   const updateMut = useUpdateProfile();
@@ -91,9 +115,9 @@ export default function ProfileForm({ profile, onClose }: Props) {
     e.preventDefault();
     try {
       if (profile) {
-        await updateMut.mutateAsync({ id: profile.id, body: { name, description: description || undefined, permissions: toPayload() } });
+        await updateMut.mutateAsync({ id: profile.id, body: { name, description: description || undefined, permissions: toPayload(), action_permissions: Object.entries(actions).map(([action_key, allowed]) => ({ action_key, allowed })) } });
       } else {
-        await createMut.mutateAsync({ name, description: description || undefined, permissions: toPayload() });
+        await createMut.mutateAsync({ name, description: description || undefined, permissions: toPayload(), action_permissions: Object.entries(actions).map(([action_key, allowed]) => ({ action_key, allowed })) });
       }
       onClose();
     } catch {
@@ -118,6 +142,17 @@ export default function ProfileForm({ profile, onClose }: Props) {
         <div className="flex flex-col gap-1">
           <Label>Description</Label>
           <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional description" />
+        </div>
+      </div>
+
+      <div className="rounded-md border border-border p-3">
+        <p className="mb-2 text-sm font-medium">Sensitive command permissions</p>
+        <p className="mb-3 text-xs text-muted-foreground">These actions are denied by default and are checked by the backend.</p>
+        <div className="grid gap-2 md:grid-cols-2">
+          {SENSITIVE_ACTIONS.map(([key, label]) => <label key={key} className="flex items-start gap-2 rounded border p-2 text-xs">
+            <input type="checkbox" checked={actions[key]} onChange={() => setActions((value) => ({ ...value, [key]: !value[key] }))} className="mt-0.5 h-3.5 w-3.5" />
+            <span><span className="block font-medium">{label}</span><code className="text-[10px] text-muted-foreground">{key}</code></span>
+          </label>)}
         </div>
       </div>
 

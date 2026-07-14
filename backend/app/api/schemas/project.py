@@ -32,6 +32,7 @@ class ProjectBase(BaseModel):
     working_directory_path: str | None = Field(default=None, max_length=1024)
     github_repo_url: str | None = Field(default=None, max_length=500)
     backup_enabled: bool = False
+    backup_location: str | None = Field(default=None, max_length=1024)
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ProjectBase":
@@ -54,6 +55,7 @@ class ProjectUpdate(BaseModel):
     working_directory_path: str | None = Field(default=None, max_length=1024)
     github_repo_url: str | None = Field(default=None, max_length=500)
     backup_enabled: bool | None = None
+    backup_location: str | None = Field(default=None, max_length=1024)
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ProjectUpdate":
@@ -316,10 +318,14 @@ class ProjectForgeRouterConfigOut(BaseModel):
 
 
 class ProjectForgeRouterToggle(BaseModel):
-    """Request body to enable/disable ForgeRouter for a project.
+    """Request body to configure ForgeRouter per tool for a project.
 
-    `enabled=False` disables all tools and removes their config files.
-    Per-tool flags only take effect when `enabled=True`.
+    `claude`/`codex`/`antigravity` are the desired end-state for each tool,
+    independent of one another — the route only touches the tools whose
+    desired state actually changes from what's stored. `api_key` is only
+    required the first time a tool is turned on for a project that has no
+    stored key yet. `enabled` is kept for API compatibility (true when any
+    tool should end up on) but does not itself select which tools apply.
     """
 
     enabled: bool

@@ -22,6 +22,16 @@ MODULES = [
     "foundation", "crons", "deploy", "database", "users", "profiles",
 ]
 
+SENSITIVE_ACTIONS = (
+    "planning.concept.view", "planning.concept.edit", "planning.concept.submit",
+    "planning.concept.decide", "planning.blueprint.edit", "planning.blueprint.approve",
+    "planning.delivery.authorize", "planning.progress.view", "planning.progress.manage",
+    "planning.stage.complete", "governance.approval.view",
+    "planning.execution.view", "planning.execution.manage",
+    "planning.execution.release", "planning.execution.dispatch", "planning.execution.cancel",
+    "governance.approval.decide", "governance.delegation.manage",
+)
+
 
 class Profile(Base, TimestampMixin):
     """Named access profile — owns a set of ProfilePermission rows."""
@@ -34,6 +44,9 @@ class Profile(Base, TimestampMixin):
 
     permissions: Mapped[list["ProfilePermission"]] = relationship(
         "ProfilePermission", back_populates="profile", cascade="all, delete-orphan"
+    )
+    action_permissions: Mapped[list["ProfileActionPermission"]] = relationship(
+        "ProfileActionPermission", back_populates="profile", cascade="all, delete-orphan"
     )
 
 
@@ -59,3 +72,20 @@ class ProfilePermission(Base, TimestampMixin):
     can_delete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     profile: Mapped["Profile"] = relationship("Profile", back_populates="permissions")
+
+
+class ProfileActionPermission(Base, TimestampMixin):
+    """Deny-by-default permission for a sensitive domain command."""
+
+    __tablename__ = "profile_action_permissions"
+    __table_args__ = (
+        UniqueConstraint("profile_id", "action_key", name="uq_profile_action_permission"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    action_key: Mapped[str] = mapped_column(String(150), nullable=False)
+    allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    profile: Mapped["Profile"] = relationship("Profile", back_populates="action_permissions")

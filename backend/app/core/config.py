@@ -1,4 +1,5 @@
-"""Application settings loaded from environment variables / .env.
+"""Application settings loaded from environment variables / .env /
+forgehub.config.
 
 This is the single source of truth for configuration. Every other module
 (db.base, core.security, alembic/env.py) must import `settings` from here
@@ -9,13 +10,20 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Repo root .env (forgehub/.env), two levels up from backend/app/core/.
-_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+# Repo root, two levels up from backend/app/core/.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_ENV_FILE = _REPO_ROOT / ".env"
+# ForgeHub's own operational defaults (paths/behavior, not credentials) --
+# see forgehub.config's own header comment for why this is split out from
+# .env. Loaded second so a value set there overrides the same key in .env
+# (pydantic-settings' env_file tuple: later files win); in practice the two
+# files don't share keys today.
+_APP_CONFIG_FILE = _REPO_ROOT / "forgehub.config"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(_ENV_FILE),
+        env_file=(str(_ENV_FILE), str(_APP_CONFIG_FILE)),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -69,6 +77,31 @@ class Settings(BaseSettings):
     FOUNDATION_POSTGRES_PORT: int = 5432
     FOUNDATION_POSTGRES_USER: str = "foundation"
     FOUNDATION_POSTGRES_PASSWORD: str = ""  # falls back to POSTGRES_PASSWORD when empty
+
+    # System Control (api/routes/system_control.py) -- see forgehub.config
+    # for the operator-facing explanation of each of these.
+    HERMES_SOURCE_PATH: str = "/root/.hermes"
+    GIT_CONTROL_DEFAULT_REPO: str = "hermes"
+    BACKUP_ROOT: str = "/root/backup"
+    # Where "Run Cleanup" moves eligible files to, and what "Empty trash"
+    # permanently deletes the contents of -- two separate actions/buttons
+    # since 2026-07-11 (previously one click did both). Deliberately NOT
+    # the same script the external "foundation-clear" Hermes cron runs
+    # weekly (that one has its own hardcoded /root/trash and isn't
+    # ForgeHub's to reconfigure) -- ForgeHub empties this path itself via
+    # host-bridge exec, so retuning TRASH_ROOT here actually takes effect.
+    TRASH_ROOT: str = "/root/trash"
+    CLEANUP_SCAN_ROOT: str = "/"
+    CLEANUP_PRUNE_PATHS: list[str] = ["/mnt", "/proc", "/sys", "/dev", "/run"]
+    CLEANUP_PRUNE_NAMES: list[str] = [
+        "node_modules", ".git", "venv", ".venv", "site-packages", "__pycache__",
+    ]
+    # IANA zone used for wall-clock timestamps ForgeHub itself generates
+    # (e.g. backup archive filenames, see system_control.py's _now_local) --
+    # independent of the host OS timezone, which the rest of the process
+    # (unqualified datetime.now() calls elsewhere, log timestamps, ...)
+    # still follows.
+    TIMEZONE: str = "America/Sao_Paulo"
 
     @property
     def DATABASE_URL(self) -> str:

@@ -32,6 +32,7 @@ import {
   Wrench,
   Command,
   Newspaper,
+  Lightbulb,
 } from "lucide-react";
 
 export interface NavLinkEntry {
@@ -78,6 +79,9 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     label: "Planning",
     entries: [
+      { type: "link", to: "/conception", label: "Conception", icon: Lightbulb, module: "product" },
+      { type: "link", to: "/system-map", label: "System Map", icon: Share2, module: "product" },
+      { type: "link", to: "/project-scope", label: "Project Scope", icon: ClipboardList, module: "projects" },
       { type: "link", to: "/product", label: "Products", icon: Package, module: "product" },
       { type: "link", to: "/projects", label: "Projects", icon: FolderKanban, module: "projects" },
       { type: "link", to: "/pipeline", label: "Pipelines", icon: GitBranch, module: "pipeline" },

@@ -23,12 +23,13 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.db.base import AsyncSessionLocal, Base, engine
 from app.db.models.backlog import PlanningItem
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
+from app.db.models.progress import ProgressCheckpoint
 from app.db.models.task import (  # noqa: F401  (ensures tables register on Base.metadata)
     ProjectTask,
     TaskAssignment,
@@ -292,6 +293,12 @@ async def test_execution_requires_evidence_when_completed(
     execution_id = ok_exec.json()["id"]
     assert ok_exec.json()["attempt_number"] == 1
     created_ids["task_executions"].append(execution_id)
+    async with AsyncSessionLocal() as session:
+        started_checkpoint = (await session.execute(select(ProgressCheckpoint).where(
+            ProgressCheckpoint.task_execution_id == uuid.UUID(execution_id),
+            ProgressCheckpoint.checkpoint_type == "started",
+        ))).scalar_one()
+        assert started_checkpoint.resume_from_step_key == "execution.started"
 
     # Task should have moved from planned -> in_progress as a side effect.
     task_after = await client.get(f"/api/v1/tasks/{task_id}")
@@ -309,6 +316,12 @@ async def test_execution_requires_evidence_when_completed(
     )
     assert good_patch.status_code == 200
     assert good_patch.json()["status"] == "completed"
+    async with AsyncSessionLocal() as session:
+        lifecycle = list((await session.execute(select(ProgressCheckpoint).where(
+            ProgressCheckpoint.task_execution_id == uuid.UUID(execution_id)
+        ).order_by(ProgressCheckpoint.sequence))).scalars())
+        assert [checkpoint.checkpoint_type for checkpoint in lifecycle] == ["started", "completed"]
+        assert lifecycle[-1].evidence_refs == ["https://example.com/pr/123"]
 
 
 @pytest.mark.asyncio

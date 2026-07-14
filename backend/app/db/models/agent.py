@@ -18,10 +18,12 @@ Conventions (binding, see backend foundation notes):
       populated centrally by the wiring step).
 """
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Numeric,
     String,
@@ -89,6 +91,12 @@ class Agent(Base, TimestampMixin):
     )
     mission: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    department: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sector: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reports_to_profile_slug: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Write-only through the API and encrypted before persistence. The raw
+    # ForgeRouter agent key must never appear in response schemas or audit data.
+    forgerouter_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     sub_agents: Mapped[list["SubAgent"]] = relationship(
         back_populates="agent", cascade="all, delete-orphan"
@@ -114,6 +122,24 @@ class Agent(Base, TimestampMixin):
         ),
         UniqueConstraint("profile_slug", name="uq_agents_profile_slug"),
     )
+
+    @property
+    def forgerouter_api_key_configured(self) -> bool:
+        return bool(self.forgerouter_api_key_encrypted)
+
+
+class AgentServiceCredential(Base, TimestampMixin):
+    """Hashed, revocable bearer credential used to authenticate an agent principal."""
+
+    __tablename__ = "agent_service_credentials"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String(150), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SubAgent(Base, TimestampMixin):

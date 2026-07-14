@@ -15,11 +15,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
+import { AgentEcosystemHierarchy } from "@/components/AgentEcosystemHierarchy";
 import {
   useAgents,
   useDeleteAgent,
   useDeleteSubAgent,
   useSyncHermesAgents,
+  useSkills,
   type Agent,
   type SubAgent,
 } from "@/hooks/useAgent";
@@ -57,6 +59,7 @@ const TYPE_VARIANT: Record<
 
 export default function AgentPage() {
   const { data: agents, isLoading, isError, error } = useAgents();
+  const { data: skills = [] } = useSkills();
   const syncHermes = useSyncHermesAgents();
   const deleteAgent = useDeleteAgent();
   const deleteSubAgent = useDeleteSubAgent();
@@ -151,6 +154,8 @@ export default function AgentPage() {
           </CardContent>
         </Card>
       )}
+
+      {!isLoading && !isError && agents && <AgentEcosystemHierarchy agents={agents} skills={skills} />}
 
       {!isLoading && !isError && agents && agents.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">

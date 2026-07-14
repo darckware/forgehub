@@ -41,6 +41,7 @@ import { useProjects } from "@/hooks/useProject";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EntityDocsCard } from "@/components/EntityDocsCard";
 import { usePlanningItems } from "@/hooks/useBacklog";
+import { TaskAutomationCard } from "@/components/TaskAutomationCard";
 
 const STATUS_VARIANT: Record<
   string,
@@ -174,6 +175,7 @@ export default function TaskDetailPage() {
     planningItems?.find((i) => i.id === iid)?.title ?? iid.slice(0, 8) + "…";
   const parentTaskTitle = (tid: string) =>
     allTasks?.find((t) => t.id === tid)?.title ?? tid.slice(0, 8) + "…";
+  const taskProjectId = task?.project_id ?? planningItems?.find((item) => item.id === task?.planning_item_id)?.project_id;
 
   return (
     <div className="space-y-6">
@@ -276,6 +278,8 @@ export default function TaskDetailPage() {
               </CardContent>
             </Card>
           </div>
+
+          <TaskAutomationCard taskId={task.id} projectId={taskProjectId ?? undefined} />
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">

@@ -4,9 +4,6 @@ Validates username/password against the Users table.  Falls back to the
 DEV_USER settings credentials for the bootstrap login (before the admin
 row is persisted) so the very first login always works.
 """
-import uuid
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
@@ -15,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.schemas.user import PermissionMap, TokenOut, UserOut
 from app.core.config import settings
 from app.core.deps import get_current_user
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, hash_password, verify_password
 from app.db.base import get_db
-from app.db.models.profile import MODULES, ProfilePermission
+from app.db.models.profile import MODULES, SENSITIVE_ACTIONS, ProfileActionPermission, ProfilePermission
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -49,6 +46,20 @@ async def _build_permissions(user: User, db: AsyncSession) -> PermissionMap:
     return perm_map
 
 
+async def _build_action_permissions(user: User, db: AsyncSession) -> dict[str, bool]:
+    if user.is_admin:
+        return {action: True for action in SENSITIVE_ACTIONS}
+    actions = {action: False for action in SENSITIVE_ACTIONS}
+    if user.profile_id is None:
+        return actions
+    rows = list((await db.execute(select(ProfileActionPermission).where(
+        ProfileActionPermission.profile_id == user.profile_id
+    ))).scalars())
+    for row in rows:
+        actions[row.action_key] = row.allowed
+    return actions
+
+
 @router.post("/token", response_model=TokenOut)
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -77,24 +88,25 @@ async def login_for_access_token(
     token = create_access_token(subject=form_data.username)
 
     if user is None:
-        _now = datetime.now(timezone.utc)
-        fake = User()
-        fake.id = uuid.uuid4()
-        fake.username = form_data.username
-        fake.email = None
-        fake.full_name = "Admin (bootstrap)"
-        fake.is_active = True
-        fake.is_admin = True
-        fake.profile_id = None
-        fake.created_at = _now
-        fake.updated_at = _now
-        user_out = UserOut.model_validate(fake)
+        # Materialize the bootstrap identity so every later sensitive
+        # command resolves the same authenticated database principal.
+        user = User(
+            username=form_data.username,
+            hashed_password=hash_password(form_data.password),
+            full_name="Admin (bootstrap)", is_active=True, is_admin=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        user_out = UserOut.model_validate(user)
         permissions = _all_true_permissions()
+        actions = {action: True for action in SENSITIVE_ACTIONS}
     else:
         user_out = UserOut.model_validate(user)
         permissions = await _build_permissions(user, db)
+        actions = await _build_action_permissions(user, db)
 
-    return TokenOut(access_token=token, token_type="bearer", user=user_out, permissions=permissions)
+    return TokenOut(access_token=token, token_type="bearer", user=user_out, permissions=permissions, actions=actions)
 
 
 @router.get("/me", response_model=TokenOut)
@@ -112,9 +124,11 @@ async def get_me(
     already-expired session, only extend one that hasn't expired yet."""
     token = create_access_token(subject=current_user.username)
     permissions = await _build_permissions(current_user, db)
+    actions = await _build_action_permissions(current_user, db)
     return TokenOut(
         access_token=token,
         token_type="bearer",
         user=UserOut.model_validate(current_user),
         permissions=permissions,
+        actions=actions,
     )

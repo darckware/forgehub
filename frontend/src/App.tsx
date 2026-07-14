@@ -45,6 +45,10 @@ import ProfilesPage from "@/pages/profiles";
 import PipelineTemplatesPage from "@/pages/pipeline-templates";
 import NotificationsPage from "@/pages/notifications";
 import NewsPage from "@/pages/news";
+import SettingsPage from "@/pages/settings";
+import ConceptionPage from "@/pages/conception";
+import SystemMapPage from "@/pages/system-map";
+import ProjectScopePage from "@/pages/project-scope";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -70,6 +74,9 @@ export default function App() {
         <Route path="workspace" element={<WorkspacePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="news" element={<NewsPage />} />
+        <Route path="conception" element={<ConceptionPage />} />
+        <Route path="system-map" element={<SystemMapPage />} />
+        <Route path="project-scope" element={<ProjectScopePage />} />
         <Route path="product" element={<ProductPage />} />
         <Route path="product/:id" element={<ProductDetail />} />
         <Route path="projects" element={<ProjectPage />} />
@@ -98,6 +105,7 @@ export default function App() {
         <Route path="foundation" element={<FoundationPage />} />
         <Route path="crons" element={<CronsPage />} />
         <Route path="system-control" element={<SystemControlPage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="auditor" element={<AuditorPage />} />
         <Route path="demands" element={<DemandsPage />} />
         <Route path="docs" element={<DocsPage />} />

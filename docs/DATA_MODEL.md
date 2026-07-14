@@ -1,5 +1,7 @@
 # ForgeHub — Data Specification (DATA SPEC)
 
+> **Status documental:** dicionário do modelo atualmente implementado. Entidades propostas no `PLANNING_DELIVERY_ARCHITECTURE.md` não existem até que migrations e modelos correspondentes sejam entregues.
+
 Canonical artifact referenced by `docs/SPEC.md` §12 ("Next Spec Artifacts" → DATA SPEC). This document is the data dictionary and entity-relationship map for every table ForgeHub owns in the `company` schema of the shared `company_postgres` instance (topology: `docs/DB_README.md`).
 
 Ground truth is `backend/app/db/models/*.py` — if this document and the code disagree, the code wins; update this file.
@@ -154,11 +156,24 @@ No `CheckConstraint` exists yet on `pipeline_stages.status` / `project_pipelines
 
 | Table | Column | Type | Required | Notes |
 |---|---|---|---|---|
-| `project_tasks` | id, planning_item_id (FK, nullable at DB / **required at API**), parent_task_id (self-FK, optional), title, description, task_type (default `feature`), status (CHECK, default `planned`), priority (default `medium`), estimated/actual_cost, planned_start/end_date, started_at, completed_at | — | | status set ∈ planned\|assigned\|in_progress\|blocked\|done\|deployed\|cancelled — `CheckConstraint` added in migration `3d0bb9a16778` (**this session**; previously schema-validated only, no DB CHECK — see `docs/BUSINESS_RULES.md` §11) |
+| `project_tasks` | id, planning_item_id (FK, nullable at DB / **required at API**), parent_task_id (self-FK, optional), title, description, task_type, status, priority, costs and dates | — | | status inclui `ready`, definido somente por `ActivateExecutionWave` |
+| `progress_checkpoints` | project/stage/task/execution FKs, sequence, checkpoint_type, step, snapshot, evidence, resume point, blocker/error, actor, idempotency key | append-only recovery ledger | | último ponto confirmado e retomada reproduzível; migration `f0c6d3e8a921` |
+| `stage_completion_assessments` | stage/revision, baseline/policy version, input_hash, result, requirement/missing/blocker/evidence snapshots, evaluator/actor/time | avaliação imutável | | conclusão do Stage exige assessment `ready` vigente e hash compatível |
 | `task_dependencies` | id, task_id (FK, required), depends_on_task_id (FK, required), dependency_type (default `finish_to_start`) | — | | |
 | `task_required_skills` | id, task_id (FK, required), skill_id (FK, required), is_mandatory, minimum_proficiency | — | | |
 | `task_assignments` | id, task_id (FK, required), agent_id (FK, optional), sub_agent_id (FK, optional), status (default `active`), assigned_at, unassigned_at | — | | exactly one of agent_id/sub_agent_id enforced by a Pydantic `model_validator` (schema layer), not a DB constraint |
-| `task_executions` | id, task_id (FK, required), assignment_id (FK, optional), attempt_number (server-assigned), executor_type (default `agent`), status (default `pending`), started_at, finished_at, outcome_summary, evidence_ref, actual_cost | — | | `evidence_ref` required once status reaches `verified`/`completed` (schema + route re-check) |
+| `task_executions` | task/assignment, work_package_id, runtime profile/type/session, adapter/process refs, attempt/loop, status, timestamps, exit code, evidence/cost | — | | tentativa histórica; nunca é reaberta por retry/rework |
+
+### 3.5.1 Execução durável (`backend/app/db/models/execution.py`)
+
+| Tabela | Atributos principais | Finalidade |
+|---|---|---|
+| `execution_waves` / `execution_wave_tasks` | Project, baseline, Stage, autoridade/delegação, WIP/budget, preflight hash, Tasks e ordem | separa plano `planned` da liberação `ready` |
+| `execution_work_packages` | Task/assignment/profile/wave/baseline, revision, payload/hash, validation, issue/expiry | contrato imutável entregue ao adapter |
+| `execution_runners` | runner key, status, adapter version, capabilities, heartbeat, kill switch | inventário/health do executor host |
+| `execution_leases` | package, runner, execution, status, lease/expiry/heartbeat/release | ownership temporário e recovery |
+| `execution_events` | execution, sequence, event type, payload, idempotency | timeline append-only do processo |
+| `execution_results` | execution unique, contract/result/hash, stale/errors | resultado validado sem inferir sucesso pelo exit code |
 
 ### 3.6 Artifact domain (`backend/app/db/models/artifact.py`)
 
@@ -187,6 +202,18 @@ No `CheckConstraint` exists yet on `pipeline_stages.status` / `project_pipelines
 | `agent_skills` / `sub_agent_skills` | id, agent_id/sub_agent_id (FK), skill_id (FK) | — | | unique pair association tables |
 | `agent_cost_rates` | id, agent_id (FK), rate_unit (CHECK per_task\|per_hour\|per_token\|per_execution), rate_amount (required, ≥0) | — | | |
 | `agent_capacities` | id, agent_id (FK, unique), max_concurrent_tasks (required, ≥1) | — | | |
+
+### 3.9 Agent orchestration (`backend/app/db/models/orchestration.py`)
+
+| Tabela | Atributos principais | Finalidade |
+|---|---|---|
+| `agent_runtime_profiles` | owner Agent/SubAgent, runtime Claude/Codex/Agy, classe ForgeRouter (`auto`, `simple`, `standard`, `complex`, `reasoning`, `vision`, `audio`, `code`), `model_ref` opcional para pin, purpose, capability scope, budget | separa agente lógico de CLI/modelo e mantém o roteamento semântico estável |
+| `agents.forgerouter_api_key_encrypted` | credencial individual criptografada; respostas expõem somente `forgerouter_api_key_configured` | preserva identidade, cota e auditoria do Agent durante o dispatch |
+| `project_agent_memberships` | Project, Agent/SubAgent, role, status, allocation, runtimes, review/approval | equipe autorizada do projeto |
+| `project_loop_policies` | Project, produtor/reviewer, perfis, phase, max iterations, score, human approval, auto dispatch | loop de engenharia limitado |
+| `task_execution_reviews` | execution, reviewer membership, runtime profile, status, score, feedback, evidence | revisão independente/auditável |
+
+`task_assignments.membership_id` liga a atribuição à autorização no Project. `task_executions` agora registra runtime profile/type/session, loop policy/iteration e execução pai.
 
 ## 4. Known model-vs-data observations
 

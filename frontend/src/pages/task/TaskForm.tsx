@@ -172,7 +172,7 @@ export function TaskForm({
         <div className="space-y-2">
           <Label htmlFor="status">Status</Label>
           <Select id="status" {...register("status")}>
-            {TASK_STATUSES.map((status) => (
+            {TASK_STATUSES.filter((status) => status !== "ready").map((status) => (
               <option key={status} value={status}>
                 {status.replace("_", " ")}
               </option>

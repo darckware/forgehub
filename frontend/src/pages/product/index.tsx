@@ -33,12 +33,14 @@ import {
   useDeleteProduct,
   productInputSchema,
   type ProductInput,
+  type ProductUpdateInput,
   type Product,
 } from "@/hooks/useProduct";
 import { apiClient } from "@/lib/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 const statusBadgeVariant: Record<string, "success" | "secondary" | "outline"> = {
+  concept: "secondary",
   active: "success",
   inactive: "secondary",
   archived: "outline",
@@ -55,7 +57,7 @@ interface EditRowProps {
 function EditProductRow({ product, onClose }: EditRowProps) {
   const queryClient = useQueryClient();
   const update = useMutation({
-    mutationFn: (payload: Partial<ProductInput>) =>
+    mutationFn: (payload: ProductUpdateInput) =>
       apiClient.put<Product>(`/api/v1/products/${product.id}`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
@@ -69,14 +71,15 @@ function EditProductRow({ product, onClose }: EditRowProps) {
       name: product.name,
       description: product.description ?? "",
       status: (product.status as "active" | "inactive" | "archived") ?? "active",
+      application_url: product.application_url ?? "",
     },
   });
 
   return (
     <TableRow className="bg-muted/30">
       <TableCell colSpan={4} className="py-3">
-        <form onSubmit={handleSubmit((v) => update.mutate(v))} className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
+        <form onSubmit={handleSubmit((v) => update.mutate({ ...v, application_url: v.application_url || null }))} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_2fr_2fr_1fr]">
             <div className="space-y-1">
               <Label className="text-xs">Name</Label>
               <Input className="h-8 text-sm" {...register("name")} />
@@ -84,11 +87,23 @@ function EditProductRow({ product, onClose }: EditRowProps) {
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Description</Label>
-              <Input className="h-8 text-sm" {...register("description")} />
+              <Textarea className="min-h-[60px] text-sm" rows={2} {...register("description")} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Application URL</Label>
+              <Input className="h-8 text-sm" placeholder="http://localhost:4173" {...register("application_url")} />
+              {errors.application_url && <p className="text-xs text-destructive">{errors.application_url.message}</p>}
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Status</Label>
-              <Select className="h-8 text-sm" {...register("status")}>
+              {/* py-1 (not the Select default's py-2) -- at h-8 the
+                  default vertical padding leaves less room than
+                  text-sm's line-height needs, clipping the selected
+                  option's text top/bottom in native <select> rendering
+                  (Input doesn't show the same clipping at the same
+                  height, so this is scoped to Select, not fixed
+                  app-wide). */}
+              <Select className="h-8 py-1 text-sm" {...register("status")}>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
                 <option value="archived">Archived</option>
@@ -205,11 +220,11 @@ export default function ProductPage() {
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ProductInput>({
     resolver: zodResolver(productInputSchema),
-    defaultValues: { name: "", description: "", status: "active" },
+    defaultValues: { name: "", description: "", status: "active", application_url: "" },
   });
 
   const onSubmit = async (values: ProductInput) => {
-    await createProduct.mutateAsync(values);
+    await createProduct.mutateAsync({ ...values, application_url: values.application_url || undefined });
     reset();
     setShowForm(false);
   };
@@ -329,6 +344,20 @@ export default function ProductPage() {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="application_url">Application URL</Label>
+                <Input
+                  id="application_url"
+                  type="url"
+                  placeholder="http://localhost:4173"
+                  {...register("application_url")}
+                />
+                <p className="text-xs text-muted-foreground">Opened when this product is selected in Workspace &gt; Web App.</p>
+                {errors.application_url && (
+                  <p className="text-sm text-destructive">{errors.application_url.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
                 <Select id="status" {...register("status")}>
                   <option value="active">Active</option>
@@ -414,6 +443,16 @@ export default function ProductPage() {
                             {product.description}
                           </p>
                         )}
+                        {product.application_url && (
+                          <a
+                            href={product.application_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block truncate text-xs text-muted-foreground hover:underline"
+                          >
+                            {product.application_url}
+                          </a>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -430,6 +469,7 @@ export default function ProductPage() {
                             variant="ghost"
                             size="icon"
                             title="Edit product"
+                            disabled={product.status === "concept"}
                             onClick={() =>
                               setEditingId(editingId === product.id ? null : product.id)
                             }

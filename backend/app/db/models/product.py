@@ -45,7 +45,7 @@ PRODUCT_VERSION_STATUSES = ("planned", "in_development", "in_test", "published",
 RELEASE_STATUSES = ("draft", "ready", "released", "cancelled")
 
 # Allowed values for Product.status.
-PRODUCT_STATUSES = ("active", "inactive", "archived")
+PRODUCT_STATUSES = ("concept", "active", "inactive", "archived")
 
 
 class Product(Base, TimestampMixin):
@@ -58,6 +58,7 @@ class Product(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active", server_default="active")
+    application_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
     # Kanboard project created when this product is registered.
     # kanboard_column_ids maps ForgeHub task status → Kanboard column id for

@@ -1,5 +1,7 @@
 # ForgeHub — Software Specification (SPEC)
 
+> **Status documental:** especificação original, preservada como histórico. Não é contrato suficiente para implementar a arquitetura-alvo atual. Use `PLANNING_DELIVERY_ARCHITECTURE.md`, `ENGINEERING_LOOP.md` e `IMPLEMENTATION_READINESS.md`, confirmando o comportamento disponível no código.
+
 ## 1. Scope
 This document defines the functional and technical specification for ForgeHub, the control plane for product/version/project planning, task orchestration, execution tracking, and governance.
 

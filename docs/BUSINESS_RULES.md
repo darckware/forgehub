@@ -1,5 +1,7 @@
 # ForgeHub — Business Rule Specification (BUSINESS RULE SPEC)
 
+> **Status documental:** descreve principalmente regras do código atual e lacunas conhecidas. Propostas da arquitetura-alvo somente passam a ser regras implementadas depois de migrations, comandos de domínio e testes correspondentes.
+
 Canonical artifact referenced by `docs/SPEC.md` §12 ("Next Spec Artifacts" → BUSINESS RULE SPEC). This document restates the rule list already summarized in `docs/SPEC.md` §6, expands each rule with **where it is enforced in code** (file:line, so the rule can be re-verified against the running implementation), and adds the rules introduced after SPEC.md was last updated.
 
 Convention used throughout the codebase: rules that are single-column constraints live as a DB `CheckConstraint`; rules that require a second statement, a cross-row check, or knowledge of another domain's table live at the API route layer (`backend/app/api/routes/*.py`), never as a DB trigger. See `docs/DATA_MODEL.md` §1.
@@ -118,3 +120,19 @@ This is a convention enforced by what gets POSTed when instantiating a pipeline 
 | 1 | `status` must be one of a fixed set | `TASK_STATUSES` tuple, `db/models/task.py` + `CheckConstraint`, migration `3d0bb9a16778`; re-exported into `api/schemas/task.py` so the DB constraint and the Pydantic validator can't drift apart |
 | 2 | The fixed set is `planned\|assigned\|in_progress\|blocked\|done\|deployed\|cancelled` | `"done"` = finalizada (work finished, evidence verified); `"deployed"` = liberada para produção (shipped to production) — added as a separate, later terminal state per user request, distinct from "done" |
 | 3 | `assigned`/`in_progress` are still set automatically as side effects | `create_task_assignment` → `assigned`, `create_task_execution` → `in_progress` (only from `planned`/`assigned`), `api/routes/task.py` — unchanged by this hardening |
+
+## 12. Agent Orchestration and Engineering Loops
+
+| # | Regra | Enforcement |
+|---|---|---|
+| 1 | ForgeRouter permanece o gateway padrão; ForgeHub guarda runtime, classe semântica e apenas um `model_ref` opcional para pin | Project-local ForgeRouter config + `AgentRuntimeProfile.routing_group` |
+| 2 | Agente lógico e CLI utilizada são entidades distintas | Membership/Assignment versus runtime metadata da TaskExecution |
+| 3 | Dispatch automatizado exige membership ativa no mesmo Project | `dispatch_task`, `api/routes/orchestration.py` |
+| 4 | Runtime profile precisa pertencer ao membro atribuído e estar autorizado | `dispatch_task` |
+| 5 | Producer e reviewer precisam ser diferentes | schema, DB CHECK e review route |
+| 6 | Loop tem nota mínima e máximo de 1–20 iterações | `ProjectLoopPolicy` + dispatch count guard |
+| 7 | Reviewer executa em modo read-only | `dispatch_execution_review` envia `mode=plan` ao host runner |
+| 8 | Correção automática só ocorre quando `auto_dispatch=true` e respeita `max_iterations` | refresh/decision review → novo dispatch |
+| 9 | Aprovação humana, quando exigida, impede decisão automática final | automated review fica `pending` até PATCH explícito |
+| 10 | Runner não aceita comando shell arbitrário | host bridge constrói argv fechado para Claude/Codex/Agy |
+| 11 | `model_ref=forgerouter/auto` faz o runner usar `forgerouter/<routing_group>` | `simple`, `standard`, `complex`, `reasoning`, `vision`, `audio`, `code` ou `auto`; alias validado no backend e host runner |

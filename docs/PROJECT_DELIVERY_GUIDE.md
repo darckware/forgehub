@@ -1,5 +1,7 @@
 # ForgeHub — Guia de Project Delivery
 
+> **Nota de estado:** este guia descreve a experiência operacional desejada e contém automações ainda não disponíveis de ponta a ponta. Para distinguir comportamento implementado, parcial e proposto, e para consultar a classificação de projetos e a revisão atributo por atributo, use [Arquitetura de Planning e Delivery](PLANNING_DELIVERY_ARCHITECTURE.md). Agentes CLI devem seguir também o [Protocolo de Desenvolvimento](AGENT_CLI_DEVELOPMENT_PROTOCOL.md) e nunca presumir que um fluxo descrito aqui já está automatizado.
+
 ## O que é o ForgeHub
 
 ForgeHub é uma **plataforma de controle para desenvolvimento de software com agentes de IA**. Ele conecta planejamento, governança e execução em uma cadeia rastreável: toda feature, tarefa, artefato e decisão técnica fica vinculada ao produto que originou o trabalho.
@@ -19,7 +21,7 @@ Athos (agente Hermes — lê contexto, gera artefatos, define agentes)
     ↓  delega execução por tipo de tarefa
 Claude CLI  →  código Python/TypeScript, documentação técnica, refactoring complexo
 Codex       →  testes, endpoints, geração de código repetitivo
-Antigravity →  tarefas conforme perfil e contexto do projeto
+Agy         →  tarefas conforme perfil e contexto do projeto
     ↓  resultado registrado em
 Kanboard (controle visual de execução por projeto)
     ↓  status sincronizado de volta para
@@ -56,7 +58,7 @@ Athos decide qual executor usar com base no tipo e contexto da tarefa. Não é a
 | Geração de testes unitários e de integração | **Codex** | Especializado em cobertura de testes |
 | Migration de banco de dados | **Claude CLI** | Requer entendimento das regras de negócio do schema |
 | Refactoring pontual | **Codex** | Rápido para mudanças estruturais sem mudança de comportamento |
-| Tarefas simples e repetitivas | **Antigravity** | Execução direta quando contexto é suficiente e tarefa é bem definida |
+| Tarefas simples e repetitivas | **Agy** | Execução direta quando contexto é suficiente e tarefa é bem definida |
 | Orquestração, análise, decisão | **Athos (Hermes)** | Sem delegação para CLI — Athos executa diretamente |
 
 Athos documenta a decisão de qual CLI foi escolhido e por quê. Essa decisão é registrada no TaskExecution e integra o Audit Trail.
@@ -284,7 +286,7 @@ Para cada stage de documentação, o fluxo é:
 | SPEC | Technical Specification | `.md` | Athos via Claude CLI |
 | DATA SPEC | Data Model + Schema | `.md` | Athos via Claude CLI |
 | ADR | Architecture Decision Record | `.md` | Athos |
-| Implementation | Pull Requests | código | Claude CLI / Codex / Antigravity |
+| Implementation | Pull Requests | código | Claude CLI / Codex / Agy |
 | Migration | Scripts de banco | `.sql` | Claude CLI / Codex |
 | Testing | Test report com evidências | `.md` | Athos + agentes |
 | Release | Release Notes | `.md` | Athos via Claude CLI |
@@ -366,7 +368,7 @@ Você revisa o backlog → aprova
 
 ETAPA 6 — EXECUTION (Implementation stage)
 Athos quebra Planning Items em Tasks
-Para cada task, Athos decide: Claude CLI / Codex / Antigravity
+Para cada task, Athos decide: Claude CLI / Codex / Agy
 Tasks sincronizadas para Kanboard (coluna "Ready")
 Agentes executam → Kanboard atualizado ("In Progress" → "Done")
 ForgeHub recebe status atualizado
@@ -402,7 +404,7 @@ Ciclo reinicia
 | **Athos** | Orquestra em cada tela, gera artefatos, divide planning, decide qual CLI usar, gerencia Kanboard |
 | **Claude CLI** | Documenta, implementa código complexo, gera migrations |
 | **Codex** | Gera testes, implementa padrões repetitivos, refactoring |
-| **Antigravity** | Executa tarefas simples e bem definidas |
+| **Agy** | Executa tarefas simples e bem definidas |
 | **Kanboard** | Visão operacional do trabalho em andamento; alimenta auditoria |
 | **ForgeHub** | Registra tudo, controla os gates, mantém o Audit Trail, garante rastreabilidade |
 

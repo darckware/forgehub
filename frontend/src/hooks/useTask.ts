@@ -20,6 +20,7 @@ import { apiClient } from "@/lib/api";
 
 export const TASK_STATUSES = [
   "planned",
+  "ready",
   "assigned",
   "in_progress",
   "blocked",
@@ -36,6 +37,10 @@ export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export const EXECUTION_STATUSES = [
   "pending",
   "running",
+  "blocked",
+  "paused",
+  "reconciling",
+  "recovering",
   "failed",
   "retried",
   "verified",
@@ -55,8 +60,18 @@ export const taskExecutionSchema = z.object({
   id: z.string(),
   task_id: z.string(),
   assignment_id: z.string().nullable().optional(),
+  runtime_profile_id: z.string().nullable().optional(),
+  loop_policy_id: z.string().nullable().optional(),
+  parent_execution_id: z.string().nullable().optional(),
   attempt_number: z.number().int().optional(),
   executor_type: z.string().nullable().optional(),
+  runtime_type: z.string().nullable().optional(),
+  runtime_session_ref: z.string().nullable().optional(),
+  work_package_id: z.string().nullable().optional(),
+  adapter_version: z.string().nullable().optional(),
+  process_ref: z.string().nullable().optional(),
+  exit_code: z.number().nullable().optional(),
+  loop_iteration: z.number().int().default(1),
   status: z.enum(EXECUTION_STATUSES).default("pending"),
   started_at: z.string().nullable().optional(),
   finished_at: z.string().nullable().optional(),
@@ -299,3 +314,10 @@ export function useCreateExecution(taskId: string) {
   });
 }
 
+export function useTaskExecutions(taskId: string | undefined) {
+  return useQuery({
+    queryKey: ["task-executions", taskId ?? ""],
+    queryFn: () => apiClient.get<TaskExecution[]>(`/api/v1/tasks/${taskId}/executions`),
+    enabled: Boolean(taskId),
+  });
+}

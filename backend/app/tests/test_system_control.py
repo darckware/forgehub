@@ -113,8 +113,8 @@ class FakeBridgeClient:
                 return _git_ok(
                     "128|1700000004.0|/root/.hermes/profiles/athos/cron/output/42335b7194a4/2026-05-22_15-07-11.md\n"
                 )
-            if "create_trash_cleanup_task.sh" in command:
-                return _git_ok("[trash-cleanup] 2026-01-01T00:00:00\ndeleted_items: 3\nremaining_items: 0")
+            if "rm -rf --" in command and "deleted_items" in command:
+                return _git_ok("deleted_items: 3\nremaining_items: 0")
             return _git_ok("")
         if url.endswith("/v1/fs/mkdir"):
             return FakeResponse({"status": "ok"})
@@ -270,10 +270,15 @@ async def test_backup_targets_lists_hermes_and_enabled_projects(client: AsyncCli
     resp = await client.get("/api/v1/system-control/backup-targets")
     assert resp.status_code == 200, resp.text
     targets = {t["key"]: t for t in resp.json()["targets"]}
-    assert targets["hermes"] == {"key": "hermes", "label": "Hermes", "kind": "system", "ready": True}
+    assert targets["hermes"] == {
+        "key": "hermes", "label": "Hermes", "kind": "system", "ready": True,
+        "source": "/root/.hermes", "location": "/root/backup",
+    }
     project_key = f"project:{test_project.id}"
     assert targets[project_key]["label"] == test_project.name
     assert targets[project_key]["ready"] is True
+    # No backup_location set on the fixture -- defaults to BACKUP_DIR/<slug>.
+    assert targets[project_key]["location"] == f"/root/backup/{sc._project_slug(test_project)}"
 
 
 async def test_run_backup_all_fans_out_to_hermes_and_projects(client: AsyncClient, monkeypatch, test_project):
@@ -295,7 +300,9 @@ async def test_run_backup_all_fans_out_to_hermes_and_projects(client: AsyncClien
     backup_calls = [c for c in FakeBridgeClient.calls if c[1].endswith("/v1/system/hermes-backup")]
     backup_dirs = {c[2]["backup_dir"] for c in backup_calls}
     assert "/root/backup" in backup_dirs
-    assert f"/root/backup/projects/{test_project.id}" in backup_dirs
+    # No backup_location set on the fixture -- defaults to
+    # BACKUP_DIR/<slug-of-name> (see _project_backup_location).
+    assert f"/root/backup/{sc._project_slug(test_project)}" in backup_dirs
 
 
 async def test_cleanup_scan_groups_logs_by_category(client: AsyncClient, monkeypatch):
@@ -368,7 +375,10 @@ async def test_cleanup_scan_includes_old_and_duplicate_scripts(client: AsyncClie
     assert dup_names == {"testprofile/dup_a.sh", "testprofile/dup_b.sh"}
 
 
-async def test_cleanup_run_calls_the_trash_script(client: AsyncClient, monkeypatch):
+async def test_cleanup_run_only_sweeps_never_empties(client: AsyncClient, monkeypatch):
+    """POST /cleanup-run moves eligible files into TRASH_ROOT but never
+    deletes anything -- that's the separate POST /cleanup-empty-trash
+    action (split 2026-07-11, previously one click did both)."""
     from app.api.routes import system_control as sc
 
     FakeBridgeClient.calls = []
@@ -376,6 +386,24 @@ async def test_cleanup_run_calls_the_trash_script(client: AsyncClient, monkeypat
 
     resp = await client.post("/api/v1/system-control/cleanup-run")
     assert resp.status_code == 200, resp.text
-    assert "deleted_items: 3" in resp.json()["output"]
+    body = resp.json()
+    assert body["trash_root"] == sc.TRASH_ROOT
+    assert "output" not in body
     exec_commands = [c[2]["command"] for c in FakeBridgeClient.calls if c[1].endswith("/v1/exec")]
-    assert any("create_trash_cleanup_task.sh" in cmd for cmd in exec_commands)
+    assert all("rm -rf" not in cmd for cmd in exec_commands)
+    assert any("mv --" in cmd for cmd in exec_commands)
+
+
+async def test_cleanup_empty_trash_deletes_trash_root_contents(client: AsyncClient, monkeypatch):
+    from app.api.routes import system_control as sc
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBridgeClient)
+
+    resp = await client.post("/api/v1/system-control/cleanup-empty-trash")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["trash_root"] == sc.TRASH_ROOT
+    assert "deleted_items: 3" in body["output"]
+    exec_commands = [c[2]["command"] for c in FakeBridgeClient.calls if c[1].endswith("/v1/exec")]
+    assert any(f"rm -rf -- {sc.TRASH_ROOT}/*" in cmd for cmd in exec_commands)

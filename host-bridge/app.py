@@ -33,8 +33,10 @@ import json
 import os
 import pty
 import re
+import shlex
 import shutil
 import signal
+import socket
 import struct
 import subprocess
 import tarfile
@@ -42,11 +44,12 @@ import tempfile
 import termios
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import httpx
 import yaml
+import websockets
 
 from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -72,6 +75,92 @@ SESSION_ID_RE = re.compile(r"session_id:\s*(\S+)")
 # write an approval decision into the right agent's stdin.
 _active_streams: dict[str, "asyncio.subprocess.Process"] = {}
 
+# Governed non-interactive CLI runs. This registry intentionally stores only
+# process state/output, never ForgeRouter credentials or prompts. ForgeHub's DB
+# remains the durable source of task/execution metadata.
+AGENT_RUN_STATE_DIR = Path(os.environ.get("FORGEHUB_RUN_STATE_DIR", "/root/.forgehub/agent-runs"))
+AGENT_RUN_STATE_DIR.mkdir(parents=True, exist_ok=True)
+AGENT_RUN_ADAPTER_VERSION = "forgehub-host-runner/v1"
+_agent_runs: dict[str, dict] = {}
+_agent_runs_lock = threading.Lock()
+
+# Shared Chromium session for ForgeHub's Workspace. Athos attaches to this
+# exact browser over CDP (browser.cdp_url), while the Workspace polls CDP
+# screenshots through the authenticated backend proxy. The browser profile is
+# persistent so cookies/localStorage survive bridge restarts; credentials are
+# never stored here.
+WORKSPACE_BROWSER_PORT = int(os.environ.get("FORGEHUB_BROWSER_CDP_PORT", "9223"))
+WORKSPACE_BROWSER_CDP_URL = f"http://127.0.0.1:{WORKSPACE_BROWSER_PORT}"
+WORKSPACE_BROWSER_PROFILE_DIR = Path(
+    os.environ.get("FORGEHUB_BROWSER_PROFILE_DIR", "/root/.forgehub/browser/athos")
+)
+WORKSPACE_BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+WORKSPACE_BROWSER_BINARY = os.environ.get(
+    "FORGEHUB_BROWSER_BINARY", "/root/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome"
+)
+_workspace_browser_process: subprocess.Popen | None = None
+_workspace_browser_lock = threading.Lock()
+
+
+def _run_state_path(run_id: str) -> Path:
+    return AGENT_RUN_STATE_DIR / f"{run_id}.json"
+
+
+def _safe_run_state(run: dict) -> dict:
+    """Persist process metadata and bounded output, never prompts or credentials."""
+    return {
+        key: value for key, value in run.items()
+        if key != "process" and key not in {"prompt", "api_key", "command", "environment"}
+    }
+
+
+def _persist_agent_run(run_id: str) -> None:
+    run = _agent_runs.get(run_id)
+    if run is None:
+        return
+    target = _run_state_path(run_id)
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(_safe_run_state(run), sort_keys=True))
+    temporary.replace(target)
+
+
+def _pid_alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+
+
+def _redact_run_output(value: str) -> str:
+    value = re.sub(r"(?i)(authorization:\s*bearer\s+)[^\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)((?:api[_-]?key|auth[_-]?token)\s*[=:]\s*)[^\s,}\"]+", r"\1[REDACTED]", value)
+    value = re.sub(r"\b(?:sk|key)-[A-Za-z0-9_-]{16,}\b", "[REDACTED]", value)
+    return value
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def _load_agent_runs() -> None:
+    for state_file in AGENT_RUN_STATE_DIR.glob("*.json"):
+        try:
+            run = json.loads(state_file.read_text())
+            if run.get("status") in {"starting", "running"}:
+                if _pid_alive(run.get("pid")):
+                    run["status"] = "running"
+                    run["reconciled_at"] = datetime.now().isoformat()
+                else:
+                    run["status"] = "stale"
+                    run["error"] = "Runner restarted and the recorded process is no longer alive"
+                    run["finished_at"] = datetime.now().isoformat()
+            _agent_runs[run["run_id"]] = run
+            _persist_agent_run(run["run_id"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+
+
+_load_agent_runs()
+
 
 
 def _is_valid_profile(profile: str) -> bool:
@@ -94,6 +183,391 @@ app = FastAPI(title="ForgeHub chat bridge")
 def _check_token(x_bridge_token: str | None) -> None:
     if not x_bridge_token or x_bridge_token != BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid or missing bridge token")
+
+
+def _workspace_browser_running() -> bool:
+    if _workspace_browser_process is not None and _workspace_browser_process.poll() is None:
+        return True
+    try:
+        with socket.create_connection(("127.0.0.1", WORKSPACE_BROWSER_PORT), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def _launch_workspace_browser() -> None:
+    """Start the one shared CDP browser without accepting shell arguments."""
+    global _workspace_browser_process
+    with _workspace_browser_lock:
+        if _workspace_browser_running():
+            return
+        binary = Path(WORKSPACE_BROWSER_BINARY)
+        if not binary.is_file():
+            raise HTTPException(status_code=503, detail=f"Chromium binary not found: {binary}")
+        _workspace_browser_process = subprocess.Popen(
+            [
+                str(binary), "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+                "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+                "--remote-allow-origins=*", "--remote-debugging-address=127.0.0.1",
+                f"--remote-debugging-port={WORKSPACE_BROWSER_PORT}",
+                f"--user-data-dir={WORKSPACE_BROWSER_PROFILE_DIR}", "--window-size=1440,900",
+                "about:blank",
+            ],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+
+async def _workspace_browser_target() -> dict:
+    _launch_workspace_browser()
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        for _ in range(30):
+            try:
+                response = await client.get(f"{WORKSPACE_BROWSER_CDP_URL}/json/list")
+                response.raise_for_status()
+                page = next((item for item in response.json() if item.get("type") == "page"), None)
+                if page and page.get("webSocketDebuggerUrl"):
+                    return page
+            except (httpx.HTTPError, ValueError):
+                pass
+            await asyncio.sleep(0.1)
+    raise HTTPException(status_code=503, detail="Workspace browser did not expose a CDP page")
+
+
+async def _workspace_browser_cdp(method: str, params: dict | None = None) -> dict:
+    target = await _workspace_browser_target()
+    async with websockets.connect(
+        target["webSocketDebuggerUrl"], open_timeout=5, close_timeout=2, max_size=16 * 1024 * 1024
+    ) as socket:
+        await socket.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
+        while True:
+            payload = json.loads(await asyncio.wait_for(socket.recv(), timeout=15))
+            if payload.get("id") != 1:
+                continue
+            if "error" in payload:
+                raise HTTPException(status_code=502, detail=f"Browser CDP error: {payload['error']}")
+            return payload.get("result", {})
+
+
+async def _workspace_browser_state(include_image: bool = True) -> dict:
+    runtime = await _workspace_browser_cdp(
+        "Runtime.evaluate",
+        {
+            "expression": "JSON.stringify({url:location.href,title:document.title,readyState:document.readyState,viewportWidth:innerWidth,viewportHeight:innerHeight})",
+            "returnByValue": True,
+        },
+    )
+    try:
+        metadata = json.loads(runtime.get("result", {}).get("value") or "{}")
+    except ValueError:
+        metadata = {}
+    image_base64 = None
+    if include_image:
+        screenshot = await _workspace_browser_cdp(
+            "Page.captureScreenshot", {"format": "jpeg", "quality": 75, "fromSurface": True}
+        )
+        image_base64 = screenshot.get("data")
+    return {
+        "running": _workspace_browser_running(), "cdp_url": WORKSPACE_BROWSER_CDP_URL,
+        "url": metadata.get("url", "about:blank"), "title": metadata.get("title", ""),
+        "ready_state": metadata.get("readyState", ""), "image_base64": image_base64,
+        "viewport_width": metadata.get("viewportWidth", 1440),
+        "viewport_height": metadata.get("viewportHeight", 900),
+        "captured_at": datetime.now().isoformat(),
+    }
+
+
+class WorkspaceBrowserStartRequest(BaseModel):
+    url: str = "about:blank"
+
+
+class WorkspaceBrowserNavigateRequest(BaseModel):
+    url: str
+
+
+class WorkspaceBrowserPointerRequest(BaseModel):
+    x: float
+    y: float
+    end_x: float | None = None
+    end_y: float | None = None
+
+
+class WorkspaceBrowserTextRequest(BaseModel):
+    text: str
+
+
+class WorkspaceBrowserScrollRequest(BaseModel):
+    x: float
+    y: float
+    delta_y: float
+
+
+class WorkspaceBrowserLoginRequest(BaseModel):
+    url: str
+    username: str
+    password: str
+
+
+class WorkspaceBrowserRoutineRequest(BaseModel):
+    start_url: str
+    steps: list[dict]
+
+
+def _validated_browser_url(value: str) -> str:
+    if value == "about:blank":
+        return value
+    if not re.match(r"^https?://", value, flags=re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="Only HTTP(S) browser URLs are allowed")
+    return value
+
+
+@app.post("/v1/workspace-browser/start")
+async def start_workspace_browser(req: WorkspaceBrowserStartRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    _launch_workspace_browser()
+    url = _validated_browser_url(req.url)
+    if url != "about:blank":
+        await _workspace_browser_cdp("Page.navigate", {"url": url})
+        await asyncio.sleep(0.8)
+    return await _workspace_browser_state()
+
+
+@app.get("/v1/workspace-browser/state")
+async def get_workspace_browser_state(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/navigate")
+async def navigate_workspace_browser(req: WorkspaceBrowserNavigateRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.url)})
+    await asyncio.sleep(0.8)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/reload")
+async def reload_workspace_browser(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    await _workspace_browser_cdp("Page.reload", {"ignoreCache": True})
+    await asyncio.sleep(0.6)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/back")
+async def back_workspace_browser(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    history = await _workspace_browser_cdp("Page.getNavigationHistory")
+    index, entries = history.get("currentIndex", 0), history.get("entries", [])
+    if index > 0:
+        await _workspace_browser_cdp("Page.navigateToHistoryEntry", {"entryId": entries[index - 1]["id"]})
+        await asyncio.sleep(0.6)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/pointer")
+async def pointer_workspace_browser(req: WorkspaceBrowserPointerRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    end_x = req.end_x if req.end_x is not None else req.x
+    end_y = req.end_y if req.end_y is not None else req.y
+    if not all(0 <= value <= 10_000 for value in (req.x, req.y, end_x, end_y)):
+        raise HTTPException(status_code=400, detail="Pointer coordinates are outside the browser viewport")
+    await _workspace_browser_cdp(
+        "Input.dispatchMouseEvent",
+        {"type": "mousePressed", "x": req.x, "y": req.y, "button": "left", "buttons": 1, "clickCount": 1},
+    )
+    if end_x != req.x or end_y != req.y:
+        await _workspace_browser_cdp(
+            "Input.dispatchMouseEvent",
+            {"type": "mouseMoved", "x": end_x, "y": end_y, "button": "left", "buttons": 1},
+        )
+    await _workspace_browser_cdp(
+        "Input.dispatchMouseEvent",
+        {"type": "mouseReleased", "x": end_x, "y": end_y, "button": "left", "buttons": 0, "clickCount": 1},
+    )
+    await asyncio.sleep(0.25)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/text")
+async def text_workspace_browser(req: WorkspaceBrowserTextRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    await _workspace_browser_cdp("Input.insertText", {"text": req.text})
+    await asyncio.sleep(0.2)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/scroll")
+async def scroll_workspace_browser(
+    req: WorkspaceBrowserScrollRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    _check_token(x_bridge_token)
+    if not 0 <= req.x <= 10_000 or not 0 <= req.y <= 10_000:
+        raise HTTPException(status_code=400, detail="Scroll coordinates are outside the browser viewport")
+    delta_y = max(-5_000, min(5_000, req.delta_y))
+    await _workspace_browser_cdp(
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mouseWheel",
+            "x": req.x,
+            "y": req.y,
+            "deltaX": 0,
+            "deltaY": delta_y,
+        },
+    )
+    await asyncio.sleep(0.15)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/login-forgehub")
+async def login_workspace_browser(req: WorkspaceBrowserLoginRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Login without persisting or returning the supplied credential."""
+    _check_token(x_bridge_token)
+    await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.url)})
+    await asyncio.sleep(1.0)
+    script = f"""
+      (() => {{
+        const setValue = (element, value) => {{
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          setter.call(element, value);
+          element.dispatchEvent(new Event('input', {{ bubbles: true }}));
+          element.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        }};
+        const username = document.querySelector('#username');
+        const password = document.querySelector('#password');
+        if (!username || !password) return 'login-fields-not-found';
+        setValue(username, {json.dumps(req.username)});
+        setValue(password, {json.dumps(req.password)});
+        return username.closest('form') ? 'filled' : 'login-form-not-found';
+      }})()
+    """
+    result = await _workspace_browser_cdp(
+        "Runtime.evaluate", {"expression": script, "returnByValue": True, "awaitPromise": True}
+    )
+    outcome = result.get("result", {}).get("value")
+    if outcome != "filled":
+        raise HTTPException(status_code=409, detail=f"ForgeHub login failed: {outcome}")
+    # React applies controlled-input state asynchronously; submitting in the
+    # same JS turn leaves the button disabled and the handler sees old values.
+    await asyncio.sleep(0.2)
+    submit = await _workspace_browser_cdp(
+        "Runtime.evaluate",
+        {
+            "expression": "document.querySelector('#username')?.closest('form')?.querySelector('button[type=submit]')?.click(); 'submitted'",
+            "returnByValue": True,
+        },
+    )
+    if submit.get("result", {}).get("value") != "submitted":
+        raise HTTPException(status_code=409, detail="ForgeHub login submit failed")
+    await asyncio.sleep(1.2)
+    return await _workspace_browser_state()
+
+
+async def _routine_evaluate(expression: str):
+    result = await _workspace_browser_cdp(
+        "Runtime.evaluate",
+        {"expression": expression, "returnByValue": True, "awaitPromise": True},
+    )
+    remote = result.get("result", {})
+    if remote.get("subtype") == "error":
+        raise HTTPException(status_code=409, detail=remote.get("description", "Browser expression failed"))
+    return remote.get("value")
+
+
+async def _run_browser_routine_step(step: dict) -> str:
+    action = step.get("action")
+    selector = step.get("selector")
+    value = step.get("value")
+    if action == "navigate":
+        await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(str(step.get("url", "")))})
+        await asyncio.sleep(0.8)
+        return "navigated"
+    if action == "click":
+        outcome = await _routine_evaluate(
+            f"(() => {{ const el=document.querySelector({json.dumps(selector)}); if(!el) return 'not-found'; el.scrollIntoView({{block:'center'}}); el.click(); return 'clicked'; }})()"
+        )
+        if outcome != "clicked":
+            raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
+        await asyncio.sleep(0.3)
+        return outcome
+    if action == "type":
+        outcome = await _routine_evaluate(
+            f"""(() => {{
+              const el=document.querySelector({json.dumps(selector)});
+              if(!el) return 'not-found';
+              el.scrollIntoView({{block:'center'}}); el.focus();
+              if ('value' in el) {{
+                const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;
+                setter ? setter.call(el,'') : (el.value='');
+                el.dispatchEvent(new Event('input',{{bubbles:true}}));
+              }} else if (el.isContentEditable) el.textContent='';
+              return 'focused';
+            }})()"""
+        )
+        if outcome != "focused":
+            raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
+        await _workspace_browser_cdp("Input.insertText", {"text": str(value or "")})
+        await asyncio.sleep(0.2)
+        return "typed"
+    if action == "select":
+        outcome = await _routine_evaluate(
+            f"""(() => {{ const el=document.querySelector({json.dumps(selector)});
+              if(!(el instanceof HTMLSelectElement)) return 'not-found';
+              el.value={json.dumps(value)}; el.dispatchEvent(new Event('input',{{bubbles:true}}));
+              el.dispatchEvent(new Event('change',{{bubbles:true}})); return 'selected'; }})()"""
+        )
+        if outcome != "selected":
+            raise HTTPException(status_code=409, detail=f"Select not found: {selector}")
+        return outcome
+    if action == "press":
+        key = str(value or "")
+        if key not in {"Enter", "Tab", "Escape", "ArrowUp", "ArrowDown", "Space"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported key: {key}")
+        await _workspace_browser_cdp("Input.dispatchKeyEvent", {"type": "keyDown", "key": key})
+        await _workspace_browser_cdp("Input.dispatchKeyEvent", {"type": "keyUp", "key": key})
+        await asyncio.sleep(0.2)
+        return f"pressed:{key}"
+    if action == "scroll":
+        delta = max(-5000, min(5000, int(step.get("delta_y") or 500)))
+        await _routine_evaluate(f"window.scrollBy({{top:{delta},behavior:'instant'}}); 'scrolled'")
+        await asyncio.sleep(0.15)
+        return "scrolled"
+    if action == "wait":
+        wait_ms = max(0, min(30_000, int(step.get("wait_ms") or 500)))
+        await asyncio.sleep(wait_ms / 1000)
+        return f"waited:{wait_ms}"
+    if action == "assert_text":
+        outcome = await _routine_evaluate(
+            f"(() => {{ const root={json.dumps(selector)} ? document.querySelector({json.dumps(selector)}) : document.body; if(!root) return 'not-found'; return (root.innerText || root.textContent || '').includes({json.dumps(value)}); }})()"
+        )
+        if outcome is not True:
+            raise HTTPException(status_code=409, detail=f"Expected text not found: {value}")
+        return "asserted"
+    raise HTTPException(status_code=400, detail=f"Unsupported routine action: {action}")
+
+
+@app.post("/v1/workspace-browser/run-routine")
+async def run_workspace_browser_routine(
+    req: WorkspaceBrowserRoutineRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Execute reviewed structured steps; arbitrary JavaScript is never accepted."""
+    _check_token(x_bridge_token)
+    if not 1 <= len(req.steps) <= 100:
+        raise HTTPException(status_code=400, detail="A routine must contain 1 to 100 steps")
+    await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.start_url)})
+    await asyncio.sleep(0.8)
+    results: list[dict] = []
+    status_value = "passed"
+    for index, step in enumerate(req.steps, 1):
+        try:
+            outcome = await _run_browser_routine_step(step)
+            results.append({"index": index, "action": step.get("action"), "status": "passed", "outcome": outcome})
+        except HTTPException as exc:
+            status_value = "failed"
+            results.append({"index": index, "action": step.get("action"), "status": "failed", "outcome": str(exc.detail)})
+            break
+    return {"status": status_value, "steps": results, "browser": await _workspace_browser_state()}
 
 
 class ForgeRouterIntegrationRequest(BaseModel):
@@ -163,6 +637,270 @@ def _validate_project_path(project_path: str) -> Path:
     return path
 
 
+class AgentRunRequest(BaseModel):
+    run_id: str
+    runtime_type: str  # claude | codex | agy (antigravity accepted as legacy alias)
+    project_path: str
+    prompt: str
+    model_ref: str = "forgerouter/auto"
+    routing_group: str = "auto"
+    api_key: str = ""
+    mode: str = "execute"  # plan | execute
+    max_seconds: int = 1800
+    max_budget_usd: float | None = None
+    work_package_hash: str | None = None
+
+
+def _antigravity_env(project_dir: Path) -> dict[str, str]:
+    """Read the project-scoped ForgeRouter env without invoking a shell."""
+    env = os.environ.copy()
+    env_file = project_dir / ".forgerouter" / "antigravity.env"
+    if not env_file.exists():
+        return env
+    for raw_line in env_file.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:]
+        if "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        if re.fullmatch(r"[A-Z_][A-Z0-9_]*", key):
+            values = shlex.split(raw_value)
+            env[key] = values[0] if values else ""
+    return env
+
+
+def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[str], dict[str, str]]:
+    if req.mode not in {"plan", "execute"}:
+        raise HTTPException(status_code=400, detail="mode must be plan or execute")
+    if req.runtime_type not in {"claude", "codex", "agy", "antigravity"}:
+        raise HTTPException(status_code=400, detail="unsupported runtime_type")
+    if not 30 <= req.max_seconds <= 7200:
+        raise HTTPException(status_code=400, detail="max_seconds must be between 30 and 7200")
+    if len(req.prompt) > 100_000:
+        raise HTTPException(status_code=400, detail="prompt is too large")
+
+    routing_groups = {"auto", "simple", "standard", "complex", "reasoning", "vision", "audio", "code"}
+    if req.routing_group not in routing_groups:
+        raise HTTPException(status_code=400, detail="unsupported ForgeRouter routing_group")
+    effective_model = (
+        f"forgerouter/{req.routing_group}"
+        if req.model_ref == "forgerouter/auto"
+        else req.model_ref
+    )
+    model_args = ["--model", effective_model]
+    agent_env = os.environ.copy()
+    agent_env.update({
+        "FORGEROUTER_API_KEY": req.api_key,
+        "FORGEROUTER_MODEL": effective_model,
+        "OPENAI_API_KEY": req.api_key,
+        "ANTHROPIC_AUTH_TOKEN": req.api_key,
+        "ANTHROPIC_API_KEY": req.api_key,
+    })
+    if req.runtime_type == "claude":
+        command = [
+            "/root/.local/bin/claude",
+            "--print",
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "plan" if req.mode == "plan" else "acceptEdits",
+            "--no-session-persistence",
+            *model_args,
+        ]
+        if req.max_budget_usd is not None:
+            command.extend(["--max-budget-usd", str(req.max_budget_usd)])
+        command.append(req.prompt)
+        return command, agent_env
+
+    if req.runtime_type == "codex":
+        return (
+            [
+                "/root/.npm-global/bin/codex",
+                "exec",
+                "--json",
+                "--sandbox",
+                "read-only" if req.mode == "plan" else "workspace-write",
+                "-C",
+                str(project_dir),
+                *model_args,
+                req.prompt,
+            ],
+            agent_env,
+        )
+
+    return (
+        [
+            "/root/.local/bin/agy",
+            "--print",
+            req.prompt,
+            "--mode",
+            "plan" if req.mode == "plan" else "accept-edits",
+            "--sandbox",
+            "--print-timeout",
+            f"{req.max_seconds}s",
+            *model_args,
+        ],
+        {**_antigravity_env(project_dir), **agent_env},
+    )
+
+
+def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int) -> None:
+    try:
+        stdout, stderr = proc.communicate(timeout=max_seconds)
+        state = "completed" if proc.returncode == 0 else "failed"
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            stdout, stderr = proc.communicate()
+        state = "timed_out"
+    except Exception as exc:
+        stdout, stderr, state = "", str(exc), "failed"
+
+    with _agent_runs_lock:
+        run = _agent_runs.get(run_id)
+        if run is None:
+            return
+        run.update(
+            {
+                "status": state,
+                "exit_code": proc.returncode,
+                "output": _redact_run_output((stdout or "")[-200_000:]),
+                "error": _redact_run_output((stderr or "")[-200_000:]),
+                "finished_at": datetime.now().isoformat(),
+                "heartbeat_at": datetime.now().isoformat(),
+            }
+        )
+        run.pop("process", None)
+        _persist_agent_run(run_id)
+
+
+@app.post("/v1/agent-runs", status_code=202)
+async def start_agent_run(
+    req: AgentRunRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Start one governed CLI run without accepting an arbitrary shell command."""
+    _check_token(x_bridge_token)
+    try:
+        uuid.UUID(req.run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="run_id must be a UUID") from exc
+    project_dir = _validate_project_path(req.project_path)
+    command, env = _agent_run_command(req, project_dir)
+
+    with _agent_runs_lock:
+        if req.run_id in _agent_runs:
+            raise HTTPException(status_code=409, detail="run_id already exists")
+        _agent_runs[req.run_id] = {
+            "run_id": req.run_id,
+            "runtime_type": "agy" if req.runtime_type == "antigravity" else req.runtime_type,
+            "model_ref": req.model_ref,
+            "mode": req.mode,
+            "project_path": str(project_dir),
+            "status": "starting",
+            "started_at": datetime.now().isoformat(),
+            "finished_at": None,
+            "exit_code": None,
+            "output": "",
+            "error": "",
+            "adapter_version": AGENT_RUN_ADAPTER_VERSION,
+            "work_package_hash": req.work_package_hash,
+            "heartbeat_at": datetime.now().isoformat(),
+        }
+        _persist_agent_run(req.run_id)
+
+    try:
+        proc = subprocess.Popen(
+            command,
+            cwd=project_dir,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        with _agent_runs_lock:
+            _agent_runs.pop(req.run_id, None)
+        raise HTTPException(status_code=500, detail=f"failed to start {req.runtime_type}: {exc}") from exc
+
+    with _agent_runs_lock:
+        _agent_runs[req.run_id]["status"] = "running"
+        _agent_runs[req.run_id]["process"] = proc
+        _agent_runs[req.run_id]["pid"] = proc.pid
+        _agent_runs[req.run_id]["heartbeat_at"] = datetime.now().isoformat()
+        _persist_agent_run(req.run_id)
+    threading.Thread(
+        target=_monitor_agent_run,
+        args=(req.run_id, proc, req.max_seconds),
+        daemon=True,
+    ).start()
+    return {"run_id": req.run_id, "status": "running", "runtime_type": "agy" if req.runtime_type == "antigravity" else req.runtime_type, "pid": proc.pid, "adapter_version": AGENT_RUN_ADAPTER_VERSION}
+
+
+@app.get("/v1/agent-runs/health")
+async def agent_runner_health(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    adapters = {
+        "claude": {"available": Path("/root/.local/bin/claude").exists()},
+        "codex": {"available": Path("/root/.npm-global/bin/codex").exists()},
+        "agy": {"available": Path("/root/.local/bin/agy").exists()},
+    }
+    return {
+        "status": "ok" if any(item["available"] for item in adapters.values()) else "degraded",
+        "adapter_version": AGENT_RUN_ADAPTER_VERSION,
+        "capabilities": {"adapters": adapters, "persistence": True, "cancel": True, "reconcile": True},
+    }
+
+
+@app.get("/v1/agent-runs/{run_id}")
+async def get_agent_run(
+    run_id: str, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    _check_token(x_bridge_token)
+    with _agent_runs_lock:
+        run = _agent_runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="agent run not found")
+        if run.get("status") == "running" and not _pid_alive(run.get("pid")):
+            run["status"] = "stale"
+            run["error"] = "Recorded process is no longer alive"
+            run["finished_at"] = datetime.now().isoformat()
+        run["heartbeat_at"] = datetime.now().isoformat()
+        _persist_agent_run(run_id)
+        return {key: value for key, value in run.items() if key != "process"}
+
+
+@app.post("/v1/agent-runs/{run_id}/cancel")
+async def cancel_agent_run(
+    run_id: str, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    _check_token(x_bridge_token)
+    with _agent_runs_lock:
+        run = _agent_runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="agent run not found")
+        proc = run.get("process")
+        pid = proc.pid if proc is not None else run.get("pid")
+        if not pid or run["status"] != "running":
+            return {"run_id": run_id, "status": run["status"]}
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGTERM)
+        run["status"] = "cancelled"
+        run["finished_at"] = datetime.now().isoformat()
+        run["heartbeat_at"] = datetime.now().isoformat()
+        run.pop("process", None)
+        _persist_agent_run(run_id)
+    return {"run_id": run_id, "status": "cancelled"}
+
+
 def _configure_claude_forgerouter(project_dir: Path, enabled: bool, api_key: str) -> str:
     claude_dir = project_dir / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
@@ -220,7 +958,14 @@ def _configure_codex_forgerouter(project_dir: Path, enabled: bool, api_key: str)
             f'[model_providers.forgerouter]\n'
             f'name = "ForgeRouter"\n'
             f'base_url = "{FORGEROUTER_OPENAI_BASE_URL}"\n'
-            f'experimental_bearer_token = "{api_key}"\n'
+            f'env_key = "FORGEROUTER_API_KEY"\n'
+            f'requires_openai_auth = false\n'
+            # Codex CLI >= 0.138 requires wire_api = "responses" (the Chat
+            # Completions wire format was removed and crashes at config-load
+            # time); ForgeRouter implements /v1/responses as a translator in
+            # front of /v1/chat/completions, so this is set explicitly rather
+            # than relying on the CLI's current default.
+            f'wire_api = "responses"\n'
         )
         os.chmod(config_path, 0o600)
     else:
@@ -2153,7 +2898,11 @@ async def create_hermes_backup(
         raise HTTPException(status_code=404, detail=f"Source not found: {req.source_path}")
     backup_dir = Path(req.backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
-    archive_name = req.archive_name or f"hermes-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    # Local time, not UTC -- the filename timestamp is meant to read as the
+    # wall-clock moment the backup was taken, not an absolute instant (the
+    # only caller passing archive_name explicitly, ForgeHub's System
+    # Control, applies the same rule -- see its own comment).
+    archive_name = req.archive_name or f"hermes-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
     archive_path = backup_dir / archive_name
     result = subprocess.run(
         ["tar", "-czf", str(archive_path), "-C", str(source.parent), source.name],

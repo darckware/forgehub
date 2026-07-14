@@ -27,7 +27,8 @@ export const productSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable().optional(),
-  status: z.enum(["active", "inactive", "archived"]).default("active"),
+  status: z.enum(["concept", "active", "inactive", "archived"]).default("active"),
+  application_url: z.string().nullable().optional(),
   versions: z.array(productVersionSchema).optional().default([]),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
@@ -40,9 +41,13 @@ export const productInputSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
   description: z.string().max(2000).optional().or(z.literal("")),
   status: z.enum(["active", "inactive", "archived"]).default("active"),
+  application_url: z.string().url("Enter a valid http(s) URL").optional().or(z.literal("")),
 });
 
 export type ProductInput = z.infer<typeof productInputSchema>;
+export type ProductUpdateInput = Partial<Omit<ProductInput, "application_url">> & {
+  application_url?: string | null;
+};
 
 const RESOURCE = "/api/v1/products";
 
@@ -97,6 +102,18 @@ export function useCreateProduct() {
     mutationFn: (payload: ProductInput) => apiClient.post<Product>(RESOURCE, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
+    },
+  });
+}
+
+export function useUpdateProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: ProductUpdateInput }) =>
+      apiClient.put<Product>(`${RESOURCE}/${id}`, payload),
+    onSuccess: (product) => {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.setQueryData(["products", product.id], product);
     },
   });
 }

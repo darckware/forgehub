@@ -62,7 +62,6 @@ from app.api.schemas.pipeline import (
     ProjectPipelineUpdate,
 )
 from app.db.base import get_db
-from app.db.models.governance import AuditEvent
 from app.db.models.pipeline import (
     PipelineStage,
     PipelineStageDependency,
@@ -501,22 +500,18 @@ async def update_stage(
     updates = payload.model_dump(exclude_unset=True)
 
     new_status = updates.get("status")
+    if new_status == "completed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Use POST /api/v1/pipeline-stages/{id}:evaluate-completion and :complete",
+        )
     if new_status in ("in_progress", "completed"):
         await _enforce_stage_advance_rules(db, stage, target_status=new_status)
 
     for field, value in updates.items():
         setattr(stage, field, value)
-
-    if new_status == "completed":
-        db.add(
-            AuditEvent(
-                entity_type="pipeline_stage",
-                entity_id=stage.id,
-                event_type="stage_completed",
-                actor="system",
-                payload={"pipeline_id": str(stage.pipeline_id), "name": stage.name},
-            )
-        )
+    if updates:
+        stage.revision += 1
 
     await db.commit()
     return await _get_stage_or_404(db, stage_id)
@@ -685,6 +680,9 @@ async def update_stage_required_artifact(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Required artifact not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(artifact, field, value)
+    stage = await db.get(PipelineStage, artifact.stage_id)
+    if stage:
+        stage.revision += 1
     await db.commit()
     await db.refresh(artifact)
     return artifact
@@ -747,6 +745,9 @@ async def update_stage_gate(
     gate.status = payload.status
     if payload.approved_by is not None:
         gate.approved_by = payload.approved_by
+    stage = await db.get(PipelineStage, gate.stage_id)
+    if stage:
+        stage.revision += 1
     await db.commit()
     await db.refresh(gate)
     return gate

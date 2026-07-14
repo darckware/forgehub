@@ -212,3 +212,56 @@ export function useDeletePolicy() {
     onSuccess: () => qc.invalidateQueries({ queryKey: governanceKeys.policies }),
   });
 }
+
+export interface GovernedApprovalRequest {
+  id: string; target_type: string; target_id: string; target_revision_id: string | null;
+  target_hash: string; approval_type: string; policy_evaluation_id: string; status: string;
+  requested_by_type: string; requested_by_id: string; requested_by_name: string;
+  expires_at: string | null; created_at: string;
+}
+
+export function useGovernedApprovalRequests(statusFilter?: string) {
+  return useQuery({
+    queryKey: ["governed-approval-requests", statusFilter],
+    queryFn: () => apiClient.get<GovernedApprovalRequest[]>("/api/v1/governed/approval-requests", { params: { status_filter: statusFilter } }),
+  });
+}
+
+export function useDecideGovernedApproval() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, decision, comments }: { requestId: string; decision: "approved" | "rejected" | "changes_requested"; comments?: string }) =>
+      apiClient.post(`/api/v1/governed/approval-requests/${requestId}:decide`, { decision, comments, idempotency_key: crypto.randomUUID() }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["governed-approval-requests"] });
+      client.invalidateQueries({ queryKey: ["concept"] });
+      client.invalidateQueries({ queryKey: ["blueprint"] });
+      client.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export interface AuthorityDelegation {
+  id: string; grantee_id: string; scope_type: string; allowed_actions: string[];
+  expires_at: string; status: string; reason: string | null;
+}
+
+export function useAuthorityDelegations(enabled = true) {
+  return useQuery({ queryKey: ["authority-delegations"], queryFn: () => apiClient.get<AuthorityDelegation[]>("/api/v1/governed/authority-delegations"), enabled });
+}
+
+export function useGrantAuthorityDelegation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { grantee_agent_id: string; allowed_actions: string[]; scope_type: string; max_risk: string; expires_at: string; reason?: string }) => apiClient.post<AuthorityDelegation>("/api/v1/governed/authority-delegations", payload),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["authority-delegations"] }),
+  });
+}
+
+export function useRevokeAuthorityDelegation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post<AuthorityDelegation>(`/api/v1/governed/authority-delegations/${id}:revoke`),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["authority-delegations"] }),
+  });
+}

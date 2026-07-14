@@ -112,13 +112,21 @@ class Project(Base, TimestampMixin):
 
     # Whether this project participates in per-project backup (System
     # Control's project-backup endpoints, archives written under
-    # /root/backup/projects/<project_id>/) -- kept SEPARATE from the
-    # ecosystem-wide "Backup .hermes" button (always /root/.hermes ->
-    # /root/backup/ directly), per explicit operator request: a project's
-    # backup lifecycle must be controllable independently of Hermes's.
-    # Off by default so registering a project never silently starts
-    # backing up an arbitrary working_directory_path.
+    # backup_location below) -- kept SEPARATE from the ecosystem-wide
+    # "Backup .hermes" button (always /root/.hermes -> /root/backup/
+    # directly), per explicit operator request: a project's backup
+    # lifecycle must be controllable independently of Hermes's. Off by
+    # default so registering a project never silently starts backing up
+    # an arbitrary working_directory_path.
     backup_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+    # Directory this project's archives are written into, e.g.
+    # "/root/backup/forgehub". NULL means "not set yet" -- System Control
+    # computes and displays a default of BACKUP_DIR/<slug-of-name> (see
+    # _project_slug in backend/app/api/routes/system_control.py) whenever
+    # this is empty, but never silently persists that default back here;
+    # only an explicit save on the project's own registration does.
+    backup_location: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
 
 class ProjectPlan(Base, TimestampMixin):

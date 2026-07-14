@@ -1,13 +1,14 @@
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
-import { useAuthStore, type AuthUser, type PermissionMap } from "@/store/authStore";
+import { useAuthStore, type ActionPermissionMap, type AuthUser, type PermissionMap } from "@/store/authStore";
 
 interface TokenOut {
   access_token: string;
   token_type: string;
   user: AuthUser;
   permissions: PermissionMap;
+  actions: ActionPermissionMap;
 }
 
 interface LoginPayload {
@@ -36,7 +37,7 @@ export function useLogin() {
       return res.json();
     },
     onSuccess: (data) => {
-      setAuth(data.access_token, data.user, data.permissions ?? {});
+      setAuth(data.access_token, data.user, data.permissions ?? {}, data.actions ?? {});
     },
   });
 }
@@ -79,7 +80,7 @@ export function useSessionKeepAlive() {
       apiClient
         .get<TokenOut>("/api/v1/auth/me")
         .then((data) => {
-          if (data.access_token) setAuth(data.access_token, data.user, data.permissions ?? {});
+          if (data.access_token) setAuth(data.access_token, data.user, data.permissions ?? {}, data.actions ?? {});
         })
         .catch(() => {
           // Token already invalid -- lib/api.ts's 401 handler already
@@ -161,6 +162,7 @@ export interface Profile {
   name: string;
   description: string | null;
   permissions: ProfilePermission[];
+  action_permissions: { action_key: string; allowed: boolean }[];
   created_at: string;
   updated_at: string;
 }
@@ -174,7 +176,7 @@ export function useProfiles() {
 
 export function useCreateProfile() {
   const qc = useQueryClient();
-  return useMutation<Profile, Error, { name: string; description?: string; permissions: ProfilePermission[] }>({
+  return useMutation<Profile, Error, { name: string; description?: string; permissions: ProfilePermission[]; action_permissions?: { action_key: string; allowed: boolean }[] }>({
     mutationFn: (body) => apiClient.post("/api/v1/profiles", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles"] }),
   });
@@ -182,7 +184,7 @@ export function useCreateProfile() {
 
 export function useUpdateProfile() {
   const qc = useQueryClient();
-  return useMutation<Profile, Error, { id: string; body: { name?: string; description?: string; permissions?: ProfilePermission[] } }>({
+  return useMutation<Profile, Error, { id: string; body: { name?: string; description?: string; permissions?: ProfilePermission[]; action_permissions?: { action_key: string; allowed: boolean }[] } }>({
     mutationFn: ({ id, body }) => apiClient.patch(`/api/v1/profiles/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles"] }),
   });

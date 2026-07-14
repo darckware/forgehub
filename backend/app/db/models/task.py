@@ -39,6 +39,7 @@ from app.db.base import Base, TimestampMixin
 # distinguish "finished" from "shipped".
 TASK_STATUSES = (
     "planned",
+    "ready",
     "assigned",
     "in_progress",
     "blocked",
@@ -177,6 +178,13 @@ class TaskAssignment(Base, TimestampMixin):
     sub_agent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.sub_agents.id"), nullable=True
     )
+    # Project-scoped authorization. Kept nullable for backward compatibility
+    # with pre-orchestration assignments; automated dispatch requires it.
+    membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.project_agent_memberships.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # active | released | revoked
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
@@ -206,10 +214,38 @@ class TaskExecution(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("company.task_assignments.id", ondelete="SET NULL"), nullable=True
     )
 
+    runtime_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.agent_runtime_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    loop_policy_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.project_loop_policies.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    parent_execution_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.task_executions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     # agent | sub_agent | human | system
     executor_type: Mapped[str] = mapped_column(String(20), nullable=False, default="agent")
+
+    # CLI is the execution runtime; the responsible logical Agent/SubAgent
+    # remains traceable through assignment -> project membership.
+    runtime_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    runtime_session_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    work_package_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.execution_work_packages.id", ondelete="SET NULL"), nullable=True
+    )
+    adapter_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    process_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    loop_iteration: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     # pending | running | failed | retried | verified | completed
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")

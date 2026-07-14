@@ -27,12 +27,14 @@ import {
 import { useProjects } from "@/hooks/useProject";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TaskForm } from "./TaskForm";
+import { ExecutionWaveBoard } from "@/components/ExecutionWaveBoard";
 
 const STATUS_VARIANT: Record<
   string,
   "default" | "secondary" | "success" | "warning" | "outline" | "destructive"
 > = {
   planned: "outline",
+  ready: "warning",
   assigned: "secondary",
   in_progress: "default",
   blocked: "destructive",
@@ -150,6 +152,7 @@ export default function TaskPage() {
 
   return (
     <div className="space-y-6">
+      <ExecutionWaveBoard />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Execution</h1>

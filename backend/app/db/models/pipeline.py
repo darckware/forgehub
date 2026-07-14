@@ -138,6 +138,7 @@ class PipelineStage(Base, TimestampMixin):
     stage_type: Mapped[str] = mapped_column(String(100), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     requires_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     requires_verification: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

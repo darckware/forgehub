@@ -266,7 +266,7 @@ class AgentBase(BaseModel):
 
 
 class AgentCreate(AgentBase):
-    pass
+    forgerouter_api_key: str | None = Field(default=None, min_length=1, max_length=1000)
 
 
 class AgentUpdate(BaseModel):
@@ -275,6 +275,8 @@ class AgentUpdate(BaseModel):
     agent_type: str | None = None
     status: str | None = None
     is_active: bool | None = None
+    forgerouter_api_key: str | None = Field(default=None, min_length=1, max_length=1000)
+    clear_forgerouter_api_key: bool = False
 
     @field_validator("agent_type")
     @classmethod
@@ -304,6 +306,10 @@ class AgentOut(AgentBase):
     has_profile: bool = False
     mission: str | None = None
     source_path: str | None = None
+    department: str | None = None
+    sector: str | None = None
+    reports_to_profile_slug: str | None = None
+    forgerouter_api_key_configured: bool = False
 
 
 class AgentListItemOut(AgentOut):

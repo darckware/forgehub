@@ -51,6 +51,13 @@ export function ProjectForm({
 
   const productVersionId = watch("product_version_id");
   const [selectedProductId, setSelectedProductId] = useState("");
+  const backupEnabled = watch("backup_enabled");
+  const nameValue = watch("name");
+  // Mirrors the backend's slug rule (_project_slug in
+  // backend/app/api/routes/system_control.py) so this preview matches what
+  // System Control actually resolves to when backup_location is empty.
+  const slug = (nameValue || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const defaultBackupLocation = `/root/backup/${slug || "project-name"}`;
 
   // Resolve which product owns the current product_version_id -- needed
   // when editing an existing project, which only carries the version id,
@@ -203,6 +210,20 @@ export function ProjectForm({
           Enable backup (System Control's Backups card can archive the working directory)
         </Label>
       </div>
+
+      {backupEnabled && (
+        <div className="space-y-2">
+          <Label htmlFor="backup_location">Backup location</Label>
+          <Input id="backup_location" placeholder={defaultBackupLocation} {...register("backup_location")} />
+          {errors.backup_location && (
+            <p className="text-sm text-destructive">{errors.backup_location.message}</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Where archives are written, e.g. {defaultBackupLocation}. Leave empty to use that default (/root/backup
+            + project name).
+          </p>
+        </div>
+      )}
 
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (

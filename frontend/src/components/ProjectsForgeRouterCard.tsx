@@ -22,19 +22,35 @@ interface ProjectForgeRouterRowProps {
   projectPath: string | null | undefined;
 }
 
+type ToolKey = "claude" | "codex" | "antigravity";
+
 function ToolBadge({
   icon,
   label,
   enabled,
   loading,
+  disabled = false,
+  onClick,
 }: {
   icon: string;
   label: string;
   enabled: boolean;
   loading: boolean;
+  disabled?: boolean;
+  onClick: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1" title={`${label}: ${enabled ? "configured" : "not configured"}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading || disabled}
+      className="flex items-center gap-1 rounded px-0.5 transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+      title={
+        disabled
+          ? "Set working_directory_path on the project first"
+          : `${label}: ${enabled ? "configured — click to disable" : "not configured — click to enable"}`
+      }
+    >
       <img src={icon} alt="" className="h-4 w-4 rounded" />
       {loading ? (
         <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
@@ -43,7 +59,7 @@ function ToolBadge({
       ) : (
         <XCircle className="h-3 w-3 text-muted-foreground/40" />
       )}
-    </div>
+    </button>
   );
 }
 
@@ -52,37 +68,54 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
   const toggle = useToggleProjectForgeRouter(projectId);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
+  const [pendingTool, setPendingTool] = useState<ToolKey | null>(null);
 
   const isEnabled = Boolean(config?.claude_enabled || config?.codex_enabled || config?.antigravity_enabled);
   const hasPath = Boolean(projectPath);
 
-  const handleToggle = async (newEnabled: boolean) => {
-    if (newEnabled && !apiKeyInput) {
+  const currentState = (): Record<ToolKey, boolean> => ({
+    claude: config?.claude_enabled ?? false,
+    codex: config?.codex_enabled ?? false,
+    antigravity: config?.antigravity_enabled ?? false,
+  });
+
+  const applyToggle = async (tool: ToolKey, nextValue: boolean, apiKey: string) => {
+    const desired = { ...currentState(), [tool]: nextValue };
+    await toggle.mutateAsync({
+      enabled: desired.claude || desired.codex || desired.antigravity,
+      api_key: apiKey,
+      ...desired,
+    });
+  };
+
+  // Each icon toggles only its own tool — the other two keep their current
+  // state, so picking Codex doesn't drag Claude along for the ride.
+  const handleToolClick = async (tool: ToolKey) => {
+    if (!hasPath) return;
+    const nextValue = !currentState()[tool];
+    if (nextValue && !config?.api_key && !apiKeyInput) {
+      setPendingTool(tool);
       setShowApiKey(true);
       return;
     }
-    await toggle.mutateAsync({
-      enabled: newEnabled,
-      api_key: apiKeyInput,
-      claude: true,
-      codex: true,
-      antigravity: false,
-    });
-    if (!newEnabled) {
-      setApiKeyInput("");
-      setShowApiKey(false);
-    }
+    await applyToggle(tool, nextValue, apiKeyInput);
+  };
+
+  const handleDisableAll = async () => {
+    await toggle.mutateAsync({ enabled: false, api_key: "", claude: false, codex: false, antigravity: false });
+    setApiKeyInput("");
+    setShowApiKey(false);
+    setPendingTool(null);
   };
 
   const handleConfirmEnable = async () => {
-    await toggle.mutateAsync({
-      enabled: true,
-      api_key: apiKeyInput,
-      claude: true,
-      codex: true,
-      antigravity: false,
-    });
+    if (!pendingTool) {
+      setShowApiKey(false);
+      return;
+    }
+    await applyToggle(pendingTool, true, apiKeyInput);
     setShowApiKey(false);
+    setPendingTool(null);
   };
 
   const configuredAt = config?.configured_at
@@ -117,49 +150,47 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
               label="Claude"
               enabled={config?.claude_enabled ?? false}
               loading={toggle.isPending}
+              disabled={!hasPath}
+              onClick={() => void handleToolClick("claude")}
             />
             <ToolBadge
               icon={codexIcon}
               label="Codex"
               enabled={config?.codex_enabled ?? false}
               loading={toggle.isPending}
+              disabled={!hasPath}
+              onClick={() => void handleToolClick("codex")}
             />
             <ToolBadge
               icon={antigravityIcon}
               label="Antigravity"
               enabled={config?.antigravity_enabled ?? false}
               loading={toggle.isPending}
+              disabled={!hasPath}
+              onClick={() => void handleToolClick("antigravity")}
             />
           </div>
         )}
 
-        {/* ForgeRouter master toggle */}
+        {/* Status + disable-all — picking which CLI to enable happens on the icons above */}
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant={isEnabled ? "default" : "outline"}
-            className="h-7 min-w-[72px] text-xs"
-            disabled={!hasPath || toggle.isPending || isLoading}
-            onClick={() => void handleToggle(!isEnabled)}
+          <span
+            className={`h-7 min-w-[72px] rounded border px-2 text-center text-xs leading-7 ${
+              isEnabled ? "border-emerald-500/40 text-emerald-500" : "border-border/50 text-muted-foreground"
+            }`}
             title={!hasPath ? "Set working_directory_path on the project first" : undefined}
           >
-            {toggle.isPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : isEnabled ? (
-              "Active"
-            ) : (
-              "Enable"
-            )}
-          </Button>
+            {isEnabled ? "Active" : "Off"}
+          </span>
           {isEnabled && (
             <Button
               size="sm"
               variant="ghost"
               className="h-7 text-xs text-muted-foreground"
-              disabled={toggle.isPending}
-              onClick={() => void handleToggle(false)}
+              disabled={toggle.isPending || !hasPath}
+              onClick={() => void handleDisableAll()}
             >
-              Disable
+              Disable all
             </Button>
           )}
         </div>
@@ -311,8 +342,9 @@ export function ProjectsForgeRouterCard() {
           {/* Legend */}
           {!isLoading && projects && projects.length > 0 && (
             <p className="pt-1 text-[10px] text-muted-foreground/60">
-              Toggle enables ForgeRouter for Claude Code (.claude/settings.local.json) and Codex (.codex/config.toml)
-              inside the project directory. Antigravity requires manual env sourcing (.forgerouter/antigravity.env).
+              Click a CLI icon to enable/disable ForgeRouter for it individually: Claude
+              (.claude/settings.local.json), Codex (.codex/config.toml). Antigravity requires manual env sourcing
+              (.forgerouter/antigravity.env).
             </p>
           )}
         </CardContent>

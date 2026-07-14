@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PermissionIn(BaseModel):
@@ -26,13 +26,24 @@ class PermissionOut(BaseModel):
 class ProfileCreate(BaseModel):
     name: str
     description: str | None = None
-    permissions: list[PermissionIn] = []
+    permissions: list[PermissionIn] = Field(default_factory=list)
+    action_permissions: list["ActionPermissionIn"] = Field(default_factory=list)
 
 
 class ProfileUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     permissions: list[PermissionIn] | None = None
+    action_permissions: list["ActionPermissionIn"] | None = None
+
+
+class ActionPermissionIn(BaseModel):
+    action_key: str
+    allowed: bool = False
+
+
+class ActionPermissionOut(ActionPermissionIn):
+    model_config = {"from_attributes": True}
 
 
 class ProfileOut(BaseModel):
@@ -40,6 +51,7 @@ class ProfileOut(BaseModel):
     name: str
     description: str | None
     permissions: list[PermissionOut]
+    action_permissions: list[ActionPermissionOut] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

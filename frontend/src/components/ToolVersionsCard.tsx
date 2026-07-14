@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Feather, Loader2, RefreshCw, BellRing, BellOff } from "lucide-react";
+import { BellOff, BellRing, ChevronDown, ChevronRight, Feather, Loader2, RefreshCw, X } from "lucide-react";
 import hermesIcon from "@lobehub/icons-static-png/light/hermesagent.png";
 import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
 import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
@@ -41,7 +41,14 @@ export function ToolVersionsCard() {
   const checkVersions = useCheckToolVersions();
   const setSyncSetting = useSetToolSyncSetting();
   const runToolUpdate = useRunToolUpdate();
-  const { updatingTools, expandedTool, updateOutputs, setExpandedTool } = useToolUpdateStore();
+  const {
+    updatingTools,
+    expandedTool,
+    updateOutputs,
+    setExpandedTool,
+    dismissUpdate,
+    clearUpdateDetails,
+  } = useToolUpdateStore();
 
   const syncEnabled = syncSetting?.enabled ?? true;
 
@@ -60,7 +67,10 @@ export function ToolVersionsCard() {
             className="h-7 w-7"
             title="Check now"
             aria-label="Check versions now"
-            onClick={() => checkVersions.mutate()}
+            onClick={() => {
+              clearUpdateDetails();
+              checkVersions.mutate();
+            }}
             disabled={checkVersions.isPending}
           >
             {checkVersions.isPending ? (
@@ -166,6 +176,22 @@ export function ToolVersionsCard() {
               {/* Inline error / update output panel */}
               {isExpanded && (errorText || updateOut) && (
                 <div className="mx-2 mb-2 max-h-64 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Details
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      title="Close and clear details"
+                      aria-label={`Close and clear ${meta.label} details`}
+                      onClick={() => dismissUpdate(tool)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                   {updateOut && (
                     <>
                       {updateOut.output && (

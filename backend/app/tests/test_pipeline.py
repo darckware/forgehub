@@ -16,6 +16,7 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from app.db.base import Base, engine
 from app.db.models.pipeline import (  # noqa: F401  (registers tables on Base.metadata)
@@ -30,6 +31,7 @@ from app.db.models.pipeline import (  # noqa: F401  (registers tables on Base.me
 )
 from app.api.routes import pipeline as pipeline_routes
 from app.main import app
+from app.db.models.user import User
 
 # main.py's wiring step (separate from this domain step) is responsible
 # for adding `app.include_router(pipeline.router)` for real. Until that
@@ -60,7 +62,24 @@ async def _setup_schema():
     # real, permanent tables, not test scaffolding.
     async with engine.begin() as conn:
         await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, tables=_OUR_TABLES))
+    from app.db.base import AsyncSessionLocal
+    created_user = False
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.username == "test-suite"))).scalar_one_or_none()
+        if user is None:
+            session.add(User(
+                username="test-suite", hashed_password="test-only-not-a-real-password",
+                is_active=True, is_admin=True,
+            ))
+            await session.commit()
+            created_user = True
     yield
+    if created_user:
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(User).where(User.username == "test-suite"))).scalar_one_or_none()
+            if user:
+                await session.delete(user)
+                await session.commit()
 
 
 @pytest_asyncio.fixture
@@ -127,6 +146,34 @@ async def project_id():
             )
             stage_ids = [row[0] for row in stage_ids_row.fetchall()]
             if stage_ids:
+                checkpoint_rows = await conn.execute(
+                    text("SELECT id FROM company.progress_checkpoints WHERE project_id = :id"),
+                    {"id": new_id},
+                )
+                checkpoint_ids = [row[0] for row in checkpoint_rows.fetchall()]
+                if checkpoint_ids:
+                    await conn.execute(
+                        text("DELETE FROM company.notifications WHERE event_key = ANY(:keys)"),
+                        {"keys": [
+                            f"progress:{kind}:{checkpoint_id}"
+                            for checkpoint_id in checkpoint_ids
+                            for kind in ("blocked", "failed", "paused", "heartbeat_lost", "resumed")
+                        ]},
+                    )
+                    await conn.execute(
+                        text(
+                            "DELETE FROM company.audit_events "
+                            "WHERE entity_type = 'progress_checkpoint' AND entity_id = ANY(:ids)"
+                        ),
+                        {"ids": checkpoint_ids},
+                    )
+                await conn.execute(
+                    text(
+                        "DELETE FROM company.audit_events "
+                        "WHERE entity_type = 'pipeline_stage' AND entity_id = ANY(:ids)"
+                    ),
+                    {"ids": stage_ids},
+                )
                 await conn.execute(
                     text(
                         "DELETE FROM company.pipeline_stage_dependencies "
@@ -265,7 +312,115 @@ async def test_stage_cannot_complete_with_missing_mandatory_artifact(
 
     complete_resp = await client.patch(f"/api/v1/pipelines/stages/{stage_id}", json={"status": "completed"})
     assert complete_resp.status_code == 409
-    assert "missing mandatory artifacts" in complete_resp.json()["detail"]
+    assert "evaluate-completion" in complete_resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_stage_completion_requires_current_assessment_and_is_idempotent(
+    client: AsyncClient, project_id: uuid.UUID
+):
+    created = await client.post("/api/v1/pipelines", json={
+        "project_id": str(project_id), "name": "Recoverable pipeline", "is_active": True,
+        "stages": [{"name": "Implementation", "stage_type": "implementation", "order_index": 0}],
+    })
+    assert created.status_code == 201, created.text
+    stage_id = created.json()["stages"][0]["id"]
+
+    direct = await client.patch(f"/api/v1/pipelines/stages/{stage_id}", json={"status": "completed"})
+    assert direct.status_code == 409
+
+    first = await client.post(f"/api/v1/pipeline-stages/{stage_id}:evaluate-completion")
+    second = await client.post(f"/api/v1/pipeline-stages/{stage_id}:evaluate-completion")
+    assert first.status_code == second.status_code == 200
+    assert first.json()["result"] == "ready"
+    assert first.json()["id"] == second.json()["id"]
+
+    body = {"assessment_id": first.json()["id"], "idempotency_key": f"complete-{uuid.uuid4()}"}
+    complete = await client.post(f"/api/v1/pipeline-stages/{stage_id}:complete", json=body)
+    retry = await client.post(f"/api/v1/pipeline-stages/{stage_id}:complete", json=body)
+    assert complete.status_code == retry.status_code == 200
+    assert complete.json()["checkpoint"]["id"] == retry.json()["checkpoint"]["id"]
+
+    progress = await client.get(f"/api/v1/projects/{project_id}/progress")
+    timeline = await client.get(f"/api/v1/projects/{project_id}/progress-timeline")
+    assert progress.status_code == timeline.status_code == 200
+    assert progress.json()["stages"][0]["effective_status"] == "completed"
+    assert timeline.json()[-1]["checkpoint_type"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_stage_completion_rejects_stale_assessment(
+    client: AsyncClient, project_id: uuid.UUID
+):
+    created = await client.post("/api/v1/pipelines", json={
+        "project_id": str(project_id), "name": "Stale assessment pipeline", "is_active": True,
+        "stages": [{"name": "Testing", "stage_type": "testing", "order_index": 0}],
+    })
+    stage_id = created.json()["stages"][0]["id"]
+    assessment = await client.post(f"/api/v1/pipeline-stages/{stage_id}:evaluate-completion")
+    changed = await client.patch(f"/api/v1/pipelines/stages/{stage_id}", json={"name": "Testing revised"})
+    assert changed.status_code == 200
+    response = await client.post(f"/api/v1/pipeline-stages/{stage_id}:complete", json={
+        "assessment_id": assessment.json()["id"], "idempotency_key": f"stale-{uuid.uuid4()}",
+    })
+    assert response.status_code == 409
+    assert "stale" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_execution_checkpoint_block_and_resume_preserve_stop_point(
+    client: AsyncClient, project_id: uuid.UUID
+):
+    from app.db.base import AsyncSessionLocal
+    from app.db.models.backlog import PlanningItem
+    from app.db.models.task import ProjectTask, TaskExecution
+
+    created = await client.post("/api/v1/pipelines", json={
+        "project_id": str(project_id), "name": "Checkpoint pipeline", "is_active": True,
+        "stages": [{"name": "Build", "stage_type": "build", "order_index": 0}],
+    })
+    stage_id = created.json()["stages"][0]["id"]
+    async with AsyncSessionLocal() as session:
+        item = PlanningItem(
+            title="Checkpoint item", item_type="feature", project_id=project_id,
+            status="in_progress", priority="medium",
+        )
+        session.add(item); await session.flush()
+        task = ProjectTask(planning_item_id=item.id, title="Checkpoint task", status="in_progress")
+        session.add(task); await session.flush()
+        execution = TaskExecution(task_id=task.id, attempt_number=1, status="running")
+        session.add(execution); await session.commit()
+        execution_id = execution.id
+
+    key = f"checkpoint-{uuid.uuid4()}"
+    checkpoint_body = {
+        "pipeline_stage_id": stage_id, "checkpoint_type": "progress",
+        "step_key": "build.compile", "step_label": "Compile application",
+        "resume_from_step_key": "build.compile", "idempotency_key": key,
+    }
+    first = await client.post(f"/api/v1/executions/{execution_id}/checkpoints", json=checkpoint_body)
+    retry = await client.post(f"/api/v1/executions/{execution_id}/checkpoints", json=checkpoint_body)
+    assert first.status_code == retry.status_code == 200
+    assert first.json()["id"] == retry.json()["id"]
+
+    blocked = await client.post(f"/api/v1/executions/{execution_id}:block", json={
+        "step_key": "build.compile", "step_label": "Compile application",
+        "blocker_code": "dependency_unavailable", "message": "Package registry unavailable",
+        "resume_from_step_key": "build.compile", "idempotency_key": f"block-{uuid.uuid4()}",
+    })
+    assert blocked.status_code == 200, blocked.text
+    progress = await client.get(f"/api/v1/projects/{project_id}/progress")
+    assert progress.json()["stopped_at"]["reason"] == "dependency_unavailable"
+    assert progress.json()["first_safe_action"] == "Reconcile and resume from build.compile"
+
+    resumed = await client.post(f"/api/v1/executions/{execution_id}:resume", json={
+        "step_key": "build.compile", "step_label": "Resume compilation",
+        "resume_from_step_key": "build.compile", "idempotency_key": f"resume-{uuid.uuid4()}",
+    })
+    assert resumed.status_code == 200, resumed.text
+    assert resumed.json()["execution_status"] == "running"
+    timeline = await client.get(f"/api/v1/projects/{project_id}/progress-timeline")
+    assert [item["checkpoint_type"] for item in timeline.json()][-3:] == ["progress", "blocked", "resumed"]
 
 
 @pytest.mark.asyncio

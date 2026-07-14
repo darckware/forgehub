@@ -62,6 +62,7 @@ from app.api.schemas.agent import (
     SyncCounts,
 )
 from app.core import hermes_sync
+from app.core.secrets import encrypt_secret
 from app.db.base import get_db
 from app.db.models.agent import (
     Agent,
@@ -130,7 +131,11 @@ async def _get_skill_or_404(db: AsyncSession, skill_id: uuid.UUID) -> Skill:
 
 @router.post("", response_model=AgentOut, status_code=status.HTTP_201_CREATED)
 async def create_agent(payload: AgentCreate, db: AsyncSession = Depends(get_db)) -> Agent:
-    agent = Agent(**payload.model_dump())
+    data = payload.model_dump()
+    api_key = data.pop("forgerouter_api_key", None)
+    agent = Agent(**data)
+    if api_key:
+        agent.forgerouter_api_key_encrypted = encrypt_secret(api_key)
     db.add(agent)
     try:
         await db.commit()
@@ -211,6 +216,8 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
                 "runtime_tier": None,
             }
         mission, source_path = hermes_sync.parse_agent_mission(slug)
+        forge_router_api_key = hermes_sync.read_profile_forgerouter_api_key(slug)
+        department, sector, reports_to_profile_slug = hermes_sync.organization_for_profile(slug)
 
         result = await db.execute(select(Agent).where(Agent.profile_slug == slug))
         agent = result.scalar_one_or_none()
@@ -228,6 +235,12 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
                 has_profile=True,
                 mission=mission,
                 source_path=source_path,
+                department=department,
+                sector=sector,
+                reports_to_profile_slug=reports_to_profile_slug,
+                forgerouter_api_key_encrypted=(
+                    encrypt_secret(forge_router_api_key) if forge_router_api_key else None
+                ),
             )
             db.add(agent)
             agents_created += 1
@@ -243,6 +256,11 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
             agent.has_profile = True
             agent.mission = mission
             agent.source_path = source_path
+            agent.department = department
+            agent.sector = sector
+            agent.reports_to_profile_slug = reports_to_profile_slug
+            if forge_router_api_key and not agent.forgerouter_api_key_encrypted:
+                agent.forgerouter_api_key_encrypted = encrypt_secret(forge_router_api_key)
             agents_updated += 1
         await db.flush()
         agent_by_slug[slug] = agent
@@ -457,6 +475,12 @@ async def update_agent(
 ) -> Agent:
     agent = await _get_agent_or_404(db, agent_id)
     updates = payload.model_dump(exclude_unset=True)
+    api_key = updates.pop("forgerouter_api_key", None)
+    clear_api_key = updates.pop("clear_forgerouter_api_key", False)
+    if api_key:
+        agent.forgerouter_api_key_encrypted = encrypt_secret(api_key)
+    elif clear_api_key:
+        agent.forgerouter_api_key_encrypted = None
     for field, value in updates.items():
         setattr(agent, field, value)
     try:

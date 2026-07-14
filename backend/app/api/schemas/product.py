@@ -80,6 +80,7 @@ class ProductCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     status: str = Field(default="active")
+    application_url: str | None = Field(default=None, max_length=2048, pattern=r"^https?://")
     # Business rule 6.1.3: every product must have at least one version.
     # Optional here only insofar as a default "0.1.0 / planned" version is
     # created automatically when the caller omits it — the product is
@@ -91,6 +92,7 @@ class ProductUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     status: str | None = None
+    application_url: str | None = Field(default=None, max_length=2048, pattern=r"^https?://")
 
 
 class ProductOut(BaseModel):
@@ -100,6 +102,7 @@ class ProductOut(BaseModel):
     name: str
     description: str | None
     status: str
+    application_url: str | None = None
     kanboard_project_id: int | None = None
     kanboard_column_ids: dict | None = None
     created_at: datetime

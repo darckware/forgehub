@@ -9,6 +9,7 @@ full path.
 import asyncio
 import contextlib
 import logging
+import hashlib
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,16 +31,20 @@ from app.api.routes import (
     database,
     deploy,
     demand,
+    execution,
     docs,
     forgerouter,
     foundation,
     foundation_docs,
     foundation_script,
     governance,
+    governed_approval,
     hindsight,
     news,
     notifications,
+    orchestration,
     pipeline,
+    progress,
     prompt_commands,
     product,
     profiles,
@@ -47,6 +52,7 @@ from app.api.routes import (
     remote_access,
     server,
     system_control,
+    system_scope,
     systemstats,
     task,
     terminal,
@@ -54,6 +60,7 @@ from app.api.routes import (
     toolversions,
     users,
     vault,
+    workspace_browser,
 )
 
 app = FastAPI(title="ForgeHub (ForgeHub) API", version="0.1.0")
@@ -82,6 +89,22 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         auth_header = request.headers.get("authorization", "")
         token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
+        agent_command_path = path.startswith((
+            "/api/v1/governed/", "/api/v1/executions/", "/api/v1/execution-waves/",
+            "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/"
+        )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
+        if token and token.startswith("agt_") and agent_command_path:
+            from sqlalchemy import select
+            from app.db.base import AsyncSessionLocal
+            from app.db.models.agent import AgentServiceCredential
+            async with AsyncSessionLocal() as db:
+                token_hash = hashlib.sha256(token.encode()).hexdigest()
+                credential = (await db.execute(select(AgentServiceCredential.id).where(
+                    AgentServiceCredential.token_hash == token_hash,
+                    AgentServiceCredential.revoked_at.is_(None),
+                ))).scalar_one_or_none()
+            if credential is not None:
+                return await call_next(request)
         if not token or decode_access_token(token) is None:
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         return await call_next(request)
@@ -117,6 +140,8 @@ app.include_router(auth.router)
 app.include_router(product.router)
 app.include_router(project.router)
 app.include_router(pipeline.router)
+app.include_router(progress.router)
+app.include_router(execution.router)
 app.include_router(backlog.router)
 app.include_router(task.router)
 app.include_router(agent.router)
@@ -124,6 +149,7 @@ app.include_router(tool.router)
 app.include_router(artifact.router)
 app.include_router(audit.router)
 app.include_router(governance.router)
+app.include_router(governed_approval.router)
 app.include_router(hindsight.router)
 app.include_router(news.router)
 app.include_router(foundation.router)
@@ -133,6 +159,7 @@ app.include_router(chat.router)
 app.include_router(terminal.router)
 app.include_router(toolversions.router)
 app.include_router(systemstats.router)
+app.include_router(workspace_browser.router)
 app.include_router(vault.router)
 app.include_router(docs.router)
 app.include_router(demand.router)
@@ -147,6 +174,8 @@ app.include_router(server.router)
 app.include_router(remote_access.router)
 app.include_router(system_control.router)
 app.include_router(forgerouter.router)
+app.include_router(orchestration.router)
+app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)

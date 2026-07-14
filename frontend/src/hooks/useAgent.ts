@@ -134,6 +134,10 @@ export const agentSchema = z.object({
   has_profile: z.boolean().default(false),
   mission: z.string().nullable().optional(),
   source_path: z.string().nullable().optional(),
+  department: z.string().nullable().optional(),
+  sector: z.string().nullable().optional(),
+  reports_to_profile_slug: z.string().nullable().optional(),
+  forgerouter_api_key_configured: z.boolean().default(false),
   sub_agents: z.array(subAgentSchema).optional().default([]),
   agent_skills: z.array(agentSkillSchema).optional().default([]),
   cost_rates: z.array(agentCostRateSchema).optional().default([]),
@@ -149,6 +153,8 @@ export const agentInputSchema = z.object({
   agent_type: z.enum(AGENT_TYPES).default("executor"),
   status: z.enum(AGENT_STATUSES).default("active"),
   is_active: z.boolean().default(true),
+  forgerouter_api_key: z.string().max(1000).optional(),
+  clear_forgerouter_api_key: z.boolean().optional(),
 });
 
 export const agentUpdateSchema = agentInputSchema.partial();

@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.task import (
@@ -59,9 +59,11 @@ from app.api.schemas.task import (
 from app.core import kanboard_client
 from app.core.config import settings
 from app.db.base import get_db
-from app.db.models.agent import Agent
+from app.db.models.agent import Agent, SubAgent
 from app.db.models.backlog import PlanningItem
 from app.db.models.governance import AuditEvent
+from app.db.models.progress import ProgressCheckpoint
+from app.db.models.orchestration import AgentRuntimeProfile, ProjectAgentMembership, ProjectLoopPolicy
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import (
@@ -99,6 +101,54 @@ async def _get_task_or_404(db: AsyncSession, task_id: uuid.UUID) -> ProjectTask:
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task
+
+
+async def _resolve_task_project_id(db: AsyncSession, task: ProjectTask) -> uuid.UUID:
+    if task.planning_item_id:
+        planning_item = await db.get(PlanningItem, task.planning_item_id)
+        if planning_item and planning_item.project_id:
+            return planning_item.project_id
+    if task.change_request_id:
+        change_request = await db.get(ChangeRequest, task.change_request_id)
+        if change_request:
+            return change_request.project_id
+    raise HTTPException(status_code=409, detail="Task cannot be resolved to a project")
+
+
+async def _record_execution_lifecycle_checkpoint(
+    db: AsyncSession,
+    task: ProjectTask,
+    execution: TaskExecution,
+    checkpoint_type: str,
+    step_key: str,
+    step_label: str,
+) -> None:
+    """Persist adapter-independent lifecycle recovery facts with the execution transaction."""
+    idempotency_key = f"execution:{execution.id}:{checkpoint_type}"
+    exists = (await db.execute(select(ProgressCheckpoint.id).where(
+        ProgressCheckpoint.idempotency_key == idempotency_key
+    ))).scalar_one_or_none()
+    if exists:
+        return
+    sequence = int((await db.execute(select(func.coalesce(func.max(ProgressCheckpoint.sequence), 0)).where(
+        ProgressCheckpoint.task_execution_id == execution.id
+    ))).scalar_one()) + 1
+    evidence = [execution.evidence_ref] if execution.evidence_ref else []
+    db.add(ProgressCheckpoint(
+        project_id=await _resolve_task_project_id(db, task), task_id=task.id,
+        task_execution_id=execution.id, sequence=sequence,
+        checkpoint_type=checkpoint_type, step_key=step_key, step_label=step_label,
+        state_snapshot={"status": execution.status, "attempt_number": execution.attempt_number},
+        completed_requirement_keys=[], evidence_refs=evidence,
+        last_confirmed_at=datetime.now(timezone.utc),
+        resume_from_step_key=step_key if checkpoint_type in {"started", "failed"} else None,
+        error_code="execution_failed" if checkpoint_type == "failed" else None,
+        message=execution.outcome_summary, actor_type="system", actor_id=None,
+        actor_name="ForgeHub runtime", idempotency_key=idempotency_key,
+    ))
+    # The create route may add both started and terminal checkpoints in one
+    # transaction. Flush so the next sequence query observes this row.
+    await db.flush()
 
 
 # --------------------------------------------------------------------------
@@ -216,6 +266,8 @@ async def update_task(
     task = await _get_task_or_404(db, task_id)
 
     data = payload.model_dump(exclude_unset=True)
+    if data.get("status") == "ready":
+        raise HTTPException(status_code=409, detail="Task ready is set only by ActivateExecutionWave")
 
     if "planning_item_id" in data and data["planning_item_id"] is not None:
         if await db.get(PlanningItem, data["planning_item_id"]) is None:
@@ -448,6 +500,20 @@ async def create_task_execution(
                 detail="assignment_id must reference an assignment belonging to this task",
             )
 
+    if payload.runtime_profile_id is not None:
+        profile = await db.get(AgentRuntimeProfile, payload.runtime_profile_id)
+        if profile is None or not profile.is_active:
+            raise HTTPException(status_code=400, detail="runtime_profile_id must reference an active profile")
+        if payload.runtime_type is not None and payload.runtime_type != profile.runtime_type:
+            raise HTTPException(status_code=400, detail="runtime_type must match the runtime profile")
+
+    if payload.loop_policy_id is not None:
+        policy = await db.get(ProjectLoopPolicy, payload.loop_policy_id)
+        if policy is None or not policy.is_active:
+            raise HTTPException(status_code=400, detail="loop_policy_id must reference an active policy")
+        if policy.project_id != await _resolve_task_project_id(db, task):
+            raise HTTPException(status_code=400, detail="loop policy belongs to another project")
+
     count_result = await db.execute(
         select(TaskExecution.id).where(TaskExecution.task_id == task_id)
     )
@@ -457,6 +523,18 @@ async def create_task_execution(
         task_id=task_id, attempt_number=attempt_number, **payload.model_dump()
     )
     db.add(execution)
+    await db.flush()
+    await _record_execution_lifecycle_checkpoint(
+        db, task, execution, "started", "execution.started", "Execution attempt started"
+    )
+    created_terminal_checkpoint = {
+        "failed": "failed", "verified": "evidence", "completed": "completed",
+    }.get(execution.status)
+    if created_terminal_checkpoint:
+        await _record_execution_lifecycle_checkpoint(
+            db, task, execution, created_terminal_checkpoint,
+            f"execution.{execution.status}", f"Execution {execution.status}",
+        )
 
     # Rule 6.4.1: planned/assigned/executed remain distinct -- starting an
     # execution moves the parent task into "in_progress" if it hasn't
@@ -531,6 +609,16 @@ async def update_task_execution(
                     "evidence_ref": execution.evidence_ref,
                 },
             )
+        )
+
+    checkpoint_type = {
+        "failed": "failed", "verified": "evidence", "completed": "completed",
+    }.get(new_status)
+    if checkpoint_type:
+        task = await _get_task_or_404(db, task_id)
+        await _record_execution_lifecycle_checkpoint(
+            db, task, execution, checkpoint_type,
+            f"execution.{new_status}", f"Execution {new_status}",
         )
 
     await db.commit()
@@ -650,6 +738,27 @@ async def create_task_assignment(
     if payload.task_id != task_id:
         raise HTTPException(status_code=400, detail="task_id in body must match the path task_id")
     task = await _get_task_or_404(db, task_id)
+
+    if payload.agent_id is not None:
+        agent = await db.get(Agent, payload.agent_id)
+        if agent is None or not agent.is_active or agent.status != "active":
+            raise HTTPException(status_code=400, detail="agent_id must reference an active agent")
+    if payload.sub_agent_id is not None:
+        sub_agent = await db.get(SubAgent, payload.sub_agent_id)
+        if sub_agent is None or not sub_agent.is_active or sub_agent.status != "active":
+            raise HTTPException(status_code=400, detail="sub_agent_id must reference an active sub-agent")
+
+    if payload.membership_id is not None:
+        membership = await db.get(ProjectAgentMembership, payload.membership_id)
+        if membership is None or membership.status != "active":
+            raise HTTPException(status_code=400, detail="membership_id must reference an active membership")
+        if membership.project_id != await _resolve_task_project_id(db, task):
+            raise HTTPException(status_code=400, detail="membership belongs to another project")
+        if membership.agent_id != payload.agent_id or membership.sub_agent_id != payload.sub_agent_id:
+            raise HTTPException(
+                status_code=400,
+                detail="assignment agent/sub-agent must match the project membership",
+            )
 
     assignment = TaskAssignment(**payload.model_dump())
     db.add(assignment)

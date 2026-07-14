@@ -7,6 +7,7 @@ import {
   Loader2,
   Pencil,
   ShieldAlert,
+  KeyRound,
   Trash2,
   Users,
 } from "lucide-react";
@@ -14,6 +15,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -54,6 +56,7 @@ export default function AgentDetailPage() {
 
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [forgeRouterApiKey, setForgeRouterApiKey] = useState("");
 
   function handleStartEditDescription() {
     setDescriptionDraft(agent?.description ?? "");
@@ -133,6 +136,30 @@ export default function AgentDetailPage() {
               )}
             </div>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl"><KeyRound className="h-5 w-5" /> ForgeRouter API key</CardTitle>
+              <CardDescription>
+                Individual credential used only when this agent runs Claude, Codex, or Agy. The saved value is encrypted and never displayed again.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-2 text-sm">
+                <Badge variant={agent.forgerouter_api_key_configured ? "success" : "destructive"}>
+                  {agent.forgerouter_api_key_configured ? "Configured" : "Not configured"}
+                </Badge>
+              </div>
+              <div className="flex gap-2">
+                <Input type="password" autoComplete="new-password" value={forgeRouterApiKey} onChange={(e) => setForgeRouterApiKey(e.target.value)} placeholder="Paste this agent's ForgeRouter key" />
+                <Button disabled={!forgeRouterApiKey || updateAgent.isPending} onClick={() => updateAgent.mutate({ forgerouter_api_key: forgeRouterApiKey }, { onSuccess: () => setForgeRouterApiKey("") })}>
+                  {updateAgent.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />} Save key
+                </Button>
+                {agent.forgerouter_api_key_configured && <Button variant="outline" disabled={updateAgent.isPending} onClick={() => updateAgent.mutate({ clear_forgerouter_api_key: true })}>Remove</Button>}
+              </div>
+              {updateAgent.isError && <p className="text-sm text-destructive">{(updateAgent.error as Error)?.message}</p>}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-start justify-between gap-4">

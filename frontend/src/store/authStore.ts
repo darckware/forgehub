@@ -20,12 +20,14 @@ export interface ModulePermission {
 }
 
 export type PermissionMap = Record<string, ModulePermission>;
+export type ActionPermissionMap = Record<string, boolean>;
 
 interface AuthState {
   token: string | null;
   user: AuthUser | null;
   permissions: PermissionMap;
-  setAuth: (token: string, user: AuthUser, permissions: PermissionMap) => void;
+  actions: ActionPermissionMap;
+  setAuth: (token: string, user: AuthUser, permissions: PermissionMap, actions?: ActionPermissionMap) => void;
   updateUser: (patch: Partial<AuthUser>) => void;
   clearAuth: () => void;
 }
@@ -36,9 +38,10 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       user: null,
       permissions: {},
-      setAuth: (token, user, permissions) => set({ token, user, permissions }),
+      actions: {},
+      setAuth: (token, user, permissions, actions = {}) => set({ token, user, permissions, actions }),
       updateUser: (patch) => set((s) => (s.user ? { user: { ...s.user, ...patch } } : s)),
-      clearAuth: () => set({ token: null, user: null, permissions: {} }),
+      clearAuth: () => set({ token: null, user: null, permissions: {}, actions: {} }),
     }),
     { name: "forgehub-auth" }
   )

@@ -56,6 +56,7 @@ import { StructureNodeForm } from "./StructureNodeForm";
 import { ProjectPlanForm } from "./ProjectPlanForm";
 import { ChangeRequestForm } from "./ChangeRequestForm";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ProjectAutomationCard } from "@/components/ProjectAutomationCard";
 
 const CHANGE_REQUEST_STATUS_VARIANT: Record<string, "outline" | "success" | "destructive" | "secondary"> = {
   pending: "outline",
@@ -262,7 +263,15 @@ function formatBytes(bytes: number | null | undefined): string {
  * separate from Hermes's and every other project's (see System Control's
  * Backups card / backend/app/api/routes/system_control.py). Only rendered
  * when the project has backup_enabled. */
-function ProjectBackups({ projectId, projectName }: { projectId: string; projectName: string }) {
+function ProjectBackups({
+  projectId,
+  projectName,
+  workingDirectoryPath,
+}: {
+  projectId: string;
+  projectName: string;
+  workingDirectoryPath: string | null | undefined;
+}) {
   const target = `project:${projectId}`;
   const { data: listing, isLoading } = useBackupListing(target);
   const runBackup = useRunBackup();
@@ -284,6 +293,11 @@ function ProjectBackups({ projectId, projectName }: { projectId: string; project
           Backup now
         </Button>
       </div>
+      {listing?.path && (
+        <p className="font-mono text-xs text-muted-foreground">
+          {workingDirectoryPath ?? "(no working directory set)"} → {listing.path}
+        </p>
+      )}
       {runBackup.isError && (
         <p className="text-xs text-destructive">{(runBackup.error as Error)?.message ?? "Backup failed"}</p>
       )}
@@ -465,6 +479,7 @@ export default function ProjectDetailPage() {
                     working_directory_path: project.working_directory_path ?? "",
                     github_repo_url: project.github_repo_url ?? "",
                     backup_enabled: project.backup_enabled,
+                    backup_location: project.backup_location ?? "",
                   }}
                   onSubmit={handleUpdate}
                   onCancel={() => setShowEditForm(false)}
@@ -741,7 +756,13 @@ export default function ProjectDetailPage() {
                   {project.backup_enabled ? "Enabled" : "Disabled"}
                 </Badge>
               </div>
-              {project.backup_enabled && <ProjectBackups projectId={project.id} projectName={project.name} />}
+              {project.backup_enabled && (
+                <ProjectBackups
+                  projectId={project.id}
+                  projectName={project.name}
+                  workingDirectoryPath={project.working_directory_path}
+                />
+              )}
             </CardContent>
           </Card>
 
@@ -1001,6 +1022,8 @@ export default function ProjectDetailPage() {
               </Button>
             </CardContent>
           </Card>
+
+          <ProjectAutomationCard projectId={project.id} />
 
           <EntityDocsCard entityType="project" entityId={project.id} />
 

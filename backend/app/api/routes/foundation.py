@@ -239,13 +239,18 @@ class ScriptOut(BaseModel):
     status: str  # "ok" | "broken" | "unused"
     referenced_by: list[CronJobRefOut] = []
     # Non-cron reference sources -- a script counts as "ok" if referenced by
-    # ANY of the three: a cron job (referenced_by above), an enabled Auditor
-    # check's command (referenced_by_audit_checks), or another script that is
+    # ANY of the four: a cron job (referenced_by above), an enabled Auditor
+    # check's command (referenced_by_audit_checks), another script that is
     # itself referenced and calls this one (referenced_by_scripts, e.g. a
-    # cron-wrapper .sh invoking its .py implementation). See
-    # _audit_check_script_refs/_list_scripts for how these are computed.
+    # cron-wrapper .sh invoking its .py implementation), or a row in the
+    # Foundation Scripts registry (in_foundation_registry -- a governance/
+    # integration doc under /root/.hermes/foundation explicitly documents
+    # it, see db/models/foundation_script.py). See
+    # _audit_check_script_refs/_foundation_registry_script_names/
+    # _list_scripts for how these are computed.
     referenced_by_audit_checks: list[str] = []
     referenced_by_scripts: list[str] = []
+    in_foundation_registry: bool = False
 
 
 class ScriptListOut(BaseModel):
@@ -935,6 +940,24 @@ async def _audit_check_script_refs(db: AsyncSession) -> dict[str, list[str]]:
     return refs
 
 
+async def _foundation_registry_script_names(db: AsyncSession) -> set[str]:
+    """Scripts registered in the Foundation page's Scripts card
+    (foundation_scripts table, db/models/foundation_script.py) -- rows
+    there mean a governance/integration doc under /root/.hermes/foundation
+    explicitly documents this script (source="sync", doc_path set) or an
+    operator hand-registered it (source="manual"), either way a deliberate
+    "this is part of the ecosystem" declaration independent of cron/Auditor
+    wiring. Without this cross-reference the Cleanup card's "unused"
+    detection wrongly flagged worker.sh/kanboard-cleanup.sh/health_check.sh/
+    send_demand.sh despite each being documented there (reported
+    2026-07-11, same class of gap as the Auditor cross-reference added
+    2026-07-09 -- see _audit_check_script_refs)."""
+    from app.db.models.foundation_script import FoundationScript  # local import: avoid a module-load-order cycle
+
+    result = await db.execute(select(FoundationScript.name))
+    return set(result.scalars().all())
+
+
 def _script_content_refs(content: str) -> set[str]:
     """Script filenames mentioned in another script's own source -- a
     cron-referenced or Auditor-referenced wrapper (e.g. foundation_audit.sh)
@@ -955,6 +978,7 @@ def _build_script_out(
     jobs_by_script: dict[str, list[CronJobOut]],
     audit_check_names: list[str] | None = None,
     chained_from: list[str] | None = None,
+    in_foundation_registry: bool = False,
 ) -> ScriptOut:
     audit_check_names = audit_check_names or []
     chained_from = chained_from or []
@@ -989,7 +1013,7 @@ def _build_script_out(
 
     if not exists or escapes_scripts_dir:
         status = "broken"
-    elif refs or audit_check_names or chained_from:
+    elif refs or audit_check_names or chained_from or in_foundation_registry:
         status = "ok"
     else:
         status = "unused"
@@ -1020,6 +1044,7 @@ def _build_script_out(
         ],
         referenced_by_audit_checks=audit_check_names,
         referenced_by_scripts=chained_from,
+        in_foundation_registry=in_foundation_registry,
     )
 
 
@@ -1036,12 +1061,14 @@ def _read_files_sync(paths: dict[tuple[str, str], Path]) -> dict[tuple[str, str]
 async def _list_scripts(db: AsyncSession) -> tuple[list[ScriptOut], dict[tuple[str, str], bytes]]:
     """List every profile's scripts/ dir (the only place the scheduler
     executes scripts from -- the old central catalog was migrated into the
-    athos profile on 2026-07-06), cross-referenced against three reference
+    athos profile on 2026-07-06), cross-referenced against four reference
     sources: cron jobs (by filename), enabled Auditor checks (by filename
-    inside their command), and other scripts from either of those two
-    sources that call this one by path in their own source (one wrapper
-    calling its .py implementation, chased to a fixed point so a wrapper of
-    a wrapper still resolves).
+    inside their command), the Foundation Scripts registry (a governance/
+    integration doc explicitly documents it, see
+    _foundation_registry_script_names), and other scripts from any of the
+    first three sources that call this one by path in their own source (one
+    wrapper calling its .py implementation, chased to a fixed point so a
+    wrapper of a wrapper still resolves).
 
     Also returns the raw (location, name) -> bytes content read while
     building the list, so callers that also need file content (e.g.
@@ -1055,6 +1082,7 @@ async def _list_scripts(db: AsyncSession) -> tuple[list[ScriptOut], dict[tuple[s
             jobs_by_script.setdefault(job.script, []).append(job)
 
     audit_refs_by_script = await _audit_check_script_refs(db)
+    foundation_registry_names = await _foundation_registry_script_names(db)
 
     descriptions = _parse_readme_descriptions()
 
@@ -1088,7 +1116,7 @@ async def _list_scripts(db: AsyncSession) -> tuple[list[ScriptOut], dict[tuple[s
     # Reference-chain resolution matches by bare filename (cron jobs and
     # Auditor check commands only ever name a script, not its owning
     # profile), same ambiguity that already existed pre-refactor.
-    used = set(jobs_by_script) | set(audit_refs_by_script)
+    used = set(jobs_by_script) | set(audit_refs_by_script) | foundation_registry_names
     chained_from: dict[str, set[str]] = {}
     changed = True
     while changed:
@@ -1117,6 +1145,7 @@ async def _list_scripts(db: AsyncSession) -> tuple[list[ScriptOut], dict[tuple[s
                 jobs_by_script=jobs_by_script,
                 audit_check_names=audit_refs_by_script.get(name),
                 chained_from=sorted(chained_from.get(name, ())) or None,
+                in_foundation_registry=name in foundation_registry_names,
             )
         )
 

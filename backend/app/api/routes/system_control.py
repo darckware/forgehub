@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import re
 import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,13 +17,25 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config import _APP_CONFIG_FILE, settings
 from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.project import Project
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/system-control", tags=["system-control"])
+
+
+def _now_local() -> datetime:
+    """Wall-clock time in settings.TIMEZONE (default America/Sao_Paulo) --
+    used for filenames ForgeHub itself generates (backup archives) so they
+    read as the actual local moment, not UTC or whatever the host OS
+    happens to be set to. Falls back to naive local (OS) time if TIMEZONE
+    is somehow invalid -- never hard-fails a backup over a timezone typo."""
+    try:
+        return datetime.now(ZoneInfo(settings.TIMEZONE))
+    except (ZoneInfoNotFoundError, ValueError):
+        return datetime.now()
 
 
 class CommitRequest(BaseModel):
@@ -56,36 +70,44 @@ class CommitRequest(BaseModel):
 # instead -- which looks like "the wrong repo" in the UI without erroring
 # (see governance/FOUNDATION.md's 2026-07-11 ForgeRouter note for the
 # incident this comment describes).
+#
+# Values (HERMES_SOURCE_PATH, GIT_CONTROL_DEFAULT_REPO, BACKUP_ROOT,
+# TRASH_ROOT, CLEANUP_SCAN_ROOT, CLEANUP_PRUNE_PATHS/NAMES) all come from
+# `settings` (backend/app/core/config.py), which loads them from repo-root
+# `forgehub.config` -- these are operator-tunable defaults, not hardcoded
+# constants, so retuning any of them is a config edit, not a code change
+# (2026-07-11).
 KNOWN_REPOS: dict[str, str] = {
-    "hermes": "/root/.hermes",
+    "hermes": settings.HERMES_SOURCE_PATH,
 }
-DEFAULT_REPO = "hermes"
-BACKUP_DIR = "/root/backup"
+DEFAULT_REPO = settings.GIT_CONTROL_DEFAULT_REPO
+BACKUP_DIR = settings.BACKUP_ROOT
+
+# "Run Cleanup" moves eligible files here; "Empty trash" (a separate
+# button/action, 2026-07-11 -- previously one click did both) permanently
+# deletes its contents. Independent of the external "foundation-clear"
+# Hermes cron, which always empties its own hardcoded /root/trash on its
+# own weekly schedule regardless of this setting.
+TRASH_ROOT = settings.TRASH_ROOT
 
 
 def _all_repos() -> dict[str, str]:
     return dict(KNOWN_REPOS)
 
-# The "foundation-clear" Hermes cron (renamed from foundation-trash-cleanup-
-# auto, see docs/screens -- runs weekly now instead of every 45 days) just
-# runs this script: empties /root/trash if non-empty, no-ops otherwise (see
-# the script's own docstring). "Run cleanup now" below fires the same
-# script on demand, outside its schedule.
-CLEANUP_SCRIPT = "/root/.hermes/profiles/athos/scripts/create_trash_cleanup_task.sh"
-
 # Scanned read-only for the Cleanup card's inventory (grouped by type
 # below) -- nothing here gets deleted by cleanup-scan, only by the operator
 # explicitly clearing a given log another way, or POST /cleanup-run (which
-# only ever empties /root/trash, not these locations directly).
+# only moves matches into TRASH_ROOT, never deletes -- see POST
+# /cleanup-empty-trash for the separate, permanent step).
 #
 # Whole filesystem, not just ~/.hermes: /mnt is the WSL host filesystem
 # passthrough (huge, irrelevant -- excluded per the operator's own
 # instruction), the rest are pseudo-filesystems or noise dirs that would
 # otherwise make `find` slow or return junk matches (same convention as
 # ecosystem_cleanup.py's own SKIP_PARTS).
-SCAN_ROOT = "/"
-PRUNE_PATHS = ["/mnt", "/proc", "/sys", "/dev", "/run"]
-PRUNE_NAMES = ["node_modules", ".git", "venv", ".venv", "site-packages", "__pycache__"]
+SCAN_ROOT = settings.CLEANUP_SCAN_ROOT
+PRUNE_PATHS = settings.CLEANUP_PRUNE_PATHS
+PRUNE_NAMES = settings.CLEANUP_PRUNE_NAMES
 
 
 def _prune_clause() -> str:
@@ -255,14 +277,26 @@ async def commit_changes(
 # Backups -- targets are "hermes" (fixed, archives written flat into
 # BACKUP_DIR, unchanged since before this system existed) or "project:<id>"
 # (only for a Project with backup_enabled=true, archives written under
-# their own BACKUP_DIR/projects/<id> subdirectory). Deliberately separate
-# storage per target -- per explicit operator request, a project's backups
-# must never intermix with Hermes's or another project's. "all" is a
-# write-only pseudo-target for POST /backups/run (fan-out to every
-# currently-eligible target, each still landing in its own directory); it
-# is not a listable target.
+# Project.backup_location -- set explicitly at project registration, or
+# defaulted to BACKUP_DIR/<slug-of-name> (e.g. "/root/backup/forgehub")
+# whenever it's empty; that default is only ever computed on the fly here,
+# never silently written back to the row). Each archive inside is named
+# "<slug>-<YYYYmmdd-HHMMSS>.tar.gz". Deliberately separate storage per
+# target -- per explicit operator request, a project's backups must never
+# intermix with Hermes's or another project's. "all" is a write-only
+# pseudo-target for POST /backups/run (fan-out to every currently-eligible
+# target, each still landing in its own directory); it is not a listable
+# target.
 # ---------------------------------------------------------------------------
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _project_slug(project: Project) -> str:
+    return _SLUG_RE.sub("-", project.name.lower()).strip("-") or str(project.id)
+
+
+def _project_backup_location(project: Project) -> str:
+    return project.backup_location or f"{BACKUP_DIR}/{_project_slug(project)}"
 
 
 async def _get_project_or_404(project_id: str, db: AsyncSession) -> Project:
@@ -272,11 +306,12 @@ async def _get_project_or_404(project_id: str, db: AsyncSession) -> Project:
     return project
 
 
-def _backup_dir_for_target(target: str) -> str:
+async def _backup_dir_for_target(target: str, db: AsyncSession) -> str:
     if target == "hermes":
         return BACKUP_DIR
     if target.startswith("project:"):
-        return f"{BACKUP_DIR}/projects/{target.split(':', 1)[1]}"
+        project = await _get_project_or_404(target.split(":", 1)[1], db)
+        return _project_backup_location(project)
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown backup target '{target}'")
 
 
@@ -285,7 +320,16 @@ async def list_backup_targets(
     _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     result = await db.execute(select(Project).where(Project.backup_enabled.is_(True)))
-    targets = [{"key": "hermes", "label": "Hermes", "kind": "system", "ready": True}]
+    targets = [
+        {
+            "key": "hermes",
+            "label": "Hermes",
+            "kind": "system",
+            "ready": True,
+            "source": KNOWN_REPOS["hermes"],
+            "location": BACKUP_DIR,
+        }
+    ]
     for project in result.scalars().all():
         targets.append(
             {
@@ -293,6 +337,8 @@ async def list_backup_targets(
                 "label": project.name,
                 "kind": "project",
                 "ready": bool(project.working_directory_path),
+                "source": project.working_directory_path,
+                "location": _project_backup_location(project),
             }
         )
     return {"targets": targets}
@@ -300,8 +346,13 @@ async def list_backup_targets(
 
 async def _run_backup_for_target(target: str, db: AsyncSession) -> dict[str, Any]:
     if target == "hermes":
+        # Explicit archive_name (not host-bridge's own default) so it's
+        # subject to the same settings.TIMEZONE rule as project backups.
+        archive_name = f"hermes-backup-{_now_local().strftime('%Y%m%d-%H%M%S')}.tar.gz"
         result = await _bridge(
-            "POST", "/v1/system/hermes-backup", json={"source_path": "/root/.hermes", "backup_dir": BACKUP_DIR}
+            "POST",
+            "/v1/system/hermes-backup",
+            json={"source_path": KNOWN_REPOS["hermes"], "backup_dir": BACKUP_DIR, "archive_name": archive_name},
         )
         return {"target": target, "label": "Hermes", **result}
 
@@ -318,14 +369,13 @@ async def _run_backup_for_target(target: str, db: AsyncSession) -> dict[str, Any
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Project '{project.name}' has no working_directory_path set",
         )
-    slug = _SLUG_RE.sub("-", project.name.lower()).strip("-") or str(project.id)
-    archive_name = f"{slug}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    archive_name = f"{_project_slug(project)}-{_now_local().strftime('%Y%m%d-%H%M%S')}.tar.gz"
     result = await _bridge(
         "POST",
         "/v1/system/hermes-backup",
         json={
             "source_path": project.working_directory_path,
-            "backup_dir": _backup_dir_for_target(target),
+            "backup_dir": _project_backup_location(project),
             "archive_name": archive_name,
         },
     )
@@ -361,9 +411,7 @@ async def run_backup(
 async def list_backups(
     target: str = "hermes", _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    if target.startswith("project:"):
-        await _get_project_or_404(target.split(":", 1)[1], db)
-    backup_dir = _backup_dir_for_target(target)
+    backup_dir = await _backup_dir_for_target(target, db)
     try:
         await _bridge("POST", "/v1/fs/mkdir", json={"path": backup_dir})
     except HTTPException:
@@ -382,11 +430,9 @@ async def list_backups(
 async def delete_backup(
     target: str, filename: str, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
 ) -> None:
-    if target.startswith("project:"):
-        await _get_project_or_404(target.split(":", 1)[1], db)
     if "/" in filename or "\\" in filename or filename in (".", ".."):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
-    backup_dir = _backup_dir_for_target(target)
+    backup_dir = await _backup_dir_for_target(target, db)
     await _bridge("DELETE", "/v1/fs/delete", params={"path": f"{backup_dir}/{filename}", "recursive": False})
 
 
@@ -534,19 +580,20 @@ async def cleanup_scan(
 def _move_command(find_test: str, min_age_days: int, only_rotated: bool = False) -> str:
     """A single host-bridge exec: find eligible files, move each into
     /root/trash preserving its original absolute path (mirrors
-    ecosystem_cleanup.py's own move_to_trash -- same TRASH_DIR, same
+    ecosystem_cleanup.py's own move_to_trash -- same TRASH_ROOT, same
     "rel = path with leading / stripped" layout), print one "MOVED: <path>"
     line per success. `only_rotated` additionally requires the basename to
     end in a numeric suffix (errors.log.1, agent.log.3, ...) -- this is
     what keeps a running agent's live, currently-open log untouched: the
     live file (agent.log, no suffix) never matches."""
     rotated_filter = " | grep -E '\\.[0-9]+$'" if only_rotated else ""
+    trash_root = shlex.quote(TRASH_ROOT)
     return (
         f"find {shlex.quote(SCAN_ROOT)} {_prune_clause()} {find_test} -mtime +{min_age_days} -print"
         f"{rotated_filter}"
         " | while IFS= read -r src; do "
         '[ -z "$src" ] && continue; '
-        'rel="${src#/}"; dest="/root/trash/$rel"; '
+        f'rel="${{src#/}}"; dest={trash_root}"/$rel"; '
         'mkdir -p "$(dirname "$dest")" && mv -- "$src" "$dest" && echo "MOVED: $src"; '
         "done"
     )
@@ -554,22 +601,20 @@ def _move_command(find_test: str, min_age_days: int, only_rotated: bool = False)
 
 @router.post("/cleanup-run")
 async def cleanup_run(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
-    """Two-step cleanup, both steps reversible-then-final like
-    ecosystem_cleanup.py's own two-phase design:
-
-    1. Sweep cleanup-eligible files into /root/trash. Deliberately
-       narrower than GET /cleanup-scan's full inventory:
-       - Only ROTATED logs (errors.log.1, agent.log.3, ...) under
-         */profiles/*/logs/* and */cron/logs/* -- the live, currently-open
-         agent.log/errors.log/gateway.log/interrupt_debug.log are never
-         matched, so a running Hermes agent's active log handle is never
-         disturbed.
-       - */cron/output/* and the rotated logs above: only files older than
-         1 day -- nothing from today gets swept.
-       - *.bak* files: only older than 30 days, matching
-         ecosystem_cleanup.py's own RETENTION_DAYS for backups.
-    2. Run the exact script the "foundation-clear" cron runs weekly --
-       empties /root/trash (including whatever step 1 just put there).
+    """Sweeps cleanup-eligible files into TRASH_ROOT -- reversible, never
+    deletes anything (see POST /cleanup-empty-trash for that, a separate
+    action/button as of 2026-07-11; previously this endpoint did both in
+    one click). Deliberately narrower than GET /cleanup-scan's full
+    inventory:
+    - Only ROTATED logs (errors.log.1, agent.log.3, ...) under
+      */profiles/*/logs/* and */cron/logs/* -- the live, currently-open
+      agent.log/errors.log/gateway.log/interrupt_debug.log are never
+      matched, so a running Hermes agent's active log handle is never
+      disturbed.
+    - */cron/output/* and the rotated logs above: only files older than
+      1 day -- nothing from today gets swept.
+    - *.bak* files: only older than 30 days, matching
+      ecosystem_cleanup.py's own RETENTION_DAYS for backups.
     """
     moved: list[str] = []
     sweep_errors: list[str] = []
@@ -584,15 +629,192 @@ async def cleanup_run(_admin: User = Depends(get_current_admin)) -> dict[str, An
                 moved.append(line[len("MOVED: "):])
         sweep_errors.extend(line for line in (data["stderr"] or "").splitlines() if line.strip())
 
-    data = await _bridge("POST", "/v1/exec", json={"command": CLEANUP_SCRIPT})
-    if data["exit_code"] != 0:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(data["stderr"] or "").strip() or "cleanup script failed",
-        )
     return {
         "swept_count": len(moved),
         "swept": moved,
         "sweep_errors": sweep_errors,
-        "output": (data["stdout"] or "").strip(),
+        "trash_root": TRASH_ROOT,
     }
+
+
+@router.post("/cleanup-empty-trash")
+async def cleanup_empty_trash(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    """Permanently deletes everything currently under TRASH_ROOT (the
+    directory itself is kept, only its contents go) -- separate from
+    POST /cleanup-run so an operator can review what got swept there
+    before committing to deletion. Mirrors the external
+    create_trash_cleanup_task.sh's own before/after item-count logic, but
+    runs directly via host-bridge exec against the configurable
+    TRASH_ROOT rather than that script's hardcoded /root/trash."""
+    # nullglob must be re-enabled around EACH glob expansion, not just once
+    # up front -- with it off, an empty-directory glob that matches nothing
+    # stays as the literal unexpanded `TRASH_ROOT/*` string and counts as
+    # one bogus "remaining" item instead of zero (caught 2026-07-11 testing
+    # this endpoint: emptying an already-empty trash reported
+    # remaining_items: 1). Mirrors create_trash_cleanup_task.sh's own
+    # three separate shopt -s/-u pairs.
+    trash_root = shlex.quote(TRASH_ROOT)
+    command = (
+        f"shopt -s dotglob nullglob; items=({trash_root}/*); shopt -u dotglob nullglob; before=${{#items[@]}}; "
+        f"rm -rf -- {trash_root}/*; "
+        f"shopt -s dotglob nullglob; items2=({trash_root}/*); shopt -u dotglob nullglob; after=${{#items2[@]}}; "
+        'echo "deleted_items: $before"; echo "remaining_items: $after"'
+    )
+    data = await _bridge("POST", "/v1/exec", json={"command": command})
+    if data["exit_code"] != 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(data["stderr"] or "").strip() or "emptying trash failed",
+        )
+    return {"trash_root": TRASH_ROOT, "output": (data["stdout"] or "").strip()}
+
+
+# ---------------------------------------------------------------------------
+# App config -- read/write UI for forgehub.config (see that file's own
+# header comment). Every field here already has a settings.<NAME> default
+# used elsewhere in this module; this section is the one place that turns
+# a POST into a rewritten config file plus a live in-memory update, so an
+# operator retuning a default doesn't need file access or a restart.
+# ---------------------------------------------------------------------------
+_APP_CONFIG_TEMPLATE = """# ForgeHub application defaults -- NOT secrets/credentials (those stay in
+# .env, which core/config.py also loads). This file holds the domain-level
+# default paths/behavior that used to be hardcoded constants scattered
+# across route modules (mainly api/routes/system_control.py), so an
+# operator can retune them without touching source code.
+#
+# Loaded by backend/app/core/config.py (Settings.model_config's env_file
+# tuple) -- same dotenv KEY=VALUE format as .env, just a separate file
+# because these are ForgeHub's own operational defaults, not
+# infra/credential wiring. Editable from the app itself at Settings ->
+# System defaults (admin only, GET/PUT /api/v1/system-control/config) --
+# this file is regenerated whenever that form is saved, so hand edits made
+# between saves are preserved but comments/layout always snap back to this
+# canonical form.
+
+# System Control -- Git Control
+# Fixed system-level git checkout Git Control always offers, in addition
+# to every registered Project with a working_directory_path (see
+# system_control.py's module docstring for why Hermes isn't a Project).
+HERMES_SOURCE_PATH={hermes_source_path}
+# Key GET /status falls back to when `repo` is omitted/unknown.
+GIT_CONTROL_DEFAULT_REPO={git_control_default_repo}
+
+# System Control -- Backups
+# Hermes backups land flat here; each backup-enabled project gets its own
+# subdirectory (BACKUP_ROOT/<slug-of-name>) unless it sets its own
+# Project.backup_location.
+BACKUP_ROOT={backup_root}
+
+# System Control -- Cleanup
+# "Run Cleanup" moves eligible files here; "Empty trash" permanently
+# deletes this directory's contents -- two separate buttons. Independent
+# of the external "foundation-clear" Hermes cron, which always empties
+# its own hardcoded /root/trash regardless of this setting.
+TRASH_ROOT={trash_root}
+# Root the Cleanup card's inventory scan walks.
+CLEANUP_SCAN_ROOT={cleanup_scan_root}
+# Paths/directory names pruned from that scan (JSON arrays -- pydantic-settings
+# parses List[str] env values as JSON).
+CLEANUP_PRUNE_PATHS={cleanup_prune_paths}
+CLEANUP_PRUNE_NAMES={cleanup_prune_names}
+
+# General
+# IANA zone for timestamps ForgeHub itself generates (e.g. backup archive
+# filenames) -- default matches the operator's actual timezone (UTC-3).
+TIMEZONE={timezone}
+"""
+
+
+def _settings_to_config_out(s) -> dict[str, Any]:
+    return {
+        "hermes_source_path": s.HERMES_SOURCE_PATH,
+        "git_control_default_repo": s.GIT_CONTROL_DEFAULT_REPO,
+        "backup_root": s.BACKUP_ROOT,
+        "trash_root": s.TRASH_ROOT,
+        "cleanup_scan_root": s.CLEANUP_SCAN_ROOT,
+        "cleanup_prune_paths": list(s.CLEANUP_PRUNE_PATHS),
+        "cleanup_prune_names": list(s.CLEANUP_PRUNE_NAMES),
+        "timezone": s.TIMEZONE,
+    }
+
+
+class AppConfigUpdate(BaseModel):
+    hermes_source_path: str = Field(min_length=1, max_length=1024)
+    git_control_default_repo: str = Field(min_length=1, max_length=64)
+    backup_root: str = Field(min_length=1, max_length=1024)
+    trash_root: str = Field(min_length=1, max_length=1024)
+    cleanup_scan_root: str = Field(min_length=1, max_length=1024)
+    cleanup_prune_paths: list[str] = Field(default_factory=list)
+    cleanup_prune_names: list[str] = Field(default_factory=list)
+    timezone: str = Field(min_length=1, max_length=64)
+
+
+@router.get("/config")
+async def get_app_config(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    return _settings_to_config_out(settings)
+
+
+@router.put("/config")
+async def update_app_config(
+    payload: AppConfigUpdate, _admin: User = Depends(get_current_admin)
+) -> dict[str, Any]:
+    try:
+        ZoneInfo(payload.timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"'{payload.timezone}' is not a valid IANA timezone"
+        )
+    # trash_root gets `rm -rf {trash_root}/*` run against it by POST
+    # /cleanup-empty-trash -- guard against the obvious catastrophic typos
+    # (empty, relative, or filesystem-root) before ever persisting it.
+    trash_root = payload.trash_root.rstrip("/")
+    if not trash_root.startswith("/") or trash_root in ("", "/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="trash_root must be an absolute path and not the filesystem root",
+        )
+
+    # Mutates the live singleton in place -- every module imported `settings`
+    # once at load time (`from app.core.config import settings`), so they
+    # all hold the SAME object; setting attributes on it takes effect on
+    # the very next request, no restart needed.
+    settings.HERMES_SOURCE_PATH = payload.hermes_source_path
+    settings.GIT_CONTROL_DEFAULT_REPO = payload.git_control_default_repo
+    settings.BACKUP_ROOT = payload.backup_root
+    settings.TRASH_ROOT = trash_root
+    settings.CLEANUP_SCAN_ROOT = payload.cleanup_scan_root
+    settings.CLEANUP_PRUNE_PATHS = payload.cleanup_prune_paths
+    settings.CLEANUP_PRUNE_NAMES = payload.cleanup_prune_names
+    settings.TIMEZONE = payload.timezone
+
+    _APP_CONFIG_FILE.write_text(
+        _APP_CONFIG_TEMPLATE.format(
+            hermes_source_path=settings.HERMES_SOURCE_PATH,
+            git_control_default_repo=settings.GIT_CONTROL_DEFAULT_REPO,
+            backup_root=settings.BACKUP_ROOT,
+            trash_root=settings.TRASH_ROOT,
+            cleanup_scan_root=settings.CLEANUP_SCAN_ROOT,
+            cleanup_prune_paths=json.dumps(settings.CLEANUP_PRUNE_PATHS),
+            cleanup_prune_names=json.dumps(settings.CLEANUP_PRUNE_NAMES),
+            timezone=settings.TIMEZONE,
+        )
+    )
+
+    # This module's own KNOWN_REPOS/DEFAULT_REPO/BACKUP_DIR/TRASH_ROOT/
+    # SCAN_ROOT/PRUNE_PATHS/PRUNE_NAMES were computed ONCE from `settings`
+    # at import time (see their definitions near the top of this file) --
+    # a settings mutation doesn't retroactively change them, so refresh
+    # them here too. Every request re-reads these module names directly
+    # (they're not re-derived from `settings` per-request), so without
+    # this the rest of Git Control/Backups/Cleanup would keep using stale
+    # values until the process restarts.
+    global KNOWN_REPOS, DEFAULT_REPO, BACKUP_DIR, TRASH_ROOT, SCAN_ROOT, PRUNE_PATHS, PRUNE_NAMES
+    KNOWN_REPOS = {"hermes": settings.HERMES_SOURCE_PATH}
+    DEFAULT_REPO = settings.GIT_CONTROL_DEFAULT_REPO
+    BACKUP_DIR = settings.BACKUP_ROOT
+    TRASH_ROOT = settings.TRASH_ROOT
+    SCAN_ROOT = settings.CLEANUP_SCAN_ROOT
+    PRUNE_PATHS = settings.CLEANUP_PRUNE_PATHS
+    PRUNE_NAMES = settings.CLEANUP_PRUNE_NAMES
+
+    return _settings_to_config_out(settings)

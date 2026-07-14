@@ -53,6 +53,12 @@ export interface BackupTarget {
   /** false when a project has backup_enabled but no working_directory_path
    * yet -- selectable but running a backup on it will fail. */
   ready: boolean;
+  /** What gets archived -- always "/root/.hermes" for the "hermes" target;
+   * a project's working_directory_path (null if not set yet). */
+  source: string | null;
+  /** Where archives for this target land -- Project.backup_location if
+   * set, else BACKUP_DIR/<slug-of-name> (e.g. "/root/backup/forgehub"). */
+  location: string;
 }
 
 /** "hermes" (always present) plus every Project with backup_enabled=true
@@ -186,20 +192,37 @@ export interface CleanupRunResult {
   swept_count: number;
   swept: string[];
   sweep_errors: string[];
-  output: string;
+  trash_root: string;
 }
 
-/** Two-step cleanup (see POST /cleanup-run's docstring):
- * 1. Sweeps eligible files into /root/trash -- only ROTATED logs (never
- *    the live agent.log/errors.log/gateway.log a running agent has open),
- *    only files older than 1 day (cron output/rotated logs) or 30 days
- *    (backups). Never touches scripts.
- * 2. Runs the same script the "foundation-clear" cron runs weekly --
- *    empties /root/trash (including what step 1 just swept into it). */
+/** Sweeps eligible files into trash_root -- only ROTATED logs (never the
+ * live agent.log/errors.log/gateway.log a running agent has open), only
+ * files older than 1 day (cron output/rotated logs) or 30 days (backups).
+ * Never touches scripts, and never deletes anything itself -- see
+ * useEmptyTrash for the separate, permanent step (split 2026-07-11;
+ * previously one click did both). */
 export function useRunCleanup() {
   const queryClient = useQueryClient();
   return useMutation<CleanupRunResult, Error>({
     mutationFn: () => apiClient.post("/api/v1/system-control/cleanup-run", {}),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+    },
+  });
+}
+
+export interface EmptyTrashResult {
+  trash_root: string;
+  output: string;
+}
+
+/** Permanently deletes everything currently under trash_root (the
+ * directory itself is kept) -- irreversible, separate from useRunCleanup
+ * so an operator can review what got swept there first. */
+export function useEmptyTrash() {
+  const queryClient = useQueryClient();
+  return useMutation<EmptyTrashResult, Error>({
+    mutationFn: () => apiClient.post("/api/v1/system-control/cleanup-empty-trash", {}),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
     },

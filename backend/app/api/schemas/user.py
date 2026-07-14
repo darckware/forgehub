@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserCreate(BaseModel):
@@ -62,3 +62,4 @@ class TokenOut(BaseModel):
     token_type: str
     user: UserOut
     permissions: PermissionMap
+    actions: dict[str, bool] = Field(default_factory=dict)

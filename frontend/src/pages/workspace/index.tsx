@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Feather,
+  Globe2,
   Loader2,
   MessageSquare,
   History,
@@ -29,6 +30,10 @@ import { useServers, buildSshCommand } from "@/hooks/useServers";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { useAgents } from "@/hooks/useAgent";
+import { WebAppPane } from "@/components/WebAppPane";
+import { useAssistantContext } from "@/hooks/useAssistant";
+import { useAssistantStore } from "@/store/assistantStore";
+import { useProducts } from "@/hooks/useProduct";
 
 // Tabs/active-tab are persisted (not just in-memory state) so that
 // navigating to another page and back to Workspace recreates the same tabs
@@ -37,6 +42,9 @@ import { useAgents } from "@/hooks/useAgent";
 // losing it. See TerminalPane.tsx and host-bridge/app.py's terminal_ws.
 const TABS_STORAGE_KEY = "forgehub-workspace-tabs";
 const ACTIVE_TAB_STORAGE_KEY = "forgehub-workspace-active-tab";
+const APP_URL_STORAGE_KEY = "forgehub-workspace-app-url";
+const SELECTED_PRODUCT_STORAGE_KEY = "forgehub-workspace-selected-product";
+const DEFAULT_APP_URL = "http://localhost:5174";
 
 type WorkspaceTab =
   | {
@@ -47,7 +55,8 @@ type WorkspaceTab =
       artifactsOpen?: boolean;
       composerText?: string;
     }
-  | { kind: "terminal"; id: string; label: string; command?: string; cwd?: string };
+  | { kind: "terminal"; id: string; label: string; command?: string; cwd?: string }
+  | { kind: "web"; id: string; label: string; url: string };
 
 type Launcher = { label: string; command: string; icon?: string; iconBg?: string };
 
@@ -136,6 +145,7 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
 
 export default function WorkspacePage() {
   const { data: allAgents } = useAgents();
+  const { data: products = [] } = useProducts();
   const chatableAgents = useMemo(
     () => (allAgents ?? []).filter((a) => Boolean(a.profile_slug)),
     [allAgents]
@@ -153,6 +163,10 @@ export default function WorkspacePage() {
     () => localStorage.getItem(ACTIVE_TAB_STORAGE_KEY) ?? ""
   );
   const [workingDir, setWorkingDir] = useState<string | undefined>(undefined);
+  const appUrl = localStorage.getItem(APP_URL_STORAGE_KEY) ?? DEFAULT_APP_URL;
+  const [selectedProductId, setSelectedProductId] = useState(
+    () => localStorage.getItem(SELECTED_PRODUCT_STORAGE_KEY) ?? ""
+  );
   const workspaceUploadInputRef = useRef<HTMLInputElement>(null);
   const [workspaceUploadStatus, setWorkspaceUploadStatus] = useState<"idle" | "uploading" | "success" | "error">(
     "idle"
@@ -209,6 +223,18 @@ export default function WorkspacePage() {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTabId);
   }, [activeTabId]);
 
+  useEffect(() => {
+    if (products.length === 0) return;
+    if (products.some((product) => product.id === selectedProductId)) return;
+    const fallback = products.find((product) => product.name.trim().toLowerCase() === "forgehub") ?? products[0];
+    setSelectedProductId(fallback.id);
+  }, [products, selectedProductId]);
+
+  useEffect(() => {
+    if (selectedProductId) localStorage.setItem(SELECTED_PRODUCT_STORAGE_KEY, selectedProductId);
+  }, [selectedProductId]);
+
+
   function openChatTab(agentId: string) {
     const id = crypto.randomUUID();
     setTabs((t) => [...t, { kind: "chat", id, agentId }]);
@@ -219,6 +245,30 @@ export default function WorkspacePage() {
     const id = crypto.randomUUID();
     setTabs((t) => [...t, { kind: "terminal", id, label, command, cwd: workingDir }]);
     setActiveTabId(id);
+  }
+
+  function openWebTab(label = "Web App", url = products.find((product) => product.id === selectedProductId)?.application_url ?? appUrl) {
+    const id = crypto.randomUUID();
+    setTabs((current) => [...current, { kind: "web", id, label, url }]);
+    setActiveTabId(id);
+  }
+
+  function toggleWebBrowser() {
+    if (activeWebTab) {
+      const fallback = [...tabs].reverse().find((tab) => tab.kind !== "web");
+      setActiveTabId(fallback?.id ?? "");
+      return;
+    }
+    const existing = tabs.find((tab): tab is WorkspaceTab & { kind: "web" } => tab.kind === "web");
+    const targetUrl = existing?.url ?? appUrl;
+    if (existing) setActiveTabId(existing.id);
+    else openWebTab("Web App", targetUrl);
+  }
+
+  function updateWebTabUrl(tabId: string, url: string) {
+    setTabs((current) =>
+      current.map((tab) => (tab.id === tabId && tab.kind === "web" ? { ...tab, url } : tab))
+    );
   }
 
   // Handoff from the Servers page's "open SSH" action: arrive with an
@@ -281,6 +331,37 @@ export default function WorkspacePage() {
   const activeChatTab = tabs.find(
     (t): t is WorkspaceTab & { kind: "chat" } => t.id === activeTabId && t.kind === "chat"
   );
+  const activeWebTab = tabs.find(
+    (tab): tab is WorkspaceTab & { kind: "web" } => tab.id === activeTabId && tab.kind === "web"
+  );
+  const setAssistantOpen = useAssistantStore((state) => state.setOpen);
+  const setPendingSeed = useAssistantStore((state) => state.setPendingSeed);
+
+  const webAssistantContext = useMemo(() => {
+    if (!activeWebTab) return null;
+    return {
+      label: "Use web environment",
+      workingDir,
+      build: () =>
+        [
+          "Estou usando o ambiente web do Workspace no ForgeHub.",
+          `URL visível no navegador incorporado: ${activeWebTab.url}`,
+          `Diretório de trabalho selecionado: ${workingDir ?? "não selecionado"}`,
+          "Analise a aplicação pelos arquivos, logs, endpoints e comandos disponíveis.",
+          "Esta é a sessão Chromium compartilhada por CDP. Use browser_snapshot antes de interagir e confirme o resultado com novo snapshot ou screenshot.",
+          "Quando o usuário enviar uma instrução explícita no composer do Assistente, você está autorizado a controlar integralmente esta sessão para cumpri-la: navegar, clicar, rolar, focar, digitar, selecionar opções e enviar formulários.",
+          "Não inicie interações por conta própria; o controle começa somente após a instrução explícita do usuário e deve ficar limitado ao pedido.",
+          "Para o login de desenvolvimento do ForgeHub, use usuário admin e senha admin.",
+        ].join("\n"),
+    };
+  }, [activeWebTab, workingDir]);
+  useAssistantContext(webAssistantContext);
+
+  function openAssistantForWebEnvironment() {
+    if (!webAssistantContext) return;
+    setPendingSeed(webAssistantContext.build());
+    setAssistantOpen(true);
+  }
 
   function defaultAgentIdForNewTab(): string {
     return activeChatTab?.agentId ?? chatableAgents[0]?.id ?? "";
@@ -343,6 +424,26 @@ export default function WorkspacePage() {
             onClick={() => openTerminalTab("bash")}
           >
             <SquareTerminal className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={activeWebTab ? "secondary" : "outline"}
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            title={activeWebTab ? "Hide internal browser" : "Open internal browser"}
+            aria-label={activeWebTab ? "Hide internal browser" : "Open internal browser"}
+            onClick={toggleWebBrowser}
+          >
+            <Globe2 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={activeWebTab ? "outline" : "ghost"}
+            size="sm"
+            className="h-8 gap-1.5"
+            disabled={!activeWebTab}
+            title={activeWebTab ? "Open the selected assistant with the current web environment" : "Open a web tab first"}
+            onClick={openAssistantForWebEnvironment}
+          >
+            <Bot className="h-4 w-4" /> Assistant
           </Button>
           <SshLauncherMenu onLaunch={openTerminalTab} />
           <div className="flex-1" />
@@ -441,7 +542,7 @@ export default function WorkspacePage() {
                   <X className="h-3 w-3" />
                 </button>
               </div>
-            ) : (
+            ) : t.kind === "terminal" ? (
               <div
                 key={t.id}
                 draggable
@@ -457,6 +558,35 @@ export default function WorkspacePage() {
                 )}
               >
                 <SquareTerminal className="h-3.5 w-3.5" />
+                {t.label}
+                <button
+                  type="button"
+                  aria-label={`Close ${t.label}`}
+                  className="opacity-0 group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(t.id);
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ) : (
+              <div
+                key={t.id}
+                draggable
+                onDragStart={() => (dragTabIdRef.current = t.id)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleTabDrop(t.id)}
+                onClick={() => setActiveTabId(t.id)}
+                className={cn(
+                  "group flex shrink-0 cursor-grab items-center gap-1.5 rounded-md px-3 py-1 text-sm active:cursor-grabbing",
+                  t.id === activeTabId
+                    ? "bg-accent text-accent-foreground"
+                    : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+              >
+                <Globe2 className="h-3.5 w-3.5" />
                 {t.label}
                 <button
                   type="button"
@@ -489,9 +619,19 @@ export default function WorkspacePage() {
               artifactsOpen={Boolean(t.artifactsOpen)}
               workingDir={workingDir}
             />
-          ) : (
+          ) : t.kind === "terminal" ? (
             <div key={t.id} className={cn("absolute inset-0 p-2", t.id !== activeTabId && "hidden")}>
               <TerminalPane sessionId={t.id} command={t.command} cwd={t.cwd} active={t.id === activeTabId} />
+            </div>
+          ) : (
+            <div key={t.id} className={cn("absolute inset-0", t.id !== activeTabId && "hidden")}>
+              <WebAppPane
+                url={t.url}
+                products={products}
+                selectedProductId={selectedProductId}
+                onUrlChange={(url) => updateWebTabUrl(t.id, url)}
+                onProductChange={setSelectedProductId}
+              />
             </div>
           )
         )}

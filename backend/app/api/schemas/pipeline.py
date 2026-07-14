@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # PipelineTemplate
@@ -177,6 +177,12 @@ class PipelineStageCreate(BaseModel):
     gates: list[PipelineStageGateCreate] = Field(default_factory=list)
     depends_on_stage_ids: list[uuid.UUID] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def prevent_unassessed_completion(self):
+        if self.status == "completed":
+            raise ValueError("A stage must be completed through the governed completion command")
+        return self
+
 
 class PipelineStageUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
@@ -196,6 +202,7 @@ class PipelineStageOut(BaseModel):
     stage_type: str
     order_index: int
     status: str
+    revision: int
     requires_approval: bool
     requires_verification: bool
     created_at: datetime

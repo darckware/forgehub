@@ -106,7 +106,12 @@ async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid product status '{payload.status}'",
         )
-    product = Product(name=payload.name, description=payload.description, status=payload.status)
+    product = Product(
+        name=payload.name,
+        description=payload.description,
+        status=payload.status,
+        application_url=payload.application_url,
+    )
 
     initial_version_payload = payload.initial_version or ProductVersionCreate(
         version="0.1.0", status="planned"

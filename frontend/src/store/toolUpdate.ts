@@ -24,6 +24,8 @@ interface ToolUpdateState {
   finishUpdate: (result: ToolUpdateOutput) => void;
   failUpdate: (tool: MonitoredTool, error: string) => void;
   setExpandedTool: (tool: MonitoredTool | null) => void;
+  dismissUpdate: (tool: MonitoredTool) => void;
+  clearUpdateDetails: () => void;
 }
 
 export const useToolUpdateStore = create<ToolUpdateState>((set) => ({
@@ -56,4 +58,14 @@ export const useToolUpdateStore = create<ToolUpdateState>((set) => ({
       };
     }),
   setExpandedTool: (tool) => set({ expandedTool: tool }),
+  dismissUpdate: (tool) =>
+    set((state) => {
+      const updateOutputs = { ...state.updateOutputs };
+      delete updateOutputs[tool];
+      return {
+        updateOutputs,
+        expandedTool: state.expandedTool === tool ? null : state.expandedTool,
+      };
+    }),
+  clearUpdateDetails: () => set({ updateOutputs: {}, expandedTool: null }),
 }));
