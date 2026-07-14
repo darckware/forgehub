@@ -91,7 +91,8 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
         agent_command_path = path.startswith((
             "/api/v1/governed/", "/api/v1/executions/", "/api/v1/execution-waves/",
-            "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/"
+            "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/",
+            "/api/v1/workspace-browser/", "/api/v1/products",
         )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
         if token and token.startswith("agt_") and agent_command_path:
             from sqlalchemy import select
