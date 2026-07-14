@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
 
+export interface WorkspaceBrowserPointerState {
+  x: number;
+  y: number;
+  at: string;
+}
+
 export interface WorkspaceBrowserState {
   running: boolean;
   cdp_url: string;
@@ -11,6 +17,7 @@ export interface WorkspaceBrowserState {
   viewport_height: number;
   image_base64: string | null;
   captured_at: string;
+  last_pointer: WorkspaceBrowserPointerState | null;
 }
 
 export type WebAutomationAction = "navigate" | "click" | "type" | "select" | "press" | "scroll" | "wait" | "assert_text";

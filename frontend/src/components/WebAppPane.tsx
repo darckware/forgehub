@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ExternalLink, Loader2, RefreshCw, Workflow } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowLeft, ChevronDown, ExternalLink, Loader2, MousePointer2, RefreshCw, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WebAutomationPanel } from "@/components/WebAutomationPanel";
 import type { Product } from "@/hooks/useProduct";
@@ -69,6 +69,24 @@ export function WebAppPane({
   const [missingProductUrl, setMissingProductUrl] = useState(false);
   const [automationsOpen, setAutomationsOpen] = useState(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const [cursorPosition, setCursorPosition] = useState<{ left: number; top: number } | null>(null);
+  const lastPointer = state.data?.last_pointer;
+
+  useLayoutEffect(() => {
+    const image = imageRef.current;
+    if (!image || !lastPointer || !state.data) {
+      setCursorPosition(null);
+      return;
+    }
+    const bounds = image.getBoundingClientRect();
+    const viewportWidth = state.data.viewport_width || image.naturalWidth;
+    const viewportHeight = state.data.viewport_height || image.naturalHeight;
+    const scale = Math.min(bounds.width / viewportWidth, bounds.height / viewportHeight);
+    const offsetX = (bounds.width - viewportWidth * scale) / 2;
+    const offsetY = (bounds.height - viewportHeight * scale) / 2;
+    setCursorPosition({ left: offsetX + lastPointer.x * scale, top: offsetY + lastPointer.y * scale });
+  }, [lastPointer, state.data]);
 
   useEffect(() => {
     if (!state.data && !state.isFetching && !start.isPending) start.mutate({ url });
@@ -152,6 +170,7 @@ export function WebAppPane({
         <div className="relative min-h-0 flex-1 overscroll-contain overflow-hidden border border-border bg-zinc-950">
           {state.data?.image_base64 ? (
             <img
+              ref={imageRef}
               src={`data:image/jpeg;base64,${state.data.image_base64}`}
               alt={`Shared browser showing ${currentUrl}`}
               draggable={false}
@@ -212,6 +231,16 @@ export function WebAppPane({
             </div>
           )}
           {busy && <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-white" />}
+          {cursorPosition && lastPointer && (
+            <div
+              key={lastPointer.at}
+              className="pointer-events-none absolute z-10 animate-agent-cursor"
+              style={{ left: cursorPosition.left, top: cursorPosition.top }}
+            >
+              <span className="absolute inset-0 -m-2 rounded-full bg-amber-400/40 animate-ping" />
+              <MousePointer2 className="relative h-5 w-5 fill-amber-400 text-amber-950 drop-shadow" />
+            </div>
+          )}
         </div>
 
         {error && <p className="px-2 py-1 text-xs text-destructive">{error.message}</p>}

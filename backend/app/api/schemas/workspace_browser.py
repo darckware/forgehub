@@ -7,6 +7,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class WorkspaceBrowserPointerState(BaseModel):
+    x: float
+    y: float
+    at: str
+
+
 class WorkspaceBrowserStateOut(BaseModel):
     running: bool
     cdp_url: str
@@ -17,6 +23,7 @@ class WorkspaceBrowserStateOut(BaseModel):
     viewport_height: int
     image_base64: str | None = None
     captured_at: str
+    last_pointer: WorkspaceBrowserPointerState | None = None
 
 
 class WorkspaceBrowserStart(BaseModel):

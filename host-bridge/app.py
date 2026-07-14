@@ -100,6 +100,14 @@ WORKSPACE_BROWSER_BINARY = os.environ.get(
 )
 _workspace_browser_process: subprocess.Popen | None = None
 _workspace_browser_lock = threading.Lock()
+# Last known pointer position in viewport coordinates, set by either a human
+# drag/click (dispatchMouseEvent) or a routine "click"/"type"/"select" step
+# (resolved from the target element's own bounding box, since those steps
+# call el.click()/el.focus() directly rather than dispatching a real mouse
+# event at a coordinate). Surfaced on every /state poll so the frontend can
+# draw a transient cursor marker -- otherwise an agent-driven interaction is
+# invisible in the shared live view.
+_last_pointer: dict | None = None
 
 
 def _run_state_path(run_id: str) -> Path:
@@ -274,6 +282,7 @@ async def _workspace_browser_state(include_image: bool = True) -> dict:
         "viewport_width": metadata.get("viewportWidth", 1440),
         "viewport_height": metadata.get("viewportHeight", 900),
         "captured_at": datetime.now().isoformat(),
+        "last_pointer": _last_pointer,
     }
 
 
@@ -385,6 +394,8 @@ async def pointer_workspace_browser(req: WorkspaceBrowserPointerRequest, x_bridg
         "Input.dispatchMouseEvent",
         {"type": "mouseReleased", "x": end_x, "y": end_y, "button": "left", "buttons": 0, "clickCount": 1},
     )
+    global _last_pointer
+    _last_pointer = {"x": end_x, "y": end_y, "at": datetime.now().isoformat()}
     await asyncio.sleep(0.25)
     return await _workspace_browser_state()
 
@@ -474,6 +485,31 @@ async def _routine_evaluate(expression: str):
     return remote.get("value")
 
 
+def _mark_pointer(x: float, y: float) -> None:
+    """Record where a routine step just interacted, for the /state cursor overlay."""
+    global _last_pointer
+    _last_pointer = {"x": x, "y": y, "at": datetime.now().isoformat()}
+
+
+async def _element_center_evaluate(expression_body: str, selector: str) -> str | None:
+    """Run a JS expression that resolves to {outcome, x, y} on the element's center,
+    or null if the element wasn't found. Marks the pointer and returns outcome."""
+    raw = await _routine_evaluate(
+        f"""(() => {{
+          const el=document.querySelector({json.dumps(selector)});
+          if(!el) return null;
+          {expression_body}
+          const rect = el.getBoundingClientRect();
+          return JSON.stringify({{outcome, x: rect.left + rect.width/2, y: rect.top + rect.height/2}});
+        }})()"""
+    )
+    if raw is None:
+        return None
+    result = json.loads(raw)
+    _mark_pointer(result["x"], result["y"])
+    return result["outcome"]
+
+
 async def _run_browser_routine_step(step: dict) -> str:
     action = step.get("action")
     selector = step.get("selector")
@@ -483,27 +519,24 @@ async def _run_browser_routine_step(step: dict) -> str:
         await asyncio.sleep(0.8)
         return "navigated"
     if action == "click":
-        outcome = await _routine_evaluate(
-            f"(() => {{ const el=document.querySelector({json.dumps(selector)}); if(!el) return 'not-found'; el.scrollIntoView({{block:'center'}}); el.click(); return 'clicked'; }})()"
+        outcome = await _element_center_evaluate(
+            "el.scrollIntoView({block:'center'}); el.click(); const outcome='clicked';", selector
         )
         if outcome != "clicked":
             raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
         await asyncio.sleep(0.3)
         return outcome
     if action == "type":
-        outcome = await _routine_evaluate(
-            f"""(() => {{
-              const el=document.querySelector({json.dumps(selector)});
-              if(!el) return 'not-found';
-              el.scrollIntoView({{block:'center'}}); el.focus();
-              if ('value' in el) {{
+        outcome = await _element_center_evaluate(
+            """el.scrollIntoView({block:'center'}); el.focus();
+              if ('value' in el) {
                 const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
                 const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;
                 setter ? setter.call(el,'') : (el.value='');
-                el.dispatchEvent(new Event('input',{{bubbles:true}}));
-              }} else if (el.isContentEditable) el.textContent='';
-              return 'focused';
-            }})()"""
+                el.dispatchEvent(new Event('input',{bubbles:true}));
+              } else if (el.isContentEditable) el.textContent='';
+              const outcome='focused';""",
+            selector,
         )
         if outcome != "focused":
             raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
@@ -511,11 +544,11 @@ async def _run_browser_routine_step(step: dict) -> str:
         await asyncio.sleep(0.2)
         return "typed"
     if action == "select":
-        outcome = await _routine_evaluate(
-            f"""(() => {{ const el=document.querySelector({json.dumps(selector)});
-              if(!(el instanceof HTMLSelectElement)) return 'not-found';
+        outcome = await _element_center_evaluate(
+            f"""if(!(el instanceof HTMLSelectElement)) return null;
               el.value={json.dumps(value)}; el.dispatchEvent(new Event('input',{{bubbles:true}}));
-              el.dispatchEvent(new Event('change',{{bubbles:true}})); return 'selected'; }})()"""
+              el.dispatchEvent(new Event('change',{{bubbles:true}})); const outcome='selected';""",
+            selector,
         )
         if outcome != "selected":
             raise HTTPException(status_code=409, detail=f"Select not found: {selector}")
