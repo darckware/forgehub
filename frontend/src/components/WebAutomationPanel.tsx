@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
+  type AutomationTarget,
   type WebAutomationAction,
   type WebAutomationRoutine,
   type WebAutomationStep,
@@ -31,8 +32,8 @@ function StepFields({ step, onChange }: { step: WebAutomationStep; onChange: (st
   );
 }
 
-export function WebAutomationPanel({ productId, productName, onClose }: { productId: string; productName: string; onClose: () => void }) {
-  const routines = useWebAutomationRoutines(productId);
+export function WebAutomationPanel({ target, targetName, onClose }: { target: AutomationTarget; targetName: string; onClose: () => void }) {
+  const routines = useWebAutomationRoutines(target);
   const create = useCreateWebAutomationRoutine();
   const update = useUpdateWebAutomationRoutine();
   const remove = useDeleteWebAutomationRoutine();
@@ -51,7 +52,7 @@ export function WebAutomationPanel({ productId, productName, onClose }: { produc
 
   function save() {
     if (!name.trim() || steps.length === 0) return;
-    const payload = { product_id: productId, name: name.trim(), description: description.trim() || undefined, steps };
+    const payload = { target, name: name.trim(), description: description.trim() || undefined, steps };
     if (editing === "new") create.mutate(payload, { onSuccess: () => setEditing(null) });
     else if (editing) update.mutate({ id: editing.id, ...payload }, { onSuccess: () => setEditing(null) });
   }
@@ -62,7 +63,7 @@ export function WebAutomationPanel({ productId, productName, onClose }: { produc
   return (
     <div className="absolute inset-y-2 right-2 z-20 flex w-[min(620px,calc(100%-1rem))] flex-col rounded-lg border border-border bg-background shadow-2xl">
       <div className="flex items-center justify-between border-b px-4 py-3">
-        <div><p className="flex items-center gap-2 font-semibold"><Workflow className="h-4 w-4" /> Web automations</p><p className="text-xs text-muted-foreground">{productName}</p></div>
+        <div><p className="flex items-center gap-2 font-semibold"><Workflow className="h-4 w-4" /> Web automations</p><p className="text-xs text-muted-foreground">{targetName}</p></div>
         <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -86,13 +87,13 @@ export function WebAutomationPanel({ productId, productName, onClose }: { produc
           <div className="space-y-3">
             <Button size="sm" onClick={() => setEditing("new")}><Plus className="mr-2 h-4 w-4" /> New automation</Button>
             {routines.isLoading && <p className="text-sm text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading routines…</p>}
-            {!routines.isLoading && (routines.data?.length ?? 0) === 0 && <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">No automation routines for this product.</p>}
+            {!routines.isLoading && (routines.data?.length ?? 0) === 0 && <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">No automation routines for this target.</p>}
             {routines.data?.map((routine) => (
               <div key={routine.id} className="flex items-center gap-3 rounded-md border p-3">
                 <div className="min-w-0 flex-1"><p className="font-medium">{routine.name}</p><p className="truncate text-xs text-muted-foreground">{routine.description || `${routine.steps.length} step(s)`}</p></div>
                 <Button size="sm" disabled={run.isPending} onClick={() => run.mutate(routine.id)}>{run.isPending && run.variables === routine.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1 h-3.5 w-3.5" />}Run</Button>
                 <Button variant="ghost" size="icon" onClick={() => setEditing(routine)}><Pencil className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => remove.mutate({ id: routine.id, productId })}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => remove.mutate({ id: routine.id, target })}><Trash2 className="h-4 w-4 text-destructive" /></Button>
               </div>
             ))}
             {run.data && <div className={`rounded-md border p-3 text-sm ${run.data.status === "passed" ? "border-green-600/40" : "border-destructive/40"}`}><p className="font-medium capitalize">Last run: {run.data.status}</p>{run.data.steps.map((step) => <p key={step.index} className="text-xs text-muted-foreground">{step.index}. {step.action}: {step.outcome}</p>)}</div>}

@@ -24,6 +24,7 @@ class WorkspaceBrowserStateOut(BaseModel):
     image_base64: str | None = None
     captured_at: str
     last_pointer: WorkspaceBrowserPointerState | None = None
+    control_owner: Literal["user", "agent"] | None = None
 
 
 class WorkspaceBrowserStart(BaseModel):
@@ -70,11 +71,22 @@ class WebAutomationStep(BaseModel):
         return self
 
 
+def _validate_one_target(product_id: uuid.UUID | None, standalone_app_id: uuid.UUID | None) -> None:
+    if (product_id is None) == (standalone_app_id is None):
+        raise ValueError("Exactly one of product_id or standalone_app_id is required")
+
+
 class WebAutomationRoutineCreate(BaseModel):
-    product_id: uuid.UUID
+    product_id: uuid.UUID | None = None
+    standalone_app_id: uuid.UUID | None = None
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     steps: list[WebAutomationStep] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        _validate_one_target(self.product_id, self.standalone_app_id)
+        return self
 
 
 class WebAutomationRoutineUpdate(BaseModel):
@@ -87,7 +99,8 @@ class WebAutomationRoutineOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    product_id: uuid.UUID
+    product_id: uuid.UUID | None
+    standalone_app_id: uuid.UUID | None
     name: str
     description: str | None
     steps: list[WebAutomationStep]
@@ -100,3 +113,55 @@ class WebAutomationRunOut(BaseModel):
     status: str
     steps: list[dict]
     browser: WorkspaceBrowserStateOut
+
+
+class StandaloneAppCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    url: str = Field(min_length=1, max_length=2048, pattern=r"^https?://")
+
+
+class StandaloneAppUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    url: str | None = Field(default=None, min_length=1, max_length=2048, pattern=r"^https?://")
+
+
+class StandaloneAppOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    url: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class MacroInstructionSetCreate(BaseModel):
+    product_id: uuid.UUID | None = None
+    standalone_app_id: uuid.UUID | None = None
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    lines: list[str] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        _validate_one_target(self.product_id, self.standalone_app_id)
+        return self
+
+
+class MacroInstructionSetUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    lines: list[str] | None = Field(default=None, min_length=1, max_length=100)
+
+
+class MacroInstructionSetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID | None
+    standalone_app_id: uuid.UUID | None
+    name: str
+    description: str | None
+    lines: list[str]
+    created_at: datetime
+    updated_at: datetime

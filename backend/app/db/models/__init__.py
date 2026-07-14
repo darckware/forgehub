@@ -86,4 +86,4 @@ from app.db.models.execution import (  # noqa: F401
     ExecutionWave, ExecutionWaveTask, ExecutionWorkPackage, ExecutionRunner,
     ExecutionLease, ExecutionEvent, ExecutionResult,
 )
-from app.db.models.web_automation import WebAutomationRoutine  # noqa: F401
+from app.db.models.web_automation import StandaloneApp, WebAutomationRoutine, MacroInstructionSet  # noqa: F401

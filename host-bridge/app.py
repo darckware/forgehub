@@ -108,6 +108,17 @@ _workspace_browser_lock = threading.Lock()
 # draw a transient cursor marker -- otherwise an agent-driven interaction is
 # invisible in the shared live view.
 _last_pointer: dict | None = None
+# Who is currently driving the browser: "user" (a real human action through
+# this pane's own controls) or "agent" (a routine step, or a click the
+# injected DOM listener saw that this process didn't just dispatch itself --
+# Athos's native browser_* toolset talks to the same CDP target directly,
+# bypassing every endpoint below, so that's the only way to notice it).
+# Cleared back to None after CONTROL_RELEASE_SECONDS of inactivity so the
+# frontend's "agent in control" border goes away once nothing is happening.
+_control_owner: str | None = None
+_control_at: datetime | None = None
+_last_seen_click_ms: float = 0.0
+CONTROL_RELEASE_SECONDS = 2.5
 
 
 def _run_state_path(run_id: str) -> Path:
@@ -261,7 +272,18 @@ async def _workspace_browser_state(include_image: bool = True) -> dict:
     runtime = await _workspace_browser_cdp(
         "Runtime.evaluate",
         {
-            "expression": "JSON.stringify({url:location.href,title:document.title,readyState:document.readyState,viewportWidth:innerWidth,viewportHeight:innerHeight})",
+            # Installs a capturing click listener once per document (wiped by
+            # navigation, so this idempotently reinstalls it every poll) so a
+            # click from ANY CDP client -- including Athos's native browser_*
+            # toolset, which talks to this same target directly and never
+            # touches the endpoints below -- still surfaces here.
+            "expression": """(() => {
+              if (!window.__fhClickInstalled) {
+                window.__fhClickInstalled = true;
+                window.addEventListener('click', (e) => { window.__fhLastClick = {x: e.clientX, y: e.clientY, at: Date.now()}; }, true);
+              }
+              return JSON.stringify({url:location.href,title:document.title,readyState:document.readyState,viewportWidth:innerWidth,viewportHeight:innerHeight,click:window.__fhLastClick||null});
+            })()""",
             "returnByValue": True,
         },
     )
@@ -269,6 +291,16 @@ async def _workspace_browser_state(include_image: bool = True) -> dict:
         metadata = json.loads(runtime.get("result", {}).get("value") or "{}")
     except ValueError:
         metadata = {}
+    global _last_seen_click_ms
+    click = metadata.get("click")
+    if click and click.get("at", 0) > _last_seen_click_ms:
+        _last_seen_click_ms = click["at"]
+        recently_explained = _control_at is not None and (datetime.now() - _control_at).total_seconds() < 1.2
+        _mark_pointer(click["x"], click["y"])
+        _mark_control(_control_owner if recently_explained and _control_owner else "agent")
+    control_owner = _control_owner
+    if _control_at is not None and (datetime.now() - _control_at).total_seconds() > CONTROL_RELEASE_SECONDS:
+        control_owner = None
     image_base64 = None
     if include_image:
         screenshot = await _workspace_browser_cdp(
@@ -283,6 +315,7 @@ async def _workspace_browser_state(include_image: bool = True) -> dict:
         "viewport_height": metadata.get("viewportHeight", 900),
         "captured_at": datetime.now().isoformat(),
         "last_pointer": _last_pointer,
+        "control_owner": control_owner,
     }
 
 
@@ -333,6 +366,7 @@ def _validated_browser_url(value: str) -> str:
 @app.post("/v1/workspace-browser/start")
 async def start_workspace_browser(req: WorkspaceBrowserStartRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)
+    _mark_control("user")
     _launch_workspace_browser()
     url = _validated_browser_url(req.url)
     if url != "about:blank":
@@ -350,6 +384,7 @@ async def get_workspace_browser_state(x_bridge_token: str | None = Header(defaul
 @app.post("/v1/workspace-browser/navigate")
 async def navigate_workspace_browser(req: WorkspaceBrowserNavigateRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)
+    _mark_control("user")
     await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.url)})
     await asyncio.sleep(0.8)
     return await _workspace_browser_state()
@@ -358,6 +393,7 @@ async def navigate_workspace_browser(req: WorkspaceBrowserNavigateRequest, x_bri
 @app.post("/v1/workspace-browser/reload")
 async def reload_workspace_browser(x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)
+    _mark_control("user")
     await _workspace_browser_cdp("Page.reload", {"ignoreCache": True})
     await asyncio.sleep(0.6)
     return await _workspace_browser_state()
@@ -366,6 +402,7 @@ async def reload_workspace_browser(x_bridge_token: str | None = Header(default=N
 @app.post("/v1/workspace-browser/back")
 async def back_workspace_browser(x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)
+    _mark_control("user")
     history = await _workspace_browser_cdp("Page.getNavigationHistory")
     index, entries = history.get("currentIndex", 0), history.get("entries", [])
     if index > 0:
@@ -377,6 +414,7 @@ async def back_workspace_browser(x_bridge_token: str | None = Header(default=Non
 @app.post("/v1/workspace-browser/pointer")
 async def pointer_workspace_browser(req: WorkspaceBrowserPointerRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)
+    _mark_control("user")
     end_x = req.end_x if req.end_x is not None else req.x
     end_y = req.end_y if req.end_y is not None else req.y
     if not all(0 <= value <= 10_000 for value in (req.x, req.y, end_x, end_y)):
@@ -403,6 +441,7 @@ async def pointer_workspace_browser(req: WorkspaceBrowserPointerRequest, x_bridg
 @app.post("/v1/workspace-browser/text")
 async def text_workspace_browser(req: WorkspaceBrowserTextRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)
+    _mark_control("user")
     await _workspace_browser_cdp("Input.insertText", {"text": req.text})
     await asyncio.sleep(0.2)
     return await _workspace_browser_state()
@@ -413,6 +452,7 @@ async def scroll_workspace_browser(
     req: WorkspaceBrowserScrollRequest, x_bridge_token: str | None = Header(default=None)
 ) -> dict:
     _check_token(x_bridge_token)
+    _mark_control("user")
     if not 0 <= req.x <= 10_000 or not 0 <= req.y <= 10_000:
         raise HTTPException(status_code=400, detail="Scroll coordinates are outside the browser viewport")
     delta_y = max(-5_000, min(5_000, req.delta_y))
@@ -434,6 +474,7 @@ async def scroll_workspace_browser(
 async def login_workspace_browser(req: WorkspaceBrowserLoginRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
     """Login without persisting or returning the supplied credential."""
     _check_token(x_bridge_token)
+    _mark_control("user")
     await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.url)})
     await asyncio.sleep(1.0)
     script = f"""
@@ -491,6 +532,13 @@ def _mark_pointer(x: float, y: float) -> None:
     _last_pointer = {"x": x, "y": y, "at": datetime.now().isoformat()}
 
 
+def _mark_control(owner: str) -> None:
+    """Record who is currently driving the browser (see _control_owner docstring)."""
+    global _control_owner, _control_at
+    _control_owner = owner
+    _control_at = datetime.now()
+
+
 async def _element_center_evaluate(expression_body: str, selector: str) -> str | None:
     """Run a JS expression that resolves to {outcome, x, y} on the element's center,
     or null if the element wasn't found. Marks the pointer and returns outcome."""
@@ -511,6 +559,7 @@ async def _element_center_evaluate(expression_body: str, selector: str) -> str |
 
 
 async def _run_browser_routine_step(step: dict) -> str:
+    _mark_control("agent")
     action = step.get("action")
     selector = step.get("selector")
     value = step.get("value")
@@ -588,8 +637,14 @@ async def run_workspace_browser_routine(
     _check_token(x_bridge_token)
     if not 1 <= len(req.steps) <= 100:
         raise HTTPException(status_code=400, detail="A routine must contain 1 to 100 steps")
-    await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.start_url)})
-    await asyncio.sleep(0.8)
+    _mark_control("agent")
+    # Skip the implicit start_url navigation when the routine's own first
+    # step already navigates -- otherwise every run flashes start_url (the
+    # product's registered application_url, which may not even be the host
+    # currently running it) before immediately navigating away again.
+    if not (req.steps and req.steps[0].get("action") == "navigate"):
+        await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.start_url)})
+        await asyncio.sleep(0.8)
     results: list[dict] = []
     status_value = "passed"
     for index, step in enumerate(req.steps, 1):

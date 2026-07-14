@@ -158,8 +158,11 @@ export function ToolVersionsCard() {
                     )}
                     {version?.update_available && (
                       <Button
+                        id={`tool-update-${tool}`}
+                        data-testid={`tool-update-${tool}`}
                         size="sm"
                         variant="outline"
+                        aria-label={`Update ${meta.label}`}
                         onClick={() => handleUpdate(tool)}
                         disabled={isUpdating}
                       >

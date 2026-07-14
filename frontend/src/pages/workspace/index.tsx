@@ -628,9 +628,7 @@ export default function WorkspacePage() {
               <WebAppPane
                 url={t.url}
                 products={products}
-                selectedProductId={selectedProductId}
                 onUrlChange={(url) => updateWebTabUrl(t.id, url)}
-                onProductChange={setSelectedProductId}
               />
             </div>
           )

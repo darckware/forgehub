@@ -1,13 +1,32 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, Camera, ChevronDown, ExternalLink, Loader2, MousePointer2, RefreshCw, Wand2, Workflow } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  Camera,
+  ChevronDown,
+  ExternalLink,
+  Globe,
+  Loader2,
+  MousePointer2,
+  Package,
+  Plus,
+  RefreshCw,
+  Wand2,
+  Workflow,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { MacroInstructionsPanel } from "@/components/MacroInstructionsPanel";
 import { WebAutomationPanel } from "@/components/WebAutomationPanel";
 import type { Product } from "@/hooks/useProduct";
 import {
+  type AutomationTarget,
   useBackWorkspaceBrowser,
+  useCreateStandaloneApp,
   useNavigateWorkspaceBrowser,
   useReloadWorkspaceBrowser,
+  useStandaloneApps,
   useStartWorkspaceBrowser,
   useWorkspaceBrowserPointer,
   useWorkspaceBrowserScroll,
@@ -17,10 +36,12 @@ import {
 interface WebAppPaneProps {
   url: string;
   products: Product[];
-  selectedProductId: string;
   onUrlChange: (url: string) => void;
-  onProductChange: (productId: string) => void;
 }
+
+const TARGET_MODE_KEY = "forgehub-webapp-target-mode";
+const TARGET_PRODUCT_KEY = "forgehub-webapp-target-product";
+const TARGET_APP_KEY = "forgehub-webapp-target-app";
 
 function normalizeUrl(value: string): string | null {
   const trimmed = value.trim();
@@ -51,13 +72,7 @@ function browserCoordinates(
 }
 
 /** Live view of the shared Chromium CDP session used by agent browser tools. */
-export function WebAppPane({
-  url,
-  products,
-  selectedProductId,
-  onUrlChange,
-  onProductChange,
-}: WebAppPaneProps) {
+export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   const state = useWorkspaceBrowserState(true);
   const start = useStartWorkspaceBrowser();
   const navigate = useNavigateWorkspaceBrowser();
@@ -65,15 +80,27 @@ export function WebAppPane({
   const scroll = useWorkspaceBrowserScroll();
   const reload = useReloadWorkspaceBrowser();
   const back = useBackWorkspaceBrowser();
+  const { data: standaloneApps = [] } = useStandaloneApps();
+  const createApp = useCreateStandaloneApp();
+
   const [draftUrl, setDraftUrl] = useState(url);
   const [invalidUrl, setInvalidUrl] = useState(false);
-  const [missingProductUrl, setMissingProductUrl] = useState(false);
+  const [missingTargetUrl, setMissingTargetUrl] = useState(false);
   const [automationsOpen, setAutomationsOpen] = useState(false);
   const [macroOpen, setMacroOpen] = useState(false);
+  const [addAppOpen, setAddAppOpen] = useState(false);
+  const [newAppName, setNewAppName] = useState("");
+  const [newAppUrl, setNewAppUrl] = useState("");
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const [cursorPosition, setCursorPosition] = useState<{ left: number; top: number } | null>(null);
   const lastPointer = state.data?.last_pointer;
+
+  const [targetMode, setTargetMode] = useState<"product" | "app">(
+    () => (localStorage.getItem(TARGET_MODE_KEY) as "product" | "app" | null) ?? "product"
+  );
+  const [targetProductId, setTargetProductId] = useState(() => localStorage.getItem(TARGET_PRODUCT_KEY) ?? "");
+  const [targetAppId, setTargetAppId] = useState(() => localStorage.getItem(TARGET_APP_KEY) ?? "");
 
   useLayoutEffect(() => {
     const image = imageRef.current;
@@ -103,6 +130,16 @@ export function WebAppPane({
     if (state.data.url !== url) onUrlChange(state.data.url);
   }, [onUrlChange, state.data?.url, url]);
 
+  useEffect(() => {
+    if (products.length === 0 || targetProductId) return;
+    const fallback = products.find((product) => product.name.trim().toLowerCase() === "forgehub") ?? products[0];
+    setTargetProductId(fallback.id);
+  }, [products, targetProductId]);
+
+  useEffect(() => { localStorage.setItem(TARGET_MODE_KEY, targetMode); }, [targetMode]);
+  useEffect(() => { if (targetProductId) localStorage.setItem(TARGET_PRODUCT_KEY, targetProductId); }, [targetProductId]);
+  useEffect(() => { if (targetAppId) localStorage.setItem(TARGET_APP_KEY, targetAppId); }, [targetAppId]);
+
   function downloadScreenshot() {
     if (!state.data?.image_base64) return;
     const link = document.createElement("a");
@@ -121,10 +158,53 @@ export function WebAppPane({
     navigate.mutate({ url: normalized });
   }
 
+  const selectedProduct = products.find((product) => product.id === targetProductId);
+  const selectedApp = standaloneApps.find((app) => app.id === targetAppId);
+  const target: AutomationTarget | undefined =
+    targetMode === "product" && selectedProduct
+      ? { type: "product", id: selectedProduct.id }
+      : targetMode === "app" && selectedApp
+        ? { type: "app", id: selectedApp.id }
+        : undefined;
+  const targetName = targetMode === "product" ? selectedProduct?.name : selectedApp?.name;
+
+  function selectProduct(productId: string) {
+    setTargetProductId(productId);
+    const product = products.find((item) => item.id === productId);
+    if (!product?.application_url) {
+      setMissingTargetUrl(true);
+      return;
+    }
+    setMissingTargetUrl(false);
+    go(product.application_url);
+  }
+
+  function selectApp(appId: string) {
+    setTargetAppId(appId);
+    const app = standaloneApps.find((item) => item.id === appId);
+    if (!app) return;
+    setMissingTargetUrl(false);
+    go(app.url);
+  }
+
+  function saveNewApp() {
+    if (!newAppName.trim() || !newAppUrl.trim()) return;
+    createApp.mutate(
+      { name: newAppName.trim(), url: newAppUrl.trim() },
+      {
+        onSuccess: (app) => {
+          setNewAppName("");
+          setNewAppUrl("");
+          setAddAppOpen(false);
+          selectApp(app.id);
+        },
+      }
+    );
+  }
+
   const busy = start.isPending || navigate.isPending || pointer.isPending || reload.isPending || back.isPending;
   const error = state.error ?? start.error ?? navigate.error ?? pointer.error;
   const currentUrl = state.data?.url ?? url;
-  const selectedProduct = products.find((product) => product.id === selectedProductId);
 
   return (
     <div className="absolute inset-0 flex min-h-0 bg-muted/20 p-2">
@@ -138,31 +218,58 @@ export function WebAppPane({
               <RefreshCw className="h-3.5 w-3.5" />
             </Button>
           </div>
-          <div className="relative">
-            <select
-              aria-label="Selected product application"
-              value={selectedProductId}
-              className="h-8 max-w-56 appearance-none rounded-md border border-input bg-background py-1 pl-3 pr-8 text-sm font-medium"
-              onChange={(event) => {
-                const product = products.find((item) => item.id === event.target.value);
-                if (!product) return;
-                onProductChange(product.id);
-                if (!product.application_url) {
-                  setMissingProductUrl(true);
-                  return;
-                }
-                setMissingProductUrl(false);
-                go(product.application_url);
-              }}
+
+          <div className="flex items-center rounded-md border border-input p-0.5">
+            <Button
+              size="icon" variant={targetMode === "product" ? "default" : "ghost"} className="h-7 w-7"
+              title="Product" onClick={() => setTargetMode("product")}
             >
-              {products.length === 0 && <option value="">No products registered</option>}
-              {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-2 h-4 w-4 text-muted-foreground" />
+              <Package className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon" variant={targetMode === "app" ? "default" : "ghost"} className="h-7 w-7"
+              title="Standalone app" onClick={() => setTargetMode("app")}
+            >
+              <Globe className="h-3.5 w-3.5" />
+            </Button>
           </div>
-          {missingProductUrl && selectedProduct && (
+
+          {targetMode === "product" ? (
+            <div className="relative">
+              <select
+                aria-label="Selected product application"
+                value={targetProductId}
+                className="h-8 max-w-56 appearance-none rounded-md border border-input bg-background py-1 pl-3 pr-8 text-sm font-medium"
+                onChange={(event) => selectProduct(event.target.value)}
+              >
+                {products.length === 0 && <option value="">No products registered</option>}
+                {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-2 h-4 w-4 text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              <div className="relative">
+                <select
+                  aria-label="Selected standalone app"
+                  value={targetAppId}
+                  className="h-8 max-w-56 appearance-none rounded-md border border-input bg-background py-1 pl-3 pr-8 text-sm font-medium"
+                  onChange={(event) => selectApp(event.target.value)}
+                >
+                  {standaloneApps.length === 0 && <option value="">No standalone apps registered</option>}
+                  {standaloneApps.map((app) => <option key={app.id} value={app.id}>{app.name}</option>)}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2 top-2 h-4 w-4 text-muted-foreground" />
+              </div>
+              <Button size="icon" variant="outline" className="h-8 w-8" title="Add standalone app" onClick={() => setAddAppOpen((v) => !v)}>
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+          {missingTargetUrl && selectedProduct && (
             <span className="text-xs text-destructive">Configure the application URL for {selectedProduct.name} in Products.</span>
           )}
+
           <form className="flex min-w-56 flex-1" onSubmit={(event) => { event.preventDefault(); go(draftUrl); }}>
             <input
               value={draftUrl}
@@ -172,10 +279,10 @@ export function WebAppPane({
             />
           </form>
           <div className="flex items-center gap-1">
-            <Button size="icon" variant="outline" className="h-8 w-8" title="Automations" disabled={!selectedProduct} onClick={() => setAutomationsOpen(true)}>
+            <Button size="icon" variant="outline" className="h-8 w-8" title="Automations" disabled={!target} onClick={() => setAutomationsOpen(true)}>
               <Workflow className="h-3.5 w-3.5" />
             </Button>
-            <Button size="icon" variant="outline" className="h-8 w-8" title="Macro" disabled={!selectedProduct} onClick={() => setMacroOpen(true)}>
+            <Button size="icon" variant="outline" className="h-8 w-8" title="Macro" disabled={!target} onClick={() => setMacroOpen(true)}>
               <Wand2 className="h-3.5 w-3.5" />
             </Button>
             <Button size="icon" variant="outline" className="h-8 w-8" title="Save screenshot" disabled={!state.data?.image_base64} onClick={downloadScreenshot}>
@@ -187,7 +294,29 @@ export function WebAppPane({
           </div>
         </div>
 
-        <div className="relative min-h-0 flex-1 overscroll-contain overflow-hidden border border-border bg-zinc-950">
+        {addAppOpen && targetMode === "app" && (
+          <div className="flex items-center gap-2 border border-b-0 border-t-0 border-border bg-background p-2">
+            <Input className="h-8 max-w-48 text-xs" placeholder="App name" value={newAppName} onChange={(e) => setNewAppName(e.target.value)} />
+            <Input className="h-8 flex-1 font-mono text-xs" placeholder="https://example.com" value={newAppUrl} onChange={(e) => setNewAppUrl(e.target.value)} />
+            <Button size="sm" disabled={!newAppName.trim() || !newAppUrl.trim() || createApp.isPending} onClick={saveNewApp}>
+              {createApp.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add"}
+            </Button>
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setAddAppOpen(false)}><X className="h-3.5 w-3.5" /></Button>
+          </div>
+        )}
+
+        <div
+          className={`relative min-h-0 flex-1 overscroll-contain overflow-hidden border bg-zinc-950 transition-shadow ${
+            state.data?.control_owner === "agent"
+              ? "border-amber-400/70 shadow-[inset_0_0_0_2px_rgba(251,191,36,0.35),0_0_18px_rgba(251,191,36,0.35)]"
+              : "border-border"
+          }`}
+        >
+          {state.data?.control_owner === "agent" && (
+            <span className="absolute left-2 top-2 z-10 flex items-center gap-1.5 rounded-full bg-amber-400/90 px-2.5 py-1 text-[11px] font-medium text-amber-950 shadow">
+              <Bot className="h-3 w-3" /> Agent in control
+            </span>
+          )}
           {state.data?.image_base64 ? (
             <img
               ref={imageRef}
@@ -266,14 +395,13 @@ export function WebAppPane({
         {error && <p className="px-2 py-1 text-xs text-destructive">{error.message}</p>}
       </div>
 
-      {automationsOpen && selectedProduct && (
-        <WebAutomationPanel productId={selectedProduct.id} productName={selectedProduct.name} onClose={() => setAutomationsOpen(false)} />
+      {automationsOpen && target && targetName && (
+        <WebAutomationPanel target={target} targetName={targetName} onClose={() => setAutomationsOpen(false)} />
       )}
 
-      {macroOpen && selectedProduct && (
-        <MacroInstructionsPanel productName={selectedProduct.name} onClose={() => setMacroOpen(false)} />
+      {macroOpen && target && targetName && (
+        <MacroInstructionsPanel target={target} targetName={targetName} onClose={() => setMacroOpen(false)} />
       )}
-
     </div>
   );
 }
