@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ExternalLink, Loader2, MousePointer2, RefreshCw, Workflow } from "lucide-react";
+import { ArrowLeft, Camera, ChevronDown, ExternalLink, Loader2, MousePointer2, RefreshCw, Wand2, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MacroInstructionsPanel } from "@/components/MacroInstructionsPanel";
 import { WebAutomationPanel } from "@/components/WebAutomationPanel";
 import type { Product } from "@/hooks/useProduct";
 import {
@@ -68,6 +69,7 @@ export function WebAppPane({
   const [invalidUrl, setInvalidUrl] = useState(false);
   const [missingProductUrl, setMissingProductUrl] = useState(false);
   const [automationsOpen, setAutomationsOpen] = useState(false);
+  const [macroOpen, setMacroOpen] = useState(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const [cursorPosition, setCursorPosition] = useState<{ left: number; top: number } | null>(null);
@@ -101,6 +103,14 @@ export function WebAppPane({
     if (state.data.url !== url) onUrlChange(state.data.url);
   }, [onUrlChange, state.data?.url, url]);
 
+  function downloadScreenshot() {
+    if (!state.data?.image_base64) return;
+    const link = document.createElement("a");
+    link.href = `data:image/jpeg;base64,${state.data.image_base64}`;
+    link.download = `workspace-browser-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
+    link.click();
+  }
+
   function go(value: string) {
     const normalized = normalizeUrl(value);
     if (!normalized) {
@@ -120,9 +130,14 @@ export function WebAppPane({
     <div className="absolute inset-0 flex min-h-0 bg-muted/20 p-2">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-1.5 rounded-t-md border border-b-0 border-border bg-background p-1.5">
-          <Button size="icon" variant="outline" className="h-8 w-8" title="Back" onClick={() => back.mutate({})}>
-            <ArrowLeft className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="icon" variant="outline" className="h-8 w-8" title="Back" onClick={() => back.mutate({})}>
+              <ArrowLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" title="Reload" onClick={() => reload.mutate({})}>
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
           <div className="relative">
             <select
               aria-label="Selected product application"
@@ -148,12 +163,6 @@ export function WebAppPane({
           {missingProductUrl && selectedProduct && (
             <span className="text-xs text-destructive">Configure the application URL for {selectedProduct.name} in Products.</span>
           )}
-          <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={!selectedProduct} onClick={() => setAutomationsOpen(true)}>
-            <Workflow className="h-3.5 w-3.5" /> Automations
-          </Button>
-          <Button size="icon" variant="outline" className="h-8 w-8" title="Reload" onClick={() => reload.mutate({})}>
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Button>
           <form className="flex min-w-56 flex-1" onSubmit={(event) => { event.preventDefault(); go(draftUrl); }}>
             <input
               value={draftUrl}
@@ -162,9 +171,20 @@ export function WebAppPane({
               onChange={(event) => setDraftUrl(event.target.value)}
             />
           </form>
-          <Button size="icon" variant="outline" className="h-8 w-8" title="Open externally" onClick={() => window.open(currentUrl, "_blank", "noopener,noreferrer")}>
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="icon" variant="outline" className="h-8 w-8" title="Automations" disabled={!selectedProduct} onClick={() => setAutomationsOpen(true)}>
+              <Workflow className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" title="Macro" disabled={!selectedProduct} onClick={() => setMacroOpen(true)}>
+              <Wand2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" title="Save screenshot" disabled={!state.data?.image_base64} onClick={downloadScreenshot}>
+              <Camera className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" title="Open externally" onClick={() => window.open(currentUrl, "_blank", "noopener,noreferrer")}>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
 
         <div className="relative min-h-0 flex-1 overscroll-contain overflow-hidden border border-border bg-zinc-950">
@@ -248,6 +268,10 @@ export function WebAppPane({
 
       {automationsOpen && selectedProduct && (
         <WebAutomationPanel productId={selectedProduct.id} productName={selectedProduct.name} onClose={() => setAutomationsOpen(false)} />
+      )}
+
+      {macroOpen && selectedProduct && (
+        <MacroInstructionsPanel productName={selectedProduct.name} onClose={() => setMacroOpen(false)} />
       )}
 
     </div>
