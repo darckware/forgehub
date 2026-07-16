@@ -41,8 +41,9 @@ import { apiClient } from "@/lib/api";
 import { useAssistantStore } from "@/store/assistantStore";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
-/** Draft seeded into the workspace chat composer, mirroring Agent Tools'
- * maintenance message: skill metadata first, then the SKILL.md source. */
+/** Context attached invisibly to the assistant chat (assistantStore's
+ * pendingHiddenContext), mirroring Agent Tools' maintenance message:
+ * skill metadata first, then the SKILL.md source. */
 function buildSkillChatMessage(skill: Skill, fileContent: string | null, filePath: string | null): string {
   const lines: string[] = [
     "I need help with this Hermes skill. Please review it and suggest improvements.",
@@ -312,7 +313,7 @@ export default function SkillsPage() {
   const syncHermes = useSyncHermesAgents();
   const deleteSkill = useDeleteSkill();
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
-  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+  const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
   const [search, setSearch] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
   const [viewing, setViewing] = useState<{ skill: Skill; editing: boolean } | null>(null);
@@ -334,7 +335,7 @@ export default function SkillsPage() {
       } catch {
         // no SKILL.md found -- send the metadata anyway
       }
-      setPendingSeed(buildSkillChatMessage(skill, content, path));
+      setPendingHiddenContext(buildSkillChatMessage(skill, content, path));
       setAssistantOpen(true);
     } finally {
       setSendingId(null);

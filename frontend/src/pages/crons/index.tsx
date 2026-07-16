@@ -304,7 +304,7 @@ function CronsTab() {
   const [viewingJob, setViewingJob] = useState<CronJob | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
-  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+  const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
 
   function handleDelete(job: CronJob) {
     if (!window.confirm(`Delete the cron "${job.name}" (profile ${job.profile})? This action cannot be undone.`))
@@ -330,7 +330,7 @@ function CronsTab() {
           ]
         : [];
       const fileResult = candidates.length > 0 ? await fetchScriptContentWithFallback(candidates) : null;
-      setPendingSeed(buildCronChatMessage(job, fileResult?.content ?? null, fileResult?.path ?? null));
+      setPendingHiddenContext(buildCronChatMessage(job, fileResult?.content ?? null, fileResult?.path ?? null));
       setAssistantOpen(true);
     } finally {
       setSendingId(null);

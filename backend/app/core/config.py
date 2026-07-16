@@ -21,6 +21,23 @@ _ENV_FILE = _REPO_ROOT / ".env"
 _APP_CONFIG_FILE = _REPO_ROOT / "forgehub.config"
 
 
+# Response languages the in-app AI chat can be pinned to (Settings -> AI
+# chat). Key = value stored in CHAT_RESPONSE_LANGUAGE; value = the hidden
+# instruction api/routes/chat.py appends to each outgoing agent call.
+# Adding a language here is all the backend needs -- the config PUT
+# validator (api/routes/system_control.py) derives from these keys; add
+# the matching label to the frontend dropdown's CHAT_RESPONSE_LANGUAGES
+# (pages/settings/index.tsx), which mirrors this dict.
+CHAT_RESPONSE_LANGUAGE_NOTES: dict[str, str] = {
+    "pt-BR": "(Instrução do sistema — responda sempre em português do Brasil.)",
+    "en": "(System instruction — always respond in English.)",
+    "es": "(Instrucción del sistema — responde siempre en español.)",
+    "fr": "(Instruction système — répondez toujours en français.)",
+    "de": "(Systemanweisung — antworte immer auf Deutsch.)",
+    "it": "(Istruzione di sistema — rispondi sempre in italiano.)",
+}
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(str(_ENV_FILE), str(_APP_CONFIG_FILE)),
@@ -96,6 +113,11 @@ class Settings(BaseSettings):
     CLEANUP_PRUNE_NAMES: list[str] = [
         "node_modules", ".git", "venv", ".venv", "site-packages", "__pycache__",
     ]
+    # Language the in-app AI chat (Workspace tabs + Assistant drawer)
+    # should answer in -- "pt-BR" or "en". Applied by api/routes/chat.py as
+    # an instruction appended to each outgoing agent call (like the voice
+    # brevity note), never stored with the user's message.
+    CHAT_RESPONSE_LANGUAGE: str = "pt-BR"
     # IANA zone used for wall-clock timestamps ForgeHub itself generates
     # (e.g. backup archive filenames, see system_control.py's _now_local) --
     # independent of the host OS timezone, which the rest of the process

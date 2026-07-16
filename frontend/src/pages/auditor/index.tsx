@@ -56,8 +56,9 @@ function formatTimestamp(value: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
 }
 
-/** Draft seeded into the assistant composer, mirroring Crons'/Agent Tools'
- * maintenance message: check metadata first, then the command and last result. */
+/** Context attached invisibly to the assistant chat (assistantStore's
+ * pendingHiddenContext), mirroring Crons'/Agent Tools' maintenance
+ * message: check metadata first, then the command and last result. */
 function buildAuditCheckChatMessage(check: AuditCheck): string {
   const lines: string[] = [
     "I need help with this Auditor checkpoint. Please review it and suggest fixes.",
@@ -250,10 +251,10 @@ export default function AuditorPage() {
   const [deleting, setDeleting] = useState<AuditCheck | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
-  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+  const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
 
   function handleSendToAssistant(check: AuditCheck) {
-    setPendingSeed(buildAuditCheckChatMessage(check));
+    setPendingHiddenContext(buildAuditCheckChatMessage(check));
     setAssistantOpen(true);
   }
 

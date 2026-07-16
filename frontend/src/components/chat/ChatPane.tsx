@@ -40,6 +40,7 @@ import {
 } from "@/lib/assistantFileDrag";
 import { cn } from "@/lib/utils";
 import { type Agent } from "@/hooks/useAgent";
+import { useChatLanguage } from "@/hooks/useChatLanguage";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { usePromptCommands, type PromptCommand } from "@/hooks/usePromptCommands";
 import { useQueryClient } from "@tanstack/react-query";
@@ -93,6 +94,14 @@ export function clearChatTabStaging(tabId: string): void {
 // Composer auto-grow ceiling -- past this it scrolls internally instead
 // of taking over the message area.
 const COMPOSER_MAX_HEIGHT_PX = 240;
+
+// A primingMessage turn is persisted by the backend with BOTH sides (the
+// context sent and the agent's ack) wrapped in these markers (chat.py's
+// _wrap_hidden, mirrored here) -- visibleMessages drops any message that is
+// nothing but such a block, and strips a leading block off messages that
+// carry user text after it (the older piggyback format), so internal
+// instructions never render in the transcript.
+const HIDDEN_CONTEXT_RE = /^\[\[forgehub:contexto-interno\]\]\n[\s\S]*?\n\[\[\/forgehub:contexto-interno\]\]\s*/;
 type ChatQueueStep = { id: string; name: string; label: string; detail?: string; done: boolean };
 
 /** Tool-name → emoji, mirroring the Telegram gateway's processing feed
@@ -153,6 +162,11 @@ type ChatQueueItem = {
   /** True for the 2nd+ mentioned-agent item from the same user input --
    * the first one already persisted the shared user message. */
   skipUserMessage?: boolean;
+  /** True for an internal priming turn (see the primingMessage prop):
+   * rendered as nothing at all while it runs (unless it errors), sent with
+   * hidden=true so the backend persists both sides wrapped in the
+   * HIDDEN_CONTEXT markers and the transcript drops them. */
+  hidden?: boolean;
   /** True for a "!command" raw bash execution -- no agent/LLM call, see
    * exec_chat_command. content keeps the "!" prefix. */
   isExec?: boolean;
@@ -1096,7 +1110,7 @@ export function ChatPane({
   workingDir,
   startNewSession,
   emptyStateText,
-  firstMessagePrefix,
+  primingMessage,
   onAssistantMessage,
 }: {
   tabId: string;
@@ -1119,14 +1133,17 @@ export function ChatPane({
    * placeholder shown while the session has no messages yet -- purely
    * client-side, no agent turn spent on it. */
   emptyStateText?: string;
-  /** Silently prepended to the very first message of a fresh session (the
-   * one that actually creates it) -- e.g. AssistantDrawer's "read
-   * docs/MANUAL.md before answering" grounding note. Stripped back off
-   * before rendering that message (see visibleMessages below), so the user
-   * never sees it despite it being a real, stored part of the message
-   * (there's no hidden/system channel in the send API). Not resent on
-   * later turns in the same session. */
-  firstMessagePrefix?: string;
+  /** Internal grounding sent ONCE, by itself, as the opening turn of a
+   * fresh session as soon as the pane mounts (requires startNewSession) --
+   * e.g. AssistantDrawer's "read docs/MANUAL.md" note plus the current
+   * screen's hidden context (see assistantStore's pendingHiddenContext).
+   * Deliberately a separate agent turn instead of a prefix glued onto the
+   * user's first message: the user's own text stays clean, and the agent
+   * has the context before the user even starts typing. The whole exchange
+   * (this message and the agent's ack) is persisted wrapped in
+   * HIDDEN_CONTEXT markers (hidden=true on the stream call) and dropped
+   * from the transcript. */
+  primingMessage?: string;
   /** Fires once per completed assistant turn, with that message's full
    * text -- AssistantDrawer uses this to notice a ```forgehub-fill fenced
    * block and apply it to the page's form. Generic on purpose (just a
@@ -1135,6 +1152,10 @@ export function ChatPane({
   onAssistantMessage?: (content: string) => void;
 }) {
   const [sessionId, setSessionId] = useState<string>("");
+  // Chat chrome (composer placeholder, default empty state) follows the
+  // configured response language, same one the agent is instructed to
+  // answer in (Settings -> AI chat).
+  const { texts: languageTexts } = useChatLanguage();
   const [composerText, setComposerText] = useState(
     () => composerTextByTabId.get(tabId) ?? initialComposerText ?? ""
   );
@@ -1261,8 +1282,39 @@ export function ChatPane({
   );
   const displayedSessions = chatSearchTerm.trim() ? chatSearchResults ?? [] : sessions ?? [];
 
+  // Shared session bootstrap: the priming effect below and handleSend can
+  // both need to create the session, and can genuinely race on a fresh
+  // pane (priming fires on mount; a fast paste+send lands right after) --
+  // sharing one in-flight promise guarantees they land in the SAME session
+  // instead of the context going to one and the user's message to another.
+  const sessionPromiseRef = useRef<Promise<string> | null>(null);
+  async function ensureSession(): Promise<string> {
+    if (sessionId) return sessionId;
+    if (!sessionPromiseRef.current) {
+      sessionPromiseRef.current = createSession
+        .mutateAsync({ agent_id: agentId })
+        .then((created) => {
+          setSessionId(created.id);
+          return created.id;
+        })
+        .catch((err) => {
+          sessionPromiseRef.current = null;
+          throw err;
+        });
+    }
+    return sessionPromiseRef.current;
+  }
+
+  // Guards primingMessage against re-sends within the same session -- see
+  // the priming effect below.
+  const primingSentRef = useRef(false);
+
   useEffect(() => {
     setSessionId("");
+    sessionPromiseRef.current = null;
+    // Switching agents starts a fresh session -- the new agent hasn't seen
+    // the priming context, so allow it to be sent again.
+    primingSentRef.current = false;
   }, [agentId]);
 
   useEffect(() => {
@@ -1272,21 +1324,60 @@ export function ChatPane({
     }
   }, [sessionId, sessions, startNewSession]);
 
+  // Sends primingMessage as the session's own opening turn as soon as the
+  // pane is usable -- see the prop's docstring. Runs before the user can
+  // have typed anything (effects fire right after first render), and the
+  // serial queue below keeps any user message ordered after it.
+  useEffect(() => {
+    if (!startNewSession || !primingMessage || !agentId || primingSentRef.current) return;
+    primingSentRef.current = true;
+    void (async () => {
+      try {
+        await ensureSession();
+      } catch {
+        // Session creation failed -- surface nothing here; the user's own
+        // first send will retry it and show its error normally.
+        primingSentRef.current = false;
+        return;
+      }
+      setQueue((q) => [
+        ...q,
+        {
+          id: crypto.randomUUID(),
+          content: primingMessage,
+          attachmentName: null,
+          files: [],
+          liveText: "",
+          steps: [],
+          status: "queued",
+          approval: null,
+          abortController: null,
+          hidden: true,
+        },
+      ]);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startNewSession, primingMessage, agentId]);
+
   const queryClient = useQueryClient();
   const { data: messages } = useChatMessages(sessionId || undefined);
-  // firstMessagePrefix is real, stored message content -- there's no
-  // hidden/system channel -- but it's internal grounding, not something
-  // the user typed, so it's stripped back off before rendering. Everything
-  // else (dedupe-guard, scroll tracking, etc.) still reads the raw
-  // `messages` so the agent's reply lines up correctly.
+  // Hidden turns are real, stored message content -- there's no
+  // hidden/system channel in the send API -- but they're internal
+  // grounding, not conversation: a message that is nothing but a
+  // HIDDEN_CONTEXT block (a priming turn or its ack, either role) is
+  // dropped from the transcript entirely, and a leading block on a user
+  // message that still carries text after it (the older piggyback format)
+  // is stripped off. Everything else (dedupe-guard, scroll tracking, etc.)
+  // still reads the raw `messages` so the agent's reply lines up correctly.
   const visibleMessages = useMemo(
     () =>
-      (messages ?? []).map((m) =>
-        firstMessagePrefix && m.role === "user" && m.content.startsWith(firstMessagePrefix)
-          ? { ...m, content: m.content.slice(firstMessagePrefix.length).replace(/^\s+/, "") }
-          : m
-      ),
-    [messages, firstMessagePrefix]
+      (messages ?? []).flatMap((m) => {
+        if (!HIDDEN_CONTEXT_RE.test(m.content)) return [m];
+        const content = m.content.replace(HIDDEN_CONTEXT_RE, "");
+        if (!content.trim()) return [];
+        return [{ ...m, content }];
+      }),
+    [messages]
   );
 
   // Notifies onAssistantMessage exactly once per completed assistant turn
@@ -1404,20 +1495,11 @@ export function ChatPane({
       return;
     }
 
-    let activeSessionId = sessionId;
-    const isFirstSendOfSession = !activeSessionId;
-    if (!activeSessionId) {
-      const created = await createSession.mutateAsync({ agent_id: agentId });
-      activeSessionId = created.id;
-      setSessionId(activeSessionId);
-    }
-
-    const rawMessage = isOverride ? overrideText : composerText;
-    // Grounding note goes out with the session's first real turn only --
-    // see firstMessagePrefix's docstring for why it's silent (stripped
-    // back off in visibleMessages) rather than a separate priming turn.
-    const message =
-      isFirstSendOfSession && firstMessagePrefix ? `${firstMessagePrefix}\n\n${rawMessage}` : rawMessage;
+    // Internal grounding never rides on the user's message -- it went out
+    // as its own hidden turn when the pane opened (see primingMessage), so
+    // what the user typed is exactly what's sent and stored.
+    await ensureSession();
+    const message = isOverride ? overrideText : composerText;
     const files = isOverride ? [] : attachedFiles;
     if (!isOverride) {
       setComposerText("");
@@ -1567,6 +1649,7 @@ export function ChatPane({
           regenerate: item.isRegenerate,
           targetAgentId: item.targetAgentId,
           skipUserMessage: item.skipUserMessage,
+          hidden: item.hidden,
         });
       }
       // Only drop the pending bubbles AFTER the persisted messages have
@@ -2810,7 +2893,7 @@ export function ChatPane({
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {visibleMessages.length === 0 && (
             <p className="py-12 text-center text-sm italic text-muted-foreground">
-              {emptyStateText ?? `Send a message to start the conversation with ${selectedAgent?.name}.`}
+              {emptyStateText ?? languageTexts.emptyState(selectedAgent?.name ?? "agent")}
             </p>
           )}
           {visibleMessages.map((m, i, list) => {
@@ -2838,9 +2921,13 @@ export function ChatPane({
               />
             );
           })}
-          {queue.map((item) => (
+          {queue.map((item) =>
+            // A hidden priming turn renders as nothing at all while it
+            // works (the transcript never shows it either way) -- only an
+            // error is surfaced, so a failed priming isn't silently lost.
+            item.hidden && item.status !== "error" ? null : (
             <div key={item.id} className="space-y-1">
-              {!item.isRegenerate && !item.skipUserMessage && (
+              {!item.isRegenerate && !item.skipUserMessage && !item.hidden && (
                 <MessageBubble
                   message={{
                     id: `pending-${item.id}`,
@@ -3220,7 +3307,7 @@ export function ChatPane({
               placeholder={
                 suggestedReply
                   ? `${suggestedReply} (→ to complete)`
-                  : `Ask ${selectedAgent?.name ?? "agent"}`
+                  : languageTexts.ask(selectedAgent?.name ?? "agent")
               }
               rows={1}
               style={{ maxHeight: COMPOSER_MAX_HEIGHT_PX }}

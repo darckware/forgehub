@@ -46,8 +46,9 @@ import {
 } from "@/hooks/useTools";
 import { useAssistantStore } from "@/store/assistantStore";
 
-/** Draft seeded into the responsible agent's workspace chat composer —
- * leads with the file path so the agent has the maintenance context. */
+/** Context attached invisibly to the responsible agent's assistant chat
+ * (assistantStore's pendingHiddenContext) — leads with the file path so
+ * the agent has the maintenance context. */
 function buildMaintenanceMessage(tool: AgentTool): string {
   return [
     `Maintenance for tool "${tool.name}" (category: ${tool.category}).`,
@@ -317,7 +318,7 @@ export default function ToolsPage() {
   const scanTools = useScanTools();
   const [scanSummary, setScanSummary] = useState<string | null>(null);
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
-  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+  const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
   const setPendingAgentId = useAssistantStore((s) => s.setPendingAgentId);
 
   function handleScan() {
@@ -330,7 +331,7 @@ export default function ToolsPage() {
   }
 
   function openMaintenanceChat(tool: AgentTool) {
-    setPendingSeed(buildMaintenanceMessage(tool));
+    setPendingHiddenContext(buildMaintenanceMessage(tool));
     setPendingAgentId(tool.agent_id);
     setAssistantOpen(true);
   }

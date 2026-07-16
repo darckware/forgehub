@@ -280,7 +280,7 @@ export function useStreamChatMessage(agentId: string | undefined) {
     message: string,
     onEvent: (event: ChatStreamEvent) => void,
     signal?: AbortSignal,
-    options?: { regenerate?: boolean; targetAgentId?: string; skipUserMessage?: boolean }
+    options?: { regenerate?: boolean; targetAgentId?: string; skipUserMessage?: boolean; hidden?: boolean }
   ): Promise<void> {
     const token = getToken() ?? "";
     // Same-origin by default (nginx proxies /api/ to the backend) -- a
@@ -290,6 +290,9 @@ export function useStreamChatMessage(agentId: string | undefined) {
     let extraParams = options?.regenerate ? "&regenerate=true" : "";
     if (options?.targetAgentId) extraParams += `&target_agent_id=${options.targetAgentId}`;
     if (options?.skipUserMessage) extraParams += "&skip_user_message=true";
+    // Internal priming turn (see ChatPane's primingMessage): persisted
+    // wrapped in hidden markers on both sides, dropped from the transcript.
+    if (options?.hidden) extraParams += "&hidden=true";
     const url = `${apiBase}${RESOURCE}/sessions/${sessionId}/messages/stream?message=${encodeURIComponent(message)}${extraParams}`;
     const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
     if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { type AppConfig, useAppConfig, useUpdateAppConfig } from "@/hooks/useAppConfig";
 import { useForgeRouterVirtualModels } from "@/hooks/useOrchestration";
@@ -18,6 +19,21 @@ const COMMON_TIMEZONES = [
   "Europe/Lisbon",
   "Europe/London",
   "UTC",
+];
+
+// Languages the AI chat (Workspace tabs + Assistant drawer) can answer in
+// -- mirrors the keys of backend core/config.py's
+// CHAT_RESPONSE_LANGUAGE_NOTES (the PUT validator rejects anything else).
+// To add a language: add its hidden instruction there, then its label
+// here. The backend appends that instruction to each outgoing agent call;
+// nothing visible changes in the transcript.
+const CHAT_RESPONSE_LANGUAGES = [
+  { value: "pt-BR", label: "Português (Brasil)" },
+  { value: "en", label: "English" },
+  { value: "es", label: "Español" },
+  { value: "fr", label: "Français" },
+  { value: "de", label: "Deutsch" },
+  { value: "it", label: "Italiano" },
 ];
 
 function linesToList(value: string): string[] {
@@ -196,6 +212,32 @@ export default function SettingsPage() {
                 onChange={(e) => setForm({ ...form, cleanup_prune_names: linesToList(e.target.value) })}
               />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">AI chat</CardTitle>
+          <CardDescription>
+            Response language for the AI chat (Workspace tabs and the Assistant panel). Sent to the agent as a
+            hidden instruction on every message -- it never appears in the conversation.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="max-w-sm space-y-2">
+            <Label htmlFor="chat_response_language">Response language</Label>
+            <Select
+              id="chat_response_language"
+              value={form.chat_response_language}
+              onChange={(e) => setForm({ ...form, chat_response_language: e.target.value })}
+            >
+              {CHAT_RESPONSE_LANGUAGES.map((lang) => (
+                <option key={lang.value} value={lang.value}>
+                  {lang.label}
+                </option>
+              ))}
+            </Select>
           </div>
         </CardContent>
       </Card>

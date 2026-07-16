@@ -32,8 +32,9 @@ export interface AssistantForm {
 export interface AssistantContext {
   /** Label for the "Use current X" button, e.g. "Use current document". */
   label: string;
-  /** Builds the context text seeded into the composer -- null means
-   * nothing to seed right now (e.g. no document selected yet). */
+  /** Builds the context text attached (invisibly -- see
+   * pendingHiddenContext) to the conversation -- null means nothing to
+   * attach right now (e.g. no document selected yet). */
   build: () => string | null;
   /** cwd for the composer's "!command" prefix, e.g. the current Docs
    * area's host_path. */
@@ -55,10 +56,18 @@ interface AssistantState {
    * consumed, so it never leaks into a later, unrelated open. */
   pendingSeed: string | null;
   setPendingSeed: (seed: string | null) => void;
-  /** Optional one-shot companion to pendingSeed: which agent the panel
-   * should target for this seed (e.g. a tool's responsible agent for a
-   * maintenance chat), instead of whatever agent happens to already be
-   * selected. Consumed and cleared alongside pendingSeed. */
+  /** One-shot screen context a page can attach to the Assistant panel's
+   * next session -- unlike pendingSeed it is never shown in the composer:
+   * AssistantDrawer folds it into ChatPane's primingMessage, which goes
+   * out by itself as the session's hidden opening turn (dropped from the
+   * transcript, see ChatPane's hidden-context markers). Each screen builds
+   * its own context text; this is just the delivery channel. */
+  pendingHiddenContext: string | null;
+  setPendingHiddenContext: (context: string | null) => void;
+  /** Optional one-shot companion to pendingSeed/pendingHiddenContext:
+   * which agent the panel should target for this seed (e.g. a tool's
+   * responsible agent for a maintenance chat), instead of whatever agent
+   * happens to already be selected. Consumed and cleared alongside them. */
   pendingAgentId: string | null;
   setPendingAgentId: (agentId: string | null) => void;
 }
@@ -70,6 +79,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   setContext: (context) => set({ context }),
   pendingSeed: null,
   setPendingSeed: (pendingSeed) => set({ pendingSeed }),
+  pendingHiddenContext: null,
+  setPendingHiddenContext: (pendingHiddenContext) => set({ pendingHiddenContext }),
   pendingAgentId: null,
   setPendingAgentId: (pendingAgentId) => set({ pendingAgentId }),
 }));

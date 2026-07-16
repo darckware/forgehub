@@ -31,7 +31,7 @@ from app.api.schemas.chat import (
     ChatSessionOut,
     ChatSessionUpdate,
 )
-from app.core.config import settings
+from app.core.config import CHAT_RESPONSE_LANGUAGE_NOTES, settings
 from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.chat import ChatArtifact, ChatMessage, ChatSession, ChatSessionParticipant
@@ -62,6 +62,40 @@ async def _get_chattable_agent_or_404(db: AsyncSession, agent_id: uuid.UUID) -> 
 
 def _bridge_headers() -> dict[str, str]:
     return {"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
+
+
+# Hidden response-language instruction (Settings -> AI chat,
+# settings.CHAT_RESPONSE_LANGUAGE, catalog in core/config.py's
+# CHAT_RESPONSE_LANGUAGE_NOTES) appended to every outgoing agent call --
+# same pattern as the voice brevity note below: the agent sees it, the
+# stored/displayed user message never includes it. Unknown values fall back
+# to no instruction (the PUT /system-control/config validator should make
+# that impossible, but a hand-edited forgehub.config can say anything).
+def _with_language_note(message: str) -> str:
+    note = CHAT_RESPONSE_LANGUAGE_NOTES.get(settings.CHAT_RESPONSE_LANGUAGE)
+    return f"{message}\n\n{note}" if note else message
+
+
+# Mirrors frontend ChatPane.tsx's HIDDEN_CONTEXT markers. A hidden turn --
+# the priming context the Assistant panel sends by itself when it opens
+# (stream_chat_message's `hidden` param) -- is persisted with BOTH sides
+# fully wrapped in these, so the transcript renderer drops the whole
+# exchange instead of showing internal instructions to the user.
+_HIDDEN_TURN_OPEN = "[[forgehub:contexto-interno]]"
+_HIDDEN_TURN_CLOSE = "[[/forgehub:contexto-interno]]"
+
+
+def _wrap_hidden(content: str) -> str:
+    return f"{_HIDDEN_TURN_OPEN}\n{content}\n{_HIDDEN_TURN_CLOSE}"
+
+
+@router.get("/language")
+async def get_chat_language() -> dict[str, str]:
+    """Current response language (Settings -> AI chat) -- read by the
+    frontend to render the chat's own chrome (assistant greeting, composer
+    placeholder, empty state) in the same language the agent is instructed
+    to answer in (see _with_language_note above)."""
+    return {"language": settings.CHAT_RESPONSE_LANGUAGE}
 
 
 async def _call_bridge_text(profile: str, message: str, hermes_session_id: str | None) -> dict:
@@ -355,17 +389,19 @@ async def send_chat_message(
             combined_message = "\n\n".join([*text_blocks, message]).strip()
             bridge_result = await _call_bridge_images(
                 agent.profile_slug,
-                combined_message or "See the attached images.",
+                _with_language_note(combined_message or "See the attached images."),
                 session.hermes_session_id,
                 images,
             )
         else:
             outgoing_message = "\n\n".join([*text_blocks, message]).strip()
             bridge_result = await _call_bridge_text(
-                agent.profile_slug, outgoing_message, session.hermes_session_id
+                agent.profile_slug, _with_language_note(outgoing_message), session.hermes_session_id
             )
     else:
-        bridge_result = await _call_bridge_text(agent.profile_slug, message, session.hermes_session_id)
+        bridge_result = await _call_bridge_text(
+            agent.profile_slug, _with_language_note(message), session.hermes_session_id
+        )
 
     user_message = ChatMessage(
         session_id=session.id, role="user", content=message, attachment_names=attachment_name
@@ -454,10 +490,17 @@ async def stream_chat_message(
     regenerate: bool = False,
     target_agent_id: uuid.UUID | None = None,
     skip_user_message: bool = False,
+    hidden: bool = False,
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """SSE proxy: saves user message, streams agent deltas, saves assistant message on done.
     voice=true injects a brevity instruction before sending to the agent (not stored in DB).
+    hidden=true marks this turn as internal priming (the Assistant panel
+    sends its screen context this way when it opens, as its own turn in the
+    same session instead of piggybacking on the user's first message): both
+    the user message and the agent's reply are persisted wrapped in
+    _HIDDEN_TURN markers so the transcript renderer drops them, and the
+    session title is never taken from it.
     regenerate=true skips persisting a new user message -- the frontend's
     "Regenerate" action already deleted the old assistant reply and resends
     the existing last user message's text to get a fresh one appended,
@@ -491,10 +534,13 @@ async def stream_chat_message(
 
     user_msg: ChatMessage | None = None
     if not regenerate and not skip_user_message:
-        # Persist user message immediately (original text, no brevity wrapper)
-        user_msg = ChatMessage(session_id=session.id, role="user", content=message)
+        # Persist user message immediately (original text, no brevity wrapper;
+        # hidden priming turns get wrapped so the transcript drops them)
+        user_msg = ChatMessage(
+            session_id=session.id, role="user", content=_wrap_hidden(message) if hidden else message
+        )
         db.add(user_msg)
-        if session.title == "New chat" and message.strip():
+        if not hidden and session.title == "New chat" and message.strip():
             session.title = message.strip()[:TITLE_PREVIEW_LENGTH]
         await db.commit()
         await db.refresh(user_msg)
@@ -507,6 +553,9 @@ async def stream_chat_message(
             "(Modo voz — responda em no máximo 2 frases curtas e naturais, "
             "como numa conversa oral. Sem listas, sem markdown.)"
         )
+    # Response-language note rides along the same hidden way (agent call
+    # only, never persisted with the user's message).
+    bridge_message = _with_language_note(bridge_message)
 
     # Voice mode takes the fast ForgeRouter direct path (raw history, no tools,
     # ~2s first token) -- text mode takes the subprocess path (real hermes chat
@@ -594,7 +643,7 @@ async def stream_chat_message(
                             asst_msg = ChatMessage(
                                 session_id=session.id,
                                 role="assistant",
-                                content=full_reply,
+                                content=_wrap_hidden(full_reply) if hidden else full_reply,
                                 responding_agent_id=target_agent_id,
                                 thinking_seconds=round(time.monotonic() - stream_started_at),
                             )
@@ -641,7 +690,7 @@ async def stream_chat_message(
                         asst_msg = ChatMessage(
                             session_id=session.id,
                             role="assistant",
-                            content=content,
+                            content=_wrap_hidden(content) if hidden else content,
                             responding_agent_id=target_agent_id,
                             thinking_seconds=round(time.monotonic() - stream_started_at),
                         )
@@ -666,7 +715,7 @@ async def stream_chat_message(
                     asst_msg = ChatMessage(
                         session_id=session.id,
                         role="assistant",
-                        content=cancelled_content,
+                        content=_wrap_hidden(cancelled_content) if hidden else cancelled_content,
                         responding_agent_id=target_agent_id,
                         thinking_seconds=round(time.monotonic() - stream_started_at),
                     )

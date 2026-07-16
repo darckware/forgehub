@@ -335,7 +335,7 @@ export default function WorkspacePage() {
     (tab): tab is WorkspaceTab & { kind: "web" } => tab.id === activeTabId && tab.kind === "web"
   );
   const setAssistantOpen = useAssistantStore((state) => state.setOpen);
-  const setPendingSeed = useAssistantStore((state) => state.setPendingSeed);
+  const setPendingHiddenContext = useAssistantStore((state) => state.setPendingHiddenContext);
 
   const webAssistantContext = useMemo(() => {
     if (!activeWebTab) return null;
@@ -357,9 +357,12 @@ export default function WorkspacePage() {
   }, [activeWebTab, workingDir]);
   useAssistantContext(webAssistantContext);
 
+  // The environment instruction is internal grounding, not user prose --
+  // it rides out invisibly with the user's first message (see
+  // assistantStore's pendingHiddenContext) instead of filling the composer.
   function openAssistantForWebEnvironment() {
     if (!webAssistantContext) return;
-    setPendingSeed(webAssistantContext.build());
+    setPendingHiddenContext(webAssistantContext.build());
     setAssistantOpen(true);
   }
 

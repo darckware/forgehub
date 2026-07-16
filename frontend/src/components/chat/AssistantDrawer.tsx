@@ -4,17 +4,19 @@ import { Bot, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { useAgents } from "@/hooks/useAgent";
+import { useChatLanguage } from "@/hooks/useChatLanguage";
 import { useAssistantStore, type AssistantForm } from "@/store/assistantStore";
 
-// Shown instantly while the chat is empty -- no agent turn spent on it,
-// unlike an auto-sent greeting (tried first, reverted: it always came back
-// as a long policy recap instead of a short hello, see git history).
-const ASSISTANT_GREETING = "👋 I'm the ForgeHub assistant — ask me anything about how the system works.";
+// The greeting shown while the chat is empty comes from useChatLanguage's
+// texts (rendered in the configured response language) -- client-side, no
+// agent turn spent on it, unlike an auto-sent greeting (tried first,
+// reverted: it always came back as a long policy recap instead of a short
+// hello, see git history).
 
-// Silently prepended to the session's first real message (see ChatPane's
-// firstMessagePrefix) so the agent reads the manual before its first reply,
-// without a separate canned turn the user has to scroll past. Portuguese,
-// matching the manual's own language.
+// Opens every assistant session as part of the hidden priming turn (see
+// ChatPane's primingMessage) so the agent reads the manual before the
+// user's first message even arrives, without a canned turn the user has to
+// scroll past. Portuguese, matching the manual's own language.
 const MANUAL_GROUNDING_NOTE =
   'Contexto: você é o assistente embutido do ForgeHub nesta tela. Antes de responder, leia ' +
   '/root/project/forgehub/docs/MANUAL.md (seção "Política do Assistente") para saber o que você pode ' +
@@ -63,33 +65,52 @@ export function AssistantDrawer() {
   const context = useAssistantStore((s) => s.context);
   const pendingSeed = useAssistantStore((s) => s.pendingSeed);
   const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+  const pendingHiddenContext = useAssistantStore((s) => s.pendingHiddenContext);
+  const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
   const pendingAgentId = useAssistantStore((s) => s.pendingAgentId);
   const setPendingAgentId = useAssistantStore((s) => s.setPendingAgentId);
+  const { texts } = useChatLanguage();
   const tabId = `assistant:${useLocation().pathname}`;
 
   // Bumping the epoch remounts ChatPane so initialComposerText re-applies
   // (staged text otherwise wins -- see ChatPane's per-tab staging maps).
   const [epoch, setEpoch] = useState(0);
   const [seed, setSeed] = useState<string | undefined>(undefined);
+  // Screen context attached to the current session, delivered to the agent
+  // invisibly via ChatPane's primingMessage (its own hidden opening turn)
+  // -- never shown in the composer or the transcript (see assistantStore's
+  // pendingHiddenContext).
+  const [hiddenContext, setHiddenContext] = useState<string | null>(null);
   const [agentId, setAgentId] = useState<string | null>(null);
 
-  // A page pushed a one-shot message (e.g. "send this cron job's script to
-  // the assistant") via setPendingSeed + setOpen(true) -- apply it exactly
-  // like the "Use current X" button does, then clear it so it can't replay
+  // Navigating to another page must not carry the previous page's seed or
+  // hidden context into the new page's session -- a conversation grounded
+  // in one screen's context shouldn't silently reuse it on another.
+  useEffect(() => {
+    setSeed(undefined);
+    setHiddenContext(null);
+  }, [tabId]);
+
+  // A page pushed a one-shot payload via setOpen(true) plus setPendingSeed
+  // (visible composer text, e.g. a macro's instructions) and/or
+  // setPendingHiddenContext (screen context the agent should get without it
+  // cluttering the composer) -- apply it, then clear it so it can't replay
   // on a later, unrelated open. A companion pendingAgentId (e.g. a tool's
   // responsible agent) pins which agent the panel targets, if provided.
   useEffect(() => {
-    if (!open || pendingSeed == null) return;
+    if (!open || (pendingSeed == null && pendingHiddenContext == null)) return;
     clearChatTabStaging(tabId);
-    setSeed(pendingSeed);
+    setSeed(pendingSeed ?? undefined);
+    setHiddenContext(pendingHiddenContext);
     setEpoch((e) => e + 1);
     setPendingSeed(null);
+    setPendingHiddenContext(null);
     if (pendingAgentId != null) {
       setAgentId(pendingAgentId);
       setPendingAgentId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, pendingSeed]);
+  }, [open, pendingSeed, pendingHiddenContext]);
   const { data: allAgents } = useAgents();
   const chatableAgents = useMemo(
     () => (allAgents ?? []).filter((a) => Boolean(a.profile_slug)),
@@ -113,20 +134,35 @@ export function AssistantDrawer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // "Use current X": attaches the screen's context to a fresh session,
+  // invisibly (it goes out as the new session's hidden priming turn via
+  // primingMessage) -- it used to paste the built text into the composer,
+  // but that noise is internal instruction, not something the user should
+  // have to scroll past or accidentally edit.
   function handleUseContext() {
     const built = context?.build();
     if (!built) return;
     clearChatTabStaging(tabId);
-    setSeed(built);
+    setSeed(undefined);
+    setHiddenContext(built);
     setEpoch((e) => e + 1);
   }
 
-  // The form section is appended fresh each render (context.form can come
-  // and go as the user opens/closes a dialog) -- cheap string work, and
-  // this only actually gets sent once, on the session's first message.
-  const firstMessagePrefix = context?.form
-    ? MANUAL_GROUNDING_NOTE + buildFormInstruction(context.form)
-    : MANUAL_GROUNDING_NOTE;
+  // Sent by ChatPane as the session's own hidden opening turn the moment
+  // it mounts (see its primingMessage prop) -- separate from whatever the
+  // user types later, so their message goes out clean. The closing note
+  // keeps the agent's (equally hidden) reply to it short and action-free.
+  // Captured per mount: a context pushed later re-arrives via the pending
+  // effect above, which bumps the epoch and remounts ChatPane anyway.
+  const primingMessage = [
+    MANUAL_GROUNDING_NOTE,
+    hiddenContext,
+    context?.form ? buildFormInstruction(context.form).trim() : null,
+    "Esta é uma mensagem interna de contextualização enviada automaticamente pela interface — o usuário " +
+      "não a vê. Não execute nenhuma ação agora: apenas confirme com 'ok' e aguarde a mensagem do usuário.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   function handleAssistantMessage(content: string) {
     const form = context?.form;
@@ -158,7 +194,7 @@ export function AssistantDrawer() {
             <Button
               size="sm"
               variant="outline"
-              title="Fills the chat with the screen's context for the agent to work on"
+              title="Starts a fresh chat with the screen's context attached -- sent to the agent invisibly with your first message"
               onClick={handleUseContext}
             >
               📄 {context.label}
@@ -176,6 +212,14 @@ export function AssistantDrawer() {
           </Button>
         </div>
       </div>
+      {/* The attached context itself is invisible by design, so this thin
+          strip is the only confirmation the user gets that clicking "Use
+          current X" (or a page's send-to-assistant button) did something. */}
+      {hiddenContext && (
+        <p className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+          {texts.contextAttached}
+        </p>
+      )}
       {/* ChatPane's root is `absolute inset-0` (it assumes a positioned
           ancestor, true in the Workspace tab layout it was extracted
           from) -- `relative` here gives it that, otherwise the inset-0
@@ -195,8 +239,8 @@ export function AssistantDrawer() {
             artifactsOpen={false}
             workingDir={context?.workingDir}
             startNewSession
-            emptyStateText={ASSISTANT_GREETING}
-            firstMessagePrefix={firstMessagePrefix}
+            emptyStateText={texts.greeting}
+            primingMessage={primingMessage}
             onAssistantMessage={handleAssistantMessage}
           />
         ) : (

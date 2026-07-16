@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import _APP_CONFIG_FILE, settings
+from app.core.config import _APP_CONFIG_FILE, CHAT_RESPONSE_LANGUAGE_NOTES, settings
 from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.project import Project
@@ -722,6 +722,14 @@ CLEANUP_PRUNE_NAMES={cleanup_prune_names}
 # IANA zone for timestamps ForgeHub itself generates (e.g. backup archive
 # filenames) -- default matches the operator's actual timezone (UTC-3).
 TIMEZONE={timezone}
+
+# AI chat
+# Language the in-app AI chat (Workspace tabs + Assistant drawer) answers
+# in -- any key of core/config.py's CHAT_RESPONSE_LANGUAGE_NOTES (pt-BR,
+# en, es, ...). api/routes/chat.py appends the matching instruction to
+# each outgoing agent call (like the voice brevity note); the user's
+# stored message text is never touched.
+CHAT_RESPONSE_LANGUAGE={chat_response_language}
 """
 
 
@@ -735,6 +743,7 @@ def _settings_to_config_out(s) -> dict[str, Any]:
         "cleanup_prune_paths": list(s.CLEANUP_PRUNE_PATHS),
         "cleanup_prune_names": list(s.CLEANUP_PRUNE_NAMES),
         "timezone": s.TIMEZONE,
+        "chat_response_language": s.CHAT_RESPONSE_LANGUAGE,
     }
 
 
@@ -747,6 +756,7 @@ class AppConfigUpdate(BaseModel):
     cleanup_prune_paths: list[str] = Field(default_factory=list)
     cleanup_prune_names: list[str] = Field(default_factory=list)
     timezone: str = Field(min_length=1, max_length=64)
+    chat_response_language: str = Field(default="pt-BR", max_length=16)
 
 
 @router.get("/config")
@@ -773,6 +783,16 @@ async def update_app_config(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="trash_root must be an absolute path and not the filesystem root",
         )
+    # Whitelist keeps a typo from silently disabling the language
+    # instruction (chat.py falls back to no note on unknown values).
+    if payload.chat_response_language not in CHAT_RESPONSE_LANGUAGE_NOTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "chat_response_language must be one of "
+                f"{', '.join(CHAT_RESPONSE_LANGUAGE_NOTES)}"
+            ),
+        )
 
     # Mutates the live singleton in place -- every module imported `settings`
     # once at load time (`from app.core.config import settings`), so they
@@ -786,6 +806,7 @@ async def update_app_config(
     settings.CLEANUP_PRUNE_PATHS = payload.cleanup_prune_paths
     settings.CLEANUP_PRUNE_NAMES = payload.cleanup_prune_names
     settings.TIMEZONE = payload.timezone
+    settings.CHAT_RESPONSE_LANGUAGE = payload.chat_response_language
 
     _APP_CONFIG_FILE.write_text(
         _APP_CONFIG_TEMPLATE.format(
@@ -797,6 +818,7 @@ async def update_app_config(
             cleanup_prune_paths=json.dumps(settings.CLEANUP_PRUNE_PATHS),
             cleanup_prune_names=json.dumps(settings.CLEANUP_PRUNE_NAMES),
             timezone=settings.TIMEZONE,
+            chat_response_language=settings.CHAT_RESPONSE_LANGUAGE,
         )
     )
 

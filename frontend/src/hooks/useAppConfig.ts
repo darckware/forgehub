@@ -20,6 +20,11 @@ export interface AppConfig {
   cleanup_prune_paths: string[];
   cleanup_prune_names: string[];
   timezone: string;
+  /** Language the in-app AI chat (Workspace tabs + Assistant drawer)
+   * answers in -- "pt-BR" or "en". The backend appends the matching hidden
+   * instruction to each outgoing agent call; nothing visible changes in
+   * the transcript. */
+  chat_response_language: string;
 }
 
 export function useAppConfig() {
@@ -40,6 +45,9 @@ export function useUpdateAppConfig() {
       // BACKUP_ROOT-derived locations, Cleanup) depends on these values --
       // refetch instead of leaving stale caches around after a save.
       await queryClient.invalidateQueries({ queryKey: ["system-control"] });
+      // Chat surfaces localize their chrome from the configured response
+      // language (useChatLanguage) -- apply a change without a reload.
+      await queryClient.invalidateQueries({ queryKey: ["chat", "language"] });
     },
   });
 }
