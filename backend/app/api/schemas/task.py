@@ -98,6 +98,15 @@ class ProjectTaskOut(ProjectTaskBase):
     planning_item_id: uuid.UUID | None = None
     change_request_id: uuid.UUID | None = None
     policy_id: uuid.UUID | None = None
+    # Computed, read-only -- ProjectTask has no project_id column of its own
+    # (a task traces to a project only indirectly, via planning_item_id or
+    # change_request_id). The route layer resolves and attaches this before
+    # returning (see _attach_project_ids in routes/task.py); it is never
+    # accepted on create/update (absent from ProjectTaskBase) since the
+    # frontend used to send it and the backend silently discarded it --
+    # every task looked unlinked from its project on screen (found during
+    # the Planning end-to-end test, 2026-07-16).
+    project_id: uuid.UUID | None = None
     status: str
     actual_cost: float | None = None
     started_at: datetime | None = None

@@ -132,11 +132,10 @@ export default function TaskPage() {
       {
         ...values,
         description: values.description || undefined,
-        project_id: values.project_id || undefined,
         planning_item_id: values.planning_item_id || undefined,
         change_request_id: values.change_request_id || undefined,
         parent_task_id: values.parent_task_id || undefined,
-        due_date: values.due_date || undefined,
+        planned_end_date: values.planned_end_date || undefined,
       },
       {
         onSuccess: () => setShowForm(false),
@@ -224,7 +223,6 @@ export default function TaskPage() {
               defaultValues={{
                 change_request_id: prefilledCrId ?? "",
                 planning_item_id: prefilledPlanningItemId ?? "",
-                project_id: prefilledProjectId ?? "",
               }}
             />
             {createTask.isError && (
@@ -306,7 +304,7 @@ export default function TaskPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {task.due_date ?? "—"}
+                      {task.planned_end_date ?? "—"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {task.executions?.length ?? 0}

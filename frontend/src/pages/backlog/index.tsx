@@ -119,7 +119,7 @@ function TaskRow({
         description: values.description || undefined,
         change_request_id: values.change_request_id || undefined,
         parent_task_id: values.parent_task_id || undefined,
-        due_date: values.due_date || undefined,
+        planned_end_date: values.planned_end_date || undefined,
       },
       { onSuccess: () => setEditing(false) }
     );
@@ -135,10 +135,10 @@ function TaskRow({
             description: task.description ?? "",
             status: task.status,
             priority: task.priority,
-            project_id: task.project_id ?? projectId ?? "",
             planning_item_id: planningItemId,
-            due_date: task.due_date ?? "",
+            planned_end_date: task.planned_end_date ?? "",
           }}
+          projectId={task.project_id ?? projectId ?? undefined}
           onSubmit={handleUpdate}
           onCancel={() => setEditing(false)}
           isSubmitting={updateTask.isPending}
@@ -220,11 +220,10 @@ function PlanningItemTasksRow({
       {
         ...values,
         planning_item_id: planningItemId,
-        project_id: values.project_id || projectId || undefined,
         description: values.description || undefined,
         change_request_id: values.change_request_id || undefined,
         parent_task_id: values.parent_task_id || undefined,
-        due_date: values.due_date || undefined,
+        planned_end_date: values.planned_end_date || undefined,
       },
       { onSuccess: () => setShowTaskForm(false) }
     );
@@ -266,8 +265,8 @@ function PlanningItemTasksRow({
             submitLabel="Add task"
             defaultValues={{
               planning_item_id: planningItemId,
-              project_id: projectId ?? "",
             }}
+            projectId={projectId ?? undefined}
           />
           {createTask.isError && (
             <p className="mt-2 text-sm text-destructive">
@@ -366,7 +365,7 @@ type ExportItem = {
     description: string | null | undefined;
     status: string;
     priority: string;
-    due_date: string | null | undefined;
+    planned_end_date: string | null | undefined;
     estimated_cost: number | null | undefined;
   }>;
 };
@@ -427,13 +426,13 @@ export default function BacklogPage() {
       items.map(async (item) => {
         let tasks: ExportItem["tasks"] = [];
         try {
-          const t = await apiClient.get<Array<{ title: string; description?: string | null; status: string; priority: string; due_date?: string | null; estimated_cost?: number | null }>>(`/api/v1/tasks?planning_item_id=${item.id}`);
+          const t = await apiClient.get<Array<{ title: string; description?: string | null; status: string; priority: string; planned_end_date?: string | null; estimated_cost?: number | null }>>(`/api/v1/tasks?planning_item_id=${item.id}`);
           tasks = t.map((task) => ({
             title: task.title,
             description: task.description,
             status: task.status,
             priority: task.priority,
-            due_date: task.due_date,
+            planned_end_date: task.planned_end_date,
             estimated_cost: task.estimated_cost,
           }));
         } catch {
@@ -492,10 +491,9 @@ export default function BacklogPage() {
             description: task.description || undefined,
             status: task.status || "planned",
             priority: task.priority || "medium",
-            due_date: task.due_date || undefined,
+            planned_end_date: task.planned_end_date || undefined,
             estimated_cost: task.estimated_cost ?? undefined,
             planning_item_id: created.id,
-            project_id: item.project_id || undefined,
           });
         }
       }

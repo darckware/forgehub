@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.task import (
@@ -115,6 +115,44 @@ async def _resolve_task_project_id(db: AsyncSession, task: ProjectTask) -> uuid.
     raise HTTPException(status_code=409, detail="Task cannot be resolved to a project")
 
 
+async def _attach_project_ids(db: AsyncSession, tasks: list[ProjectTask]) -> None:
+    """Populates the transient `project_id` attribute ProjectTaskOut reads
+    (see its docstring) on every task in `tasks`, batched into two IN
+    queries instead of N+N round-trips. Read-only/output use only -- unlike
+    `_resolve_task_project_id`, this never raises: a task that somehow
+    doesn't resolve just gets `project_id=None` rather than failing the
+    whole list response."""
+    planning_item_ids = {t.planning_item_id for t in tasks if t.planning_item_id}
+    change_request_ids = {t.change_request_id for t in tasks if t.change_request_id}
+    planning_project_map: dict[uuid.UUID, uuid.UUID] = {}
+    if planning_item_ids:
+        rows = (
+            await db.execute(
+                select(PlanningItem.id, PlanningItem.project_id).where(
+                    PlanningItem.id.in_(planning_item_ids)
+                )
+            )
+        ).all()
+        planning_project_map = {row.id: row.project_id for row in rows}
+    change_request_project_map: dict[uuid.UUID, uuid.UUID] = {}
+    if change_request_ids:
+        rows = (
+            await db.execute(
+                select(ChangeRequest.id, ChangeRequest.project_id).where(
+                    ChangeRequest.id.in_(change_request_ids)
+                )
+            )
+        ).all()
+        change_request_project_map = {row.id: row.project_id for row in rows}
+    for task in tasks:
+        project_id = None
+        if task.planning_item_id:
+            project_id = planning_project_map.get(task.planning_item_id)
+        if project_id is None and task.change_request_id:
+            project_id = change_request_project_map.get(task.change_request_id)
+        task.project_id = project_id
+
+
 async def _record_execution_lifecycle_checkpoint(
     db: AsyncSession,
     task: ProjectTask,
@@ -168,8 +206,23 @@ async def kanboard_cleanup(project_id: uuid.UUID, db: AsyncSession = Depends(get
 
     Returns a summary: {closed: N, skipped: N, errors: [...]}.
     """
+    # ProjectTask has no project_id column (see _attach_project_ids) -- this
+    # used to filter on `ProjectTask.project_id`, an attribute that doesn't
+    # exist on the model, so every call 500'd (AttributeError) before ever
+    # reaching Kanboard (found during the Planning end-to-end test,
+    # 2026-07-16). Reach the project indirectly through planning_item /
+    # change_request instead, same as list_tasks' project_id filter below.
     result = await db.execute(
-        select(ProjectTask).where(ProjectTask.project_id == project_id)
+        select(ProjectTask).where(
+            or_(
+                ProjectTask.planning_item_id.in_(
+                    select(PlanningItem.id).where(PlanningItem.project_id == project_id)
+                ),
+                ProjectTask.change_request_id.in_(
+                    select(ChangeRequest.id).where(ChangeRequest.project_id == project_id)
+                ),
+            )
+        )
     )
     tasks = list(result.scalars().all())
 
@@ -227,6 +280,7 @@ async def create_task(payload: ProjectTaskCreate, db: AsyncSession = Depends(get
     db.add(task)
     await db.commit()
     await db.refresh(task)
+    await _attach_project_ids(db, [task])
     return task
 
 
@@ -237,6 +291,7 @@ async def list_tasks(
     change_request_id: uuid.UUID | None = None,
     parent_task_id: uuid.UUID | None = None,
     policy_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> list[ProjectTask]:
     stmt = select(ProjectTask)
@@ -250,13 +305,31 @@ async def list_tasks(
         stmt = stmt.where(ProjectTask.parent_task_id == parent_task_id)
     if policy_id is not None:
         stmt = stmt.where(ProjectTask.policy_id == policy_id)
+    if project_id is not None:
+        # Indirect: a task has no project_id column of its own (see
+        # _attach_project_ids) -- reach the project through whichever of
+        # planning_item/change_request this task traces back to.
+        stmt = stmt.where(
+            or_(
+                ProjectTask.planning_item_id.in_(
+                    select(PlanningItem.id).where(PlanningItem.project_id == project_id)
+                ),
+                ProjectTask.change_request_id.in_(
+                    select(ChangeRequest.id).where(ChangeRequest.project_id == project_id)
+                ),
+            )
+        )
     result = await db.execute(stmt.order_by(ProjectTask.created_at))
-    return list(result.scalars().all())
+    tasks = list(result.scalars().all())
+    await _attach_project_ids(db, tasks)
+    return tasks
 
 
 @router.get("/{task_id}", response_model=ProjectTaskOut)
 async def get_task(task_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> ProjectTask:
-    return await _get_task_or_404(db, task_id)
+    task = await _get_task_or_404(db, task_id)
+    await _attach_project_ids(db, [task])
+    return task
 
 
 @router.patch("/{task_id}", response_model=ProjectTaskOut)
@@ -312,6 +385,7 @@ async def update_task(
 
     await db.commit()
     await db.refresh(task)
+    await _attach_project_ids(db, [task])
     return task
 
 
@@ -419,6 +493,7 @@ async def sync_task_kanboard(
 
     await db.commit()
     await db.refresh(task)
+    await _attach_project_ids(db, [task])
     return ProjectTaskKanboardSyncOut(
         **ProjectTaskOut.model_validate(task).model_dump(),
         kanboard_url=kanboard_client.task_url(task.kanboard_task_id),
@@ -457,6 +532,7 @@ async def pull_kanboard_status(
         await db.commit()
         await db.refresh(task)
 
+    await _attach_project_ids(db, [task])
     return task
 
 

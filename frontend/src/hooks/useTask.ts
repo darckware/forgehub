@@ -99,10 +99,19 @@ export const executionCreateSchema = z.object({
 
 export type ExecutionCreateInput = z.infer<typeof executionCreateSchema>;
 
+export const DEPENDENCY_TYPES = [
+  "finish_to_start",
+  "start_to_start",
+  "finish_to_finish",
+  "start_to_finish",
+] as const;
+export type DependencyType = (typeof DEPENDENCY_TYPES)[number];
+
 export const taskDependencySchema = z.object({
   id: z.string(),
   task_id: z.string(),
   depends_on_task_id: z.string(),
+  dependency_type: z.enum(DEPENDENCY_TYPES).default("finish_to_start"),
 });
 
 export type TaskDependency = z.infer<typeof taskDependencySchema>;
@@ -111,6 +120,8 @@ export const taskRequiredSkillSchema = z.object({
   id: z.string(),
   task_id: z.string(),
   skill_id: z.string(),
+  is_mandatory: z.boolean().default(true),
+  minimum_proficiency: z.string().nullable().optional(),
 });
 
 export type TaskRequiredSkill = z.infer<typeof taskRequiredSkillSchema>;
@@ -129,6 +140,12 @@ export const projectTaskSchema = z.object({
   id: z.string(),
   planning_item_id: z.string().nullable().optional(),
   change_request_id: z.string().nullable().optional(),
+  // Computed by the backend (task.py's _attach_project_ids) from whichever
+  // of planning_item_id/change_request_id this task traces back to -- a
+  // task has no project_id column of its own. Read-only: never send this
+  // back on create/update, the backend silently ignores it there (it used
+  // to be sent from here too, which is why every task looked unlinked from
+  // its project on screen -- fixed 2026-07-16).
   project_id: z.string().nullable().optional(),
   parent_task_id: z.string().nullable().optional(),
   policy_id: z.string().nullable().optional(),
@@ -137,7 +154,10 @@ export const projectTaskSchema = z.object({
   status: z.enum(TASK_STATUSES).default("planned"),
   priority: z.enum(TASK_PRIORITIES).default("medium"),
   estimated_cost: z.number().nullable().optional(),
-  due_date: z.string().nullable().optional(),
+  // "Due date" in the UI -- maps to the backend's planned_end_date (there
+  // is no separate due_date column; sending "due_date" was silently
+  // dropped, same phantom-field bug as project_id, fixed alongside it).
+  planned_end_date: z.string().nullable().optional(),
   kanboard_task_id: z.number().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
@@ -152,11 +172,13 @@ export const projectTaskKanboardSyncSchema = projectTaskSchema.extend({
 
 export type ProjectTaskKanboardSync = z.infer<typeof projectTaskKanboardSyncSchema>;
 
-// Base object (no refine) so .partial() can be derived from it.
+// Base object (no refine) so .partial() can be derived from it. No
+// project_id here on purpose -- it's derived server-side (see
+// projectTaskSchema above), never a real column, so it must never be part
+// of what the create/edit form submits.
 const _taskBaseSchema = z.object({
   title: z.string().min(1, "Title is required").max(200, "Title is too long"),
   description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
-  project_id: z.string().optional().or(z.literal("")),
   planning_item_id: z.string().optional().or(z.literal("")),
   change_request_id: z.string().optional().or(z.literal("")),
   parent_task_id: z.string().optional().or(z.literal("")),
@@ -167,7 +189,7 @@ const _taskBaseSchema = z.object({
     .union([z.coerce.number(), z.literal("")])
     .optional()
     .transform((v) => (v === "" || v === undefined ? undefined : Number(v))),
-  due_date: z.string().optional().or(z.literal("")),
+  planned_end_date: z.string().optional().or(z.literal("")),
 });
 
 // Payload schemas (what the create/edit form submits).
@@ -319,5 +341,76 @@ export function useTaskExecutions(taskId: string | undefined) {
     queryKey: ["task-executions", taskId ?? ""],
     queryFn: () => apiClient.get<TaskExecution[]>(`/api/v1/tasks/${taskId}/executions`),
     enabled: Boolean(taskId),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TaskDependency -- blocks a task's completion until each depends_on_task_id
+// is "done" (see task.py's _ensure_dependencies_satisfied). Not surfaced
+// anywhere in the UI before 2026-07-16 despite backing a real business rule.
+// ---------------------------------------------------------------------------
+
+export function useTaskDependencies(taskId: string | undefined) {
+  return useQuery({
+    queryKey: ["task-dependencies", taskId ?? ""],
+    queryFn: () => apiClient.get<TaskDependency[]>(`/api/v1/tasks/${taskId}/dependencies`),
+    enabled: Boolean(taskId),
+  });
+}
+
+export function useCreateTaskDependency(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { depends_on_task_id: string; dependency_type?: DependencyType }) =>
+      apiClient.post<TaskDependency>(`/api/v1/tasks/${taskId}/dependencies`, {
+        task_id: taskId,
+        ...payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["task-dependencies", taskId] });
+    },
+  });
+}
+
+export function useDeleteTaskDependency(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dependencyId: string) =>
+      apiClient.delete<void>(`/api/v1/tasks/${taskId}/dependencies/${dependencyId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["task-dependencies", taskId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TaskRequiredSkill -- gates who counts as "eligible" in the Governed CLI
+// execution card (see useOrchestration's useEligibleMemberships /
+// _member_skill_ids on the backend). Create + list only; the backend has
+// no delete endpoint for this sub-resource.
+// ---------------------------------------------------------------------------
+
+export function useTaskRequiredSkills(taskId: string | undefined) {
+  return useQuery({
+    queryKey: ["task-required-skills", taskId ?? ""],
+    queryFn: () => apiClient.get<TaskRequiredSkill[]>(`/api/v1/tasks/${taskId}/required-skills`),
+    enabled: Boolean(taskId),
+  });
+}
+
+export function useCreateTaskRequiredSkill(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { skill_id: string; is_mandatory?: boolean; minimum_proficiency?: string }) =>
+      apiClient.post<TaskRequiredSkill>(`/api/v1/tasks/${taskId}/required-skills`, {
+        task_id: taskId,
+        ...payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["task-required-skills", taskId] });
+      // Eligibility (Governed CLI execution card) is computed from required
+      // skills -- keep it in sync with a fresh required-skills row.
+      queryClient.invalidateQueries({ queryKey: ["eligible-memberships", taskId] });
+    },
   });
 }

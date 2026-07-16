@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -23,7 +24,10 @@ interface TaskFormProps {
   onCancel?: () => void;
   isSubmitting?: boolean;
   submitLabel?: string;
-  // When set, project context is available so we can load its CRs.
+  // Pre-selects the "Project" filter below (e.g. arriving from a planning
+  // item's or CR's "New task" button) -- purely local UI state, never part
+  // of the submitted payload (a task has no project_id column of its own,
+  // see projectTaskSchema's docstring in useTask.ts).
   projectId?: string;
 }
 
@@ -44,21 +48,26 @@ export function TaskForm({
     defaultValues: {
       title: "",
       description: "",
-      project_id: "",
       planning_item_id: "",
       change_request_id: "",
       parent_task_id: "",
       policy_id: "",
       status: "planned",
       priority: "medium",
-      due_date: "",
+      planned_end_date: "",
       ...defaultValues,
     },
   });
 
+  // "Project" is a filter, not a field: it narrows the Planning item /
+  // Change request choices below to the selected project, but a task
+  // traces to its project only indirectly (through whichever of those two
+  // it's linked to) -- there's nothing to submit here.
+  const [projectFilter, setProjectFilter] = useState(projectId ?? "");
+
   const { data: projects, isLoading: isLoadingProjects } = useProjects();
-  const { data: planningItems, isLoading: isLoadingPlanningItems } = usePlanningItems();
-  const { data: changeRequests, isLoading: isLoadingCRs } = useChangeRequests(projectId ?? defaultValues?.project_id);
+  const { data: planningItems, isLoading: isLoadingPlanningItems } = usePlanningItems(projectFilter || undefined);
+  const { data: changeRequests, isLoading: isLoadingCRs } = useChangeRequests(projectFilter || undefined);
   const { data: allTasks, isLoading: isLoadingTasks } = useTasks();
   const { data: policies } = usePolicies();
 
@@ -84,10 +93,15 @@ export function TaskForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="project_id">Project</Label>
-          <Select id="project_id" disabled={isLoadingProjects} {...register("project_id")}>
+          <Label htmlFor="project_filter">Project</Label>
+          <Select
+            id="project_filter"
+            disabled={isLoadingProjects}
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+          >
             <option value="">
-              {isLoadingProjects ? "Loading projects…" : "Select a project"}
+              {isLoadingProjects ? "Loading projects…" : "All projects"}
             </option>
             {projects?.map((p) => (
               <option key={p.id} value={p.id}>
@@ -95,9 +109,10 @@ export function TaskForm({
               </option>
             ))}
           </Select>
-          {errors.project_id && (
-            <p className="text-sm text-destructive">{errors.project_id.message}</p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            Filters the Planning item / Change request choices below -- a task isn't stored against a
+            project directly, only through one of those two.
+          </p>
         </div>
 
         <div className="space-y-2">
@@ -162,9 +177,11 @@ export function TaskForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="due_date">Due date</Label>
-          <Input id="due_date" type="date" {...register("due_date")} />
-          {errors.due_date && <p className="text-sm text-destructive">{errors.due_date.message}</p>}
+          <Label htmlFor="planned_end_date">Due date</Label>
+          <Input id="planned_end_date" type="date" {...register("planned_end_date")} />
+          {errors.planned_end_date && (
+            <p className="text-sm text-destructive">{errors.planned_end_date.message}</p>
+          )}
         </div>
       </div>
 
