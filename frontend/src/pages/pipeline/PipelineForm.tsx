@@ -19,6 +19,11 @@ interface PipelineFormProps {
   onCancel?: () => void;
   isSubmitting?: boolean;
   submitLabel?: string;
+  /** Templates only apply on creation (the backend instantiates the
+   * template's stages then; PATCH ignores template_id entirely) -- the
+   * edit flow passes false so the select doesn't render as a control
+   * that silently does nothing. */
+  showTemplate?: boolean;
 }
 
 export function PipelineForm({
@@ -27,6 +32,7 @@ export function PipelineForm({
   onCancel,
   isSubmitting,
   submitLabel = "Create pipeline",
+  showTemplate = true,
 }: PipelineFormProps) {
   const { data: projects, isLoading: isLoadingProjects } = useProjects();
   const { data: templates, isLoading: isLoadingTemplates } = usePipelineTemplates();
@@ -40,7 +46,7 @@ export function PipelineForm({
     defaultValues: {
       name: "",
       project_id: "",
-      pipeline_template_id: "",
+      template_id: "",
       status: "draft",
       is_active: true,
       ...defaultValues,
@@ -73,22 +79,27 @@ export function PipelineForm({
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="pipeline_template_id">Template (optional)</Label>
-          <Select id="pipeline_template_id" disabled={isLoadingTemplates} {...register("pipeline_template_id")}>
-            <option value="">
-              {isLoadingTemplates ? "Loading templates…" : "No template"}
-            </option>
-            {templates?.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
+        {showTemplate && (
+          <div className="space-y-2">
+            <Label htmlFor="template_id">Template (optional)</Label>
+            <Select id="template_id" disabled={isLoadingTemplates} {...register("template_id")}>
+              <option value="">
+                {isLoadingTemplates ? "Loading templates…" : "No template"}
               </option>
-            ))}
-          </Select>
-          {errors.pipeline_template_id && (
-            <p className="text-sm text-destructive">{errors.pipeline_template_id.message}</p>
-          )}
-        </div>
+              {templates?.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Creates the pipeline with the template's stages already in place.
+            </p>
+            {errors.template_id && (
+              <p className="text-sm text-destructive">{errors.template_id.message}</p>
+            )}
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="status">Status</Label>

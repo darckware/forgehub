@@ -48,7 +48,7 @@ export default function PipelinePage() {
 
   function handleCreate(values: PipelineCreateInput) {
     createPipeline.mutate(
-      { ...values, pipeline_template_id: values.pipeline_template_id || undefined },
+      { ...values, template_id: values.template_id || undefined },
       { onSuccess: () => setShowForm(false) }
     );
   }
@@ -59,10 +59,10 @@ export default function PipelinePage() {
     if (!pipeline) return null;
 
     function handleUpdate(values: PipelineUpdateInput) {
-      updatePipeline.mutate(
-        { ...values, pipeline_template_id: values.pipeline_template_id || undefined },
-        { onSuccess: () => setEditingId(null) }
-      );
+      // template_id never applies on update (see PipelineForm's
+      // showTemplate) -- strip it so the PATCH carries only real changes.
+      const { template_id: _ignored, ...rest } = values;
+      updatePipeline.mutate(rest, { onSuccess: () => setEditingId(null) });
     }
 
     return (
@@ -78,6 +78,7 @@ export default function PipelinePage() {
           onCancel={() => setEditingId(null)}
           isSubmitting={updatePipeline.isPending}
           submitLabel="Save changes"
+          showTemplate={false}
         />
         {updatePipeline.isError && (
           <p className="mt-2 text-sm text-destructive">

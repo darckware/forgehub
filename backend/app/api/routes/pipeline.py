@@ -333,10 +333,63 @@ async def list_template_required_artifacts(
 
 @router.post("", response_model=ProjectPipelineOut, status_code=status.HTTP_201_CREATED)
 async def create_pipeline(payload: ProjectPipelineCreate, db: AsyncSession = Depends(get_db)) -> ProjectPipeline:
+    # A template is a recipe: creating a pipeline from one instantiates its
+    # stages (and their required artifacts) as real PipelineStage rows.
+    # Historically template_id was stored but never expanded, so "create
+    # from template" silently produced an empty pipeline (found during the
+    # 2026-07-15 Planning end-to-end test). Explicit `stages` and a
+    # template are mutually exclusive -- mixing the two would race on
+    # order_index with no sane winner.
+    template = None
+    if payload.template_id is not None:
+        template = await db.get(PipelineTemplate, payload.template_id)
+        if template is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+        if payload.stages:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Provide either template_id or explicit stages, not both",
+            )
+
     data = payload.model_dump(exclude={"stages"})
     pipeline = ProjectPipeline(**data)
     db.add(pipeline)
     await db.flush()  # id available pre-commit (uuid default is python-side)
+
+    if template is not None:
+        template_stages = (
+            await db.execute(
+                select(PipelineTemplateStage)
+                .where(PipelineTemplateStage.template_id == template.id)
+                .order_by(PipelineTemplateStage.order_index)
+            )
+        ).scalars().all()
+        for template_stage in template_stages:
+            stage = PipelineStage(
+                pipeline_id=pipeline.id,
+                name=template_stage.name,
+                stage_type=template_stage.stage_type,
+                order_index=template_stage.order_index,
+                requires_approval=template_stage.requires_approval,
+                requires_verification=template_stage.requires_verification,
+            )
+            db.add(stage)
+            await db.flush()
+            template_artifacts = (
+                await db.execute(
+                    select(PipelineTemplateRequiredArtifact).where(
+                        PipelineTemplateRequiredArtifact.template_stage_id == template_stage.id
+                    )
+                )
+            ).scalars().all()
+            for template_artifact in template_artifacts:
+                db.add(
+                    PipelineStageRequiredArtifact(
+                        stage_id=stage.id,
+                        artifact_type=template_artifact.artifact_type,
+                        is_mandatory=template_artifact.is_mandatory,
+                    )
+                )
 
     # Build stages, keeping a name->id map for dependency resolution by
     # index within the same payload (dependencies reference other stage

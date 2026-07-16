@@ -104,11 +104,15 @@ export const projectPipelineSchema = z.object({
 
 export type ProjectPipeline = z.infer<typeof projectPipelineSchema>;
 
-// Payload schemas (what the create/edit form submits).
+// Payload schemas (what the create/edit form submits). `template_id` must
+// match the backend's ProjectPipelineCreate field name exactly -- it was
+// `pipeline_template_id` for a while, which pydantic silently dropped, so
+// picking a template did nothing (fixed 2026-07-15: the backend now also
+// instantiates the template's stages on create).
 export const pipelineCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
   project_id: z.string().min(1, "Project is required"),
-  pipeline_template_id: z.string().optional().or(z.literal("")),
+  template_id: z.string().optional().or(z.literal("")),
   status: z.enum(PIPELINE_STATUSES).default("draft"),
   is_active: z.boolean().optional().default(true),
 });
