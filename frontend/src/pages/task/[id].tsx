@@ -42,6 +42,7 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EntityDocsCard } from "@/components/EntityDocsCard";
 import { usePlanningItems } from "@/hooks/useBacklog";
 import { TaskAutomationCard } from "@/components/TaskAutomationCard";
+import { TaskDependenciesCard } from "@/components/TaskDependenciesCard";
 
 const STATUS_VARIANT: Record<
   string,
@@ -175,7 +176,6 @@ export default function TaskDetailPage() {
     planningItems?.find((i) => i.id === iid)?.title ?? iid.slice(0, 8) + "…";
   const parentTaskTitle = (tid: string) =>
     allTasks?.find((t) => t.id === tid)?.title ?? tid.slice(0, 8) + "…";
-  const taskProjectId = task?.project_id ?? planningItems?.find((item) => item.id === task?.planning_item_id)?.project_id;
 
   return (
     <div className="space-y-6">
@@ -262,7 +262,7 @@ export default function TaskDetailPage() {
                 <dl className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <dt className="text-muted-foreground">Due date</dt>
-                    <dd>{task.due_date ?? "—"}</dd>
+                    <dd>{task.planned_end_date ?? "—"}</dd>
                   </div>
                   <div className="flex justify-between">
                     <dt className="text-muted-foreground">Estimated cost</dt>
@@ -279,7 +279,9 @@ export default function TaskDetailPage() {
             </Card>
           </div>
 
-          <TaskAutomationCard taskId={task.id} projectId={taskProjectId ?? undefined} />
+          <TaskDependenciesCard taskId={task.id} />
+
+          <TaskAutomationCard taskId={task.id} projectId={task.project_id ?? undefined} />
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
