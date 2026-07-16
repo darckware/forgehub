@@ -15,7 +15,9 @@ Artifact domain's `artifact_type_enum` -- which fails with
 `DependentObjectsStillExistError` since `company.artifacts` still uses
 that type, and worse, it was dropping real migration-managed tables out
 from under the running app between test sessions.) Each test now cleans
-up only the specific rows it creates via the real DELETE endpoints.
+up only the specific rows it creates -- via the real DELETE endpoints
+where the domain has them (policies), or directly in the DB for the
+append-only records (approvals, audit events -- see _delete_approval_rows).
 """
 import uuid
 
@@ -105,6 +107,24 @@ async def test_create_duplicate_policy_name_rejected(client: AsyncClient):
     await client.delete(f"/api/v1/governance/policies/{first.json()['id']}")
 
 
+async def _delete_approval_rows(approval_id: str) -> None:
+    """Governance is append-only over the API (approvals/audit events ARE
+    the audit trail, there are no DELETE endpoints), so tests remove the
+    rows they created directly in the DB -- same as the client fixture does
+    for its temp user. Without this the approvals accumulated across pytest
+    runs and filled the real Governance page with `governance-admin-*` junk
+    (26 rows cleaned by hand on 2026-07-15)."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(AuditEvent).where(
+                AuditEvent.entity_type == "approval",
+                AuditEvent.entity_id == uuid.UUID(approval_id),
+            )
+        )
+        await db.execute(delete(Approval).where(Approval.id == uuid.UUID(approval_id)))
+        await db.commit()
+
+
 async def test_create_get_list_approval(client: AsyncClient):
     target_id = uuid.uuid4()
     create_resp = await client.post(
@@ -124,25 +144,28 @@ async def test_create_get_list_approval(client: AsyncClient):
     assert created["entity_type"] == "pipeline_stage_gate"
     approval_id = created["id"]
 
-    get_resp = await client.get(f"/api/v1/governance/approvals/{approval_id}")
-    assert get_resp.status_code == 200
-    assert get_resp.json()["id"] == approval_id
+    try:
+        get_resp = await client.get(f"/api/v1/governance/approvals/{approval_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["id"] == approval_id
 
-    list_resp = await client.get(
-        "/api/v1/governance/approvals", params={"entity_id": str(target_id)}
-    )
-    assert list_resp.status_code == 200
-    listed = list_resp.json()
-    assert any(a["id"] == approval_id for a in listed)
+        list_resp = await client.get(
+            "/api/v1/governance/approvals", params={"entity_id": str(target_id)}
+        )
+        assert list_resp.status_code == 200
+        listed = list_resp.json()
+        assert any(a["id"] == approval_id for a in listed)
 
-    # Audit event should have been recorded for the request.
-    audit_resp = await client.get(
-        "/api/v1/governance/audit-events",
-        params={"entity_type": "approval", "entity_id": approval_id},
-    )
-    assert audit_resp.status_code == 200
-    audit_events = audit_resp.json()
-    assert any(e["event_type"] == "approval_requested" for e in audit_events)
+        # Audit event should have been recorded for the request.
+        audit_resp = await client.get(
+            "/api/v1/governance/audit-events",
+            params={"entity_type": "approval", "entity_id": approval_id},
+        )
+        assert audit_resp.status_code == 200
+        audit_events = audit_resp.json()
+        assert any(e["event_type"] == "approval_requested" for e in audit_events)
+    finally:
+        await _delete_approval_rows(approval_id)
 
 
 async def test_approval_cannot_be_decided_twice(client: AsyncClient):
@@ -159,24 +182,27 @@ async def test_approval_cannot_be_decided_twice(client: AsyncClient):
     assert create_resp.status_code == 201
     approval_id = create_resp.json()["id"]
 
-    first_decision = await client.post(
-        f"/api/v1/governance/approvals/{approval_id}/approve",
-        json={"decided_by": "lead", "comments": "Looks good"},
-    )
-    assert first_decision.status_code == 200, first_decision.text
-    assert first_decision.json()["status"] == "approved"
+    try:
+        first_decision = await client.post(
+            f"/api/v1/governance/approvals/{approval_id}/approve",
+            json={"decided_by": "lead", "comments": "Looks good"},
+        )
+        assert first_decision.status_code == 200, first_decision.text
+        assert first_decision.json()["status"] == "approved"
 
-    second_decision = await client.post(
-        f"/api/v1/governance/approvals/{approval_id}/approve",
-        json={"decided_by": "lead", "comments": "Trying again"},
-    )
-    assert second_decision.status_code == 409
+        second_decision = await client.post(
+            f"/api/v1/governance/approvals/{approval_id}/approve",
+            json={"decided_by": "lead", "comments": "Trying again"},
+        )
+        assert second_decision.status_code == 409
 
-    second_reject = await client.post(
-        f"/api/v1/governance/approvals/{approval_id}/reject",
-        json={"decided_by": "lead"},
-    )
-    assert second_reject.status_code == 409
+        second_reject = await client.post(
+            f"/api/v1/governance/approvals/{approval_id}/reject",
+            json={"decided_by": "lead"},
+        )
+        assert second_reject.status_code == 409
+    finally:
+        await _delete_approval_rows(approval_id)
 
 
 async def test_approval_unknown_policy_id_rejected(client: AsyncClient):
@@ -209,11 +235,18 @@ async def test_create_and_list_audit_event(client: AsyncClient):
     body = create_resp.json()
     assert body["event_type"] == "task_completed"
 
-    get_resp = await client.get(f"/api/v1/governance/audit-events/{body['id']}")
-    assert get_resp.status_code == 200
+    try:
+        get_resp = await client.get(f"/api/v1/governance/audit-events/{body['id']}")
+        assert get_resp.status_code == 200
 
-    list_resp = await client.get(
-        "/api/v1/governance/audit-events", params={"entity_id": str(entity_id)}
-    )
-    assert list_resp.status_code == 200
-    assert any(e["id"] == body["id"] for e in list_resp.json())
+        list_resp = await client.get(
+            "/api/v1/governance/audit-events", params={"entity_id": str(entity_id)}
+        )
+        assert list_resp.status_code == 200
+        assert any(e["id"] == body["id"] for e in list_resp.json())
+    finally:
+        # Same append-only rationale as _delete_approval_rows: without this,
+        # every pytest run left an actor="agent-7" event in the real table.
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditEvent).where(AuditEvent.id == uuid.UUID(body["id"])))
+            await db.commit()
