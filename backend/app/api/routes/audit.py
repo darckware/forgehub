@@ -25,9 +25,11 @@ from app.api.schemas.audit import (
     AuditCheckUpdate,
     AuditRunAllOut,
     AuditRunOut,
+    AuditRemediationOut,
     AuditStatusOut,
 )
 from app.core.config import settings
+from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.audit import AuditCheck, AuditCheckRun
 
@@ -38,12 +40,14 @@ _OUTPUT_LIMIT = 10_000
 _MAX_TIMEOUT = 55
 
 
-async def _execute_check(check: AuditCheck, requested_by: str) -> AuditCheckRun:
+async def _execute_command(
+    check: AuditCheck, command: str, requested_by: str
+) -> AuditCheckRun:
     """Run one check on the host via the bridge and build (not persist)
     its AuditCheckRun. `timeout(1)` wraps the command so a hung check
     yields exit 124 -> "timeout" instead of tripping the bridge's cap."""
     seconds = min(check.timeout_seconds or _MAX_TIMEOUT, _MAX_TIMEOUT)
-    wrapped = f"timeout {seconds} bash -c {shlex.quote(check.command)}"
+    wrapped = f"timeout {seconds} bash -c {shlex.quote(command)}"
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=_MAX_TIMEOUT + 15) as client:
@@ -74,6 +78,10 @@ async def _execute_check(check: AuditCheck, requested_by: str) -> AuditCheckRun:
         duration_ms=round((time.monotonic() - started) * 1000),
         requested_by=requested_by,
     )
+
+
+async def _execute_check(check: AuditCheck, requested_by: str) -> AuditCheckRun:
+    return await _execute_command(check, check.command, requested_by)
 
 
 async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[AuditCheckRun]:
@@ -184,6 +192,37 @@ async def run_check(check_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> 
     await db.commit()
     await db.refresh(run)
     return AuditRunOut.model_validate(run)
+
+
+@router.post("/checks/{check_id}/remediate", response_model=AuditRemediationOut)
+async def remediate_check(
+    check_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(get_current_admin),
+) -> AuditRemediationOut:
+    """Apply an explicitly configured repair, then always verify the check.
+
+    Repairs are deliberately separate from normal/manual/cron runs and require
+    an administrator. Both command results are persisted for accountability.
+    """
+    check = await _get_check_or_404(db, check_id)
+    if not check.remediation_command:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This audit check has no automatic remediation configured",
+        )
+    repair = await _execute_command(check, check.remediation_command, "remediation")
+    db.add(repair)
+    await db.flush()
+    verification = await _execute_check(check, "remediation-verification")
+    db.add(verification)
+    await db.commit()
+    await db.refresh(repair)
+    await db.refresh(verification)
+    return AuditRemediationOut(
+        remediation_run=AuditRunOut.model_validate(repair),
+        verification_run=AuditRunOut.model_validate(verification),
+    )
 
 
 @router.post("/run", response_model=AuditRunAllOut)

@@ -27,6 +27,8 @@ export const auditCheckSchema = z.object({
   description: z.string().nullable(),
   category: z.string().nullable(),
   command: z.string(),
+  remediation_description: z.string().nullable(),
+  remediation_command: z.string().nullable(),
   workdir: z.string().nullable(),
   agent_profile: z.string(),
   enabled: z.boolean(),
@@ -54,6 +56,8 @@ export interface AuditCheckInput {
   description?: string | null;
   category?: string | null;
   command: string;
+  remediation_description?: string | null;
+  remediation_command?: string | null;
   workdir?: string | null;
   agent_profile?: string;
   enabled?: boolean;
@@ -141,6 +145,15 @@ export function useRunAllAuditChecks() {
   const invalidate = useInvalidateAudit();
   return useMutation({
     mutationFn: () => apiClient.post<unknown>(`${RESOURCE}/run`),
+    onSuccess: invalidate,
+  });
+}
+
+/** Apply the check's administrator-approved repair and immediately recheck. */
+export function useRemediateAuditCheck() {
+  const invalidate = useInvalidateAudit();
+  return useMutation({
+    mutationFn: (checkId: string) => apiClient.post<unknown>(`${RESOURCE}/checks/${checkId}/remediate`),
     onSuccess: invalidate,
   });
 }

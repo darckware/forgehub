@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   AlertCircle,
   Bot,
@@ -12,6 +12,7 @@ import {
   Plus,
   Power,
   Trash2,
+  Wrench,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ import {
   useDeleteAuditCheck,
   useRunAllAuditChecks,
   useRunAuditCheck,
+  useRemediateAuditCheck,
   useUpdateAuditCheck,
   type AuditCheck,
   type AuditCheckInput,
@@ -72,6 +74,10 @@ function buildAuditCheckChatMessage(check: AuditCheck): string {
   if (check.workdir) lines.push(`Directory: ${check.workdir}`);
   if (check.description) lines.push(`Description: ${check.description}`);
   lines.push("", "Command:", "```", check.command, "```");
+  if (check.remediation_description) lines.push("", `Correction: ${check.remediation_description}`);
+  if (check.remediation_command) {
+    lines.push("Correction command (requires administrator confirmation):", "```", check.remediation_command, "```");
+  }
   if (check.last_run) {
     lines.push(
       "",
@@ -93,6 +99,8 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
     description: initial?.description ?? "",
     category: initial?.category ?? "",
     command: initial?.command ?? "",
+    remediation_description: initial?.remediation_description ?? "",
+    remediation_command: initial?.remediation_command ?? "",
     workdir: initial?.workdir ?? "",
     agent_profile: initial?.agent_profile ?? "athos",
     enabled: initial?.enabled ?? true,
@@ -103,6 +111,8 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
     const payload: AuditCheckInput = {
       ...form,
       description: form.description || null,
+      remediation_description: form.remediation_description || null,
+      remediation_command: form.remediation_command || null,
       category: form.category || null,
       workdir: form.workdir || null,
     };
@@ -166,6 +176,32 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
               onChange={(e) => setForm((f) => ({ ...f, command: e.target.value }))}
             />
           </div>
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+              Automatic correction (administrator confirmation required)
+            </p>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Correction context</label>
+                <Textarea
+                  value={form.remediation_description ?? ""}
+                  rows={2}
+                  placeholder="What this correction changes and why it is safe"
+                  onChange={(e) => setForm((f) => ({ ...f, remediation_description: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Correction command</label>
+                <Textarea
+                  value={form.remediation_command ?? ""}
+                  rows={3}
+                  className="font-mono text-xs"
+                  placeholder="Leave blank when this control requires manual analysis"
+                  onChange={(e) => setForm((f) => ({ ...f, remediation_command: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Directory (optional)</label>
@@ -215,6 +251,18 @@ function CheckHistory({ check }: { check: AuditCheck }) {
   const { data: runs, isLoading } = useAuditRuns(check.id);
   return (
     <div className="space-y-2 border-t border-border/60 bg-muted/20 px-4 py-3">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-md border border-border/60 bg-background/60 p-3">
+          <p className="mb-1 text-[10px] uppercase text-muted-foreground">Audit context</p>
+          <p className="text-xs">{check.description || "No additional context documented."}</p>
+        </div>
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+          <p className="mb-1 text-[10px] uppercase text-amber-700 dark:text-amber-400">Correction</p>
+          <p className="text-xs">
+            {check.remediation_description || "This control requires assisted/manual correction."}
+          </p>
+        </div>
+      </div>
       {check.last_run?.output && (
         <div>
           <p className="mb-1 text-[10px] uppercase text-muted-foreground">Latest output</p>
@@ -233,7 +281,15 @@ function CheckHistory({ check }: { check: AuditCheck }) {
           </Badge>
           {formatTimestamp(run.created_at)}
           {run.duration_ms != null && <span>· {(run.duration_ms / 1000).toFixed(1)}s</span>}
-          <span>· {run.requested_by === "cron" ? "⏰ cron" : "👤 manual"}</span>
+          <span>
+            · {run.requested_by === "cron"
+              ? "⏰ cron"
+              : run.requested_by === "remediation"
+                ? "🔧 correction"
+                : run.requested_by === "remediation-verification"
+                  ? "🔍 post-correction verification"
+                  : "👤 manual"}
+          </span>
         </p>
       ))}
     </div>
@@ -245,13 +301,24 @@ export default function AuditorPage() {
   const { data: status } = useAuditStatus();
   const runAll = useRunAllAuditChecks();
   const runOne = useRunAuditCheck();
+  const remediate = useRemediateAuditCheck();
   const updateCheck = useUpdateAuditCheck();
   const deleteCheck = useDeleteAuditCheck();
   const [formCheck, setFormCheck] = useState<AuditCheck | "new" | null>(null);
   const [deleting, setDeleting] = useState<AuditCheck | null>(null);
+  const [remediating, setRemediating] = useState<AuditCheck | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [profileFilter, setProfileFilter] = useState("all");
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
   const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
+  const profiles = useMemo(
+    () => Array.from(new Set((checks ?? []).map((check) => check.agent_profile))).sort(),
+    [checks],
+  );
+  const visibleChecks = useMemo(
+    () => (profileFilter === "all" ? checks ?? [] : (checks ?? []).filter((check) => check.agent_profile === profileFilter)),
+    [checks, profileFilter],
+  );
 
   function handleSendToAssistant(check: AuditCheck) {
     setPendingHiddenContext(buildAuditCheckChatMessage(check));
@@ -281,6 +348,16 @@ export default function AuditorPage() {
           if (deleting) deleteCheck.mutate(deleting.id, { onSuccess: () => setDeleting(null) });
         }}
         onCancel={() => setDeleting(null)}
+      />
+      <ConfirmDialog
+        open={remediating !== null}
+        title={`Apply correction for "${remediating?.name ?? ""}"`}
+        description={`${remediating?.remediation_description ?? "Run the configured correction."} The control will be checked again immediately and both executions will be recorded.`}
+        loading={remediate.isPending}
+        onConfirm={() => {
+          if (remediating) remediate.mutate(remediating.id, { onSuccess: () => setRemediating(null) });
+        }}
+        onCancel={() => setRemediating(null)}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -318,6 +395,9 @@ export default function AuditorPage() {
       {runAll.isError && (
         <p className="text-sm text-destructive">Failed to run the checklist: {(runAll.error as Error)?.message}</p>
       )}
+      {remediate.isError && (
+        <p className="text-sm text-destructive">Failed to apply correction: {(remediate.error as Error)?.message}</p>
+      )}
 
       {isLoading && (
         <div className="flex justify-center py-12">
@@ -343,7 +423,22 @@ export default function AuditorPage() {
       )}
 
       {(checks ?? []).length > 0 && (
-        <Card className="min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="Filter audit checks by profile">
+            <span className="mr-1 text-xs font-medium text-muted-foreground">Profiles:</span>
+            {["all", ...profiles].map((profile) => (
+              <Button
+                key={profile}
+                size="sm"
+                variant={profileFilter === profile ? "default" : "outline"}
+                className="h-7 capitalize"
+                onClick={() => setProfileFilter(profile)}
+              >
+                {profile === "all" ? `All (${(checks ?? []).length})` : `${profile} (${(checks ?? []).filter((check) => check.agent_profile === profile).length})`}
+              </Button>
+            ))}
+          </div>
+          <Card className="min-h-0 flex-1 overflow-hidden">
           <CardContent className="h-full overflow-auto p-0">
             <Table>
               <TableHeader>
@@ -357,11 +452,11 @@ export default function AuditorPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(checks ?? []).map((check) => {
+                {visibleChecks.map((check) => {
                   const isOpen = expanded.has(check.id);
                   const badge = check.last_run ? RUN_STATUS_BADGE[check.last_run.status] : null;
                   return (
-                    <>
+                    <Fragment key={check.id}>
                       <TableRow key={check.id} className={!check.enabled ? "opacity-60" : undefined}>
                         <TableCell>
                           <button
@@ -422,6 +517,19 @@ export default function AuditorPage() {
                                 <Play className="h-4 w-4" />
                               )}
                             </Button>
+                            {check.remediation_command && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Apply correction for ${check.name}`}
+                                title="Apply correction and verify again"
+                                className="text-amber-600"
+                                disabled={remediate.isPending}
+                                onClick={() => setRemediating(check)}
+                              >
+                                <Wrench className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
@@ -471,13 +579,14 @@ export default function AuditorPage() {
                           </TableCell>
                         </TableRow>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </TableBody>
             </Table>
           </CardContent>
-        </Card>
+          </Card>
+        </div>
       )}
     </div>
   );

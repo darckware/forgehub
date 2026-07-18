@@ -130,7 +130,7 @@ Em **Access Profiles**, as ações são `planning.progress.view`, `planning.prog
 |---|---|---|
 | System Control | `/system-control` | Status git deste repositório (branch, commit, arquivos modificados) e backup compactado de `/root/.hermes`. Somente leitura + uma ação de backup. |
 | Hindsight | `/hindsight` | Status do daemon de memória contínua dos agentes (Hindsight): saúde, config de LLM, inventário de schema, logs. Ações admin: restart do container, limpar log. |
-| Auditor | `/auditor` | Checklist de verificações do ecossistema (`audit_checks`), rodado via cron no host. |
+| Auditor | `/auditor` | 38 controles do ecossistema, incluindo auditoria individual dos oito profiles. Permite filtrar por profile, ver contexto/evidência/histórico e, quando houver correção determinística, aplicá-la com confirmação administrativa e reverificação automática. |
 | Deploy Control | `/deploy` | Controle de grupos de deploy e sincronização. |
 | Servers | `/servers` | Inventário de servidores remotos (SSH), com checagem de status e instalação de chave pública. |
 | Database | `/database/*` | Schema, diagrama ER e console de query (somente leitura) do Postgres. |

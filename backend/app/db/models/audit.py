@@ -30,6 +30,10 @@ class AuditCheck(Base, TimestampMixin):
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Bash command executed on the host through the chat bridge. Exit 0 = ok.
     command: Mapped[str] = mapped_column(Text, nullable=False)
+    # Optional, explicit recovery action. It is never run as part of the
+    # checklist: an administrator must confirm it from the Auditor page.
+    remediation_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remediation_command: Mapped[str | None] = mapped_column(Text, nullable=True)
     workdir: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Profile responsible for this checkpoint (display/ownership -- execution
     # is host-side via the bridge either way).
@@ -60,7 +64,8 @@ class AuditCheckRun(Base, TimestampMixin):
     # stdout+stderr, truncated by the route layer (never store unbounded).
     output: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # "manual" (Auditor page) or "cron" (scheduled checklist).
+    # "manual"/"cron", or "remediation"/"remediation-verification" for
+    # the administrator-confirmed repair cycle.
     requested_by: Mapped[str] = mapped_column(String(50), nullable=False, default="manual")
 
     check: Mapped[AuditCheck] = relationship(back_populates="runs")

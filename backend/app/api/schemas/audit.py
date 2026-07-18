@@ -12,6 +12,8 @@ class AuditCheckBase(BaseModel):
     description: str | None = None
     category: str | None = Field(default=None, max_length=50)
     command: str = Field(min_length=1)
+    remediation_description: str | None = None
+    remediation_command: str | None = None
     workdir: str | None = Field(default=None, max_length=500)
     agent_profile: str = Field(default="athos", max_length=50)
     enabled: bool = True
@@ -29,6 +31,8 @@ class AuditCheckUpdate(BaseModel):
     description: str | None = None
     category: str | None = Field(default=None, max_length=50)
     command: str | None = Field(default=None, min_length=1)
+    remediation_description: str | None = None
+    remediation_command: str | None = None
     workdir: str | None = Field(default=None, max_length=500)
     agent_profile: str | None = Field(default=None, max_length=50)
     enabled: bool | None = None
@@ -77,3 +81,8 @@ class AuditStatusOut(BaseModel):
 
 class AuditRunAllOut(BaseModel):
     runs: list[AuditRunOut]
+
+
+class AuditRemediationOut(BaseModel):
+    remediation_run: AuditRunOut
+    verification_run: AuditRunOut
