@@ -355,6 +355,9 @@ export default function AuditorPage() {
         open={remediating !== null}
         title={`Apply correction for "${remediating?.name ?? ""}"`}
         description={`${remediating?.remediation_description ?? "Run the configured correction."} The control will be checked again immediately and both executions will be recorded.`}
+        confirmLabel="Apply correction"
+        variant="default"
+        icon="wrench"
         loading={remediate.isPending}
         onConfirm={() => {
           if (remediating) remediate.mutate(remediating.id, { onSuccess: () => setRemediating(null) });

@@ -1,5 +1,6 @@
 import * as React from "react";
-import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, Trash2, Wrench } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
 
@@ -10,6 +11,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "destructive" | "default";
+  icon?: "trash" | "warning" | "wrench";
   loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -17,15 +19,21 @@ interface ConfirmDialogProps {
 
 export function ConfirmDialog({
   open,
-  title = "Confirm deletion",
+  title,
   description,
-  confirmLabel = "Delete",
-  cancelLabel = "Cancel",
+  confirmLabel,
+  cancelLabel,
   variant = "destructive",
+  icon,
   loading = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation("common");
+  title ??= t("confirmDialog.defaultTitle");
+  confirmLabel ??= t("confirmDialog.defaultConfirm");
+  cancelLabel ??= t("cancel");
+  icon ??= variant === "destructive" ? "trash" : "warning";
   React.useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
@@ -58,14 +66,19 @@ export function ConfirmDialog({
         )}
       >
         {/* Top accent bar */}
-        <div className="h-1 w-full rounded-t-xl bg-destructive/80" />
+        <div className={cn("h-1 w-full rounded-t-xl", variant === "destructive" ? "bg-destructive/80" : "bg-amber-500/80")} />
 
         <div className="p-6">
           {/* Icon + title */}
           <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
-              {variant === "destructive" ? (
+            <div className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+              variant === "destructive" ? "bg-destructive/10" : "bg-amber-500/10",
+            )}>
+              {icon === "trash" ? (
                 <Trash2 className="h-5 w-5 text-destructive" />
+              ) : icon === "wrench" ? (
+                <Wrench className="h-5 w-5 text-amber-500" />
               ) : (
                 <AlertTriangle className="h-5 w-5 text-amber-500" />
               )}
