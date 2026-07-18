@@ -1521,7 +1521,10 @@ async def chat_approve(req: ChatApproveRequest, x_bridge_token: str | None = Hea
 class ExecRequest(BaseModel):
     command: str
     cwd: str | None = None
-    timeout_seconds: int = Field(default=60, ge=1, le=600)
+    # Auditor controls expose at most 600s; five additional seconds let the
+    # inner `timeout` command finish and return exit 124 before the bridge
+    # terminates its subprocess.
+    timeout_seconds: int = Field(default=60, ge=1, le=605)
 
 
 class ExecResponse(BaseModel):
