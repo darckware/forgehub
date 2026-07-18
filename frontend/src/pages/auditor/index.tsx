@@ -88,8 +88,9 @@ function buildAuditCheckChatMessage(check: AuditCheck): string {
   return lines.join("\n");
 }
 
-/** Create/edit form for one checkpoint. */
-function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onClose: () => void }) {
+/** Inline create/edit form. Editing is rendered immediately below its check
+ * row, keeping the operator in the list and allowing normal page scrolling. */
+function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onClose: () => void }) {
   const createCheck = useCreateAuditCheck();
   const updateCheck = useUpdateAuditCheck();
   const pending = createCheck.isPending || updateCheck.isPending;
@@ -106,6 +107,7 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
     enabled: initial?.enabled ?? true,
     timeout_seconds: initial?.timeout_seconds ?? 55,
   });
+  const enabledId = `check-enabled-${initial?.id ?? "new"}`;
 
   function handleSave() {
     const payload: AuditCheckInput = {
@@ -124,15 +126,19 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-full max-w-xl rounded-lg border border-border bg-card" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h3 className="font-semibold">{initial ? `Edit check: ${initial.name}` : "New check"}</h3>
-          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
+    <div className="rounded-lg border border-primary/30 bg-card shadow-sm">
+      <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-3">
+        <div>
+          <h3 className="font-semibold">{initial ? `Editing: ${initial.name}` : "New check"}</h3>
+          <p className="text-xs text-muted-foreground">
+            {initial ? "Edit mode is open directly below this checkpoint." : "Create a new ecosystem checkpoint."}
+          </p>
         </div>
-        <div className="space-y-4 p-4">
+        <Button variant="ghost" size="icon" aria-label="Close editor" title="Close editor" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="space-y-4 p-4">
           {error && <p className="text-sm text-destructive">{error.message}</p>}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
@@ -155,11 +161,11 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Timeout (s, max 55)</label>
+              <label className="text-xs font-medium text-muted-foreground">Timeout (s, max 600)</label>
               <Input
                 type="number"
                 min={1}
-                max={55}
+                max={600}
                 value={form.timeout_seconds}
                 onChange={(e) => setForm((f) => ({ ...f, timeout_seconds: Number(e.target.value) || 55 }))}
               />
@@ -212,13 +218,13 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
             </div>
             <div className="flex items-center gap-2 pt-5">
               <input
-                id="check-enabled"
+                id={enabledId}
                 type="checkbox"
                 className="h-4 w-4"
                 checked={form.enabled}
                 onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
               />
-              <label htmlFor="check-enabled" className="text-sm">
+              <label htmlFor={enabledId} className="text-sm">
                 Enabled
               </label>
             </div>
@@ -240,7 +246,6 @@ function CheckFormModal({ initial, onClose }: { initial: AuditCheck | null; onCl
               Save
             </Button>
           </div>
-        </div>
       </div>
     </div>
   );
@@ -336,9 +341,6 @@ export default function AuditorPage() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4 p-6">
-      {formCheck !== null && (
-        <CheckFormModal initial={formCheck === "new" ? null : formCheck} onClose={() => setFormCheck(null)} />
-      )}
       <ConfirmDialog
         open={deleting !== null}
         title={`Delete check "${deleting?.name ?? ""}"`}
@@ -440,6 +442,11 @@ export default function AuditorPage() {
           </div>
           <Card className="min-h-0 flex-1 overflow-hidden">
           <CardContent className="h-full overflow-auto p-0">
+            {formCheck === "new" && (
+              <div className="border-b border-border p-4">
+                <CheckFormPanel key="new" initial={null} onClose={() => setFormCheck(null)} />
+              </div>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>
@@ -554,8 +561,13 @@ export default function AuditorPage() {
                               variant="ghost"
                               size="icon"
                               aria-label={`Edit ${check.name}`}
-                              title="Edit"
-                              onClick={() => setFormCheck(check)}
+                              title={formCheck !== "new" && formCheck?.id === check.id ? "Close editor" : "Edit inline"}
+                              className={formCheck !== "new" && formCheck?.id === check.id ? "bg-accent text-accent-foreground" : undefined}
+                              onClick={() =>
+                                setFormCheck((current) =>
+                                  current !== "new" && current?.id === check.id ? null : check,
+                                )
+                              }
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -572,6 +584,13 @@ export default function AuditorPage() {
                           </div>
                         </TableCell>
                       </TableRow>
+                      {formCheck !== "new" && formCheck?.id === check.id && (
+                        <TableRow key={`${check.id}-editor`} className="hover:bg-transparent">
+                          <TableCell colSpan={6} className="bg-muted/10 p-3">
+                            <CheckFormPanel key={check.id} initial={check} onClose={() => setFormCheck(null)} />
+                          </TableCell>
+                        </TableRow>
+                      )}
                       {isOpen && (
                         <TableRow key={`${check.id}-history`}>
                           <TableCell colSpan={6} className="p-0">
