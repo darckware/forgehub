@@ -289,8 +289,8 @@ function CheckHistory({ check }: { check: AuditCheck }) {
           <span>
             · {run.requested_by === "cron"
               ? "⏰ cron"
-              : run.requested_by === "remediation"
-                ? "🔧 correction"
+              : run.requested_by === "athos-remediation"
+                ? "🔧 Athos correction"
                 : run.requested_by === "remediation-verification"
                   ? "🔍 post-correction verification"
                   : "👤 manual"}
@@ -353,9 +353,9 @@ export default function AuditorPage() {
       />
       <ConfirmDialog
         open={remediating !== null}
-        title={`Apply correction for "${remediating?.name ?? ""}"`}
-        description={`${remediating?.remediation_description ?? "Run the configured correction."} The control will be checked again immediately and both executions will be recorded.`}
-        confirmLabel="Apply correction"
+        title={`Send correction to Athos for "${remediating?.name ?? ""}"`}
+        description={`${remediating?.remediation_description ?? "Athos will diagnose and apply the smallest safe correction."} ForgeHub will verify the control afterward; if it remains unhealthy, all evidence will be sent automatically to the Inbox.`}
+        confirmLabel="Send to Athos"
         variant="default"
         icon="wrench"
         loading={remediate.isPending}
@@ -401,7 +401,20 @@ export default function AuditorPage() {
         <p className="text-sm text-destructive">Failed to run the checklist: {(runAll.error as Error)?.message}</p>
       )}
       {remediate.isError && (
-        <p className="text-sm text-destructive">Failed to apply correction: {(remediate.error as Error)?.message}</p>
+        <p className="text-sm text-destructive">Failed to contact Athos: {(remediate.error as Error)?.message}</p>
+      )}
+      {remediate.isSuccess && (
+        <p
+          className={
+            remediate.data.escalated_to_inbox
+              ? "rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300"
+              : "rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300"
+          }
+        >
+          {remediate.data.escalated_to_inbox
+            ? `Athos could not normalize the control. The case was sent to the Inbox (${remediate.data.inbox_demand_id}).`
+            : "Athos applied the correction and the control passed verification."}
+        </p>
       )}
 
       {isLoading && (
@@ -527,12 +540,12 @@ export default function AuditorPage() {
                                 <Play className="h-4 w-4" />
                               )}
                             </Button>
-                            {check.remediation_command && (
+                            {check.last_run && check.last_run.status !== "ok" && (
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                aria-label={`Apply correction for ${check.name}`}
-                                title="Apply correction and verify again"
+                                aria-label={`Send ${check.name} correction to Athos`}
+                                title="Ask Athos to correct, verify, and escalate to Inbox if needed"
                                 className="text-amber-600"
                                 disabled={remediate.isPending}
                                 onClick={() => setRemediating(check)}

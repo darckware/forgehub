@@ -64,8 +64,8 @@ class AuditCheckRun(Base, TimestampMixin):
     # stdout+stderr, truncated by the route layer (never store unbounded).
     output: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # "manual"/"cron", or "remediation"/"remediation-verification" for
-    # the administrator-confirmed repair cycle.
+    # "manual"/"cron", or "athos-remediation"/"remediation-verification"
+    # for the administrator-confirmed repair cycle.
     requested_by: Mapped[str] = mapped_column(String(50), nullable=False, default="manual")
 
     check: Mapped[AuditCheck] = relationship(back_populates="runs")

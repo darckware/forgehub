@@ -21,6 +21,15 @@ export const auditRunSchema = z.object({
 
 export type AuditRun = z.infer<typeof auditRunSchema>;
 
+const auditRemediationSchema = z.object({
+  remediation_run: auditRunSchema,
+  verification_run: auditRunSchema,
+  escalated_to_inbox: z.boolean(),
+  inbox_demand_id: z.string().nullable(),
+});
+
+export type AuditRemediation = z.infer<typeof auditRemediationSchema>;
+
 export const auditCheckSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -149,11 +158,14 @@ export function useRunAllAuditChecks() {
   });
 }
 
-/** Apply the check's administrator-approved repair and immediately recheck. */
+/** Delegate the approved correction to Athos, recheck, and escalate if needed. */
 export function useRemediateAuditCheck() {
   const invalidate = useInvalidateAudit();
   return useMutation({
-    mutationFn: (checkId: string) => apiClient.post<unknown>(`${RESOURCE}/checks/${checkId}/remediate`),
+    mutationFn: async (checkId: string) =>
+      auditRemediationSchema.parse(
+        await apiClient.post<unknown>(`${RESOURCE}/checks/${checkId}/remediate`),
+      ),
     onSuccess: invalidate,
   });
 }

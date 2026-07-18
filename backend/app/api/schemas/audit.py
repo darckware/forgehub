@@ -86,3 +86,5 @@ class AuditRunAllOut(BaseModel):
 class AuditRemediationOut(BaseModel):
     remediation_run: AuditRunOut
     verification_run: AuditRunOut
+    escalated_to_inbox: bool = False
+    inbox_demand_id: uuid.UUID | None = None

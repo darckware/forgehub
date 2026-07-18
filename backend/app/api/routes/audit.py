@@ -28,6 +28,8 @@ from app.api.schemas.audit import (
     AuditRemediationOut,
     AuditStatusOut,
 )
+from app.api.schemas.demand import DemandSubmitIn
+from app.api.routes.demand import create_demand_and_notify
 from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.db.base import get_db
@@ -39,6 +41,7 @@ _OUTPUT_LIMIT = 10_000
 # Most checks retain the 55-second default. Long bounded remediations such as
 # pruning a large Docker build cache may explicitly request up to 10 minutes.
 _MAX_TIMEOUT = 600
+_ATHOS_TIMEOUT = 650.0
 
 
 async def _execute_command(
@@ -83,6 +86,99 @@ async def _execute_command(
 
 async def _execute_check(check: AuditCheck, requested_by: str) -> AuditCheckRun:
     return await _execute_command(check, check.command, requested_by)
+
+
+def _athos_remediation_prompt(
+    check: AuditCheck, previous_run: AuditCheckRun | None
+) -> str:
+    previous_evidence = previous_run.output if previous_run and previous_run.output else "No output recorded."
+    suggested_action = check.remediation_command or "No predefined command; diagnose and apply the smallest safe correction."
+    return f"""You are Athos, the ecosystem orchestrator. ForgeHub's administrator has approved an internal correction for this failed audit control.
+
+Control: {check.name}
+Description: {check.description or "Not provided"}
+Category: {check.category or "Not provided"}
+Responsible profile: {check.agent_profile}
+Working directory: {check.workdir or "/root"}
+Verification command (ForgeHub will run it after you finish):
+{check.command}
+
+Configured correction context:
+{check.remediation_description or "Not provided"}
+
+Suggested correction command or procedure:
+{suggested_action}
+
+Latest failure evidence:
+{previous_evidence[:_OUTPUT_LIMIT]}
+
+Diagnose and APPLY the smallest correction needed inside the configured ecosystem. Do not merely explain it. Stay within this control's scope, preserve databases and persistent volumes, do not delete user data, and do not perform unrelated upgrades. Finish with a concise account of what you changed and any remaining risk. ForgeHub will independently rerun the verification command."""
+
+
+async def _delegate_remediation_to_athos(
+    check: AuditCheck, previous_run: AuditCheckRun | None
+) -> AuditCheckRun:
+    """Ask Athos to diagnose and apply the approved repair on the host."""
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=_ATHOS_TIMEOUT) as client:
+            response = await client.post(
+                f"{settings.CHAT_BRIDGE_URL}/v1/audit/remediate",
+                json={
+                    "profile": "athos",
+                    "message": _athos_remediation_prompt(check, previous_run),
+                    "session_id": None,
+                },
+                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+            )
+        response.raise_for_status()
+        reply = str(response.json().get("reply") or "Athos completed without a written response.")
+        run_status = "ok"
+        exit_code = 0
+    except (httpx.HTTPError, ValueError) as exc:
+        reply = f"Athos remediation failed: {exc}"
+        run_status = "error"
+        exit_code = None
+    return AuditCheckRun(
+        check_id=check.id,
+        status=run_status,
+        exit_code=exit_code,
+        output=reply[:_OUTPUT_LIMIT],
+        duration_ms=round((time.monotonic() - started) * 1000),
+        requested_by="athos-remediation",
+    )
+
+
+def _inbox_escalation_body(
+    check: AuditCheck,
+    previous_run: AuditCheckRun | None,
+    repair: AuditCheckRun,
+    verification: AuditCheckRun,
+) -> str:
+    return f"""Athos attempted the administrator-approved correction, but the control is still unhealthy and requires manual follow-up.
+
+Control: {check.name} ({check.id})
+Description: {check.description or "Not provided"}
+Category: {check.category or "Not provided"}
+Responsible profile: {check.agent_profile}
+Working directory: {check.workdir or "/root"}
+
+Verification command:
+{check.command}
+
+Configured correction:
+{check.remediation_description or "Not provided"}
+{check.remediation_command or "No predefined correction command."}
+
+Evidence before correction:
+{previous_run.output if previous_run and previous_run.output else "No previous output recorded."}
+
+Athos result ({repair.status}):
+{repair.output or "No output recorded."}
+
+Verification after correction ({verification.status}, exit={verification.exit_code}):
+{verification.output or "No output recorded."}
+"""
 
 
 async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[AuditCheckRun]:
@@ -201,28 +297,43 @@ async def remediate_check(
     db: AsyncSession = Depends(get_db),
     _admin=Depends(get_current_admin),
 ) -> AuditRemediationOut:
-    """Apply an explicitly configured repair, then always verify the check.
-
-    Repairs are deliberately separate from normal/manual/cron runs and require
-    an administrator. Both command results are persisted for accountability.
-    """
+    """Delegate correction to Athos, verify it, and escalate failure to Inbox."""
     check = await _get_check_or_404(db, check_id)
-    if not check.remediation_command:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This audit check has no automatic remediation configured",
+    previous_run = (
+        await db.execute(
+            select(AuditCheckRun)
+            .where(AuditCheckRun.check_id == check.id)
+            .order_by(AuditCheckRun.created_at.desc())
+            .limit(1)
         )
-    repair = await _execute_command(check, check.remediation_command, "remediation")
+    ).scalar_one_or_none()
+    repair = await _delegate_remediation_to_athos(check, previous_run)
     db.add(repair)
     await db.flush()
     verification = await _execute_check(check, "remediation-verification")
     db.add(verification)
-    await db.commit()
+    await db.flush()
+
+    inbox_demand_id = None
+    if verification.status != "ok":
+        demand = await create_demand_and_notify(
+            db,
+            DemandSubmitIn(
+                from_agent="athos",
+                subject=f"[Auditor] Manual correction required: {check.name}"[:255],
+                body=_inbox_escalation_body(check, previous_run, repair, verification),
+            ),
+        )
+        inbox_demand_id = demand.id
+    else:
+        await db.commit()
     await db.refresh(repair)
     await db.refresh(verification)
     return AuditRemediationOut(
         remediation_run=AuditRunOut.model_validate(repair),
         verification_run=AuditRunOut.model_validate(verification),
+        escalated_to_inbox=inbox_demand_id is not None,
+        inbox_demand_id=inbox_demand_id,
     )
 
 

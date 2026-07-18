@@ -1226,7 +1226,9 @@ class ChatResponse(BaseModel):
     session_id: str | None = None
 
 
-def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
+def _run_hermes_chat(
+    req: ChatRequest, *, autonomous_remediation: bool = False
+) -> ChatResponse:
     if not _is_valid_profile(req.profile):
         raise HTTPException(status_code=400, detail=f"Unknown or disallowed profile: {req.profile}")
 
@@ -1245,6 +1247,11 @@ def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
     ]
     if req.session_id:
         args += ["--resume", req.session_id]
+    if autonomous_remediation:
+        # This mode is exposed only by the dedicated, token-protected Auditor
+        # route below. The administrator has already confirmed the action in
+        # ForgeHub; checkpoints keep file mutations recoverable.
+        args += ["--yolo", "--checkpoints"]
     for image_path in req.image_paths or []:
         args += ["--image", image_path]
 
@@ -1280,6 +1287,17 @@ def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
 async def chat(req: ChatRequest, x_bridge_token: str | None = Header(default=None)) -> ChatResponse:
     _check_token(x_bridge_token)
     return _run_hermes_chat(req)
+
+
+@app.post("/v1/audit/remediate", response_model=ChatResponse)
+async def audit_remediate(
+    req: ChatRequest, x_bridge_token: str | None = Header(default=None)
+) -> ChatResponse:
+    """Run an administrator-confirmed ecosystem correction through Athos."""
+    _check_token(x_bridge_token)
+    if req.profile != "athos":
+        raise HTTPException(status_code=400, detail="Audit remediation must use the athos profile")
+    return _run_hermes_chat(req, autonomous_remediation=True)
 
 
 class MessageSendRequest(BaseModel):

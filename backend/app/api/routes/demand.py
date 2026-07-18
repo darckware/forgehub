@@ -84,7 +84,7 @@ def _demand_preview(body: str, limit: int = 200) -> str:
     return body if len(body) <= limit else f"{body[:limit].rstrip()}…"
 
 
-async def _create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) -> AgentDemand:
+async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) -> AgentDemand:
     """Every new inbox item also surfaces in the system Notifications bell
     (source="system", not "cron") -- so arriving mail doesn't go unnoticed
     unless the user happens to have the Inbox page open. event_key is
@@ -122,7 +122,7 @@ async def submit_demand(
     a demand with a plain curl (no user JWT available to a cron/agent)."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
-    return await _create_demand_and_notify(db, payload)
+    return await create_demand_and_notify(db, payload)
 
 
 @router.post("", response_model=DemandOut, status_code=status.HTTP_201_CREATED)
@@ -134,7 +134,7 @@ async def create_demand(
     ForgeHub itself (on the logged-in user's behalf) files the agent's
     reply into the inbox, as opposed to an autonomous host-side agent
     submitting on its own."""
-    return await _create_demand_and_notify(db, payload)
+    return await create_demand_and_notify(db, payload)
 
 
 @router.get("", response_model=list[DemandOut])
