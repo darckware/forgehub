@@ -65,7 +65,10 @@ def _quote(value: str) -> str:
 
 def upgrade() -> None:
     names = ", ".join(f"'{key}'" for key, *_ in CHECKS)
-    op.execute(f"UPDATE company.audit_checks SET enabled=false, updated_at=now() WHERE name NOT IN ({names})")
+    # The operator explicitly chose not to retain the retired checklist in
+    # ForgeHub. Deleting a check also removes its run history through the
+    # audit_check_runs ON DELETE CASCADE contract.
+    op.execute(f"DELETE FROM company.audit_checks WHERE name NOT IN ({names})")
     for key, category, owner, description in CHECKS:
         command = f"python3 /root/.hermes/profiles/athos/scripts/checklist_verifier.py --check {key}"
         values = tuple(_quote(v) for v in (key, category, owner, description, command))
