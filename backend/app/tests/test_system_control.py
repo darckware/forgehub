@@ -375,10 +375,8 @@ async def test_cleanup_scan_includes_old_and_duplicate_scripts(client: AsyncClie
     assert dup_names == {"testprofile/dup_a.sh", "testprofile/dup_b.sh"}
 
 
-async def test_cleanup_run_only_sweeps_never_empties(client: AsyncClient, monkeypatch):
-    """POST /cleanup-run moves eligible files into TRASH_ROOT but never
-    deletes anything -- that's the separate POST /cleanup-empty-trash
-    action (split 2026-07-11, previously one click did both)."""
+async def test_cleanup_run_uses_authoritative_athos_policy(client: AsyncClient, monkeypatch):
+    """Manual UI execution and the weekly cron use the same script."""
     from app.api.routes import system_control as sc
 
     FakeBridgeClient.calls = []
@@ -388,22 +386,11 @@ async def test_cleanup_run_only_sweeps_never_empties(client: AsyncClient, monkey
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["trash_root"] == sc.TRASH_ROOT
-    assert "output" not in body
+    assert body["script"] == sc.CLEANUP_SCRIPT
+    assert body["policy"] == "no-docker-volume-prune"
     exec_commands = [c[2]["command"] for c in FakeBridgeClient.calls if c[1].endswith("/v1/exec")]
-    assert all("rm -rf" not in cmd for cmd in exec_commands)
-    assert any("mv --" in cmd for cmd in exec_commands)
-
-
-async def test_cleanup_empty_trash_deletes_trash_root_contents(client: AsyncClient, monkeypatch):
-    from app.api.routes import system_control as sc
-
-    FakeBridgeClient.calls = []
-    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBridgeClient)
-
-    resp = await client.post("/api/v1/system-control/cleanup-empty-trash")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["trash_root"] == sc.TRASH_ROOT
-    assert "deleted_items: 3" in body["output"]
-    exec_commands = [c[2]["command"] for c in FakeBridgeClient.calls if c[1].endswith("/v1/exec")]
-    assert any(f"rm -rf -- {sc.TRASH_ROOT}/*" in cmd for cmd in exec_commands)
+    assert exec_commands == [
+        f"TRASH_DIR={sc.TRASH_ROOT} BACKUP_ROOT={sc.BACKUP_DIR} bash {sc.CLEANUP_SCRIPT}"
+    ]
+    cleanup_call = next(c for c in FakeBridgeClient.calls if c[1].endswith("/v1/exec"))
+    assert cleanup_call[2]["timeout_seconds"] == 600

@@ -36,8 +36,9 @@ from app.db.models.audit import AuditCheck, AuditCheckRun
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
 _OUTPUT_LIMIT = 10_000
-# The bridge /v1/exec hard-kills at 60s; leave headroom for transport.
-_MAX_TIMEOUT = 55
+# Most checks retain the 55-second default. Long bounded remediations such as
+# pruning a large Docker build cache may explicitly request up to 10 minutes.
+_MAX_TIMEOUT = 600
 
 
 async def _execute_command(
@@ -50,10 +51,10 @@ async def _execute_command(
     wrapped = f"timeout {seconds} bash -c {shlex.quote(command)}"
     started = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=_MAX_TIMEOUT + 15) as client:
+        async with httpx.AsyncClient(timeout=seconds + 15) as client:
             resp = await client.post(
                 f"{settings.CHAT_BRIDGE_URL}/v1/exec",
-                json={"command": wrapped, "cwd": check.workdir},
+                json={"command": wrapped, "cwd": check.workdir, "timeout_seconds": seconds + 5},
                 headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
             )
         resp.raise_for_status()

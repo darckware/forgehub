@@ -100,13 +100,9 @@ class Settings(BaseSettings):
     HERMES_SOURCE_PATH: str = "/root/.hermes"
     GIT_CONTROL_DEFAULT_REPO: str = "hermes"
     BACKUP_ROOT: str = "/root/backup"
-    # Where "Run Cleanup" moves eligible files to, and what "Empty trash"
-    # permanently deletes the contents of -- two separate actions/buttons
-    # since 2026-07-11 (previously one click did both). Deliberately NOT
-    # the same script the external "foundation-clear" Hermes cron runs
-    # weekly (that one has its own hardcoded /root/trash and isn't
-    # ForgeHub's to reconfigure) -- ForgeHub empties this path itself via
-    # host-bridge exec, so retuning TRASH_ROOT here actually takes effect.
+    # Trash path passed by System Control to the authoritative Athos cleanup
+    # script. The weekly foundation-clear cron invokes that same script with
+    # /root/trash as its default, avoiding duplicated cleanup policies.
     TRASH_ROOT: str = "/root/trash"
     CLEANUP_SCAN_ROOT: str = "/"
     CLEANUP_PRUNE_PATHS: list[str] = ["/mnt", "/proc", "/sys", "/dev", "/run"]

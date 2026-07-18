@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, ChevronDown, ChevronRight, Eraser, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,6 @@ import {
   useCleanupScan,
   useCommitChanges,
   useDeleteBackup,
-  useEmptyTrash,
   useRunBackup,
   useRunCleanup,
   useSystemControlStatus,
@@ -58,8 +57,7 @@ export default function SystemControlPage() {
 
   const { data: scan, isLoading: scanLoading, isError: scanError } = useCleanupScan();
   const runCleanup = useRunCleanup();
-  const emptyTrash = useEmptyTrash();
-  const [confirmingEmptyTrash, setConfirmingEmptyTrash] = useState(false);
+  const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   if (isLoading) {
@@ -412,21 +410,10 @@ export default function SystemControlPage() {
             <div className="flex items-center gap-1.5">
               <Button
                 size="sm"
-                variant="outline"
-                onClick={() => setConfirmingEmptyTrash(true)}
-                disabled={emptyTrash.isPending}
-                className="gap-2"
-                title="Permanently deletes everything currently in the trash folder -- cannot be undone"
-              >
-                {emptyTrash.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />}
-                Empty trash
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => runCleanup.mutate()}
+                onClick={() => setConfirmingCleanup(true)}
                 disabled={runCleanup.isPending}
                 className="gap-2"
-                title="Sweeps eligible rotated logs/cron output/old backups into the trash folder -- does not delete anything"
+                title="Runs the same bounded cleanup policy used by the weekly Athos cron"
               >
                 {runCleanup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                 Run Cleanup
@@ -434,49 +421,32 @@ export default function SystemControlPage() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Inventory of logs, backup files, cron output snapshots, and old/duplicate scripts across the Hermes
-            ecosystem, grouped by type. "Run Cleanup" sweeps rotated logs (never the live log a running agent has
-            open), cron output, and backups older than 30 days into the trash folder -- reversible, nothing is
-            deleted. "Empty trash" is the separate, permanent step. Scripts are never touched automatically. Trash
-            folder is configurable in Settings.
+            Read-only inventory of logs, backup files, cron output snapshots, and old/duplicate scripts. "Run
+            Cleanup" executes the same weekly Athos policy used by the foundation-clear cron: clears trash, expires
+            manual backups after 30 days, bounds temporary files and journals, and prunes all inactive reproducible Docker cache,
+            stopped containers, dangling images, and unused networks. Docker volumes, databases, live agent logs,
+            sessions, knowledge, and scripts are never deleted by this action.
           </p>
           <ConfirmDialog
-            open={confirmingEmptyTrash}
-            title="Empty trash?"
-            description="Permanently deletes everything currently in the trash folder. This action cannot be undone."
-            confirmLabel="Empty trash"
-            loading={emptyTrash.isPending}
+            open={confirmingCleanup}
+            title="Run ecosystem cleanup?"
+            description="Runs the weekly Athos cleanup now. Expired files and trash are permanently deleted, and reproducible Docker artifacts are pruned. Docker volumes and databases are excluded."
+            confirmLabel="Run cleanup"
+            loading={runCleanup.isPending}
             onConfirm={() =>
-              emptyTrash.mutate(undefined, { onSuccess: () => setConfirmingEmptyTrash(false) })
+              runCleanup.mutate(undefined, { onSuccess: () => setConfirmingCleanup(false) })
             }
-            onCancel={() => setConfirmingEmptyTrash(false)}
+            onCancel={() => setConfirmingCleanup(false)}
           />
           {runCleanup.isSuccess && (
             <div className="space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
-              <p>
-                Swept {runCleanup.data.swept_count} file(s) into <span className="font-mono">{runCleanup.data.trash_root}</span>.
-              </p>
-              {runCleanup.data.sweep_errors.length > 0 && (
-                <>
-                  <p className="text-amber-600">{runCleanup.data.sweep_errors.length} sweep error(s) -- see below.</p>
-                  <pre className="whitespace-pre-wrap text-amber-600">{runCleanup.data.sweep_errors.join("\n")}</pre>
-                </>
-              )}
+              <p>Weekly ecosystem cleanup completed with policy <span className="font-mono">{runCleanup.data.policy}</span>.</p>
+              <pre className="whitespace-pre-wrap">{runCleanup.data.output}</pre>
             </div>
           )}
           {runCleanup.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
               {(runCleanup.error as Error)?.message ?? "Cleanup failed"}
-            </div>
-          )}
-          {emptyTrash.isSuccess && (
-            <div className="space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
-              <pre className="whitespace-pre-wrap">{emptyTrash.data.output || "Trash was already empty."}</pre>
-            </div>
-          )}
-          {emptyTrash.isError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(emptyTrash.error as Error)?.message ?? "Failed to empty trash"}
             </div>
           )}
           {scanLoading && (

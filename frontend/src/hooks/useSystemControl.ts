@@ -189,40 +189,20 @@ export function useCleanupScan() {
 }
 
 export interface CleanupRunResult {
-  swept_count: number;
-  swept: string[];
-  sweep_errors: string[];
   trash_root: string;
+  backup_root: string;
+  script: string;
+  output: string;
+  policy: "no-docker-volume-prune";
 }
 
-/** Sweeps eligible files into trash_root -- only ROTATED logs (never the
- * live agent.log/errors.log/gateway.log a running agent has open), only
- * files older than 1 day (cron output/rotated logs) or 30 days (backups).
- * Never touches scripts, and never deletes anything itself -- see
- * useEmptyTrash for the separate, permanent step (split 2026-07-11;
- * previously one click did both). */
+/** Runs the authoritative Athos weekly cleanup policy immediately. The
+ * foundation-clear cron invokes this same script; the UI does not maintain
+ * a second set of deletion rules. Docker volumes/database data are excluded. */
 export function useRunCleanup() {
   const queryClient = useQueryClient();
   return useMutation<CleanupRunResult, Error>({
     mutationFn: () => apiClient.post("/api/v1/system-control/cleanup-run", {}),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
-    },
-  });
-}
-
-export interface EmptyTrashResult {
-  trash_root: string;
-  output: string;
-}
-
-/** Permanently deletes everything currently under trash_root (the
- * directory itself is kept) -- irreversible, separate from useRunCleanup
- * so an operator can review what got swept there first. */
-export function useEmptyTrash() {
-  const queryClient = useQueryClient();
-  return useMutation<EmptyTrashResult, Error>({
-    mutationFn: () => apiClient.post("/api/v1/system-control/cleanup-empty-trash", {}),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
     },

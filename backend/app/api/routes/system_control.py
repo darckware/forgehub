@@ -83,12 +83,12 @@ KNOWN_REPOS: dict[str, str] = {
 DEFAULT_REPO = settings.GIT_CONTROL_DEFAULT_REPO
 BACKUP_DIR = settings.BACKUP_ROOT
 
-# "Run Cleanup" moves eligible files here; "Empty trash" (a separate
-# button/action, 2026-07-11 -- previously one click did both) permanently
-# deletes its contents. Independent of the external "foundation-clear"
-# Hermes cron, which always empties its own hardcoded /root/trash on its
-# own weekly schedule regardless of this setting.
+# The Athos cleanup policy receives this path when invoked from ForgeHub.
+# The weekly foundation-clear cron invokes the same script with its default
+# (/root/trash), so there is one cleanup engine rather than two competing
+# implementations.
 TRASH_ROOT = settings.TRASH_ROOT
+CLEANUP_SCRIPT = "/root/.hermes/profiles/athos/scripts/create_trash_cleanup_task.sh"
 
 
 def _all_repos() -> dict[str, str]:
@@ -96,9 +96,9 @@ def _all_repos() -> dict[str, str]:
 
 # Scanned read-only for the Cleanup card's inventory (grouped by type
 # below) -- nothing here gets deleted by cleanup-scan, only by the operator
-# explicitly clearing a given log another way, or POST /cleanup-run (which
-# only moves matches into TRASH_ROOT, never deletes -- see POST
-# /cleanup-empty-trash for the separate, permanent step).
+# explicitly clearing a given log another way. POST /cleanup-run invokes the
+# single authoritative Athos weekly cleanup policy; this scan is inventory,
+# not a second cleanup implementation.
 #
 # Whole filesystem, not just ~/.hermes: /mnt is the WSL host filesystem
 # passthrough (huge, irrelevant -- excluded per the operator's own
@@ -146,8 +146,8 @@ def _categorize_log(path: str) -> str:
     return "Other logs"
 
 
-async def _bridge(method: str, path: str, **kwargs) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=60.0) as client:
+async def _bridge(method: str, path: str, *, timeout_seconds: float = 60.0, **kwargs) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         resp = await client.request(
             method,
             f"{settings.CHAT_BRIDGE_URL}{path}",
@@ -517,10 +517,9 @@ async def cleanup_scan(
 ) -> dict[str, Any]:
     """Read-only inventory of everything the ecosystem's cleanup scripts
     already consider fair game, grouped by type -- nothing is deleted
-    here, this only answers "what would there be to clean." See
-    POST /cleanup-run for the actual action (which only ever acts on the
-    logs/cron-output/backups categories, never on scripts -- see its own
-    docstring for why deleting a script is deliberately left manual).
+    here, this only answers "what would there be to inspect." POST
+    /cleanup-run invokes the authoritative bounded Athos policy. Scripts
+    shown by this inventory are never removed automatically.
 
     Five sources of truth for what "cleanup-worthy" means, each a
     directory match (not an extension filter) so rotated logs
@@ -577,96 +576,39 @@ async def cleanup_scan(
     }
 
 
-def _move_command(find_test: str, min_age_days: int, only_rotated: bool = False) -> str:
-    """A single host-bridge exec: find eligible files, move each into
-    /root/trash preserving its original absolute path (mirrors
-    ecosystem_cleanup.py's own move_to_trash -- same TRASH_ROOT, same
-    "rel = path with leading / stripped" layout), print one "MOVED: <path>"
-    line per success. `only_rotated` additionally requires the basename to
-    end in a numeric suffix (errors.log.1, agent.log.3, ...) -- this is
-    what keeps a running agent's live, currently-open log untouched: the
-    live file (agent.log, no suffix) never matches."""
-    rotated_filter = " | grep -E '\\.[0-9]+$'" if only_rotated else ""
-    trash_root = shlex.quote(TRASH_ROOT)
-    return (
-        f"find {shlex.quote(SCAN_ROOT)} {_prune_clause()} {find_test} -mtime +{min_age_days} -print"
-        f"{rotated_filter}"
-        " | while IFS= read -r src; do "
-        '[ -z "$src" ] && continue; '
-        f'rel="${{src#/}}"; dest={trash_root}"/$rel"; '
-        'mkdir -p "$(dirname "$dest")" && mv -- "$src" "$dest" && echo "MOVED: $src"; '
-        "done"
-    )
-
-
 @router.post("/cleanup-run")
 async def cleanup_run(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
-    """Sweeps cleanup-eligible files into TRASH_ROOT -- reversible, never
-    deletes anything (see POST /cleanup-empty-trash for that, a separate
-    action/button as of 2026-07-11; previously this endpoint did both in
-    one click). Deliberately narrower than GET /cleanup-scan's full
-    inventory:
-    - Only ROTATED logs (errors.log.1, agent.log.3, ...) under
-      */profiles/*/logs/* and */cron/logs/* -- the live, currently-open
-      agent.log/errors.log/gateway.log/interrupt_debug.log are never
-      matched, so a running Hermes agent's active log handle is never
-      disturbed.
-    - */cron/output/* and the rotated logs above: only files older than
-      1 day -- nothing from today gets swept.
-    - *.bak* files: only older than 30 days, matching
-      ecosystem_cleanup.py's own RETENTION_DAYS for backups.
+    """Runs the same bounded cleanup policy used by foundation-clear.
+
+    This is intentionally the only cleanup execution engine. The inventory
+    endpoint remains read-only. The policy expires trash and old backups,
+    bounds journals/tmp files, and prunes reproducible Docker artifacts;
+    Docker volumes and database data are never pruned.
     """
-    moved: list[str] = []
-    sweep_errors: list[str] = []
-    for command in (
-        _move_command("-type f \\( -path '*/profiles/*/logs/*' -o -path '*/cron/logs/*' \\)", 1, only_rotated=True),
-        _move_command("-type f -path '*/cron/output/*'", 1),
-        _move_command("-type f -iname '*.bak*'", 30),
-    ):
-        data = await _bridge("POST", "/v1/exec", json={"command": command})
-        for line in (data["stdout"] or "").splitlines():
-            if line.startswith("MOVED: "):
-                moved.append(line[len("MOVED: "):])
-        sweep_errors.extend(line for line in (data["stderr"] or "").splitlines() if line.strip())
-
-    return {
-        "swept_count": len(moved),
-        "swept": moved,
-        "sweep_errors": sweep_errors,
-        "trash_root": TRASH_ROOT,
-    }
-
-
-@router.post("/cleanup-empty-trash")
-async def cleanup_empty_trash(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
-    """Permanently deletes everything currently under TRASH_ROOT (the
-    directory itself is kept, only its contents go) -- separate from
-    POST /cleanup-run so an operator can review what got swept there
-    before committing to deletion. Mirrors the external
-    create_trash_cleanup_task.sh's own before/after item-count logic, but
-    runs directly via host-bridge exec against the configurable
-    TRASH_ROOT rather than that script's hardcoded /root/trash."""
-    # nullglob must be re-enabled around EACH glob expansion, not just once
-    # up front -- with it off, an empty-directory glob that matches nothing
-    # stays as the literal unexpanded `TRASH_ROOT/*` string and counts as
-    # one bogus "remaining" item instead of zero (caught 2026-07-11 testing
-    # this endpoint: emptying an already-empty trash reported
-    # remaining_items: 1). Mirrors create_trash_cleanup_task.sh's own
-    # three separate shopt -s/-u pairs.
-    trash_root = shlex.quote(TRASH_ROOT)
     command = (
-        f"shopt -s dotglob nullglob; items=({trash_root}/*); shopt -u dotglob nullglob; before=${{#items[@]}}; "
-        f"rm -rf -- {trash_root}/*; "
-        f"shopt -s dotglob nullglob; items2=({trash_root}/*); shopt -u dotglob nullglob; after=${{#items2[@]}}; "
-        'echo "deleted_items: $before"; echo "remaining_items: $after"'
+        f"TRASH_DIR={shlex.quote(TRASH_ROOT)} "
+        f"BACKUP_ROOT={shlex.quote(BACKUP_DIR)} "
+        f"bash {shlex.quote(CLEANUP_SCRIPT)}"
     )
-    data = await _bridge("POST", "/v1/exec", json={"command": command})
+    # Builder pruning can legitimately take several minutes when a WSL host
+    # has accumulated tens of gigabytes, so this operation gets a wider
+    # timeout than ordinary bridge filesystem/git calls.
+    data = await _bridge(
+        "POST", "/v1/exec", timeout_seconds=615.0,
+        json={"command": command, "timeout_seconds": 600},
+    )
     if data["exit_code"] != 0:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(data["stderr"] or "").strip() or "emptying trash failed",
+            detail=(data["stderr"] or "").strip() or "ecosystem cleanup failed",
         )
-    return {"trash_root": TRASH_ROOT, "output": (data["stdout"] or "").strip()}
+    return {
+        "trash_root": TRASH_ROOT,
+        "backup_root": BACKUP_DIR,
+        "script": CLEANUP_SCRIPT,
+        "output": (data["stdout"] or "").strip(),
+        "policy": "no-docker-volume-prune",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -706,10 +648,8 @@ GIT_CONTROL_DEFAULT_REPO={git_control_default_repo}
 BACKUP_ROOT={backup_root}
 
 # System Control -- Cleanup
-# "Run Cleanup" moves eligible files here; "Empty trash" permanently
-# deletes this directory's contents -- two separate buttons. Independent
-# of the external "foundation-clear" Hermes cron, which always empties
-# its own hardcoded /root/trash regardless of this setting.
+# Path passed to the single Athos cleanup script by System Control. Keep it
+# aligned with foundation-clear's default (/root/trash).
 TRASH_ROOT={trash_root}
 # Root the Cleanup card's inventory scan walks.
 CLEANUP_SCAN_ROOT={cleanup_scan_root}
@@ -773,9 +713,9 @@ async def update_app_config(
     except (ZoneInfoNotFoundError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"'{payload.timezone}' is not a valid IANA timezone"
-        )
-    # trash_root gets `rm -rf {trash_root}/*` run against it by POST
-    # /cleanup-empty-trash -- guard against the obvious catastrophic typos
+        ) from None
+    # trash_root is emptied by the Athos cleanup policy -- guard against
+    # obvious catastrophic typos
     # (empty, relative, or filesystem-root) before ever persisting it.
     trash_root = payload.trash_root.rstrip("/")
     if not trash_root.startswith("/") or trash_root in ("", "/"):

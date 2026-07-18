@@ -53,7 +53,7 @@ import websockets
 
 from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
 HERMES_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
@@ -1521,6 +1521,7 @@ async def chat_approve(req: ChatApproveRequest, x_bridge_token: str | None = Hea
 class ExecRequest(BaseModel):
     command: str
     cwd: str | None = None
+    timeout_seconds: int = Field(default=60, ge=1, le=600)
 
 
 class ExecResponse(BaseModel):
@@ -1544,15 +1545,15 @@ async def exec_command(req: ExecRequest, x_bridge_token: str | None = Header(def
             cwd=req.cwd or None,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=req.timeout_seconds,
         )
 
     try:
         proc = await loop.run_in_executor(None, run)
     except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=408, detail="Command timed out after 60s")
+        raise HTTPException(status_code=408, detail=f"Command timed out after {req.timeout_seconds}s") from None
     except FileNotFoundError:
-        raise HTTPException(status_code=400, detail=f"cwd not found: {req.cwd}")
+        raise HTTPException(status_code=400, detail=f"cwd not found: {req.cwd}") from None
     return ExecResponse(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
 
 

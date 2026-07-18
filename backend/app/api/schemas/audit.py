@@ -17,7 +17,7 @@ class AuditCheckBase(BaseModel):
     workdir: str | None = Field(default=None, max_length=500)
     agent_profile: str = Field(default="athos", max_length=50)
     enabled: bool = True
-    timeout_seconds: int = Field(default=55, ge=1, le=55)
+    timeout_seconds: int = Field(default=55, ge=1, le=600)
 
 
 class AuditCheckCreate(AuditCheckBase):
@@ -36,7 +36,7 @@ class AuditCheckUpdate(BaseModel):
     workdir: str | None = Field(default=None, max_length=500)
     agent_profile: str | None = Field(default=None, max_length=50)
     enabled: bool | None = None
-    timeout_seconds: int | None = Field(default=None, ge=1, le=55)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=600)
 
 
 class AuditRunOut(BaseModel):

@@ -39,7 +39,7 @@ class AuditCheck(Base, TimestampMixin):
     # is host-side via the bridge either way).
     agent_profile: Mapped[str] = mapped_column(String(50), nullable=False, default="athos")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    # Capped at 55s by the runner: the bridge /v1/exec hard-kills at 60s.
+    # Defaults to 55s; explicitly bounded maintenance may use up to 600s.
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=55)
 
     runs: Mapped[list["AuditCheckRun"]] = relationship(

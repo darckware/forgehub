@@ -10,11 +10,8 @@ export interface AppConfig {
   hermes_source_path: string;
   git_control_default_repo: string;
   backup_root: string;
-  /** Where "Run Cleanup" moves eligible files and "Empty trash" (a
-   * separate action) permanently deletes -- see System Control's Cleanup
-   * card. Independent of the external Hermes "foundation-clear" cron,
-   * which always empties its own hardcoded /root/trash regardless of
-   * this setting. */
+  /** Trash path passed to the same Athos cleanup policy used by the weekly
+   * foundation-clear cron. */
   trash_root: string;
   cleanup_scan_root: string;
   cleanup_prune_paths: string[];
