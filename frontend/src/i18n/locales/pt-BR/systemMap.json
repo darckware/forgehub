@@ -1,0 +1,55 @@
+{
+  "page": {
+    "title": "Mapa do Sistema",
+    "description": "Rastreie o sistema desde a intenção de negócio por telas, regras, código, dados, implantação e evidência."
+  },
+  "productSelect": {
+    "label": "Produto",
+    "placeholder": "Selecione um produto"
+  },
+  "addElement": {
+    "title": "Adicionar elemento do sistema",
+    "fields": {
+      "stableKey": "Chave estável",
+      "name": "Nome",
+      "layer": "Camada",
+      "type": "Tipo"
+    },
+    "stableKeyPlaceholder": "screen.login",
+    "button": "Adicionar"
+  },
+  "connectElements": {
+    "title": "Conectar elementos",
+    "from": "De",
+    "relationType": "Tipo de relação",
+    "to": "Para",
+    "button": "Conectar"
+  },
+  "scopeGraph": {
+    "title": "Grafo de escopo",
+    "description": "Arraste uma camada para o mapa para adicionar um elemento; arraste entre elementos para conectá-los.",
+    "validateButton": "Validar",
+    "validating": "Validando…",
+    "valid": "O mapa é estruturalmente válido",
+    "invalid": "O mapa tem bloqueios",
+    "empty": "Arraste uma camada da barra de ferramentas para adicionar o primeiro elemento."
+  },
+  "canvas": {
+    "paletteHint": "Arraste uma camada para o mapa:",
+    "readOnlyHint": "Esta revisão não é rascunho -- o mapa está somente para visualização.",
+    "assistantHelp": "Pedir ajuda ao assistente",
+    "copyPasteHint": "Selecione um elemento e use Ctrl+C/Ctrl+V para duplicá-lo, ou cole (Ctrl+V) um fluxo que o assistente escreveu para criar tudo de uma vez. Dê dois cliques num elemento para editar ou excluir.",
+    "pasteSuccess": "Criado(s) {{elements}} elemento(s) e {{relations}} relação(ões).",
+    "pasteInvalid": "Nada válido encontrado no texto colado.",
+    "editTitle": "Editar elemento",
+    "save": "Salvar",
+    "removeElement": "Remover elemento",
+    "autoArrange": "Organizar automaticamente"
+  },
+  "detailCards": {
+    "map": "Mapa",
+    "revision": "Revisão",
+    "coverage": "Cobertura",
+    "newRevision": "Nova revisão"
+  }
+}

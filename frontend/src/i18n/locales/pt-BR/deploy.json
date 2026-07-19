@@ -1,0 +1,326 @@
+{
+  "statusHelpers": {
+    "healthy": "Saudável",
+    "unhealthy": "Não saudável",
+    "starting": "Iniciando",
+    "running": "Em execução",
+    "stopped": "Parado"
+  },
+  "logsModal": {
+    "title": "{{containerName}}",
+    "subtitle": "— últimas {{lines}} linhas",
+    "linesOptions": {
+      "50": "50 linhas",
+      "100": "100 linhas",
+      "200": "200 linhas",
+      "500": "500 linhas",
+      "1000": "1000 linhas"
+    },
+    "refresh": "Atualizar",
+    "close": "Fechar",
+    "loading": "Carregando logs...",
+    "noLogs": "Nenhum log disponível."
+  },
+  "groupsModal": {
+    "title": "Grupos",
+    "create": {
+      "inputPlaceholder": "Nome do novo grupo",
+      "button": "Novo grupo"
+    },
+    "actions": {
+      "rename": "Renomear",
+      "delete": "Excluir",
+      "save": "Salvar",
+      "cancel": "Cancelar"
+    },
+    "messages": {
+      "noGroups": "Nenhum grupo criado.",
+      "info": "Renomear um grupo atualiza suas instalações. Excluir um grupo deixa suas instalações sem grupo."
+    },
+    "confirm": {
+      "title": "Excluir grupo",
+      "description": "Excluir o grupo \"{{name}}\"? As instalações neste grupo ficarão sem grupo.",
+      "confirm": "Excluir",
+      "cancel": "Cancelar"
+    },
+    "tableHeaders": {
+      "name": "Nome",
+      "actions": "Ações"
+    }
+  },
+  "installationForm": {
+    "name": {
+      "label": "Nome *",
+      "placeholder": "Backend ForgeHub"
+    },
+    "group": {
+      "label": "Grupo",
+      "none": "— nenhum grupo —",
+      "buttonTitle": "Gerenciar grupos"
+    },
+    "description": {
+      "label": "Descrição",
+      "placeholder": "Breve descrição do serviço"
+    },
+    "container": {
+      "label": "Container Docker",
+      "none": "— nenhum —"
+    },
+    "order": {
+      "label": "Ordem"
+    },
+    "restartCommand": {
+      "label": "Comando de reinicialização",
+      "placeholder": "docker restart nome-container"
+    },
+    "composeFile": {
+      "label": "Caminho do docker-compose.yml",
+      "placeholder": "/root/project/forgehub/docker-compose.yml"
+    },
+    "product": {
+      "label": "Produto ForgeHub (opcional)",
+      "none": "— nenhum —"
+    },
+    "ports": {
+      "label": "Portas expostas",
+      "inputPlaceholder": "8000:8000",
+      "button": "Adicionar porta"
+    },
+    "links": {
+      "label": "Links",
+      "inputs": {
+        "label": "Rótulo",
+        "url": "http://localhost:8000"
+      },
+      "button": "Adicionar link"
+    },
+    "notes": {
+      "label": "Observações",
+      "placeholder": "Observações, credenciais, referências..."
+    },
+    "containerDetails": {
+      "container": "Container",
+      "image": "Imagem",
+      "status": "Status",
+      "ports": "Portas",
+      "offline": "Este container não está em execução no Docker.",
+      "volumes": "Volumes",
+      "folders": "Pastas compartilhadas",
+      "networks": "Redes",
+      "none": "nenhum"
+    }
+  },
+  "actions": {
+    "cancel": "Cancelar",
+    "save": "Salvar",
+    "register": "Registrar"
+  },
+  "installationCard": {
+    "actions": {
+      "edit": "Registro do container (dados Docker)",
+      "remove": "Remover",
+      "viewLogs": "Ver logs",
+      "restart": "Reiniciar container",
+      "copyCommand": "Copiar comando",
+      "registerFromLive": "Registrar instância",
+      "openInstance": "Abrir instância"
+    },
+    "status": {
+      "running": "Em execução",
+      "stopped": "Parado",
+      "healthy": "Saudável",
+      "unhealthy": "Não saudável",
+      "starting": "Iniciando",
+      "offline": "offline"
+    },
+    "details": {
+      "product": "Produto:",
+      "container": "Container:",
+      "image": "Imagem:",
+      "volumes": "Volumes:",
+      "networks": "Redes:",
+      "ports": "Portas:",
+      "livePorts": "Portas (ao vivo):",
+      "links": "Links:",
+      "restart": "Reiniciar:",
+      "compose": "Compose:"
+    }
+  },
+  "liveContainersTab": {
+    "header": "{{count}} container(es) no host",
+    "refresh": "Atualizar",
+    "error": {
+      "title": "Host-bridge não respondeu",
+      "message": "Reinicie o host-bridge para habilitar o controle Docker em tempo real. Execute no terminal:",
+      "command": "kill $(pgrep -f \"host-bridge\") ; cd /root/project/forgehub/host-bridge ; source /root/project/forgehub/.env ; nohup /usr/local/lib/hermes-agent/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8910 > /tmp/host-bridge.log 2>&1 &"
+    },
+    "loading": "Carregando containers...",
+    "actions": {
+      "openInstance": "Abrir instância \"{{name}}\" ",
+      "register": "Registrar instância",
+      "delete": "Excluir container"
+    },
+    "confirm": {
+      "title": "Excluir container",
+      "description": "Remover o container \"{{name}}\" do Docker e do banco de dados de instalações? Esta ação não pode ser desfeita (volumes não são removidos).",
+      "confirm": "Excluir",
+      "cancel": "Cancelar"
+    }
+  },
+  "volumesTab": {
+    "header": "{{count}} volume(s)",
+    "refresh": "Atualizar",
+    "error": {
+      "message": "Host-bridge offline — volumes indisponíveis."
+    },
+    "loading": "Carregando volumes...",
+    "empty": "Nenhum volume encontrado.",
+    "table": {
+      "headers": {
+        "name": "Nome",
+        "driver": "Driver",
+        "scope": "Escopo",
+        "mountpoint": "Ponto de montagem",
+        "containers": "Containers",
+        "actions": ""
+      }
+    },
+    "actions": {
+      "openInstance": "Abrir instância \"{{name}}\" ",
+      "register": "Registrar instância",
+      "delete": "Excluir volume"
+    },
+    "confirm": {
+      "title": "Excluir volume",
+      "description": "Remover o volume \"{{name}}\" do Docker? Os dados armazenados nele serão perdidos. Esta ação não pode ser desfeita.",
+      "confirm": "Excluir",
+      "cancel": "Cancelar"
+    }
+  },
+  "networksTab": {
+    "header": "{{count}} rede(s)",
+    "refresh": "Atualizar",
+    "error": {
+      "message": "Host-bridge offline — redes indisponíveis."
+    },
+    "loading": "Carregando redes...",
+    "table": {
+      "headers": {
+        "name": "Nome",
+        "id": "ID",
+        "driver": "Driver",
+        "scope": "Escopo",
+        "internal": "interno",
+        "containers": "{{count}} container(es)",
+        "actions": ""
+      }
+    },
+    "actions": {
+      "openInstance": "Abrir instância \"{{name}}\" ",
+      "register": "Registrar instância",
+      "delete": "Excluir rede"
+    },
+    "confirm": {
+      "title": "Excluir rede",
+      "description": "Remover a rede \"{{name}}\" do Docker? Esta ação não pode ser desfeita.",
+      "confirm": "Excluir",
+      "cancel": "Cancelar"
+    }
+  },
+  "imagesTab": {
+    "header": "{{count}} imagem(s)",
+    "headerUnused": "{{count}} não usadas",
+    "refresh": "Atualizar",
+    "error": {
+      "message": "Host-bridge offline — imagens indisponíveis."
+    },
+    "loading": "Carregando imagens...",
+    "empty": "Nenhuma imagem encontrada.",
+    "table": {
+      "headers": {
+        "repository": "Repositório",
+        "tag": "Tag",
+        "id": "ID",
+        "size": "Tamanho",
+        "created": "Criada",
+        "status": "Status",
+        "actions": ""
+      }
+    },
+    "status": {
+      "inUse": "Em uso",
+      "unused": "Não usada",
+      "dangling": "Solta"
+    },
+    "actions": {
+      "delete": "Excluir imagem"
+    },
+    "confirm": {
+      "title": "Excluir imagem",
+      "description": "Remover a imagem \"{{name}}\" do Docker? Esta ação não pode ser desfeita.",
+      "confirm": "Excluir",
+      "cancel": "Cancelar"
+    }
+  },
+  "mainPage": {
+    "header": {
+      "title": "Controle de Deploy",
+      "description": "Monitoramento e controle de instalações Docker"
+    },
+    "stats": {
+      "installations": "Instalações",
+      "containers": "Containers",
+      "running": "Em execução",
+      "healthy": "Saudável",
+      "issues": "Problemas",
+      "volumes": "Volumes",
+      "networks": "Redes",
+      "images": "Imagens"
+    },
+    "bridgeOffline": {
+      "title": "Host-bridge offline — dados do Docker indisponíveis. Reinicie com:",
+      "command": "kill $(pgrep -f host-bridge); cd /root/project/forgehub/host-bridge && source /root/project/forgehub/.env && nohup /usr/local/lib/hermes-agent/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8910 > /tmp/host-bridge.log 2>&1 &"
+    },
+    "tabs": {
+      "installations": "installations",
+      "live": "live",
+      "volumes": "volumes",
+      "networks": "networks",
+      "images": "images"
+    },
+    "actions": {
+      "sync": "Sincronizar Docker",
+      "newInstallation": "Nova Instalação",
+      "cancel": "Cancelar",
+      "save": "Salvar",
+      "register": "Registrar",
+      "edit": "Editar",
+      "remove": "Remover",
+      "restart": "Reiniciar",
+      "viewLogs": "Ver logs",
+      "copyCommand": "Copiar comando",
+      "registerFromLive": "Registrar instância",
+      "openInstance": "Abrir instância"
+    },
+    "messages": {
+      "loading": "Carregando...",
+      "noInstallations": "Nenhuma instalação registrada.",
+      "noInstallationsHelp": "Use \"Nova Instalação\" ou registre diretamente da aba Docker ao vivo.",
+      "hostBridgeOffline": "Host-bridge offline — dados do Docker indisponíveis. Reinicie com:",
+      "hostBridgeResponseFailed": "Host-bridge não respondeu",
+      "volumesUnavailable": "Host-bridge offline — volumes indisponíveis.",
+      "noVolumes": "Nenhum volume encontrado.",
+      "networksUnavailable": "Host-bridge offline — redes indisponíveis.",
+      "imagesUnavailable": "Host-bridge offline — imagens indisponíveis.",
+      "noImages": "Nenhuma imagem encontrada.",
+      "bridgeOffline": "Host-bridge offline — dados do Docker indisponíveis. Reinicie com:",
+      "restartConfirmation": "Reiniciar container \"{{name}}\"? O serviço ficará offline por alguns segundos.",
+      "removeConfirmation": "Remover \"{{name}}\" do registro? O container Docker não será afetado.",
+      "syncResult": {
+        "created": "criado(s)",
+        "updated": "atualizado(s)",
+        "upToDate": "Registro já está atualizado"
+      }
+    }
+  }
+}

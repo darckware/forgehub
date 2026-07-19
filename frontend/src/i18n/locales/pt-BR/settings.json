@@ -1,0 +1,104 @@
+{
+  "settings": {
+    "title": "Configurações",
+    "description": "Padrões do sistema de forgehub.config -- não são credenciais (essas vivem em .env). Salvar reescreve esse arquivo e aplica imediatamente, sem reiniciar.",
+
+    "tabs": {
+      "forgeRouterModels": "Modelos virtuais do ForgeRouter",
+      "forgeRouterModelsDescription": "IDs de modelos disponíveis para agentes. Auto é o modelo principal recomendado; classes explícitas são úteis quando o planejamento já conhece a carga de trabalho.",
+      "gitControl": "Controle Git",
+      "gitControlDescription": "Entrada de sistema fixa; o cartão de Controle Git da System Control sempre oferece.",
+      "backups": "Backups",
+      "backupsDescription": "Backups do Hermes chegam aqui; cada projeto com backup habilitado ganha seu próprio subdiretório a menos que defina seu próprio local.",
+      "cleanup": "Limpeza & Lixeira",
+      "cleanupDescription": "\"Executar limpeza\" chama a mesma política limitada do Athos usada pelo cron semanal foundation-clear.",
+      "aiChat": "Chat de IA",
+      "aiChatDescription": "Língua da resposta do chat de IA (abas Workspace e painel Assistente). Enviado ao agente como instrução oculta em cada mensagem -- nunca aparece na conversa.",
+      "general": "Geral"
+    },
+
+    "gitControl": {
+      "hermesSourcePath": {
+        "label": "Caminho do checkout do Hermes",
+        "inputId": "hermes_source_path"
+      },
+      "gitControlDefaultRepo": {
+        "label": "Chave do repositório padrão",
+        "inputId": "git_control_default_repo",
+        "help": "O que o Controle Git cai como fallback quando nenhum repositório é selecionado -- deve resolver a uma entrada que ele pode encontrar (\"hermes\" ou uma chave de projeto registrada), ou as solicitações de status falharão."
+      }
+    },
+
+    "backups": {
+      "backupRoot": {
+        "label": "Diretório raiz dos backups",
+        "inputId": "backup_root"
+      }
+    },
+
+    "cleanup": {
+      "trashRoot": {
+        "label": "Pasta da lixeira",
+        "inputId": "trash_root",
+        "help": "Caminho enviado ao script oficial de limpeza do Athos; mantenha alinhado ao padrão semanal do foundation-clear (/root/trash)."
+      },
+      "cleanupScanRoot": {
+        "label": "Diretório de varredura",
+        "inputId": "cleanup_scan_root"
+      },
+      "prunedPaths": {
+        "label": "Caminhos podados (um por linha)",
+        "textareaId": "cleanup_prune_paths"
+      },
+      "prunedNames": {
+        "label": "Nomes de diretórios podados (um por linha)",
+        "textareaId": "cleanup_prune_names"
+      }
+    },
+
+    "aiChat": {
+      "chatResponseLanguage": {
+        "label": "Idioma padrão do sistema",
+        "inputId": "chat_response_language"
+      },
+      "languages": [
+        { "value": "pt-BR", "label": "Português (Brasil)" },
+        { "value": "en", "label": "English" },
+        { "value": "es", "label": "Espanhol" },
+        { "value": "fr", "label": "Francês" },
+        { "value": "de", "label": "Alemão" },
+        { "value": "it", "label": "Italiano" }
+      ]
+    },
+
+    "general": {
+      "timezone": {
+        "cardDescription": "Fuso horário usado nos timestamps que o próprio ForgeHub gera (ex: nomes de arquivos de backup).",
+        "label": "Fuso horário",
+        "inputId": "timezone",
+        "datalistId": "timezone-suggestions",
+        "suggestions": [
+          "America/Sao_Paulo",
+          "America/New_York",
+          "America/Los_Angeles",
+          "Europe/Lisbon",
+          "Europe/London",
+          "UTC"
+        ],
+        "help": "Nome de zona IANA (ex: America/Sao_Paulo para UTC-3). Validado ao salvar."
+      }
+    },
+
+    "messages": {
+      "loading": "Carregando configurações...",
+      "loadingModels": "Carregando modelos...",
+      "recommended": "recomendado",
+      "error": "Falha ao carregar configurações: {{message}}",
+      "unknownError": "erro desconhecido",
+      "saved": "Configurações salvas -- aplicadas imediatamente, sem reiniciar.",
+      "saveError": "Falha ao salvar configurações",
+      "reset": "Descartar",
+      "save": "Salvar"
+    }
+  }
+}

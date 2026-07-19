@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ToolVersionsCard } from "@/components/ToolVersionsCard";
 import { SystemStatsCard } from "@/components/SystemStatsCard";
 import { RemoteAccessCard } from "@/components/RemoteAccessCard";
@@ -10,13 +11,14 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 type RightColumnTab = "resources" | "remote";
 
 export default function Dashboard() {
+  const { t } = useTranslation("dashboard");
   const [tab, setTab] = useState<RightColumnTab>("resources");
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">Welcome to ForgeHub.</p>
+        <h1 className="text-3xl font-bold tracking-tight">{t("title")}</h1>
+        <p className="text-muted-foreground">{t("welcome")}</p>
       </div>
       {/* Left column (Tool Versions) is naturally the tallest card --
           tabbing System Resources/Remote Access into one card on the right
@@ -29,8 +31,8 @@ export default function Dashboard() {
             <CardHeader className="pb-3">
               <Tabs value={tab} onValueChange={(v) => setTab(v as RightColumnTab)}>
                 <TabsList>
-                  <TabsTrigger value="resources">System Resources</TabsTrigger>
-                  <TabsTrigger value="remote">Remote Access</TabsTrigger>
+                  <TabsTrigger value="resources">{t("tabs.resources")}</TabsTrigger>
+                  <TabsTrigger value="remote">{t("tabs.remote")}</TabsTrigger>
                 </TabsList>
               </Tabs>
             </CardHeader>

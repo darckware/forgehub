@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AuthUser } from "@/store/authStore";
 import { useCreateUser, useUpdateUser, useProfiles } from "@/hooks/useAuth";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   user?: AuthUser;
@@ -46,6 +47,7 @@ function PasswordInput({
 }
 
 export default function UserForm({ user, onClose }: Props) {
+  const { t } = useTranslation("users");
   const [username, setUsername] = useState(user?.username ?? "");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -102,52 +104,52 @@ export default function UserForm({ user, onClose }: Props) {
     <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
       {!user && (
         <div className="flex flex-col gap-1">
-          <Label>Username *</Label>
+          <Label>{t("users.form.usernameLabel")}</Label>
           <Input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
-            placeholder="jdoe"
+            placeholder={t("users.form.usernamePlaceholder")}
           />
         </div>
       )}
 
       <div className="flex flex-col gap-1">
-        <Label>{user ? "New password (optional)" : "Password *"}</Label>
+        <Label>{user ? t("users.form.newPassword") : t("users.form.passwordLabel")}</Label>
         <PasswordInput
           value={password}
           onChange={setPassword}
           required={passwordRequired}
-          placeholder={user ? "leave blank to keep" : "••••••••"}
+          placeholder={user ? t("users.form.leaveBlank") : t("users.form.passwordPlaceholder")}
         />
       </div>
 
       <div className="flex flex-col gap-1">
         <Label>
-          Confirm password
+          {t("users.form.confirmLabel")}
           {!passwordRequired && !passwordFilled && (
-            <span className="ml-1 text-muted-foreground font-normal text-xs">(optional)</span>
+            <span className="ml-1 text-muted-foreground font-normal text-xs">({t("users.form.optional")})</span>
           )}
         </Label>
         <PasswordInput
           value={confirm}
           onChange={setConfirm}
           required={passwordRequired || passwordFilled}
-          placeholder="••••••••"
+          placeholder={t("users.form.confirmPlaceholder")}
         />
         {confirmMismatch && (
-          <p className="text-xs text-destructive">Passwords do not match</p>
+          <p className="text-xs text-destructive">{t("users.form.passwordsMismatch")}</p>
         )}
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label>Full name</Label>
-        <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="John Doe" />
+        <Label>{t("users.form.fullNameLabel")}</Label>
+        <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={t("users.form.fullNamePlaceholder")} />
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label>Email</Label>
-        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" />
+        <Label>{t("users.form.emailLabel")}</Label>
+        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("users.form.emailPlaceholder")} />
       </div>
 
       <div className="flex items-center gap-4 col-span-2">
@@ -161,9 +163,9 @@ export default function UserForm({ user, onClose }: Props) {
             }}
             className="h-4 w-4 rounded border-border"
           />
-          <span className="text-sm font-medium">Super Admin</span>
+          <span className="text-sm font-medium">{t("users.form.superAdminLabel")}</span>
         </label>
-        <span className="text-xs text-muted-foreground">full access, bypasses profiles</span>
+        <span className="text-xs text-muted-foreground">{t("users.form.superAdminDesc")}</span>
         {user && (
           <label className="flex items-center gap-2 cursor-pointer select-none ml-4">
             <input
@@ -172,7 +174,7 @@ export default function UserForm({ user, onClose }: Props) {
               onChange={(e) => setIsActive(e.target.checked)}
               className="h-4 w-4 rounded border-border"
             />
-            <span className="text-sm">Active</span>
+            <span className="text-sm">{t("users.form.activeLabel")}</span>
           </label>
         )}
       </div>

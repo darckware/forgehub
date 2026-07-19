@@ -1,0 +1,20 @@
+{
+  "profiles": {
+    "list": {
+      "title": "Access Profiles",
+      "create": "New profile"
+    },
+    "delete": {
+      "confirm": "Delete profile \"{{name}}?"
+    },
+    "permissions": {
+      "column": {
+        "module": "Module",
+        "view": "View",
+        "query": "Query",
+        "write": "Write",
+        "delete": "Delete"
+      }
+    }
+  }
+}

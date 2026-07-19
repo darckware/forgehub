@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Brain, FileText, Network, Search } from "lucide-react";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import type { DocTreeNode } from "@/components/DocTree";
@@ -57,6 +58,7 @@ export function DocumentBrowser({
   children: ReactNode;
   bodyClassName?: string;
 }) {
+  const { t } = useTranslation("documentBrowser");
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
@@ -80,7 +82,7 @@ export function DocumentBrowser({
                 onClick={() => onViewModeChange("note")}
               >
                 <FileText className="mr-2 h-3.5 w-3.5" />
-                Note
+                {t("note")}
               </Button>
               <Button
                 variant={viewMode === "mindmap" ? "secondary" : "ghost"}
@@ -90,7 +92,7 @@ export function DocumentBrowser({
                 disabled={mindMapDisabled}
               >
                 <Brain className="mr-2 h-3.5 w-3.5" />
-                Mind map
+                {t("mindMap")}
               </Button>
               <Button
                 variant={viewMode === "graph" ? "secondary" : "ghost"}
@@ -99,7 +101,7 @@ export function DocumentBrowser({
                 onClick={() => onViewModeChange("graph")}
               >
                 <Network className="mr-2 h-3.5 w-3.5" />
-                Graph
+                {t("graph")}
               </Button>
             </div>
             {actions}

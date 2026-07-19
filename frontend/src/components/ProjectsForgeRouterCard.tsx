@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FolderOpen, Loader2, RefreshCw, XCircle } from "lucide-react";
 import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
 import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
@@ -24,6 +25,12 @@ interface ProjectForgeRouterRowProps {
 
 type ToolKey = "claude" | "codex" | "antigravity";
 
+const TOOL_LABELS: Record<ToolKey, string> = {
+  claude: "Claude",
+  codex: "Codex",
+  antigravity: "Antigravity",
+};
+
 function ToolBadge({
   icon,
   label,
@@ -39,6 +46,7 @@ function ToolBadge({
   disabled?: boolean;
   onClick: () => void;
 }) {
+  const { t } = useTranslation("dashboard");
   return (
     <button
       type="button"
@@ -47,8 +55,8 @@ function ToolBadge({
       className="flex items-center gap-1 rounded px-0.5 transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
       title={
         disabled
-          ? "Set working_directory_path on the project first"
-          : `${label}: ${enabled ? "configured — click to disable" : "not configured — click to enable"}`
+          ? t("projectsForgeRouter.setWorkingDirFirst")
+          : t(enabled ? "projectsForgeRouter.toolConfigured" : "projectsForgeRouter.toolNotConfigured", { tool: label })
       }
     >
       <img src={icon} alt="" className="h-4 w-4 rounded" />
@@ -64,6 +72,7 @@ function ToolBadge({
 }
 
 function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectForgeRouterRowProps) {
+  const { t } = useTranslation("dashboard");
   const { data: config, isLoading } = useProjectForgeRouterConfig(projectId);
   const toggle = useToggleProjectForgeRouter(projectId);
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -79,30 +88,46 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
     antigravity: config?.antigravity_enabled ?? false,
   });
 
+  const currentApiKey = (tool: ToolKey): string | null => ({
+    claude: config?.claude_api_key ?? null,
+    codex: config?.codex_api_key ?? null,
+    antigravity: config?.antigravity_api_key ?? null,
+  })[tool];
+
+  // Each icon toggles only its own tool and carries only that tool's own
+  // key — Claude/Codex/Antigravity are separate products with separate
+  // credentials, so a key typed for one must never be applied to another.
   const applyToggle = async (tool: ToolKey, nextValue: boolean, apiKey: string) => {
     const desired = { ...currentState(), [tool]: nextValue };
     await toggle.mutateAsync({
       enabled: desired.claude || desired.codex || desired.antigravity,
-      api_key: apiKey,
+      [`${tool}_api_key`]: apiKey,
       ...desired,
     });
   };
 
-  // Each icon toggles only its own tool — the other two keep their current
-  // state, so picking Codex doesn't drag Claude along for the ride.
   const handleToolClick = async (tool: ToolKey) => {
     if (!hasPath) return;
     const nextValue = !currentState()[tool];
-    if (nextValue && !config?.api_key && !apiKeyInput) {
+    if (nextValue && !currentApiKey(tool)) {
+      // Fresh prompt for this specific tool -- never carry over a key
+      // typed (or left over from a cancelled prompt) for a different tool.
+      setApiKeyInput("");
       setPendingTool(tool);
       setShowApiKey(true);
       return;
     }
-    await applyToggle(tool, nextValue, apiKeyInput);
+    await applyToggle(tool, nextValue, "");
+  };
+
+  const handleCancelApiKey = () => {
+    setApiKeyInput("");
+    setShowApiKey(false);
+    setPendingTool(null);
   };
 
   const handleDisableAll = async () => {
-    await toggle.mutateAsync({ enabled: false, api_key: "", claude: false, codex: false, antigravity: false });
+    await toggle.mutateAsync({ enabled: false, claude: false, codex: false, antigravity: false });
     setApiKeyInput("");
     setShowApiKey(false);
     setPendingTool(null);
@@ -114,6 +139,7 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
       return;
     }
     await applyToggle(pendingTool, true, apiKeyInput);
+    setApiKeyInput("");
     setShowApiKey(false);
     setPendingTool(null);
   };
@@ -134,7 +160,7 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
               <span className="truncate font-mono">{projectPath}</span>
             </div>
           ) : (
-            <span className="text-xs text-amber-500">No working directory set</span>
+            <span className="text-xs text-amber-500">{t("projectsForgeRouter.noWorkingDir")}</span>
           )}
         </div>
 
@@ -178,9 +204,9 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
             className={`h-7 min-w-[72px] rounded border px-2 text-center text-xs leading-7 ${
               isEnabled ? "border-emerald-500/40 text-emerald-500" : "border-border/50 text-muted-foreground"
             }`}
-            title={!hasPath ? "Set working_directory_path on the project first" : undefined}
+            title={!hasPath ? t("projectsForgeRouter.setWorkingDirFirst") : undefined}
           >
-            {isEnabled ? "Active" : "Off"}
+            {isEnabled ? t("projectsForgeRouter.active") : t("projectsForgeRouter.off")}
           </span>
           {isEnabled && (
             <Button
@@ -190,7 +216,7 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
               disabled={toggle.isPending || !hasPath}
               onClick={() => void handleDisableAll()}
             >
-              Disable all
+              {t("projectsForgeRouter.disableAll")}
             </Button>
           )}
         </div>
@@ -200,26 +226,26 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
       {showApiKey && (
         <div className="border-t border-border/50 px-3 py-2 bg-muted/30">
           <p className="mb-2 text-xs text-muted-foreground">
-            Enter the ForgeRouter agent API key for this project (leave blank if ForgeRouter has no auth):
+            {t("projectsForgeRouter.apiKeyPrompt", { tool: pendingTool ? TOOL_LABELS[pendingTool] : "" })}
           </p>
           <div className="flex gap-2">
             <input
               type="password"
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
-              placeholder="API key (optional)"
+              placeholder={t("projectsForgeRouter.apiKeyPlaceholder")}
               className="h-7 flex-1 rounded border border-border bg-background px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
               onKeyDown={(e) => {
                 if (e.key === "Enter") void handleConfirmEnable();
-                if (e.key === "Escape") setShowApiKey(false);
+                if (e.key === "Escape") handleCancelApiKey();
               }}
               autoFocus
             />
             <Button size="sm" className="h-7 text-xs" onClick={() => void handleConfirmEnable()} disabled={toggle.isPending}>
-              {toggle.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Enable"}
+              {toggle.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t("projectsForgeRouter.enable")}
             </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowApiKey(false)}>
-              Cancel
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCancelApiKey}>
+              {t("projectsForgeRouter.cancel")}
             </Button>
           </div>
         </div>
@@ -228,7 +254,7 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
       {/* Last configured timestamp */}
       {configuredAt && (
         <div className="border-t border-border/30 px-3 py-1 text-[10px] text-muted-foreground/60">
-          Last configured: {configuredAt}
+          {t("projectsForgeRouter.lastConfigured", { timestamp: configuredAt })}
         </div>
       )}
 
@@ -247,6 +273,7 @@ function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectF
 // ---------------------------------------------------------------------------
 
 function GlobalAuditBanner() {
+  const { t } = useTranslation("dashboard");
   const { data: audit, isLoading, refetch } = useForgeRouterGlobalAudit();
   const [expanded, setExpanded] = useState(false);
 
@@ -257,15 +284,15 @@ function GlobalAuditBanner() {
       <div className="flex items-center gap-2">
         <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
         <span className="flex-1 text-xs text-amber-700 dark:text-amber-400">
-          {audit.findings.length} global ForgeRouter config(s) detected — these should be per-project.
+          {t("projectsForgeRouter.globalConfigsDetected", { count: audit.findings.length })}
         </span>
         <button
           className="text-xs text-amber-600 underline"
           onClick={() => setExpanded((v) => !v)}
         >
-          {expanded ? "Hide" : "Details"}
+          {expanded ? t("projectsForgeRouter.hide") : t("projectsForgeRouter.details")}
         </button>
-        <button onClick={() => void refetch()} title="Re-audit">
+        <button onClick={() => void refetch()} title={t("projectsForgeRouter.reAudit")}>
           <RefreshCw className="h-3 w-3 text-muted-foreground" />
         </button>
       </div>
@@ -287,6 +314,7 @@ function GlobalAuditBanner() {
 // ---------------------------------------------------------------------------
 
 export function ProjectsForgeRouterCard() {
+  const { t } = useTranslation("dashboard");
   const { data: projects, isLoading } = useProjects();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -294,9 +322,9 @@ export function ProjectsForgeRouterCard() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
         <div>
-          <CardTitle>Projects</CardTitle>
+          <CardTitle>{t("projectsForgeRouter.title")}</CardTitle>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            ForgeRouter is configured per project inside each project's directory.
+            {t("projectsForgeRouter.description")}
           </p>
         </div>
         <Button
@@ -304,7 +332,7 @@ export function ProjectsForgeRouterCard() {
           size="icon"
           className="h-7 w-7"
           onClick={() => setCollapsed((v) => !v)}
-          title={collapsed ? "Expand" : "Collapse"}
+          title={collapsed ? t("projectsForgeRouter.expand") : t("projectsForgeRouter.collapse")}
         >
           {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
         </Button>
@@ -317,13 +345,13 @@ export function ProjectsForgeRouterCard() {
           {isLoading && (
             <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading projects...
+              {t("projectsForgeRouter.loadingProjects")}
             </div>
           )}
 
           {!isLoading && (!projects || projects.length === 0) && (
             <p className="py-3 text-center text-sm text-muted-foreground">
-              No projects registered yet.
+              {t("projectsForgeRouter.noProjects")}
             </p>
           )}
 
@@ -342,9 +370,7 @@ export function ProjectsForgeRouterCard() {
           {/* Legend */}
           {!isLoading && projects && projects.length > 0 && (
             <p className="pt-1 text-[10px] text-muted-foreground/60">
-              Click a CLI icon to enable/disable ForgeRouter for it individually: Claude
-              (.claude/settings.local.json), Codex (.codex/config.toml). Antigravity requires manual env sourcing
-              (.forgerouter/antigravity.env).
+              {t("projectsForgeRouter.legend")}
             </p>
           )}
         </CardContent>

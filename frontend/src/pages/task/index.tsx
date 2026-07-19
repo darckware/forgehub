@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { AlertCircle, CheckCircle2, ClipboardList, Copy, Filter, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -104,6 +105,7 @@ The curl response must be valid Anthropic Messages JSON. After that, Claude Code
 `;
 
 export default function TaskPage() {
+  const { t } = useTranslation("task");
   const [searchParams] = useSearchParams();
   const prefilledCrId = searchParams.get("change_request_id") ?? undefined;
   const prefilledPlanningItemId = searchParams.get("planning_item_id") ?? undefined;
@@ -154,11 +156,8 @@ export default function TaskPage() {
       <ExecutionWaveBoard />
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Execution</h1>
-          <p className="text-muted-foreground">
-            Planned tasks and subtasks split out from planning items, assigned to agents and tracked
-            through execution.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
+          <p className="text-muted-foreground">{t("list.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
@@ -167,7 +166,7 @@ export default function TaskPage() {
             value={filterProjectId}
             onChange={(e) => setFilterProjectId(e.target.value)}
           >
-            <option value="">All projects</option>
+            <option value="">{t("list.filterAllProjects")}</option>
             {projects?.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -176,7 +175,7 @@ export default function TaskPage() {
           </select>
           <Button onClick={() => setShowForm((v) => !v)}>
             <Plus className="mr-2 h-4 w-4" />
-            New task
+            {t("list.newTask")}
           </Button>
         </div>
       </div>
@@ -184,11 +183,8 @@ export default function TaskPage() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
           <div>
-            <CardTitle>ForgeRouter Anthropic adapter task</CardTitle>
-            <CardDescription>
-              Viable only if ForgeRouter adds an Anthropic Messages API surface while keeping the
-              current OpenAI-compatible surface for Codex.
-            </CardDescription>
+            <CardTitle>{t("list.forgeRouterCard.title")}</CardTitle>
+            <CardDescription>{t("list.forgeRouterCard.description")}</CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={() => void handleCopyForgeRouterPrompt()}>
             {copiedPrompt ? (
@@ -196,7 +192,7 @@ export default function TaskPage() {
             ) : (
               <Copy className="mr-2 h-4 w-4" />
             )}
-            {copiedPrompt ? "Copied" : "Copy prompt"}
+            {copiedPrompt ? t("list.forgeRouterCard.copied") : t("list.forgeRouterCard.copyPrompt")}
           </Button>
         </CardHeader>
         <CardContent>
@@ -209,10 +205,8 @@ export default function TaskPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Create task</CardTitle>
-            <CardDescription>
-              Register a new task. Assignments and executions are tracked once work begins.
-            </CardDescription>
+            <CardTitle>{t("list.createCard.title")}</CardTitle>
+            <CardDescription>{t("list.createCard.description")}</CardDescription>
           </CardHeader>
           <CardContent>
             <TaskForm
@@ -227,7 +221,7 @@ export default function TaskPage() {
             />
             {createTask.isError && (
               <p className="mt-3 text-sm text-destructive">
-                Failed to create task: {(createTask.error as Error)?.message}
+                {t("list.createCard.createError", { message: (createTask.error as Error)?.message })}
               </p>
             )}
           </CardContent>
@@ -237,7 +231,7 @@ export default function TaskPage() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading tasks…
+          {t("list.loading")}
         </div>
       )}
 
@@ -245,7 +239,7 @@ export default function TaskPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load tasks: {(error as Error)?.message}</span>
+            <span>{t("list.loadError", { message: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -255,14 +249,12 @@ export default function TaskPage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <ClipboardList className="h-10 w-10 text-muted-foreground" />
             <div>
-              <p className="font-medium">No tasks yet</p>
-              <p className="text-sm text-muted-foreground">
-                Create your first task to start tracking assignment and execution.
-              </p>
+              <p className="font-medium">{t("list.emptyState.title")}</p>
+              <p className="text-sm text-muted-foreground">{t("list.emptyState.description")}</p>
             </div>
             <Button onClick={() => setShowForm(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              New task
+              {t("list.emptyState.cta")}
             </Button>
           </CardContent>
         </Card>
@@ -274,12 +266,12 @@ export default function TaskPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Due date</TableHead>
-                  <TableHead>Executions</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("list.columns.title")}</TableHead>
+                  <TableHead>{t("list.columns.status")}</TableHead>
+                  <TableHead>{t("list.columns.priority")}</TableHead>
+                  <TableHead>{t("list.columns.dueDate")}</TableHead>
+                  <TableHead>{t("list.columns.executions")}</TableHead>
+                  <TableHead className="text-right">{t("list.columns.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -290,17 +282,17 @@ export default function TaskPage() {
                         {task.title}
                       </Link>
                       {task.parent_task_id && (
-                        <p className="text-xs text-muted-foreground">Subtask</p>
+                        <p className="text-xs text-muted-foreground">{t("list.subtask")}</p>
                       )}
                     </TableCell>
                     <TableCell>
                       <Badge variant={STATUS_VARIANT[task.status] ?? "outline"}>
-                        {task.status.replace("_", " ")}
+                        {t(`enums.taskStatus.${task.status}`, task.status.replace("_", " "))}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <Badge variant={PRIORITY_VARIANT[task.priority] ?? "outline"}>
-                        {task.priority}
+                        {t(`enums.taskPriority.${task.priority}`, task.priority)}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -315,14 +307,14 @@ export default function TaskPage() {
                           to={`/tasks/${task.id}`}
                           className={buttonVariants({ variant: "outline", size: "sm" })}
                         >
-                          View
+                          {t("list.view")}
                         </Link>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => setPendingDeleteId(task.id)}
                           disabled={deleteTask.isPending}
-                          aria-label={`Delete ${task.title}`}
+                          aria-label={t("list.deleteAria", { title: task.title })}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
@@ -338,9 +330,9 @@ export default function TaskPage() {
 
       <ConfirmDialog
         open={pendingDeleteId !== null}
-        title="Delete task?"
-        description="This will permanently delete the task and all its executions. This cannot be undone."
-        confirmLabel="Delete"
+        title={t("list.deleteDialog.title")}
+        description={t("list.deleteDialog.description")}
+        confirmLabel={t("list.deleteDialog.confirm")}
         onConfirm={() => {
           if (pendingDeleteId) deleteTask.mutate(pendingDeleteId);
           setPendingDeleteId(null);

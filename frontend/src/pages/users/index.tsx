@@ -6,8 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useUsers, useDeleteUser, useProfiles } from "@/hooks/useAuth";
 import { useAuthStore } from "@/store/authStore";
 import UserForm from "./UserForm";
+import { useTranslation } from "react-i18next";
 
 export default function UsersPage() {
+  const { t } = useTranslation("users");
   const { data: users, isLoading } = useUsers();
   const { data: profiles } = useProfiles();
   const profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.name]));
@@ -17,7 +19,7 @@ export default function UsersPage() {
   const [creating, setCreating] = useState(false);
 
   const handleDelete = async (id: string, username: string) => {
-    if (!confirm(`Delete user "${username}"?`)) return;
+    if (!confirm(t("users.delete.confirm", { username }))) return;
     await deleteMut.mutateAsync(id);
   };
 
@@ -25,10 +27,10 @@ export default function UsersPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold flex items-center gap-2">
-          <User className="h-5 w-5" /> Users
+          <User className="h-5 w-5" /> {t("users.list.title")}
         </h1>
         <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
-          <Plus className="h-4 w-4" /> New user
+          <Plus className="h-4 w-4" /> {t("users.list.create")}
         </Button>
       </div>
 
@@ -48,12 +50,12 @@ export default function UsersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">User</th>
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Email</th>
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Role</th>
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Profile</th>
-                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("users.column.user")}</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("users.column.name")}</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("users.column.email")}</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("users.column.role")}</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("users.column.profile")}</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t("users.column.status")}</th>
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
@@ -72,26 +74,26 @@ export default function UsersPage() {
                       <td className="px-4 py-2.5">
                         {u.is_admin ? (
                           <Badge variant="outline" className="gap-1 text-amber-600 border-amber-500/30">
-                            <ShieldCheck className="h-3 w-3" /> Admin
+                            <ShieldCheck className="h-3 w-3" /> {t("users.badge.admin")}
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="gap-1 text-muted-foreground">
-                            <ShieldOff className="h-3 w-3" /> User
+                            <ShieldOff className="h-3 w-3" /> {t("users.badge.user")}
                           </Badge>
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground text-sm">
                         {u.is_admin
-                          ? <span className="italic text-xs">— (super admin)</span>
+                          ? <span className="italic text-xs">— {t("users.profile.superAdmin")}</span>
                           : u.profile_id
-                            ? profileMap[u.profile_id] ?? <span className="italic text-xs text-muted-foreground/60">loading…</span>
-                            : <span className="italic text-xs text-muted-foreground/60">no profile</span>
+                            ? profileMap[u.profile_id] ?? <span className="italic text-xs text-muted-foreground/60">{t("users.profile.loading")}</span>
+                            : <span className="italic text-xs text-muted-foreground/60">{t("users.profile.none")}</span>
                         }
                       </td>
                       <td className="px-4 py-2.5">
                         <Badge variant={u.is_active ? "outline" : "secondary"}
                           className={u.is_active ? "text-emerald-600 border-emerald-500/30" : ""}>
-                          {u.is_active ? "Active" : "Inactive"}
+                          {u.is_active ? t("users.status.active") : t("users.status.inactive")}
                         </Badge>
                       </td>
                       <td className="px-4 py-2.5">
@@ -99,7 +101,7 @@ export default function UsersPage() {
                           <Button
                             size="icon" variant="ghost" className="h-7 w-7"
                             onClick={() => setEditing(editing === u.id ? null : u.id)}
-                            title="Edit"
+                            title={t("users.action.edit")}
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -108,7 +110,7 @@ export default function UsersPage() {
                               size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
                               onClick={() => handleDelete(u.id, u.username)}
                               disabled={deleteMut.isPending}
-                              title="Delete"
+                              title={t("users.action.delete")}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>

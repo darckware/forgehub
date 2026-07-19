@@ -1,0 +1,30 @@
+{
+  "crons": {
+    "title": "Crons",
+    "description": "Scheduled tasks and scripts (`hermes cron`) across every Hermes profile, with description, interval, executing agent, and run status.",
+    "sync": "Sync",
+    "task": "Task",
+    "agent": "Agent",
+    "interval": "Interval",
+    "status": "Status",
+    "nextRun": "Next run",
+    "lastRun": "Last run",
+    "actions": "Actions",
+    "run": "Run",
+    "sendToAssistant": "Send to assistant",
+    "toggle": "Toggle",
+    "reset": "Reset",
+    "viewFile": "View file",
+    "edit": "Edit",
+    "delete": "Delete",
+    "neverRun": "Never run",
+    "off": "Off",
+    "working": "Working",
+    "error": "Error",
+    "notRunning": "Not running",
+    "corruptedStores": "Corrupted cron store(s)",
+    "corruptedDescription": "These profiles' jobs are missing from the list below, and their scheduler has stopped running them entirely — the gateway refuses to tick on a corrupted store. Fix the file, then restart that profile's gateway.",
+    "noCrons": "No crons found",
+    "noCronsDescription": "Every parsable per-profile `hermes cron` store is empty — see the corrupted stores above."
+  }
+}

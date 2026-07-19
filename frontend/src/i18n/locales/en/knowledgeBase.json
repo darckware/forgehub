@@ -1,0 +1,19 @@
+{
+  "title": "Knowledge Base",
+  "searchPlaceholder": "Search notes by name or path…",
+  "confirmDelete": "Delete \"{{path}}\"? This removes the note file permanently.",
+  "edit": "Edit",
+  "delete": "Delete",
+  "cancel": "Cancel",
+  "save": "Save",
+  "loadingVault": "Loading vault…",
+  "failedToLoadVault": "Failed to load vault.",
+  "noNotesFound": "No notes found in the vault.",
+  "noNotesMatchSearch": "No notes match this search.",
+  "selectNoteToRead": "Select a note to read it.",
+  "loadingNote": "Loading note…",
+  "failedToSave": "Failed to save: {{message}}",
+  "failedToDelete": "Failed to delete: {{message}}",
+  "buildingGraph": "Building graph…",
+  "selectNoteFirst": "Select a note first."
+}

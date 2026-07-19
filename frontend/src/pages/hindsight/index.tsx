@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -41,10 +42,13 @@ function formatLogTimestamp(epochSeconds: number | null | undefined): string {
   return new Date(epochSeconds * 1000).toLocaleString();
 }
 
-function boolLabel(value: boolean | null | undefined): string {
-  if (value === true) return "Yes";
-  if (value === false) return "No";
-  return "Default";
+function boolLabel(
+  value: boolean | null | undefined,
+  t: (key: string) => string
+): string {
+  if (value === true) return t("common.yes");
+  if (value === false) return t("common.no");
+  return t("common.default");
 }
 
 function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
@@ -69,6 +73,7 @@ function MetricCard({
   detail?: string;
   ok?: boolean;
 }) {
+  const { t } = useTranslation("hindsight");
   return (
     <Card>
       <CardContent className="flex items-start gap-3 p-4">
@@ -78,7 +83,9 @@ function MetricCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
-            {ok !== undefined && <StatusBadge ok={ok} label={ok ? "OK" : "Issue"} />}
+            {ok !== undefined && (
+              <StatusBadge ok={ok} label={ok ? t("common.ok") : t("common.issue")} />
+            )}
           </div>
           <p className="mt-1 truncate text-lg font-semibold">{value}</p>
           {detail && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{detail}</p>}
@@ -108,26 +115,27 @@ function getTableGroup(name: string): string {
   return "other";
 }
 
-function groupLabel(group: string): string {
+function groupLabel(group: string, t: (key: string) => string): string {
   switch (group) {
     case "memory":
-      return "Core memory";
+      return t("groups.coreMemory");
     case "operations":
-      return "Operations";
+      return t("groups.operations");
     case "policy":
-      return "Policy / history";
+      return t("groups.policyHistory");
     case "integration":
-      return "Storage / integrations";
+      return t("groups.storageIntegrations");
     case "cache":
-      return "Cache";
+      return t("groups.cache");
     case "migration":
-      return "Migration";
+      return t("groups.migration");
     default:
-      return "Other";
+      return t("groups.other");
   }
 }
 
 export default function HindsightPage() {
+  const { t } = useTranslation("hindsight");
   const { data, isLoading, isError, error, refetch, isFetching } = useHindsightStatus();
   const restartMut = useHindsightRestart();
   const clearLogMut = useClearHindsightLog();
@@ -144,7 +152,7 @@ export default function HindsightPage() {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading Hindsight status...
+        {t("loading")}
       </div>
     );
   }
@@ -152,7 +160,7 @@ export default function HindsightPage() {
   if (isError || !data) {
     return (
       <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-        Failed to load Hindsight status: {(error as Error)?.message ?? "unknown error"}
+        {t("loadError", { message: (error as Error)?.message ?? t("unknownError") })}
       </div>
     );
   }
@@ -174,16 +182,16 @@ export default function HindsightPage() {
   const entities = inventory.find((table) => table.name === "entities")?.row_count ?? 0;
   const asyncOps = inventory.find((table) => table.name === "async_operations")?.row_count ?? 0;
   const pendingOps = data.summary.daemon_active
-    ? "Check async_operations status in schema inventory"
-    : "Daemon offline";
+    ? t("metrics.asyncOps.checkStatus")
+    : t("metrics.asyncOps.daemonOffline");
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Hindsight</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Continuous memory status across Hermes agents, daemon runtime, LLM configuration, and retention policy.
+            {t("description")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -195,12 +203,12 @@ export default function HindsightPage() {
               className="gap-2"
             >
               {restartMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-              Restart Hindsight
+              {t("actions.restart")}
             </Button>
           )}
           <Button variant="outline" onClick={() => refetch()} disabled={isFetching} className="gap-2">
             {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Refresh
+            {t("actions.refresh")}
           </Button>
         </div>
       </div>
@@ -208,30 +216,30 @@ export default function HindsightPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Server}
-          label="Daemon"
-          value={data.summary.daemon_active ? "Active" : "Offline"}
-          detail={data.probe.error ?? data.connection.api_url ?? "No endpoint configured"}
+          label={t("metrics.daemon.label")}
+          value={data.summary.daemon_active ? t("metrics.daemon.active") : t("metrics.daemon.offline")}
+          detail={data.probe.error ?? data.connection.api_url ?? t("metrics.daemon.noEndpoint")}
           ok={data.summary.daemon_active}
         />
         <MetricCard
           icon={Brain}
-          label="Recording"
-          value={data.summary.recording_effective ? "Recording" : "Not recording"}
-          detail={`Configured: ${boolLabel(data.summary.recording_configured)}; auto_retain: ${boolLabel(data.memory.auto_retain)}`}
+          label={t("metrics.recording.label")}
+          value={data.summary.recording_effective ? t("metrics.recording.value") : t("metrics.recording.notRecording")}
+          detail={`${t("metrics.recording.configured")}: ${boolLabel(data.summary.recording_configured, t)}; ${t("metrics.recording.autoRetain")}: ${boolLabel(data.memory.auto_retain, t)}`}
           ok={data.summary.recording_effective}
         />
         <MetricCard
           icon={Settings2}
-          label="LLM"
-          value={data.llm.model ?? "Not configured"}
-          detail={`${data.llm.provider ?? "provider unknown"}${data.llm.base_url ? ` at ${data.llm.base_url}` : ""}`}
+          label={t("metrics.llm.label")}
+          value={data.llm.model ?? t("metrics.llm.notConfigured")}
+          detail={`${data.llm.provider ?? t("metrics.llm.providerUnknown")}${data.llm.base_url ? ` ${t("metrics.llm.at", { url: data.llm.base_url })}` : ""}`}
           ok={Boolean(data.llm.model && data.llm.api_key_present)}
         />
         <MetricCard
           icon={Database}
-          label="Memory Bank"
+          label={t("metrics.memoryBank.label")}
           value={data.memory.bank_id}
-          detail={`Mode: ${data.connection.mode}; recall: ${data.memory.recall_budget ?? "default"}`}
+          detail={t("metrics.memoryBank.detail", { mode: data.connection.mode, recall: data.memory.recall_budget ?? t("runtime.default") })}
           ok={data.memory.bank_enabled !== false}
         />
       </div>
@@ -239,30 +247,30 @@ export default function HindsightPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Table2}
-          label="Tables"
+          label={t("metrics.tables.label")}
           value={String(inventory.length || 21)}
-          detail={`${Object.keys(tableGroups).length} active groups; foundation_postgres/hindsight`}
+          detail={t("metrics.tables.detail", { count: Object.keys(tableGroups).length })}
           ok={Boolean(inventory.length)}
         />
         <MetricCard
           icon={Brain}
-          label="Memory Units"
+          label={t("metrics.memoryUnits.label")}
           value={memoryUnits.toLocaleString()}
-          detail={`${documents.toLocaleString()} documents; ${entities.toLocaleString()} entities`}
+          detail={t("metrics.memoryUnits.detail", { documents: documents.toLocaleString(), entities: entities.toLocaleString() })}
           ok={memoryUnits > 0}
         />
         <MetricCard
           icon={Clock}
-          label="Async Ops"
+          label={t("metrics.asyncOps.label")}
           value={asyncOps.toLocaleString()}
           detail={pendingOps}
           ok={asyncOps >= 0}
         />
         <MetricCard
           icon={Database}
-          label="Schema Health"
-          value={schemaLoading ? "Loading..." : "Indexed"}
-          detail="Read-only inventory from foundation_postgres"
+          label={t("metrics.schemaHealth.label")}
+          value={schemaLoading ? t("metrics.schemaHealth.loading") : t("metrics.schemaHealth.indexed")}
+          detail={t("metrics.schemaHealth.detail")}
           ok={!schemaLoading}
         />
       </div>
@@ -272,7 +280,7 @@ export default function HindsightPage() {
           <CardContent className="space-y-2 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
               <AlertCircle className="h-4 w-4" />
-              Recent Hindsight Errors
+              {t("recentErrors")}
             </div>
             <div className="max-h-44 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs">
               {data.logs.latest_errors.map((entry, index) => (
@@ -289,33 +297,35 @@ export default function HindsightPage() {
         <Card>
           <CardContent className="space-y-4 p-4">
             <div>
-              <h2 className="text-base font-semibold">Configuration</h2>
+              <h2 className="text-base font-semibold">{t("configuration.title")}</h2>
               <p className="text-xs text-muted-foreground">
-                Primary profile: {data.summary.primary_profile ?? "none"}; explicit Hindsight configs: {data.summary.profile_config_count}.
+                {t("configuration.primaryProfile", {
+                  profile: data.summary.primary_profile ?? t("configuration.none"),
+                  count: data.summary.profile_config_count,
+                })}
               </p>
             </div>
             <div className="grid gap-3 text-sm sm:grid-cols-2">
               <div>
-                <p className="text-xs uppercase text-muted-foreground">API URL</p>
-                <p className="break-all font-mono text-xs">{data.connection.api_url ?? "not configured"}</p>
+                <p className="text-xs uppercase text-muted-foreground">{t("configuration.apiUrl")}</p>
+                <p className="break-all font-mono text-xs">{data.connection.api_url ?? t("configuration.notConfigured")}</p>
               </div>
               <div>
-                <p className="text-xs uppercase text-muted-foreground">Config file</p>
-                <p className="break-all font-mono text-xs">{data.connection.config_path ?? "inherited/default"}</p>
+                <p className="text-xs uppercase text-muted-foreground">{t("configuration.configFile")}</p>
+                <p className="break-all font-mono text-xs">{data.connection.config_path ?? t("configuration.inheritsDefault")}</p>
               </div>
               <div>
-                <p className="text-xs uppercase text-muted-foreground">Retain</p>
-                <p>Every {data.memory.retain_every_n_turns} turn(s), async {boolLabel(data.memory.retain_async)}</p>
+                <p className="text-xs uppercase text-muted-foreground">{t("configuration.retain")}</p>
+                <p>{t("configuration.retainDetail", { turns: data.memory.retain_every_n_turns, async: boolLabel(data.memory.retain_async, t) })}</p>
               </div>
               <div>
-                <p className="text-xs uppercase text-muted-foreground">Integration</p>
-                <p>{data.memory.memory_mode}; auto recall {boolLabel(data.memory.auto_recall)}</p>
+                <p className="text-xs uppercase text-muted-foreground">{t("configuration.integration")}</p>
+                <p>{t("configuration.integrationDetail", { mode: data.memory.memory_mode, autoRecall: boolLabel(data.memory.auto_recall, t) })}</p>
               </div>
             </div>
             {unconfiguredProfiles.length > 0 && (
               <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                {unconfiguredProfiles.length} agent(s) use Hindsight but do not have a profile-scoped
-                `hindsight/config.json`; they depend on defaults or environment.
+                {t("configuration.unconfiguredWarning", { count: unconfiguredProfiles.length })}
               </div>
             )}
           </CardContent>
@@ -324,20 +334,20 @@ export default function HindsightPage() {
         <Card>
           <CardContent className="space-y-4 p-4">
             <div>
-              <h2 className="text-base font-semibold">Runtime</h2>
-              <p className="text-xs text-muted-foreground">Processes and local endpoint probe.</p>
+              <h2 className="text-base font-semibold">{t("runtime.title")}</h2>
+              <p className="text-xs text-muted-foreground">{t("runtime.description")}</p>
             </div>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Health status</span>
-                <span>{data.probe.status_code ?? data.probe.error ?? "no response"}</span>
+                <span className="text-muted-foreground">{t("runtime.healthStatus")}</span>
+                <span>{data.probe.status_code ?? data.probe.error ?? t("runtime.noResponse")}</span>
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Idle timeout</span>
-                <span>{data.connection.idle_timeout ?? "default"}</span>
+                <span className="text-muted-foreground">{t("runtime.idleTimeout")}</span>
+                <span>{data.connection.idle_timeout ?? t("runtime.default")}</span>
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Processes</span>
+                <span className="text-muted-foreground">{t("runtime.processes")}</span>
                 <span>{data.processes.length}</span>
               </div>
             </div>
@@ -358,15 +368,15 @@ export default function HindsightPage() {
         <CardContent className="space-y-4 p-4">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-base font-semibold">Schema Inventory</h2>
+              <h2 className="text-base font-semibold">{t("schemaInventory.title")}</h2>
               <p className="text-xs text-muted-foreground">
-                foundation_postgres / hindsight contains {inventory.length} tables and {asyncOps.toLocaleString()} async operations.
+                {t("schemaInventory.detail", { tables: inventory.length, asyncOps: asyncOps.toLocaleString() })}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               {Object.entries(tableGroups).map(([group, count]) => (
                 <Badge key={group} variant="outline" className="gap-1">
-                  {groupLabel(group)}: {count}
+                  {groupLabel(group, t)}: {count}
                 </Badge>
               ))}
             </div>
@@ -375,10 +385,10 @@ export default function HindsightPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Table</TableHead>
-                  <TableHead>Rows</TableHead>
-                  <TableHead>Cols</TableHead>
-                  <TableHead>Group</TableHead>
+                  <TableHead>{t("schemaInventory.table")}</TableHead>
+                  <TableHead>{t("schemaInventory.rows")}</TableHead>
+                  <TableHead>{t("schemaInventory.cols")}</TableHead>
+                  <TableHead>{t("schemaInventory.group")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -389,7 +399,7 @@ export default function HindsightPage() {
                     <TableCell>{table.column_count}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-[10px] uppercase">
-                        {groupLabel(table.group)}
+                        {groupLabel(table.group, t)}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -397,7 +407,7 @@ export default function HindsightPage() {
                 {inventory.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={4} className="text-sm text-muted-foreground">
-                      {schemaLoading ? "Loading schema inventory..." : "No tables found in hindsight schema."}
+                      {schemaLoading ? t("schemaInventory.loading") : t("schemaInventory.empty")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -410,17 +420,19 @@ export default function HindsightPage() {
       <Card>
         <CardContent className="p-0">
           <div className="border-b border-border px-4 py-3">
-            <h2 className="text-base font-semibold">Agents Using Hindsight</h2>
-            <p className="text-xs text-muted-foreground">{activeProfiles.length} of {data.profiles.length} profiles use `memory.provider: hindsight`.</p>
+            <h2 className="text-base font-semibold">{t("agents.title")}</h2>
+            <p className="text-xs text-muted-foreground">
+              {t("agents.detail", { active: activeProfiles.length, total: data.profiles.length })}
+            </p>
           </div>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Agent</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Profile Memory</TableHead>
-                <TableHead>Config</TableHead>
-                <TableHead>Limits</TableHead>
+                <TableHead>{t("agents.agent")}</TableHead>
+                <TableHead>{t("agents.status")}</TableHead>
+                <TableHead>{t("agents.profileMemory")}</TableHead>
+                <TableHead>{t("agents.config")}</TableHead>
+                <TableHead>{t("agents.limits")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -429,17 +441,23 @@ export default function HindsightPage() {
                   <TableCell className="font-medium">{profile.profile}</TableCell>
                   <TableCell>
                     <Badge variant={profile.uses_hindsight ? "success" : "outline"}>
-                      {profile.uses_hindsight ? "Hindsight" : "Built-in only"}
+                      {profile.uses_hindsight ? t("agents.hindsight") : t("agents.builtInOnly")}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm">
-                    memory {boolLabel(profile.memory_enabled)}; user {boolLabel(profile.user_profile_enabled)}
+                    {t("agents.memoryDetail", {
+                      memory: boolLabel(profile.memory_enabled, t),
+                      user: boolLabel(profile.user_profile_enabled, t),
+                    })}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {profile.hindsight_configured ? profile.hindsight_config_path : "inherits/default"}
+                    {profile.hindsight_configured ? profile.hindsight_config_path : t("configuration.inheritsDefault")}
                   </TableCell>
                   <TableCell className="text-xs">
-                    memory {profile.memory_char_limit ?? "default"} / user {profile.user_char_limit ?? "default"}
+                    {t("agents.limitsDetail", {
+                      memoryLimit: profile.memory_char_limit ?? t("runtime.default"),
+                      userLimit: profile.user_char_limit ?? t("runtime.default"),
+                    })}
                   </TableCell>
                 </TableRow>
               ))}
@@ -450,10 +468,10 @@ export default function HindsightPage() {
 
       <ConfirmDialog
         open={restartConfirmOpen}
-        title="Restart Hindsight daemon"
-        description="This restarts the Hindsight container and briefly interrupts memory recording and reads while it comes back up."
-        confirmLabel="Restart"
-        cancelLabel="Cancel"
+        title={t("restartDialog.title")}
+        description={t("restartDialog.description")}
+        confirmLabel={t("restartDialog.confirm")}
+        cancelLabel={t("restartDialog.cancel")}
         variant="default"
         loading={restartMut.isPending}
         onCancel={() => setRestartConfirmOpen(false)}
@@ -466,10 +484,10 @@ export default function HindsightPage() {
 
       <ConfirmDialog
         open={clearLogConfirmOpen}
-        title="Clear Hindsight log"
-        description={`Clears the contents of ${latestLog.path ?? "this file"} -- doesn't affect the running daemon, only the history shown here.`}
-        confirmLabel="Clear"
-        cancelLabel="Cancel"
+        title={t("clearLogDialog.title")}
+        description={t("clearLogDialog.description", { path: latestLog.path ?? t("latestLog.noFile") })}
+        confirmLabel={t("clearLogDialog.confirm")}
+        cancelLabel={t("clearLogDialog.cancel")}
         variant="default"
         loading={clearLogMut.isPending}
         onCancel={() => setClearLogConfirmOpen(false)}
@@ -486,7 +504,7 @@ export default function HindsightPage() {
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-base font-semibold">Latest Log</h2>
+                <h2 className="text-base font-semibold">{t("latestLog.title")}</h2>
               </div>
               {isAdmin && (
                 <Button
@@ -501,25 +519,25 @@ export default function HindsightPage() {
                   ) : (
                     <Eraser className="h-3.5 w-3.5" />
                   )}
-                  Clear log
+                  {t("latestLog.clear")}
                 </Button>
               )}
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="break-all text-xs text-muted-foreground">{latestLog.path ?? "No log file found"}</p>
+              <p className="break-all text-xs text-muted-foreground">{latestLog.path ?? t("latestLog.noFile")}</p>
               <p className="shrink-0 text-xs text-muted-foreground">
-                Updated at {formatLogTimestamp(latestLog.updated_at)}
+                {t("latestLog.updatedAt", { time: formatLogTimestamp(latestLog.updated_at) })}
               </p>
             </div>
             <pre className="max-h-80 overflow-auto rounded-md bg-muted/40 p-3 text-xs">
-              <code>{latestLog.lines.join("\n") || "No log lines."}</code>
+              <code>{latestLog.lines.join("\n") || t("latestLog.noLines")}</code>
             </pre>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="space-y-3 p-4">
-            <h2 className="text-base font-semibold">Database Control Analysis</h2>
+            <h2 className="text-base font-semibold">{t("databaseControlAnalysis")}</h2>
             <p className="text-sm text-muted-foreground">{data.analysis.storage_source}</p>
             <p className="text-sm text-muted-foreground">{data.analysis.database_control_recommendation}</p>
             <p className="text-sm text-muted-foreground">{data.analysis.current_risk}</p>

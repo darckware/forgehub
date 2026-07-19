@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Bot,
   Check,
@@ -95,6 +96,7 @@ function LauncherIcon({ icon, iconBg }: { icon?: string; iconBg?: string }) {
  * (see useServers' buildSshCommand), reusing the same openTerminalTab flow
  * as the CLI/Runtime launchers above. */
 function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: string) => void }) {
+  const { t } = useTranslation("workspace");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
@@ -106,19 +108,19 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
         variant="outline"
         size="sm"
         className="h-8 shrink-0 gap-1.5 px-2"
-        title="Connect via SSH"
-        aria-label="SSH"
+        title={t("toolbar.connectSsh")}
+        aria-label={t("toolbar.ssh")}
         onClick={() => setOpen((v) => !v)}
       >
         <KeyRound className="h-3.5 w-3.5" />
-        SSH
+        {t("toolbar.ssh")}
         <ChevronDown className="h-3 w-3 opacity-60" />
       </Button>
       {open && (
         <div className="absolute left-0 top-full z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md">
           {(servers ?? []).length === 0 && (
             <p className="px-3 py-3 text-xs italic text-muted-foreground">
-              No servers registered. See "Servers" in the sidebar menu.
+              {t("toolbar.noServersRegistered")}
             </p>
           )}
           {(servers ?? []).map((s) => (
@@ -144,6 +146,7 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
 }
 
 export default function WorkspacePage() {
+  const { t } = useTranslation("workspace");
   const { data: allAgents } = useAgents();
   const { data: products = [] } = useProducts();
   const chatableAgents = useMemo(
@@ -375,7 +378,7 @@ export default function WorkspacePage() {
       <div className="flex h-[60vh] items-center justify-center text-center text-muted-foreground">
         <div>
           <Bot className="mx-auto mb-3 h-10 w-10" />
-          <p>No agent with a Hermes profile available to chat with yet.</p>
+          <p>{t("tabs.noAgentAvailable")}</p>
         </div>
       </div>
     );
@@ -391,8 +394,8 @@ export default function WorkspacePage() {
             size="icon"
             className="h-8 w-8 shrink-0"
             disabled={!activeChatTab}
-            aria-label={activeChatTab?.historyCollapsed ? "Show conversation history" : "Hide conversation history"}
-            title="Conversation history"
+            aria-label={activeChatTab?.historyCollapsed ? t("toolbar.showHistory") : t("toolbar.hideHistory")}
+            title={t("toolbar.conversationHistory")}
             onClick={() => activeChatTab && toggleHistoryCollapsed(activeChatTab.id)}
           >
             <History className="h-4 w-4" />
@@ -402,8 +405,8 @@ export default function WorkspacePage() {
             size="icon"
             className="h-8 w-8 shrink-0"
             disabled={!activeChatTab}
-            aria-label={activeChatTab?.artifactsOpen ? "Hide artifacts panel" : "Show artifacts panel"}
-            title="Conversation artifacts"
+            aria-label={activeChatTab?.artifactsOpen ? t("toolbar.hideArtifacts") : t("toolbar.showArtifacts")}
+            title={t("toolbar.conversationArtifacts")}
             onClick={() => activeChatTab && toggleArtifactsPanel(activeChatTab.id)}
           >
             <Package className="h-4 w-4" />
@@ -412,8 +415,8 @@ export default function WorkspacePage() {
             variant="outline"
             size="icon"
             className="h-8 w-8 shrink-0"
-            title="New chat"
-            aria-label="New chat"
+            title={t("toolbar.newChat")}
+            aria-label={t("toolbar.newChat")}
             onClick={() => openChatTab(defaultAgentIdForNewTab())}
           >
             <MessageSquare className="h-4 w-4" />
@@ -422,8 +425,8 @@ export default function WorkspacePage() {
             variant="outline"
             size="icon"
             className="h-8 w-8 shrink-0"
-            title="New terminal"
-            aria-label="New terminal"
+            title={t("toolbar.newTerminal")}
+            aria-label={t("toolbar.newTerminal")}
             onClick={() => openTerminalTab("bash")}
           >
             <SquareTerminal className="h-4 w-4" />
@@ -432,8 +435,8 @@ export default function WorkspacePage() {
             variant={activeWebTab ? "secondary" : "outline"}
             size="icon"
             className="h-8 w-8 shrink-0"
-            title={activeWebTab ? "Hide internal browser" : "Open internal browser"}
-            aria-label={activeWebTab ? "Hide internal browser" : "Open internal browser"}
+            title={activeWebTab ? t("toolbar.hideInternalBrowser") : t("toolbar.openInternalBrowser")}
+            aria-label={activeWebTab ? t("toolbar.hideInternalBrowser") : t("toolbar.openInternalBrowser")}
             onClick={toggleWebBrowser}
           >
             <Globe2 className="h-4 w-4" />
@@ -443,10 +446,10 @@ export default function WorkspacePage() {
             size="sm"
             className="h-8 gap-1.5"
             disabled={!activeWebTab}
-            title={activeWebTab ? "Open the selected assistant with the current web environment" : "Open a web tab first"}
+            title={activeWebTab ? t("toolbar.openAssistantWithWeb") : t("toolbar.openWebTabFirst")}
             onClick={openAssistantForWebEnvironment}
           >
-            <Bot className="h-4 w-4" /> Assistant
+            <Bot className="h-4 w-4" /> {t("toolbar.assistant")}
           </Button>
           <SshLauncherMenu onLaunch={openTerminalTab} />
           <div className="flex-1" />
@@ -463,8 +466,8 @@ export default function WorkspacePage() {
             size="icon"
             className="h-7 w-7 shrink-0"
             disabled={!workingDir || workspaceUploadStatus === "uploading"}
-            title={workingDir ? "Upload files to the working folder" : "Select a working folder first"}
-            aria-label="Upload files to the working folder"
+            title={workingDir ? t("toolbar.uploadFiles") : t("toolbar.selectWorkingFolderFirst")}
+            aria-label={t("toolbar.uploadFiles")}
             onClick={() => workspaceUploadInputRef.current?.click()}
           >
             {workspaceUploadStatus === "uploading" ? (
@@ -478,8 +481,8 @@ export default function WorkspacePage() {
             )}
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
-          <span className="text-[10px] font-medium uppercase text-muted-foreground" title="Coding-assistant CLIs">
-            CLI
+          <span className="text-[10px] font-medium uppercase text-muted-foreground" title={t("toolbar.cliLaunchers")}>
+            {t("toolbar.cli")}
           </span>
           {CLI_LAUNCHERS.map((l) => (
             <Button
@@ -488,15 +491,15 @@ export default function WorkspacePage() {
               size="icon"
               className="h-7 w-7"
               title={l.label}
-              aria-label={`Open ${l.label}`}
+              aria-label={t("toolbar.openLauncher", { label: l.label })}
               onClick={() => openTerminalTab(l.label, l.command)}
             >
               <LauncherIcon icon={l.icon} iconBg={l.iconBg} />
             </Button>
           ))}
           <div className="mx-1 h-5 w-px bg-border" />
-          <span className="text-[10px] font-medium uppercase text-muted-foreground" title="Agent runtimes/orchestrators">
-            Runtimes
+          <span className="text-[10px] font-medium uppercase text-muted-foreground" title={t("toolbar.runtimeLaunchers")}>
+            {t("toolbar.runtimes")}
           </span>
           {RUNTIME_LAUNCHERS.map((l) => (
             <Button
@@ -505,7 +508,7 @@ export default function WorkspacePage() {
               size="icon"
               className="h-7 w-7"
               title={l.label}
-              aria-label={`Open ${l.label}`}
+              aria-label={t("toolbar.openLauncher", { label: l.label })}
               onClick={() => openTerminalTab(l.label, l.command)}
             >
               <LauncherIcon icon={l.icon} iconBg={l.iconBg} />
@@ -515,60 +518,60 @@ export default function WorkspacePage() {
 
         {/* Dedicated tab strip: sortable (drag-and-drop) + horizontal scroll. */}
         <div className="flex items-center gap-1 overflow-x-auto border-t border-border/60 px-2 py-1">
-          {tabs.map((t) =>
-            t.kind === "chat" ? (
+          {tabs.map((tab) =>
+            tab.kind === "chat" ? (
               <div
-                key={t.id}
+                key={tab.id}
                 draggable
-                onDragStart={() => (dragTabIdRef.current = t.id)}
+                onDragStart={() => (dragTabIdRef.current = tab.id)}
                 onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleTabDrop(t.id)}
-                onClick={() => setActiveTabId(t.id)}
+                onDrop={() => handleTabDrop(tab.id)}
+                onClick={() => setActiveTabId(tab.id)}
                 className={cn(
                   "group flex shrink-0 cursor-grab items-center gap-1.5 rounded-md px-3 py-1 text-sm active:cursor-grabbing",
-                  t.id === activeTabId
+                  tab.id === activeTabId
                     ? "bg-accent text-accent-foreground"
                     : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 )}
               >
                 <MessageSquare className="h-3.5 w-3.5" />
-                {chatableAgents.find((a) => a.id === t.agentId)?.name ?? "Chat"}
+                {chatableAgents.find((a) => a.id === tab.agentId)?.name ?? t("tabs.defaultChatName")}
                 <button
                   type="button"
-                  aria-label="Close chat tab"
+                  aria-label={t("tabs.closeChatTab")}
                   className="opacity-0 group-hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
-                    closeTab(t.id);
+                    closeTab(tab.id);
                   }}
                 >
                   <X className="h-3 w-3" />
                 </button>
               </div>
-            ) : t.kind === "terminal" ? (
+            ) : tab.kind === "terminal" ? (
               <div
-                key={t.id}
+                key={tab.id}
                 draggable
-                onDragStart={() => (dragTabIdRef.current = t.id)}
+                onDragStart={() => (dragTabIdRef.current = tab.id)}
                 onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleTabDrop(t.id)}
-                onClick={() => setActiveTabId(t.id)}
+                onDrop={() => handleTabDrop(tab.id)}
+                onClick={() => setActiveTabId(tab.id)}
                 className={cn(
                   "group flex shrink-0 cursor-grab items-center gap-1.5 rounded-md px-3 py-1 text-sm active:cursor-grabbing",
-                  t.id === activeTabId
+                  tab.id === activeTabId
                     ? "bg-accent text-accent-foreground"
                     : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 )}
               >
                 <SquareTerminal className="h-3.5 w-3.5" />
-                {t.label}
+                {tab.label}
                 <button
                   type="button"
-                  aria-label={`Close ${t.label}`}
+                  aria-label={t("tabs.closeTab", { label: tab.label })}
                   className="opacity-0 group-hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
-                    closeTab(t.id);
+                    closeTab(tab.id);
                   }}
                 >
                   <X className="h-3 w-3" />
@@ -576,28 +579,28 @@ export default function WorkspacePage() {
               </div>
             ) : (
               <div
-                key={t.id}
+                key={tab.id}
                 draggable
-                onDragStart={() => (dragTabIdRef.current = t.id)}
+                onDragStart={() => (dragTabIdRef.current = tab.id)}
                 onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleTabDrop(t.id)}
-                onClick={() => setActiveTabId(t.id)}
+                onDrop={() => handleTabDrop(tab.id)}
+                onClick={() => setActiveTabId(tab.id)}
                 className={cn(
                   "group flex shrink-0 cursor-grab items-center gap-1.5 rounded-md px-3 py-1 text-sm active:cursor-grabbing",
-                  t.id === activeTabId
+                  tab.id === activeTabId
                     ? "bg-accent text-accent-foreground"
                     : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 )}
               >
                 <Globe2 className="h-3.5 w-3.5" />
-                {t.label}
+                {tab.label}
                 <button
                   type="button"
-                  aria-label={`Close ${t.label}`}
+                  aria-label={t("tabs.closeTab", { label: tab.label })}
                   className="opacity-0 group-hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
-                    closeTab(t.id);
+                    closeTab(tab.id);
                   }}
                 >
                   <X className="h-3 w-3" />
@@ -609,29 +612,29 @@ export default function WorkspacePage() {
       </div>
 
       <div className="relative flex-1">
-        {tabs.map((t) =>
-          t.kind === "chat" ? (
+        {tabs.map((tab) =>
+          tab.kind === "chat" ? (
             <ChatPane
-              key={t.id}
-              tabId={t.id}
-              active={t.id === activeTabId}
-              agentId={t.agentId}
+              key={tab.id}
+              tabId={tab.id}
+              active={tab.id === activeTabId}
+              agentId={tab.agentId}
               chatableAgents={chatableAgents}
-              onAgentChange={(agentId) => handleAgentChangeForTab(t.id, agentId)}
-              historyCollapsed={Boolean(t.historyCollapsed)}
-              artifactsOpen={Boolean(t.artifactsOpen)}
+              onAgentChange={(agentId) => handleAgentChangeForTab(tab.id, agentId)}
+              historyCollapsed={Boolean(tab.historyCollapsed)}
+              artifactsOpen={Boolean(tab.artifactsOpen)}
               workingDir={workingDir}
             />
-          ) : t.kind === "terminal" ? (
-            <div key={t.id} className={cn("absolute inset-0 p-2", t.id !== activeTabId && "hidden")}>
-              <TerminalPane sessionId={t.id} command={t.command} cwd={t.cwd} active={t.id === activeTabId} />
+          ) : tab.kind === "terminal" ? (
+            <div key={tab.id} className={cn("absolute inset-0 p-2", tab.id !== activeTabId && "hidden")}>
+              <TerminalPane sessionId={tab.id} command={tab.command} cwd={tab.cwd} active={tab.id === activeTabId} />
             </div>
           ) : (
-            <div key={t.id} className={cn("absolute inset-0", t.id !== activeTabId && "hidden")}>
+            <div key={tab.id} className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
               <WebAppPane
-                url={t.url}
+                url={tab.url}
                 products={products}
-                onUrlChange={(url) => updateWebTabUrl(t.id, url)}
+                onUrlChange={(url) => updateWebTabUrl(tab.id, url)}
               />
             </div>
           )
@@ -641,8 +644,8 @@ export default function WorkspacePage() {
           <div className="absolute inset-0 flex items-center justify-center text-center text-muted-foreground">
             <div>
               <MessageSquare className="mx-auto mb-3 h-10 w-10" />
-              <p className="font-medium">No tabs open</p>
-              <p className="text-sm">Start a conversation or open a terminal using the buttons above.</p>
+              <p className="font-medium">{t("tabs.noTabsOpen")}</p>
+              <p className="text-sm">{t("tabs.noTabsOpenHelp")}</p>
             </div>
           </div>
         )}

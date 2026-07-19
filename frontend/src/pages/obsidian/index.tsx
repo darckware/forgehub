@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, Pencil, Save, Trash2, X } from "lucide-react";
 import {
   DocumentBrowser,
@@ -20,6 +21,7 @@ import {
 } from "@/hooks/useVault";
 
 export default function ObsidianPage() {
+  const { t } = useTranslation("knowledgeBase");
   const { data: tree, isLoading: treeLoading, isError: treeError } = useVaultTree();
   const [noteSearch, setNoteSearch] = useState("");
   const filteredTree = useMemo(
@@ -61,7 +63,7 @@ export default function ObsidianPage() {
 
   function handleDelete() {
     if (!selectedPath) return;
-    if (!window.confirm(`Delete "${selectedPath}"? This removes the note file permanently.`)) return;
+    if (!window.confirm(t("confirmDelete", { path: selectedPath }))) return;
     deleteNote.mutate(selectedPath, {
       onSuccess: () => setSelectedPath(undefined),
     });
@@ -69,10 +71,10 @@ export default function ObsidianPage() {
 
   return (
     <DocumentBrowser
-      title="Knowledge Base"
+      title={t("title")}
       searchValue={noteSearch}
       onSearchChange={setNoteSearch}
-      searchPlaceholder="Search notes by name or path…"
+      searchPlaceholder={t("searchPlaceholder")}
       viewMode={viewMode}
       onViewModeChange={setViewMode}
       mindMapDisabled={!selectedPath}
@@ -82,7 +84,7 @@ export default function ObsidianPage() {
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleStartEdit} disabled={!note}>
               <Pencil className="mr-2 h-3.5 w-3.5" />
-              Edit
+              {t("edit")}
             </Button>
             <Button
               variant="outline"
@@ -96,14 +98,14 @@ export default function ObsidianPage() {
               ) : (
                 <Trash2 className="mr-2 h-3.5 w-3.5" />
               )}
-              Delete
+              {t("delete")}
             </Button>
           </div>
         ) : (
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={updateNote.isPending}>
               <X className="mr-2 h-3.5 w-3.5" />
-              Cancel
+              {t("cancel")}
             </Button>
             <Button size="sm" onClick={handleSave} disabled={updateNote.isPending}>
               {updateNote.isPending ? (
@@ -111,7 +113,7 @@ export default function ObsidianPage() {
               ) : (
                 <Save className="mr-2 h-3.5 w-3.5" />
               )}
-              Save
+              {t("save")}
             </Button>
           </div>
         )
@@ -121,10 +123,10 @@ export default function ObsidianPage() {
           {treeLoading && (
             <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading vault…
+              {t("loadingVault")}
             </div>
           )}
-          {treeError && <p className="p-2 text-sm text-destructive">Failed to load vault.</p>}
+          {treeError && <p className="p-2 text-sm text-destructive">{t("failedToLoadVault")}</p>}
           {filteredTree && (
             <DocTree
               nodes={filteredTree}
@@ -146,28 +148,28 @@ export default function ObsidianPage() {
             />
           )}
           {tree && tree.length === 0 && (
-            <p className="p-2 text-sm italic text-muted-foreground">No notes found in the vault.</p>
+            <p className="p-2 text-sm italic text-muted-foreground">{t("noNotesFound")}</p>
           )}
           {tree && tree.length > 0 && filteredTree && filteredTree.length === 0 && (
-            <p className="p-2 text-sm italic text-muted-foreground">No notes match this search.</p>
+            <p className="p-2 text-sm italic text-muted-foreground">{t("noNotesMatchSearch")}</p>
           )}
         </>
       }
     >
       {viewMode === "note" && (
         <div className="flex-1 overflow-y-auto p-4">
-          {!selectedPath && <p className="text-sm italic text-muted-foreground">Select a note to read it.</p>}
+          {!selectedPath && <p className="text-sm italic text-muted-foreground">{t("selectNoteToRead")}</p>}
           {selectedPath && noteLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading note…
+              {t("loadingNote")}
             </div>
           )}
           {updateNote.isError && (
-            <p className="mb-3 text-sm text-destructive">Failed to save: {(updateNote.error as Error)?.message}</p>
+            <p className="mb-3 text-sm text-destructive">{t("failedToSave", { message: (updateNote.error as Error)?.message })}</p>
           )}
           {deleteNote.isError && (
-            <p className="mb-3 text-sm text-destructive">Failed to delete: {(deleteNote.error as Error)?.message}</p>
+            <p className="mb-3 text-sm text-destructive">{t("failedToDelete", { message: (deleteNote.error as Error)?.message })}</p>
           )}
           {note && isEditing && (
             <Textarea
@@ -185,7 +187,7 @@ export default function ObsidianPage() {
           {graphLoading && (
             <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Building graph…
+              {t("buildingGraph")}
             </div>
           )}
           {graph && <GraphView graph={graph} onSelectNode={handleSelectFromGraph} />}
@@ -194,7 +196,7 @@ export default function ObsidianPage() {
 
       {viewMode === "mindmap" && (
         <div className="flex-1 overflow-hidden">
-          {!note && <p className="p-6 text-sm italic text-muted-foreground">Select a note first.</p>}
+          {!note && <p className="p-6 text-sm italic text-muted-foreground">{t("selectNoteFirst")}</p>}
           {note && <MindMapView markdown={note.content} />}
         </div>
       )}

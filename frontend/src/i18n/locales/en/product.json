@@ -1,0 +1,120 @@
+{
+  "list": {
+    "title": "Products",
+    "subtitle": "Products under continuous development, each with one or more versions.",
+    "restoreButtonTitle": "Restore product from a JSON backup",
+    "restoreButton": "Restore",
+    "newButton": "New Product",
+    "backToList": "Back to products",
+    "status": {
+      "concept": "Concept",
+      "active": "Active",
+      "inactive": "Inactive",
+      "archived": "Archived"
+    },
+    "createForm": {
+      "title": "Create Product",
+      "description": "Register a new product. Name must be unique.",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. ForgeHub",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "Optional description of the product",
+      "urlLabel": "Application URL",
+      "urlPlaceholder": "http://localhost:4173",
+      "urlHint": "Opened when this product is selected in Workspace > Web App.",
+      "statusLabel": "Status",
+      "error": "Failed to create product. Please try again.",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "loading": "Loading products...",
+    "loadError": "Failed to load products.",
+    "retry": "Retry",
+    "emptyTitle": "No products yet",
+    "emptyDescription": "Create your first product to get started.",
+    "columns": {
+      "name": "Name",
+      "status": "Status",
+      "versions": "Versions",
+      "actions": "Actions"
+    },
+    "actions": {
+      "edit": "Edit product",
+      "backup": "Backup (export JSON)",
+      "delete": "Delete product"
+    },
+    "deleteDialog": {
+      "title": "Delete \"{{name}}\"",
+      "defaultName": "product",
+      "description": "This action is irreversible. All projects, pipelines, planning items, tasks, executions, artifacts and governance records linked to this product will be cascade-deleted.",
+      "confirmLabel": "Delete all"
+    },
+    "alerts": {
+      "backupFailed": "Failed to generate backup.",
+      "restoreSuccess": "Backup restored successfully.",
+      "restoreFailed": "Failed to restore: {{message}}",
+      "unknownError": "Unknown error."
+    }
+  },
+  "editRow": {
+    "title": "Edit product",
+    "description": "Update the registration data for \"{{name}}\".",
+    "nameLabel": "Name",
+    "descriptionLabel": "Description",
+    "urlLabel": "Application URL",
+    "urlPlaceholder": "http://localhost:4173",
+    "statusLabel": "Status",
+    "error": "Failed to save. Please try again.",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "restoreModal": {
+    "title": "Restore backup",
+    "description": "Select what will be restored from the ZIP file.",
+    "dbLabel": "Database data",
+    "dbDescription": "Product, versions, projects, tasks, pipelines and planning items",
+    "filesLabel": "Project folder",
+    "filesDescription": "Files and folders from each project's working_directory_path",
+    "cancel": "Cancel",
+    "confirm": "Restore"
+  },
+  "detail": {
+    "loading": "Loading product...",
+    "backToProducts": "Back to products",
+    "loadError": "Failed to load product.",
+    "retry": "Retry",
+    "versionsTitle": "Versions",
+    "newVersionButton": "New Version",
+    "statusOptions": {
+      "planned": "Planned",
+      "in_development": "In Development",
+      "in_test": "In Test",
+      "published": "Published",
+      "deprecated": "Deprecated"
+    },
+    "createForm": {
+      "title": "Create Product Version",
+      "description": "Register a new planned, in-development, in-test, or published version.",
+      "versionLabel": "Version",
+      "versionPlaceholder": "e.g. 0.1.0",
+      "statusLabel": "Status",
+      "releaseNotesLabel": "Release Notes",
+      "releaseNotesPlaceholder": "Optional release notes",
+      "error": "Failed to create version. Please try again.",
+      "save": "Save",
+      "cancel": "Cancel",
+      "validation": {
+        "versionRequired": "Version is required",
+        "versionFormat": "Use semantic versioning, e.g. 0.1.0"
+      }
+    },
+    "emptyTitle": "No versions yet",
+    "emptyDescription": "Create the first version for this product.",
+    "columns": {
+      "version": "Version",
+      "status": "Status",
+      "releaseNotes": "Release Notes"
+    },
+    "noReleaseNotes": "—"
+  }
+}

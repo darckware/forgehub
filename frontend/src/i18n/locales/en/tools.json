@@ -1,0 +1,53 @@
+{
+  "form": {
+    "editTool": "Edit tool",
+    "registerTool": "Register tool",
+    "requiredFields": "Responsible agent, name, file path and description are required.",
+    "couldNotSave": "Could not save.",
+    "responsibleAgent": "Responsible agent",
+    "selectAnAgent": "Select an agent…",
+    "toolName": "Tool name",
+    "category": "Category",
+    "status": "Status",
+    "filePath": "File path",
+    "whatItDoes": "What it does",
+    "cancel": "Cancel",
+    "save": "Save",
+    "register": "Register"
+  },
+  "fileModal": {
+    "couldNotSaveFile": "Could not save file.",
+    "edit": "Edit",
+    "save": "Save",
+    "loadingFile": "Loading file...",
+    "couldNotReadFile": "Could not read file.",
+    "fileNotFound": "File not found on disk."
+  },
+  "page": {
+    "title": "Agent Tools",
+    "registeredCount": "{{count}} registered",
+    "scanTitle": "Scan every profile's scripts dir and register new tools; unowned files go to Athos",
+    "sync": "Sync",
+    "scanResult": "Scan: {{scanned}} files found, {{created}} registered, {{skipped}} already known.",
+    "scanFailed": "Scan failed.",
+    "searchPlaceholder": "Search name, description or path…",
+    "allAgents": "All agents",
+    "allCategories": "All categories",
+    "noToolsRegistered": "No tools registered yet. Use “Register tool” to record a tool an agent has built.",
+    "tableTool": "Tool",
+    "tableAgent": "Agent",
+    "tableCategory": "Category",
+    "tableFile": "File",
+    "tableActions": "Actions",
+    "sendToAssistant": "Send {{name}} to the assistant",
+    "openAssistantForMaintenance": "Open the assistant with {{agent}} for maintenance",
+    "theResponsibleAgent": "the responsible agent",
+    "viewFile": "View file",
+    "editFile": "Edit file",
+    "editRegistration": "Edit registration",
+    "deleteFileAndRegistration": "Delete file and registration",
+    "deleteTitle": "Delete \"{{name}}\"",
+    "deleteDescription": "Removes the registration and deletes the file {{path}} from disk. This action cannot be undone.",
+    "delete": "Delete"
+  }
+}

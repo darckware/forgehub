@@ -1,0 +1,31 @@
+{
+  "auditor": {
+    "title": "Auditor",
+    "checklist": "Checklist",
+    "runChecklist": "Run checklist",
+    "newCheck": "New check",
+    "name": "Name",
+    "category": "Category",
+    "agent": "Agent",
+    "status": "Status",
+    "nextRun": "Next run",
+    "lastRun": "Last run",
+    "actions": "Actions",
+    "run": "Run",
+    "sendToAssistant": "Send to assistant",
+    "toggle": "Toggle",
+    "edit": "Edit",
+    "delete": "Delete",
+    "latestOutput": "Latest output",
+    "recentHistory": "Recent history",
+    "neverRun": "Never run",
+    "disabled": "Disabled",
+    "working": "Working",
+    "error": "Error",
+    "notRunning": "Not running",
+    "corruptedStores": "Corrupted cron store(s)",
+    "corruptedDescription": "These profiles' jobs are missing from the list below, and their scheduler has stopped running them entirely — the gateway refuses to tick on a corrupted store. Fix the file, then restart that profile's gateway.",
+    "noChecks": "No checkpoints registered yet",
+    "noChecksDescription": "Every parsable per-profile `hermes cron` store is empty — see the corrupted stores above."
+  }
+}

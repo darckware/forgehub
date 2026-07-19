@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Bell, Check, ChevronDown, ChevronRight, Loader2, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +14,6 @@ import {
   type AppNotification,
   type CleanupMode,
 } from "@/hooks/useNotifications";
-
 type Filter = "all" | "unread" | "error";
 
 const SEVERITY_BADGE: Record<AppNotification["severity"], string> = {
@@ -23,28 +23,38 @@ const SEVERITY_BADGE: Record<AppNotification["severity"], string> = {
   info: "border-sky-500/40 text-sky-600",
 };
 
-const CLEANUP_OPTIONS: { label: string; description: string; payload: CleanupMode }[] = [
+const CLEANUP_OPTIONS: { key: string; labelKey: string; descriptionKey: string; payload: CleanupMode }[] = [
   {
-    label: "Keep last 30 days",
-    description: "Delete every notification older than 30 days.",
+    key: "keep30",
+    labelKey: "cleanup.keep30Label",
+    descriptionKey: "cleanup.keep30Description",
     payload: { mode: "keep_days", keep_days: 30 },
   },
   {
-    label: "Keep last 15 days",
-    description: "Delete every notification older than 15 days.",
+    key: "keep15",
+    labelKey: "cleanup.keep15Label",
+    descriptionKey: "cleanup.keep15Description",
     payload: { mode: "keep_days", keep_days: 15 },
   },
   {
-    label: "Clear all",
-    description: "Delete the entire notification record. This cannot be undone.",
+    key: "clearAll",
+    labelKey: "cleanup.clearAllLabel",
+    descriptionKey: "cleanup.clearAllDescription",
     payload: { mode: "all" },
   },
+];
+
+const FILTER_OPTIONS: [Filter, string][] = [
+  ["all", "filters.all"],
+  ["unread", "filters.unread"],
+  ["error", "filters.error"],
 ];
 
 /** Full record of notifications (one per cron run, ingested server-side).
  * Read state is persistent (read_at); the cleanup menu purges the record
  * entirely or keeps only the last 15/30 days. */
 export default function NotificationsPage() {
+  const { t } = useTranslation("notifications");
   const [filter, setFilter] = useState<Filter>("all");
   const { data, isLoading } = useNotifications(
     filter === "all" ? {} : filter === "unread" ? { unreadOnly: true } : { severity: "error" }
@@ -77,10 +87,10 @@ export default function NotificationsPage() {
     <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold flex items-center gap-2">
-          <Bell className="h-5 w-5" /> Notifications
+          <Bell className="h-5 w-5" /> {t("title")}
           {unreadCount > 0 && (
             <Badge variant="outline" className="border-destructive/40 text-destructive">
-              {unreadCount} unread
+              {t("unreadCount", { count: unreadCount })}
             </Badge>
           )}
         </h1>
@@ -92,42 +102,36 @@ export default function NotificationsPage() {
             disabled={unreadCount === 0 || markRead.isPending}
             onClick={() => markRead.mutate({ all: true })}
           >
-            <Check className="h-4 w-4" /> Mark all as read
+            <Check className="h-4 w-4" /> {t("markAllRead")}
           </Button>
           {CLEANUP_OPTIONS.map((opt) => (
             <Button
-              key={opt.label}
+              key={opt.key}
               size="sm"
               variant={opt.payload.mode === "all" ? "destructive" : "outline"}
               className="gap-1.5"
               onClick={() => setPendingCleanup(opt)}
             >
-              <Trash2 className="h-4 w-4" /> {opt.label}
+              <Trash2 className="h-4 w-4" /> {t(opt.labelKey)}
             </Button>
           ))}
         </div>
       </div>
 
       <div className="flex items-center gap-1">
-        {(
-          [
-            ["all", "All"],
-            ["unread", "Unread"],
-            ["error", "Errors"],
-          ] as [Filter, string][]
-        ).map(([value, label]) => (
+        {FILTER_OPTIONS.map(([value, labelKey]) => (
           <Button
             key={value}
             size="sm"
             variant={filter === value ? "secondary" : "ghost"}
             onClick={() => setFilter(value)}
           >
-            {label}
+            {t(labelKey)}
           </Button>
         ))}
         {data && (
           <span className="ml-2 text-xs text-muted-foreground">
-            {data.total} recorded
+            {t("totalRecorded", { count: data.total })}
           </span>
         )}
       </div>
@@ -141,7 +145,7 @@ export default function NotificationsPage() {
       {!isLoading && notifications.length === 0 && (
         <Card>
           <CardContent className="py-10 text-center text-sm italic text-muted-foreground">
-            No notifications recorded.
+            {t("empty")}
           </CardContent>
         </Card>
       )}
@@ -206,7 +210,7 @@ export default function NotificationsPage() {
                           markRead.mutate({ ids: [n.id] });
                         }}
                       >
-                        <Check className="h-3.5 w-3.5" /> Read
+                        <Check className="h-3.5 w-3.5" /> {t("read")}
                       </Button>
                     )}
                   </div>
@@ -215,7 +219,7 @@ export default function NotificationsPage() {
                       {n.message && (
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                            Error
+                            {t("errorLabel")}
                           </p>
                           <pre className="mt-0.5 whitespace-pre-wrap break-words rounded bg-destructive/5 px-2 py-1.5 font-mono text-xs text-destructive/90">
                             {n.message}
@@ -225,7 +229,7 @@ export default function NotificationsPage() {
                       {n.summary && (
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                            Run summary
+                            {t("runSummary")}
                           </p>
                           <pre className="mt-0.5 whitespace-pre-wrap break-words rounded bg-muted/50 px-2 py-1.5 font-mono text-xs text-muted-foreground">
                             {n.summary}
@@ -234,7 +238,7 @@ export default function NotificationsPage() {
                       )}
                       {!detail && (
                         <p className="text-xs italic text-muted-foreground">
-                          No run output recorded for this execution.
+                          {t("noRunOutput")}
                         </p>
                       )}
                     </div>
@@ -248,9 +252,9 @@ export default function NotificationsPage() {
 
       <ConfirmDialog
         open={pendingCleanup !== null}
-        title={pendingCleanup?.label ?? ""}
-        description={pendingCleanup?.description}
-        confirmLabel="Delete"
+        title={pendingCleanup ? t(pendingCleanup.labelKey) : ""}
+        description={pendingCleanup ? t(pendingCleanup.descriptionKey) : undefined}
+        confirmLabel={t("cleanup.confirmLabel")}
         loading={cleanup.isPending}
         onConfirm={confirmCleanup}
         onCancel={() => setPendingCleanup(null)}

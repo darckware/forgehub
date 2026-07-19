@@ -1,0 +1,72 @@
+{
+  "toggle": {
+    "newIdea": "Nova ideia",
+    "backToList": "Voltar para solicitações"
+  },
+  "page": {
+    "title": "Concepção",
+    "description": "Transforme uma ideia em uma definição de produto versionada e revisável antes da execução começar."
+  },
+  "captureIdea": {
+    "title": "Capturar ideia",
+    "description": "Cria um produto conceito e sua primeira revisão do Mapa do Sistema.",
+    "editTitle": "Editar ideia",
+    "editDescription": "Atualize os dados do cadastro da concepção.",
+    "conceptLocked": "O conceito já foi enviado para revisão, então a declaração do problema, visão e escopo inicial não podem mais ser editados aqui -- apenas o nome e o solicitante.",
+    "fields": {
+      "name": "Nome",
+      "problemStatement": "Declaração do problema",
+      "vision": "Visão",
+      "initialScope": "Escopo inicial",
+      "requestedBy": "Solicitado por",
+      "priority": "Prioridade"
+    },
+    "priorityOptions": {
+      "low": "baixa",
+      "medium": "média",
+      "high": "alta",
+      "critical": "crítica"
+    },
+    "buttons": {
+      "create": "Criar concepção",
+      "save": "Salvar alterações",
+      "cancel": "Cancelar"
+    },
+    "error": {
+      "createFailed": "A ideia não pôde ser criada. Verifique se já existe um nome duplicado."
+    }
+  },
+  "developmentRequests": {
+    "title": "Solicitações de desenvolvimento",
+    "description": "Histórico de entrada e conversão para criação de produto.",
+    "loading": "Carregando…",
+    "empty": "Nenhuma ideia capturada ainda.",
+    "openSystemMap": "Abrir Mapa do Sistema",
+    "edit": "Editar",
+    "delete": "Excluir",
+    "deleteDialog": {
+      "title": "Excluir \"{{name}}\"?",
+      "description": "Isso exclui permanentemente o produto, seu conceito, o Mapa do Sistema e todas as revisões relacionadas. Isso não pode ser desfeito.",
+      "confirmLabel": "Excluir"
+    }
+  },
+  "conceptDecision": {
+    "title": "Decisão de conceito",
+    "description": "A execução permanece bloqueada até que o conceito e o mapa sejam aprovados.",
+    "actions": {
+      "reviewSystemMap": "Revisar Mapa do Sistema",
+      "submitForReview": "Enviar para revisão",
+      "openApprovalInbox": "Abrir caixa de aprovação",
+      "authorizeDelivery": "Autorizar planejamento de entrega",
+      "openProjectScope": "Abrir Escopo do Projeto criado"
+    },
+    "error": {
+      "submitBlocked": "O envio foi bloqueado. Valide o Mapa do Sistema e sua permissão de comando."
+    },
+    "authorizeForm": {
+      "version": "Versão",
+      "projectName": "Nome do projeto",
+      "owner": "Responsável"
+    }
+  }
+}

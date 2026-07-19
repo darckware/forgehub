@@ -50,6 +50,14 @@ export function useCreateIdea() {
     onSuccess: () => { client.invalidateQueries({ queryKey: ["conception"] }); client.invalidateQueries({ queryKey: ["products"] }); },
   });
 }
+export function useUpdateDevelopmentRequest() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, ...payload }: { requestId: string; title: string; description: string; requested_by?: string }) =>
+      apiClient.patch<DevelopmentRequest>(`/api/v1/conception/requests/${requestId}`, payload),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["conception"] }),
+  });
+}
 export function useConcept(productId?: string) {
   return useQuery({ queryKey: ["concept", productId], queryFn: () => apiClient.get<ConceptDetail>(`/api/v1/products/${productId}/concept`), enabled: Boolean(productId) });
 }
@@ -87,10 +95,42 @@ export function useBlueprint(productId?: string) {
 export function useBlueprintGraph(revisionId?: string | null) {
   return useQuery({ queryKey: ["blueprint-graph", revisionId], queryFn: () => apiClient.get<BlueprintGraph>(`/api/v1/blueprint-revisions/${revisionId}/graph`), enabled: Boolean(revisionId) });
 }
+export function useCreateBlueprintRevision() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ productId, cloneFromRevisionId }: { productId: string; cloneFromRevisionId?: string }) =>
+      apiClient.post<BlueprintRevision>(`/api/v1/products/${productId}/system-blueprint/revisions`, { clone_from_revision_id: cloneFromRevisionId }),
+    onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["blueprint", variables.productId] }),
+  });
+}
 export function useAddSystemElement() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ revisionId, ...payload }: { revisionId: string; stable_key: string; family: string; element_type: string; name: string; description?: string }) => apiClient.post(`/api/v1/blueprint-revisions/${revisionId}/elements`, payload),
+    mutationFn: ({ revisionId, ...payload }: { revisionId: string; stable_key: string; family: string; element_type: string; name: string; description?: string; spec_snapshot?: Record<string, unknown> }) => apiClient.post(`/api/v1/blueprint-revisions/${revisionId}/elements`, payload),
+    onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["blueprint-graph", variables.revisionId] }),
+  });
+}
+export function useMoveSystemElement() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ revisionId, elementId, spec_snapshot }: { revisionId: string; elementId: string; spec_snapshot: Record<string, unknown> }) =>
+      apiClient.patch(`/api/v1/blueprint-revisions/${revisionId}/elements/${elementId}`, { spec_snapshot }),
+    onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["blueprint-graph", variables.revisionId] }),
+  });
+}
+export function useUpdateSystemElement() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ revisionId, elementId, ...payload }: { revisionId: string; elementId: string; name?: string; family?: string; element_type?: string; stable_key?: string }) =>
+      apiClient.patch(`/api/v1/blueprint-revisions/${revisionId}/elements/${elementId}`, payload),
+    onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["blueprint-graph", variables.revisionId] }),
+  });
+}
+export function useRemoveSystemElement() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ revisionId, elementId }: { revisionId: string; elementId: string }) =>
+      apiClient.delete(`/api/v1/blueprint-revisions/${revisionId}/elements/${elementId}`),
     onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["blueprint-graph", variables.revisionId] }),
   });
 }
@@ -98,6 +138,14 @@ export function useAddSystemRelation() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ revisionId, ...payload }: { revisionId: string; from_element_id: string; to_element_id: string; relation_type: string }) => apiClient.post(`/api/v1/blueprint-revisions/${revisionId}/relations`, payload),
+    onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["blueprint-graph", variables.revisionId] }),
+  });
+}
+export function useDeleteSystemRelation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ revisionId, relationId }: { revisionId: string; relationId: string }) =>
+      apiClient.delete(`/api/v1/blueprint-revisions/${revisionId}/relations/${relationId}`),
     onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["blueprint-graph", variables.revisionId] }),
   });
 }

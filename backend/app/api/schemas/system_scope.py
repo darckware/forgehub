@@ -18,6 +18,12 @@ class IdeaCreate(BaseModel):
     priority: Literal["low", "medium", "high", "critical"] = "medium"
 
 
+class DevelopmentRequestUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1)
+    requested_by: str | None = Field(default=None, max_length=255)
+
+
 class DevelopmentRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -123,6 +129,14 @@ class SystemElementCreate(BaseModel):
     parent_id: uuid.UUID | None = None
     spec_snapshot: dict[str, Any] = Field(default_factory=dict)
     source_ref: str | None = Field(default=None, max_length=500)
+
+
+class SystemElementUpdate(BaseModel):
+    spec_snapshot: dict[str, Any] | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    family: str | None = Field(default=None, min_length=1, max_length=30)
+    element_type: str | None = Field(default=None, min_length=1, max_length=40)
+    stable_key: str | None = Field(default=None, min_length=1, max_length=160, pattern=r"^[a-z0-9][a-z0-9._-]*$")
 
 
 class SystemElementOut(BaseModel):

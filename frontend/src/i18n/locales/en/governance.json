@@ -1,0 +1,151 @@
+{
+  "list": {
+    "title": "Governance",
+    "description": "Approvals for gated transitions -- pipeline stage gates, release readiness, critical skills, and change requests -- backed by audit events and policies.",
+    "newApproval": "New approval",
+    "requestForm": {
+      "title": "Request approval",
+      "description": "Record an approval request for a gated transition before it is decided.",
+      "createFailed": "Failed to create approval: {{message}}"
+    },
+    "governed": {
+      "title": "Governed planning approvals",
+      "description": "Identity, revision hash, policy evaluation and separation of duties are enforced by the backend.",
+      "loading": "Loading governed approvals…",
+      "empty": "No governed approval is pending.",
+      "noPermission": "You do not have permission to view governed approvals.",
+      "requestedBy": "Requested by {{name}}",
+      "revision": "revision {{id}} · {{hash}}",
+      "policyEvaluation": "policy evaluation {{id}}",
+      "approve": "Approve",
+      "requestChanges": "Request changes",
+      "reject": "Reject",
+      "separationOfDuties": "Separation of duties: another authority must decide.",
+      "decisionBlocked": "Decision blocked by authority, policy, expiry or separation of duties."
+    },
+    "athos": {
+      "title": "Athos authority",
+      "description": "Grant bounded, expiring authority. This does not release Tasks or CLI execution.",
+      "grantButton": "Grant Athos 24-hour planning mandate",
+      "notFound": "Athos agent was not found in the agent registry.",
+      "expires": "expires {{date}}",
+      "revoke": "Revoke"
+    },
+    "loading": "Loading approvals…",
+    "loadFailed": "Failed to load approvals: {{message}}",
+    "empty": {
+      "title": "No approvals yet",
+      "description": "Request your first approval to start tracking gated decisions."
+    },
+    "table": {
+      "entity": "Entity",
+      "status": "Status",
+      "requestedBy": "Requested by",
+      "decidedBy": "Decided by",
+      "actions": "Actions",
+      "view": "View"
+    }
+  },
+  "detail": {
+    "backToGovernance": "Back to governance",
+    "loading": "Loading approval…",
+    "loadFailed": "Failed to load approval: {{message}}",
+    "decision": {
+      "title": "Decision",
+      "description": "Who requested and decided this approval.",
+      "approvalType": "Approval type",
+      "requestedBy": "Requested by",
+      "decidedBy": "Decided by",
+      "notYetDecided": "Not yet decided",
+      "comments": "Comments"
+    },
+    "policy": {
+      "title": "Governing policy",
+      "description": "The policy this approval is evaluated against.",
+      "name": "Name",
+      "descriptionLabel": "Description",
+      "policyType": "Policy type",
+      "active": "Active",
+      "activeValue": "active",
+      "inactiveValue": "inactive",
+      "notLoaded": "Policy details could not be loaded.",
+      "noPolicy": "No policy is linked to this approval."
+    },
+    "auditTrail": {
+      "title": "Audit trail",
+      "description": "Audit events recorded against this approval, in chronological order.",
+      "by": "By {{actor}}",
+      "empty": "No audit events have been recorded for this approval yet."
+    },
+    "backToList": "Back to list"
+  },
+  "form": {
+    "selectPlaceholder": "Select…",
+    "entityUuidPlaceholder": "Entity UUID",
+    "entityType": "Entity type",
+    "entity": "Entity",
+    "approvalType": "Approval type",
+    "approvalTypePlaceholder": "ex: gate_approval, release_approval, security_review",
+    "requestedBy": "Requested by",
+    "requestedByPlaceholder": "agent or user",
+    "policy": "Policy (optional)",
+    "noPolicyLinked": "No policy linked",
+    "comments": "Comments",
+    "commentsPlaceholder": "Justification, conditions or context",
+    "cancel": "Cancel",
+    "createApproval": "Create approval"
+  },
+  "policies": {
+    "title": "Governance Policies",
+    "description": "Business rules linked to artifacts — define approval criteria for controlled transitions.",
+    "newPolicy": "New policy",
+    "newPolicyCard": {
+      "description": "Links an approval rule to a specific artifact."
+    },
+    "createPolicy": "Create policy",
+    "saveChanges": "Save changes",
+    "loading": "Loading…",
+    "loadFailed": "Failed to load policies.",
+    "empty": {
+      "title": "No policies registered",
+      "description": "Create the first policy to link to approvals."
+    },
+    "table": {
+      "name": "Name",
+      "type": "Type",
+      "artifact": "Artifact",
+      "status": "Status",
+      "description": "Description",
+      "tasks": "Tasks",
+      "actions": "Actions",
+      "active": "Active",
+      "inactive": "Inactive",
+      "viewTasks": "View tasks",
+      "hide": "Hide"
+    },
+    "deleteConfirm": "Delete policy \"{{name}}\"?",
+    "tasks": {
+      "loading": "Loading tasks…",
+      "empty": "No tasks linked to this policy.",
+      "heading": "Tasks implementing this policy"
+    },
+    "validation": {
+      "nameRequired": "Name is required",
+      "typeRequired": "Type is required",
+      "artifactRequired": "Artifact is required"
+    },
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "e.g. Production Deploy Approval",
+      "type": "Type",
+      "typePlaceholder": "ex: release_approval, security_review",
+      "linkedArtifact": "Linked artifact",
+      "selectArtifact": "Select an artifact…",
+      "description": "Description",
+      "descriptionPlaceholder": "Describe the criteria or rule for this policy",
+      "active": "Active",
+      "cancel": "Cancel",
+      "save": "Save"
+    }
+  }
+}

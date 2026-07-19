@@ -1,0 +1,151 @@
+{
+  "list": {
+    "title": "Governança",
+    "description": "Aprovações para transições com portão -- gates de estágio do pipeline, prontidão de release, skills críticas e solicitações de mudança -- respaldadas por eventos de auditoria e políticas.",
+    "newApproval": "Nova aprovação",
+    "requestForm": {
+      "title": "Solicitar aprovação",
+      "description": "Registre uma solicitação de aprovação para uma transição com portão antes que ela seja decidida.",
+      "createFailed": "Falha ao criar aprovação: {{message}}"
+    },
+    "governed": {
+      "title": "Aprovações governadas de planejamento",
+      "description": "Identidade, hash de revisão, avaliação de política e separação de funções são impostas pelo backend.",
+      "loading": "Carregando aprovações governadas…",
+      "empty": "Nenhuma aprovação governada está pendente.",
+      "noPermission": "Você não tem permissão para visualizar aprovações governadas.",
+      "requestedBy": "Solicitado por {{name}}",
+      "revision": "revisão {{id}} · {{hash}}",
+      "policyEvaluation": "avaliação de política {{id}}",
+      "approve": "Aprovar",
+      "requestChanges": "Solicitar mudanças",
+      "reject": "Rejeitar",
+      "separationOfDuties": "Separação de funções: outra autoridade deve decidir.",
+      "decisionBlocked": "Decisão bloqueada por autoridade, política, expiração ou separação de funções."
+    },
+    "athos": {
+      "title": "Autoridade do Athos",
+      "description": "Concede autoridade limitada e com expiração. Isso não libera Tarefas ou execução via CLI.",
+      "grantButton": "Conceder mandato de planejamento de 24 horas ao Athos",
+      "notFound": "O agente Athos não foi encontrado no registro de agentes.",
+      "expires": "expira {{date}}",
+      "revoke": "Revogar"
+    },
+    "loading": "Carregando aprovações…",
+    "loadFailed": "Falha ao carregar aprovações: {{message}}",
+    "empty": {
+      "title": "Ainda não há aprovações",
+      "description": "Solicite sua primeira aprovação para começar a acompanhar decisões com portão."
+    },
+    "table": {
+      "entity": "Entidade",
+      "status": "Status",
+      "requestedBy": "Solicitado por",
+      "decidedBy": "Decidido por",
+      "actions": "Ações",
+      "view": "Ver"
+    }
+  },
+  "detail": {
+    "backToGovernance": "Voltar para governança",
+    "loading": "Carregando aprovação…",
+    "loadFailed": "Falha ao carregar aprovação: {{message}}",
+    "decision": {
+      "title": "Decisão",
+      "description": "Quem solicitou e decidiu esta aprovação.",
+      "approvalType": "Tipo de aprovação",
+      "requestedBy": "Solicitado por",
+      "decidedBy": "Decidido por",
+      "notYetDecided": "Ainda não decidido",
+      "comments": "Comentários"
+    },
+    "policy": {
+      "title": "Política vigente",
+      "description": "A política em relação à qual esta aprovação é avaliada.",
+      "name": "Nome",
+      "descriptionLabel": "Descrição",
+      "policyType": "Tipo de política",
+      "active": "Ativa",
+      "activeValue": "ativa",
+      "inactiveValue": "inativa",
+      "notLoaded": "Não foi possível carregar os detalhes da política.",
+      "noPolicy": "Nenhuma política está vinculada a esta aprovação."
+    },
+    "auditTrail": {
+      "title": "Trilha de auditoria",
+      "description": "Eventos de auditoria registrados para esta aprovação, em ordem cronológica.",
+      "by": "Por {{actor}}",
+      "empty": "Ainda não há eventos de auditoria registrados para esta aprovação."
+    },
+    "backToList": "Voltar à lista"
+  },
+  "form": {
+    "selectPlaceholder": "Selecione…",
+    "entityUuidPlaceholder": "UUID da entidade",
+    "entityType": "Tipo de entidade",
+    "entity": "Entidade",
+    "approvalType": "Tipo de aprovação",
+    "approvalTypePlaceholder": "ex: gate_approval, release_approval, security_review",
+    "requestedBy": "Solicitado por",
+    "requestedByPlaceholder": "agente ou usuário",
+    "policy": "Política (opcional)",
+    "noPolicyLinked": "Nenhuma política vinculada",
+    "comments": "Comentários",
+    "commentsPlaceholder": "Justificativa, condições ou contexto",
+    "cancel": "Cancelar",
+    "createApproval": "Criar aprovação"
+  },
+  "policies": {
+    "title": "Políticas de Governança",
+    "description": "Regras de negócio vinculadas a artefatos — definem os critérios de aprovação para transições controladas.",
+    "newPolicy": "Nova política",
+    "newPolicyCard": {
+      "description": "Vincula uma regra de aprovação a um artefato específico."
+    },
+    "createPolicy": "Criar política",
+    "saveChanges": "Salvar alterações",
+    "loading": "Carregando…",
+    "loadFailed": "Falha ao carregar políticas.",
+    "empty": {
+      "title": "Nenhuma política cadastrada",
+      "description": "Crie a primeira política para vincular a aprovações."
+    },
+    "table": {
+      "name": "Nome",
+      "type": "Tipo",
+      "artifact": "Artefato",
+      "status": "Status",
+      "description": "Descrição",
+      "tasks": "Tarefas",
+      "actions": "Ações",
+      "active": "Ativa",
+      "inactive": "Inativa",
+      "viewTasks": "Ver tarefas",
+      "hide": "Ocultar"
+    },
+    "deleteConfirm": "Excluir a política \"{{name}}\"?",
+    "tasks": {
+      "loading": "Carregando tarefas…",
+      "empty": "Nenhuma tarefa vinculada a esta política.",
+      "heading": "Tarefas que implementam esta política"
+    },
+    "validation": {
+      "nameRequired": "O nome é obrigatório",
+      "typeRequired": "O tipo é obrigatório",
+      "artifactRequired": "O artefato é obrigatório"
+    },
+    "form": {
+      "name": "Nome",
+      "namePlaceholder": "ex.: Aprovação de Deploy em Produção",
+      "type": "Tipo",
+      "typePlaceholder": "ex: release_approval, security_review",
+      "linkedArtifact": "Artefato vinculado",
+      "selectArtifact": "Selecione um artefato…",
+      "description": "Descrição",
+      "descriptionPlaceholder": "Descreva o critério ou a regra desta política",
+      "active": "Ativa",
+      "cancel": "Cancelar",
+      "save": "Salvar"
+    }
+  }
+}

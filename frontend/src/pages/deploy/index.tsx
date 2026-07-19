@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   AlertCircle,
@@ -73,37 +74,39 @@ import { useQueryClient } from "@tanstack/react-query";
 // ---------------------------------------------------------------------------
 
 function ContainerStatusBadge({ state, health }: { state: string; health: string | null }) {
+  const { t } = useTranslation("deploy");
+
   if (state === "running" && health === "healthy") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600">
-        <CheckCircle2 className="h-3 w-3" /> Healthy
+        <CheckCircle2 className="h-3 w-3" /> {t("statusHelpers.healthy")}
       </span>
     );
   }
   if (state === "running" && health === "unhealthy") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500">
-        <AlertCircle className="h-3 w-3" /> Unhealthy
+        <AlertCircle className="h-3 w-3" /> {t("statusHelpers.unhealthy")}
       </span>
     );
   }
   if (state === "running" && health === "starting") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
-        <Loader2 className="h-3 w-3 animate-spin" /> Starting
+        <Loader2 className="h-3 w-3 animate-spin" /> {t("statusHelpers.starting")}
       </span>
     );
   }
   if (state === "running") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600">
-        <Activity className="h-3 w-3" /> Running
+        <Activity className="h-3 w-3" /> {t("statusHelpers.running")}
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-      <Circle className="h-3 w-3" /> Stopped
+      <Circle className="h-3 w-3" /> {t("statusHelpers.stopped")}
     </span>
   );
 }
@@ -127,6 +130,7 @@ function LogsModal({
   containerName: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("deploy");
   const [lines, setLines] = useState(200);
   const { data, isLoading, refetch } = useContainerLogs(containerName, lines);
   const ref = useRef<HTMLPreElement>(null);
@@ -134,6 +138,8 @@ function LogsModal({
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [data]);
+
+  const lineOptions = [50, 100, 200, 500, 1000];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -144,7 +150,7 @@ function LogsModal({
           <div className="flex items-center gap-2">
             <ScrollText className="h-4 w-4 text-blue-500" />
             <span className="font-semibold text-sm">{containerName}</span>
-            <span className="text-xs text-muted-foreground">— last {lines} lines</span>
+            <span className="text-xs text-muted-foreground">— {t("logsModal.subtitle", { lines })}</span>
           </div>
           <div className="flex items-center gap-2">
             <select
@@ -152,14 +158,14 @@ function LogsModal({
               value={lines}
               onChange={(e) => setLines(Number(e.target.value))}
             >
-              {[50, 100, 200, 500, 1000].map((n) => (
-                <option key={n} value={n}>{n} lines</option>
+              {lineOptions.map((n) => (
+                <option key={n} value={n}>{t(`logsModal.linesOptions.${n}`)}</option>
               ))}
             </select>
-            <Button size="sm" variant="ghost" onClick={() => refetch()}>
+            <Button size="sm" variant="ghost" onClick={() => refetch()} title={t("logsModal.refresh")}>
               <RefreshCw className="h-3.5 w-3.5" />
             </Button>
-            <Button size="sm" variant="ghost" onClick={onClose}>
+            <Button size="sm" variant="ghost" onClick={onClose} title={t("logsModal.close")}>
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -169,7 +175,7 @@ function LogsModal({
           className="flex-1 overflow-auto p-4 text-xs font-mono text-foreground/90 bg-black/20 rounded-b-xl whitespace-pre-wrap break-all"
           style={{ minHeight: "300px" }}
         >
-          {isLoading ? "Loading logs..." : data?.logs ?? "No logs available."}
+          {isLoading ? t("logsModal.loading") : data?.logs ?? t("logsModal.noLogs")}
         </pre>
       </div>
     </div>
@@ -181,6 +187,7 @@ function LogsModal({
 // ---------------------------------------------------------------------------
 
 function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () => void }) {
+  const { t } = useTranslation("deploy");
   const createMut = useCreateDeployGroup();
   const updateMut = useUpdateDeployGroup();
   const deleteMut = useDeleteDeployGroup();
@@ -232,7 +239,7 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div className="flex items-center gap-2">
             <Settings2 className="h-4 w-4 text-blue-500" />
-            <span className="font-semibold text-sm">Groups</span>
+            <span className="font-semibold text-sm">{t("groupsModal.title")}</span>
           </div>
           <Button size="sm" variant="ghost" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -246,7 +253,7 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleCreate())}
-              placeholder="New group name"
+              placeholder={t("groupsModal.create.inputPlaceholder")}
               className="h-8 text-sm flex-1"
             />
             <Button size="sm" className="h-8" onClick={handleCreate} disabled={createMut.isPending || !newName.trim()}>
@@ -260,14 +267,14 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
 
           {/* Table */}
           {groups.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">No groups created.</p>
+            <p className="text-sm text-muted-foreground text-center py-6">{t("groupsModal.messages.noGroups")}</p>
           ) : (
             <div className="rounded-lg border border-border overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40">
-                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Name</th>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground w-24">Actions</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">{t("groupsModal.tableHeaders.name")}</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground w-24">{t("groupsModal.tableHeaders.actions")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -293,19 +300,19 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
                         <div className="flex items-center justify-end gap-1">
                           {editingId === g.id ? (
                             <>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleRename(g)} disabled={updateMut.isPending} title="Save">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleRename(g)} disabled={updateMut.isPending} title={t("groupsModal.actions.save")}>
                                 {updateMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                               </Button>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingId(null)} title="Cancel">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingId(null)} title={t("groupsModal.actions.cancel")}>
                                 <X className="h-3.5 w-3.5" />
                               </Button>
                             </>
                           ) : (
                             <>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingId(g.id); setEditName(g.name); }} title="Rename">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingId(g.id); setEditName(g.name); }} title={t("groupsModal.actions.rename")}>
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setDeleting(g)} title="Delete">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setDeleting(g)} title={t("groupsModal.actions.delete")}>
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </>
@@ -319,16 +326,16 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            Renaming a group updates its installations. Deleting a group leaves its installations ungrouped.
+            {t("groupsModal.messages.info")}
           </p>
         </div>
       </div>
 
       <ConfirmDialog
         open={!!deleting}
-        title="Delete group"
-        description={`Delete group "${deleting?.name}"? Installations in this group will become ungrouped.`}
-        confirmLabel="Delete"
+        title={t("groupsModal.confirm.title")}
+        description={t("groupsModal.confirm.description", { name: deleting?.name })}
+        confirmLabel={t("groupsModal.confirm.confirm")}
         loading={deleteMut.isPending}
         onConfirm={handleDelete}
         onCancel={() => setDeleting(null)}
@@ -399,6 +406,7 @@ function InstallationForm({
   groups: DeployGroup[];
   onManageGroups: () => void;
 }) {
+  const { t } = useTranslation("deploy");
   const { data: products = [] } = useProducts();
   const [form, setForm] = useState<DeployInstallationCreate>(() => {
     if (initial) {
@@ -475,23 +483,24 @@ function InstallationForm({
       {/* Name + group row */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">Name *</Label>
+          <Label className="text-xs">{t("installationForm.name.label")}</Label>
           <Input
             value={form.name}
             onChange={(e) => f("name", e.target.value)}
-            placeholder="ForgeHub Backend"
+            placeholder={t("installationForm.name.placeholder")}
             required
             className="h-8 text-sm"
           />
         </div>
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <Label className="text-xs">Group</Label>
+            <Label className="text-xs">{t("installationForm.group.label")}</Label>
             <button
               type="button"
               onClick={onManageGroups}
               className="text-muted-foreground hover:text-foreground"
-              title="Manage groups"
+              title={t("installationForm.group.buttonTitle")}
+              aria-label={t("installationForm.group.buttonTitle")}
             >
               <Settings2 className="h-3.5 w-3.5" />
             </button>
@@ -501,7 +510,7 @@ function InstallationForm({
             value={form.group_name ?? ""}
             onChange={(e) => f("group_name", e.target.value || null)}
           >
-            <option value="">— no group —</option>
+            <option value="">{t("installationForm.group.none")}</option>
             {/* Keep a legacy group_name selectable even if its group row is gone */}
             {form.group_name && !groups.some((g) => g.name === form.group_name) && (
               <option value={form.group_name}>{form.group_name}</option>
@@ -514,11 +523,11 @@ function InstallationForm({
       </div>
 
       <div className="space-y-1">
-        <Label className="text-xs">Description</Label>
+        <Label className="text-xs">{t("installationForm.description.label")}</Label>
         <Input
           value={form.description ?? ""}
           onChange={(e) => f("description", e.target.value)}
-          placeholder="Brief service description"
+          placeholder={t("installationForm.description.placeholder")}
           className="h-8 text-sm"
         />
       </div>
@@ -526,13 +535,13 @@ function InstallationForm({
       {/* Container + order */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">Docker Container</Label>
+          <Label className="text-xs">{t("installationForm.container.label")}</Label>
           <select
             className="h-8 w-full rounded-md border border-border bg-background px-3 text-sm"
             value={form.container_name ?? ""}
             onChange={(e) => handleContainerChange(e.target.value)}
           >
-            <option value="">— none —</option>
+            <option value="">{t("installationForm.container.none")}</option>
             {containers.map((c) => (
               <option key={c.name} value={c.name}>
                 {c.name}
@@ -541,7 +550,7 @@ function InstallationForm({
           </select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Order</Label>
+          <Label className="text-xs">{t("installationForm.order.label")}</Label>
           <Input
             type="number"
             value={form.order_index}
@@ -564,33 +573,33 @@ function InstallationForm({
               <>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                    <Container className="h-3 w-3 text-blue-500" /> Container:
+                    <Container className="h-3 w-3 text-blue-500" /> {t("installationForm.containerDetails.container")}
                   </span>
                   <span className="text-[10px] font-mono">{live.name}</span>
                   {live.id && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono" title="Container ID">{live.id}</span>}
                   <ContainerStatusBadge state={live.state} health={live.health} />
                 </div>
                 <div className="flex items-start gap-2 flex-wrap">
-                  <span className="text-xs font-medium text-foreground shrink-0">Image:</span>
+                  <span className="text-xs font-medium text-foreground shrink-0">{t("installationForm.containerDetails.image")}:</span>
                   <span className="text-[10px] font-mono text-muted-foreground break-all">{live.image}</span>
                 </div>
                 <div className="flex items-start gap-2 flex-wrap">
-                  <span className="text-xs font-medium text-foreground shrink-0">Status:</span>
+                  <span className="text-xs font-medium text-foreground shrink-0">{t("installationForm.containerDetails.status")}:</span>
                   <span className="text-[10px] font-mono text-muted-foreground">{live.status}</span>
                 </div>
                 {live.ports && (
                   <div className="flex items-start gap-2 flex-wrap">
-                    <span className="text-xs font-medium text-foreground shrink-0">Ports:</span>
+                    <span className="text-xs font-medium text-foreground shrink-0">{t("installationForm.containerDetails.ports")}:</span>
                     <span className="text-[10px] font-mono text-muted-foreground break-all">{live.ports}</span>
                   </div>
                 )}
               </>
             ) : (
-              <p className="text-xs text-muted-foreground italic">Container offline or not found on the host.</p>
+              <p className="text-xs text-muted-foreground italic">{t("installationForm.containerDetails.offline")}</p>
             )}
             <div className="flex items-start gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                <HardDrive className="h-3 w-3 text-violet-500" /> Volumes:
+                <HardDrive className="h-3 w-3 text-violet-500" /> {t("installationForm.containerDetails.volumes")}:
               </span>
               {vols.length > 0 ? (
                 vols.map((v) => (
@@ -599,12 +608,12 @@ function InstallationForm({
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground italic">none</span>
+                <span className="text-xs text-muted-foreground italic">{t("installationForm.containerDetails.none")}</span>
               )}
             </div>
             <div className="flex items-start gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                <Folder className="h-3 w-3 text-amber-500" /> Folders:
+                <Folder className="h-3 w-3 text-amber-500" /> {t("installationForm.containerDetails.folders")}:
               </span>
               {sharedFolders.length > 0 ? (
                 sharedFolders.map((v) => (
@@ -613,12 +622,12 @@ function InstallationForm({
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground italic">none</span>
+                <span className="text-xs text-muted-foreground italic">{t("installationForm.containerDetails.none")}</span>
               )}
             </div>
             <div className="flex items-start gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                <Network className="h-3 w-3 text-amber-500" /> Network:
+                <Network className="h-3 w-3 text-amber-500" /> {t("installationForm.containerDetails.networks")}:
               </span>
               {nets.length > 0 ? (
                 nets.map((n) => {
@@ -631,7 +640,7 @@ function InstallationForm({
                   );
                 })
               ) : (
-                <span className="text-xs text-muted-foreground italic">none</span>
+                <span className="text-xs text-muted-foreground italic">{t("installationForm.containerDetails.none")}</span>
               )}
             </div>
           </div>
@@ -640,35 +649,35 @@ function InstallationForm({
 
       {/* Restart command */}
       <div className="space-y-1">
-        <Label className="text-xs">Restart command</Label>
+        <Label className="text-xs">{t("installationForm.restartCommand.label")}</Label>
         <Input
           value={form.restart_command ?? ""}
           onChange={(e) => f("restart_command", e.target.value)}
-          placeholder="docker restart container-name"
+          placeholder={t("installationForm.restartCommand.placeholder")}
           className="h-8 text-sm font-mono"
         />
       </div>
 
       {/* Compose file */}
       <div className="space-y-1">
-        <Label className="text-xs">docker-compose.yml path</Label>
+        <Label className="text-xs">{t("installationForm.composeFile.label")}</Label>
         <Input
           value={form.compose_file ?? ""}
           onChange={(e) => f("compose_file", e.target.value)}
-          placeholder="/root/project/forgehub/docker-compose.yml"
+          placeholder={t("installationForm.composeFile.placeholder")}
           className="h-8 text-sm font-mono"
         />
       </div>
 
       {/* Product association */}
       <div className="space-y-1">
-        <Label className="text-xs">ForgeHub Product (optional)</Label>
+        <Label className="text-xs">{t("installationForm.product.label")}</Label>
         <select
           className="h-8 w-full rounded-md border border-border bg-background px-3 text-sm"
           value={form.product_id ?? ""}
           onChange={(e) => f("product_id", e.target.value || null)}
         >
-          <option value="">— none —</option>
+          <option value="">{t("installationForm.product.none")}</option>
           {products.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
@@ -677,13 +686,13 @@ function InstallationForm({
 
       {/* Ports */}
       <div className="space-y-1">
-        <Label className="text-xs">Exposed ports</Label>
+        <Label className="text-xs">{t("installationForm.ports.label")}</Label>
         <div className="flex gap-2">
           <Input
             value={portInput}
             onChange={(e) => setPortInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPort())}
-            placeholder="8000:8000"
+            placeholder={t("installationForm.ports.inputPlaceholder")}
             className="h-8 text-sm font-mono flex-1"
           />
           <Button type="button" size="sm" variant="outline" onClick={addPort} className="h-8">
@@ -706,19 +715,19 @@ function InstallationForm({
 
       {/* Links */}
       <div className="space-y-1">
-        <Label className="text-xs">Links</Label>
+        <Label className="text-xs">{t("installationForm.links.label")}</Label>
         <div className="flex gap-2">
           <Input
             value={linkLabel}
             onChange={(e) => setLinkLabel(e.target.value)}
-            placeholder="Label"
+            placeholder={t("installationForm.links.inputs.label")}
             className="h-8 text-sm w-28"
           />
           <Input
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addLink())}
-            placeholder="http://localhost:8000"
+            placeholder={t("installationForm.links.inputs.url")}
             className="h-8 text-sm flex-1"
           />
           <Button type="button" size="sm" variant="outline" onClick={addLink} className="h-8">
@@ -742,11 +751,11 @@ function InstallationForm({
 
       {/* Notes */}
       <div className="space-y-1">
-        <Label className="text-xs">Notes</Label>
+        <Label className="text-xs">{t("installationForm.notes.label")}</Label>
         <Textarea
           value={form.notes ?? ""}
           onChange={(e) => f("notes", e.target.value)}
-          placeholder="Notes, credentials, references..."
+          placeholder={t("installationForm.notes.placeholder")}
           rows={2}
           className="text-sm resize-none"
         />
@@ -754,11 +763,11 @@ function InstallationForm({
 
       <div className="flex justify-end gap-2 pt-1">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-          Cancel
+          {t("actions.cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={isSaving}>
           {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-          {initial ? "Save" : "Register"}
+          {initial ? t("actions.save") : t("actions.register")}
         </Button>
       </div>
     </form>
@@ -1679,6 +1688,7 @@ function ImagesTab() {
 // ---------------------------------------------------------------------------
 
 export default function DeployPage() {
+  const { t } = useTranslation("deploy");
   const qc = useQueryClient();
   const { data: installations = [], isLoading: loadingInstall } = useInstallations();
   const { data: groups = [] } = useDeployGroups();
@@ -1778,10 +1788,10 @@ export default function DeployPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2">
-            <Server className="h-5 w-5 text-blue-500" /> Deploy Control
+            <Server className="h-5 w-5 text-blue-500" /> {t("mainPage.header.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Monitoring and control of Docker installations
+            {t("mainPage.header.description")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1794,9 +1804,9 @@ export default function DeployPage() {
                 : "border-border bg-muted text-muted-foreground"
             )}>
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              {syncResult.created > 0 && <span>{syncResult.created} criado(s)</span>}
-              {syncResult.updated > 0 && <span>{syncResult.updated} atualizado(s)</span>}
-              {syncResult.created === 0 && syncResult.updated === 0 && <span>Registry already up to date</span>}
+              {syncResult.created > 0 && <span>{syncResult.created} {t("mainPage.messages.syncResult.created")}</span>}
+              {syncResult.updated > 0 && <span>{syncResult.updated} {t("mainPage.messages.syncResult.updated")}</span>}
+              {syncResult.created === 0 && syncResult.updated === 0 && <span>{t("mainPage.messages.syncResult.upToDate")}</span>}
               <button type="button" onClick={() => setSyncResult(null)} className="ml-1 opacity-60 hover:opacity-100">
                 <X className="h-3 w-3" />
               </button>
@@ -1823,7 +1833,7 @@ export default function DeployPage() {
             {syncMut.isPending
               ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
               : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-            Sync Docker
+            {t("mainPage.actions.sync")}
           </Button>
           <Button
             size="sm"
@@ -1833,7 +1843,7 @@ export default function DeployPage() {
               setShowForm(true);
             }}
           >
-            <Plus className="h-3.5 w-3.5 mr-1" /> New Installation
+            <Plus className="h-3.5 w-3.5 mr-1" /> {t("mainPage.actions.newInstallation")}
           </Button>
         </div>
       </div>
@@ -1841,14 +1851,14 @@ export default function DeployPage() {
       {/* Summary stats — clickable cards navigate to the corresponding tab */}
       <div className="grid grid-cols-8 gap-3">
         {[
-          { label: "Installations", value: installations.length, icon: Zap, color: "text-sky-500", tab: "installations", offline: false },
-          { label: "Containers", value: bridgeOffline ? null : containers.length, icon: Box, color: "text-blue-500", tab: "live", offline: bridgeOffline },
-          { label: "Running", value: bridgeOffline ? null : containers.filter((c) => c.state === "running").length, icon: Activity, color: "text-emerald-500", tab: "live", offline: bridgeOffline },
-          { label: "Healthy", value: bridgeOffline ? null : containers.filter((c) => c.health === "healthy").length, icon: CheckCircle2, color: "text-emerald-600", tab: "live", offline: bridgeOffline },
-          { label: "Issues", value: bridgeOffline ? null : containers.filter((c) => c.state === "stopped" || c.health === "unhealthy").length, icon: AlertCircle, color: "text-red-500", tab: "live", offline: bridgeOffline },
-          { label: "Volumes", value: volumesOffline ? null : volumes.length, icon: HardDrive, color: "text-violet-500", tab: "volumes", offline: volumesOffline },
-          { label: "Networks", value: networksOffline ? null : networks.length, icon: Network, color: "text-amber-500", tab: "networks", offline: networksOffline },
-          { label: "Images", value: imagesOffline ? null : images.length, icon: Layers, color: "text-cyan-500", tab: "images", offline: imagesOffline },
+          { label: t("mainPage.stats.installations"), value: installations.length, icon: Zap, color: "text-sky-500", tab: "installations", offline: false },
+          { label: t("mainPage.stats.containers"), value: bridgeOffline ? null : containers.length, icon: Box, color: "text-blue-500", tab: "live", offline: bridgeOffline },
+          { label: t("mainPage.stats.running"), value: bridgeOffline ? null : containers.filter((c) => c.state === "running").length, icon: Activity, color: "text-emerald-500", tab: "live", offline: bridgeOffline },
+          { label: t("mainPage.stats.healthy"), value: bridgeOffline ? null : containers.filter((c) => c.health === "healthy").length, icon: CheckCircle2, color: "text-emerald-600", tab: "live", offline: bridgeOffline },
+          { label: t("mainPage.stats.issues"), value: bridgeOffline ? null : containers.filter((c) => c.state === "stopped" || c.health === "unhealthy").length, icon: AlertCircle, color: "text-red-500", tab: "live", offline: bridgeOffline },
+          { label: t("mainPage.stats.volumes"), value: volumesOffline ? null : volumes.length, icon: HardDrive, color: "text-violet-500", tab: "volumes", offline: volumesOffline },
+          { label: t("mainPage.stats.networks"), value: networksOffline ? null : networks.length, icon: Network, color: "text-amber-500", tab: "networks", offline: networksOffline },
+          { label: t("mainPage.stats.images"), value: imagesOffline ? null : images.length, icon: Layers, color: "text-cyan-500", tab: "images", offline: imagesOffline },
         ].map(({ label, value, icon: Icon, color, tab, offline }) => (
           <button
             key={label}

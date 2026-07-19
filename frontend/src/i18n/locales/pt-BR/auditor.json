@@ -1,0 +1,31 @@
+{
+  "auditor": {
+    "title": "Auditor",
+    "checklist": "Lista de verificação",
+    "runChecklist": "Executar lista de verificação",
+    "newCheck": "Nova verificação",
+    "name": "Nome",
+    "category": "Categoria",
+    "agent": "Agente",
+    "status": "Status",
+    "nextRun": "Próxima execução",
+    "lastRun": "Última execução",
+    "actions": "Ações",
+    "run": "Executar",
+    "sendToAssistant": "Enviar para assistente",
+    "toggle": "Alternar",
+    "edit": "Editar",
+    "delete": "Excluir",
+    "latestOutput": "Última saída",
+    "recentHistory": "Histórico recente",
+    "neverRun": "Nunca executado",
+    "disabled": "Desativado",
+    "working": "Funcionando",
+    "error": "Erro",
+    "notRunning": "Não está em execução",
+    "corruptedStores": "Armazenamento de cron corrompido(s)",
+    "corruptedDescription": "Os trabalhos desses perfis estão ausentes da lista abaixo, e seu agendador parou de executá-los — o gateway recusa-se a marcar em um armazenamento corrompido. Corrija o arquivo e reinicie o gateway desse perfil.",
+    "noChecks": "Nenhum ponto de verificação registrado ainda",
+    "noChecksDescription": "Todos os armazenamentos `hermes cron` por perfil analisáveis estão vazios — veja os armazenamentos corrompidos acima."
+  }
+}

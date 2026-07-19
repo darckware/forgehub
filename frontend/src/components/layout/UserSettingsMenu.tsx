@@ -1,17 +1,24 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Camera, Check, KeyRound, Laptop, LogOut, Loader2, Moon, Settings, Settings2, Sun, User as UserIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useTheme } from "@/lib/theme";
+import i18n, { type UiLanguage } from "@/i18n";
 import { useAuthStore } from "@/store/authStore";
 import { useUpdateMe, useChangeMyPassword, useClearQueryCacheOnLogout } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 
 const THEME_OPTIONS = [
-  { value: "light" as const, label: "Light", icon: Sun },
-  { value: "dark" as const, label: "Dark", icon: Moon },
-  { value: "system" as const, label: "System", icon: Laptop },
+  { value: "light" as const, labelKey: "themeLight", icon: Sun },
+  { value: "dark" as const, labelKey: "themeDark", icon: Moon },
+  { value: "system" as const, labelKey: "themeSystem", icon: Laptop },
+];
+
+const LANGUAGE_OPTIONS: { value: UiLanguage; labelKey: string }[] = [
+  { value: "pt-BR", labelKey: "languagePt" },
+  { value: "en", labelKey: "languageEn" },
 ];
 
 /** Backdrop + centered panel, same pattern as components/ui/confirm-dialog.tsx. */
@@ -28,6 +35,7 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
 }
 
 function AccountModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation("common");
   const user = useAuthStore((s) => s.user);
   const updateMe = useUpdateMe();
   const [fullName, setFullName] = useState(user?.full_name ?? "");
@@ -51,15 +59,15 @@ function AccountModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalShell title="Account" onClose={onClose}>
+    <ModalShell title={t("userMenu.account")} onClose={onClose}>
       <div className="space-y-4">
         <div className="flex justify-center">
           <button
             type="button"
             className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full bg-accent"
             onClick={() => fileInputRef.current?.click()}
-            aria-label="Change user photo"
-            title="Change photo"
+            aria-label={t("userMenu.changeUserPhoto")}
+            title={t("userMenu.changePhoto")}
           >
             {avatarPreview ? (
               <img src={avatarPreview} alt="" className="h-full w-full object-cover" />
@@ -75,11 +83,11 @@ function AccountModal({ onClose }: { onClose: () => void }) {
           <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePickPhoto} />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Username</label>
+          <label className="text-xs text-muted-foreground">{t("userMenu.username")}</label>
           <p className="text-sm">{user?.username}</p>
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Full name</label>
+          <label className="text-xs text-muted-foreground">{t("userMenu.fullName")}</label>
           <input
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
@@ -87,23 +95,41 @@ function AccountModal({ onClose }: { onClose: () => void }) {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">E-mail</label>
+          <label className="text-xs text-muted-foreground">{t("userMenu.email")}</label>
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm outline-none focus:border-primary"
           />
         </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">{t("userMenu.language")}</label>
+          <select
+            value={user?.ui_language ?? "pt-BR"}
+            onChange={(e) => {
+              const lang = e.target.value as UiLanguage;
+              void i18n.changeLanguage(lang);
+              updateMe.mutate({ ui_language: lang });
+            }}
+            className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm outline-none focus:border-primary"
+          >
+            {LANGUAGE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {t(`userMenu.${opt.labelKey}`)}
+              </option>
+            ))}
+          </select>
+        </div>
         {updateMe.isError && (
-          <p className="text-xs text-destructive">Could not save. Please try again.</p>
+          <p className="text-xs text-destructive">{t("userMenu.saveError")}</p>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" size="sm" onClick={onClose}>
-            Cancel
+            {t("userMenu.cancel")}
           </Button>
           <Button size="sm" onClick={handleSave} disabled={updateMe.isPending}>
             {updateMe.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            Save
+            {t("userMenu.save")}
           </Button>
         </div>
       </div>
@@ -112,6 +138,7 @@ function AccountModal({ onClose }: { onClose: () => void }) {
 }
 
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation("common");
   const changePassword = useChangeMyPassword();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -121,11 +148,11 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   function handleSave() {
     setLocalError(null);
     if (newPassword.length < 8) {
-      setLocalError("New password must be at least 8 characters.");
+      setLocalError(t("userMenu.passwordTooShort"));
       return;
     }
     if (newPassword !== confirmPassword) {
-      setLocalError("Passwords do not match.");
+      setLocalError(t("userMenu.passwordsDoNotMatch"));
       return;
     }
     changePassword.mutate(
@@ -135,10 +162,10 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalShell title="Change password" onClose={onClose}>
+    <ModalShell title={t("userMenu.changePassword")} onClose={onClose}>
       <div className="space-y-4">
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Current password</label>
+          <label className="text-xs text-muted-foreground">{t("userMenu.currentPassword")}</label>
           <input
             type="password"
             value={currentPassword}
@@ -147,7 +174,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">New password</label>
+          <label className="text-xs text-muted-foreground">{t("userMenu.newPassword")}</label>
           <input
             type="password"
             value={newPassword}
@@ -156,7 +183,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Confirm new password</label>
+          <label className="text-xs text-muted-foreground">{t("userMenu.confirmNewPassword")}</label>
           <input
             type="password"
             value={confirmPassword}
@@ -166,16 +193,16 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
         </div>
         {(localError || changePassword.isError) && (
           <p className="text-xs text-destructive">
-            {localError ?? "Current password is incorrect."}
+            {localError ?? t("userMenu.currentPasswordIncorrect")}
           </p>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" size="sm" onClick={onClose}>
-            Cancel
+            {t("userMenu.cancel")}
           </Button>
           <Button size="sm" onClick={handleSave} disabled={changePassword.isPending}>
             {changePassword.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            Save
+            {t("userMenu.save")}
           </Button>
         </div>
       </div>
@@ -187,6 +214,9 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
  * replaces the standalone ThemeToggle and the standalone "Log out" button
  * that used to sit in the sidebar header/footer, folding all
  * account-adjacent actions into this single settings menu instead.
+ * Language lives inside the Account modal (a persisted profile field, same
+ * PATCH /users/me as name/email), not here -- this quick dropdown is for
+ * per-device/session toggles (Theme) and navigation, not profile edits.
  *
  * `collapsed` controls icon-only vs icon+label. `stretch` controls whether
  * the trigger fills its container's width (the standalone rail-mode
@@ -210,6 +240,7 @@ export function UserSettingsMenu({
    * Account/Password/Theme dropdown instead of a separate gear button. */
   avatarTrigger?: boolean;
 }) {
+  const { t } = useTranslation("common");
   const [open, setOpen] = useState(false);
   const [modal, setModal] = useState<"account" | "password" | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -242,8 +273,8 @@ export function UserSettingsMenu({
             !collapsed && !avatarTrigger && "justify-start gap-3",
             avatarTrigger && "h-7 w-7 rounded-full p-0"
           )}
-          aria-label="Settings"
-          title="Settings"
+          aria-label={t("userMenu.settings")}
+          title={t("userMenu.settings")}
           onClick={() => setOpen((v) => !v)}
         >
           {showAvatar ? (
@@ -262,14 +293,14 @@ export function UserSettingsMenu({
           ) : (
             <Settings className="h-4 w-4 shrink-0" />
           )}
-          {!collapsed && !avatarTrigger && "Settings"}
+          {!collapsed && !avatarTrigger && t("userMenu.settings")}
         </Button>
         {open && (
           <div
             className="absolute bottom-0 left-full z-20 ml-1 w-48 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md"
           >
             <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-              Account
+              {t("userMenu.account")}
             </p>
             <button
               type="button"
@@ -280,7 +311,7 @@ export function UserSettingsMenu({
               }}
             >
               <UserIcon className="h-3.5 w-3.5" />
-              Account
+              {t("userMenu.account")}
             </button>
             <button
               type="button"
@@ -291,7 +322,7 @@ export function UserSettingsMenu({
               }}
             >
               <KeyRound className="h-3.5 w-3.5" />
-              Change password
+              {t("userMenu.changePassword")}
             </button>
             {user?.is_admin && (
               <button
@@ -303,12 +334,12 @@ export function UserSettingsMenu({
                 }}
               >
                 <Settings2 className="h-3.5 w-3.5" />
-                System settings
+                {t("userMenu.systemSettings")}
               </button>
             )}
             <div className="my-1 border-t border-border" />
             <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-              Theme
+              {t("userMenu.theme")}
             </p>
             {THEME_OPTIONS.map((opt) => (
               <button
@@ -318,7 +349,7 @@ export function UserSettingsMenu({
                 onClick={() => setTheme(opt.value)}
               >
                 <opt.icon className="h-3.5 w-3.5" />
-                <span className="flex-1">{opt.label}</span>
+                <span className="flex-1">{t(`userMenu.${opt.labelKey}`)}</span>
                 {theme === opt.value && <Check className="h-3.5 w-3.5" />}
               </button>
             ))}
@@ -329,7 +360,7 @@ export function UserSettingsMenu({
               onClick={handleLogout}
             >
               <LogOut className="h-3.5 w-3.5" />
-              Log out
+              {t("userMenu.logout")}
             </button>
           </div>
         )}

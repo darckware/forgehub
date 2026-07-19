@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, FilePlus, FileText, Folder, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,6 +81,7 @@ function DocTreeItem({
   onMove,
   getAssistantDragPayload,
 }: DocTreeItemProps) {
+  const { t } = useTranslation("docs");
   const [expanded, setExpanded] = useState(depth === 0);
   const [dragOver, setDragOver] = useState(false);
   const assistantDragPayload = getAssistantDragPayload?.(node);
@@ -98,7 +100,7 @@ function DocTreeItem({
         <div
           draggable={draggable}
           onDragStart={handleDragStart}
-          title={assistantDragPayload ? "Drag to the assistant to reference this folder" : undefined}
+          title={assistantDragPayload ? t("tree.dragReferenceFolder") : undefined}
           onDragOver={(e) => {
             if (!onMove) return;
             e.preventDefault();
@@ -135,7 +137,7 @@ function DocTreeItem({
             }}
             className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left"
             style={{ paddingLeft: `${depth * 0.9 + 0.5}rem` }}
-            title={onSelectFolder ? "Select as working folder" : undefined}
+            title={onSelectFolder ? t("tree.selectAsWorkingFolder") : undefined}
           >
             {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
             <Folder className="h-3.5 w-3.5 shrink-0" />
@@ -143,10 +145,10 @@ function DocTreeItem({
           </button>
           {actions && (
             <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-              <ActionIcon icon={FilePlus} label="New document here" onClick={() => actions.onCreateFile(node.path)} />
-              <ActionIcon icon={FolderPlus} label="New folder here" onClick={() => actions.onCreateFolder(node.path)} />
-              <ActionIcon icon={Pencil} label="Rename folder" onClick={() => actions.onRename(node.path)} />
-              <ActionIcon icon={Trash2} label="Delete folder" destructive onClick={() => actions.onDelete(node.path)} />
+              <ActionIcon icon={FilePlus} label={t("tree.newDocumentHere")} onClick={() => actions.onCreateFile(node.path)} />
+              <ActionIcon icon={FolderPlus} label={t("tree.newFolderHere")} onClick={() => actions.onCreateFolder(node.path)} />
+              <ActionIcon icon={Pencil} label={t("tree.renameFolder")} onClick={() => actions.onRename(node.path)} />
+              <ActionIcon icon={Trash2} label={t("tree.deleteFolder")} destructive onClick={() => actions.onDelete(node.path)} />
             </div>
           )}
         </div>
@@ -175,9 +177,9 @@ function DocTreeItem({
       onDragStart={handleDragStart}
       title={
         assistantDragPayload?.source === "host-folder"
-          ? "Drag to the assistant to reference this folder"
+          ? t("tree.dragReferenceFolder")
           : assistantDragPayload
-            ? "Drag to the assistant to attach this file"
+            ? t("tree.dragAttachFile")
             : undefined
       }
       className={cn(
@@ -199,8 +201,8 @@ function DocTreeItem({
       </button>
       {actions && (
         <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-          <ActionIcon icon={Pencil} label="Rename file" onClick={() => actions.onRename(node.path)} />
-          <ActionIcon icon={Trash2} label="Delete file" destructive onClick={() => actions.onDelete(node.path)} />
+          <ActionIcon icon={Pencil} label={t("tree.renameFile")} onClick={() => actions.onRename(node.path)} />
+          <ActionIcon icon={Trash2} label={t("tree.deleteFile")} destructive onClick={() => actions.onDelete(node.path)} />
         </div>
       )}
     </div>
@@ -233,6 +235,7 @@ export function DocTree({
   /** Makes rows attachable or referenceable in the global assistant. */
   getAssistantDragPayload?: (node: DocTreeNode) => AssistantFileDragPayload | undefined;
 }) {
+  const { t } = useTranslation("docs");
   const [rootDragOver, setRootDragOver] = useState(false);
   return (
     <div className="flex min-h-full flex-col">
@@ -271,7 +274,7 @@ export function DocTree({
             "min-h-8 flex-1 rounded-md",
             rootDragOver && "bg-accent ring-1 ring-inset ring-primary"
           )}
-          title="Drop here to move to the area's root"
+          title={t("tree.dropToMoveToRoot")}
         />
       )}
     </div>

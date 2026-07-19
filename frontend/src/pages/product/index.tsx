@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus, Loader2, PackageSearch, Trash2, Pencil, Download, Upload, Database, FolderOpen } from "lucide-react";
+import { ArrowLeft, Plus, Loader2, PackageSearch, Trash2, Pencil, Download, Upload, Database, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -47,14 +48,16 @@ const statusBadgeVariant: Record<string, "success" | "secondary" | "outline"> = 
 };
 
 // ---------------------------------------------------------------------------
-// Inline edit row
+// Edit form (full-width card, not an inline table row -- long descriptions
+// need real room to read/write, which a cramped expanded row can't give)
 // ---------------------------------------------------------------------------
-interface EditRowProps {
+interface EditFormProps {
   product: Product;
   onClose: () => void;
 }
 
-function EditProductRow({ product, onClose }: EditRowProps) {
+function EditProductForm({ product, onClose }: EditFormProps) {
+  const { t } = useTranslation("product");
   const queryClient = useQueryClient();
   const update = useMutation({
     mutationFn: (payload: ProductUpdateInput) =>
@@ -76,61 +79,51 @@ function EditProductRow({ product, onClose }: EditRowProps) {
   });
 
   return (
-    <TableRow className="bg-muted/30">
-      <TableCell colSpan={4} className="py-3">
-        <form onSubmit={handleSubmit((v) => update.mutate({ ...v, application_url: v.application_url || null }))} className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_2fr_2fr_1fr]">
-            <div className="space-y-1">
-              <Label className="text-xs">Name</Label>
-              <Input className="h-8 text-sm" {...register("name")} />
-              {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Description</Label>
-              <Textarea className="min-h-[60px] text-sm" rows={2} {...register("description")} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Application URL</Label>
-              <Input className="h-8 text-sm" placeholder="http://localhost:4173" {...register("application_url")} />
-              {errors.application_url && <p className="text-xs text-destructive">{errors.application_url.message}</p>}
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Status</Label>
-              {/* py-1 (not the Select default's py-2) -- at h-8 the
-                  default vertical padding leaves less room than
-                  text-sm's line-height needs, clipping the selected
-                  option's text top/bottom in native <select> rendering
-                  (Input doesn't show the same clipping at the same
-                  height, so this is scoped to Select, not fixed
-                  app-wide). */}
-              <Select className="h-8 py-1 text-sm" {...register("status")}>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="archived">Archived</option>
-              </Select>
-            </div>
+    <Card>
+      <form onSubmit={handleSubmit((v) => update.mutate({ ...v, application_url: v.application_url || null }))}>
+        <CardHeader>
+          <CardTitle>{t("editRow.title")}</CardTitle>
+          <CardDescription>{t("editRow.description", { name: product.name })}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="edit-name">{t("editRow.nameLabel")}</Label>
+            <Input id="edit-name" {...register("name")} />
+            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
           </div>
-          {update.isError && (
-            <p className="text-xs text-destructive">Failed to save. Please try again.</p>
-          )}
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={isSubmitting || update.isPending}>
-              {(isSubmitting || update.isPending) && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-              Save
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
+          <div className="space-y-2">
+            <Label htmlFor="edit-description">{t("editRow.descriptionLabel")}</Label>
+            <Textarea id="edit-description" rows={6} {...register("description")} />
           </div>
-        </form>
-      </TableCell>
-    </TableRow>
+          <div className="space-y-2">
+            <Label htmlFor="edit-url">{t("editRow.urlLabel")}</Label>
+            <Input id="edit-url" placeholder={t("editRow.urlPlaceholder")} {...register("application_url")} />
+            {errors.application_url && <p className="text-sm text-destructive">{errors.application_url.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-status">{t("editRow.statusLabel")}</Label>
+            <Select id="edit-status" {...register("status")}>
+              <option value="active">{t("list.status.active")}</option>
+              <option value="inactive">{t("list.status.inactive")}</option>
+              <option value="archived">{t("list.status.archived")}</option>
+            </Select>
+          </div>
+          {update.isError && <p className="text-sm text-destructive">{t("editRow.error")}</p>}
+        </CardContent>
+        <CardFooter className="gap-2">
+          <Button type="submit" disabled={isSubmitting || update.isPending}>
+            {(isSubmitting || update.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t("editRow.save")}
+          </Button>
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("editRow.cancel")}
+          </Button>
+        </CardFooter>
+      </form>
+    </Card>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Restore modal
 // ---------------------------------------------------------------------------
@@ -142,6 +135,7 @@ interface RestoreModalProps {
 }
 
 function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) {
+  const { t } = useTranslation("product");
   const [restoreDb, setRestoreDb] = useState(true);
   const [restoreFiles, setRestoreFiles] = useState(true);
 
@@ -158,9 +152,9 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
               <Upload className="h-5 w-5 text-blue-500" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">Restore backup</h2>
+              <h2 className="text-base font-semibold">{t("restoreModal.title")}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Select what will be restored from the ZIP file.
+                {t("restoreModal.description")}
               </p>
             </div>
           </div>
@@ -169,28 +163,28 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
               <input type="checkbox" checked={restoreDb} onChange={(e) => setRestoreDb(e.target.checked)} className="h-4 w-4" />
               <Database className="h-4 w-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">Database data</p>
-                <p className="text-xs text-muted-foreground">Product, versions, projects, tasks, pipelines and planning items</p>
+                <p className="text-sm font-medium">{t("restoreModal.dbLabel")}</p>
+                <p className="text-xs text-muted-foreground">{t("restoreModal.dbDescription")}</p>
               </div>
             </label>
             <label className="flex items-center gap-3 rounded-lg border border-border p-3 cursor-pointer hover:bg-accent/50">
               <input type="checkbox" checked={restoreFiles} onChange={(e) => setRestoreFiles(e.target.checked)} className="h-4 w-4" />
               <FolderOpen className="h-4 w-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">Project folder</p>
-                <p className="text-xs text-muted-foreground">Files and folders from each project's working_directory_path</p>
+                <p className="text-sm font-medium">{t("restoreModal.filesLabel")}</p>
+                <p className="text-xs text-muted-foreground">{t("restoreModal.filesDescription")}</p>
               </div>
             </label>
           </div>
           <div className="flex justify-end gap-3 pt-1">
-            <Button variant="outline" onClick={onClose} className="min-w-[88px]">Cancel</Button>
+            <Button variant="outline" onClick={onClose} className="min-w-[88px]">{t("restoreModal.cancel")}</Button>
             <Button
               onClick={() => onConfirm(restoreDb, restoreFiles)}
               disabled={loading || (!restoreDb && !restoreFiles)}
               className="min-w-[88px]"
             >
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Restore
+              {t("restoreModal.confirm")}
             </Button>
           </div>
         </div>
@@ -203,10 +197,11 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
 // Main page
 // ---------------------------------------------------------------------------
 export default function ProductPage() {
+  const { t } = useTranslation("product");
   const { data: products, isLoading, isError, error, refetch } = useProducts();
   const createProduct = useCreateProduct();
   const deleteProduct = useDeleteProduct();
-  const [showForm, setShowForm] = useState(false);
+  const [view, setView] = useState<"list" | "form">("list");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [backupLoading, setBackupLoading] = useState<string | null>(null);
@@ -217,6 +212,7 @@ export default function ProductPage() {
   const queryClient = useQueryClient();
 
   const pendingDeleteProduct = products?.find((p) => p.id === pendingDeleteId);
+  const editingProduct = products?.find((p) => p.id === editingId);
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ProductInput>({
     resolver: zodResolver(productInputSchema),
@@ -226,7 +222,23 @@ export default function ProductPage() {
   const onSubmit = async (values: ProductInput) => {
     await createProduct.mutateAsync({ ...values, application_url: values.application_url || undefined });
     reset();
-    setShowForm(false);
+    setView("list");
+  };
+
+  const openCreateForm = () => {
+    reset();
+    setEditingId(null);
+    setView("form");
+  };
+
+  const openEditForm = (id: string) => {
+    setEditingId(id);
+    setView("form");
+  };
+
+  const backToList = () => {
+    setEditingId(null);
+    setView("list");
   };
 
   // --- Backup: call backend endpoint which returns a ZIP ---
@@ -244,7 +256,7 @@ export default function ProductPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Failed to generate backup.");
+      alert(t("list.alerts.backupFailed"));
     } finally {
       setBackupLoading(null);
     }
@@ -275,9 +287,9 @@ export default function ProductPage() {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       setRestoreModalOpen(false);
       setPendingRestoreFile(null);
-      alert("Backup restored successfully.");
+      alert(t("list.alerts.restoreSuccess"));
     } catch (err) {
-      alert(`Failed to restore: ${err instanceof Error ? err.message : "Unknown error."}`);
+      alert(t("list.alerts.restoreFailed", { message: err instanceof Error ? err.message : t("list.alerts.unknownError") }));
     } finally {
       setRestoreLoading(false);
     }
@@ -287,149 +299,161 @@ export default function ProductPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Products</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
           <p className="text-muted-foreground">
-            Products under continuous development, each with one or more versions.
+            {t("list.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            ref={restoreInputRef}
-            type="file"
-            accept=".zip"
-            className="hidden"
-            onChange={handleRestoreFileChange}
-          />
-          <Button
-            variant="outline"
-            onClick={() => restoreInputRef.current?.click()}
-            title="Restore product from a JSON backup"
-          >
-            <Upload className="mr-2 h-4 w-4" />
-            Restore
-          </Button>
-          <Button onClick={() => setShowForm((v) => !v)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Product
-          </Button>
+          {view === "list" ? (
+            <>
+              <input
+                ref={restoreInputRef}
+                type="file"
+                accept=".zip"
+                className="hidden"
+                onChange={handleRestoreFileChange}
+              />
+              <Button
+                variant="outline"
+                onClick={() => restoreInputRef.current?.click()}
+                title={t("list.restoreButtonTitle")}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                {t("list.restoreButton")}
+              </Button>
+              <Button onClick={openCreateForm}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t("list.newButton")}
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" onClick={backToList}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              {t("list.backToList")}
+            </Button>
+          )}
         </div>
       </div>
 
-      {showForm && (
+      {view === "form" ? (
+        editingId && editingProduct ? (
+          <EditProductForm product={editingProduct} onClose={backToList} />
+        ) : (
+          <Card>
+            <form onSubmit={handleSubmit(onSubmit)}>
+              <CardHeader>
+                <CardTitle>{t("list.createForm.title")}</CardTitle>
+                <CardDescription>{t("list.createForm.description")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">{t("list.createForm.nameLabel")}</Label>
+                  <Input id="name" placeholder={t("list.createForm.namePlaceholder")} {...register("name")} />
+                  {errors.name && (
+                    <p className="text-sm text-destructive">{errors.name.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="description">{t("list.createForm.descriptionLabel")}</Label>
+                  <Textarea
+                    id="description"
+                    rows={6}
+                    placeholder={t("list.createForm.descriptionPlaceholder")}
+                    {...register("description")}
+                  />
+                  {errors.description && (
+                    <p className="text-sm text-destructive">{errors.description.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="application_url">{t("list.createForm.urlLabel")}</Label>
+                  <Input
+                    id="application_url"
+                    type="url"
+                    placeholder={t("list.createForm.urlPlaceholder")}
+                    {...register("application_url")}
+                  />
+                  <p className="text-xs text-muted-foreground">{t("list.createForm.urlHint")}</p>
+                  {errors.application_url && (
+                    <p className="text-sm text-destructive">{errors.application_url.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="status">{t("list.createForm.statusLabel")}</Label>
+                  <Select id="status" {...register("status")}>
+                    <option value="active">{t("list.status.active")}</option>
+                    <option value="inactive">{t("list.status.inactive")}</option>
+                    <option value="archived">{t("list.status.archived")}</option>
+                  </Select>
+                </div>
+
+                {createProduct.isError && (
+                  <p className="text-sm text-destructive">
+                    {t("list.createForm.error")}
+                  </p>
+                )}
+              </CardContent>
+              <CardFooter className="gap-2">
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {t("list.createForm.save")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={backToList}
+                >
+                  {t("list.createForm.cancel")}
+                </Button>
+              </CardFooter>
+            </form>
+          </Card>
+        )
+      ) : (
         <Card>
-          <form onSubmit={handleSubmit(onSubmit)}>
-            <CardHeader>
-              <CardTitle>Create Product</CardTitle>
-              <CardDescription>Register a new product. Name must be unique.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input id="name" placeholder="e.g. ForgeHub" {...register("name")} />
-                {errors.name && (
-                  <p className="text-sm text-destructive">{errors.name.message}</p>
-                )}
+          <CardContent className="p-0">
+            {isLoading && (
+              <div className="flex items-center justify-center gap-2 p-10 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                {t("list.loading")}
               </div>
+            )}
 
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  placeholder="Optional description of the product"
-                  {...register("description")}
-                />
-                {errors.description && (
-                  <p className="text-sm text-destructive">{errors.description.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="application_url">Application URL</Label>
-                <Input
-                  id="application_url"
-                  type="url"
-                  placeholder="http://localhost:4173"
-                  {...register("application_url")}
-                />
-                <p className="text-xs text-muted-foreground">Opened when this product is selected in Workspace &gt; Web App.</p>
-                {errors.application_url && (
-                  <p className="text-sm text-destructive">{errors.application_url.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select id="status" {...register("status")}>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="archived">Archived</option>
-                </Select>
-              </div>
-
-              {createProduct.isError && (
+            {isError && !isLoading && (
+              <div className="flex flex-col items-center gap-3 p-10 text-center">
                 <p className="text-sm text-destructive">
-                  Failed to create product. Please try again.
+                  {error instanceof Error ? error.message : t("list.loadError")}
                 </p>
-              )}
-            </CardContent>
-            <CardFooter className="gap-2">
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => { reset(); setShowForm(false); }}
-              >
-                Cancel
-              </Button>
-            </CardFooter>
-          </form>
-        </Card>
-      )}
+                <Button variant="outline" size="sm" onClick={() => refetch()}>
+                  {t("list.retry")}
+                </Button>
+              </div>
+            )}
 
-      <Card>
-        <CardContent className="p-0">
-          {isLoading && (
-            <div className="flex items-center justify-center gap-2 p-10 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Loading products...
-            </div>
-          )}
+            {!isLoading && !isError && (products?.length ?? 0) === 0 && (
+              <div className="flex flex-col items-center gap-2 p-10 text-center text-muted-foreground">
+                <PackageSearch className="h-10 w-10" />
+                <p className="font-medium">{t("list.emptyTitle")}</p>
+                <p className="text-sm">{t("list.emptyDescription")}</p>
+              </div>
+            )}
 
-          {isError && !isLoading && (
-            <div className="flex flex-col items-center gap-3 p-10 text-center">
-              <p className="text-sm text-destructive">
-                {error instanceof Error ? error.message : "Failed to load products."}
-              </p>
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
-                Retry
-              </Button>
-            </div>
-          )}
-
-          {!isLoading && !isError && (products?.length ?? 0) === 0 && (
-            <div className="flex flex-col items-center gap-2 p-10 text-center text-muted-foreground">
-              <PackageSearch className="h-10 w-10" />
-              <p className="font-medium">No products yet</p>
-              <p className="text-sm">Create your first product to get started.</p>
-            </div>
-          )}
-
-          {!isLoading && !isError && (products?.length ?? 0) > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Versions</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {products?.map((product) => (
-                  <>
+            {!isLoading && !isError && (products?.length ?? 0) > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("list.columns.name")}</TableHead>
+                    <TableHead>{t("list.columns.status")}</TableHead>
+                    <TableHead>{t("list.columns.versions")}</TableHead>
+                    <TableHead className="text-right">{t("list.columns.actions")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {products?.map((product) => (
                     <TableRow key={product.id}>
                       <TableCell>
                         <Link
@@ -459,7 +483,7 @@ export default function ProductPage() {
                           variant={statusBadgeVariant[product.status] ?? "outline"}
                           className={cn("capitalize")}
                         >
-                          {product.status}
+                          {t(`list.status.${product.status}`, { defaultValue: product.status })}
                         </Badge>
                       </TableCell>
                       <TableCell>{product.versions?.length ?? 0}</TableCell>
@@ -468,19 +492,16 @@ export default function ProductPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Edit product"
+                            title={t("list.actions.edit")}
                             disabled={product.status === "concept"}
-                            onClick={() =>
-                              setEditingId(editingId === product.id ? null : product.id)
-                            }
-                            className={cn(editingId === product.id && "bg-accent")}
+                            onClick={() => openEditForm(product.id)}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Backup (export JSON)"
+                            title={t("list.actions.backup")}
                             disabled={backupLoading === product.id}
                             onClick={() => handleBackup(product)}
                           >
@@ -493,7 +514,7 @@ export default function ProductPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Delete product"
+                            title={t("list.actions.delete")}
                             disabled={deleteProduct.isPending}
                             onClick={() => setPendingDeleteId(product.id)}
                           >
@@ -502,26 +523,19 @@ export default function ProductPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                    {editingId === product.id && (
-                      <EditProductRow
-                        key={`edit-${product.id}`}
-                        product={product}
-                        onClose={() => setEditingId(null)}
-                      />
-                    )}
-                  </>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <ConfirmDialog
         open={pendingDeleteId !== null}
-        title={`Delete "${pendingDeleteProduct?.name ?? "product"}"`}
-        description="This action is irreversible. All projects, pipelines, planning items, tasks, executions, artifacts and governance records linked to this product will be cascade-deleted."
-        confirmLabel="Delete all"
+        title={t("list.deleteDialog.title", { name: pendingDeleteProduct?.name ?? t("list.deleteDialog.defaultName") })}
+        description={t("list.deleteDialog.description")}
+        confirmLabel={t("list.deleteDialog.confirmLabel")}
         onConfirm={() => {
           if (pendingDeleteId) deleteProduct.mutate(pendingDeleteId);
           setPendingDeleteId(null);

@@ -1,0 +1,10 @@
+{
+  "forgerouter": {
+    "title": "ForgeRouter",
+    "loading": "Loading...",
+    "sso": {
+      "title": "Preparing session...",
+      "message": "Exchanging session for ForgeRouter SSO token"
+    }
+  }
+}

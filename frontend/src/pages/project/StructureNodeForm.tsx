@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -28,8 +29,10 @@ export function StructureNodeForm({
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Add node",
+  submitLabel: submitLabelProp,
 }: StructureNodeFormProps) {
+  const { t } = useTranslation("project");
+  const submitLabel = submitLabelProp ?? t("structureNodeForm.submitLabelDefault");
   const {
     register,
     handleSubmit,
@@ -50,17 +53,17 @@ export function StructureNodeForm({
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="name">Name</Label>
-          <Input id="name" placeholder="task.py" {...register("name")} />
+          <Label htmlFor="name">{t("structureNodeForm.nameLabel")}</Label>
+          <Input id="name" placeholder={t("structureNodeForm.namePlaceholder")} {...register("name")} />
           {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="node_type">Type</Label>
+          <Label htmlFor="node_type">{t("structureNodeForm.typeLabel")}</Label>
           <Select id="node_type" {...register("node_type")}>
             {STRUCTURE_NODE_TYPES.map((type) => (
               <option key={type} value={type}>
-                {type.replace(/_/g, " ")}
+                {t(`enums.structureNodeType.${type}`, type)}
               </option>
             ))}
           </Select>
@@ -71,19 +74,19 @@ export function StructureNodeForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="path">Path</Label>
+        <Label htmlFor="path">{t("structureNodeForm.pathLabel")}</Label>
         <Input
           id="path"
-          placeholder="backend/app/db/models/task.py"
+          placeholder={t("structureNodeForm.pathPlaceholder")}
           {...register("path")}
         />
         {errors.path && <p className="text-sm text-destructive">{errors.path.message}</p>}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="parent_node_id">Parent node</Label>
+        <Label htmlFor="parent_node_id">{t("structureNodeForm.parentNodeLabel")}</Label>
         <Select id="parent_node_id" {...register("parent_node_id")}>
-          <option value="">None (top-level)</option>
+          <option value="">{t("structureNodeForm.noneTopLevel")}</option>
           {siblingNodes.map((node) => (
             <option key={node.id} value={node.id}>
               {node.path ?? node.name}
@@ -96,10 +99,10 @@ export function StructureNodeForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="description">Description</Label>
+        <Label htmlFor="description">{t("structureNodeForm.descriptionLabel")}</Label>
         <Textarea
           id="description"
-          placeholder="What this part of the system is responsible for"
+          placeholder={t("structureNodeForm.descriptionPlaceholder")}
           {...register("description")}
         />
         {errors.description && (
@@ -110,7 +113,7 @@ export function StructureNodeForm({
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-            Cancel
+            {t("shared.cancel")}
           </Button>
         )}
         <Button type="submit" disabled={isSubmitting}>

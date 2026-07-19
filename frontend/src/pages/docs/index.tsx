@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   ArrowRightCircle,
@@ -69,6 +70,7 @@ function PathPrompt({
   onCancel: () => void;
   pending: boolean;
 }) {
+  const { t } = useTranslation("docs");
   const [value, setValue] = useState(initial);
   return (
     <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 p-2">
@@ -84,10 +86,10 @@ function PathPrompt({
         }}
       />
       <Button size="sm" disabled={pending || !value.trim()} onClick={() => onConfirm(value.trim())}>
-        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "OK"}
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("pathPrompt.ok")}
       </Button>
       <Button size="sm" variant="outline" onClick={onCancel}>
-        Cancel
+        {t("pathPrompt.cancel")}
       </Button>
     </div>
   );
@@ -103,6 +105,7 @@ function AreaSwitcher({
   currentAreaId: string | null;
   onSelect: (areaId: string) => void;
 }) {
+  const { t } = useTranslation("docs");
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
@@ -125,7 +128,7 @@ function AreaSwitcher({
         className="flex items-center gap-1 text-sm font-normal text-muted-foreground hover:text-foreground"
         onClick={() => setOpen((v) => !v)}
       >
-        creation area · <code className="text-foreground">{current?.host_path ?? "..."}</code>
+        {t("areaSwitcher.creationArea")} <code className="text-foreground">{current?.host_path ?? "..."}</code>
         <ChevronDown className="h-3.5 w-3.5" />
       </button>
 
@@ -136,8 +139,8 @@ function AreaSwitcher({
             <CardContent className="max-h-80 overflow-y-auto p-2">
               <ConfirmDialog
                 open={deletingArea !== null}
-                title="Remove creation area"
-                description="Removes only the area's record -- the files remain on the host, untouched."
+                title={t("areaSwitcher.removeAreaTitle")}
+                description={t("areaSwitcher.removeAreaDescription")}
                 loading={deleteArea.isPending}
                 onConfirm={() => {
                   if (!deletingArea) return;
@@ -171,7 +174,7 @@ function AreaSwitcher({
                     size="icon"
                     className="h-6 w-6 shrink-0 text-destructive opacity-0 group-hover:opacity-100"
                     disabled={areas.length <= 1}
-                    title={areas.length <= 1 ? "At least one area must exist" : "Remove area"}
+                    title={areas.length <= 1 ? t("areaSwitcher.atLeastOneMustExist") : t("areaSwitcher.removeArea")}
                     onClick={(e) => {
                       e.stopPropagation();
                       setDeletingArea(area.id);
@@ -186,13 +189,13 @@ function AreaSwitcher({
                 <div className="mt-1.5 flex flex-col gap-1.5 rounded-md border border-border bg-muted/30 p-2">
                   <Input
                     autoFocus
-                    placeholder="Name (e.g. Project)"
+                    placeholder={t("areaSwitcher.namePlaceholder")}
                     value={newName}
                     className="h-8 text-xs"
                     onChange={(e) => setNewName(e.target.value)}
                   />
                   <Input
-                    placeholder="Absolute path on the host (e.g. /root/project)"
+                    placeholder={t("areaSwitcher.pathPlaceholder")}
                     value={newPath}
                     className="h-8 font-mono text-xs"
                     onChange={(e) => setNewPath(e.target.value)}
@@ -202,7 +205,7 @@ function AreaSwitcher({
                   )}
                   <div className="flex justify-end gap-1.5">
                     <Button size="sm" variant="outline" onClick={resetAddForm}>
-                      Cancel
+                      {t("areaSwitcher.cancel")}
                     </Button>
                     <Button
                       size="sm"
@@ -220,13 +223,13 @@ function AreaSwitcher({
                         )
                       }
                     >
-                      {createArea.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add"}
+                      {createArea.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("areaSwitcher.add")}
                     </Button>
                   </div>
                 </div>
               ) : (
                 <Button variant="ghost" size="sm" className="mt-1 w-full justify-start gap-1.5" onClick={() => setAdding(true)}>
-                  <Plus className="h-3.5 w-3.5" /> New area
+                  <Plus className="h-3.5 w-3.5" /> {t("areaSwitcher.newArea")}
                 </Button>
               )}
             </CardContent>
@@ -238,6 +241,7 @@ function AreaSwitcher({
 }
 
 export default function DocsPage() {
+  const { t } = useTranslation("docs");
   const { data: areas } = useDocAreas();
   const [areaId, setAreaId] = useState<string | null>(null);
   useEffect(() => {
@@ -276,7 +280,7 @@ export default function DocsPage() {
   const uploadRef = useRef<HTMLInputElement>(null);
 
   useAssistantContext({
-    label: "Use current document",
+    label: t("assistantContext.useCurrentDocument"),
     workingDir: currentArea?.host_path ?? "/root/docs",
     build: () => {
       if (!selectedPath || !currentArea) return null;
@@ -397,7 +401,7 @@ export default function DocsPage() {
       const scene = JSON.parse(file.content);
       setWhiteboardData({ elements: scene.elements ?? [], appState: scene.appState, files: scene.files });
     } catch {
-      setWhiteboardNote("Could not read this scene (invalid JSON).");
+      setWhiteboardNote(t("page.couldNotReadSceneInvalidJson"));
     }
   }
 
@@ -419,7 +423,7 @@ export default function DocsPage() {
       setWhiteboardNote(null);
     } else {
       setWhiteboardNote(
-        `Drawing saved to ${WHITEBOARD_ASSETS_FOLDER}/${base}.png — open a markdown document to insert the image, or copy the path above.`
+        t("page.drawingSaved", { path: `${WHITEBOARD_ASSETS_FOLDER}/${base}.png` })
       );
     }
     setWhiteboardData(undefined);
@@ -429,8 +433,8 @@ export default function DocsPage() {
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4 p-6">
       <ConfirmDialog
         open={deleting !== null}
-        title={`Delete "${deleting ?? ""}"`}
-        description="Removes the file (or the entire folder, recursively) from this area. This action cannot be undone."
+        title={t("page.deleteTitle", { path: deleting ?? "" })}
+        description={t("page.deleteDescription")}
         loading={deletePath.isPending}
         onConfirm={() => {
           if (deleting)
@@ -457,59 +461,59 @@ export default function DocsPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="flex items-center gap-2 text-xl font-semibold">
-          <BookOpen className="h-5 w-5" /> Docs
+          <BookOpen className="h-5 w-5" /> {t("page.title")}
           {areas && <AreaSwitcher areas={areas} currentAreaId={areaId} onSelect={handleSelectArea} />}
         </h1>
         <div className="flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPrompt("new-file")}>
-            <FilePlus className="h-4 w-4" /> New document
+            <FilePlus className="h-4 w-4" /> {t("page.newDocument")}
           </Button>
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPrompt("new-folder")}>
-            <FolderPlus className="h-4 w-4" /> New folder
+            <FolderPlus className="h-4 w-4" /> {t("page.newFolder")}
           </Button>
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
             disabled={!selectedPath}
-            title={selectedPath ? `Download ${selectedPath}` : "Select a document in the tree to download"}
+            title={selectedPath ? t("page.download", { path: selectedPath }) : t("page.selectToDownload")}
             onClick={() => areaId && selectedPath && downloadDoc(areaId, selectedPath)}
           >
-            <Download className="h-4 w-4" /> Download
+            <Download className="h-4 w-4" /> {t("page.downloadButton")}
           </Button>
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
             disabled={uploadFile.isPending}
-            title={`Upload to ${workingDir || "the root"}`}
+            title={t("page.uploadTo", { folder: workingDir || t("page.theRoot") })}
             onClick={() => uploadRef.current?.click()}
           >
             {uploadFile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            Upload
+            {t("page.upload")}
           </Button>
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
-            title="Draw and insert the image into the open document"
+            title={t("page.drawAndInsert")}
             onClick={handleOpenNewWhiteboard}
           >
-            <Palette className="h-4 w-4" /> Whiteboard
+            <Palette className="h-4 w-4" /> {t("page.whiteboard")}
           </Button>
           <AssistantToggleButton
             size="sm"
-            openTitle="Open the assistant to help create/fill this document"
+            openTitle={t("page.openAssistantForDoc")}
           />
         </div>
       </div>
 
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Folder className="h-3.5 w-3.5" />
-        Working folder: <code className="text-foreground">{currentArea?.host_path ?? ""}/{workingDir || ""}</code>
+        {t("page.workingFolder")} <code className="text-foreground">{currentArea?.host_path ?? ""}/{workingDir || ""}</code>
         {workingDir && (
           <button type="button" className="underline hover:text-foreground" onClick={() => setWorkingDir("")}>
-            use root
+            {t("page.useRoot")}
           </button>
         )}
       </p>
@@ -529,7 +533,7 @@ export default function DocsPage() {
 
       {prompt === "new-file" && (
         <PathPrompt
-          label="Path for the new .md:"
+          label={t("page.newFilePathLabel")}
           initial={workingDir ? `${workingDir}/` : ""}
           pending={saveFile.isPending}
           onConfirm={handleCreateFile}
@@ -538,7 +542,7 @@ export default function DocsPage() {
       )}
       {prompt === "new-folder" && (
         <PathPrompt
-          label="Path for the new folder:"
+          label={t("page.newFolderPathLabel")}
           initial={workingDir ? `${workingDir}/` : ""}
           pending={createFolder.isPending}
           onConfirm={(p) => createFolder.mutate(p, { onSuccess: () => setPrompt(null) })}
@@ -547,7 +551,7 @@ export default function DocsPage() {
       )}
       {prompt === "rename" && renameTarget && (
         <PathPrompt
-          label={`Rename ${renameTarget} to:`}
+          label={t("page.renamePathLabel", { path: renameTarget })}
           initial={renameTarget}
           pending={renamePath.isPending}
           onConfirm={(p) =>
@@ -574,7 +578,7 @@ export default function DocsPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load the tree: {(error as Error)?.message}</span>
+            <span>{t("page.failedToLoadTree", { message: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -584,7 +588,7 @@ export default function DocsPage() {
           <CardContent className="h-full overflow-y-auto p-2">
             {isLoading && <Loader2 className="m-4 h-5 w-5 animate-spin text-muted-foreground" />}
             {tree && tree.length === 0 && (
-              <p className="p-3 text-xs italic text-muted-foreground">Empty folder.</p>
+              <p className="p-3 text-xs italic text-muted-foreground">{t("page.emptyFolder")}</p>
             )}
             {tree && (
               <DocTree
@@ -623,7 +627,7 @@ export default function DocsPage() {
           <CardContent className="flex h-full flex-col gap-2 overflow-y-auto p-4">
             {!selectedPath && (
               <p className="m-auto text-sm italic text-muted-foreground">
-                Select a document in the tree, or create a new one.
+                {t("page.selectOrCreate")}
               </p>
             )}
             {selectedPath && (
@@ -636,15 +640,15 @@ export default function DocsPage() {
                         size="sm"
                         variant={showConvert ? "secondary" : "outline"}
                         className="gap-1.5"
-                        title={showConvert ? "Hide forward" : "Forward this document"}
+                        title={showConvert ? t("page.hideForward") : t("page.forwardThisDocument")}
                         onClick={() => setShowConvert((v) => !v)}
                       >
-                        <ArrowRightCircle className="h-3.5 w-3.5" /> Forward
+                        <ArrowRightCircle className="h-3.5 w-3.5" /> {t("page.forward")}
                       </Button>
                     )}
                     {isEditable && draft == null && (
                       <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDraft(file?.content ?? "")}>
-                        <FileEdit className="h-3.5 w-3.5" /> Edit
+                        <FileEdit className="h-3.5 w-3.5" /> {t("page.edit")}
                       </Button>
                     )}
                     {draft != null && (
@@ -655,18 +659,18 @@ export default function DocsPage() {
                           ) : (
                             <Save className="h-3.5 w-3.5" />
                           )}
-                          Save
+                          {t("page.save")}
                         </Button>
                         <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDraft(null)}>
-                          <Eye className="h-3.5 w-3.5" /> View
+                          <Eye className="h-3.5 w-3.5" /> {t("page.view")}
                         </Button>
                       </>
                     )}
                     <Button
                       variant="ghost"
                       size="icon"
-                      title="Rename/move"
-                      aria-label="Rename"
+                      title={t("page.renameMove")}
+                      aria-label={t("page.rename")}
                       onClick={() => handleRenamePath(selectedPath)}
                     >
                       <Pencil className="h-4 w-4" />
@@ -674,8 +678,8 @@ export default function DocsPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      title="Delete"
-                      aria-label="Delete"
+                      title={t("page.delete")}
+                      aria-label={t("page.delete")}
                       className="text-destructive"
                       onClick={() => setDeleting(selectedPath)}
                     >
@@ -685,27 +689,27 @@ export default function DocsPage() {
                 </div>
 
                 {saveFile.isError && (
-                  <p className="text-xs text-destructive">Failed to save: {(saveFile.error as Error)?.message}</p>
+                  <p className="text-xs text-destructive">{t("page.failedToSave", { message: (saveFile.error as Error)?.message })}</p>
                 )}
 
                 <div className="min-h-0 flex-1 overflow-hidden">
                   {!isEditable && !isScene && (
                     <p className="text-sm text-muted-foreground">
-                      Binary file — use Download to open it, or replace it via Upload.
+                      {t("page.binaryFile")}
                     </p>
                   )}
                   {isScene && (
                     <div className="flex flex-col items-start gap-2">
                       <p className="text-sm text-muted-foreground">
-                        Whiteboard scene (Excalidraw). Reopen it to continue drawing.
+                        {t("page.whiteboardScene")}
                       </p>
                       {fileLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                       {fileError && (
-                        <p className="text-xs text-destructive">Could not read the scene.</p>
+                        <p className="text-xs text-destructive">{t("page.couldNotReadScene")}</p>
                       )}
                       {file && (
                         <Button size="sm" className="gap-1.5" onClick={handleEditScene}>
-                          <Palette className="h-3.5 w-3.5" /> Edit in Whiteboard
+                          <Palette className="h-3.5 w-3.5" /> {t("page.editInWhiteboard")}
                         </Button>
                       )}
                     </div>
@@ -714,7 +718,7 @@ export default function DocsPage() {
                     <Loader2 className="m-4 h-5 w-5 animate-spin text-muted-foreground" />
                   )}
                   {isEditable && fileError && (
-                    <p className="text-sm text-destructive">Could not read the file.</p>
+                    <p className="text-sm text-destructive">{t("page.couldNotReadFile")}</p>
                   )}
                   {isEditable && file && draft == null && (
                     <div className="h-full overflow-y-auto pr-2">

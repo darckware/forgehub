@@ -1,0 +1,169 @@
+{
+  "list": {
+    "title": "Execução",
+    "subtitle": "Tarefas e subtarefas planejadas, desmembradas dos itens de planejamento, atribuídas a agentes e acompanhadas durante a execução.",
+    "filterAllProjects": "Todos os projetos",
+    "newTask": "Nova tarefa",
+    "forgeRouterCard": {
+      "title": "Tarefa: adaptador Anthropic do ForgeRouter",
+      "description": "Viável apenas se o ForgeRouter adicionar uma superfície de API Anthropic Messages mantendo a atual superfície compatível com OpenAI para o Codex.",
+      "copyPrompt": "Copiar prompt",
+      "copied": "Copiado"
+    },
+    "createCard": {
+      "title": "Criar tarefa",
+      "description": "Cadastre uma nova tarefa. Atribuições e execuções são acompanhadas assim que o trabalho começa.",
+      "createError": "Falha ao criar tarefa: {{message}}"
+    },
+    "loading": "Carregando tarefas…",
+    "loadError": "Falha ao carregar tarefas: {{message}}",
+    "emptyState": {
+      "title": "Nenhuma tarefa ainda",
+      "description": "Crie sua primeira tarefa para começar a acompanhar atribuição e execução.",
+      "cta": "Nova tarefa"
+    },
+    "columns": {
+      "title": "Título",
+      "status": "Status",
+      "priority": "Prioridade",
+      "dueDate": "Prazo",
+      "executions": "Execuções",
+      "actions": "Ações"
+    },
+    "subtask": "Subtarefa",
+    "view": "Ver",
+    "deleteAria": "Excluir {{title}}",
+    "deleteDialog": {
+      "title": "Excluir tarefa?",
+      "description": "Isso excluirá permanentemente a tarefa e todas as suas execuções. Essa ação não pode ser desfeita.",
+      "confirm": "Excluir"
+    }
+  },
+  "detail": {
+    "breadcrumbExecution": "Execução",
+    "loading": "Carregando tarefa…",
+    "loadError": "Falha ao carregar tarefa: {{message}}",
+    "priorityLabel": "prioridade {{priority}}",
+    "projectCard": {
+      "title": "Projeto",
+      "description": "O projeto responsável por esta tarefa.",
+      "none": "Nenhum projeto vinculado."
+    },
+    "planningItemCard": {
+      "title": "Item de planejamento",
+      "description": "O item de planejamento de origem do qual esta tarefa foi desmembrada.",
+      "none": "Nenhum item de planejamento vinculado."
+    },
+    "scheduleCard": {
+      "title": "Cronograma e custo",
+      "description": "Prazo e custo estimado.",
+      "dueDate": "Prazo",
+      "estimatedCost": "Custo estimado",
+      "parentTask": "Tarefa pai"
+    },
+    "kanboard": {
+      "title": "Kanboard",
+      "description": "Sincronize esta tarefa com o projeto real no Kanboard como um cartão.",
+      "openCard": "Abrir cartão",
+      "pullStatus": "Puxar status",
+      "pullTooltip": "Ler a coluna atual do Kanboard e atualizar o status desta tarefa",
+      "resync": "Ressincronizar",
+      "sync": "Sincronizar com Kanboard",
+      "linked": "Vinculado ao cartão #{{id}} do Kanboard.",
+      "notSynced": "Ainda não sincronizado — isso criará um cartão no projeto Kanboard do ForgeHub.",
+      "pullFailed": "Falha ao puxar: {{message}}",
+      "pullSuccess": "Status atualizado a partir do Kanboard."
+    },
+    "executions": {
+      "title": "Execuções da tarefa",
+      "description": "Cada tentativa real de execução por um agente, subagente, humano ou sistema. Uma tarefa pode ter várias execuções (falhou, repetida, verificada, concluída).",
+      "record": "Registrar execução",
+      "cancel": "Cancelar",
+      "columns": {
+        "number": "#",
+        "executor": "Executor",
+        "status": "Status",
+        "started": "Início",
+        "finished": "Término",
+        "cost": "Custo",
+        "evidence": "Evidência"
+      },
+      "unknownExecutor": "desconhecido",
+      "empty": "Nenhuma execução registrada ainda para esta tarefa.",
+      "attempt": "#{{number}}"
+    },
+    "backToList": "Voltar à lista"
+  },
+  "startExecutionForm": {
+    "executorTypeLabel": "Tipo de executor",
+    "initialStatusLabel": "Status inicial",
+    "summaryLabel": "Resumo (opcional)",
+    "summaryPlaceholder": "O que foi tentado ou realizado?",
+    "evidenceRefLabel": "Referência de evidência (obrigatória para concluída/verificada)",
+    "evidenceRefPlaceholder": "PR #123, hash do commit, URL do documento…",
+    "actualCostLabel": "Custo real",
+    "cancel": "Cancelar",
+    "submit": "Registrar execução"
+  },
+  "form": {
+    "titleLabel": "Título",
+    "titlePlaceholder": "Implementar endpoint de atribuição de tarefas",
+    "descriptionLabel": "Descrição",
+    "descriptionPlaceholder": "O que essa tarefa envolve, e como é o resultado esperado?",
+    "projectLabel": "Projeto",
+    "loadingProjects": "Carregando projetos…",
+    "allProjects": "Todos os projetos",
+    "projectHint": "Filtra as opções de Item de planejamento / Solicitação de mudança abaixo — uma tarefa não é armazenada diretamente contra um projeto, apenas por meio de um desses dois.",
+    "planningItemLabel": "Item de planejamento",
+    "loadingGeneric": "Carregando…",
+    "selectPlanningItem": "Selecione um item de planejamento (opcional)",
+    "changeRequestLabel": "Solicitação de mudança (origem)",
+    "selectChangeRequest": "Selecione uma solicitação de mudança (opcional)",
+    "parentTaskLabel": "Tarefa pai (subtarefa de)",
+    "loadingTasks": "Carregando tarefas…",
+    "noParentTask": "Sem tarefa pai (tarefa de nível superior)",
+    "dueDateLabel": "Prazo",
+    "statusLabel": "Status",
+    "priorityLabel": "Prioridade",
+    "policyLabel": "Política de governança (opcional)",
+    "noPolicy": "Nenhuma política vinculada",
+    "cancel": "Cancelar",
+    "submit": "Criar tarefa"
+  },
+  "enums": {
+    "taskStatus": {
+      "planned": "Planejada",
+      "ready": "Pronta",
+      "assigned": "Atribuída",
+      "in_progress": "Em andamento",
+      "blocked": "Bloqueada",
+      "done": "Concluída",
+      "deployed": "Implantada",
+      "cancelled": "Cancelada"
+    },
+    "taskPriority": {
+      "low": "Baixa",
+      "medium": "Média",
+      "high": "Alta",
+      "critical": "Crítica"
+    },
+    "executorType": {
+      "agent": "Agente",
+      "sub_agent": "Subagente",
+      "human": "Humano",
+      "system": "Sistema"
+    },
+    "executionStatus": {
+      "pending": "Pendente",
+      "running": "Em execução",
+      "blocked": "Bloqueada",
+      "paused": "Pausada",
+      "reconciling": "Reconciliando",
+      "recovering": "Recuperando",
+      "failed": "Falhou",
+      "retried": "Repetida",
+      "verified": "Verificada",
+      "completed": "Concluída"
+    }
+  }
+}

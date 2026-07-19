@@ -1,0 +1,147 @@
+{
+  "slashCommands": {
+    "model": "Trocar de modelo (persiste por padrão)",
+    "status": "Mostrar sessão, modelo, tokens e contexto",
+    "help": "Mostrar comandos disponíveis",
+    "version": "Mostrar a versão do Hermes Agent",
+    "title": "Definir um título para a sessão atual",
+    "profile": "Mostrar perfil ativo e diretório inicial",
+    "config": "Mostrar configuração atual",
+    "toolsets": "Listar toolsets disponíveis",
+    "platforms": "Mostrar status da plataforma de gateway/mensagens",
+    "plugins": "Listar plugins instalados; adicione um nome de agente (ex.: /plugins athos) para verificar outro perfil",
+    "new": "Iniciar uma nova conversa",
+    "kindLocal": "Local",
+    "kindHermes": "Hermes",
+    "kindPrompt": "Prompt"
+  },
+  "attachMenu": {
+    "addAttachment": "Adicionar anexo",
+    "sendFile": "Enviar arquivo",
+    "hermesCommand": "Comando Hermes",
+    "directoryFiles": "Diretório/Arquivos",
+    "agents": "Agentes",
+    "artifacts": "Artefatos",
+    "directBashCommand": "Comando bash direto"
+  },
+  "itemMenu": {
+    "chatOptions": "Opções da conversa",
+    "rename": "Renomear",
+    "pin": "Fixar",
+    "unpin": "Desafixar",
+    "delete": "Excluir"
+  },
+  "agentPicker": {
+    "agentLabel": "Agente: {{name}}",
+    "selectAgent": "Selecionar agente",
+    "agentFallback": "Agente"
+  },
+  "mentionFilePicker": {
+    "useFolder": "Usar pasta",
+    "parentFolder": "Pasta pai",
+    "loading": "Carregando…",
+    "emptyFolder": "Pasta vazia"
+  },
+  "agentMentionPicker": {
+    "noAgentsFound": "Nenhum agente encontrado"
+  },
+  "artifactMentionPicker": {
+    "loading": "Carregando…",
+    "noArtifactsFound": "Nenhum artefato encontrado"
+  },
+  "messageBubble": {
+    "thoughtFor": "Pensou por {{duration}}",
+    "copyMessage": "Copiar mensagem",
+    "regenerateReply": "Gerar resposta novamente",
+    "cancel": "Cancelar",
+    "saveAndResend": "Salvar e reenviar",
+    "editMessage": "Editar mensagem"
+  },
+  "thinking": {
+    "working": "⏳ Trabalhando — {{duration}}"
+  },
+  "composer": {
+    "typeMessageFirst": "Digite uma mensagem antes de enviar.",
+    "alreadySent": "Você já enviou esta mensagem.",
+    "couldNotAttach": "Não foi possível anexar {{name}}.",
+    "suggestedReplyYes": "Sim",
+    "completeHint": "{{text}} (→ para completar)",
+    "dropIntoAssistant": "Solte para enviar ao assistente",
+    "viewAttachedImage": "Ver imagem anexada",
+    "removeAttachment": "Remover anexo",
+    "remove": "Remover",
+    "close": "Fechar",
+    "stopRecording": "Parar gravação",
+    "recordVoiceMessage": "Gravar mensagem de voz"
+  },
+  "voice": {
+    "micBlocked": "Microfone bloqueado. Permita nas configurações do seu navegador.",
+    "transcribing": "Transcrevendo…",
+    "recording": "🔴 Gravando…",
+    "failedResponse": "Falha ao obter uma resposta: {{error}}",
+    "checklist": {
+      "audioRecording": "Gravação de áudio",
+      "audioRecordingOk": "Suportado",
+      "audioRecordingFail": "O navegador não suporta MediaRecorder — use Chrome ou Edge.",
+      "tts": "Síntese de voz (TTS)",
+      "ttsNotSupported": "Não suportado",
+      "ttsNoVoices": "Nenhuma voz — respostas serão mostradas sem áudio",
+      "ttsVoiceCount": "{{count}} voz(es)",
+      "microphone": "Microfone",
+      "microphoneOk": "Autorizado",
+      "microphoneFail": "Negado — clique no cadeado na barra de endereço e permita o microfone."
+    },
+    "greeting": {
+      "goodMorning": "Bom dia",
+      "goodAfternoon": "Boa tarde",
+      "goodEvening": "Boa noite",
+      "text": "{{period}}! Eu sou {{name}}. Como posso ajudar agora?",
+      "agentFallback": "Assistente"
+    },
+    "conversationWith": "Conversa por voz · {{name}}",
+    "starting": "Iniciando…",
+    "couldNotStart": "Não foi possível iniciar a conversa por voz.",
+    "waitingFor": "Aguardando {{name}}…",
+    "listening": "Ouvindo…",
+    "thinking": "{{name}}\nestá pensando…",
+    "replying": "{{name}}\nestá respondendo…",
+    "micActive": "Mic ativo",
+    "agentSpeaking": "Agente falando",
+    "waiting": "Aguardando…",
+    "endConversation": "Encerrar conversa por voz",
+    "conversationWithAgent": "Conversa por voz com {{name}}"
+  },
+  "sidebar": {
+    "chats": "Conversas",
+    "newChat": "Nova conversa",
+    "searchConversations": "Buscar conversas…",
+    "searching": "Buscando…",
+    "noConversationsFound": "Nenhuma conversa encontrada.",
+    "noConversationsYet": "Nenhuma conversa ainda."
+  },
+  "queue": {
+    "queued": "📥 Na fila…",
+    "stop": "Parar",
+    "runningCommand": "Executando comando",
+    "agentIsTyping": "{{name}} está digitando",
+    "agentFallback": "O agente",
+    "approvalRequest": "🔐 {{name}} solicita autorização para executar uma ação privilegiada",
+    "approveOnce": "✅ Aprovar uma vez",
+    "approveSessionTitle": "Não perguntar novamente para este mesmo tipo de comando nesta sessão",
+    "approveSession": "☑️ Aprovar para esta sessão",
+    "deny": "🚫 Negar",
+    "failed": "❌ Falhou: {{error}}",
+    "dismiss": "Descartar"
+  },
+  "artifactsPanel": {
+    "title": "Artefatos",
+    "searchArtifacts": "Buscar artefatos…",
+    "dragToReference": "Arraste para o campo de mensagem para referenciar {{path}}",
+    "download": "Baixar {{name}}",
+    "downloadTitle": "Baixar",
+    "removeFromList": "Remover {{name}} da lista",
+    "removeFromListTitle": "Remover da lista (não exclui o arquivo real)",
+    "noArtifactsYet": "Nenhum artefato criado nesta conversa ainda.",
+    "noArtifactsFound": "Nenhum artefato encontrado."
+  }
+}

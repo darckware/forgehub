@@ -1,5 +1,6 @@
 import { useForm, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ function EntitySelect({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const { t } = useTranslation("governance");
   const tasks = useTasks();
   const artifacts = useArtifacts();
   const versions = useAllProductVersions();
@@ -41,7 +43,7 @@ function EntitySelect({
 
   const makeSelect = (options: { id: string; label: string }[]) => (
     <Select value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">Select…</option>
+      <option value="">{t("form.selectPlaceholder")}</option>
       {options.map((o) => (
         <option key={o.id} value={o.id}>
           {o.label}
@@ -72,7 +74,7 @@ function EntitySelect({
     <Input
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      placeholder="Entity UUID"
+      placeholder={t("form.entityUuidPlaceholder")}
     />
   );
 }
@@ -82,8 +84,10 @@ export function ApprovalForm({
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Create approval",
+  submitLabel,
 }: ApprovalFormProps) {
+  const { t } = useTranslation("governance");
+  const effectiveSubmitLabel = submitLabel ?? t("form.createApproval");
   const { data: policies } = usePolicies();
 
   const {
@@ -110,7 +114,7 @@ export function ApprovalForm({
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="entity_type">Entity type</Label>
+          <Label htmlFor="entity_type">{t("form.entityType")}</Label>
           <Select id="entity_type" {...register("entity_type")}>
             {APPROVAL_ENTITY_TYPES.map((type) => (
               <option key={type} value={type}>
@@ -124,7 +128,7 @@ export function ApprovalForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="entity_id">Entity</Label>
+          <Label htmlFor="entity_id">{t("form.entity")}</Label>
           <Controller
             control={control}
             name="entity_id"
@@ -144,10 +148,10 @@ export function ApprovalForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="approval_type">Approval type</Label>
+          <Label htmlFor="approval_type">{t("form.approvalType")}</Label>
           <Input
             id="approval_type"
-            placeholder="ex: gate_approval, release_approval, security_review"
+            placeholder={t("form.approvalTypePlaceholder")}
             {...register("approval_type")}
           />
           {errors.approval_type && (
@@ -156,8 +160,8 @@ export function ApprovalForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="requested_by">Requested by</Label>
-          <Input id="requested_by" placeholder="agent or user" {...register("requested_by")} />
+          <Label htmlFor="requested_by">{t("form.requestedBy")}</Label>
+          <Input id="requested_by" placeholder={t("form.requestedByPlaceholder")} {...register("requested_by")} />
           {errors.requested_by && (
             <p className="text-sm text-destructive">{errors.requested_by.message}</p>
           )}
@@ -165,9 +169,9 @@ export function ApprovalForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="policy_id">Policy (optional)</Label>
+        <Label htmlFor="policy_id">{t("form.policy")}</Label>
         <Select id="policy_id" {...register("policy_id")}>
-          <option value="">No policy linked</option>
+          <option value="">{t("form.noPolicyLinked")}</option>
           {(policies ?? []).map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -180,10 +184,10 @@ export function ApprovalForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="comments">Comments</Label>
+        <Label htmlFor="comments">{t("form.comments")}</Label>
         <Textarea
           id="comments"
-          placeholder="Justification, conditions or context"
+          placeholder={t("form.commentsPlaceholder")}
           {...register("comments")}
         />
         {errors.comments && (
@@ -194,12 +198,12 @@ export function ApprovalForm({
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-            Cancel
+            {t("form.cancel")}
           </Button>
         )}
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {submitLabel}
+          {effectiveSubmitLabel}
         </Button>
       </div>
     </form>

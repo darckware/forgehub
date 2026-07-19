@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle, FileBox, Loader2, Lock, Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -39,6 +40,7 @@ const STATUS_VARIANT: Record<
 };
 
 export default function ArtifactPage() {
+  const { t } = useTranslation("artifact");
   const { data: artifacts, isLoading, isError, error } = useArtifacts();
   const createArtifact = useCreateArtifact();
   const deleteArtifact = useDeleteArtifact();
@@ -64,24 +66,23 @@ export default function ArtifactPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Artifacts</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("title")}</h1>
           <p className="text-muted-foreground">
-            Formal deliverables produced by the project — specs, source code, test reports,
-            release notes, and approval records — each tracked across revisions.
+            {t("description")}
           </p>
         </div>
         <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="mr-2 h-4 w-4" />
-          New artifact
+          {t("newArtifact")}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Create artifact</CardTitle>
+            <CardTitle>{t("createArtifact")}</CardTitle>
             <CardDescription>
-              Register a new deliverable. Versions can be attached as the artifact evolves.
+              {t("createDescription")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -92,7 +93,7 @@ export default function ArtifactPage() {
             />
             {createArtifact.isError && (
               <p className="mt-3 text-sm text-destructive">
-                Failed to create artifact: {(createArtifact.error as Error)?.message}
+                {t("failedToCreateArtifact")}{(createArtifact.error as Error)?.message}
               </p>
             )}
           </CardContent>
@@ -102,7 +103,7 @@ export default function ArtifactPage() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading artifacts…
+          {t("loadingArtifacts")}
         </div>
       )}
 
@@ -110,7 +111,7 @@ export default function ArtifactPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load artifacts: {(error as Error)?.message}</span>
+            <span>{t("failedToLoadArtifacts")}{(error as Error)?.message}</span>
           </CardContent>
         </Card>
       )}
@@ -120,15 +121,14 @@ export default function ArtifactPage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <FileBox className="h-10 w-10 text-muted-foreground" />
             <div>
-              <p className="font-medium">No artifacts yet</p>
+              <p className="font-medium">{t("noArtifacts")}</p>
               <p className="text-sm text-muted-foreground">
-                A stage cannot complete without its required artifacts. Create one to start
-                tracking deliverables.
+                {t("noArtifactsDescription")}
               </p>
             </div>
             <Button onClick={() => setShowForm(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              New artifact
+              {t("newArtifact")}
             </Button>
           </CardContent>
         </Card>
@@ -140,12 +140,12 @@ export default function ArtifactPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Versions</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("name")}</TableHead>
+                  <TableHead>{t("type")}</TableHead>
+                  <TableHead>{t("status")}</TableHead>
+                  <TableHead>{t("project")}</TableHead>
+                  <TableHead>{t("versions")}</TableHead>
+                  <TableHead className="text-right">{t("actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -158,7 +158,7 @@ export default function ArtifactPage() {
                       {artifact.is_locked && (
                         <Badge variant="outline" className="ml-2 gap-1 text-xs">
                           <Lock className="h-3 w-3" />
-                          locked
+                          {t("locked")}
                         </Badge>
                       )}
                     </TableCell>
@@ -182,7 +182,7 @@ export default function ArtifactPage() {
                           to={`/artifact/${artifact.id}`}
                           className={buttonVariants({ variant: "outline", size: "sm" })}
                         >
-                          View
+                          {t("view")}
                         </Link>
                         <Button
                           variant="ghost"
@@ -204,9 +204,9 @@ export default function ArtifactPage() {
       )}
       <ConfirmDialog
         open={pendingDeleteId !== null}
-        title="Delete artifact?"
-        description="This will permanently delete the artifact. Locked artifacts should be unlocked first."
-        confirmLabel="Delete"
+        title={t("deleteArtifactConfirmation")}
+        description={t("deleteArtifactDescription")}
+        confirmLabel={t("delete")}
         onConfirm={() => {
           if (pendingDeleteId) deleteArtifact.mutate(pendingDeleteId);
           setPendingDeleteId(null);

@@ -1,0 +1,138 @@
+{
+  "title": "Hindsight",
+  "description": "Status de memória contínua em agentes Hermes, tempo de execução do daemon, configuração de LLM e política de retenção.",
+  "loading": "Carregando status do Hindsight...",
+  "loadError": "Falha ao carregar o status do Hindsight: {{message}}",
+  "unknownError": "erro desconhecido",
+  "actions": {
+    "restart": "Reiniciar Hindsight",
+    "refresh": "Atualizar"
+  },
+  "metrics": {
+    "daemon": {
+      "label": "Daemon",
+      "active": "Ativo",
+      "offline": "Offline",
+      "noEndpoint": "Nenhum endpoint configurado"
+    },
+    "recording": {
+      "label": "Gravação",
+      "value": "Gravando",
+      "notRecording": "Não está gravando",
+      "configured": "Configurado",
+      "autoRetain": "auto_retain"
+    },
+    "llm": {
+      "label": "LLM",
+      "notConfigured": "Não configurado",
+      "providerUnknown": "provedor desconhecido",
+      "at": "em {{url}}"
+    },
+    "memoryBank": {
+      "label": "Banco de Memória",
+      "detail": "Modo: {{mode}}; recall: {{recall}}"
+    },
+    "tables": {
+      "label": "Tabelas",
+      "detail": "{{count}} grupos ativos; foundation_postgres/hindsight"
+    },
+    "memoryUnits": {
+      "label": "Unidades de Memória",
+      "detail": "{{documents}} documentos; {{entities}} entidades"
+    },
+    "asyncOps": {
+      "label": "Operações Assíncronas",
+      "checkStatus": "Verifique o status de async_operations no inventário do esquema",
+      "daemonOffline": "Daemon offline"
+    },
+    "schemaHealth": {
+      "label": "Saúde do Esquema",
+      "loading": "Carregando...",
+      "indexed": "Indexado",
+      "detail": "Inventário somente leitura do foundation_postgres"
+    }
+  },
+  "recentErrors": "Erros Recentes do Hindsight",
+  "configuration": {
+    "title": "Configuração",
+    "primaryProfile": "Perfil principal: {{profile}}; configurações explícitas do Hindsight: {{count}}.",
+    "none": "nenhum",
+    "apiUrl": "URL da API",
+    "notConfigured": "não configurado",
+    "configFile": "Arquivo de configuração",
+    "inheritsDefault": "herdado/padrão",
+    "retain": "Retenção",
+    "retainDetail": "A cada {{turns}} turno(s), assíncrono {{async}}",
+    "integration": "Integração",
+    "integrationDetail": "{{mode}}; auto recall {{autoRecall}}",
+    "unconfiguredWarning": "{{count}} agente(s) usam o Hindsight mas não têm um `hindsight/config.json` específico do perfil; dependem de padrões ou do ambiente."
+  },
+  "runtime": {
+    "title": "Tempo de Execução",
+    "description": "Processos e sondagem do endpoint local.",
+    "healthStatus": "Status de saúde",
+    "noResponse": "sem resposta",
+    "idleTimeout": "Tempo limite ocioso",
+    "default": "padrão",
+    "processes": "Processos"
+  },
+  "schemaInventory": {
+    "title": "Inventário do Esquema",
+    "detail": "foundation_postgres / hindsight contém {{tables}} tabelas e {{asyncOps}} operações assíncronas.",
+    "table": "Tabela",
+    "rows": "Linhas",
+    "cols": "Colunas",
+    "group": "Grupo",
+    "loading": "Carregando inventário do esquema...",
+    "empty": "Nenhuma tabela encontrada no esquema hindsight."
+  },
+  "groups": {
+    "coreMemory": "Memória principal",
+    "operations": "Operações",
+    "policyHistory": "Política / histórico",
+    "storageIntegrations": "Armazenamento / integrações",
+    "cache": "Cache",
+    "migration": "Migração",
+    "other": "Outro"
+  },
+  "agents": {
+    "title": "Agentes Usando Hindsight",
+    "detail": "{{active}} de {{total}} perfis usam `memory.provider: hindsight`.",
+    "agent": "Agente",
+    "status": "Status",
+    "profileMemory": "Memória do Perfil",
+    "config": "Configuração",
+    "limits": "Limites",
+    "hindsight": "Hindsight",
+    "builtInOnly": "Apenas integrado",
+    "memoryDetail": "memória {{memory}}; usuário {{user}}",
+    "limitsDetail": "memória {{memoryLimit}} / usuário {{userLimit}}"
+  },
+  "restartDialog": {
+    "title": "Reiniciar daemon do Hindsight",
+    "description": "Isso reinicia o contêiner do Hindsight e interrompe brevemente a gravação de memória e leituras enquanto ele volta a funcionar.",
+    "confirm": "Reiniciar",
+    "cancel": "Cancelar"
+  },
+  "clearLogDialog": {
+    "title": "Limpar log do Hindsight",
+    "description": "Limpa o conteúdo de {{path}} -- não afeta o daemon em execução, apenas o histórico mostrado aqui.",
+    "confirm": "Limpar",
+    "cancel": "Cancelar"
+  },
+  "latestLog": {
+    "title": "Último Log",
+    "clear": "Limpar log",
+    "noFile": "Nenhum arquivo de log encontrado",
+    "updatedAt": "Atualizado em {{time}}",
+    "noLines": "Nenhuma linha de log."
+  },
+  "databaseControlAnalysis": "Análise de Controle do Banco de Dados",
+  "common": {
+    "yes": "Sim",
+    "no": "Não",
+    "default": "Padrão",
+    "ok": "OK",
+    "issue": "Problema"
+  }
+}

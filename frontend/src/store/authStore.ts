@@ -10,6 +10,7 @@ export interface AuthUser {
   is_active: boolean;
   is_admin: boolean;
   profile_id: string | null;
+  ui_language: string;
 }
 
 export interface ModulePermission {

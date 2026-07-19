@@ -8,6 +8,7 @@ import {
   Lock,
   Unlock,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,7 @@ const STATUS_VARIANT: Record<
 };
 
 function VersionRow({ version }: { version: ArtifactVersion }) {
+  const { t } = useTranslation("artifact");
   return (
     <li
       className={cn(
@@ -44,7 +46,7 @@ function VersionRow({ version }: { version: ArtifactVersion }) {
           <p className="font-medium">
             v{version.version}
             {version.is_current && (
-              <span className="ml-2 text-xs font-normal text-muted-foreground">current</span>
+              <span className="ml-2 text-xs font-normal text-muted-foreground">{t("current")}</span>
             )}
           </p>
           {version.notes && <p className="text-sm text-muted-foreground">{version.notes}</p>}
@@ -60,7 +62,7 @@ function VersionRow({ version }: { version: ArtifactVersion }) {
           rel="noreferrer"
           className="shrink-0 text-sm text-primary hover:underline"
         >
-          Open
+          {t("open")}
         </a>
       )}
     </li>
@@ -68,6 +70,7 @@ function VersionRow({ version }: { version: ArtifactVersion }) {
 }
 
 export default function ArtifactDetailPage() {
+  const { t } = useTranslation("artifact");
   const { id } = useParams<{ id: string }>();
   const { data: artifact, isLoading, isError, error } = useArtifact(id);
   const updateArtifact = useUpdateArtifact(id ?? "");
@@ -80,7 +83,7 @@ export default function ArtifactDetailPage() {
     <div className="space-y-6">
       <Breadcrumb
         items={[
-          { label: "Artifacts", href: "/artifact" },
+          { label: t("title"), href: "/artifact" },
           { label: artifact?.name ?? "…" },
         ]}
       />
@@ -88,7 +91,7 @@ export default function ArtifactDetailPage() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading artifact…
+          {t("loadingArtifact")}
         </div>
       )}
 
@@ -96,7 +99,7 @@ export default function ArtifactDetailPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load artifact: {(error as Error)?.message}</span>
+            <span>{t("failedToLoadArtifact")}{(error as Error)?.message}</span>
           </CardContent>
         </Card>
       )}
@@ -123,7 +126,7 @@ export default function ArtifactDetailPage() {
               {artifact.is_locked ? (
                 <Badge variant="outline" className="gap-1 text-sm">
                   <Lock className="h-3 w-3" />
-                  locked
+                  {t("locked")}
                 </Badge>
               ) : null}
               <Button
@@ -135,12 +138,12 @@ export default function ArtifactDetailPage() {
                 {artifact.is_locked ? (
                   <>
                     <Unlock className="mr-2 h-4 w-4" />
-                    Unlock
+                    {t("unlock")}
                   </>
                 ) : (
                   <>
                     <Lock className="mr-2 h-4 w-4" />
-                    Lock
+                    {t("lock")}
                   </>
                 )}
               </Button>
@@ -156,19 +159,19 @@ export default function ArtifactDetailPage() {
           <div className="grid gap-4 sm:grid-cols-3">
             <Card>
               <CardHeader className="pb-2">
-                <CardDescription>Project</CardDescription>
+                <CardDescription>{t("project")}</CardDescription>
               </CardHeader>
               <CardContent className="text-sm">{artifact.project_id ?? "—"}</CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardDescription>Pipeline stage</CardDescription>
+                <CardDescription>{t("pipelineStage")}</CardDescription>
               </CardHeader>
               <CardContent className="text-sm">{artifact.pipeline_stage_id ?? "—"}</CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardDescription>Task execution</CardDescription>
+                <CardDescription>{t("taskExecution")}</CardDescription>
               </CardHeader>
               <CardContent className="text-sm">{artifact.task_execution_id ?? "—"}</CardContent>
             </Card>
@@ -176,17 +179,16 @@ export default function ArtifactDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-xl">Versions</CardTitle>
+              <CardTitle className="text-xl">{t("versions")}</CardTitle>
               <CardDescription>
-                Every revision of this deliverable, most recent first. The version marked
-                "current" is what satisfies pipeline stage requirements.
+                {t("versionsDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {sortedVersions.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
                   <FileText className="h-8 w-8" />
-                  <p className="text-sm">No versions recorded for this artifact yet.</p>
+                  <p className="text-sm">{t("noVersionsRecorded")}</p>
                 </div>
               ) : (
                 <ul className="space-y-2">
@@ -200,7 +202,7 @@ export default function ArtifactDetailPage() {
 
           <div>
             <Link to="/artifact" className={buttonVariants({ variant: "outline" })}>
-              Back to list
+              {t("backToList")}
             </Link>
           </div>
         </>

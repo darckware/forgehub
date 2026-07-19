@@ -1,0 +1,19 @@
+{
+  "title": "Base de Conhecimento",
+  "searchPlaceholder": "Buscar notas por nome ou caminho…",
+  "confirmDelete": "Excluir \"{{path}}\"? Isso remove o arquivo da nota permanentemente.",
+  "edit": "Editar",
+  "delete": "Excluir",
+  "cancel": "Cancelar",
+  "save": "Salvar",
+  "loadingVault": "Carregando vault…",
+  "failedToLoadVault": "Falha ao carregar o vault.",
+  "noNotesFound": "Nenhuma nota encontrada no vault.",
+  "noNotesMatchSearch": "Nenhuma nota corresponde a esta busca.",
+  "selectNoteToRead": "Selecione uma nota para lê-la.",
+  "loadingNote": "Carregando nota…",
+  "failedToSave": "Falha ao salvar: {{message}}",
+  "failedToDelete": "Falha ao excluir: {{message}}",
+  "buildingGraph": "Construindo grafo…",
+  "selectNoteFirst": "Selecione uma nota primeiro."
+}

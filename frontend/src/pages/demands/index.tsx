@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   Archive,
@@ -25,7 +26,6 @@ import { useAssistantContext } from "@/hooks/useAssistant";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { DEMAND_DRAG_MIME, InboxGroupTree } from "@/components/InboxGroupTree";
 import {
-  CONVERT_TARGET_LABELS,
   downloadDemandAttachment,
   useConvertDemand,
   useDeleteDemand,
@@ -45,6 +45,16 @@ const STATUS_BADGE: Record<DemandStatus, { variant: "default" | "secondary" | "s
   read: { variant: "secondary", label: "Read" },
   converted: { variant: "success", label: "Converted" },
   archived: { variant: "outline", label: "Archived" },
+};
+
+const CONVERT_TARGET_LABELS: Record<ConvertTarget, string> = {
+  task: "Task",
+  doc: "Document",
+  artifact: "Artifact",
+  knowledge_base: "Knowledge Base",
+  planning_item: "Planning Item",
+  project_doc: "Project Document",
+  quick_task: "Quick Task",
 };
 
 /** Which folder the message list/reading pane are scoped to -- "inbox" is
@@ -257,6 +267,7 @@ function DemandListRow({
 }
 
 export default function DemandsPage() {
+  const { t } = useTranslation("demands");
   const { data: demands, isLoading, isError, error, refetch, isFetching } = useDemands();
   const { data: groups } = useDemandGroups();
   const updateStatus = useUpdateDemandStatus();
@@ -335,8 +346,9 @@ export default function DemandsPage() {
 
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
         <h1 className="flex items-center gap-2 text-xl font-semibold">
-          <InboxIcon className="h-5 w-5" /> Inbox
-          {unreadCount > 0 && <Badge variant="destructive">{unreadCount} new</Badge>}
+          {t("inboxTitle")}
+          <InboxIcon className="h-5 w-5" />
+          {unreadCount > 0 && <Badge variant="destructive">{unreadCount} {t("new")}</Badge>}
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -350,6 +362,7 @@ export default function DemandsPage() {
             {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           </Button>
           <Button size="sm" className="gap-1.5" onClick={() => setComposeOpen(true)}>
+            {t("newNoteButton")}
             <Plus className="h-4 w-4" /> New note
           </Button>
           <AssistantToggleButton
@@ -429,7 +442,7 @@ export default function DemandsPage() {
                 )}
               >
                 <InboxIcon className="h-3.5 w-3.5 shrink-0" />
-                <span className="flex-1">Incoming</span>
+                <span className="flex-1">{t("incomingFolder")}</span>
                 {unreadCount > 0 && <span className="text-[10px] text-muted-foreground">{unreadCount}</span>}
               </button>
               <InboxGroupTree
@@ -448,9 +461,11 @@ export default function DemandsPage() {
             <div className="min-h-0 flex-1">
               {filtered.length === 0 && (
                 <p className="p-6 text-center text-sm italic text-muted-foreground">
-                  {folder.kind === "inbox"
-                    ? 'Nothing here yet. Agents submit via /demands/submit, or click "New note".'
-                    : "No archived messages here yet. Drag a message from Incoming into this folder."}
+                {t("emptyArchivedFolderMessage")}
+                {t("emptyInboxMessage")}
+                    {folder.kind === "inbox"
+                      ? 'Nothing here yet. Agents submit via /demands/submit, or click "New note".'
+                      : "No archived messages here yet. Drag a message from Incoming into this folder."}
                 </p>
               )}
               {filtered.map((demand) => (
@@ -469,6 +484,7 @@ export default function DemandsPage() {
               <ReadingPane demand={selected} />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                {t("selectMessagePrompt")}
                 Select a message to read.
               </div>
             )}

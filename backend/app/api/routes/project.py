@@ -873,15 +873,28 @@ async def toggle_project_forgerouter(
     to_enable = [tool for tool, want in desired.items() if want and not current[tool]]
     to_disable = [tool for tool, want in desired.items() if not want and current[tool]]
 
-    if to_enable:
+    # Each tool is its own product with its own credential -- Claude/Codex/
+    # Antigravity keys must never be conflated, so each gets its own bridge
+    # call with only its own key (never another tool's).
+    payload_keys = {
+        "claude": payload.claude_api_key,
+        "codex": payload.codex_api_key,
+        "antigravity": payload.antigravity_api_key,
+    }
+    stored_keys = {
+        "claude": cfg.claude_api_key,
+        "codex": cfg.codex_api_key,
+        "antigravity": cfg.antigravity_api_key,
+    }
+    for tool in to_enable:
         await _bridge_request(
             "PUT",
             "/v1/project-forgerouter",
             json={
                 "project_path": project.working_directory_path,
-                "tools": to_enable,
+                "tools": [tool],
                 "enabled": True,
-                "api_key": payload.api_key or cfg.api_key or "",
+                "api_key": payload_keys[tool] or stored_keys[tool] or "",
             },
         )
     if to_disable:
@@ -896,8 +909,12 @@ async def toggle_project_forgerouter(
             },
         )
 
-    if payload.api_key:
-        cfg.api_key = payload.api_key
+    if payload.claude_api_key:
+        cfg.claude_api_key = payload.claude_api_key
+    if payload.codex_api_key:
+        cfg.codex_api_key = payload.codex_api_key
+    if payload.antigravity_api_key:
+        cfg.antigravity_api_key = payload.antigravity_api_key
     cfg.claude_enabled = desired["claude"]
     cfg.codex_enabled = desired["codex"]
     cfg.antigravity_enabled = desired["antigravity"]

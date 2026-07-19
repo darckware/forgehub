@@ -1,17 +1,14 @@
-"""Obsidian vault browser routes — read/write.
+"""ForgeHub Knowledge Base routes — read/write.
 
-Obsidian itself is a desktop Electron app with no web server, so it can't
-be embedded like ForgeRouter/Kanboard. This gives a view of the same vault
-(mounted read-write at /vault, same volume as foundation.py's VAULT_DIR)
-inside ForgeHub instead: a file tree of every .md note, an endpoint to
-fetch/edit one note's raw content, and a [[wikilink]] graph mirroring
-Obsidian's own graph view.
+ForgeHub is the primary interface for the collective Markdown Knowledge Base.
+The complete host root is mounted read-write at /vault, exposing per-agent
+inboxes and reviewed shared knowledge as a file tree, raw-note editor and
+[[wikilink]] graph. Obsidian is an optional complementary desktop editor over
+the same host files, not a separate source of truth.
 
 Editing here writes straight to the same files the desktop Obsidian app
-reads -- if a note is open in both places at once, last write wins (no
-locking). Obsidian itself reloads externally-changed files automatically,
-so this mirrors editing the same file in two text editors, not a server
-storage conflict.
+reads. If a note is open in ForgeHub and another editor at once, last write
+wins (no locking), so concurrent edits require coordination.
 """
 
 from pathlib import Path

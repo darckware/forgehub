@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { AlertCircle, FolderKanban, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -33,6 +34,7 @@ const STATUS_VARIANT: Record<
 };
 
 export default function ProjectPage() {
+  const { t } = useTranslation("project");
   const { data: projects, isLoading, isError, error } = useProjects();
   const { data: products } = useProducts();
   const createProject = useCreateProject();
@@ -65,24 +67,20 @@ export default function ProjectPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Projects</h1>
-          <p className="text-muted-foreground">
-            Bounded initiatives linked to a product version, with scope, plan, and baseline.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
+          <p className="text-muted-foreground">{t("list.subtitle")}</p>
         </div>
         <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="mr-2 h-4 w-4" />
-          New project
+          {t("list.newProject")}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Create project</CardTitle>
-            <CardDescription>
-              Register a new project. You can attach a plan and baseline afterwards.
-            </CardDescription>
+            <CardTitle>{t("list.createCardTitle")}</CardTitle>
+            <CardDescription>{t("list.createCardDescription")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ProjectForm
@@ -92,7 +90,7 @@ export default function ProjectPage() {
             />
             {createProject.isError && (
               <p className="mt-3 text-sm text-destructive">
-                Failed to create project: {(createProject.error as Error)?.message}
+                {t("list.createError", { message: (createProject.error as Error)?.message })}
               </p>
             )}
           </CardContent>
@@ -102,7 +100,7 @@ export default function ProjectPage() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading projects…
+          {t("list.loading")}
         </div>
       )}
 
@@ -110,7 +108,7 @@ export default function ProjectPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load projects: {(error as Error)?.message}</span>
+            <span>{t("list.loadError", { message: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -120,14 +118,12 @@ export default function ProjectPage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <FolderKanban className="h-10 w-10 text-muted-foreground" />
             <div>
-              <p className="font-medium">No projects yet</p>
-              <p className="text-sm text-muted-foreground">
-                Create your first project to start planning scope and tasks.
-              </p>
+              <p className="font-medium">{t("list.emptyTitle")}</p>
+              <p className="text-sm text-muted-foreground">{t("list.emptyDescription")}</p>
             </div>
             <Button onClick={() => setShowForm(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              New project
+              {t("list.newProject")}
             </Button>
           </CardContent>
         </Card>
@@ -141,7 +137,7 @@ export default function ProjectPage() {
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="text-lg leading-tight">{project.name}</CardTitle>
                   <Badge variant={STATUS_VARIANT[project.status] ?? "outline"}>
-                    {project.status.replace("_", " ")}
+                    {t(`enums.projectStatus.${project.status}`, project.status)}
                   </Badge>
                 </div>
                 {project.description && (
@@ -152,7 +148,7 @@ export default function ProjectPage() {
                 {project.product_version_id ? (
                   <p>{versionLabel(project.product_version_id)}</p>
                 ) : (
-                  <p className="italic">No product version linked</p>
+                  <p className="italic">{t("list.noVersionLinked")}</p>
                 )}
               </CardContent>
               <CardFooter className="flex justify-between gap-2">
@@ -160,14 +156,14 @@ export default function ProjectPage() {
                   to={`/projects/${project.id}`}
                   className={buttonVariants({ variant: "outline", size: "sm" })}
                 >
-                  View details
+                  {t("list.viewDetails")}
                 </Link>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setPendingDeleteId(project.id)}
                   disabled={deleteProject.isPending}
-                  aria-label={`Delete ${project.name}`}
+                  aria-label={t("list.deleteAria", { name: project.name })}
                 >
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
@@ -178,9 +174,9 @@ export default function ProjectPage() {
       )}
       <ConfirmDialog
         open={pendingDeleteId !== null}
-        title="Delete project?"
-        description="This will permanently delete the project and all related records. This cannot be undone."
-        confirmLabel="Delete"
+        title={t("list.deleteDialogTitle")}
+        description={t("list.deleteDialogDescription")}
+        confirmLabel={t("shared.delete")}
         onConfirm={() => {
           if (pendingDeleteId) deleteProject.mutate(pendingDeleteId);
           setPendingDeleteId(null);

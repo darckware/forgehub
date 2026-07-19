@@ -1,0 +1,30 @@
+{
+  "crons": {
+    "title": "Agendamentos",
+    "description": "Tarefas e scripts agendados (`hermes cron`) em todos os perfis do Hermes, com descrição, intervalo, agente executor e status de execução.",
+    "sync": "Sincronizar",
+    "task": "Tarefa",
+    "agent": "Agente",
+    "interval": "Intervalo",
+    "status": "Status",
+    "nextRun": "Próxima execução",
+    "lastRun": "Última execução",
+    "actions": "Ações",
+    "run": "Executar",
+    "sendToAssistant": "Enviar para assistente",
+    "toggle": "Alternar",
+    "reset": "Redefinir",
+    "viewFile": "Ver arquivo",
+    "edit": "Editar",
+    "delete": "Excluir",
+    "neverRun": "Nunca executado",
+    "off": "Desligado",
+    "working": "Funcionando",
+    "error": "Erro",
+    "notRunning": "Não está em execução",
+    "corruptedStores": "Armazenamento de cron corrompido(s)",
+    "corruptedDescription": "Os trabalhos desses perfis estão ausentes da lista abaixo, e seu agendador parou de executá-los — o gateway recusa-se a marcar em um armazenamento corrompido. Corrija o arquivo e reinicie o gateway desse perfil.",
+    "noCrons": "Nenhum agendamento encontrado",
+    "noCronsDescription": "Todos os armazenamentos `hermes cron` por perfil analisáveis estão vazios — veja os armazenamentos corrompidos acima."
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "title": "Hindsight",
+  "description": "Continuous memory status across Hermes agents, daemon runtime, LLM configuration, and retention policy.",
+  "loading": "Loading Hindsight status...",
+  "loadError": "Failed to load Hindsight status: {{message}}",
+  "unknownError": "unknown error",
+  "actions": {
+    "restart": "Restart Hindsight",
+    "refresh": "Refresh"
+  },
+  "metrics": {
+    "daemon": {
+      "label": "Daemon",
+      "active": "Active",
+      "offline": "Offline",
+      "noEndpoint": "No endpoint configured"
+    },
+    "recording": {
+      "label": "Recording",
+      "value": "Recording",
+      "notRecording": "Not recording",
+      "configured": "Configured",
+      "autoRetain": "auto_retain"
+    },
+    "llm": {
+      "label": "LLM",
+      "notConfigured": "Not configured",
+      "providerUnknown": "provider unknown",
+      "at": "at {{url}}"
+    },
+    "memoryBank": {
+      "label": "Memory Bank",
+      "detail": "Mode: {{mode}}; recall: {{recall}}"
+    },
+    "tables": {
+      "label": "Tables",
+      "detail": "{{count}} active groups; foundation_postgres/hindsight"
+    },
+    "memoryUnits": {
+      "label": "Memory Units",
+      "detail": "{{documents}} documents; {{entities}} entities"
+    },
+    "asyncOps": {
+      "label": "Async Ops",
+      "checkStatus": "Check async_operations status in schema inventory",
+      "daemonOffline": "Daemon offline"
+    },
+    "schemaHealth": {
+      "label": "Schema Health",
+      "loading": "Loading...",
+      "indexed": "Indexed",
+      "detail": "Read-only inventory from foundation_postgres"
+    }
+  },
+  "recentErrors": "Recent Hindsight Errors",
+  "configuration": {
+    "title": "Configuration",
+    "primaryProfile": "Primary profile: {{profile}}; explicit Hindsight configs: {{count}}.",
+    "none": "none",
+    "apiUrl": "API URL",
+    "notConfigured": "not configured",
+    "configFile": "Config file",
+    "inheritsDefault": "inherited/default",
+    "retain": "Retain",
+    "retainDetail": "Every {{turns}} turn(s), async {{async}}",
+    "integration": "Integration",
+    "integrationDetail": "{{mode}}; auto recall {{autoRecall}}",
+    "unconfiguredWarning": "{{count}} agent(s) use Hindsight but do not have a profile-scoped `hindsight/config.json`; they depend on defaults or environment."
+  },
+  "runtime": {
+    "title": "Runtime",
+    "description": "Processes and local endpoint probe.",
+    "healthStatus": "Health status",
+    "noResponse": "no response",
+    "idleTimeout": "Idle timeout",
+    "default": "default",
+    "processes": "Processes"
+  },
+  "schemaInventory": {
+    "title": "Schema Inventory",
+    "detail": "foundation_postgres / hindsight contains {{tables}} tables and {{asyncOps}} async operations.",
+    "table": "Table",
+    "rows": "Rows",
+    "cols": "Cols",
+    "group": "Group",
+    "loading": "Loading schema inventory...",
+    "empty": "No tables found in hindsight schema."
+  },
+  "groups": {
+    "coreMemory": "Core memory",
+    "operations": "Operations",
+    "policyHistory": "Policy / history",
+    "storageIntegrations": "Storage / integrations",
+    "cache": "Cache",
+    "migration": "Migration",
+    "other": "Other"
+  },
+  "agents": {
+    "title": "Agents Using Hindsight",
+    "detail": "{{active}} of {{total}} profiles use `memory.provider: hindsight`.",
+    "agent": "Agent",
+    "status": "Status",
+    "profileMemory": "Profile Memory",
+    "config": "Config",
+    "limits": "Limits",
+    "hindsight": "Hindsight",
+    "builtInOnly": "Built-in only",
+    "memoryDetail": "memory {{memory}}; user {{user}}",
+    "limitsDetail": "memory {{memoryLimit}} / user {{userLimit}}"
+  },
+  "restartDialog": {
+    "title": "Restart Hindsight daemon",
+    "description": "This restarts the Hindsight container and briefly interrupts memory recording and reads while it comes back up.",
+    "confirm": "Restart",
+    "cancel": "Cancel"
+  },
+  "clearLogDialog": {
+    "title": "Clear Hindsight log",
+    "description": "Clears the contents of {{path}} -- doesn't affect the running daemon, only the history shown here.",
+    "confirm": "Clear",
+    "cancel": "Cancel"
+  },
+  "latestLog": {
+    "title": "Latest Log",
+    "clear": "Clear log",
+    "noFile": "No log file found",
+    "updatedAt": "Updated at {{time}}",
+    "noLines": "No log lines."
+  },
+  "databaseControlAnalysis": "Database Control Analysis",
+  "common": {
+    "yes": "Yes",
+    "no": "No",
+    "default": "Default",
+    "ok": "OK",
+    "issue": "Issue"
+  }
+}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   ArrowLeft,
@@ -47,6 +48,7 @@ const RISK_VARIANT: Record<
 };
 
 export default function AgentDetailPage() {
+  const { t } = useTranslation("agent");
   const { id } = useParams<{ id: string }>();
   const { data: agent, isLoading, isError, error } = useAgent(id);
   const { data: skillsCatalog } = useSkills();
@@ -82,13 +84,13 @@ export default function AgentDetailPage() {
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to agents
+        {t("detail.backToAgents")}
       </Link>
 
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading agent…
+          {t("detail.loading")}
         </div>
       )}
 
@@ -96,7 +98,7 @@ export default function AgentDetailPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load agent: {(error as Error)?.message}</span>
+            <span>{t("detail.loadError", { message: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -130,8 +132,12 @@ export default function AgentDetailPage() {
               {agent.profile_slug && (
                 <>
                   {agent.layer && <Badge variant="secondary">{agent.layer}</Badge>}
-                  {agent.runtime_tier && <Badge variant="outline">Tier {agent.runtime_tier}</Badge>}
-                  {agent.telegram_required && <Badge variant="outline">Telegram</Badge>}
+                  {agent.runtime_tier && (
+                    <Badge variant="outline">{t("detail.tierBadge", { tier: agent.runtime_tier })}</Badge>
+                  )}
+                  {agent.telegram_required && (
+                    <Badge variant="outline">{t("detail.telegramBadge")}</Badge>
+                  )}
                 </>
               )}
             </div>
@@ -139,23 +145,23 @@ export default function AgentDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl"><KeyRound className="h-5 w-5" /> ForgeRouter API key</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-xl"><KeyRound className="h-5 w-5" /> {t("detail.apiKeyTitle")}</CardTitle>
               <CardDescription>
-                Individual credential used only when this agent runs Claude, Codex, or Agy. The saved value is encrypted and never displayed again.
+                {t("detail.apiKeyDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center gap-2 text-sm">
                 <Badge variant={agent.forgerouter_api_key_configured ? "success" : "destructive"}>
-                  {agent.forgerouter_api_key_configured ? "Configured" : "Not configured"}
+                  {agent.forgerouter_api_key_configured ? t("detail.apiKeyConfigured") : t("detail.apiKeyNotConfigured")}
                 </Badge>
               </div>
               <div className="flex gap-2">
-                <Input type="password" autoComplete="new-password" value={forgeRouterApiKey} onChange={(e) => setForgeRouterApiKey(e.target.value)} placeholder="Paste this agent's ForgeRouter key" />
+                <Input type="password" autoComplete="new-password" value={forgeRouterApiKey} onChange={(e) => setForgeRouterApiKey(e.target.value)} placeholder={t("detail.apiKeyPlaceholder")} />
                 <Button disabled={!forgeRouterApiKey || updateAgent.isPending} onClick={() => updateAgent.mutate({ forgerouter_api_key: forgeRouterApiKey }, { onSuccess: () => setForgeRouterApiKey("") })}>
-                  {updateAgent.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />} Save key
+                  {updateAgent.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />} {t("detail.saveKeyButton")}
                 </Button>
-                {agent.forgerouter_api_key_configured && <Button variant="outline" disabled={updateAgent.isPending} onClick={() => updateAgent.mutate({ clear_forgerouter_api_key: true })}>Remove</Button>}
+                {agent.forgerouter_api_key_configured && <Button variant="outline" disabled={updateAgent.isPending} onClick={() => updateAgent.mutate({ clear_forgerouter_api_key: true })}>{t("detail.removeKeyButton")}</Button>}
               </div>
               {updateAgent.isError && <p className="text-sm text-destructive">{(updateAgent.error as Error)?.message}</p>}
             </CardContent>
@@ -164,13 +170,13 @@ export default function AgentDetailPage() {
           <Card>
             <CardHeader className="flex flex-row items-start justify-between gap-4">
               <div>
-                <CardTitle className="text-xl">Description</CardTitle>
-                <CardDescription>Manual description for this agent.</CardDescription>
+                <CardTitle className="text-xl">{t("detail.descriptionTitle")}</CardTitle>
+                <CardDescription>{t("detail.descriptionSubtitle")}</CardDescription>
               </div>
               {!isEditingDescription && (
                 <Button variant="outline" size="sm" onClick={handleStartEditDescription}>
                   <Pencil className="mr-2 h-4 w-4" />
-                  Edit
+                  {t("detail.editButton")}
                 </Button>
               )}
             </CardHeader>
@@ -180,25 +186,25 @@ export default function AgentDetailPage() {
                   <Textarea
                     value={descriptionDraft}
                     onChange={(e) => setDescriptionDraft(e.target.value)}
-                    placeholder="Describe this agent…"
+                    placeholder={t("detail.descriptionPlaceholder")}
                     rows={4}
                   />
                   {updateAgent.isError && (
                     <p className="text-sm text-destructive">
-                      Failed to save description: {(updateAgent.error as Error)?.message}
+                      {t("detail.descriptionSaveError", { message: (updateAgent.error as Error)?.message })}
                     </p>
                   )}
                   <div className="flex gap-2">
                     <Button onClick={handleSaveDescription} disabled={updateAgent.isPending}>
                       {updateAgent.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Save
+                      {t("detail.saveButton")}
                     </Button>
                     <Button
                       variant="outline"
                       onClick={handleCancelEditDescription}
                       disabled={updateAgent.isPending}
                     >
-                      Cancel
+                      {t("detail.cancelButton")}
                     </Button>
                   </div>
                 </>
@@ -207,7 +213,7 @@ export default function AgentDetailPage() {
                   {agent.description}
                 </p>
               ) : (
-                <p className="text-sm italic text-muted-foreground">No description yet.</p>
+                <p className="text-sm italic text-muted-foreground">{t("detail.noDescription")}</p>
               )}
             </CardContent>
           </Card>
@@ -218,10 +224,10 @@ export default function AgentDetailPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl">
                 <Users className="h-5 w-5" />
-                Sub-agents
+                {t("detail.subAgentsTitle")}
               </CardTitle>
               <CardDescription>
-                Subordinate agents with scoped permissions and skills, inherited from this agent.
+                {t("detail.subAgentsSubtitle")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -229,9 +235,9 @@ export default function AgentDetailPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>{t("detail.subAgentsColumns.name")}</TableHead>
+                      <TableHead>{t("detail.subAgentsColumns.description")}</TableHead>
+                      <TableHead>{t("detail.subAgentsColumns.status")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -251,7 +257,7 @@ export default function AgentDetailPage() {
                   </TableBody>
                 </Table>
               ) : (
-                <p className="text-sm italic text-muted-foreground">No sub-agents yet.</p>
+                <p className="text-sm italic text-muted-foreground">{t("detail.noSubAgents")}</p>
               )}
             </CardContent>
           </Card>
@@ -260,11 +266,10 @@ export default function AgentDetailPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl">
                 <ShieldAlert className="h-5 w-5" />
-                Skills
+                {t("detail.skillsTitle")}
               </CardTitle>
               <CardDescription>
-                Versioned, governed capabilities associated with this agent, with risk level and
-                permission boundaries.
+                {t("detail.skillsSubtitle")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -273,11 +278,11 @@ export default function AgentDetailPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Skill</TableHead>
-                        <TableHead>Origin</TableHead>
-                        <TableHead>Risk</TableHead>
-                        <TableHead>Approval</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead>{t("detail.skillsColumns.skill")}</TableHead>
+                        <TableHead>{t("detail.skillsColumns.origin")}</TableHead>
+                        <TableHead>{t("detail.skillsColumns.risk")}</TableHead>
+                        <TableHead>{t("detail.skillsColumns.approval")}</TableHead>
+                        <TableHead className="text-right">{t("detail.skillsColumns.actions")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -306,7 +311,7 @@ export default function AgentDetailPage() {
                               )}
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground">
-                              {skill?.is_approved ? "Approved" : "Not approved"}
+                              {skill?.is_approved ? t("detail.approved") : t("detail.notApproved")}
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
@@ -314,7 +319,7 @@ export default function AgentDetailPage() {
                                 size="sm"
                                 onClick={() => removeSkill.mutate(agentSkill.id)}
                                 disabled={removeSkill.isPending}
-                                aria-label={`Remove skill ${skill?.name ?? agentSkill.skill_id}`}
+                                aria-label={t("detail.removeSkillAriaLabel", { name: skill?.name ?? agentSkill.skill_id })}
                               >
                                 <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
@@ -327,7 +332,7 @@ export default function AgentDetailPage() {
                 </div>
               ) : (
                 <p className="text-sm italic text-muted-foreground">
-                  No skills associated with this agent yet.
+                  {t("detail.noSkills")}
                 </p>
               )}
             </CardContent>
@@ -335,7 +340,7 @@ export default function AgentDetailPage() {
 
           <div>
             <Link to="/agents" className={buttonVariants({ variant: "outline" })}>
-              Back to list
+              {t("detail.backToList")}
             </Link>
           </div>
         </>

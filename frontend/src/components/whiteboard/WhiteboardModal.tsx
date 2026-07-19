@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ExcalidrawImperativeAPI, ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
@@ -34,6 +35,7 @@ export function WhiteboardModal({
   onClose: () => void;
   onSave: (result: WhiteboardSaveResult) => void;
 }) {
+  const { t } = useTranslation("docs");
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
 
   const handleSave = useCallback(async () => {
@@ -64,13 +66,13 @@ export function WhiteboardModal({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background">
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <p className="text-sm font-medium">🎨 Whiteboard</p>
+        <p className="text-sm font-medium">{t("whiteboardModal.title")}</p>
         <div className="flex items-center gap-2">
           <Button size="sm" className="gap-1.5" onClick={handleSave}>
-            <Save className="h-3.5 w-3.5" /> Save and insert
+            <Save className="h-3.5 w-3.5" /> {t("whiteboardModal.saveAndInsert")}
           </Button>
           <Button variant="outline" size="sm" onClick={onClose}>
-            <X className="mr-1.5 h-3.5 w-3.5" /> Close
+            <X className="mr-1.5 h-3.5 w-3.5" /> {t("whiteboardModal.close")}
           </Button>
         </div>
       </div>
@@ -78,7 +80,7 @@ export function WhiteboardModal({
         <Suspense
           fallback={
             <div className="flex h-full items-center justify-center gap-2 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" /> Loading the whiteboard…
+              <Loader2 className="h-5 w-5 animate-spin" /> {t("whiteboardModal.loading")}
             </div>
           }
         >

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -28,6 +29,7 @@ interface TerminalPaneProps {
 }
 
 export function TerminalPane({ sessionId, command, cwd, active }: TerminalPaneProps) {
+  const { t } = useTranslation("workspace");
   const containerRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -84,7 +86,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
         if (cancelled) return;
         params.set("ticket", ticket);
       } catch {
-        if (!cancelled) term.write("\r\n\x1b[31mFailed to authenticate terminal session.\x1b[0m\r\n");
+        if (!cancelled) term.write(`\r\n\x1b[31m${t("terminal.authFailed")}\x1b[0m\r\n`);
         return;
       }
 

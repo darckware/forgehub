@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, Paperclip, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ export function ComposeDemandDialog({
   body: string;
   onBodyChange: (value: string) => void;
 }) {
+  const { t } = useTranslation("demands");
   const user = useAuthStore((s) => s.user);
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -80,23 +82,24 @@ export function ComposeDemandDialog({
       />
       <div className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
         <div className="p-6">
-          <h2 className="text-base font-semibold">New note</h2>
+          <h2 className="text-base font-semibold">{t("newNoteTitle")}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
+              {t("newNoteDescription")}
             Filed in the inbox as sent by you -- triage it later into the Knowledge
             Base, a project, or planning.
           </p>
 
           <div className="mt-4 space-y-3">
             <Input
+              placeholder={t("subjectPlaceholder")}
               value={subject}
               onChange={(e) => onSubjectChange(e.target.value)}
-              placeholder="Subject"
               maxLength={255}
             />
             <Textarea
+              placeholder={t("bodyPlaceholder")}
               value={body}
               onChange={(e) => onBodyChange(e.target.value)}
-              placeholder="Markdown content..."
               rows={8}
               className="font-mono text-sm"
             />
@@ -120,7 +123,7 @@ export function ComposeDemandDialog({
                 className="gap-1.5"
                 onClick={() => fileInputRef.current?.click()}
               >
-                <Paperclip className="h-3.5 w-3.5" /> Attach file
+                <Paperclip className="h-3.5 w-3.5" /> {t("attachFileButton")}
               </Button>
               {files.length > 0 && (
                 <ul className="mt-2 space-y-1">
@@ -154,11 +157,11 @@ export function ComposeDemandDialog({
                 onClose();
               }}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button disabled={!canSubmit} onClick={handleSubmit} className="min-w-[88px] gap-1.5">
               {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Send
+              {t("send")}
             </Button>
           </div>
         </div>

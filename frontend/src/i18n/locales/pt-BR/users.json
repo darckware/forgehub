@@ -1,0 +1,57 @@
+{
+  "users": {
+    "list": {
+      "title": "Usuários",
+      "create": "Novo usuário"
+    },
+    "column": {
+      "user": "Usuário",
+      "name": "Nome",
+      "email": "Email",
+      "role": "Função",
+      "profile": "Perfil",
+      "status": "Status"
+    },
+    "badge": {
+      "admin": "Admin",
+      "user": "Usuário"
+    },
+    "profile": {
+      "superAdmin": "— (super admin)",
+      "loading": "carregando…",
+      "none": "sem perfil"
+    },
+    "status": {
+      "active": "Ativo",
+      "inactive": "Inativo"
+    },
+    "action": {
+      "edit": "Editar",
+      "delete": "Excluir"
+    },
+    "delete": {
+      "confirm": "Excluir usuário \"{{username}}?"
+    },
+    "form": {
+      "usernameLabel": "Nome de usuário *",
+      "usernamePlaceholder": "jdoe",
+      "newPassword": "Nova senha (opcional)",
+      "passwordLabel": "Senha *",
+      "leaveBlank": "deixe em branco para manter",
+      "passwordPlaceholder": "••••••••",
+      "confirmLabel": "Confirmar senha",
+      "optional": "(opcional)",
+      "confirmPlaceholder": "••••••••",
+      "passwordsMismatch": "Senhas não coincidem",
+      "fullNameLabel": "Nome completo",
+      "fullNamePlaceholder": "João da Silva",
+      "emailLabel": "Email",
+      "emailPlaceholder": "joao@exemplo.com",
+      "superAdminLabel": "Super Admin",
+      "superAdminDesc": "acesso total, ignora perfis",
+      "activeLabel": "Ativo",
+      "profileLabel": "Perfil de acesso",
+      "profilePlaceholder": "— sem perfil —"
+    }
+  }
+}

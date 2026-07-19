@@ -2,6 +2,8 @@ import { useState } from "react";
 import { AlertCircle, CheckSquare, Loader2, Plus, Pencil, Trash2, ShieldCheck } from "lucide-react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,22 +37,24 @@ import {
 import { useArtifacts } from "@/hooks/useArtifact";
 import { useTasksByPolicy } from "@/hooks/useTask";
 
-const policyFormSchema = z.object({
-  name: z.string().min(1, "Name is required").max(200),
-  description: z.string().max(2000).optional().or(z.literal("")),
-  policy_type: z.string().min(1, "Type is required").max(100),
-  is_active: z.boolean().default(true),
-  entity_id: z.string().min(1, "Artifact is required"),
-});
+function makePolicyFormSchema(t: TFunction) {
+  return z.object({
+    name: z.string().min(1, t("policies.validation.nameRequired")).max(200),
+    description: z.string().max(2000).optional().or(z.literal("")),
+    policy_type: z.string().min(1, t("policies.validation.typeRequired")).max(100),
+    is_active: z.boolean().default(true),
+    entity_id: z.string().min(1, t("policies.validation.artifactRequired")),
+  });
+}
 
-type PolicyFormValues = z.infer<typeof policyFormSchema>;
+type PolicyFormValues = z.infer<ReturnType<typeof makePolicyFormSchema>>;
 
 function PolicyForm({
   defaultValues,
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Save",
+  submitLabel,
 }: {
   defaultValues?: Partial<PolicyFormValues>;
   onSubmit: (v: PolicyFormValues) => void;
@@ -58,10 +62,12 @@ function PolicyForm({
   isSubmitting?: boolean;
   submitLabel?: string;
 }) {
+  const { t } = useTranslation("governance");
+  const effectiveSubmitLabel = submitLabel ?? t("policies.form.save");
   const { data: artifacts } = useArtifacts();
 
   const { register, handleSubmit, control, formState: { errors } } = useForm<PolicyFormValues>({
-    resolver: zodResolver(policyFormSchema),
+    resolver: zodResolver(makePolicyFormSchema(t)),
     defaultValues: { name: "", description: "", policy_type: "", is_active: true, entity_id: "", ...defaultValues },
   });
 
@@ -69,25 +75,25 @@ function PolicyForm({
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Name</Label>
-          <Input placeholder="e.g. Production Deploy Approval" {...register("name")} />
+          <Label>{t("policies.form.name")}</Label>
+          <Input placeholder={t("policies.form.namePlaceholder")} {...register("name")} />
           {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
         </div>
         <div className="space-y-2">
-          <Label>Type</Label>
-          <Input placeholder="ex: release_approval, security_review" {...register("policy_type")} />
+          <Label>{t("policies.form.type")}</Label>
+          <Input placeholder={t("policies.form.typePlaceholder")} {...register("policy_type")} />
           {errors.policy_type && <p className="text-xs text-destructive">{errors.policy_type.message}</p>}
         </div>
       </div>
 
       <div className="space-y-2">
-        <Label>Linked artifact</Label>
+        <Label>{t("policies.form.linkedArtifact")}</Label>
         <Controller
           control={control}
           name="entity_id"
           render={({ field }) => (
             <Select value={field.value} onChange={(e) => field.onChange(e.target.value)}>
-              <option value="">Select an artifact…</option>
+              <option value="">{t("policies.form.selectArtifact")}</option>
               {(artifacts ?? []).map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -100,9 +106,9 @@ function PolicyForm({
       </div>
 
       <div className="space-y-2">
-        <Label>Description</Label>
+        <Label>{t("policies.form.description")}</Label>
         <Textarea
-          placeholder="Describe the criteria or rule for this policy"
+          placeholder={t("policies.form.descriptionPlaceholder")}
           rows={3}
           {...register("description")}
         />
@@ -110,16 +116,16 @@ function PolicyForm({
 
       <div className="flex items-center gap-2">
         <input type="checkbox" id="is_active" {...register("is_active")} className="rounded" />
-        <Label htmlFor="is_active" className="cursor-pointer">Active</Label>
+        <Label htmlFor="is_active" className="cursor-pointer">{t("policies.form.active")}</Label>
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
         <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-          Cancel
+          {t("policies.form.cancel")}
         </Button>
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {submitLabel}
+          {effectiveSubmitLabel}
         </Button>
       </div>
     </form>
@@ -133,6 +139,7 @@ function ArtifactName({ artifactId, artifacts }: { artifactId: string | null | u
 }
 
 export default function PoliciesPage() {
+  const { t } = useTranslation("governance");
   const { data: policies, isLoading, isError } = usePolicies();
   const { data: artifacts } = useArtifacts();
   const createPolicy = useCreatePolicy();
@@ -154,28 +161,28 @@ export default function PoliciesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Governance Policies</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("policies.title")}</h1>
           <p className="text-muted-foreground">
-            Business rules linked to artifacts — define approval criteria for controlled transitions.
+            {t("policies.description")}
           </p>
         </div>
         <Button onClick={() => { setShowCreate(true); setEditingId(null); }}>
-          <Plus className="mr-2 h-4 w-4" /> New policy
+          <Plus className="mr-2 h-4 w-4" /> {t("policies.newPolicy")}
         </Button>
       </div>
 
       {showCreate && (
         <Card>
           <CardHeader>
-            <CardTitle>New policy</CardTitle>
-            <CardDescription>Links an approval rule to a specific artifact.</CardDescription>
+            <CardTitle>{t("policies.newPolicy")}</CardTitle>
+            <CardDescription>{t("policies.newPolicyCard.description")}</CardDescription>
           </CardHeader>
           <CardContent>
             <PolicyForm
               onSubmit={handleCreate}
               onCancel={() => setShowCreate(false)}
               isSubmitting={createPolicy.isPending}
-              submitLabel="Create policy"
+              submitLabel={t("policies.createPolicy")}
             />
           </CardContent>
         </Card>
@@ -183,14 +190,14 @@ export default function PoliciesPage() {
 
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+          <Loader2 className="h-5 w-5 animate-spin" /> {t("policies.loading")}
         </div>
       )}
 
       {isError && (
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
-            <AlertCircle className="h-5 w-5" /> Failed to load policies.
+            <AlertCircle className="h-5 w-5" /> {t("policies.loadFailed")}
           </CardContent>
         </Card>
       )}
@@ -199,10 +206,10 @@ export default function PoliciesPage() {
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <ShieldCheck className="h-10 w-10 text-muted-foreground" />
-            <p className="font-medium">No policies registered</p>
-            <p className="text-sm text-muted-foreground">Create the first policy to link to approvals.</p>
+            <p className="font-medium">{t("policies.empty.title")}</p>
+            <p className="text-sm text-muted-foreground">{t("policies.empty.description")}</p>
             <Button onClick={() => setShowCreate(true)}>
-              <Plus className="mr-2 h-4 w-4" /> New policy
+              <Plus className="mr-2 h-4 w-4" /> {t("policies.newPolicy")}
             </Button>
           </CardContent>
         </Card>
@@ -214,13 +221,13 @@ export default function PoliciesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Artifact</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Tasks</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("policies.table.name")}</TableHead>
+                  <TableHead>{t("policies.table.type")}</TableHead>
+                  <TableHead>{t("policies.table.artifact")}</TableHead>
+                  <TableHead>{t("policies.table.status")}</TableHead>
+                  <TableHead>{t("policies.table.description")}</TableHead>
+                  <TableHead>{t("policies.table.tasks")}</TableHead>
+                  <TableHead className="text-right">{t("policies.table.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -238,7 +245,7 @@ export default function PoliciesPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant={policy.is_active ? "success" : "secondary"}>
-                          {policy.is_active ? "Active" : "Inactive"}
+                          {policy.is_active ? t("policies.table.active") : t("policies.table.inactive")}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground max-w-sm truncate">
@@ -252,7 +259,7 @@ export default function PoliciesPage() {
                           onClick={() => setExpandedId(expandedId === policy.id ? null : policy.id)}
                         >
                           <CheckSquare className="h-3.5 w-3.5" />
-                          {expandedId === policy.id ? "Hide" : "View tasks"}
+                          {expandedId === policy.id ? t("policies.table.hide") : t("policies.table.viewTasks")}
                         </Button>
                       </TableCell>
                       <TableCell className="text-right">
@@ -269,7 +276,7 @@ export default function PoliciesPage() {
                             variant="ghost"
                             className="text-destructive hover:text-destructive"
                             onClick={() => {
-                              if (confirm(`Delete policy "${policy.name}"?`))
+                              if (confirm(t("policies.deleteConfirm", { name: policy.name })))
                                 deletePolicy.mutate(policy.id);
                             }}
                             disabled={deletePolicy.isPending}
@@ -308,31 +315,32 @@ export default function PoliciesPage() {
 }
 
 function PolicyTasksRow({ policyId }: { policyId: string }) {
+  const { t } = useTranslation("governance");
   const { data: tasks, isLoading } = useTasksByPolicy(policyId);
 
   if (isLoading) return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-      <Loader2 className="h-3 w-3 animate-spin" /> Loading tasks…
+      <Loader2 className="h-3 w-3 animate-spin" /> {t("policies.tasks.loading")}
     </div>
   );
   if (!tasks || tasks.length === 0) return (
-    <p className="text-xs text-muted-foreground py-2 italic">No tasks linked to this policy.</p>
+    <p className="text-xs text-muted-foreground py-2 italic">{t("policies.tasks.empty")}</p>
   );
 
   return (
     <div className="space-y-1 py-1">
-      <p className="text-xs font-semibold text-muted-foreground mb-2">Tasks implementing this policy</p>
+      <p className="text-xs font-semibold text-muted-foreground mb-2">{t("policies.tasks.heading")}</p>
       <div className="space-y-1">
-        {tasks.map((t) => (
-          <div key={t.id} className="flex items-center gap-2 text-sm">
+        {tasks.map((task) => (
+          <div key={task.id} className="flex items-center gap-2 text-sm">
             <StatusBadge variant={
-              t.status === "done" || t.status === "deployed" ? "success" :
-              t.status === "in_progress" ? "default" :
-              t.status === "blocked" ? "destructive" : "secondary"
+              task.status === "done" || task.status === "deployed" ? "success" :
+              task.status === "in_progress" ? "default" :
+              task.status === "blocked" ? "destructive" : "secondary"
             } className="text-xs shrink-0">
-              {t.status.replace("_", " ")}
+              {task.status.replace("_", " ")}
             </StatusBadge>
-            <span className="truncate">{t.title}</span>
+            <span className="truncate">{task.title}</span>
           </div>
         ))}
       </div>
@@ -341,6 +349,7 @@ function PolicyTasksRow({ policyId }: { policyId: string }) {
 }
 
 function EditPolicyRow({ policy, onDone }: { policy: Policy; onDone: () => void }) {
+  const { t } = useTranslation("governance");
   const updatePolicy = useUpdatePolicy(policy.id);
   function handleUpdate(values: PolicyFormValues) {
     const payload: PolicyInput = {
@@ -362,7 +371,7 @@ function EditPolicyRow({ policy, onDone }: { policy: Policy; onDone: () => void 
       onSubmit={handleUpdate}
       onCancel={onDone}
       isSubmitting={updatePolicy.isPending}
-      submitLabel="Save changes"
+      submitLabel={t("policies.saveChanges")}
     />
   );
 }

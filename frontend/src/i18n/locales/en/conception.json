@@ -1,0 +1,72 @@
+{
+  "page": {
+    "title": "Conception",
+    "description": "Transform an idea into a versioned, reviewable product definition before execution begins."
+  },
+  "toggle": {
+    "newIdea": "New idea",
+    "backToList": "Back to requests"
+  },
+  "captureIdea": {
+    "title": "Capture idea",
+    "description": "This creates a concept product and its first System Map revision.",
+    "editTitle": "Edit idea",
+    "editDescription": "Update the conception registration data.",
+    "conceptLocked": "The concept was already submitted for review, so the problem statement, vision and initial scope can no longer be edited here -- only the name and requester.",
+    "fields": {
+      "name": "Name",
+      "problemStatement": "Problem statement",
+      "vision": "Vision",
+      "initialScope": "Initial scope",
+      "requestedBy": "Requested by",
+      "priority": "Priority"
+    },
+    "priorityOptions": {
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "critical": "critical"
+    },
+    "buttons": {
+      "create": "Create conception",
+      "save": "Save changes",
+      "cancel": "Cancel"
+    },
+    "error": {
+      "createFailed": "The idea could not be created. Check for a duplicate name."
+    }
+  },
+  "developmentRequests": {
+    "title": "Development requests",
+    "description": "Intake and conversion trace for product creation.",
+    "loading": "Loading…",
+    "empty": "No ideas captured yet.",
+    "openSystemMap": "Open System Map",
+    "edit": "Edit",
+    "delete": "Delete",
+    "deleteDialog": {
+      "title": "Delete \"{{name}}\"?",
+      "description": "This permanently deletes the product, its concept, System Map and every related revision. This cannot be undone.",
+      "confirmLabel": "Delete"
+    }
+  },
+  "conceptDecision": {
+    "title": "Concept decision",
+    "description": "Execution remains blocked until concept and map are approved.",
+    "actions": {
+      "reviewSystemMap": "Review System Map",
+      "submitForReview": "Submit for review",
+      "openApprovalInbox": "Open approval inbox",
+      "authorizeDelivery": "Authorize delivery planning",
+      "openProjectScope": "Open created Project Scope"
+    },
+    "error": {
+      "submitBlocked": "Submission was blocked. Validate the System Map and your command permission."
+    },
+    "authorizeForm": {
+      "version": "Version",
+      "projectName": "Project name",
+      "owner": "Owner"
+    }
+  }
+}

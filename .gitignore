@@ -10,6 +10,10 @@
 .claude/settings.local.json
 .claude/settings.local.json.bak
 
+# Per-project ForgeRouter credentials (see host-bridge/app.py)
+.codex/forgerouter.env
+.forgerouter/antigravity.env
+
 # Python
 .venv/
 __pycache__/

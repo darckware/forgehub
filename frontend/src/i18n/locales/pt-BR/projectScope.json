@@ -1,0 +1,32 @@
+{
+  "page": {
+    "title": "Escopo do Projeto",
+    "description": "Selecione exatamente quais elementos aprovados do Mapa do Sistema o projeto vai adicionar, alterar, remover ou verificar."
+  },
+  "selectors": {
+    "project": "Projeto",
+    "projectPlaceholder": "Selecione um projeto",
+    "scopeBaseline": "Linha de base do escopo",
+    "scopePlaceholder": "Nenhum escopo disponível",
+    "revisionOption": "Revisão {{revision}} · {{status}}"
+  },
+  "addItem": {
+    "title": "Adicionar item ao escopo",
+    "description": "Todo item permanece rastreável até o mapa aprovado.",
+    "fields": {
+      "systemElement": "Elemento do sistema",
+      "systemElementPlaceholder": "Selecione o elemento",
+      "change": "Mudança",
+      "applicability": "Aplicabilidade",
+      "rationale": "Justificativa",
+      "acceptanceCriterion": "Critério de aceite"
+    },
+    "acceptanceCriterionPlaceholder": "Dado… quando… então…",
+    "button": "Adicionar ao escopo"
+  },
+  "coverage": {
+    "title": "Cobertura do escopo",
+    "summary": "{{selected}} de {{total}} elementos mapeados selecionados.",
+    "outsideScope": "fora do escopo atual"
+  }
+}

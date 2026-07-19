@@ -4,15 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useProfiles, useDeleteProfile } from "@/hooks/useAuth";
 import ProfileForm from "./ProfileForm";
+import { useTranslation } from "react-i18next";
 
 export default function ProfilesPage() {
+  const { t } = useTranslation("profiles");
   const { data: profiles, isLoading } = useProfiles();
   const deleteMut = useDeleteProfile();
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete profile "${name}"?`)) return;
+    if (!confirm(t("profiles.delete.confirm", { name }))) return;
     await deleteMut.mutateAsync(id);
   };
 
@@ -20,10 +22,10 @@ export default function ProfilesPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5" /> Access Profiles
+          <ShieldCheck className="h-5 w-5" /> {t("profiles.list.title")}
         </h1>
         <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
-          <Plus className="h-4 w-4" /> New profile
+          <Plus className="h-4 w-4" /> {t("profiles.list.create")}
         </Button>
       </div>
 
@@ -75,11 +77,11 @@ export default function ProfilesPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="sticky top-0 z-10 border-b border-border/50">
-                    <th className="px-3 py-2 text-left font-medium text-muted-foreground w-40" style={{ backgroundColor: "hsl(var(--card))" }}>Module</th>
-                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>View</th>
-                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Query</th>
-                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Write</th>
-                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>Delete</th>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground w-40" style={{ backgroundColor: "hsl(var(--card))" }}>{t("profiles.permissions.column.module")}</th>
+                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>{t("profiles.permissions.column.view")}</th>
+                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>{t("profiles.permissions.column.query")}</th>
+                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>{t("profiles.permissions.column.write")}</th>
+                    <th className="px-3 py-2 text-center font-medium text-muted-foreground" style={{ backgroundColor: "hsl(var(--card))" }}>{t("profiles.permissions.column.delete")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/30">

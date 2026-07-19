@@ -308,7 +308,9 @@ class ProjectForgeRouterConfigOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     project_id: uuid.UUID
-    api_key: str | None
+    claude_api_key: str | None
+    codex_api_key: str | None
+    antigravity_api_key: str | None
     claude_enabled: bool
     codex_enabled: bool
     antigravity_enabled: bool
@@ -322,14 +324,18 @@ class ProjectForgeRouterToggle(BaseModel):
 
     `claude`/`codex`/`antigravity` are the desired end-state for each tool,
     independent of one another — the route only touches the tools whose
-    desired state actually changes from what's stored. `api_key` is only
-    required the first time a tool is turned on for a project that has no
-    stored key yet. `enabled` is kept for API compatibility (true when any
-    tool should end up on) but does not itself select which tools apply.
+    desired state actually changes from what's stored. Each tool has its
+    own `<tool>_api_key`, since Claude/Codex/Antigravity are separate
+    products with separate credentials — one is only required the first
+    time that specific tool is turned on for a project with no stored key
+    for it yet. `enabled` is kept for API compatibility (true when any tool
+    should end up on) but does not itself select which tools apply.
     """
 
     enabled: bool
-    api_key: str = ""
+    claude_api_key: str = ""
+    codex_api_key: str = ""
+    antigravity_api_key: str = ""
     claude: bool = True
     codex: bool = True
     antigravity: bool = False

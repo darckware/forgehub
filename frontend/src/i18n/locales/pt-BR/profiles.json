@@ -1,0 +1,20 @@
+{
+  "profiles": {
+    "list": {
+      "title": "Perfis de Acesso",
+      "create": "Novo perfil"
+    },
+    "delete": {
+      "confirm": "Excluir perfil \"{{name}}?"
+    },
+    "permissions": {
+      "column": {
+        "module": "Módulo",
+        "view": "Visualizar",
+        "query": "Consultar",
+        "write": "Escrever",
+        "delete": "Excluir"
+      }
+    }
+  }
+}

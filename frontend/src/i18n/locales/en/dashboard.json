@@ -1,0 +1,88 @@
+{
+  "title": "Dashboard",
+  "welcome": "Welcome to ForgeHub.",
+  "tabs": {
+    "resources": "System Resources",
+    "remote": "Remote Access"
+  },
+  "toolVersions": {
+    "title": "Tool Versions",
+    "checkNow": "Check now",
+    "checkVersionsNowAria": "Check versions now",
+    "enableSync": "Enable automatic sync",
+    "disableSync": "Disable automatic sync",
+    "toggleSyncAria": "Toggle automatic version sync",
+    "hostBridgeError": "Failed to reach the host bridge — is forgehub-chat-bridge running?",
+    "loading": "Loading...",
+    "error": "Error",
+    "unknown": "Unknown",
+    "updateAvailable": "Update available",
+    "upToDate": "Up to date",
+    "checkFailed": "Check failed",
+    "notChecked": "Not checked",
+    "updateAria": "Update {{tool}}",
+    "update": "Update",
+    "details": "Details",
+    "closeDetails": "Close and clear details",
+    "closeDetailsAria": "Close and clear {{tool}} details"
+  },
+  "systemStats": {
+    "loading": "Loading...",
+    "hostBridgeError": "Failed to reach the host bridge — is forgehub-chat-bridge running?",
+    "memory": "Memory",
+    "disk": "Disk",
+    "network": "Network"
+  },
+  "remoteAccess": {
+    "loading": "Loading...",
+    "description": "Creates a temporary public link (Cloudflare Tunnel) to access the whole ForgeHub app from anywhere. Still requires login — anyone with the link lands on the sign-in screen, not straight into the app.",
+    "copyLink": "Copy link",
+    "scanQrCode": "Scan the QR code with your phone's camera to open the link.",
+    "turnOn": "Turn on remote access",
+    "turnOff": "Turn off remote access"
+  },
+  "crons": {
+    "title": "Crons",
+    "workingCount": "{{working}}/{{total}} working",
+    "refresh": "Refresh",
+    "refreshAria": "Refresh cron list",
+    "openCrons": "Open Crons",
+    "openCronsAria": "Open the Crons page",
+    "loading": "Loading...",
+    "loadError": "Failed to load the cron jobs.",
+    "corruptedStore": "Corrupted cron store ({{profiles}}) — those jobs are not running. See the Crons page.",
+    "empty": "No cron jobs registered.",
+    "health": {
+      "working": "Working",
+      "error": "Error",
+      "notRunning": "Not running",
+      "neverRan": "Never ran",
+      "off": "Off"
+    }
+  },
+  "projectsForgeRouter": {
+    "title": "Projects",
+    "description": "ForgeRouter is configured per project inside each project's directory.",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "loadingProjects": "Loading projects...",
+    "noProjects": "No projects registered yet.",
+    "noWorkingDir": "No working directory set",
+    "setWorkingDirFirst": "Set working_directory_path on the project first",
+    "toolConfigured": "{{tool}}: configured — click to disable",
+    "toolNotConfigured": "{{tool}}: not configured — click to enable",
+    "active": "Active",
+    "off": "Off",
+    "disableAll": "Disable all",
+    "apiKeyPrompt": "Enter the ForgeRouter API key for {{tool}} on this project (leave blank if ForgeRouter has no auth). Each tool keeps its own key.",
+    "apiKeyPlaceholder": "API key (optional)",
+    "enable": "Enable",
+    "cancel": "Cancel",
+    "lastConfigured": "Last configured: {{timestamp}}",
+    "globalConfigsDetected": "{{count}} global ForgeRouter config(s) detected — these should be per-project.",
+    "hide": "Hide",
+    "details": "Details",
+    "reAudit": "Re-audit",
+    "legend": "Click a CLI icon to enable/disable ForgeRouter for it individually: Claude (.claude/settings.local.json), Codex (.codex/forgerouter.env, activated via launcher -c overrides since Codex ignores model_provider from project config). Antigravity requires manual env sourcing (.forgerouter/antigravity.env)."
+  }
+}

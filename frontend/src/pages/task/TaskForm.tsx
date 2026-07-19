@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -36,9 +37,11 @@ export function TaskForm({
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Create task",
+  submitLabel,
   projectId,
 }: TaskFormProps) {
+  const { t } = useTranslation("task");
+  const resolvedSubmitLabel = submitLabel ?? t("form.submit");
   const {
     register,
     handleSubmit,
@@ -74,16 +77,16 @@ export function TaskForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="title">Title</Label>
-        <Input id="title" placeholder="Implement task assignment endpoint" {...register("title")} />
+        <Label htmlFor="title">{t("form.titleLabel")}</Label>
+        <Input id="title" placeholder={t("form.titlePlaceholder")} {...register("title")} />
         {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="description">Description</Label>
+        <Label htmlFor="description">{t("form.descriptionLabel")}</Label>
         <Textarea
           id="description"
-          placeholder="What does this task involve, and what does done look like?"
+          placeholder={t("form.descriptionPlaceholder")}
           {...register("description")}
         />
         {errors.description && (
@@ -93,7 +96,7 @@ export function TaskForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="project_filter">Project</Label>
+          <Label htmlFor="project_filter">{t("form.projectLabel")}</Label>
           <Select
             id="project_filter"
             disabled={isLoadingProjects}
@@ -101,7 +104,7 @@ export function TaskForm({
             onChange={(e) => setProjectFilter(e.target.value)}
           >
             <option value="">
-              {isLoadingProjects ? "Loading projects…" : "All projects"}
+              {isLoadingProjects ? t("form.loadingProjects") : t("form.allProjects")}
             </option>
             {projects?.map((p) => (
               <option key={p.id} value={p.id}>
@@ -109,21 +112,18 @@ export function TaskForm({
               </option>
             ))}
           </Select>
-          <p className="text-xs text-muted-foreground">
-            Filters the Planning item / Change request choices below -- a task isn't stored against a
-            project directly, only through one of those two.
-          </p>
+          <p className="text-xs text-muted-foreground">{t("form.projectHint")}</p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="planning_item_id">Planning item</Label>
+          <Label htmlFor="planning_item_id">{t("form.planningItemLabel")}</Label>
           <Select
             id="planning_item_id"
             disabled={isLoadingPlanningItems}
             {...register("planning_item_id")}
           >
             <option value="">
-              {isLoadingPlanningItems ? "Loading…" : "Select a planning item (optional)"}
+              {isLoadingPlanningItems ? t("form.loadingGeneric") : t("form.selectPlanningItem")}
             </option>
             {planningItems?.map((item) => (
               <option key={item.id} value={item.id}>
@@ -138,14 +138,14 @@ export function TaskForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="change_request_id">Change request (source)</Label>
+        <Label htmlFor="change_request_id">{t("form.changeRequestLabel")}</Label>
         <Select
           id="change_request_id"
           disabled={isLoadingCRs}
           {...register("change_request_id")}
         >
           <option value="">
-            {isLoadingCRs ? "Loading…" : "Select a change request (optional)"}
+            {isLoadingCRs ? t("form.loadingGeneric") : t("form.selectChangeRequest")}
           </option>
           {changeRequests?.map((cr) => (
             <option key={cr.id} value={cr.id}>
@@ -160,14 +160,14 @@ export function TaskForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="parent_task_id">Parent task (subtask of)</Label>
+          <Label htmlFor="parent_task_id">{t("form.parentTaskLabel")}</Label>
           <Select id="parent_task_id" disabled={isLoadingTasks} {...register("parent_task_id")}>
             <option value="">
-              {isLoadingTasks ? "Loading tasks…" : "No parent (top-level task)"}
+              {isLoadingTasks ? t("form.loadingTasks") : t("form.noParentTask")}
             </option>
-            {allTasks?.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.title}
+            {allTasks?.map((task) => (
+              <option key={task.id} value={task.id}>
+                {task.title}
               </option>
             ))}
           </Select>
@@ -177,7 +177,7 @@ export function TaskForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="planned_end_date">Due date</Label>
+          <Label htmlFor="planned_end_date">{t("form.dueDateLabel")}</Label>
           <Input id="planned_end_date" type="date" {...register("planned_end_date")} />
           {errors.planned_end_date && (
             <p className="text-sm text-destructive">{errors.planned_end_date.message}</p>
@@ -187,11 +187,11 @@ export function TaskForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="status">Status</Label>
+          <Label htmlFor="status">{t("form.statusLabel")}</Label>
           <Select id="status" {...register("status")}>
             {TASK_STATUSES.filter((status) => status !== "ready").map((status) => (
               <option key={status} value={status}>
-                {status.replace("_", " ")}
+                {t(`enums.taskStatus.${status}`, status.replace("_", " "))}
               </option>
             ))}
           </Select>
@@ -199,11 +199,11 @@ export function TaskForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="priority">Priority</Label>
+          <Label htmlFor="priority">{t("form.priorityLabel")}</Label>
           <Select id="priority" {...register("priority")}>
             {TASK_PRIORITIES.map((priority) => (
               <option key={priority} value={priority}>
-                {priority}
+                {t(`enums.taskPriority.${priority}`, priority)}
               </option>
             ))}
           </Select>
@@ -212,9 +212,9 @@ export function TaskForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="policy_id">Governance policy (optional)</Label>
+        <Label htmlFor="policy_id">{t("form.policyLabel")}</Label>
         <Select id="policy_id" {...register("policy_id")}>
-          <option value="">No policy linked</option>
+          <option value="">{t("form.noPolicy")}</option>
           {(policies ?? []).map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -229,12 +229,12 @@ export function TaskForm({
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-            Cancel
+            {t("form.cancel")}
           </Button>
         )}
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {submitLabel}
+          {resolvedSubmitLabel}
         </Button>
       </div>
     </form>

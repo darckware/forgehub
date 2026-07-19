@@ -1,0 +1,55 @@
+{
+  "page": {
+    "title": "System Map",
+    "description": "Trace the system from business intent through screens, rules, code, data, deployment and evidence."
+  },
+  "productSelect": {
+    "label": "Product",
+    "placeholder": "Select a product"
+  },
+  "addElement": {
+    "title": "Add system element",
+    "fields": {
+      "stableKey": "Stable key",
+      "name": "Name",
+      "layer": "Layer",
+      "type": "Type"
+    },
+    "stableKeyPlaceholder": "screen.login",
+    "button": "Add"
+  },
+  "connectElements": {
+    "title": "Connect elements",
+    "from": "From",
+    "relationType": "Relation type",
+    "to": "To",
+    "button": "Connect"
+  },
+  "scopeGraph": {
+    "title": "Scope graph",
+    "description": "Drag a layer chip onto the canvas to add an element, drag between elements to connect them.",
+    "validateButton": "Validate",
+    "validating": "Validating…",
+    "valid": "Map is structurally valid",
+    "invalid": "Map has blocking issues",
+    "empty": "Drag a layer chip from the toolbar to add the first element."
+  },
+  "canvas": {
+    "paletteHint": "Drag a layer onto the map:",
+    "readOnlyHint": "This revision isn't a draft -- the map is read-only.",
+    "assistantHelp": "Ask the assistant",
+    "copyPasteHint": "Select an element and press Ctrl+C/Ctrl+V to duplicate it, or paste (Ctrl+V) a flow the assistant wrote out to create it all at once. Double-click an element to edit or delete it.",
+    "pasteSuccess": "Created {{elements}} element(s) and {{relations}} relation(s).",
+    "pasteInvalid": "Nothing valid found in the pasted text.",
+    "editTitle": "Edit element",
+    "save": "Save",
+    "removeElement": "Remove element",
+    "autoArrange": "Auto-arrange"
+  },
+  "detailCards": {
+    "map": "Map",
+    "revision": "Revision",
+    "coverage": "Coverage",
+    "newRevision": "New revision"
+  }
+}

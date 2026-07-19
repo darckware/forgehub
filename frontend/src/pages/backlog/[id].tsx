@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   Bug,
@@ -16,6 +17,7 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EntityDocsCard } from "@/components/EntityDocsCard";
 
 export default function PlanningItemDetailPage() {
+  const { t } = useTranslation("backlog");
   const { id } = useParams<{ id: string }>();
   const { data: item, isLoading, isError, error } = usePlanningItem(id);
 
@@ -23,7 +25,7 @@ export default function PlanningItemDetailPage() {
     <div className="space-y-6">
       <Breadcrumb
         items={[
-          { label: "Planning", href: "/backlog" },
+          { label: t("detail.breadcrumbPlanning"), href: "/backlog" },
           { label: item?.title ?? "…" },
         ]}
       />
@@ -31,7 +33,7 @@ export default function PlanningItemDetailPage() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading planning item…
+          {t("detail.loading")}
         </div>
       )}
 
@@ -39,7 +41,7 @@ export default function PlanningItemDetailPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load planning item: {(error as Error)?.message}</span>
+            <span>{t("detail.loadError", { error: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -55,10 +57,14 @@ export default function PlanningItemDetailPage() {
             </div>
             <div className="flex flex-col items-end gap-2">
               <Badge variant="outline" className="text-sm capitalize">
-                {item.item_type.replace("_", " ")}
+                {t(`enums.itemTypes.${item.item_type}`, {
+                  defaultValue: item.item_type.replace("_", " "),
+                })}
               </Badge>
               <Badge variant="outline" className="text-sm capitalize">
-                {item.status.replace("_", " ")}
+                {t(`enums.statuses.${item.status}`, {
+                  defaultValue: item.status.replace("_", " "),
+                })}
               </Badge>
             </div>
           </div>
@@ -69,7 +75,7 @@ export default function PlanningItemDetailPage() {
                 <FolderOpen className="h-5 w-5 shrink-0 text-primary" />
                 <div className="min-w-0">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Output path
+                    {t("detail.outputPathLabel")}
                   </p>
                   <p className="truncate font-mono text-sm">{item.output_path}</p>
                 </div>
@@ -83,29 +89,29 @@ export default function PlanningItemDetailPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-xl">
                     <Lightbulb className="h-5 w-5" />
-                    Feature request
+                    {t("detail.featureRequest.title")}
                   </CardTitle>
-                  <CardDescription>Acceptance criteria and business rationale.</CardDescription>
+                  <CardDescription>{t("detail.featureRequest.description")}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <dl className="space-y-3 text-sm">
                     {item.feature_request.acceptance_criteria && (
                       <div>
                         <dt className="font-medium text-muted-foreground">
-                          Acceptance criteria
+                          {t("detail.featureRequest.acceptanceCriteria")}
                         </dt>
                         <dd>{item.feature_request.acceptance_criteria}</dd>
                       </div>
                     )}
                     {item.feature_request.business_value && (
                       <div>
-                        <dt className="font-medium text-muted-foreground">Business value</dt>
+                        <dt className="font-medium text-muted-foreground">{t("detail.featureRequest.businessValue")}</dt>
                         <dd>{item.feature_request.business_value}</dd>
                       </div>
                     )}
                     {item.feature_request.requested_by && (
                       <div>
-                        <dt className="font-medium text-muted-foreground">Requested by</dt>
+                        <dt className="font-medium text-muted-foreground">{t("detail.featureRequest.requestedBy")}</dt>
                         <dd>{item.feature_request.requested_by}</dd>
                       </div>
                     )}
@@ -119,46 +125,48 @@ export default function PlanningItemDetailPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-xl">
                     <Bug className="h-5 w-5" />
-                    Bug report
+                    {t("detail.bugReport.title")}
                   </CardTitle>
-                  <CardDescription>Severity, environment, and reproduction.</CardDescription>
+                  <CardDescription>{t("detail.bugReport.description")}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <dl className="space-y-3 text-sm">
                     {item.bug_report.severity && (
                       <div className="flex items-center gap-2">
-                        <dt className="font-medium text-muted-foreground">Severity</dt>
+                        <dt className="font-medium text-muted-foreground">{t("detail.bugReport.severity")}</dt>
                         <dd>
                           <Badge variant="destructive" className="capitalize">
-                            {item.bug_report.severity}
+                            {t(`enums.severities.${item.bug_report.severity}`, {
+                              defaultValue: item.bug_report.severity,
+                            })}
                           </Badge>
                         </dd>
                       </div>
                     )}
                     {item.bug_report.environment && (
                       <div>
-                        <dt className="font-medium text-muted-foreground">Environment</dt>
+                        <dt className="font-medium text-muted-foreground">{t("detail.bugReport.environment")}</dt>
                         <dd>{item.bug_report.environment}</dd>
                       </div>
                     )}
                     {item.bug_report.detected_in_version && (
                       <div>
                         <dt className="font-medium text-muted-foreground">
-                          Detected in version
+                          {t("detail.bugReport.detectedInVersion")}
                         </dt>
                         <dd>{item.bug_report.detected_in_version}</dd>
                       </div>
                     )}
                     {item.bug_report.fixed_in_version && (
                       <div>
-                        <dt className="font-medium text-muted-foreground">Fixed in version</dt>
+                        <dt className="font-medium text-muted-foreground">{t("detail.bugReport.fixedInVersion")}</dt>
                         <dd>{item.bug_report.fixed_in_version}</dd>
                       </div>
                     )}
                     {item.bug_report.steps_to_reproduce && (
                       <div>
                         <dt className="font-medium text-muted-foreground">
-                          Steps to reproduce
+                          {t("detail.bugReport.stepsToReproduce")}
                         </dt>
                         <dd className="whitespace-pre-wrap">
                           {item.bug_report.steps_to_reproduce}
@@ -173,15 +181,18 @@ export default function PlanningItemDetailPage() {
             {!item.feature_request && !item.bug_report && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl">Details</CardTitle>
+                  <CardTitle className="text-xl">{t("detail.noSpecialization.title")}</CardTitle>
                   <CardDescription>
-                    No feature or bug specialization recorded for this item yet.
+                    {t("detail.noSpecialization.description")}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground">
-                    Planning items of type "{item.item_type.replace("_", " ")}" carry no nested
-                    specialization in this view.
+                    {t("detail.noSpecialization.body", {
+                      type: t(`enums.itemTypes.${item.item_type}`, {
+                        defaultValue: item.item_type.replace("_", " "),
+                      }),
+                    })}
                   </p>
                 </CardContent>
               </Card>
@@ -191,9 +202,9 @@ export default function PlanningItemDetailPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-xl">
                   <Layers className="h-5 w-5" />
-                  Version scope
+                  {t("detail.versionScope.title")}
                 </CardTitle>
-                <CardDescription>Product versions this item is scoped into.</CardDescription>
+                <CardDescription>{t("detail.versionScope.description")}</CardDescription>
               </CardHeader>
               <CardContent>
                 {item.version_scope_items && item.version_scope_items.length > 0 ? (
@@ -202,14 +213,14 @@ export default function PlanningItemDetailPage() {
                       <li key={scope.id} className="flex items-center justify-between gap-2">
                         <span>{scope.product_version_id}</span>
                         <Badge variant={scope.removed_at ? "destructive" : "success"}>
-                          {scope.removed_at ? "removed" : "in scope"}
+                          {scope.removed_at ? t("detail.versionScope.removed") : t("detail.versionScope.inScope")}
                         </Badge>
                       </li>
                     ))}
                   </ul>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    This item has not been scoped into a product version yet.
+                    {t("detail.versionScope.empty")}
                   </p>
                 )}
               </CardContent>
@@ -220,10 +231,10 @@ export default function PlanningItemDetailPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl">
                 <Gavel className="h-5 w-5" />
-                Triage decisions
+                {t("detail.triageDecisions.title")}
               </CardTitle>
               <CardDescription>
-                Outcomes recorded while triaging this item into (or out of) scope.
+                {t("detail.triageDecisions.description")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -244,7 +255,7 @@ export default function PlanningItemDetailPage() {
                       )}
                       {decision.decided_by && (
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Decided by {decision.decided_by}
+                          {t("detail.triageDecisions.decidedBy", { name: decision.decided_by })}
                         </p>
                       )}
                     </li>
@@ -252,7 +263,7 @@ export default function PlanningItemDetailPage() {
                 </ul>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No triage decisions have been recorded for this item yet.
+                  {t("detail.triageDecisions.empty")}
                 </p>
               )}
             </CardContent>
@@ -262,7 +273,7 @@ export default function PlanningItemDetailPage() {
 
           <div>
             <Link to="/backlog" className={buttonVariants({ variant: "outline" })}>
-              Back to list
+              {t("detail.backToList")}
             </Link>
           </div>
         </>

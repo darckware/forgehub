@@ -28,9 +28,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Read-write: backs the Obsidian vault browser/editor
-      # (api/routes/vault.py). Writes go straight to the same files the
-      # desktop Obsidian app reads -- see that router's docstring.
+      # Read-write: backs ForgeHub's collective Knowledge Base interface
+      # (api/routes/vault.py), including per-agent inboxes and shared review.
+      # Obsidian may edit the same host Markdown as a complementary client.
       - /root/.hermes/knowledge_base:/vault
       - /root/.hermes/profiles:/profiles
       - /root/.hermes/foundation/governance:/governance:ro
@@ -101,9 +101,10 @@ services:
       HINDSIGHT_API_PORT: "8888"
       HINDSIGHT_API_LLM_PROVIDER: openai
       HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY}
-      HINDSIGHT_API_LLM_BASE_URL: http://host.docker.internal:2100/v1
+      HINDSIGHT_API_LLM_BASE_URL: http://forgerouter:2100/v1
       HINDSIGHT_API_LLM_MODEL: forgerouter/auto
       HINDSIGHT_API_LOG_LEVEL: info
+      HINDSIGHT_API_WORKER_ID: hindsight
       HINDSIGHT_WAIT_FOR_DEPS: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"

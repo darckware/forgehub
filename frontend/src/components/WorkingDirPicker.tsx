@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ArrowUp, Check, Folder, FolderOpen, Loader2, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ export function WorkingDirPicker({
   workingDir: string | undefined;
   onSelect: (path: string | undefined) => void;
 }) {
+  const { t } = useTranslation("workspace");
   const [open, setOpen] = useState(false);
   const [browsePath, setBrowsePath] = useState<string | undefined>(undefined);
   const [search, setSearch] = useState("");
@@ -55,18 +57,18 @@ export function WorkingDirPicker({
         <button
           type="button"
           className="flex items-center gap-1.5 hover:text-foreground"
-          title={workingDir ? `Working directory: ${workingDir}` : "Select working directory"}
-          aria-label="Select working directory"
+          title={workingDir ? t("workingDirPicker.workingDirectory", { path: workingDir }) : t("workingDirPicker.selectWorkingDirectory")}
+          aria-label={t("workingDirPicker.selectWorkingDirectory")}
           onClick={() => setOpen((v) => !v)}
         >
           {workingDir ? <FolderOpen className="h-3.5 w-3.5 shrink-0" /> : <Folder className="h-3.5 w-3.5 shrink-0" />}
-          <span className="max-w-[8rem] truncate">{workingDir ? basename(workingDir) : "Folder"}</span>
+          <span className="max-w-[8rem] truncate">{workingDir ? basename(workingDir) : t("workingDirPicker.folder")}</span>
         </button>
         {workingDir && (
           <button
             type="button"
-            aria-label="Clear working directory"
-            title="Clear working directory"
+            aria-label={t("workingDirPicker.clearWorkingDirectory")}
+            title={t("workingDirPicker.clearWorkingDirectory")}
             className="text-muted-foreground hover:text-foreground"
             onClick={() => onSelect(undefined)}
           >
@@ -81,8 +83,8 @@ export function WorkingDirPicker({
               variant="ghost"
               size="icon"
               className="h-6 w-6 shrink-0"
-              title="Go up one level"
-              aria-label="Go up one level"
+              title={t("workingDirPicker.goUpOneLevel")}
+              aria-label={t("workingDirPicker.goUpOneLevel")}
               disabled={!data?.parent}
               onClick={() => data?.parent && setBrowsePath(data.parent)}
             >
@@ -98,7 +100,7 @@ export function WorkingDirPicker({
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search folder…"
+                  placeholder={t("workingDirPicker.searchFolder")}
                   className="h-8 w-full rounded-md border border-border bg-transparent pl-7 pr-2 text-xs outline-none focus:border-primary"
                 />
               </div>
@@ -109,10 +111,10 @@ export function WorkingDirPicker({
             {isLoading && (
               <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Loading…
+                {t("workingDirPicker.loading")}
               </div>
             )}
-            {isError && <p className="p-3 text-xs text-destructive">Failed to list directory.</p>}
+            {isError && <p className="p-3 text-xs text-destructive">{t("workingDirPicker.failedToListDirectory")}</p>}
             {filteredEntries?.map((entry) => (
               <button
                 key={entry.path}
@@ -125,10 +127,10 @@ export function WorkingDirPicker({
               </button>
             ))}
             {data && data.entries.length === 0 && (
-              <p className="p-3 text-xs italic text-muted-foreground">No subfolders here.</p>
+              <p className="p-3 text-xs italic text-muted-foreground">{t("workingDirPicker.noSubfolders")}</p>
             )}
             {data && data.entries.length > 0 && filteredEntries?.length === 0 && (
-              <p className="p-3 text-xs italic text-muted-foreground">No folder found.</p>
+              <p className="p-3 text-xs italic text-muted-foreground">{t("workingDirPicker.noFolderFound")}</p>
             )}
           </div>
 
@@ -143,7 +145,7 @@ export function WorkingDirPicker({
               }}
             >
               <Check className="mr-2 h-3.5 w-3.5" />
-              Use this folder
+              {t("workingDirPicker.useThisFolder")}
             </Button>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Eye,
   Loader2,
@@ -53,6 +54,7 @@ import {
 } from "@/hooks/useFoundationScriptRegistry";
 
 function DocumentationCard() {
+  const { t } = useTranslation("foundation");
   const { data: tree, isLoading: treeLoading, isError: treeError } = useFoundationTree();
   const [docSearch, setDocSearch] = useState("");
   const filteredTree = useMemo(() => {
@@ -94,7 +96,7 @@ function DocumentationCard() {
 
   function handleDelete() {
     if (!selectedPath) return;
-    if (!window.confirm(`Delete "${selectedPath}"? This removes the document file permanently.`)) return;
+    if (!window.confirm(t("docs.confirmDelete", { path: selectedPath }))) return;
     deleteDoc.mutate(selectedPath, {
       onSuccess: () => setSelectedPath(undefined),
     });
@@ -102,10 +104,10 @@ function DocumentationCard() {
 
   return (
     <DocumentBrowser
-      title="Documentation"
+      title={t("docs.title")}
       searchValue={docSearch}
       onSearchChange={setDocSearch}
-      searchPlaceholder="Search docs by name or path…"
+      searchPlaceholder={t("docs.searchPlaceholder")}
       viewMode={viewMode}
       onViewModeChange={setViewMode}
       mindMapDisabled={!selectedPath}
@@ -114,7 +116,7 @@ function DocumentationCard() {
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleStartEdit} disabled={!doc}>
               <Pencil className="mr-2 h-3.5 w-3.5" />
-              Edit
+              {t("docs.edit")}
             </Button>
             <Button
               variant="outline"
@@ -128,14 +130,14 @@ function DocumentationCard() {
               ) : (
                 <Trash2 className="mr-2 h-3.5 w-3.5" />
               )}
-              Delete
+              {t("docs.delete")}
             </Button>
           </div>
         ) : (
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={updateDoc.isPending}>
               <X className="mr-2 h-3.5 w-3.5" />
-              Cancel
+              {t("docs.cancel")}
             </Button>
             <Button size="sm" onClick={handleSave} disabled={updateDoc.isPending}>
               {updateDoc.isPending ? (
@@ -143,7 +145,7 @@ function DocumentationCard() {
               ) : (
                 <Save className="mr-2 h-3.5 w-3.5" />
               )}
-              Save
+              {t("docs.save")}
             </Button>
           </div>
         )
@@ -153,10 +155,10 @@ function DocumentationCard() {
           {treeLoading && (
             <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading Foundation…
+              {t("docs.loadingFoundation")}
             </div>
           )}
-          {treeError && <p className="p-2 text-sm text-destructive">Failed to load Foundation docs.</p>}
+          {treeError && <p className="p-2 text-sm text-destructive">{t("docs.failedToLoad")}</p>}
           {filteredTree && (
             <DocTree
               nodes={filteredTree}
@@ -178,10 +180,10 @@ function DocumentationCard() {
             />
           )}
           {tree && tree.length === 0 && (
-            <p className="p-2 text-sm italic text-muted-foreground">No markdown docs found.</p>
+            <p className="p-2 text-sm italic text-muted-foreground">{t("docs.noMarkdownDocs")}</p>
           )}
           {tree && tree.length > 0 && filteredTree && filteredTree.length === 0 && (
-            <p className="p-2 text-sm italic text-muted-foreground">No docs match this search.</p>
+            <p className="p-2 text-sm italic text-muted-foreground">{t("docs.noDocsMatchSearch")}</p>
           )}
         </>
       }
@@ -189,19 +191,19 @@ function DocumentationCard() {
       {viewMode === "note" && (
         <div className="flex-1 overflow-y-auto p-4">
           {!selectedPath && (
-            <p className="text-sm italic text-muted-foreground">Select a document to read the Hermes rules.</p>
+            <p className="text-sm italic text-muted-foreground">{t("docs.selectDocument")}</p>
           )}
           {selectedPath && docLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading document…
+              {t("docs.loadingDocument")}
             </div>
           )}
           {updateDoc.isError && (
-            <p className="mb-3 text-sm text-destructive">Failed to save: {(updateDoc.error as Error)?.message}</p>
+            <p className="mb-3 text-sm text-destructive">{t("docs.failedToSave", { message: (updateDoc.error as Error)?.message })}</p>
           )}
           {deleteDoc.isError && (
-            <p className="mb-3 text-sm text-destructive">Failed to delete: {(deleteDoc.error as Error)?.message}</p>
+            <p className="mb-3 text-sm text-destructive">{t("docs.failedToDelete", { message: (deleteDoc.error as Error)?.message })}</p>
           )}
           {doc && isEditing && (
             <Textarea
@@ -219,7 +221,7 @@ function DocumentationCard() {
           {graphLoading && (
             <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Building graph…
+              {t("docs.buildingGraph")}
             </div>
           )}
           {graph && <GraphView graph={graph} onSelectNode={handleSelectFromGraph} />}
@@ -228,7 +230,7 @@ function DocumentationCard() {
 
       {viewMode === "mindmap" && (
         <div className="flex-1 overflow-hidden">
-          {!doc && <p className="p-6 text-sm italic text-muted-foreground">Select a document first.</p>}
+          {!doc && <p className="p-6 text-sm italic text-muted-foreground">{t("docs.selectDocumentFirst")}</p>}
           {doc && <MindMapView markdown={doc.content} />}
         </div>
       )}
@@ -248,6 +250,7 @@ function ScriptFormModal({
   initial: FoundationScript | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("foundation");
   const createScript = useCreateFoundationScript();
   const updateScript = useUpdateFoundationScript();
   const [error, setError] = useState<string | null>(null);
@@ -266,12 +269,12 @@ function ScriptFormModal({
   function handleSave() {
     setError(null);
     if (!initial && !draft.name.trim()) {
-      setError("Enter a script filename, e.g. telegram_audio_transcriber.py");
+      setError(t("scriptForm.enterFilename"));
       return;
     }
     const opts = {
       onSuccess: onClose,
-      onError: (e: Error) => setError(e.message || "Could not save."),
+      onError: (e: Error) => setError(e.message || t("scriptForm.couldNotSave")),
     };
     if (initial) {
       updateScript.mutate(
@@ -302,14 +305,14 @@ function ScriptFormModal({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold">{initial ? "Edit script" : "Add script"}</h2>
+          <h2 className="text-base font-semibold">{initial ? t("scriptForm.editScript") : t("scriptForm.addScript")}</h2>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="space-y-4">
           <div className="space-y-1">
-            <Label>Script name</Label>
+            <Label>{t("scriptForm.scriptName")}</Label>
             <Input
               value={draft.name}
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
@@ -320,7 +323,7 @@ function ScriptFormModal({
             />
           </div>
           <div className="space-y-1">
-            <Label>Path</Label>
+            <Label>{t("scriptForm.path")}</Label>
             <Input
               value={draft.path}
               onChange={(e) => setDraft((d) => ({ ...d, path: e.target.value }))}
@@ -329,7 +332,7 @@ function ScriptFormModal({
             />
           </div>
           <div className="space-y-1">
-            <Label>Doc reference</Label>
+            <Label>{t("scriptForm.docReference")}</Label>
             <Input
               value={draft.doc_path}
               onChange={(e) => setDraft((d) => ({ ...d, doc_path: e.target.value }))}
@@ -338,7 +341,7 @@ function ScriptFormModal({
             />
           </div>
           <div className="space-y-1">
-            <Label>What it does</Label>
+            <Label>{t("scriptForm.whatItDoes")}</Label>
             <Textarea
               value={draft.description}
               onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
@@ -348,11 +351,11 @@ function ScriptFormModal({
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>
-              Cancel
+              {t("scriptForm.cancel")}
             </Button>
             <Button onClick={handleSave} disabled={pending}>
               {pending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              {initial ? "Save" : "Add"}
+              {initial ? t("scriptForm.save") : t("scriptForm.add")}
             </Button>
           </div>
         </div>
@@ -366,6 +369,7 @@ function ScriptFormModal({
  * view-only here: editing a script's source is Agent Tools/Crons' job, not
  * this registry's). */
 function ScriptFileModal({ script, onClose }: { script: FoundationScript; onClose: () => void }) {
+  const { t } = useTranslation("foundation");
   const { data, isLoading, isError, error } = useFoundationScriptContent(script.id);
 
   return (
@@ -387,10 +391,10 @@ function ScriptFileModal({ script, onClose }: { script: FoundationScript; onClos
         <div className="min-h-[300px] flex-1 overflow-auto p-4">
           {isLoading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading file...
+              <Loader2 className="h-4 w-4 animate-spin" /> {t("scriptFile.loadingFile")}
             </div>
           ) : isError ? (
-            <p className="text-sm text-destructive">{(error as Error)?.message ?? "Could not read file."}</p>
+            <p className="text-sm text-destructive">{(error as Error)?.message ?? t("scriptFile.couldNotReadFile")}</p>
           ) : (
             <pre className="whitespace-pre-wrap break-all font-mono text-xs text-foreground/90">
               {data?.content}
@@ -403,6 +407,7 @@ function ScriptFileModal({ script, onClose }: { script: FoundationScript; onClos
 }
 
 function ScriptsCard() {
+  const { t } = useTranslation("foundation");
   const { data: scripts = [], isLoading, isError, error } = useFoundationScriptRegistry();
   const deleteScript = useDeleteFoundationScript();
   const sync = useSyncFoundationScripts();
@@ -427,34 +432,35 @@ function ScriptsCard() {
       <CardContent className="space-y-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-base font-semibold">
-            Scripts
-            <span className="text-sm font-normal text-muted-foreground">{scripts.length} registered</span>
+            {t("scriptsCard.title")}
+            <span className="text-sm font-normal text-muted-foreground">{t("scriptsCard.registeredCount", { count: scripts.length })}</span>
           </h2>
           <div className="flex flex-wrap items-center gap-1.5">
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => sync.mutate()} disabled={sync.isPending}>
               {sync.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Sync
+              {t("scriptsCard.sync")}
             </Button>
             <Button size="sm" className="gap-1.5" onClick={() => setFormScript("new")}>
               <Plus className="h-4 w-4" />
-              Add script
+              {t("scriptsCard.addScript")}
             </Button>
           </div>
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Scripts that implement something the Foundation docs describe (e.g. a Telegram voice-message transcriber
-          named in an integrations doc). "Sync" scans every Foundation doc for script filenames and registers new
-          ones it finds; add or remove rows by hand at any time.
+          {t("scriptsCard.description")}
         </p>
 
         {sync.isSuccess && (
           <p className="text-xs text-muted-foreground">
-            Scanned {sync.data.scanned_docs} doc(s): added {sync.data.added} new script(s),{" "}
-            {sync.data.already_registered} already registered.
+            {t("scriptsCard.syncResult", {
+              scannedDocs: sync.data.scanned_docs,
+              added: sync.data.added,
+              alreadyRegistered: sync.data.already_registered,
+            })}
           </p>
         )}
-        {sync.isError && <p className="text-xs text-destructive">Sync failed: {(sync.error as Error)?.message}</p>}
+        {sync.isError && <p className="text-xs text-destructive">{t("scriptsCard.syncFailed", { message: (sync.error as Error)?.message })}</p>}
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -462,14 +468,14 @@ function ScriptsCard() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, description, doc or path…"
+              placeholder={t("scriptsCard.searchPlaceholder")}
               className="w-72 pl-8"
             />
           </div>
           <Select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="w-48">
-            <option value="">All sources</option>
-            <option value="manual">Manual</option>
-            <option value="sync">Sync</option>
+            <option value="">{t("scriptsCard.allSources")}</option>
+            <option value="manual">{t("scriptsCard.manual")}</option>
+            <option value="sync">{t("scriptsCard.syncSource")}</option>
           </Select>
         </div>
 
@@ -477,10 +483,10 @@ function ScriptsCard() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Script</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Path</TableHead>
-                <TableHead className="w-32 text-right">Actions</TableHead>
+                <TableHead>{t("scriptsCard.tableScript")}</TableHead>
+                <TableHead>{t("scriptsCard.tableSource")}</TableHead>
+                <TableHead>{t("scriptsCard.tablePath")}</TableHead>
+                <TableHead className="w-32 text-right">{t("scriptsCard.tableActions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -498,7 +504,7 @@ function ScriptsCard() {
                         className="max-w-sm truncate text-[11px] text-muted-foreground/70"
                         title={s.doc_path}
                       >
-                        doc: {s.doc_path}
+                        {t("scriptsCard.docPrefix")} {s.doc_path}
                       </p>
                     )}
                   </TableCell>
@@ -515,19 +521,19 @@ function ScriptsCard() {
                       <Button
                         size="icon"
                         variant="ghost"
-                        title="View file"
+                        title={t("scriptsCard.viewFile")}
                         disabled={!s.path}
                         onClick={() => setFileScript(s)}
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" title="Edit registration" onClick={() => setFormScript(s)}>
+                      <Button size="icon" variant="ghost" title={t("scriptsCard.editRegistration")} onClick={() => setFormScript(s)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
                         size="icon"
                         variant="ghost"
-                        title="Remove from registry"
+                        title={t("scriptsCard.removeFromRegistry")}
                         className="text-destructive"
                         onClick={() => setDeleting(s)}
                       >
@@ -541,12 +547,12 @@ function ScriptsCard() {
                 <TableRow>
                   <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
                     {isLoading
-                      ? "Loading scripts…"
+                      ? t("scriptsCard.loadingScripts")
                       : isError
-                        ? `Failed to load: ${(error as Error)?.message}`
+                        ? t("scriptsCard.failedToLoad", { message: (error as Error)?.message })
                         : scripts.length === 0
-                          ? "No scripts registered yet -- add one or run Sync."
-                          : "No scripts match this search."}
+                          ? t("scriptsCard.noScriptsRegistered")
+                          : t("scriptsCard.noScriptsMatchSearch")}
                   </TableCell>
                 </TableRow>
               )}
@@ -563,9 +569,9 @@ function ScriptsCard() {
 
       <ConfirmDialog
         open={Boolean(deleting)}
-        title="Remove script"
-        description={`Remove "${deleting?.name ?? ""}" from the Foundation Scripts registry? This only removes the registry entry, not the script file itself.`}
-        confirmLabel="Remove"
+        title={t("scriptsCard.removeScriptTitle")}
+        description={t("scriptsCard.removeScriptDescription", { name: deleting?.name ?? "" })}
+        confirmLabel={t("scriptsCard.remove")}
         onCancel={() => setDeleting(null)}
         onConfirm={() => {
           if (!deleting) return;

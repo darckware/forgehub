@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Markdown } from "@/components/Markdown";
+import { useTranslation } from "react-i18next";
 import {
   newsKeys,
   useDeleteAllNewsReports,
@@ -95,6 +96,7 @@ function ReportViewerOverlay({
 }
 
 export default function NewsPage() {
+  const { t } = useTranslation("news");
   const { data: reports, isLoading, isError, error } = useNewsReports();
   const deleteReport = useDeleteNewsReport();
   const deleteAll = useDeleteAllNewsReports();
@@ -146,11 +148,10 @@ export default function NewsPage() {
         <div>
           <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <Newspaper className="h-7 w-7" />
-            News
+            {t("title")}
           </h1>
           <p className="text-muted-foreground">
-            AI news digests written by report-generating Hermes cron scripts (e.g.
-            `ai-news-noon`), one archive file per run.
+            {t("description")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -160,7 +161,7 @@ export default function NewsPage() {
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Sync
+            {t("syncButton")}
           </Button>
           <Button
             variant="destructive"
@@ -168,7 +169,7 @@ export default function NewsPage() {
             disabled={!reports || reports.length === 0}
           >
             <Trash2 className="mr-2 h-4 w-4" />
-            Delete all
+            {t("deleteAllButton")}
           </Button>
         </div>
       </div>
@@ -178,7 +179,7 @@ export default function NewsPage() {
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by title, profile, or content…"
+          placeholder={t("searchPlaceholder")}
           className="pl-8"
         />
       </div>
@@ -186,14 +187,14 @@ export default function NewsPage() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading news…
+          {t("loadingNews")}
         </div>
       )}
 
       {isError && (
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
-            <span>Failed to load news reports: {(error as Error)?.message}</span>
+            <span>{t("loadError")}: {(error as Error)?.message}</span>
           </CardContent>
         </Card>
       )}
@@ -203,11 +204,11 @@ export default function NewsPage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <Newspaper className="h-10 w-10 text-muted-foreground" />
             <div>
-              <p className="font-medium">No news found</p>
+              <p className="font-medium">{t("noNewsFound")}</p>
               <p className="text-sm text-muted-foreground">
                 {reports && reports.length > 0
-                  ? "No reports match your search."
-                  : "No report-generating cron has run yet."}
+                  ? t("noReportsMatchSearch")
+                  : t("noReportRuns")}
               </p>
             </div>
           </CardContent>
@@ -220,11 +221,11 @@ export default function NewsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Report</TableHead>
-                  <TableHead className="whitespace-nowrap">Profile</TableHead>
-                  <TableHead className="whitespace-nowrap">Date</TableHead>
-                  <TableHead className="whitespace-nowrap">Articles</TableHead>
-                  <TableHead className="whitespace-nowrap text-right">Actions</TableHead>
+                  <TableHead>{t("tableHeaders.report")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{t("tableHeaders.profile")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{t("tableHeaders.date")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{t("tableHeaders.articles")}</TableHead>
+                  <TableHead className="whitespace-nowrap text-right">{t("tableHeaders.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -279,9 +280,9 @@ export default function NewsPage() {
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Delete report"
-        description={pendingDelete ? `Delete "${pendingDelete.title}"? This cannot be undone.` : undefined}
-        confirmLabel="Delete"
+        title={t("deleteReportTitle")}
+        description={pendingDelete ? t("deleteReportDescription", { title: pendingDelete.title }) : undefined}
+        confirmLabel={t("deleteConfirmLabel")}
         loading={deleteReport.isPending}
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
@@ -289,9 +290,9 @@ export default function NewsPage() {
 
       <ConfirmDialog
         open={confirmDeleteAll}
-        title="Delete all news reports"
-        description="Delete every report across every profile? This cannot be undone."
-        confirmLabel="Delete all"
+        title={t("deleteAllTitle")}
+        description={t("deleteAllDescription")}
+        confirmLabel={t("deleteAllConfirmLabel")}
         loading={deleteAll.isPending}
         onConfirm={confirmDeleteAllReports}
         onCancel={() => setConfirmDeleteAll(false)}

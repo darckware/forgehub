@@ -1,0 +1,326 @@
+{
+  "statusHelpers": {
+    "healthy": "Healthy",
+    "unhealthy": "Unhealthy",
+    "starting": "Starting",
+    "running": "Running",
+    "stopped": "Stopped"
+  },
+  "logsModal": {
+    "title": "{{containerName}}",
+    "subtitle": "— last {{lines}} lines",
+    "linesOptions": {
+      "50": "50 lines",
+      "100": "100 lines",
+      "200": "200 lines",
+      "500": "500 lines",
+      "1000": "1000 lines"
+    },
+    "refresh": "Refresh",
+    "close": "Close",
+    "loading": "Loading logs...",
+    "noLogs": "No logs available."
+  },
+  "groupsModal": {
+    "title": "Groups",
+    "create": {
+      "inputPlaceholder": "New group name",
+      "button": "New group"
+    },
+    "actions": {
+      "rename": "Rename",
+      "delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "messages": {
+      "noGroups": "No groups created.",
+      "info": "Renaming a group updates its installations. Deleting a group leaves its installations ungrouped."
+    },
+    "confirm": {
+      "title": "Delete group",
+      "description": "Delete group \"{{name}}\"? Installations in this group will become ungrouped.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    },
+    "tableHeaders": {
+      "name": "Name",
+      "actions": "Actions"
+    }
+  },
+  "installationForm": {
+    "name": {
+      "label": "Name *",
+      "placeholder": "ForgeHub Backend"
+    },
+    "group": {
+      "label": "Group",
+      "none": "— no group —",
+      "buttonTitle": "Manage groups"
+    },
+    "description": {
+      "label": "Description",
+      "placeholder": "Brief service description"
+    },
+    "container": {
+      "label": "Docker Container",
+      "none": "— none —"
+    },
+    "order": {
+      "label": "Order"
+    },
+    "restartCommand": {
+      "label": "Restart command",
+      "placeholder": "docker restart container-name"
+    },
+    "composeFile": {
+      "label": "docker-compose.yml path",
+      "placeholder": "/root/project/forgehub/docker-compose.yml"
+    },
+    "product": {
+      "label": "ForgeHub Product (optional)",
+      "none": "— none —"
+    },
+    "ports": {
+      "label": "Exposed ports",
+      "inputPlaceholder": "8000:8000",
+      "button": "Add port"
+    },
+    "links": {
+      "label": "Links",
+      "inputs": {
+        "label": "Label",
+        "url": "http://localhost:8000"
+      },
+      "button": "Add link"
+    },
+    "notes": {
+      "label": "Notes",
+      "placeholder": "Notes, credentials, references..."
+    },
+    "containerDetails": {
+      "container": "Container",
+      "image": "Image",
+      "status": "Status",
+      "ports": "Ports",
+      "offline": "This container is not currently running in Docker.",
+      "volumes": "Volumes",
+      "folders": "Shared folders",
+      "networks": "Networks",
+      "none": "none"
+    }
+  },
+  "actions": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "register": "Register"
+  },
+  "installationCard": {
+    "actions": {
+      "edit": "Container registration (Docker data)",
+      "remove": "Remove",
+      "viewLogs": "View logs",
+      "restart": "Restart container",
+      "copyCommand": "Copy command",
+      "registerFromLive": "Register instance",
+      "openInstance": "Open instance"
+    },
+    "status": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "healthy": "Healthy",
+      "unhealthy": "Unhealthy",
+      "starting": "Starting",
+      "offline": "offline"
+    },
+    "details": {
+      "product": "Product:",
+      "container": "Container:",
+      "image": "Image:",
+      "volumes": "Volumes:",
+      "networks": "Networks:",
+      "ports": "Ports:",
+      "livePorts": "Ports (live):",
+      "links": "Links:",
+      "restart": "Restart:",
+      "compose": "Compose:"
+    }
+  },
+  "liveContainersTab": {
+    "header": "{{count}} container(s) on host",
+    "refresh": "Refresh",
+    "error": {
+      "title": "Host-bridge did not respond",
+      "message": "Restart the host-bridge to enable live Docker control. Run in the terminal:",
+      "command": "kill $(pgrep -f \"host-bridge\") ; cd /root/project/forgehub/host-bridge ; source /root/project/forgehub/.env ; nohup /usr/local/lib/hermes-agent/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8910 > /tmp/host-bridge.log 2>&1 &"
+    },
+    "loading": "Loading containers...",
+    "actions": {
+      "openInstance": "Open instance \"{{name}}\" ",
+      "register": "Register instance",
+      "delete": "Delete container"
+    },
+    "confirm": {
+      "title": "Delete container",
+      "description": "Remove the container \"{{name}}\" from Docker and from the installation database? This action cannot be undone (volumes are not removed).",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    }
+  },
+  "volumesTab": {
+    "header": "{{count}} volume(s)",
+    "refresh": "Refresh",
+    "error": {
+      "message": "Host-bridge offline — volumes unavailable."
+    },
+    "loading": "Loading volumes...",
+    "empty": "No volumes found.",
+    "table": {
+      "headers": {
+        "name": "Name",
+        "driver": "Driver",
+        "scope": "Scope",
+        "mountpoint": "Mountpoint",
+        "containers": "Containers",
+        "actions": ""
+      }
+    },
+    "actions": {
+      "openInstance": "Open instance \"{{name}}\" ",
+      "register": "Register instance",
+      "delete": "Delete volume"
+    },
+    "confirm": {
+      "title": "Delete volume",
+      "description": "Remove the volume \"{{name}}\" from Docker? Data stored in it will be lost. This action cannot be undone.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    }
+  },
+  "networksTab": {
+    "header": "{{count}} network(s)",
+    "refresh": "Refresh",
+    "error": {
+      "message": "Host-bridge offline — networks unavailable."
+    },
+    "loading": "Loading networks...",
+    "table": {
+      "headers": {
+        "name": "Name",
+        "id": "ID",
+        "driver": "Driver",
+        "scope": "Scope",
+        "internal": "internal",
+        "containers": "{{count}} container(s)",
+        "actions": ""
+      }
+    },
+    "actions": {
+      "openInstance": "Open instance \"{{name}}\" ",
+      "register": "Register instance",
+      "delete": "Delete network"
+    },
+    "confirm": {
+      "title": "Delete network",
+      "description": "Remove the network \"{{name}}\" from Docker? This action cannot be undone.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    }
+  },
+  "imagesTab": {
+    "header": "{{count}} image(s)",
+    "headerUnused": "{{count}} unused",
+    "refresh": "Refresh",
+    "error": {
+      "message": "Host-bridge offline — images unavailable."
+    },
+    "loading": "Loading images...",
+    "empty": "No images found.",
+    "table": {
+      "headers": {
+        "repository": "Repository",
+        "tag": "Tag",
+        "id": "ID",
+        "size": "Size",
+        "created": "Created",
+        "status": "Status",
+        "actions": ""
+      }
+    },
+    "status": {
+      "inUse": "In use",
+      "unused": "Unused",
+      "dangling": "Dangling"
+    },
+    "actions": {
+      "delete": "Delete image"
+    },
+    "confirm": {
+      "title": "Delete image",
+      "description": "Remove the image \"{{name}}\" from Docker? This action cannot be undone.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    }
+  },
+  "mainPage": {
+    "header": {
+      "title": "Deploy Control",
+      "description": "Monitoring and control of Docker installations"
+    },
+    "stats": {
+      "installations": "Installations",
+      "containers": "Containers",
+      "running": "Running",
+      "healthy": "Healthy",
+      "issues": "Issues",
+      "volumes": "Volumes",
+      "networks": "Networks",
+      "images": "Images"
+    },
+    "bridgeOffline": {
+      "title": "Host-bridge offline — Docker data unavailable. Restart with:",
+      "command": "kill $(pgrep -f host-bridge); cd /root/project/forgehub/host-bridge && source /root/project/forgehub/.env && nohup /usr/local/lib/hermes-agent/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8910 > /tmp/host-bridge.log 2>&1 &"
+    },
+    "tabs": {
+      "installations": "installations",
+      "live": "live",
+      "volumes": "volumes",
+      "networks": "networks",
+      "images": "images"
+    },
+    "actions": {
+      "sync": "Sync Docker",
+      "newInstallation": "New Installation",
+      "cancel": "Cancel",
+      "save": "Save",
+      "register": "Register",
+      "edit": "Edit",
+      "remove": "Remove",
+      "restart": "Restart",
+      "viewLogs": "View logs",
+      "copyCommand": "Copy command",
+      "registerFromLive": "Register instance",
+      "openInstance": "Open instance"
+    },
+    "messages": {
+      "loading": "Loading...",
+      "noInstallations": "No installations registered.",
+      "noInstallationsHelp": "Use \"New Installation\" or register directly from the Live Docker tab.",
+      "hostBridgeOffline": "Host-bridge offline — Docker data unavailable. Restart with:",
+      "hostBridgeResponseFailed": "Host-bridge did not respond",
+      "volumesUnavailable": "Host-bridge offline — volumes unavailable.",
+      "noVolumes": "No volumes found.",
+      "networksUnavailable": "Host-bridge offline — networks unavailable.",
+      "imagesUnavailable": "Host-bridge offline — images unavailable.",
+      "noImages": "No images found.",
+      "bridgeOffline": "Host-bridge offline — Docker data unavailable. Restart with:",
+      "restartConfirmation": "Restart container \"{{name}}\"? The service will be offline for a few seconds.",
+      "removeConfirmation": "Remove \"{{name}}\" from the registry? The Docker container will not be affected.",
+      "syncResult": {
+        "created": "created",
+        "updated": "updated",
+        "upToDate": "Registry already up to date"
+      }
+    }
+  }
+}

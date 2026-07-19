@@ -688,8 +688,24 @@ async def set_forgerouter_integration(tool: str, req: ForgeRouterIntegrationRequ
 #               Claude Code reads .claude/settings.local.json from the working
 #               directory hierarchy before falling back to the global one.
 #
-# Codex:        {project}/.codex/config.toml
-#               Codex reads a project-local .codex/config.toml from cwd.
+# Codex:        {project}/.codex/forgerouter.env
+#               Codex CLI >= 0.144 silently ignores `model_provider` and
+#               `model_providers.*` when they come from a project-local
+#               .codex/config.toml -- only `model` is honored from that file
+#               (confirmed 2026-07-18: it logs "Ignored unsupported
+#               project-local config keys ... model_provider, model_providers"
+#               and, since the provider registration never lands, falls back
+#               to the default OpenAI provider, which then rejects
+#               "forgerouter/auto" as an unknown model under ChatGPT auth).
+#               Those two keys only take effect from the user-level
+#               ~/.codex/config.toml or from `-c key=value` CLI overrides --
+#               writing them to the user-level file would violate the
+#               never-global rule above, so every Codex launch instead reads
+#               FORGEROUTER_API_KEY from this project-local env sidecar and
+#               passes the provider registration as `-c` overrides at
+#               invocation time (see FORGEROUTER_CODEX_OVERRIDES below). This
+#               file replaces the old (broken) approach of writing
+#               model_provider/model_providers into .codex/config.toml.
 #
 # Antigravity:  {project}/.forgerouter/antigravity.env
 #               Antigravity CLI doesn't natively support proxy config; this
@@ -706,6 +722,23 @@ FORGEROUTER_CLAUDE_KEYS = [
     "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL",
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+]
+# `-c key=value` overrides Codex trusts at invocation time, unlike the
+# equivalent keys in a project-local config.toml (see comment above). Kept as
+# a single source shared by the interactive terminal launcher and the
+# orchestrated `codex exec` path so both register the provider identically.
+FORGEROUTER_CODEX_OVERRIDES = [
+    'model_provider="forgerouter"',
+    'model_providers.forgerouter.name="ForgeRouter"',
+    f'model_providers.forgerouter.base_url="{FORGEROUTER_OPENAI_BASE_URL}"',
+    'model_providers.forgerouter.env_key="FORGEROUTER_API_KEY"',
+    "model_providers.forgerouter.requires_openai_auth=false",
+    'model_providers.forgerouter.wire_api="responses"',
+    # "forgerouter/auto" isn't a real OpenAI model id, so Codex's built-in
+    # model catalog has no context-window/pricing entry for it and warns
+    # "Model metadata for `forgerouter/auto` not found" on every launch.
+    # Harmless (only affects the TUI's own display), but this silences it.
+    "model_context_window=200000",
 ]
 
 
@@ -804,6 +837,13 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
         return command, agent_env
 
     if req.runtime_type == "codex":
+        codex_overrides: list[str] = []
+        if effective_model.startswith("forgerouter/"):
+            # -c overrides, not the project's .codex/config.toml: Codex
+            # ignores model_provider/model_providers from project-local
+            # files (see FORGEROUTER_CODEX_OVERRIDES comment above).
+            for override in FORGEROUTER_CODEX_OVERRIDES:
+                codex_overrides += ["-c", override]
         return (
             [
                 "/root/.npm-global/bin/codex",
@@ -813,6 +853,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
                 "read-only" if req.mode == "plan" else "workspace-write",
                 "-C",
                 str(project_dir),
+                *codex_overrides,
                 *model_args,
                 req.prompt,
             ],
@@ -1033,39 +1074,30 @@ def _configure_claude_forgerouter(project_dir: Path, enabled: bool, api_key: str
 def _configure_codex_forgerouter(project_dir: Path, enabled: bool, api_key: str) -> str:
     codex_dir = project_dir / ".codex"
     codex_dir.mkdir(parents=True, exist_ok=True)
-    config_path = codex_dir / "config.toml"
+    env_path = codex_dir / "forgerouter.env"
+
+    # Self-heal projects set up by the earlier (broken) approach: Codex
+    # ignores model_provider/model_providers from this file (see
+    # FORGEROUTER_CODEX_OVERRIDES comment above), so a config.toml we wrote
+    # only produces a misleading "model: forgerouter/auto" banner with no
+    # working provider behind it. Restore whatever it backed up, or remove
+    # it if we created it from nothing.
+    legacy_config_path = codex_dir / "config.toml"
+    legacy_backup = codex_dir / "config.toml.forgerouter.bak"
+    if legacy_config_path.exists() and 'model_provider = "forgerouter"' in legacy_config_path.read_text():
+        if legacy_backup.exists():
+            legacy_config_path.write_text(legacy_backup.read_text())
+            legacy_backup.unlink()
+        else:
+            legacy_config_path.unlink()
 
     if enabled:
-        # Backup existing project-level config if present
-        if config_path.exists():
-            backup = codex_dir / "config.toml.forgerouter.bak"
-            backup.write_text(config_path.read_text())
-        config_path.write_text(
-            f'model = "{FORGEROUTER_OPENAI_MODEL}"\n'
-            f'model_provider = "forgerouter"\n'
-            f'[model_providers.forgerouter]\n'
-            f'name = "ForgeRouter"\n'
-            f'base_url = "{FORGEROUTER_OPENAI_BASE_URL}"\n'
-            f'env_key = "FORGEROUTER_API_KEY"\n'
-            f'requires_openai_auth = false\n'
-            # Codex CLI >= 0.138 requires wire_api = "responses" (the Chat
-            # Completions wire format was removed and crashes at config-load
-            # time); ForgeRouter implements /v1/responses as a translator in
-            # front of /v1/chat/completions, so this is set explicitly rather
-            # than relying on the CLI's current default.
-            f'wire_api = "responses"\n'
-        )
-        os.chmod(config_path, 0o600)
+        env_path.write_text(f"FORGEROUTER_API_KEY={api_key}\n")
+        os.chmod(env_path, 0o600)
     else:
-        # Restore backup if available, otherwise remove
-        backup = codex_dir / "config.toml.forgerouter.bak"
-        if backup.exists():
-            config_path.write_text(backup.read_text())
-            backup.unlink()
-        else:
-            config_path.unlink(missing_ok=True)
+        env_path.unlink(missing_ok=True)
 
-    return str(config_path)
+    return str(env_path)
 
 
 def _configure_antigravity_forgerouter(project_dir: Path, enabled: bool, api_key: str) -> str:
@@ -1142,8 +1174,8 @@ async def get_project_forgerouter_status(
         except (OSError, json.JSONDecodeError):
             pass
 
-    codex_path = project_dir / ".codex" / "config.toml"
-    codex_enabled = codex_path.exists() and "forgerouter" in (codex_path.read_text() if codex_path.exists() else "").lower()
+    codex_path = project_dir / ".codex" / "forgerouter.env"
+    codex_enabled = codex_path.exists()
 
     agy_path = project_dir / ".forgerouter" / "antigravity.env"
     agy_enabled = agy_path.exists()
@@ -2624,6 +2656,18 @@ async def terminal_ws(
             # Only on creation -- reattaching to an existing session must
             # never re-type the launcher, or every reconnect would relaunch
             # claude/codex/agy on top of whatever's already running.
+            #
+            # Bare `command` is intentional even for a ForgeRouter-enabled
+            # Codex project: this pane runs an interactive bash that sources
+            # ~/.bashrc, whose `codex()` function already routes through
+            # /root/.local/bin/codex -- a wrapper that detects the project's
+            # .codex/forgerouter.env itself and injects the same -c overrides
+            # (see FORGEROUTER_CODEX_OVERRIDES comment above). Injecting them
+            # here too double-registers `-m`, which Codex's arg parser
+            # rejects ("the argument '--model <MODEL>' cannot be used
+            # multiple times"). The orchestrated codex-exec path in
+            # _agent_run_command has no such shell/wrapper in its execution
+            # chain, so it still builds the overrides itself.
             _tmux("send-keys", "-t", session_name, "-l", command)
             _tmux("send-keys", "-t", session_name, "Enter")
 

@@ -1,0 +1,53 @@
+{
+  "form": {
+    "editTool": "Editar ferramenta",
+    "registerTool": "Registrar ferramenta",
+    "requiredFields": "Agente responsável, nome, caminho do arquivo e descrição são obrigatórios.",
+    "couldNotSave": "Não foi possível salvar.",
+    "responsibleAgent": "Agente responsável",
+    "selectAnAgent": "Selecione um agente…",
+    "toolName": "Nome da ferramenta",
+    "category": "Categoria",
+    "status": "Status",
+    "filePath": "Caminho do arquivo",
+    "whatItDoes": "O que ela faz",
+    "cancel": "Cancelar",
+    "save": "Salvar",
+    "register": "Registrar"
+  },
+  "fileModal": {
+    "couldNotSaveFile": "Não foi possível salvar o arquivo.",
+    "edit": "Editar",
+    "save": "Salvar",
+    "loadingFile": "Carregando arquivo...",
+    "couldNotReadFile": "Não foi possível ler o arquivo.",
+    "fileNotFound": "Arquivo não encontrado no disco."
+  },
+  "page": {
+    "title": "Ferramentas de Agente",
+    "registeredCount": "{{count}} registradas",
+    "scanTitle": "Varre o diretório de scripts de cada perfil e registra novas ferramentas; arquivos sem dono vão para o Athos",
+    "sync": "Sincronizar",
+    "scanResult": "Varredura: {{scanned}} arquivo(s) encontrado(s), {{created}} registrado(s), {{skipped}} já conhecido(s).",
+    "scanFailed": "Falha na varredura.",
+    "searchPlaceholder": "Buscar nome, descrição ou caminho…",
+    "allAgents": "Todos os agentes",
+    "allCategories": "Todas as categorias",
+    "noToolsRegistered": "Nenhuma ferramenta registrada ainda. Use “Registrar ferramenta” para registrar uma ferramenta que um agente construiu.",
+    "tableTool": "Ferramenta",
+    "tableAgent": "Agente",
+    "tableCategory": "Categoria",
+    "tableFile": "Arquivo",
+    "tableActions": "Ações",
+    "sendToAssistant": "Enviar {{name}} para o assistente",
+    "openAssistantForMaintenance": "Abrir o assistente com {{agent}} para manutenção",
+    "theResponsibleAgent": "o agente responsável",
+    "viewFile": "Ver arquivo",
+    "editFile": "Editar arquivo",
+    "editRegistration": "Editar registro",
+    "deleteFileAndRegistration": "Excluir arquivo e registro",
+    "deleteTitle": "Excluir \"{{name}}\"",
+    "deleteDescription": "Remove o registro e exclui o arquivo {{path}} do disco. Esta ação não pode ser desfeita.",
+    "delete": "Excluir"
+  }
+}

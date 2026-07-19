@@ -1,0 +1,147 @@
+{
+  "slashCommands": {
+    "model": "Switch model (persists by default)",
+    "status": "Show session, model, tokens and context",
+    "help": "Show available commands",
+    "version": "Show Hermes Agent version",
+    "title": "Set a title for the current session",
+    "profile": "Show active profile and home directory",
+    "config": "Show current configuration",
+    "toolsets": "List available toolsets",
+    "platforms": "Show gateway/messaging platform status",
+    "plugins": "List installed plugins; add an agent name (e.g. /plugins athos) to check a different profile",
+    "new": "Start a new chat",
+    "kindLocal": "Local",
+    "kindHermes": "Hermes",
+    "kindPrompt": "Prompt"
+  },
+  "attachMenu": {
+    "addAttachment": "Add attachment",
+    "sendFile": "Send file",
+    "hermesCommand": "Hermes command",
+    "directoryFiles": "Directory/Files",
+    "agents": "Agents",
+    "artifacts": "Artifacts",
+    "directBashCommand": "Direct bash command"
+  },
+  "itemMenu": {
+    "chatOptions": "Chat options",
+    "rename": "Rename",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "delete": "Delete"
+  },
+  "agentPicker": {
+    "agentLabel": "Agent: {{name}}",
+    "selectAgent": "Select agent",
+    "agentFallback": "Agent"
+  },
+  "mentionFilePicker": {
+    "useFolder": "Use folder",
+    "parentFolder": "Parent folder",
+    "loading": "Loading…",
+    "emptyFolder": "Empty folder"
+  },
+  "agentMentionPicker": {
+    "noAgentsFound": "No agents found"
+  },
+  "artifactMentionPicker": {
+    "loading": "Loading…",
+    "noArtifactsFound": "No artifacts found"
+  },
+  "messageBubble": {
+    "thoughtFor": "Thought for {{duration}}",
+    "copyMessage": "Copy message",
+    "regenerateReply": "Regenerate reply",
+    "cancel": "Cancel",
+    "saveAndResend": "Save and resend",
+    "editMessage": "Edit message"
+  },
+  "thinking": {
+    "working": "⏳ Working — {{duration}}"
+  },
+  "composer": {
+    "typeMessageFirst": "Type a message before sending.",
+    "alreadySent": "You already sent this message.",
+    "couldNotAttach": "Could not attach {{name}}.",
+    "suggestedReplyYes": "Yes",
+    "completeHint": "{{text}} (→ to complete)",
+    "dropIntoAssistant": "Drop into assistant",
+    "viewAttachedImage": "View attached image",
+    "removeAttachment": "Remove attachment",
+    "remove": "Remove",
+    "close": "Close",
+    "stopRecording": "Stop recording",
+    "recordVoiceMessage": "Record voice message"
+  },
+  "voice": {
+    "micBlocked": "Microphone blocked. Allow it in your browser settings.",
+    "transcribing": "Transcribing…",
+    "recording": "🔴 Recording…",
+    "failedResponse": "Failed to get a response: {{error}}",
+    "checklist": {
+      "audioRecording": "Audio recording",
+      "audioRecordingOk": "Supported",
+      "audioRecordingFail": "Browser does not support MediaRecorder — use Chrome or Edge.",
+      "tts": "Speech synthesis (TTS)",
+      "ttsNotSupported": "Not supported",
+      "ttsNoVoices": "No voices — replies will be shown without audio",
+      "ttsVoiceCount": "{{count}} voice(s)",
+      "microphone": "Microphone",
+      "microphoneOk": "Authorized",
+      "microphoneFail": "Denied — click the padlock in the address bar and allow the microphone."
+    },
+    "greeting": {
+      "goodMorning": "Good morning",
+      "goodAfternoon": "Good afternoon",
+      "goodEvening": "Good evening",
+      "text": "{{period}}! I'm {{name}}. How can I help you now?",
+      "agentFallback": "Assistant"
+    },
+    "conversationWith": "Voice conversation · {{name}}",
+    "starting": "Starting…",
+    "couldNotStart": "Could not start the voice conversation.",
+    "waitingFor": "Waiting for {{name}}…",
+    "listening": "Listening…",
+    "thinking": "{{name}}\nis thinking…",
+    "replying": "{{name}}\nis replying…",
+    "micActive": "Mic active",
+    "agentSpeaking": "Agent speaking",
+    "waiting": "Waiting…",
+    "endConversation": "End voice conversation",
+    "conversationWithAgent": "Voice conversation with {{name}}"
+  },
+  "sidebar": {
+    "chats": "Chats",
+    "newChat": "New chat",
+    "searchConversations": "Search conversations…",
+    "searching": "Searching…",
+    "noConversationsFound": "No conversations found.",
+    "noConversationsYet": "No conversations yet."
+  },
+  "queue": {
+    "queued": "📥 Queued…",
+    "stop": "Stop",
+    "runningCommand": "Running command",
+    "agentIsTyping": "{{name}} is typing",
+    "agentFallback": "The agent",
+    "approvalRequest": "🔐 {{name}} requests authorization to run a privileged action",
+    "approveOnce": "✅ Approve once",
+    "approveSessionTitle": "Do not ask again for this same command type in this session",
+    "approveSession": "☑️ Approve for this session",
+    "deny": "🚫 Deny",
+    "failed": "❌ Failed: {{error}}",
+    "dismiss": "Dismiss"
+  },
+  "artifactsPanel": {
+    "title": "Artifacts",
+    "searchArtifacts": "Search artifacts…",
+    "dragToReference": "Drag to the message field to reference {{path}}",
+    "download": "Download {{name}}",
+    "downloadTitle": "Download",
+    "removeFromList": "Remove {{name}} from list",
+    "removeFromListTitle": "Remove from list (does not delete the actual file)",
+    "noArtifactsYet": "No artifacts created in this conversation yet.",
+    "noArtifactsFound": "No artifacts found."
+  }
+}

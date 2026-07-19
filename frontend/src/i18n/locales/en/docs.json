@@ -1,0 +1,80 @@
+{
+  "pathPrompt": {
+    "ok": "OK",
+    "cancel": "Cancel"
+  },
+  "areaSwitcher": {
+    "creationArea": "creation area ·",
+    "removeAreaTitle": "Remove creation area",
+    "removeAreaDescription": "Removes only the area's record -- the files remain on the host, untouched.",
+    "atLeastOneMustExist": "At least one area must exist",
+    "removeArea": "Remove area",
+    "namePlaceholder": "Name (e.g. Project)",
+    "pathPlaceholder": "Absolute path on the host (e.g. /root/project)",
+    "cancel": "Cancel",
+    "add": "Add",
+    "newArea": "New area"
+  },
+  "assistantContext": {
+    "useCurrentDocument": "Use current document"
+  },
+  "page": {
+    "title": "Docs",
+    "newDocument": "New document",
+    "newFolder": "New folder",
+    "download": "Download {{path}}",
+    "selectToDownload": "Select a document in the tree to download",
+    "downloadButton": "Download",
+    "uploadTo": "Upload to {{folder}}",
+    "theRoot": "the root",
+    "upload": "Upload",
+    "drawAndInsert": "Draw and insert the image into the open document",
+    "whiteboard": "Whiteboard",
+    "openAssistantForDoc": "Open the assistant to help create/fill this document",
+    "workingFolder": "Working folder:",
+    "useRoot": "use root",
+    "newFilePathLabel": "Path for the new .md:",
+    "newFolderPathLabel": "Path for the new folder:",
+    "renamePathLabel": "Rename {{path}} to:",
+    "deleteTitle": "Delete \"{{path}}\"",
+    "deleteDescription": "Removes the file (or the entire folder, recursively) from this area. This action cannot be undone.",
+    "failedToLoadTree": "Failed to load the tree: {{message}}",
+    "emptyFolder": "Empty folder.",
+    "selectOrCreate": "Select a document in the tree, or create a new one.",
+    "hideForward": "Hide forward",
+    "forwardThisDocument": "Forward this document",
+    "forward": "Forward",
+    "edit": "Edit",
+    "save": "Save",
+    "view": "View",
+    "renameMove": "Rename/move",
+    "rename": "Rename",
+    "delete": "Delete",
+    "failedToSave": "Failed to save: {{message}}",
+    "binaryFile": "Binary file — use Download to open it, or replace it via Upload.",
+    "whiteboardScene": "Whiteboard scene (Excalidraw). Reopen it to continue drawing.",
+    "couldNotReadScene": "Could not read the scene.",
+    "editInWhiteboard": "Edit in Whiteboard",
+    "couldNotReadFile": "Could not read the file.",
+    "couldNotReadSceneInvalidJson": "Could not read this scene (invalid JSON).",
+    "drawingSaved": "Drawing saved to {{path}} — open a markdown document to insert the image, or copy the path above."
+  },
+  "tree": {
+    "dragReferenceFolder": "Drag to the assistant to reference this folder",
+    "dragAttachFile": "Drag to the assistant to attach this file",
+    "selectAsWorkingFolder": "Select as working folder",
+    "newDocumentHere": "New document here",
+    "newFolderHere": "New folder here",
+    "renameFolder": "Rename folder",
+    "deleteFolder": "Delete folder",
+    "renameFile": "Rename file",
+    "deleteFile": "Delete file",
+    "dropToMoveToRoot": "Drop here to move to the area's root"
+  },
+  "whiteboardModal": {
+    "title": "🎨 Whiteboard",
+    "saveAndInsert": "Save and insert",
+    "close": "Close",
+    "loading": "Loading the whiteboard…"
+  }
+}

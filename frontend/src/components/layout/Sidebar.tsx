@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -69,6 +70,7 @@ function AnimatedMenuIcon({ open }: { open: boolean }) {
 const MOBILE_BREAKPOINT = 768;
 
 export function Sidebar() {
+  const { t } = useTranslation("common");
   const location = useLocation();
   const { user } = useAuthStore();
   const [collapsed, setCollapsed] = useState(
@@ -120,19 +122,19 @@ export function Sidebar() {
     }
   }
 
-  const toggleGroup = (label: string) =>
-    setCollapsedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+  const toggleGroup = (key: string) =>
+    setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const renderLink = (entry: NavLinkEntry) => (
     <PermissionGate key={entry.to} module={entry.module}>
       <NavLink
         to={entry.to}
         end={entry.to === "/"}
-        title={effectiveCollapsed ? entry.label : undefined}
+        title={effectiveCollapsed ? t(entry.labelKey) : undefined}
         className={({ isActive }) => navLinkClasses(isActive, effectiveCollapsed)}
       >
         <entry.icon className="h-4 w-4 shrink-0" />
-        {!effectiveCollapsed && entry.label}
+        {!effectiveCollapsed && t(entry.labelKey)}
       </NavLink>
     </PermissionGate>
   );
@@ -146,7 +148,7 @@ export function Sidebar() {
         <PermissionGate key={item.to} module={item.module}>
           <NavLink
             to={item.to}
-            title={item.label}
+            title={t(item.labelKey)}
             className={({ isActive }) => navLinkClasses(isActive, effectiveCollapsed)}
           >
             <item.icon className="h-4 w-4 shrink-0" />
@@ -157,13 +159,13 @@ export function Sidebar() {
 
     const GroupIcon = entry.icon;
     const isGroupActive = entry.items.some((item) => location.pathname.startsWith(item.to));
-    const isGroupCollapsed = collapsedGroups[entry.label] ?? false;
+    const isGroupCollapsed = collapsedGroups[entry.labelKey] ?? false;
 
     return (
-      <div key={entry.label}>
+      <div key={entry.labelKey}>
         <button
           type="button"
-          onClick={() => toggleGroup(entry.label)}
+          onClick={() => toggleGroup(entry.labelKey)}
           className={cn(
             "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
             isGroupActive
@@ -172,7 +174,7 @@ export function Sidebar() {
           )}
         >
           <GroupIcon className="h-4 w-4 shrink-0" />
-          <span className="flex-1 text-left">{entry.label}</span>
+          <span className="flex-1 text-left">{t(entry.labelKey)}</span>
           {isGroupCollapsed ? (
             <ChevronRight className="h-3.5 w-3.5 shrink-0" />
           ) : (
@@ -188,7 +190,7 @@ export function Sidebar() {
                   className={({ isActive }) => navLinkClasses(isActive, false)}
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
-                  {item.label}
+                  {t(item.labelKey)}
                 </NavLink>
               </PermissionGate>
             ))}
@@ -211,8 +213,8 @@ export function Sidebar() {
           variant="outline"
           size="icon"
           className="fixed left-3 top-3 z-40 h-9 w-9 shadow-md"
-          aria-label="Abrir menu"
-          title="Abrir menu"
+          aria-label={t("sidebar.openMenu")}
+          title={t("sidebar.openMenu")}
           onClick={toggleSidebar}
         >
           <AnimatedMenuIcon open={false} />
@@ -250,13 +252,13 @@ export function Sidebar() {
             <button
               type="button"
               onClick={toggleSidebar}
-              aria-label="Expandir sidebar"
+              aria-label={t("sidebar.expandSidebar")}
               className="group relative flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent"
             >
               <LogoMark className="h-8 w-8 shrink-0 transition-opacity group-hover:opacity-0" />
               <PanelLeftOpen className="absolute h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
               <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-                Abrir barra lateral
+                {t("sidebar.expandSidebar")}
               </span>
             </button>
           ) : (
@@ -266,8 +268,8 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Recolher sidebar"
-              title="Recolher sidebar"
+              aria-label={t("sidebar.collapseSidebar")}
+              title={t("sidebar.collapseSidebar")}
               onClick={toggleSidebar}
             >
               <PanelLeftClose className="h-4 w-4" />
@@ -279,7 +281,7 @@ export function Sidebar() {
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
-            title="Search (Ctrl/Cmd+K)"
+            title={t("sidebar.searchHint")}
             className={cn(
               "flex w-full items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
               effectiveCollapsed && "justify-center px-2"
@@ -288,7 +290,7 @@ export function Sidebar() {
             <Search className="h-4 w-4 shrink-0" />
             {!effectiveCollapsed && (
               <>
-                <span className="flex-1 text-left">Search</span>
+                <span className="flex-1 text-left">{t("sidebar.search")}</span>
                 <kbd className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px]">
                   {navigator.platform.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K"}
                 </kbd>
@@ -298,16 +300,16 @@ export function Sidebar() {
           {NAV_SECTIONS.map((section) => {
             // Icon-rail mode ignores section collapse -- there's no label to
             // click there, so items always render as bare icons.
-            const isSectionCollapsed = !effectiveCollapsed && (collapsedGroups[section.label] ?? false);
+            const isSectionCollapsed = !effectiveCollapsed && (collapsedGroups[section.labelKey] ?? false);
             return (
-              <div key={section.label}>
+              <div key={section.labelKey}>
                 {!effectiveCollapsed && (
                   <button
                     type="button"
-                    onClick={() => toggleGroup(section.label)}
+                    onClick={() => toggleGroup(section.labelKey)}
                     className="flex w-full items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground"
                   >
-                    <span>{section.label}</span>
+                    <span>{t(section.labelKey)}</span>
                     {isSectionCollapsed ? (
                       <ChevronRight className="h-3 w-3 shrink-0" />
                     ) : (
@@ -341,7 +343,7 @@ export function Sidebar() {
                 <p className="text-xs font-medium truncate">{user.username}</p>
                 {user.is_admin ? (
                   <p className="flex items-center gap-0.5 text-[10px] text-amber-600">
-                    <ShieldCheck className="h-2.5 w-2.5" /> Admin
+                    <ShieldCheck className="h-2.5 w-2.5" /> {t("sidebar.admin")}
                   </p>
                 ) : null}
               </div>

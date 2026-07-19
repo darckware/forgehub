@@ -1,5 +1,6 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,11 +32,13 @@ export function PipelineForm({
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Create pipeline",
+  submitLabel,
   showTemplate = true,
 }: PipelineFormProps) {
+  const { t } = useTranslation("pipeline");
   const { data: projects, isLoading: isLoadingProjects } = useProjects();
   const { data: templates, isLoading: isLoadingTemplates } = usePipelineTemplates();
+  const resolvedSubmitLabel = submitLabel ?? t("form.createPipelineLabel");
 
   const {
     register,
@@ -56,16 +59,16 @@ export function PipelineForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="name">Name</Label>
-        <Input id="name" placeholder="Foundation MVP delivery pipeline" {...register("name")} />
+        <Label htmlFor="name">{t("form.nameLabel")}</Label>
+        <Input id="name" placeholder={t("form.namePlaceholder")} {...register("name")} />
         {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="project_id">Project</Label>
+        <Label htmlFor="project_id">{t("form.projectLabel")}</Label>
         <Select id="project_id" disabled={isLoadingProjects} {...register("project_id")}>
           <option value="">
-            {isLoadingProjects ? "Loading projects…" : "Select a project"}
+            {isLoadingProjects ? t("form.loadingProjects") : t("form.selectProject")}
           </option>
           {projects?.map((project) => (
             <option key={project.id} value={project.id}>
@@ -81,20 +84,18 @@ export function PipelineForm({
       <div className="grid grid-cols-2 gap-4">
         {showTemplate && (
           <div className="space-y-2">
-            <Label htmlFor="template_id">Template (optional)</Label>
+            <Label htmlFor="template_id">{t("form.templateLabel")}</Label>
             <Select id="template_id" disabled={isLoadingTemplates} {...register("template_id")}>
               <option value="">
-                {isLoadingTemplates ? "Loading templates…" : "No template"}
+                {isLoadingTemplates ? t("form.loadingTemplates") : t("form.noTemplate")}
               </option>
-              {templates?.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
+              {templates?.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
                 </option>
               ))}
             </Select>
-            <p className="text-xs text-muted-foreground">
-              Creates the pipeline with the template's stages already in place.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("form.templateHint")}</p>
             {errors.template_id && (
               <p className="text-sm text-destructive">{errors.template_id.message}</p>
             )}
@@ -102,11 +103,11 @@ export function PipelineForm({
         )}
 
         <div className="space-y-2">
-          <Label htmlFor="status">Status</Label>
+          <Label htmlFor="status">{t("form.statusLabel")}</Label>
           <Select id="status" {...register("status")}>
             {PIPELINE_STATUSES.map((status) => (
               <option key={status} value={status}>
-                {status.replace("_", " ")}
+                {t(`pipelineStatus.${status}`)}
               </option>
             ))}
           </Select>
@@ -122,19 +123,19 @@ export function PipelineForm({
           {...register("is_active")}
         />
         <Label htmlFor="is_active" className="!mb-0">
-          Active pipeline for this project
+          {t("list.activeDescription")}
         </Label>
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-            Cancel
+            {t("form.cancel")}
           </Button>
         )}
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {submitLabel}
+          {resolvedSubmitLabel}
         </Button>
       </div>
     </form>

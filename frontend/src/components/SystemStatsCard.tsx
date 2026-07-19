@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { ArrowDownToLine, ArrowUpFromLine, HardDrive, Loader2, MemoryStick, Network } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSystemStats } from "@/hooks/useSystemStats";
@@ -15,12 +16,13 @@ function barColor(percent: number): string {
 }
 
 function NetworkRow({ interface: iface, rxBytes, txBytes }: { interface: string | null; rxBytes: number; txBytes: number }) {
+  const { t } = useTranslation("dashboard");
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-sm">
         <span className="flex items-center gap-2 font-medium">
           <Network className="h-4 w-4 text-muted-foreground" />
-          Network{iface ? ` (${iface})` : ""}
+          {t("systemStats.network")}{iface ? ` (${iface})` : ""}
         </span>
       </div>
       <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -72,6 +74,7 @@ function UsageRow({
 }
 
 export function SystemStatsCard() {
+  const { t } = useTranslation("dashboard");
   const { data, isLoading, isError } = useSystemStats();
 
   return (
@@ -79,26 +82,26 @@ export function SystemStatsCard() {
       {isLoading && (
         <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading...
+          {t("systemStats.loading")}
         </div>
       )}
       {isError && (
         <p className="text-xs text-destructive">
-          Failed to reach the host bridge -- is forgehub-chat-bridge running?
+          {t("systemStats.hostBridgeError")}
         </p>
       )}
       {data && (
         <>
           <UsageRow
             icon={<MemoryStick className="h-4 w-4 text-muted-foreground" />}
-            label="Memory"
+            label={t("systemStats.memory")}
             usedBytes={data.memory.used_bytes}
             totalBytes={data.memory.total_bytes}
             percent={data.memory.percent_used}
           />
           <UsageRow
             icon={<HardDrive className="h-4 w-4 text-muted-foreground" />}
-            label="Disk"
+            label={t("systemStats.disk")}
             usedBytes={data.disk.used_bytes}
             totalBytes={data.disk.total_bytes}
             percent={data.disk.percent_used}

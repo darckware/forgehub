@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ArrowLeft, Loader2, Plus, Tag } from "lucide-react";
+import i18n from "@/i18n";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -43,8 +45,8 @@ const versionStatusBadge: Record<string, "success" | "secondary" | "outline" | "
 const productVersionInputSchema = z.object({
   version: z
     .string()
-    .min(1, "Version is required")
-    .regex(/^\d+\.\d+\.\d+(-[\w.]+)?$/, "Use semantic versioning, e.g. 0.1.0"),
+    .min(1, i18n.t("detail.createForm.validation.versionRequired", { ns: "product" }))
+    .regex(/^\d+\.\d+\.\d+(-[\w.]+)?$/, i18n.t("detail.createForm.validation.versionFormat", { ns: "product" })),
   status: z.enum(["planned", "in_development", "in_test", "published", "deprecated"]).default("planned"),
   release_notes: z.string().max(2000).optional().or(z.literal("")),
 });
@@ -64,6 +66,7 @@ function useCreateProductVersion(productId: string) {
 }
 
 export default function ProductDetail() {
+  const { t } = useTranslation("product");
   const { id } = useParams<{ id: string }>();
   const { data: product, isLoading, isError, error, refetch } = useProduct(id);
   const createVersion = useCreateProductVersion(id ?? "");
@@ -89,7 +92,7 @@ export default function ProductDetail() {
     return (
       <div className="flex items-center justify-center gap-2 p-10 text-muted-foreground">
         <Loader2 className="h-5 w-5 animate-spin" />
-        Loading product...
+        {t("detail.loading")}
       </div>
     );
   }
@@ -99,15 +102,15 @@ export default function ProductDetail() {
       <div className="space-y-4">
         <Link to="/product" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:underline">
           <ArrowLeft className="h-4 w-4" />
-          Back to products
+          {t("detail.backToProducts")}
         </Link>
         <Card>
           <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
             <p className="text-sm text-destructive">
-              {error instanceof Error ? error.message : "Failed to load product."}
+              {error instanceof Error ? error.message : t("detail.loadError")}
             </p>
             <Button variant="outline" size="sm" onClick={() => refetch()}>
-              Retry
+              {t("detail.retry")}
             </Button>
           </CardContent>
         </Card>
@@ -119,7 +122,7 @@ export default function ProductDetail() {
     <div className="space-y-6">
       <Link to="/product" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:underline">
         <ArrowLeft className="h-4 w-4" />
-        Back to products
+        {t("detail.backToProducts")}
       </Link>
 
       <div className="flex items-start justify-between">
@@ -130,15 +133,15 @@ export default function ProductDetail() {
           )}
         </div>
         <Badge variant="outline" className="capitalize">
-          {product.status}
+          {t(`list.status.${product.status}`, { ns: "product", defaultValue: product.status })}
         </Badge>
       </div>
 
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold tracking-tight">Versions</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t("detail.versionsTitle")}</h2>
         <Button size="sm" onClick={() => setShowForm((v) => !v)}>
           <Plus className="mr-2 h-4 w-4" />
-          New Version
+          {t("detail.newVersionButton")}
         </Button>
       </div>
 
@@ -146,36 +149,36 @@ export default function ProductDetail() {
         <Card>
           <form onSubmit={handleSubmit(onSubmit)}>
             <CardHeader>
-              <CardTitle>Create Product Version</CardTitle>
+              <CardTitle>{t("detail.createForm.title")}</CardTitle>
               <CardDescription>
-                Register a new planned, in-development, in-test, or published version.
+                {t("detail.createForm.description")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="version">Version</Label>
-                <Input id="version" placeholder="e.g. 0.1.0" {...register("version")} />
+                <Label htmlFor="version">{t("detail.createForm.versionLabel")}</Label>
+                <Input id="version" placeholder={t("detail.createForm.versionPlaceholder")} {...register("version")} />
                 {errors.version && (
                   <p className="text-sm text-destructive">{errors.version.message}</p>
                 )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
+                <Label htmlFor="status">{t("detail.createForm.statusLabel")}</Label>
                 <Select id="status" {...register("status")}>
-                  <option value="planned">Planned</option>
-                  <option value="in_development">In Development</option>
-                  <option value="in_test">In Test</option>
-                  <option value="published">Published</option>
-                  <option value="deprecated">Deprecated</option>
+                  <option value="planned">{t("detail.statusOptions.planned")}</option>
+                  <option value="in_development">{t("detail.statusOptions.in_development")}</option>
+                  <option value="in_test">{t("detail.statusOptions.in_test")}</option>
+                  <option value="published">{t("detail.statusOptions.published")}</option>
+                  <option value="deprecated">{t("detail.statusOptions.deprecated")}</option>
                 </Select>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="release_notes">Release Notes</Label>
+                <Label htmlFor="release_notes">{t("detail.createForm.releaseNotesLabel")}</Label>
                 <Textarea
                   id="release_notes"
-                  placeholder="Optional release notes"
+                  placeholder={t("detail.createForm.releaseNotesPlaceholder")}
                   {...register("release_notes")}
                 />
                 {errors.release_notes && (
@@ -185,14 +188,14 @@ export default function ProductDetail() {
 
               {createVersion.isError && (
                 <p className="text-sm text-destructive">
-                  Failed to create version. Please try again.
+                  {t("detail.createForm.error")}
                 </p>
               )}
             </CardContent>
             <CardFooter className="gap-2">
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save
+                {t("detail.createForm.save")}
               </Button>
               <Button
                 type="button"
@@ -202,7 +205,7 @@ export default function ProductDetail() {
                   setShowForm(false);
                 }}
               >
-                Cancel
+                {t("detail.createForm.cancel")}
               </Button>
             </CardFooter>
           </form>
@@ -214,16 +217,16 @@ export default function ProductDetail() {
           {(product.versions?.length ?? 0) === 0 ? (
             <div className="flex flex-col items-center gap-2 p-10 text-center text-muted-foreground">
               <Tag className="h-10 w-10" />
-              <p className="font-medium">No versions yet</p>
-              <p className="text-sm">Create the first version for this product.</p>
+              <p className="font-medium">{t("detail.emptyTitle")}</p>
+              <p className="text-sm">{t("detail.emptyDescription")}</p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Release Notes</TableHead>
+                  <TableHead>{t("detail.columns.version")}</TableHead>
+                  <TableHead>{t("detail.columns.status")}</TableHead>
+                  <TableHead>{t("detail.columns.releaseNotes")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -232,11 +235,11 @@ export default function ProductDetail() {
                     <TableCell className="font-medium">{v.version}</TableCell>
                     <TableCell>
                       <Badge variant={versionStatusBadge[v.status] ?? "outline"} className="capitalize">
-                        {v.status.replace("_", " ")}
+                        {t(`detail.statusOptions.${v.status}`, { defaultValue: v.status.replace("_", " ") })}
                       </Badge>
                     </TableCell>
                     <TableCell className="max-w-xs truncate text-muted-foreground">
-                      {v.release_notes ?? "—"}
+                      {v.release_notes ?? t("detail.noReleaseNotes")}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,0 +1,88 @@
+{
+  "title": "Painel",
+  "welcome": "Bem-vindo ao ForgeHub.",
+  "tabs": {
+    "resources": "Recursos do Sistema",
+    "remote": "Acesso Remoto"
+  },
+  "toolVersions": {
+    "title": "Versões de Ferramentas",
+    "checkNow": "Verificar agora",
+    "checkVersionsNowAria": "Verificar versões agora",
+    "enableSync": "Ativar sincronização automática",
+    "disableSync": "Desativar sincronização automática",
+    "toggleSyncAria": "Alternar sincronização automática de versões",
+    "hostBridgeError": "Falha ao acessar o host-bridge — o forgehub-chat-bridge está em execução?",
+    "loading": "Carregando...",
+    "error": "Erro",
+    "unknown": "Desconhecido",
+    "updateAvailable": "Atualização disponível",
+    "upToDate": "Atualizado",
+    "checkFailed": "Falha na verificação",
+    "notChecked": "Não verificado",
+    "updateAria": "Atualizar {{tool}}",
+    "update": "Atualizar",
+    "details": "Detalhes",
+    "closeDetails": "Fechar e limpar detalhes",
+    "closeDetailsAria": "Fechar e limpar detalhes de {{tool}}"
+  },
+  "systemStats": {
+    "loading": "Carregando...",
+    "hostBridgeError": "Falha ao acessar o host-bridge — o forgehub-chat-bridge está em execução?",
+    "memory": "Memória",
+    "disk": "Disco",
+    "network": "Rede"
+  },
+  "remoteAccess": {
+    "loading": "Carregando...",
+    "description": "Cria um link público temporário (Cloudflare Tunnel) para acessar todo o app ForgeHub de qualquer lugar. Ainda requer login — quem tiver o link cai na tela de entrada, não direto no app.",
+    "copyLink": "Copiar link",
+    "scanQrCode": "Escaneie o QR code com a câmera do seu celular para abrir o link.",
+    "turnOn": "Ativar acesso remoto",
+    "turnOff": "Desativar acesso remoto"
+  },
+  "crons": {
+    "title": "Agendamentos",
+    "workingCount": "{{working}}/{{total}} funcionando",
+    "refresh": "Atualizar",
+    "refreshAria": "Atualizar lista de agendamentos",
+    "openCrons": "Abrir Agendamentos",
+    "openCronsAria": "Abrir a página de Agendamentos",
+    "loading": "Carregando...",
+    "loadError": "Falha ao carregar os agendamentos.",
+    "corruptedStore": "Armazenamento de agendamentos corrompido ({{profiles}}) — esses jobs não estão em execução. Veja a página de Agendamentos.",
+    "empty": "Nenhum agendamento registrado.",
+    "health": {
+      "working": "Funcionando",
+      "error": "Erro",
+      "notRunning": "Não está rodando",
+      "neverRan": "Nunca executou",
+      "off": "Desligado"
+    }
+  },
+  "projectsForgeRouter": {
+    "title": "Projetos",
+    "description": "O ForgeRouter é configurado por projeto, dentro do diretório de cada projeto.",
+    "expand": "Expandir",
+    "collapse": "Recolher",
+    "loadingProjects": "Carregando projetos...",
+    "noProjects": "Nenhum projeto registrado ainda.",
+    "noWorkingDir": "Nenhum diretório de trabalho definido",
+    "setWorkingDirFirst": "Defina working_directory_path no projeto primeiro",
+    "toolConfigured": "{{tool}}: configurado — clique para desativar",
+    "toolNotConfigured": "{{tool}}: não configurado — clique para ativar",
+    "active": "Ativo",
+    "off": "Desligado",
+    "disableAll": "Desativar tudo",
+    "apiKeyPrompt": "Digite a chave de API do ForgeRouter para {{tool}} neste projeto (deixe em branco se o ForgeRouter não exigir autenticação). Cada ferramenta mantém sua própria chave.",
+    "apiKeyPlaceholder": "Chave de API (opcional)",
+    "enable": "Ativar",
+    "cancel": "Cancelar",
+    "lastConfigured": "Última configuração: {{timestamp}}",
+    "globalConfigsDetected": "{{count}} configuração(ões) global(is) do ForgeRouter detectada(s) — deveriam ser por projeto.",
+    "hide": "Ocultar",
+    "details": "Detalhes",
+    "reAudit": "Reauditar",
+    "legend": "Clique em um ícone de CLI para ativar/desativar o ForgeRouter individualmente: Claude (.claude/settings.local.json), Codex (.codex/forgerouter.env, ativado via overrides -c no launcher, já que o Codex ignora model_provider vindo do config do projeto). Antigravity requer carregamento manual do env (.forgerouter/antigravity.env)."
+  }
+}

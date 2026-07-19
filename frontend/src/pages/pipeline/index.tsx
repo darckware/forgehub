@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { AlertCircle, GitBranch, Loader2, Plus, Trash2, Pencil, X } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -35,6 +36,7 @@ const STATUS_VARIANT: Record<
 };
 
 export default function PipelinePage() {
+  const { t } = useTranslation("pipeline");
   const { data: pipelines, isLoading, isError, error } = usePipelines();
   const { data: projects } = useProjects();
   const createPipeline = useCreatePipeline();
@@ -77,7 +79,7 @@ export default function PipelinePage() {
           onSubmit={handleUpdate}
           onCancel={() => setEditingId(null)}
           isSubmitting={updatePipeline.isPending}
-          submitLabel="Save changes"
+          submitLabel={t("list.saveChanges")}
           showTemplate={false}
         />
         {updatePipeline.isError && (
@@ -93,26 +95,20 @@ export default function PipelinePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Pipelines</h1>
-          <p className="text-muted-foreground">
-            Delivery flow for each project: ordered stages, required artifacts, and approval
-            gates that must pass before release.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
+          <p className="text-muted-foreground">{t("list.description")}</p>
         </div>
         <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="mr-2 h-4 w-4" />
-          New pipeline
+          {t("list.newPipeline")}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Create pipeline</CardTitle>
-            <CardDescription>
-              Register a project pipeline, optionally seeded from a pipeline template. Stages can
-              be added afterwards.
-            </CardDescription>
+            <CardTitle>{t("list.createTitle")}</CardTitle>
+            <CardDescription>{t("list.createDescription")}</CardDescription>
           </CardHeader>
           <CardContent>
             <PipelineForm
@@ -122,7 +118,7 @@ export default function PipelinePage() {
             />
             {createPipeline.isError && (
               <p className="mt-3 text-sm text-destructive">
-                Failed to create pipeline: {(createPipeline.error as Error)?.message}
+                {t("list.createError", { message: (createPipeline.error as Error)?.message })}
               </p>
             )}
           </CardContent>
@@ -132,7 +128,7 @@ export default function PipelinePage() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading pipelines…
+          {t("list.loading")}
         </div>
       )}
 
@@ -140,7 +136,7 @@ export default function PipelinePage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load pipelines: {(error as Error)?.message}</span>
+            <span>{t("list.loadError", { message: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -150,14 +146,12 @@ export default function PipelinePage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <GitBranch className="h-10 w-10 text-muted-foreground" />
             <div>
-              <p className="font-medium">No pipelines yet</p>
-              <p className="text-sm text-muted-foreground">
-                Every project must have an active pipeline. Create one to start defining stages.
-              </p>
+              <p className="font-medium">{t("list.emptyTitle")}</p>
+              <p className="text-sm text-muted-foreground">{t("list.emptyDescription")}</p>
             </div>
             <Button onClick={() => setShowForm(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              New pipeline
+              {t("list.newPipeline")}
             </Button>
           </CardContent>
         </Card>
@@ -175,19 +169,21 @@ export default function PipelinePage() {
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-lg leading-tight">{pipeline.name}</CardTitle>
                     <Badge variant={STATUS_VARIANT[pipeline.status] ?? "outline"}>
-                      {pipeline.status.replace("_", " ")}
+                      {t(`pipelineStatus.${pipeline.status}`)}
                     </Badge>
                   </div>
                   <CardDescription>
-                    {pipeline.is_active ? "Active pipeline for this project" : "Inactive"}
+                    {pipeline.is_active
+                      ? t("list.activeDescription")
+                      : t("list.inactiveDescription")}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 text-sm text-muted-foreground">
-                  <p>Project: {projectName(pipeline.project_id)}</p>
+                  <p>{t("list.projectLabel", { name: projectName(pipeline.project_id) })}</p>
                   <p className="mt-1">
                     {stageCount > 0
-                      ? `${completedCount}/${stageCount} stages completed`
-                      : "No stages defined yet"}
+                      ? t("list.stagesCompleted", { completed: completedCount, total: stageCount })
+                      : t("list.noStagesYet")}
                   </p>
                 </CardContent>
                 <CardFooter className="flex justify-between gap-2">
@@ -195,14 +191,14 @@ export default function PipelinePage() {
                     to={`/pipeline/${pipeline.id}`}
                     className={buttonVariants({ variant: "outline", size: "sm" })}
                   >
-                    View details
+                    {t("list.viewDetails")}
                   </Link>
                   <div className="flex gap-1">
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setEditingId(editingId === pipeline.id ? null : pipeline.id)}
-                      aria-label={`Edit ${pipeline.name}`}
+                      aria-label={t("list.editAria", { name: pipeline.name })}
                     >
                       {editingId === pipeline.id
                         ? <X className="h-4 w-4" />
@@ -213,7 +209,7 @@ export default function PipelinePage() {
                       size="sm"
                       onClick={() => setPendingDeleteId(pipeline.id)}
                       disabled={deletePipeline.isPending}
-                      aria-label={`Delete ${pipeline.name}`}
+                      aria-label={t("list.deleteAria", { name: pipeline.name })}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
@@ -227,9 +223,9 @@ export default function PipelinePage() {
       )}
       <ConfirmDialog
         open={pendingDeleteId !== null}
-        title="Delete pipeline?"
-        description="This will permanently delete the pipeline and all its stages. This cannot be undone."
-        confirmLabel="Delete"
+        title={t("list.deleteTitle")}
+        description={t("list.deleteDescription")}
+        confirmLabel={t("list.deleteConfirm")}
         onConfirm={() => {
           if (pendingDeleteId) deletePipeline.mutate(pendingDeleteId);
           setPendingDeleteId(null);

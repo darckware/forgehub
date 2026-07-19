@@ -1,0 +1,185 @@
+{
+  "enums": {
+    "itemTypes": {
+      "feature": "Feature",
+      "bug": "Bug",
+      "hotfix": "Hotfix",
+      "improvement": "Melhoria",
+      "technical_debt": "Dívida técnica",
+      "refactoring": "Refatoração",
+      "security_fix": "Correção de segurança",
+      "research": "Pesquisa",
+      "documentation": "Documentação"
+    },
+    "statuses": {
+      "new": "Novo",
+      "triaged": "Triado",
+      "scoped": "Escopado",
+      "in_progress": "Em andamento",
+      "blocked": "Bloqueado",
+      "done": "Concluído",
+      "rejected": "Rejeitado"
+    },
+    "priorities": {
+      "low": "Baixa",
+      "medium": "Média",
+      "high": "Alta",
+      "critical": "Crítica"
+    },
+    "severities": {
+      "low": "Baixa",
+      "medium": "Média",
+      "high": "Alta",
+      "critical": "Crítica"
+    },
+    "taskStatuses": {
+      "planned": "Planejada",
+      "assigned": "Atribuída",
+      "in_progress": "Em andamento",
+      "blocked": "Bloqueada",
+      "done": "Concluída",
+      "deployed": "Implantada",
+      "cancelled": "Cancelada"
+    }
+  },
+  "list": {
+    "title": "Planejamento",
+    "subtitle": "Itens de planejamento entrando no escopo da versão: features, bugs, hotfixes, melhorias, dívida técnica e mais.",
+    "filterAllProjects": "Todos os projetos",
+    "exportButton": "Exportar JSON",
+    "exportTooltip": "Exportar os itens visíveis + suas tarefas em JSON",
+    "importButton": "Importar JSON",
+    "importTooltip": "Importar itens de planejamento a partir de um arquivo JSON exportado anteriormente",
+    "importFailed": "Falha na importação: {{error}}",
+    "newButton": "Novo item de planejamento",
+    "createCard": {
+      "title": "Criar item de planejamento",
+      "description": "Registre uma feature, bug ou outro item de planejamento antes que ele entre em triagem e no escopo da versão."
+    },
+    "createError": "Falha ao criar item de planejamento: {{error}}",
+    "loading": "Carregando itens de planejamento…",
+    "loadError": "Falha ao carregar itens de planejamento: {{error}}",
+    "emptyState": {
+      "title": "Nenhum item de planejamento ainda",
+      "description": "Crie sua primeira solicitação de feature ou relato de bug para começar a construir o backlog."
+    },
+    "columns": {
+      "title": "Título",
+      "type": "Tipo",
+      "status": "Status",
+      "priority": "Prioridade",
+      "versionScope": "Escopo de versão",
+      "actions": "Ações",
+      "versionCount": "{{count}} versão(ões)",
+      "unscoped": "Sem escopo"
+    },
+    "collapseTasks": "Recolher tarefas",
+    "expandTasks": "Expandir tarefas",
+    "editTooltip": "Editar item de planejamento",
+    "editAria": "Editar {{title}}",
+    "addTaskTooltip": "Adicionar tarefa",
+    "addTaskAria": "Adicionar tarefa a {{title}}",
+    "deleteAria": "Excluir {{title}}",
+    "deleteDialog": {
+      "title": "Excluir item de planejamento?",
+      "description": "Isso excluirá permanentemente o item de planejamento e todas as tarefas relacionadas. Esta ação não pode ser desfeita.",
+      "confirm": "Excluir"
+    },
+    "editRow": {
+      "editing": "Editando: {{title}}",
+      "saveButton": "Salvar alterações"
+    },
+    "taskRow": {
+      "editingTask": "Editando tarefa",
+      "saveTask": "Salvar tarefa",
+      "editTooltip": "Editar tarefa",
+      "deleteTooltip": "Excluir tarefa",
+      "subtaskLabel": "(subtarefa)",
+      "deleteDialog": {
+        "title": "Excluir tarefa?",
+        "description": "\"{{title}}\" será excluída permanentemente.",
+        "confirm": "Excluir"
+      }
+    },
+    "tasksRow": {
+      "loading": "Carregando tarefas…",
+      "empty": "Ainda não há tarefas para este item de planejamento.",
+      "newTaskHeading": "Nova tarefa",
+      "addTaskSubmit": "Adicionar tarefa",
+      "addTaskButton": "Adicionar tarefa"
+    }
+  },
+  "detail": {
+    "breadcrumbPlanning": "Planejamento",
+    "loading": "Carregando item de planejamento…",
+    "loadError": "Falha ao carregar item de planejamento: {{error}}",
+    "outputPathLabel": "Caminho de saída",
+    "featureRequest": {
+      "title": "Solicitação de feature",
+      "description": "Critérios de aceite e justificativa de negócio.",
+      "acceptanceCriteria": "Critérios de aceite",
+      "businessValue": "Valor de negócio",
+      "requestedBy": "Solicitado por"
+    },
+    "bugReport": {
+      "title": "Relato de bug",
+      "description": "Severidade, ambiente e reprodução.",
+      "severity": "Severidade",
+      "environment": "Ambiente",
+      "detectedInVersion": "Detectado na versão",
+      "fixedInVersion": "Corrigido na versão",
+      "stepsToReproduce": "Passos para reproduzir"
+    },
+    "noSpecialization": {
+      "title": "Detalhes",
+      "description": "Nenhuma especialização de feature ou bug registrada para este item ainda.",
+      "body": "Itens de planejamento do tipo \"{{type}}\" não possuem especialização adicional nesta visualização."
+    },
+    "versionScope": {
+      "title": "Escopo de versão",
+      "description": "Versões do produto nas quais este item está escopado.",
+      "removed": "removido",
+      "inScope": "no escopo",
+      "empty": "Este item ainda não foi escopado em nenhuma versão do produto."
+    },
+    "triageDecisions": {
+      "title": "Decisões de triagem",
+      "description": "Resultados registrados ao triar este item para dentro (ou fora) do escopo.",
+      "decidedBy": "Decidido por {{name}}",
+      "empty": "Nenhuma decisão de triagem foi registrada para este item ainda."
+    },
+    "backToList": "Voltar para a lista"
+  },
+  "form": {
+    "submitLabelDefault": "Criar item de planejamento",
+    "titleLabel": "Título",
+    "titlePlaceholder": "Resumo curto do item de planejamento",
+    "descriptionLabel": "Descrição",
+    "descriptionPlaceholder": "Contexto, justificativa e qualquer detalhe relevante",
+    "typeLabel": "Tipo",
+    "statusLabel": "Status",
+    "priorityLabel": "Prioridade",
+    "productLabel": "Produto",
+    "loadingProducts": "Carregando produtos…",
+    "selectProduct": "Selecione um produto",
+    "versionLabel": "Versão",
+    "selectProductFirst": "Selecione um produto primeiro",
+    "loadingVersions": "Carregando versões…",
+    "selectVersion": "Selecione uma versão",
+    "projectLabel": "Projeto",
+    "loadingProjects": "Carregando projetos…",
+    "selectProject": "Selecione um projeto",
+    "outputPathLabel": "Caminho de saída",
+    "outputPathRecommended": "(recomendado para este tipo)",
+    "outputPathPlaceholder": "ex.: docs/api.md  ou  src/modules/auth/",
+    "outputPathHelp": "Caminho relativo dentro do diretório de trabalho do projeto onde a saída deste item deve ser gravada.",
+    "bugDetailsHeading": "Detalhes do bug",
+    "severityLabel": "Severidade",
+    "severityUnset": "Não definida",
+    "environmentLabel": "Ambiente",
+    "environmentPlaceholder": "produção, homologação…",
+    "detectedInVersionLabel": "Detectado na versão",
+    "detectedInVersionPlaceholder": "ex.: 0.1.0",
+    "cancelButton": "Cancelar"
+  }
+}

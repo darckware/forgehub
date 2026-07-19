@@ -1,0 +1,169 @@
+{
+  "list": {
+    "title": "Execution",
+    "subtitle": "Planned tasks and subtasks split out from planning items, assigned to agents and tracked through execution.",
+    "filterAllProjects": "All projects",
+    "newTask": "New task",
+    "forgeRouterCard": {
+      "title": "ForgeRouter Anthropic adapter task",
+      "description": "Viable only if ForgeRouter adds an Anthropic Messages API surface while keeping the current OpenAI-compatible surface for Codex.",
+      "copyPrompt": "Copy prompt",
+      "copied": "Copied"
+    },
+    "createCard": {
+      "title": "Create task",
+      "description": "Register a new task. Assignments and executions are tracked once work begins.",
+      "createError": "Failed to create task: {{message}}"
+    },
+    "loading": "Loading tasks…",
+    "loadError": "Failed to load tasks: {{message}}",
+    "emptyState": {
+      "title": "No tasks yet",
+      "description": "Create your first task to start tracking assignment and execution.",
+      "cta": "New task"
+    },
+    "columns": {
+      "title": "Title",
+      "status": "Status",
+      "priority": "Priority",
+      "dueDate": "Due date",
+      "executions": "Executions",
+      "actions": "Actions"
+    },
+    "subtask": "Subtask",
+    "view": "View",
+    "deleteAria": "Delete {{title}}",
+    "deleteDialog": {
+      "title": "Delete task?",
+      "description": "This will permanently delete the task and all its executions. This cannot be undone.",
+      "confirm": "Delete"
+    }
+  },
+  "detail": {
+    "breadcrumbExecution": "Execution",
+    "loading": "Loading task…",
+    "loadError": "Failed to load task: {{message}}",
+    "priorityLabel": "{{priority}} priority",
+    "projectCard": {
+      "title": "Project",
+      "description": "The owning project for this task.",
+      "none": "No project linked."
+    },
+    "planningItemCard": {
+      "title": "Planning item",
+      "description": "The source planning item this task was split from.",
+      "none": "No planning item linked."
+    },
+    "scheduleCard": {
+      "title": "Schedule & cost",
+      "description": "Due date and estimated cost.",
+      "dueDate": "Due date",
+      "estimatedCost": "Estimated cost",
+      "parentTask": "Parent task"
+    },
+    "kanboard": {
+      "title": "Kanboard",
+      "description": "Sync this task to the real Kanboard project as a card.",
+      "openCard": "Open card",
+      "pullStatus": "Pull status",
+      "pullTooltip": "Read current column from Kanboard and update this task's status",
+      "resync": "Re-sync",
+      "sync": "Sync to Kanboard",
+      "linked": "Linked to Kanboard card #{{id}}.",
+      "notSynced": "Not synced yet — this will create a card in the ForgeHub Kanboard project.",
+      "pullFailed": "Pull failed: {{message}}",
+      "pullSuccess": "Status updated from Kanboard."
+    },
+    "executions": {
+      "title": "Task executions",
+      "description": "Every real execution attempt by an agent, sub-agent, human, or system. A task can have multiple executions (failed, retried, verified, completed).",
+      "record": "Record execution",
+      "cancel": "Cancel",
+      "columns": {
+        "number": "#",
+        "executor": "Executor",
+        "status": "Status",
+        "started": "Started",
+        "finished": "Finished",
+        "cost": "Cost",
+        "evidence": "Evidence"
+      },
+      "unknownExecutor": "unknown",
+      "empty": "No executions recorded yet for this task.",
+      "attempt": "#{{number}}"
+    },
+    "backToList": "Back to list"
+  },
+  "startExecutionForm": {
+    "executorTypeLabel": "Executor type",
+    "initialStatusLabel": "Initial status",
+    "summaryLabel": "Summary (optional)",
+    "summaryPlaceholder": "What was attempted or accomplished?",
+    "evidenceRefLabel": "Evidence ref (required for completed/verified)",
+    "evidenceRefPlaceholder": "PR #123, commit sha, doc URL…",
+    "actualCostLabel": "Actual cost",
+    "cancel": "Cancel",
+    "submit": "Record execution"
+  },
+  "form": {
+    "titleLabel": "Title",
+    "titlePlaceholder": "Implement task assignment endpoint",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "What does this task involve, and what does done look like?",
+    "projectLabel": "Project",
+    "loadingProjects": "Loading projects…",
+    "allProjects": "All projects",
+    "projectHint": "Filters the Planning item / Change request choices below -- a task isn't stored against a project directly, only through one of those two.",
+    "planningItemLabel": "Planning item",
+    "loadingGeneric": "Loading…",
+    "selectPlanningItem": "Select a planning item (optional)",
+    "changeRequestLabel": "Change request (source)",
+    "selectChangeRequest": "Select a change request (optional)",
+    "parentTaskLabel": "Parent task (subtask of)",
+    "loadingTasks": "Loading tasks…",
+    "noParentTask": "No parent (top-level task)",
+    "dueDateLabel": "Due date",
+    "statusLabel": "Status",
+    "priorityLabel": "Priority",
+    "policyLabel": "Governance policy (optional)",
+    "noPolicy": "No policy linked",
+    "cancel": "Cancel",
+    "submit": "Create task"
+  },
+  "enums": {
+    "taskStatus": {
+      "planned": "Planned",
+      "ready": "Ready",
+      "assigned": "Assigned",
+      "in_progress": "In progress",
+      "blocked": "Blocked",
+      "done": "Done",
+      "deployed": "Deployed",
+      "cancelled": "Cancelled"
+    },
+    "taskPriority": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "executorType": {
+      "agent": "Agent",
+      "sub_agent": "Sub-agent",
+      "human": "Human",
+      "system": "System"
+    },
+    "executionStatus": {
+      "pending": "Pending",
+      "running": "Running",
+      "blocked": "Blocked",
+      "paused": "Paused",
+      "reconciling": "Reconciling",
+      "recovering": "Recovering",
+      "failed": "Failed",
+      "retried": "Retried",
+      "verified": "Verified",
+      "completed": "Completed"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { FileText, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,13 +12,15 @@ import {
   type ProfileMarkdownFile,
 } from "@/hooks/useFoundation";
 
-const TAB_LABELS: Record<ProfileMarkdownFile, string> = {
-  "SOUL.md": "Soul",
-  "MEMORY.md": "Memory",
-  "TOOLS.md": "Tools",
-  "AGENTS.md": "Agents",
-  "HEARTBEAT.md": "Heartbeat",
-  "USER.md": "User",
+// Maps each profile Markdown filename to its translation key under
+// "profileFiles.tabs" — the filenames themselves are literal and never translated.
+const TAB_LABEL_KEYS: Record<ProfileMarkdownFile, string> = {
+  "SOUL.md": "soul",
+  "MEMORY.md": "memory",
+  "TOOLS.md": "tools",
+  "AGENTS.md": "agents",
+  "HEARTBEAT.md": "heartbeat",
+  "USER.md": "user",
 };
 
 function ProfileFileEditor({
@@ -27,6 +30,7 @@ function ProfileFileEditor({
   profileSlug: string;
   filename: ProfileMarkdownFile;
 }) {
+  const { t } = useTranslation("agent");
   const { data, isLoading, isError, error } = useProfileFile(profileSlug, filename);
   const updateFile = useUpdateProfileFile(profileSlug, filename);
   const [draft, setDraft] = useState<string | null>(null);
@@ -45,7 +49,7 @@ function ProfileFileEditor({
     return (
       <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading {filename}…
+        {t("profileFiles.loading", { filename })}
       </div>
     );
   }
@@ -53,7 +57,7 @@ function ProfileFileEditor({
   if (isError) {
     return (
       <p className="py-4 text-sm text-destructive">
-        Failed to load {filename}: {(error as Error)?.message}
+        {t("profileFiles.loadError", { filename, message: (error as Error)?.message })}
       </p>
     );
   }
@@ -62,7 +66,7 @@ function ProfileFileEditor({
     <div className="space-y-3">
       {data?.content === null && (
         <p className="text-sm italic text-muted-foreground">
-          {filename} does not exist yet for this profile. Saving will create it.
+          {t("profileFiles.fileMissing", { filename })}
         </p>
       )}
       <Textarea
@@ -75,11 +79,11 @@ function ProfileFileEditor({
       <div className="flex items-center justify-end gap-3">
         {updateFile.isError && (
           <p className="text-sm text-destructive">
-            Failed to save: {(updateFile.error as Error)?.message}
+            {t("profileFiles.saveError", { message: (updateFile.error as Error)?.message })}
           </p>
         )}
         {updateFile.isSuccess && !isDirty && (
-          <p className="text-sm text-muted-foreground">Saved.</p>
+          <p className="text-sm text-muted-foreground">{t("profileFiles.saved")}</p>
         )}
         <Button onClick={handleSave} disabled={!isDirty || updateFile.isPending} size="sm">
           {updateFile.isPending ? (
@@ -87,7 +91,7 @@ function ProfileFileEditor({
           ) : (
             <Save className="mr-2 h-4 w-4" />
           )}
-          Save
+          {t("profileFiles.saveButton")}
         </Button>
       </div>
     </div>
@@ -95,6 +99,7 @@ function ProfileFileEditor({
 }
 
 export function ProfileFilesCard({ profileSlug }: { profileSlug: string }) {
+  const { t } = useTranslation("agent");
   const [activeTab, setActiveTab] = useState<ProfileMarkdownFile>("SOUL.md");
 
   return (
@@ -102,10 +107,10 @@ export function ProfileFilesCard({ profileSlug }: { profileSlug: string }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-xl">
           <FileText className="h-5 w-5" />
-          Profile files
+          {t("profileFiles.title")}
         </CardTitle>
         <CardDescription>
-          This agent's Hermes profile Markdown config files (
+          {t("profileFiles.description")} (
           <code>/root/.hermes/profiles/{profileSlug}/</code>).
         </CardDescription>
       </CardHeader>
@@ -114,7 +119,7 @@ export function ProfileFilesCard({ profileSlug }: { profileSlug: string }) {
           <TabsList>
             {PROFILE_MARKDOWN_FILES.map((file) => (
               <TabsTrigger key={file} value={file}>
-                {TAB_LABELS[file]}
+                {t(`profileFiles.tabs.${TAB_LABEL_KEYS[file]}`)}
               </TabsTrigger>
             ))}
           </TabsList>

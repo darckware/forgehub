@@ -1,0 +1,120 @@
+{
+  "list": {
+    "title": "Produtos",
+    "subtitle": "Produtos em desenvolvimento contínuo, cada um com uma ou mais versões.",
+    "restoreButtonTitle": "Restaurar produto a partir de um backup JSON",
+    "restoreButton": "Restaurar",
+    "newButton": "Novo Produto",
+    "backToList": "Voltar para produtos",
+    "status": {
+      "concept": "Concepção",
+      "active": "Ativo",
+      "inactive": "Inativo",
+      "archived": "Arquivado"
+    },
+    "createForm": {
+      "title": "Criar Produto",
+      "description": "Cadastre um novo produto. O nome deve ser único.",
+      "nameLabel": "Nome",
+      "namePlaceholder": "ex. ForgeHub",
+      "descriptionLabel": "Descrição",
+      "descriptionPlaceholder": "Descrição opcional do produto",
+      "urlLabel": "URL da Aplicação",
+      "urlPlaceholder": "http://localhost:4173",
+      "urlHint": "Aberta quando este produto é selecionado em Workspace > Web App.",
+      "statusLabel": "Status",
+      "error": "Falha ao criar o produto. Tente novamente.",
+      "save": "Salvar",
+      "cancel": "Cancelar"
+    },
+    "loading": "Carregando produtos...",
+    "loadError": "Falha ao carregar os produtos.",
+    "retry": "Tentar novamente",
+    "emptyTitle": "Nenhum produto ainda",
+    "emptyDescription": "Crie seu primeiro produto para começar.",
+    "columns": {
+      "name": "Nome",
+      "status": "Status",
+      "versions": "Versões",
+      "actions": "Ações"
+    },
+    "actions": {
+      "edit": "Editar produto",
+      "backup": "Backup (exportar JSON)",
+      "delete": "Excluir produto"
+    },
+    "deleteDialog": {
+      "title": "Excluir \"{{name}}\"",
+      "defaultName": "produto",
+      "description": "Esta ação é irreversível. Todos os projetos, pipelines, itens de planejamento, tarefas, execuções, artefatos e registros de governança vinculados a este produto serão excluídos em cascata.",
+      "confirmLabel": "Excluir tudo"
+    },
+    "alerts": {
+      "backupFailed": "Falha ao gerar o backup.",
+      "restoreSuccess": "Backup restaurado com sucesso.",
+      "restoreFailed": "Falha ao restaurar: {{message}}",
+      "unknownError": "Erro desconhecido."
+    }
+  },
+  "editRow": {
+    "title": "Editar produto",
+    "description": "Atualize os dados do cadastro de \"{{name}}\".",
+    "nameLabel": "Nome",
+    "descriptionLabel": "Descrição",
+    "urlLabel": "URL da Aplicação",
+    "urlPlaceholder": "http://localhost:4173",
+    "statusLabel": "Status",
+    "error": "Falha ao salvar. Tente novamente.",
+    "save": "Salvar",
+    "cancel": "Cancelar"
+  },
+  "restoreModal": {
+    "title": "Restaurar backup",
+    "description": "Selecione o que será restaurado a partir do arquivo ZIP.",
+    "dbLabel": "Dados do banco de dados",
+    "dbDescription": "Produto, versões, projetos, tarefas, pipelines e itens de planejamento",
+    "filesLabel": "Pasta do projeto",
+    "filesDescription": "Arquivos e pastas do working_directory_path de cada projeto",
+    "cancel": "Cancelar",
+    "confirm": "Restaurar"
+  },
+  "detail": {
+    "loading": "Carregando produto...",
+    "backToProducts": "Voltar para produtos",
+    "loadError": "Falha ao carregar o produto.",
+    "retry": "Tentar novamente",
+    "versionsTitle": "Versões",
+    "newVersionButton": "Nova Versão",
+    "statusOptions": {
+      "planned": "Planejada",
+      "in_development": "Em Desenvolvimento",
+      "in_test": "Em Teste",
+      "published": "Publicada",
+      "deprecated": "Descontinuada"
+    },
+    "createForm": {
+      "title": "Criar Versão do Produto",
+      "description": "Cadastre uma nova versão planejada, em desenvolvimento, em teste ou publicada.",
+      "versionLabel": "Versão",
+      "versionPlaceholder": "ex. 0.1.0",
+      "statusLabel": "Status",
+      "releaseNotesLabel": "Notas de Versão",
+      "releaseNotesPlaceholder": "Notas de versão opcionais",
+      "error": "Falha ao criar a versão. Tente novamente.",
+      "save": "Salvar",
+      "cancel": "Cancelar",
+      "validation": {
+        "versionRequired": "A versão é obrigatória",
+        "versionFormat": "Use versionamento semântico, ex. 0.1.0"
+      }
+    },
+    "emptyTitle": "Nenhuma versão ainda",
+    "emptyDescription": "Crie a primeira versão para este produto.",
+    "columns": {
+      "version": "Versão",
+      "status": "Status",
+      "releaseNotes": "Notas de Versão"
+    },
+    "noReleaseNotes": "—"
+  }
+}

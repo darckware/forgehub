@@ -1,0 +1,175 @@
+{
+  "pipelineStatus": {
+    "draft": "draft",
+    "active": "active",
+    "paused": "paused",
+    "completed": "completed",
+    "archived": "archived"
+  },
+  "stageStatus": {
+    "pending": "pending",
+    "in_progress": "in progress",
+    "blocked": "blocked",
+    "completed": "completed",
+    "skipped": "skipped"
+  },
+  "stageType": {
+    "discovery": "discovery",
+    "spec": "spec",
+    "architecture_review": "architecture review",
+    "implementation": "implementation",
+    "migration": "migration",
+    "testing": "testing",
+    "build": "build",
+    "release_notes": "release notes",
+    "deployment_package": "deployment package",
+    "release_approval": "release approval",
+    "other": "other"
+  },
+  "checkpointType": {
+    "started": "started",
+    "progress": "progress",
+    "evidence": "evidence",
+    "blocked": "blocked",
+    "failed": "failed",
+    "paused": "paused",
+    "heartbeat_lost": "heartbeat lost",
+    "reconciled": "reconciled",
+    "resumed": "resumed",
+    "completed": "completed"
+  },
+  "list": {
+    "title": "Pipelines",
+    "description": "Delivery flow for each project: ordered stages, required artifacts, and approval gates that must pass before release.",
+    "newPipeline": "New pipeline",
+    "createTitle": "Create pipeline",
+    "createDescription": "Register a project pipeline, optionally seeded from a pipeline template. Stages can be added afterwards.",
+    "createError": "Failed to create pipeline: {{message}}",
+    "saveChanges": "Save changes",
+    "loading": "Loading pipelines…",
+    "loadError": "Failed to load pipelines: {{message}}",
+    "emptyTitle": "No pipelines yet",
+    "emptyDescription": "Every project must have an active pipeline. Create one to start defining stages.",
+    "activeDescription": "Active pipeline for this project",
+    "inactiveDescription": "Inactive",
+    "projectLabel": "Project: {{name}}",
+    "stagesCompleted": "{{completed}}/{{total}} stages completed",
+    "noStagesYet": "No stages defined yet",
+    "viewDetails": "View details",
+    "editAria": "Edit {{name}}",
+    "deleteAria": "Delete {{name}}",
+    "deleteTitle": "Delete pipeline?",
+    "deleteDescription": "This will permanently delete the pipeline and all its stages. This cannot be undone.",
+    "deleteConfirm": "Delete"
+  },
+  "detail": {
+    "loading": "Loading pipeline…",
+    "loadError": "Failed to load pipeline: {{message}}",
+    "activePipelineBadge": "Active pipeline",
+    "requiresApproval": "Requires approval",
+    "requiresVerification": "Requires verification",
+    "projectProgressTitle": "Project progress",
+    "projectProgressDescription": "Authoritative checkpoints and the exact safe resume point.",
+    "macroflowLabel": "Macroflow",
+    "lastConfirmationLabel": "Last confirmation",
+    "noCheckpointShort": "No checkpoint",
+    "nextSafeActionLabel": "Next safe action",
+    "evaluateCurrentStageFallback": "Evaluate the current stage",
+    "stoppedAt": "Stopped at {{step}}:",
+    "timelineTitle_one": "Timeline · {{count}} checkpoint",
+    "timelineTitle_other": "Timeline · {{count}} checkpoints",
+    "stagesTitle": "Stages",
+    "stagesDescription": "Stages execute in order. A stage cannot complete until its required artifacts exist, its gates pass, and a current completion assessment confirms readiness.",
+    "addStage": "Add stage",
+    "noStagesDefined": "No stages defined for this pipeline yet.",
+    "backToList": "Back to list",
+    "stageCard": {
+      "changeStatusTitle": "Click to change status",
+      "editAria": "Edit stage {{name}}",
+      "deleteAria": "Delete stage {{name}}",
+      "typeLabel": "Type",
+      "requiredArtifactsTitle": "Required artifacts",
+      "gatesTitle": "Gates",
+      "noneDefined": "None defined",
+      "dependsOn_one": "Depends on {{count}} stage",
+      "dependsOn_other": "Depends on {{count}} stages",
+      "completionControlTitle": "Completion control",
+      "confirmedCount": "{{completed}}/{{total}} confirmed",
+      "lastCheckpoint": "Last checkpoint: {{label}}",
+      "stopped": "Stopped: {{reason}}",
+      "resumeFrom": "Resume from: {{resume}}",
+      "noCheckpoint": "No checkpoint recorded.",
+      "pendingItem": "Pending: {{label}}",
+      "evaluate": "Evaluate",
+      "completeStage": "Complete stage"
+    },
+    "addStageForm": {
+      "nameLabel": "Name",
+      "namePlaceholder": "Implementation",
+      "orderLabel": "Order",
+      "typeLabel": "Type",
+      "statusLabel": "Status",
+      "cancel": "Cancel"
+    }
+  },
+  "form": {
+    "nameLabel": "Name",
+    "namePlaceholder": "Foundation MVP delivery pipeline",
+    "projectLabel": "Project",
+    "loadingProjects": "Loading projects…",
+    "selectProject": "Select a project",
+    "templateLabel": "Template (optional)",
+    "loadingTemplates": "Loading templates…",
+    "noTemplate": "No template",
+    "templateHint": "Creates the pipeline with the template's stages already in place.",
+    "statusLabel": "Status",
+    "cancel": "Cancel",
+    "createPipelineLabel": "Create pipeline"
+  },
+  "templates": {
+    "pageTitle": "Pipeline Templates",
+    "importPipelineButton": "Import pipeline",
+    "newTemplateButton": "New template",
+    "cancel": "Cancel",
+    "optionalPlaceholder": "optional",
+    "emptyDescription": "No templates registered. Create one or import from an existing pipeline.",
+    "stageRow": {
+      "editTitle": "Edit",
+      "deleteTitle": "Delete"
+    },
+    "addStageForm": {
+      "nameLabel": "Stage name",
+      "namePlaceholder": "e.g. Development",
+      "typeLabel": "Type",
+      "addButton": "Add"
+    },
+    "table": {
+      "nameHeader": "Name",
+      "typeHeader": "Type",
+      "approvalHeader": "Approval",
+      "verificationHeader": "Verification"
+    },
+    "card": {
+      "nameLabel": "Name",
+      "descriptionLabel": "Description",
+      "editTitle": "Edit",
+      "deleteTitle": "Delete",
+      "deleteConfirm": "Delete template \"{{name}}\"?",
+      "noStagesYet": "No stages yet. Add one below.",
+      "addStageButton": "Add stage"
+    },
+    "import": {
+      "title": "Import pipeline as template",
+      "sourceLabel": "Source pipeline *",
+      "selectPlaceholder": "— select —",
+      "nameLabel": "Template name *",
+      "namePlaceholder": "e.g. Software Delivery",
+      "importButton": "Import"
+    },
+    "create": {
+      "nameLabel": "Name *",
+      "namePlaceholder": "e.g. Standard Delivery",
+      "submitButton": "Create"
+    }
+  }
+}

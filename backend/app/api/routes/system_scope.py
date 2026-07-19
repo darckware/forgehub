@@ -19,6 +19,7 @@ from app.api.schemas.system_scope import (
     ConceptRevisionCreate,
     DeliveryPlanningAuthorizationOut,
     DevelopmentRequestOut,
+    DevelopmentRequestUpdate,
     IdeaCreate,
     IdeaCreatedOut,
     ProjectScopeCreate,
@@ -28,6 +29,7 @@ from app.api.schemas.system_scope import (
     SystemElementCreate,
     SystemElementRelationCreate,
     SystemElementRelationOut,
+    SystemElementUpdate,
     ValidationIssue,
     AuthorizeDeliveryPlanning,
     AcceptanceCriterionOut,
@@ -254,6 +256,24 @@ async def list_development_requests(db: AsyncSession = Depends(get_db)):
     return list(result.scalars())
 
 
+@router.patch("/conception/requests/{request_id}", response_model=DevelopmentRequestOut)
+async def update_development_request(
+    request_id: uuid.UUID, payload: DevelopmentRequestUpdate, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    request = await db.get(DevelopmentRequest, request_id)
+    if request is None:
+        raise HTTPException(404, "Development request not found")
+    await authorize_action(db, principal, "planning.concept.edit", product_id=request.product_id)
+    request.title = payload.title
+    request.description = payload.description
+    request.requested_by = payload.requested_by
+    db.add(_audit("development_request", request.id, "updated", principal.display_name, payload.model_dump()))
+    await db.commit()
+    await db.refresh(request)
+    return request
+
+
 @router.get("/products/{product_id}/concept", response_model=ConceptDetailOut)
 async def get_product_concept(product_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     concept = (await db.execute(select(ProductConcept).where(ProductConcept.product_id == product_id))).scalar_one_or_none()
@@ -426,6 +446,81 @@ async def add_system_element(
     await db.refresh(element)
     await db.refresh(element_revision)
     return ElementWithRevisionOut(element=element, revision=element_revision)
+
+
+async def _element_revision_in(db: AsyncSession, revision_id: uuid.UUID, element_id: uuid.UUID) -> SystemElementRevision:
+    row = (await db.execute(select(SystemElementRevision).where(
+        SystemElementRevision.blueprint_revision_id == revision_id,
+        SystemElementRevision.system_element_id == element_id,
+    ))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(404, "Element not found in this revision")
+    return row
+
+
+@router.patch("/blueprint-revisions/{revision_id}/elements/{element_id}", response_model=ElementWithRevisionOut)
+async def update_system_element(
+    revision_id: uuid.UUID, element_id: uuid.UUID, payload: SystemElementUpdate,
+    db: AsyncSession = Depends(get_db), principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    revision = await _draft_blueprint_revision(db, revision_id)
+    blueprint = await db.get(SystemBlueprint, revision.blueprint_id)
+    await authorize_action(db, principal, "planning.blueprint.edit", product_id=blueprint.product_id)
+    element_revision = await _element_revision_in(db, revision_id, element_id)
+    element = await db.get(SystemElement, element_id)
+
+    if payload.spec_snapshot is not None:
+        element_revision.spec_snapshot = {**element_revision.spec_snapshot, **payload.spec_snapshot}
+
+    # name/family/element_type/stable_key live on the shared SystemElement
+    # row (not the per-revision snapshot) -- renaming/retyping an element is
+    # a durable catalog edit, same as renaming a Product, and applies across
+    # every revision that references it, past and future.
+    if payload.family is not None or payload.element_type is not None:
+        family = payload.family or element.family
+        element_type = payload.element_type or element.element_type
+        if family not in ELEMENT_FAMILIES or element_type not in ELEMENT_TYPES:
+            raise HTTPException(422, "Unknown family or element type")
+        if element_type not in FAMILY_TYPES[family]:
+            raise HTTPException(422, f"{element_type} does not belong to {family}")
+        element.family = family
+        element.element_type = element_type
+    if payload.name is not None:
+        element.name = payload.name
+    if payload.stable_key is not None:
+        element.stable_key = payload.stable_key
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "The stable key already exists for this product") from None
+    await db.refresh(element)
+    await db.refresh(element_revision)
+    return ElementWithRevisionOut(element=element, revision=element_revision)
+
+
+@router.delete("/blueprint-revisions/{revision_id}/elements/{element_id}", status_code=204)
+async def remove_system_element(
+    revision_id: uuid.UUID, element_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    # Elements are shared across blueprint revisions (cloning copies the
+    # SystemElementRevision row but reuses the same SystemElement), so this
+    # only drops this revision's inclusion of the element -- never the
+    # shared SystemElement row or other revisions' snapshots.
+    revision = await _draft_blueprint_revision(db, revision_id)
+    blueprint = await db.get(SystemBlueprint, revision.blueprint_id)
+    await authorize_action(db, principal, "planning.blueprint.edit", product_id=blueprint.product_id)
+    element_revision = await _element_revision_in(db, revision_id, element_id)
+    relations = list((await db.execute(select(SystemElementRelation).where(
+        SystemElementRelation.blueprint_revision_id == revision_id,
+        (SystemElementRelation.from_element_id == element_id) | (SystemElementRelation.to_element_id == element_id),
+    ))).scalars())
+    for relation in relations:
+        await db.delete(relation)
+    await db.delete(element_revision)
+    await db.commit()
 
 
 @router.post("/blueprint-revisions/{revision_id}/relations", response_model=SystemElementRelationOut, status_code=201)

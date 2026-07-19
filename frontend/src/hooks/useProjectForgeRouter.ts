@@ -12,7 +12,9 @@ import { apiClient } from "@/lib/api";
 
 export const projectForgeRouterConfigSchema = z.object({
   project_id: z.string(),
-  api_key: z.string().nullable(),
+  claude_api_key: z.string().nullable(),
+  codex_api_key: z.string().nullable(),
+  antigravity_api_key: z.string().nullable(),
   claude_enabled: z.boolean(),
   codex_enabled: z.boolean(),
   antigravity_enabled: z.boolean(),
@@ -30,7 +32,9 @@ export type ForgeRouterGlobalAudit = z.infer<typeof forgeRouterGlobalAuditSchema
 
 export interface ProjectForgeRouterToggle {
   enabled: boolean;
-  api_key?: string;
+  claude_api_key?: string;
+  codex_api_key?: string;
+  antigravity_api_key?: string;
   claude?: boolean;
   codex?: boolean;
   antigravity?: boolean;

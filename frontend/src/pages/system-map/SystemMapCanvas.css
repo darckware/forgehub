@@ -1,0 +1,23 @@
+/* Tailwind's button/svg reset strips React Flow's own default styling
+   (transparent background, no border, no icon fill), leaving blank boxes.
+   Restore just enough to match the app's theme. */
+.react-flow__controls {
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: none;
+}
+.react-flow__controls-button {
+  background: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+.react-flow__controls-button:hover {
+  background: hsl(var(--accent));
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}

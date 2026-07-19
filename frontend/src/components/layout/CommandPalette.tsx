@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
@@ -13,18 +14,22 @@ interface FlatEntry {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-function flattenSections(sections: NavSectionEntry[]): FlatEntry[] {
+// Translates at flatten-time (not render-time) so search matching runs
+// against the same text the user sees, in whichever language is active.
+function flattenSections(sections: NavSectionEntry[], t: (key: string) => string): FlatEntry[] {
   const out: FlatEntry[] = [];
   for (const section of sections) {
+    const sectionLabel = t(section.labelKey);
     for (const entry of section.entries) {
       if (entry.type === "link") {
-        out.push({ to: entry.to, label: entry.label, section: section.label, module: entry.module, icon: entry.icon });
+        out.push({ to: entry.to, label: t(entry.labelKey), section: sectionLabel, module: entry.module, icon: entry.icon });
       } else {
+        const groupLabel = t(entry.labelKey);
         for (const item of (entry as NavGroupEntry).items) {
           out.push({
             to: item.to,
-            label: `${entry.label} / ${item.label}`,
-            section: section.label,
+            label: `${groupLabel} / ${t(item.labelKey)}`,
+            section: sectionLabel,
             module: item.module,
             icon: item.icon,
           });
@@ -47,6 +52,7 @@ export function CommandPalette({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useTranslation("common");
   const setOpen = onOpenChange;
   const [query, setQuery] = React.useState("");
   const [activeIndex, setActiveIndex] = React.useState(0);
@@ -65,7 +71,7 @@ export function CommandPalette({
     [user, permissions]
   );
 
-  const allEntries = React.useMemo(() => flattenSections(sections), [sections]);
+  const allEntries = React.useMemo(() => flattenSections(sections, t), [sections, t]);
 
   const visibleEntries = React.useMemo(() => {
     const withPerm = allEntries.filter((entry) => canView(entry.module));
@@ -134,23 +140,23 @@ export function CommandPalette({
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Jump to a page..."
+            placeholder={t("commandPalette.placeholder")}
             className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           <button
             type="button"
             onClick={() => setOpen(false)}
-            aria-label="Sair"
-            title="Sair"
+            aria-label={t("commandPalette.close")}
+            title={t("commandPalette.close")}
             className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             <X className="h-3 w-3" />
-            Sair
+            {t("commandPalette.close")}
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {visibleEntries.length === 0 && (
-            <p className="px-3 py-6 text-center text-sm text-muted-foreground">No matching pages.</p>
+            <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t("commandPalette.noResults")}</p>
           )}
           {visibleEntries.map((entry, i) => (
             <button

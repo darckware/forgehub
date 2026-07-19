@@ -1,7 +1,7 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { useSessionKeepAlive } from "@/hooks/useAuth";
+import { useSessionKeepAlive, useSyncUiLanguage } from "@/hooks/useAuth";
 import { AssistantDrawer } from "@/components/chat/AssistantDrawer";
 
 export function AppLayout() {
@@ -9,6 +9,9 @@ export function AppLayout() {
   // expires out from under the user mid-work -- see useSessionKeepAlive's
   // own docstring for why this is needed at all.
   useSessionKeepAlive();
+  // Applies the logged-in user's saved UI language on load/login -- see
+  // useSyncUiLanguage's own docstring.
+  useSyncUiLanguage();
 
   // The workspace (chat/terminal) page manages its own full-bleed layout
   // (the terminal card should fill the viewport, not sit inside the

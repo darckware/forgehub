@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -18,8 +19,10 @@ export function ProjectPlanForm({
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Create plan",
+  submitLabel: submitLabelProp,
 }: ProjectPlanFormProps) {
+  const { t } = useTranslation("project");
+  const submitLabel = submitLabelProp ?? t("projectPlanForm.submitLabelDefault");
   const {
     register,
     handleSubmit,
@@ -37,38 +40,38 @@ export function ProjectPlanForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="plan_name">Name</Label>
-        <Input id="plan_name" placeholder="Initial plan" {...register("name")} />
+        <Label htmlFor="plan_name">{t("projectPlanForm.nameLabel")}</Label>
+        <Input id="plan_name" placeholder={t("projectPlanForm.namePlaceholder")} {...register("name")} />
         {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="scope_summary">Scope summary</Label>
+        <Label htmlFor="scope_summary">{t("projectPlanForm.scopeSummaryLabel")}</Label>
         <Textarea
           id="scope_summary"
-          placeholder="What this plan covers"
+          placeholder={t("projectPlanForm.scopeSummaryPlaceholder")}
           {...register("scope_summary")}
         />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="estimated_start_date">Estimated start</Label>
+          <Label htmlFor="estimated_start_date">{t("projectPlanForm.estimatedStartLabel")}</Label>
           <Input id="estimated_start_date" type="date" {...register("estimated_start_date")} />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="estimated_end_date">Estimated end</Label>
+          <Label htmlFor="estimated_end_date">{t("projectPlanForm.estimatedEndLabel")}</Label>
           <Input id="estimated_end_date" type="date" {...register("estimated_end_date")} />
         </div>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="estimated_cost">Estimated cost</Label>
+        <Label htmlFor="estimated_cost">{t("projectPlanForm.estimatedCostLabel")}</Label>
         <Input
           id="estimated_cost"
           type="number"
           step="0.01"
-          placeholder="0.00"
+          placeholder={t("projectPlanForm.estimatedCostPlaceholder")}
           {...register("estimated_cost")}
         />
       </div>
@@ -76,7 +79,7 @@ export function ProjectPlanForm({
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-            Cancel
+            {t("shared.cancel")}
           </Button>
         )}
         <Button type="submit" disabled={isSubmitting}>

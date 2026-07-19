@@ -2,7 +2,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.db.models.user import UI_LANGUAGES
 
 
 class UserCreate(BaseModel):
@@ -32,6 +34,7 @@ class UserOut(BaseModel):
     is_active: bool
     is_admin: bool
     profile_id: uuid.UUID | None
+    ui_language: str
     created_at: datetime
     updated_at: datetime
 
@@ -46,6 +49,14 @@ class SelfUserUpdate(BaseModel):
     email: str | None = None
     full_name: str | None = None
     avatar_data_url: str | None = None
+    ui_language: str | None = None
+
+    @field_validator("ui_language")
+    @classmethod
+    def _check_ui_language(cls, v: str | None) -> str | None:
+        if v is not None and v not in UI_LANGUAGES:
+            raise ValueError(f"ui_language must be one of {UI_LANGUAGES}")
+        return v
 
 
 class ChangePasswordRequest(BaseModel):

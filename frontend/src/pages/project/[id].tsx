@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Trans, useTranslation } from "react-i18next";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import {
   AlertCircle,
@@ -65,23 +66,23 @@ const CHANGE_REQUEST_STATUS_VARIANT: Record<string, "outline" | "success" | "des
   applied: "secondary",
 };
 
-const CHANGE_REQUEST_IMPACT_LABELS: Record<string, string> = {
-  affects_scope: "Scope",
-  affects_schedule: "Schedule",
-  affects_cost: "Cost",
-  adds_features: "Adds features",
-  removes_features: "Removes features",
-  introduces_critical_bug_fix: "Critical bug fix",
-  changes_agents: "Agents",
-  changes_skills: "Skills",
-  changes_architecture: "Architecture",
-  changes_security: "Security",
+const CHANGE_REQUEST_IMPACT_KEYS: Record<string, string> = {
+  affects_scope: "detail.changeRequestImpact.scope",
+  affects_schedule: "detail.changeRequestImpact.schedule",
+  affects_cost: "detail.changeRequestImpact.cost",
+  adds_features: "detail.changeRequestImpact.addsFeatures",
+  removes_features: "detail.changeRequestImpact.removesFeatures",
+  introduces_critical_bug_fix: "detail.changeRequestImpact.criticalBugFix",
+  changes_agents: "detail.changeRequestImpact.agents",
+  changes_skills: "detail.changeRequestImpact.skills",
+  changes_architecture: "detail.changeRequestImpact.architecture",
+  changes_security: "detail.changeRequestImpact.security",
 };
 
-function changeRequestImpactLabels(cr: ChangeRequest): string[] {
-  return Object.entries(CHANGE_REQUEST_IMPACT_LABELS)
+function changeRequestImpactKeys(cr: ChangeRequest): string[] {
+  return Object.entries(CHANGE_REQUEST_IMPACT_KEYS)
     .filter(([key]) => Boolean(cr[key as keyof ChangeRequest]))
-    .map(([, label]) => label);
+    .map(([, key]) => key);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,7 @@ function ChangeRequestCard({
   onDelete,
   isMutating,
 }: ChangeRequestCardProps) {
+  const { t } = useTranslation("project");
   const { data: derivedTasks } = useTasksByChangeRequest(cr.id);
   const taskCount = derivedTasks?.length ?? 0;
 
@@ -143,7 +145,7 @@ function ChangeRequestCard({
           onSubmit={(values) => onSaveEdit(values)}
           onCancel={onCancelEdit}
           isSubmitting={isMutating}
-          submitLabel="Save changes"
+          submitLabel={t("detail.saveChanges")}
         />
       ) : (
         <div className="flex items-start justify-between gap-2">
@@ -154,12 +156,12 @@ function ChangeRequestCard({
                 variant={CHANGE_REQUEST_STATUS_VARIANT[cr.status] ?? "outline"}
                 className="capitalize"
               >
-                {cr.status}
+                {t(`enums.changeRequestStatus.${cr.status}`, cr.status)}
               </Badge>
               {taskCount > 0 && (
                 <Badge variant="secondary" className="gap-1 text-[10px]">
                   <ListTodo className="h-3 w-3" />
-                  {taskCount} task{taskCount !== 1 ? "s" : ""}
+                  {t("detail.changeRequestCard.taskCount", { count: taskCount })}
                 </Badge>
               )}
             </div>
@@ -167,18 +169,22 @@ function ChangeRequestCard({
               <p className="text-muted-foreground">{cr.justification}</p>
             )}
             <div className="flex flex-wrap gap-1">
-              {changeRequestImpactLabels(cr).map((label) => (
-                <Badge key={label} variant="secondary" className="text-[10px]">
-                  {label}
+              {changeRequestImpactKeys(cr).map((key) => (
+                <Badge key={key} variant="secondary" className="text-[10px]">
+                  {t(key)}
                 </Badge>
               ))}
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
               {cr.schedule_delta_days != null && (
-                <span>Schedule delta: {cr.schedule_delta_days}d</span>
+                <span>{t("detail.changeRequestCard.scheduleDelta", { days: cr.schedule_delta_days })}</span>
               )}
-              {cr.cost_delta != null && <span>Cost delta: {cr.cost_delta}</span>}
-              {cr.requested_by && <span>Requested by {cr.requested_by}</span>}
+              {cr.cost_delta != null && (
+                <span>{t("detail.changeRequestCard.costDelta", { cost: cr.cost_delta })}</span>
+              )}
+              {cr.requested_by && (
+                <span>{t("detail.changeRequestCard.requestedBy", { name: cr.requested_by })}</span>
+              )}
             </div>
           </div>
 
@@ -190,7 +196,7 @@ function ChangeRequestCard({
                   variant="ghost"
                   size="icon"
                   disabled={isMutating}
-                  aria-label={`Approve ${cr.title}`}
+                  aria-label={t("detail.changeRequestCard.approveAria", { title: cr.title })}
                   onClick={onApprove}
                 >
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -199,7 +205,7 @@ function ChangeRequestCard({
                   variant="ghost"
                   size="icon"
                   disabled={isMutating}
-                  aria-label={`Reject ${cr.title}`}
+                  aria-label={t("detail.changeRequestCard.rejectAria", { title: cr.title })}
                   onClick={onReject}
                 >
                   <XCircle className="h-4 w-4 text-destructive" />
@@ -213,7 +219,7 @@ function ChangeRequestCard({
                 disabled={isMutating}
                 onClick={onMarkApplied}
               >
-                Mark applied
+                {t("detail.changeRequestCard.markApplied")}
               </Button>
             )}
 
@@ -223,7 +229,7 @@ function ChangeRequestCard({
                 variant="ghost"
                 size="icon"
                 disabled={isMutating}
-                aria-label={`Edit ${cr.title}`}
+                aria-label={t("detail.changeRequestCard.editAria", { title: cr.title })}
                 onClick={onEdit}
               >
                 <Pencil className="h-4 w-4" />
@@ -236,7 +242,7 @@ function ChangeRequestCard({
                 variant="ghost"
                 size="icon"
                 disabled={isMutating}
-                aria-label={`Delete ${cr.title}`}
+                aria-label={t("detail.changeRequestCard.deleteAria", { title: cr.title })}
                 onClick={onDelete}
               >
                 <Trash2 className="h-4 w-4 text-destructive" />
@@ -272,6 +278,7 @@ function ProjectBackups({
   projectName: string;
   workingDirectoryPath: string | null | undefined;
 }) {
+  const { t } = useTranslation("project");
   const target = `project:${projectId}`;
   const { data: listing, isLoading } = useBackupListing(target);
   const runBackup = useRunBackup();
@@ -281,7 +288,7 @@ function ProjectBackups({
   return (
     <div className="space-y-2 border-t border-border pt-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">{projectName}'s backups</span>
+        <span className="text-sm font-medium">{t("detail.backups.title", { name: projectName })}</span>
         <Button
           size="sm"
           variant="outline"
@@ -290,26 +297,28 @@ function ProjectBackups({
           disabled={runBackup.isPending}
         >
           {runBackup.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
-          Backup now
+          {t("detail.backups.backupNow")}
         </Button>
       </div>
       {listing?.path && (
         <p className="font-mono text-xs text-muted-foreground">
-          {workingDirectoryPath ?? "(no working directory set)"} → {listing.path}
+          {workingDirectoryPath ?? t("detail.backups.noWorkingDirectorySet")} → {listing.path}
         </p>
       )}
       {runBackup.isError && (
-        <p className="text-xs text-destructive">{(runBackup.error as Error)?.message ?? "Backup failed"}</p>
+        <p className="text-xs text-destructive">
+          {(runBackup.error as Error)?.message ?? t("detail.backups.backupFailed")}
+        </p>
       )}
       {deleteBackup.isError && (
         <p className="text-xs text-destructive">
-          {(deleteBackup.error as Error)?.message ?? "Failed to delete backup"}
+          {(deleteBackup.error as Error)?.message ?? t("detail.backups.deleteBackupFailed")}
         </p>
       )}
       <ConfirmDialog
         open={deletingBackup !== null}
-        title={`Delete "${deletingBackup ?? ""}"`}
-        description="Permanently removes this backup archive. This action cannot be undone."
+        title={t("detail.backups.deleteDialogTitle", { name: deletingBackup ?? "" })}
+        description={t("detail.backups.deleteDialogDescription")}
         loading={deleteBackup.isPending}
         onConfirm={() => {
           if (deletingBackup) {
@@ -320,14 +329,14 @@ function ProjectBackups({
       />
       {isLoading ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading archives...
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("detail.backups.loadingArchives")}
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Archive</TableHead>
-              <TableHead>Size</TableHead>
+              <TableHead>{t("detail.backups.archiveColumn")}</TableHead>
+              <TableHead>{t("detail.backups.sizeColumn")}</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -341,7 +350,7 @@ function ProjectBackups({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 text-destructive"
-                    aria-label={`Delete ${entry.name}`}
+                    aria-label={t("detail.backups.deleteArchiveAria", { name: entry.name })}
                     onClick={() => setDeletingBackup(entry.name)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -352,7 +361,7 @@ function ProjectBackups({
             {(listing?.entries ?? []).length === 0 && (
               <TableRow>
                 <TableCell colSpan={3} className="text-xs text-muted-foreground">
-                  No backup archives yet.
+                  {t("detail.backups.noBackupArchives")}
                 </TableCell>
               </TableRow>
             )}
@@ -364,6 +373,7 @@ function ProjectBackups({
 }
 
 export default function ProjectDetailPage() {
+  const { t } = useTranslation("project");
   const { id } = useParams<{ id: string }>();
   const { data: project, isLoading, isError, error } = useProject(id);
   const { data: productVersion } = useProductVersion(project?.product_version_id ?? undefined);
@@ -418,7 +428,7 @@ export default function ProjectDetailPage() {
     <div className="space-y-6">
       <Breadcrumb
         items={[
-          { label: "Projects", href: "/projects" },
+          { label: t("list.title"), href: "/projects" },
           { label: project?.name ?? "…" },
         ]}
       />
@@ -426,7 +436,7 @@ export default function ProjectDetailPage() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading project…
+          {t("detail.loadingProject")}
         </div>
       )}
 
@@ -434,7 +444,7 @@ export default function ProjectDetailPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load project: {(error as Error)?.message}</span>
+            <span>{t("detail.loadError", { message: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -450,7 +460,7 @@ export default function ProjectDetailPage() {
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-sm capitalize">
-                {project.status.replace("_", " ")}
+                {t(`enums.projectStatus.${project.status}`, project.status)}
               </Badge>
               <Button
                 variant="outline"
@@ -458,7 +468,7 @@ export default function ProjectDetailPage() {
                 onClick={() => setShowEditForm((v) => !v)}
               >
                 <Pencil className="mr-2 h-4 w-4" />
-                Edit
+                {t("shared.edit")}
               </Button>
             </div>
           </div>
@@ -466,8 +476,8 @@ export default function ProjectDetailPage() {
           {showEditForm && (
             <Card>
               <CardHeader>
-                <CardTitle>Edit project</CardTitle>
-                <CardDescription>Update name, description, version, status, or working directory.</CardDescription>
+                <CardTitle>{t("detail.editProjectCardTitle")}</CardTitle>
+                <CardDescription>{t("detail.editProjectCardDescription")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <ProjectForm
@@ -484,11 +494,11 @@ export default function ProjectDetailPage() {
                   onSubmit={handleUpdate}
                   onCancel={() => setShowEditForm(false)}
                   isSubmitting={updateProject.isPending}
-                  submitLabel="Save changes"
+                  submitLabel={t("detail.saveChanges")}
                 />
                 {updateProject.isError && (
                   <p className="mt-3 text-sm text-destructive">
-                    Failed to update project: {(updateProject.error as Error)?.message}
+                    {t("detail.updateProjectError", { message: (updateProject.error as Error)?.message })}
                   </p>
                 )}
               </CardContent>
@@ -501,14 +511,14 @@ export default function ProjectDetailPage() {
                 <div>
                   <CardTitle className="flex items-center gap-2 text-xl">
                     <ClipboardList className="h-5 w-5" />
-                    Project plan
+                    {t("detail.projectPlanTitle")}
                   </CardTitle>
-                  <CardDescription>Scope, schedule, and baseline state.</CardDescription>
+                  <CardDescription>{t("detail.projectPlanDescription")}</CardDescription>
                 </div>
                 {!latestPlan && (
                   <Button variant="outline" size="sm" onClick={() => setShowPlanForm((v) => !v)}>
                     <Plus className="mr-2 h-4 w-4" />
-                    Create plan
+                    {t("detail.createPlanButton")}
                   </Button>
                 )}
               </CardHeader>
@@ -538,25 +548,25 @@ export default function ProjectDetailPage() {
                         variant={latestPlan.status === "baselined" ? "success" : "outline"}
                         className="capitalize"
                       >
-                        {latestPlan.status}
+                        {t(`enums.projectPlanStatus.${latestPlan.status}`, latestPlan.status)}
                       </Badge>
                     </div>
                     {latestPlan.scope_summary && (
                       <div>
-                        <dt className="font-medium text-muted-foreground">Scope</dt>
+                        <dt className="font-medium text-muted-foreground">{t("detail.scopeLabel")}</dt>
                         <dd>{latestPlan.scope_summary}</dd>
                       </div>
                     )}
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <CalendarRange className="h-4 w-4" />
                       <span>
-                        {latestPlan.estimated_start_date ?? "No start date"} →{" "}
-                        {latestPlan.estimated_end_date ?? "No target date"}
+                        {latestPlan.estimated_start_date ?? t("detail.noStartDate")} →{" "}
+                        {latestPlan.estimated_end_date ?? t("detail.noTargetDate")}
                       </span>
                     </div>
                     {latestPlan.estimated_cost != null && (
                       <div>
-                        <dt className="font-medium text-muted-foreground">Estimated cost</dt>
+                        <dt className="font-medium text-muted-foreground">{t("detail.estimatedCostLabel")}</dt>
                         <dd>{latestPlan.estimated_cost}</dd>
                       </div>
                     )}
@@ -567,13 +577,13 @@ export default function ProjectDetailPage() {
                         disabled={approveProjectPlan.isPending}
                         onClick={() => approveProjectPlan.mutate(latestPlan.id)}
                       >
-                        Approve plan
+                        {t("detail.approvePlanButton")}
                       </Button>
                     )}
 
                     {latestPlan.status === "approved" && !showBaselineForm && (
                       <Button size="sm" onClick={() => setShowBaselineForm(true)}>
-                        Freeze baseline
+                        {t("detail.freezeBaselineButton")}
                       </Button>
                     )}
 
@@ -582,7 +592,7 @@ export default function ProjectDetailPage() {
                         <Input
                           value={baselineNameDraft}
                           onChange={(e) => setBaselineNameDraft(e.target.value)}
-                          placeholder="Baseline v1"
+                          placeholder={t("detail.baselineNamePlaceholder")}
                         />
                         <Button
                           size="sm"
@@ -599,10 +609,10 @@ export default function ProjectDetailPage() {
                             )
                           }
                         >
-                          Save
+                          {t("shared.save")}
                         </Button>
                         <Button variant="outline" size="sm" onClick={() => setShowBaselineForm(false)}>
-                          Cancel
+                          {t("shared.cancel")}
                         </Button>
                       </div>
                     )}
@@ -615,7 +625,7 @@ export default function ProjectDetailPage() {
 
                     {baselines && baselines.length > 0 && (
                       <div className="space-y-2 pt-2">
-                        <dt className="font-medium text-muted-foreground">Baseline history</dt>
+                        <dt className="font-medium text-muted-foreground">{t("detail.baselineHistoryLabel")}</dt>
                         <ul className="space-y-1">
                           {baselines.map((baseline) => (
                             <li
@@ -624,7 +634,7 @@ export default function ProjectDetailPage() {
                             >
                               <span className="font-medium">{baseline.name}</span>{" "}
                               <span className="text-muted-foreground">
-                                frozen {new Date(baseline.frozen_at).toLocaleString()}
+                                {t("detail.frozenAt", { date: new Date(baseline.frozen_at).toLocaleString() })}
                               </span>
                             </li>
                           ))}
@@ -634,9 +644,7 @@ export default function ProjectDetailPage() {
                   </dl>
                 ) : (
                   !showPlanForm && (
-                    <p className="text-sm text-muted-foreground">
-                      No plan has been created for this project yet.
-                    </p>
+                    <p className="text-sm text-muted-foreground">{t("detail.noPlanYet")}</p>
                   )
                 )}
               </CardContent>
@@ -644,8 +652,8 @@ export default function ProjectDetailPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-xl">Product version</CardTitle>
-                <CardDescription>The target version this project delivers against.</CardDescription>
+                <CardTitle className="text-xl">{t("detail.productVersionTitle")}</CardTitle>
+                <CardDescription>{t("detail.productVersionDescription")}</CardDescription>
               </CardHeader>
               <CardContent>
                 {project.product_version_id ? (
@@ -653,14 +661,14 @@ export default function ProjectDetailPage() {
                     <div className="flex items-center gap-2 text-sm">
                       <span className="font-medium">{productVersion.version}</span>
                       <Badge variant="outline" className="capitalize">
-                        {productVersion.status.replace(/_/g, " ")}
+                        {t(`enums.productVersionStatus.${productVersion.status}`, productVersion.status)}
                       </Badge>
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">Loading version…</p>
+                    <p className="text-sm text-muted-foreground">{t("detail.loadingVersion")}</p>
                   )
                 ) : (
-                  <p className="text-sm italic text-muted-foreground">No product version linked.</p>
+                  <p className="text-sm italic text-muted-foreground">{t("detail.noProductVersionLinked")}</p>
                 )}
               </CardContent>
             </Card>
@@ -669,10 +677,8 @@ export default function ProjectDetailPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="text-xl">Working directory</CardTitle>
-                <CardDescription>
-                  On-disk path of this project's real code/repo.
-                </CardDescription>
+                <CardTitle className="text-xl">{t("detail.workingDirectoryTitle")}</CardTitle>
+                <CardDescription>{t("detail.workingDirectoryDescription")}</CardDescription>
               </div>
               {!editingPath && (
                 <Button
@@ -684,7 +690,7 @@ export default function ProjectDetailPage() {
                   }}
                 >
                   <Pencil className="mr-2 h-4 w-4" />
-                  Edit
+                  {t("shared.edit")}
                 </Button>
               )}
             </CardHeader>
@@ -694,7 +700,7 @@ export default function ProjectDetailPage() {
                   <Input
                     value={pathDraft}
                     onChange={(e) => setPathDraft(e.target.value)}
-                    placeholder="/root/project/forgehub"
+                    placeholder={t("detail.workingDirectoryPlaceholder")}
                   />
                   <Button
                     size="sm"
@@ -706,16 +712,16 @@ export default function ProjectDetailPage() {
                       )
                     }
                   >
-                    Save
+                    {t("shared.save")}
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => setEditingPath(false)}>
-                    Cancel
+                    {t("shared.cancel")}
                   </Button>
                 </div>
               ) : (
                 <p className="text-sm">
                   {project.working_directory_path ?? (
-                    <span className="italic text-muted-foreground">Not set</span>
+                    <span className="italic text-muted-foreground">{t("detail.notSet")}</span>
                   )}
                 </p>
               )}
@@ -729,14 +735,12 @@ export default function ProjectDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-xl">GitHub &amp; backups</CardTitle>
-              <CardDescription>
-                Feeds System Control's Git Control and Backups cards -- edit above to change.
-              </CardDescription>
+              <CardTitle className="text-xl">{t("detail.githubBackupsTitle")}</CardTitle>
+              <CardDescription>{t("detail.githubBackupsDescription")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-muted-foreground">GitHub repository</span>
+                <span className="text-muted-foreground">{t("detail.githubRepoLabel")}</span>
                 {project.github_repo_url ? (
                   <a
                     href={project.github_repo_url}
@@ -747,13 +751,13 @@ export default function ProjectDetailPage() {
                     {project.github_repo_url}
                   </a>
                 ) : (
-                  <span className="italic text-muted-foreground">Not set</span>
+                  <span className="italic text-muted-foreground">{t("detail.notSet")}</span>
                 )}
               </div>
               <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-muted-foreground">Backup</span>
+                <span className="text-muted-foreground">{t("detail.backupLabel")}</span>
                 <Badge variant={project.backup_enabled ? "success" : "outline"}>
-                  {project.backup_enabled ? "Enabled" : "Disabled"}
+                  {project.backup_enabled ? t("detail.backupEnabledBadge") : t("detail.backupDisabledBadge")}
                 </Badge>
               </div>
               {project.backup_enabled && (
@@ -769,10 +773,8 @@ export default function ProjectDetailPage() {
           {project.working_directory_path && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-xl">Files</CardTitle>
-                <CardDescription>
-                  Browse, view, and edit the working directory's real files and folders.
-                </CardDescription>
+                <CardTitle className="text-xl">{t("detail.filesTitle")}</CardTitle>
+                <CardDescription>{t("detail.filesDescription")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="max-h-96 overflow-y-auto pr-1">
@@ -787,15 +789,13 @@ export default function ProjectDetailPage() {
               <div>
                 <CardTitle className="flex items-center gap-2 text-xl">
                   <FolderTree className="h-5 w-5" />
-                  Project structure
+                  {t("detail.structureTitle")}
                 </CardTitle>
-                <CardDescription>
-                  Folders, modules, screens, and DB objects registered against this project.
-                </CardDescription>
+                <CardDescription>{t("detail.structureDescription")}</CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={() => setShowNodeForm((v) => !v)}>
                 <Plus className="mr-2 h-4 w-4" />
-                Add node
+                {t("detail.addNodeButton")}
               </Button>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -816,7 +816,7 @@ export default function ProjectDetailPage() {
                     }
                     onCancel={() => setShowNodeForm(false)}
                     isSubmitting={createStructureNode.isPending}
-                    submitLabel="Create node"
+                    submitLabel={t("detail.createNodeLabel")}
                   />
                   {createStructureNode.isError && (
                     <p className="mt-3 text-sm text-destructive">
@@ -827,9 +827,7 @@ export default function ProjectDetailPage() {
               )}
 
               {!structureNodes || structureNodes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No structure nodes registered for this project yet.
-                </p>
+                <p className="text-sm text-muted-foreground">{t("detail.noStructureNodes")}</p>
               ) : (
                 <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
                   {structureNodes.map((node: StructureNode) => (
@@ -840,7 +838,7 @@ export default function ProjectDetailPage() {
                       <div>
                         <span className="font-medium">{node.name}</span>{" "}
                         <Badge variant="outline" className="ml-1 capitalize">
-                          {node.node_type.replace(/_/g, " ")}
+                          {t(`enums.structureNodeType.${node.node_type}`, node.node_type)}
                         </Badge>
                         {node.path && (
                           <p className="font-mono text-xs text-muted-foreground">{node.path}</p>
@@ -850,7 +848,7 @@ export default function ProjectDetailPage() {
                         {node.is_locked && (
                           <Badge variant="outline" className="gap-1">
                             <Lock className="h-3 w-3" />
-                            locked
+                            {t("detail.lockedBadge")}
                           </Badge>
                         )}
                         <Button
@@ -863,7 +861,11 @@ export default function ProjectDetailPage() {
                               payload: { is_locked: !node.is_locked },
                             })
                           }
-                          aria-label={node.is_locked ? `Unlock ${node.name}` : `Lock ${node.name}`}
+                          aria-label={
+                            node.is_locked
+                              ? t("detail.unlockAria", { name: node.name })
+                              : t("detail.lockAria", { name: node.name })
+                          }
                         >
                           {node.is_locked ? (
                             <Unlock className="h-4 w-4" />
@@ -876,7 +878,7 @@ export default function ProjectDetailPage() {
                           size="icon"
                           disabled={node.is_locked || deleteStructureNode.isPending}
                           onClick={() => deleteStructureNode.mutate(node.id)}
-                          aria-label={`Delete ${node.name}`}
+                          aria-label={t("detail.deleteNodeAria", { name: node.name })}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
@@ -898,15 +900,13 @@ export default function ProjectDetailPage() {
               <div>
                 <CardTitle className="flex items-center gap-2 text-xl">
                   <GitPullRequestArrow className="h-5 w-5" />
-                  Change requests
+                  {t("detail.changeRequestsTitle")}
                 </CardTitle>
-                <CardDescription>
-                  Post-baseline deviations tracked against scope, time, and cost.
-                </CardDescription>
+                <CardDescription>{t("detail.changeRequestsDescription")}</CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={() => setShowCrForm((v) => !v)}>
                 <Plus className="mr-2 h-4 w-4" />
-                New change request
+                {t("detail.newChangeRequestButton")}
               </Button>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -929,9 +929,7 @@ export default function ProjectDetailPage() {
               )}
 
               {!changeRequests || changeRequests.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No change requests have been registered for this project yet.
-                </p>
+                <p className="text-sm text-muted-foreground">{t("detail.noChangeRequests")}</p>
               ) : (
                 <ul className="max-h-96 space-y-3 overflow-y-auto pr-1">
                   {changeRequests.map((cr) => (
@@ -975,21 +973,21 @@ export default function ProjectDetailPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl">
                 <Kanban className="h-5 w-5" />
-                Kanboard cleanup
+                {t("detail.kanboardCleanupTitle")}
               </CardTitle>
-              <CardDescription>
-                Close all Kanboard cards linked to this project's tasks and clear their links.
-                Use this at the end of a delivery phase so the next phase starts with a clean board.
-                Tasks can be re-synced to Kanboard individually after cleanup.
-              </CardDescription>
+              <CardDescription>{t("detail.kanboardCleanupDescription")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {cleanupResult && (
                 <div className="rounded-md border bg-card p-3 text-sm">
                   <p>
-                    Closed <span className="font-semibold">{cleanupResult.closed}</span> card
-                    {cleanupResult.closed !== 1 ? "s" : ""}, skipped{" "}
-                    <span className="font-semibold">{cleanupResult.skipped}</span>.
+                    <Trans
+                      t={t}
+                      i18nKey="detail.kanboardCleanupResult"
+                      count={cleanupResult.closed}
+                      values={{ closed: cleanupResult.closed, skipped: cleanupResult.skipped }}
+                      components={{ b: <span className="font-semibold" /> }}
+                    />
                   </p>
                   {cleanupResult.errors.length > 0 && (
                     <ul className="mt-2 space-y-1 text-destructive">
@@ -1018,7 +1016,7 @@ export default function ProjectDetailPage() {
                 {kanboardCleanup.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Close all Kanboard cards for this project
+                {t("detail.closeKanboardCardsButton")}
               </Button>
             </CardContent>
           </Card>
@@ -1030,7 +1028,7 @@ export default function ProjectDetailPage() {
           <div>
             <Link to="/projects" className={buttonVariants({ variant: "outline" })}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to list
+              {t("detail.backToList")}
             </Link>
           </div>
         </>
@@ -1038,9 +1036,9 @@ export default function ProjectDetailPage() {
 
       <ConfirmDialog
         open={pendingDeletePlanningId !== null}
-        title="Delete planning item?"
-        description="This will permanently delete the planning item and all of its tasks. This action cannot be undone."
-        confirmLabel="Delete"
+        title={t("detail.deletePlanningItemTitle")}
+        description={t("detail.deletePlanningItemDescription")}
+        confirmLabel={t("shared.delete")}
         onConfirm={() => {
           if (pendingDeletePlanningId)
             deletePlanningItem.mutate({ id: pendingDeletePlanningId, cascadeTasks: true });
@@ -1051,9 +1049,9 @@ export default function ProjectDetailPage() {
 
       <ConfirmDialog
         open={pendingDeleteCrId !== null}
-        title="Delete change request?"
-        description="This change request will be permanently deleted. This action cannot be undone."
-        confirmLabel="Delete"
+        title={t("detail.deleteChangeRequestTitle")}
+        description={t("detail.deleteChangeRequestDescription")}
+        confirmLabel={t("shared.delete")}
         onConfirm={() => {
           if (pendingDeleteCrId) deleteChangeRequest.mutate(pendingDeleteCrId);
           setPendingDeleteCrId(null);

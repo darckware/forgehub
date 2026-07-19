@@ -101,6 +101,43 @@ async def test_idea_system_map_approval_and_project_scope(client: AsyncClient, g
         assert element.status_code == 201, element.text
         element_id = element.json()["element"]["id"]
 
+        moved = await client.patch(f"/api/v1/blueprint-revisions/{revision_id}/elements/{element_id}", json={
+            "spec_snapshot": {"position": {"x": 120, "y": 80}},
+        })
+        assert moved.status_code == 200, moved.text
+        assert moved.json()["revision"]["spec_snapshot"]["position"] == {"x": 120, "y": 80}
+        assert moved.json()["revision"]["spec_snapshot"]["route"] == "/planning/daily"
+
+        renamed = await client.patch(f"/api/v1/blueprint-revisions/{revision_id}/elements/{element_id}", json={
+            "name": "Daily Cockpit v2", "element_type": "form", "stable_key": "screen.daily-cockpit-v2",
+        })
+        assert renamed.status_code == 200, renamed.text
+        assert renamed.json()["element"]["name"] == "Daily Cockpit v2"
+        assert renamed.json()["element"]["element_type"] == "form"
+        assert renamed.json()["element"]["stable_key"] == "screen.daily-cockpit-v2"
+        assert renamed.json()["element"]["family"] == "experience"
+        assert renamed.json()["revision"]["spec_snapshot"]["position"] == {"x": 120, "y": 80}
+
+        bad_type = await client.patch(f"/api/v1/blueprint-revisions/{revision_id}/elements/{element_id}", json={
+            "element_type": "table",
+        })
+        assert bad_type.status_code == 422
+
+        scratch = await client.post(f"/api/v1/blueprint-revisions/{revision_id}/elements", json={
+            "stable_key": "screen.scratch-temp",
+            "family": "experience",
+            "element_type": "screen",
+            "name": "Scratch Temp Screen",
+        })
+        assert scratch.status_code == 201, scratch.text
+        scratch_id = scratch.json()["element"]["id"]
+        removed = await client.delete(f"/api/v1/blueprint-revisions/{revision_id}/elements/{scratch_id}")
+        assert removed.status_code == 204, removed.text
+        missing_move = await client.patch(f"/api/v1/blueprint-revisions/{revision_id}/elements/{scratch_id}", json={
+            "spec_snapshot": {},
+        })
+        assert missing_move.status_code == 404
+
         validation = await client.post(f"/api/v1/blueprint-revisions/{revision_id}:validate")
         assert validation.status_code == 200
         assert validation.json()["valid"] is True
@@ -108,6 +145,14 @@ async def test_idea_system_map_approval_and_project_scope(client: AsyncClient, g
         submitted = await client.post(f"/api/v1/product-concepts/{concept_id}:submit")
         assert submitted.status_code == 200, submitted.text
         assert submitted.json()["concept"]["status"] == "in_review"
+
+        locked_blueprint = await client.get(f"/api/v1/products/{product_id}/system-blueprint")
+        assert locked_blueprint.status_code == 200
+        assert locked_blueprint.json()["current_revision"]["status"] == "in_review"
+        locked_add = await client.post(f"/api/v1/blueprint-revisions/{revision_id}/elements", json={
+            "stable_key": "screen.blocked", "family": "experience", "element_type": "screen", "name": "Should be blocked",
+        })
+        assert locked_add.status_code == 409
 
         direct = await client.post(f"/api/v1/product-concepts/{concept_id}:decide", json={
             "decision": "approved", "decided_by": "spoofed-approver"
@@ -161,5 +206,26 @@ async def test_idea_system_map_approval_and_project_scope(client: AsyncClient, g
         })
         assert item.status_code == 201, item.text
         assert item.json()["acceptance_criteria"][0]["criterion"].startswith("The cockpit")
+
+        # Once delivery is authorized off the approved revision, a new draft
+        # revision can be started to keep evolving the map -- current_revision_id
+        # must not move until this point (authorize-delivery-planning above
+        # required revision.status == "approved" on whatever was "current").
+        new_revision = await client.post(f"/api/v1/products/{product_id}/system-blueprint/revisions", json={
+            "clone_from_revision_id": revision_id,
+        })
+        assert new_revision.status_code == 200, new_revision.text
+        assert new_revision.json()["status"] == "draft"
+        assert new_revision.json()["revision"] == 2
+        new_revision_id = new_revision.json()["id"]
+        cloned_graph = await client.get(f"/api/v1/blueprint-revisions/{new_revision_id}/graph")
+        assert cloned_graph.status_code == 200
+        assert {el["element"]["stable_key"] for el in cloned_graph.json()["elements"]} == {"screen.daily-cockpit-v2"}
+        cloned_add = await client.post(f"/api/v1/blueprint-revisions/{new_revision_id}/elements", json={
+            "stable_key": "screen.next-iteration", "family": "experience", "element_type": "screen", "name": "Next iteration screen",
+        })
+        assert cloned_add.status_code == 201, cloned_add.text
+        refetched_blueprint = await client.get(f"/api/v1/products/{product_id}/system-blueprint")
+        assert refetched_blueprint.json()["current_revision"]["id"] == new_revision_id
     finally:
         await _cleanup(product_id, concept_id)

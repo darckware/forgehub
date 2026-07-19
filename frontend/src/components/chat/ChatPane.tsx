@@ -5,6 +5,7 @@
  * streaming, elevation approvals, Telegram-style processing feed, voice.
  * One component, no forks -- fix bugs here, every surface gets them. */
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ArrowUp,
   AudioLines,
@@ -185,6 +186,7 @@ function formatThinkingDuration(totalSeconds: number): string {
  * button, same spot the frozen "Pensou por mm:ss" occupies once the
  * reply is persisted (see MessageBubble). */
 function LiveThinkingLabel({ startedAt }: { startedAt: number }) {
+  const { t } = useTranslation("chat");
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -193,7 +195,7 @@ function LiveThinkingLabel({ startedAt }: { startedAt: number }) {
   const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
   return (
     <p className="text-xs text-muted-foreground">
-      ⏳ Working — {formatThinkingDuration(elapsed)}
+      {t("thinking.working", { duration: formatThinkingDuration(elapsed) })}
     </p>
   );
 }
@@ -229,6 +231,7 @@ function AgentPickerButton({
   selectedAgentId: string;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selected = agents.find((a) => a.id === selectedAgentId);
@@ -240,8 +243,8 @@ function AgentPickerButton({
       <Button
         variant="ghost"
         size="icon"
-        aria-label={selected ? `Agent: ${selected.name}` : "Select agent"}
-        title={selected?.name ?? "Select agent"}
+        aria-label={selected ? t("agentPicker.agentLabel", { name: selected.name }) : t("agentPicker.selectAgent")}
+        title={selected?.name ?? t("agentPicker.selectAgent")}
         onClick={() => setOpen((v) => !v)}
       >
         <Bot className="h-4 w-4" />
@@ -285,6 +288,7 @@ function ChatItemMenu({
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -294,8 +298,8 @@ function ChatItemMenu({
     <div className="relative shrink-0" ref={containerRef}>
       <button
         type="button"
-        aria-label="Chat options"
-        title="Chat options"
+        aria-label={t("itemMenu.chatOptions")}
+        title={t("itemMenu.chatOptions")}
         className="rounded-md p-1 opacity-0 hover:bg-accent group-hover:opacity-100"
         onClick={(e) => {
           e.stopPropagation();
@@ -316,7 +320,7 @@ function ChatItemMenu({
             }}
           >
             <Pencil className="h-3.5 w-3.5" />
-            Rename
+            {t("itemMenu.rename")}
           </button>
           <button
             type="button"
@@ -328,7 +332,7 @@ function ChatItemMenu({
             }}
           >
             {session.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-            {session.pinned ? "Unpin" : "Pin"}
+            {session.pinned ? t("itemMenu.unpin") : t("itemMenu.pin")}
           </button>
           <button
             type="button"
@@ -340,7 +344,7 @@ function ChatItemMenu({
             }}
           >
             <Trash2 className="h-3.5 w-3.5" />
-            Delete
+            {t("itemMenu.delete")}
           </button>
         </div>
       )}
@@ -359,6 +363,7 @@ function AgentSelectorPill({
   selectedAgentId: string;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selected = agents.find((a) => a.id === selectedAgentId);
@@ -372,7 +377,7 @@ function AgentSelectorPill({
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1 rounded-full bg-background px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
       >
-        <span className="max-w-[8rem] truncate">{selected?.name ?? "Agent"}</span>
+        <span className="max-w-[8rem] truncate">{selected?.name ?? t("agentPicker.agentFallback")}</span>
         <ChevronDown className="h-3.5 w-3.5" />
       </button>
       {open && (
@@ -411,17 +416,18 @@ function AttachMenuButton({
   onPickFile: () => void;
   onInsertTrigger: (char: "/" | "@" | "#" | "$" | "!") => void;
 }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useClickOutside(containerRef, () => setOpen(false), open);
 
-  const triggers: { char: "/" | "@" | "#" | "$" | "!"; label: string }[] = [
-    { char: "/", label: "Hermes command" },
-    { char: "@", label: "Directory/Files" },
-    { char: "#", label: "Agents" },
-    { char: "$", label: "Artifacts" },
-    { char: "!", label: "Direct bash command" },
+  const triggers: { char: "/" | "@" | "#" | "$" | "!"; labelKey: string }[] = [
+    { char: "/", labelKey: "attachMenu.hermesCommand" },
+    { char: "@", labelKey: "attachMenu.directoryFiles" },
+    { char: "#", labelKey: "attachMenu.agents" },
+    { char: "$", labelKey: "attachMenu.artifacts" },
+    { char: "!", labelKey: "attachMenu.directBashCommand" },
   ];
 
   return (
@@ -430,7 +436,7 @@ function AttachMenuButton({
         variant="ghost"
         size="icon"
         className="h-8 w-8 rounded-full"
-        aria-label="Add attachment"
+        aria-label={t("attachMenu.addAttachment")}
         onClick={() => setOpen((v) => !v)}
       >
         <Plus className="h-4 w-4" />
@@ -446,23 +452,23 @@ function AttachMenuButton({
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
           >
             <Paperclip className="h-4 w-4" />
-            Send file
+            {t("attachMenu.sendFile")}
           </button>
           <div className="my-1 border-t border-border" />
-          {triggers.map((t) => (
+          {triggers.map((trigger) => (
             <button
-              key={t.char}
+              key={trigger.char}
               type="button"
               onClick={() => {
-                onInsertTrigger(t.char);
+                onInsertTrigger(trigger.char);
                 setOpen(false);
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
             >
               <span className="flex h-4 w-4 items-center justify-center font-mono text-xs text-muted-foreground">
-                {t.char}
+                {trigger.char}
               </span>
-              {t.label}
+              {t(trigger.labelKey)}
             </button>
           ))}
         </div>
@@ -489,6 +495,7 @@ const MentionFilePicker = forwardRef<
   MentionFilePickerHandle,
   { rootPath?: string; onSelectPath: (path: string) => void; onClose: () => void }
 >(function MentionFilePicker({ rootPath, onSelectPath, onClose }, ref) {
+  const { t } = useTranslation("chat");
   const [path, setPath] = useState<string | undefined>(rootPath);
   const [activeIndex, setActiveIndex] = useState(0);
   const { data, isLoading } = useFsList(path, true);
@@ -534,7 +541,7 @@ const MentionFilePicker = forwardRef<
         <div className="flex items-center gap-1 shrink-0">
           {data?.path && (
             <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => onSelectPath(data.path)}>
-              Use folder
+              {t("mentionFilePicker.useFolder")}
             </Button>
           )}
           {data?.parent && (
@@ -542,7 +549,7 @@ const MentionFilePicker = forwardRef<
               size="icon"
               variant="ghost"
               className="h-6 w-6"
-              aria-label="Parent folder"
+              aria-label={t("mentionFilePicker.parentFolder")}
               onClick={() => setPath(data.parent!)}
             >
               <ArrowUp className="h-3 w-3" />
@@ -550,7 +557,7 @@ const MentionFilePicker = forwardRef<
           )}
         </div>
       </div>
-      {isLoading && <p className="px-3 py-3 text-xs text-muted-foreground">Loading…</p>}
+      {isLoading && <p className="px-3 py-3 text-xs text-muted-foreground">{t("mentionFilePicker.loading")}</p>}
       {entries.map((entry, index) => (
         <button
           key={entry.path}
@@ -571,7 +578,7 @@ const MentionFilePicker = forwardRef<
         </button>
       ))}
       {data && data.entries.length === 0 && !isLoading && (
-        <p className="px-3 py-3 text-xs italic text-muted-foreground">Empty folder</p>
+        <p className="px-3 py-3 text-xs italic text-muted-foreground">{t("mentionFilePicker.emptyFolder")}</p>
       )}
     </div>
   );
@@ -579,27 +586,27 @@ const MentionFilePicker = forwardRef<
 
 /** Slash commands ForgeHub actually executes via Hermes's own process_command()
  * dispatcher (see host-bridge/hermes_stream.py SAFE_SLASH_COMMANDS) instead of
- * forwarding the text to the LLM -- keep this list in sync with that one. */
+ * forwarding the text to the LLM -- keep this list in sync with that one.
+ * `description` holds an i18next key (chat.slashCommands.*), not literal
+ * text -- SlashCommandPicker translates it at render time. */
 const SAFE_SLASH_COMMANDS: { command: string; description: string }[] = [
-  { command: "/model", description: "Switch model (persists by default)" },
-  { command: "/status", description: "Show session, model, tokens and context" },
-  { command: "/help", description: "Show available commands" },
-  { command: "/version", description: "Show Hermes Agent version" },
-  { command: "/title", description: "Set a title for the current session" },
-  { command: "/profile", description: "Show active profile and home directory" },
-  { command: "/config", description: "Show current configuration" },
-  { command: "/toolsets", description: "List available toolsets" },
-  { command: "/platforms", description: "Show gateway/messaging platform status" },
-  {
-    command: "/plugins",
-    description: "List installed plugins; add an agent name (e.g. /plugins athos) to check a different profile",
-  },
+  { command: "/model", description: "slashCommands.model" },
+  { command: "/status", description: "slashCommands.status" },
+  { command: "/help", description: "slashCommands.help" },
+  { command: "/version", description: "slashCommands.version" },
+  { command: "/title", description: "slashCommands.title" },
+  { command: "/profile", description: "slashCommands.profile" },
+  { command: "/config", description: "slashCommands.config" },
+  { command: "/toolsets", description: "slashCommands.toolsets" },
+  { command: "/platforms", description: "slashCommands.platforms" },
+  { command: "/plugins", description: "slashCommands.plugins" },
 ];
 
 /** Handled entirely client-side (never sent as a message) -- unlike
- * SAFE_SLASH_COMMANDS, which forward to Hermes's process_command(). */
+ * SAFE_SLASH_COMMANDS, which forward to Hermes's process_command(). Same
+ * i18next-key convention as SAFE_SLASH_COMMANDS above. */
 const LOCAL_SLASH_COMMANDS: { command: string; description: string }[] = [
-  { command: "/new", description: "Start a new chat" },
+  { command: "/new", description: "slashCommands.new" },
 ];
 
 type SlashCommandItem =
@@ -619,6 +626,7 @@ const SlashCommandPicker = forwardRef<
   SlashCommandPickerHandle,
   { promptCommands: PromptCommand[]; onSelect: (item: SlashCommandItem) => void; onClose: () => void }
 >(function SlashCommandPicker({ promptCommands, onSelect, onClose }, ref) {
+  const { t } = useTranslation("chat");
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, onClose);
@@ -665,10 +673,10 @@ const SlashCommandPicker = forwardRef<
           <span className="flex w-full items-center justify-between gap-2">
             <span className="text-xs font-medium">{cmd.command}</span>
             <span className="rounded border border-border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-              {cmd.kind === "local" ? "Local" : cmd.kind === "hermes" ? "Hermes" : "Prompt"}
+              {cmd.kind === "local" ? t("slashCommands.kindLocal") : cmd.kind === "hermes" ? t("slashCommands.kindHermes") : t("slashCommands.kindPrompt")}
             </span>
           </span>
-          <span className="text-[11px] text-muted-foreground">{cmd.description}</span>
+          <span className="text-[11px] text-muted-foreground">{cmd.kind === "prompt" ? cmd.description : t(cmd.description)}</span>
         </button>
       ))}
     </div>
@@ -688,6 +696,7 @@ const AgentMentionPicker = forwardRef<
   AgentMentionPickerHandle,
   { agents: Agent[]; query: string; onSelect: (agent: Agent) => void; onClose: () => void }
 >(function AgentMentionPicker({ agents, query, onSelect, onClose }, ref) {
+  const { t } = useTranslation("chat");
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, onClose);
@@ -732,7 +741,7 @@ const AgentMentionPicker = forwardRef<
         </button>
       ))}
       {filtered.length === 0 && (
-        <p className="px-3 py-3 text-xs italic text-muted-foreground">No agents found</p>
+        <p className="px-3 py-3 text-xs italic text-muted-foreground">{t("agentMentionPicker.noAgentsFound")}</p>
       )}
     </div>
   );
@@ -752,6 +761,7 @@ const ArtifactMentionPicker = forwardRef<
   ArtifactMentionPickerHandle,
   { query: string; onSelectPath: (path: string) => void; onClose: () => void }
 >(function ArtifactMentionPicker({ query, onSelectPath, onClose }, ref) {
+  const { t } = useTranslation("chat");
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, onClose);
@@ -777,7 +787,7 @@ const ArtifactMentionPicker = forwardRef<
       ref={containerRef}
       className="absolute bottom-full left-0 z-20 mb-2 max-h-72 w-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
     >
-      {isLoading && <p className="px-3 py-3 text-xs text-muted-foreground">Loading…</p>}
+      {isLoading && <p className="px-3 py-3 text-xs text-muted-foreground">{t("artifactMentionPicker.loading")}</p>}
       {artifacts.map((artifact, index) => (
         <button
           key={artifact.id}
@@ -797,7 +807,7 @@ const ArtifactMentionPicker = forwardRef<
         </button>
       ))}
       {!isLoading && artifacts.length === 0 && (
-        <p className="px-3 py-3 text-xs italic text-muted-foreground">No artifacts found</p>
+        <p className="px-3 py-3 text-xs italic text-muted-foreground">{t("artifactMentionPicker.noArtifactsFound")}</p>
       )}
     </div>
   );
@@ -946,6 +956,7 @@ function MessageBubble({
   onEdit?: (newContent: string) => void;
   editDisabled?: boolean;
 }) {
+  const { t } = useTranslation("chat");
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -964,7 +975,7 @@ function MessageBubble({
       <div className="group/msg max-w-[85%] text-sm text-foreground">
         {message.thinking_seconds != null && !isCommandReply && (
           <p className="mb-1 text-xs text-muted-foreground">
-            Thought for {formatThinkingDuration(message.thinking_seconds)}
+            {t("messageBubble.thoughtFor", { duration: formatThinkingDuration(message.thinking_seconds) })}
           </p>
         )}
         {respondingAgentName && (
@@ -986,8 +997,8 @@ function MessageBubble({
         <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover/msg:opacity-100">
           <button
             type="button"
-            aria-label="Copy message"
-            title="Copy message"
+            aria-label={t("messageBubble.copyMessage")}
+            title={t("messageBubble.copyMessage")}
             onClick={handleCopyMessage}
             className="flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground hover:text-foreground"
           >
@@ -996,8 +1007,8 @@ function MessageBubble({
           {onRegenerate && (
             <button
               type="button"
-              aria-label="Regenerate reply"
-              title="Regenerate reply"
+              aria-label={t("messageBubble.regenerateReply")}
+              title={t("messageBubble.regenerateReply")}
               disabled={regenerateDisabled}
               onClick={onRegenerate}
               className="flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
@@ -1041,7 +1052,7 @@ function MessageBubble({
                 setIsEditing(false);
               }}
             >
-              Cancel
+              {t("messageBubble.cancel")}
             </Button>
             <Button
               size="sm"
@@ -1050,7 +1061,7 @@ function MessageBubble({
                 setIsEditing(false);
               }}
             >
-              Save and resend
+              {t("messageBubble.saveAndResend")}
             </Button>
           </div>
         </div>
@@ -1076,8 +1087,8 @@ function MessageBubble({
         {onEdit && (
           <button
             type="button"
-            aria-label="Edit message"
-            title="Edit message"
+            aria-label={t("messageBubble.editMessage")}
+            title={t("messageBubble.editMessage")}
             disabled={editDisabled}
             onClick={() => {
               setEditText(message.content);
@@ -1151,6 +1162,7 @@ export function ChatPane({
    * pass it and isn't affected. */
   onAssistantMessage?: (content: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const [sessionId, setSessionId] = useState<string>("");
   // Chat chrome (composer placeholder, default empty state) follows the
   // configured response language, same one the agent is instructed to
@@ -1470,7 +1482,7 @@ export function ChatPane({
 
     const trimmed = (isOverride ? overrideText : composerText).trim();
     if (!trimmed && attachedFiles.length === 0) {
-      setComposerWarning("Type a message before sending.");
+      setComposerWarning(t("composer.typeMessageFirst"));
       return;
     }
 
@@ -1491,7 +1503,7 @@ export function ChatPane({
     const lastUserMessage =
       queue[queue.length - 1]?.content ?? [...(messages ?? [])].reverse().find((m) => m.role === "user")?.content;
     if (!isOverride && attachedFiles.length === 0 && trimmed && lastUserMessage?.trim() === trimmed) {
-      setComposerWarning("You already sent this message.");
+      setComposerWarning(t("composer.alreadySent"));
       return;
     }
 
@@ -1771,7 +1783,7 @@ export function ChatPane({
       lastMessage?.role === "assistant" &&
       lastMessage.content.trim().endsWith("?")
     ) {
-      suggestedReply = "Yes";
+      suggestedReply = t("composer.suggestedReplyYes");
     }
   } catch {
     suggestedReply = null;
@@ -1813,7 +1825,7 @@ export function ChatPane({
         addAttachedFiles([await loadAssistantDraggedFile(internalFile)]);
         composerTextareaRef.current?.focus();
       } catch {
-        setComposerWarning(`Could not attach ${internalFile.name}.`);
+        setComposerWarning(t("composer.couldNotAttach", { name: internalFile.name }));
       }
       return;
     }
@@ -2104,7 +2116,7 @@ export function ChatPane({
 
     sr.onerror = (e: any) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        setVoiceError("Microphone blocked. Allow it in your browser settings.");
+        setVoiceError(t("voice.micBlocked"));
         stopVoice();
         return;
       }
@@ -2190,7 +2202,7 @@ export function ChatPane({
 
       const blob = new Blob(chunks, { type: mimeType });
       setVoiceStatusSync("processing");
-      setVoiceLiveText("Transcribing…");
+      setVoiceLiveText(t("voice.transcribing"));
       try {
         const result = await transcribe.mutateAsync(blob);
         const text = result.text?.trim();
@@ -2250,7 +2262,7 @@ export function ChatPane({
             speechStart = now;
             voiceChunksRef.current = [];
             if (recorder.state === "inactive") recorder.start(100);
-            setVoiceLiveText("🔴 Recording…");
+            setVoiceLiveText(t("voice.recording"));
             maxTimer = setTimeout(() => { if (speaking) { speaking = false; flushRecording(); } }, MAX_RECORD_MS);
           }
         } else if (speaking) {
@@ -2524,7 +2536,7 @@ export function ChatPane({
       if (voiceActiveRef.current) {
         setVoiceStatusSync("listening");
         startListening();
-        setVoiceError(`Failed to get a response: ${String(err)}`);
+        setVoiceError(t("voice.failedResponse", { error: String(err) }));
       }
     }
   }
@@ -2555,8 +2567,8 @@ export function ChatPane({
 
     // MediaRecorder / getUserMedia support
     const hasRecorder = Boolean(window.MediaRecorder && navigator.mediaDevices?.getUserMedia);
-    push({ id: "sr", label: "Audio recording", ok: hasRecorder,
-      detail: hasRecorder ? "Supported" : "Browser does not support MediaRecorder — use Chrome or Edge." });
+    push({ id: "sr", label: t("voice.checklist.audioRecording"), ok: hasRecorder,
+      detail: hasRecorder ? t("voice.checklist.audioRecordingOk") : t("voice.checklist.audioRecordingFail") });
     if (!hasRecorder) { setVoicePhase("error"); voiceActiveRef.current = false; return; }
 
     // SpeechSynthesis API + voices
@@ -2564,14 +2576,14 @@ export function ChatPane({
     let voices = hasTTS ? window.speechSynthesis.getVoices() : [];
     if (hasTTS && voices.length === 0) {
       await new Promise<void>((res) => {
-        const t = setTimeout(res, 2000);
-        window.speechSynthesis.onvoiceschanged = () => { clearTimeout(t); res(); };
+        const voiceTimeout = setTimeout(res, 2000);
+        window.speechSynthesis.onvoiceschanged = () => { clearTimeout(voiceTimeout); res(); };
       });
       voices = window.speechSynthesis.getVoices();
     }
     ttsVoicesRef.current = voices;
-    push({ id: "tts", label: "Speech synthesis (TTS)", ok: hasTTS && voices.length > 0,
-      detail: !hasTTS ? "Not supported" : voices.length === 0 ? "No voices — replies will be shown without audio" : `${voices.length} voice(s)` });
+    push({ id: "tts", label: t("voice.checklist.tts"), ok: hasTTS && voices.length > 0,
+      detail: !hasTTS ? t("voice.checklist.ttsNotSupported") : voices.length === 0 ? t("voice.checklist.ttsNoVoices") : t("voice.checklist.ttsVoiceCount", { count: voices.length }) });
 
     // Microphone permission — open stream and keep it open for the whole conversation
     let micOk = false;
@@ -2582,8 +2594,8 @@ export function ChatPane({
     } catch {
       micOk = false;
     }
-    push({ id: "mic", label: "Microphone", ok: micOk,
-      detail: micOk ? "Authorized" : "Denied — click the padlock in the address bar and allow the microphone." });
+    push({ id: "mic", label: t("voice.checklist.microphone"), ok: micOk,
+      detail: micOk ? t("voice.checklist.microphoneOk") : t("voice.checklist.microphoneFail") });
     if (!micOk) { setVoicePhase("error"); voiceActiveRef.current = false; return; }
 
     // Barge-in monitor runs for the whole voice session
@@ -2614,10 +2626,10 @@ export function ChatPane({
     setVoicePhase("active");
     setVoiceStatusSync("speaking");
 
-    const agentName = selectedAgent?.name ?? "Assistant";
+    const agentName = selectedAgent?.name ?? t("voice.greeting.agentFallback");
     const h = new Date().getHours();
-    const period = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-    const greeting = `${period}! I'm ${agentName}. How can I help you now?`;
+    const period = h < 12 ? t("voice.greeting.goodMorning") : h < 18 ? t("voice.greeting.goodAfternoon") : t("voice.greeting.goodEvening");
+    const greeting = t("voice.greeting.text", { period, name: agentName });
     setVoiceMsgs([{ role: "assistant", text: greeting }]);
 
     if (hasTTS && voices.length > 0) {
@@ -2656,9 +2668,9 @@ export function ChatPane({
       {!historyCollapsed && (
         <aside className="flex w-64 shrink-0 flex-col rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border p-3">
-            <span className="text-sm font-medium text-muted-foreground">Chats</span>
+            <span className="text-sm font-medium text-muted-foreground">{t("sidebar.chats")}</span>
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" title="New chat" aria-label="New chat" onClick={handleNewChat}>
+              <Button variant="ghost" size="icon" title={t("sidebar.newChat")} aria-label={t("sidebar.newChat")} onClick={handleNewChat}>
                 <Plus className="h-4 w-4" />
               </Button>
               <AgentPickerButton agents={chatableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
@@ -2670,17 +2682,17 @@ export function ChatPane({
               <input
                 value={chatSearchInput}
                 onChange={(e) => setChatSearchInput(e.target.value)}
-                placeholder="Search conversations…"
+                placeholder={t("sidebar.searchConversations")}
                 className="h-8 w-full rounded-md border border-border bg-transparent pl-7 pr-2 text-xs outline-none focus:border-primary"
               />
             </div>
           </div>
           <div className="flex-1 space-y-1 overflow-y-auto p-2">
             {chatSearchTerm.trim() && isSearchingChats && (
-              <p className="px-2 py-2 text-xs italic text-muted-foreground">Searching…</p>
+              <p className="px-2 py-2 text-xs italic text-muted-foreground">{t("sidebar.searching")}</p>
             )}
             {chatSearchTerm.trim() && !isSearchingChats && displayedSessions.length === 0 && (
-              <p className="px-2 py-2 text-xs italic text-muted-foreground">No conversations found.</p>
+              <p className="px-2 py-2 text-xs italic text-muted-foreground">{t("sidebar.noConversationsFound")}</p>
             )}
             {displayedSessions.map((s) => (
               <div
@@ -2729,7 +2741,7 @@ export function ChatPane({
               </div>
             ))}
             {!chatSearchTerm.trim() && (sessions ?? []).length === 0 && (
-              <p className="px-2 py-2 text-xs italic text-muted-foreground">No conversations yet.</p>
+              <p className="px-2 py-2 text-xs italic text-muted-foreground">{t("sidebar.noConversationsYet")}</p>
             )}
           </div>
         </aside>
@@ -2749,7 +2761,7 @@ export function ChatPane({
               {/* Header */}
               <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
                 <span className="text-sm font-medium text-muted-foreground">
-                  Voice conversation · {selectedAgent?.name}
+                  {t("voice.conversationWith", { name: selectedAgent?.name })}
                 </span>
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={stopVoice}>
                   <X className="h-4 w-4" />
@@ -2764,16 +2776,16 @@ export function ChatPane({
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                   />
-                  <p className="text-xs text-muted-foreground">Starting…</p>
+                  <p className="text-xs text-muted-foreground">{t("voice.starting")}</p>
                 </div>
               )}
               {voicePhase === "error" && (
                 <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
                   <p className="text-sm text-destructive text-center">
-                    {voiceError ?? "Could not start the voice conversation."}
+                    {voiceError ?? t("voice.couldNotStart")}
                   </p>
                   <Button variant="outline" size="sm" onClick={stopVoice}>
-                    Close
+                    {t("composer.close")}
                   </Button>
                 </div>
               )}
@@ -2792,7 +2804,7 @@ export function ChatPane({
                     <div className="flex-1 space-y-3 overflow-y-auto p-4">
                       {voiceMsgs.length === 0 && (
                         <p className="py-10 text-center text-sm italic text-muted-foreground">
-                          Waiting for {selectedAgent?.name}…
+                          {t("voice.waitingFor", { name: selectedAgent?.name })}
                         </p>
                       )}
                       {voiceMsgs.map((m, i) => (
@@ -2843,9 +2855,9 @@ export function ChatPane({
                     <VoiceOrb status={voiceStatus} compact />
                     <p className="text-center text-xs leading-relaxed text-muted-foreground px-3">
                       {{
-                        listening: "Listening…",
-                        processing: `${selectedAgent?.name}\nis thinking…`,
-                        speaking: `${selectedAgent?.name}\nis replying…`,
+                        listening: t("voice.listening"),
+                        processing: t("voice.thinking", { name: selectedAgent?.name }),
+                        speaking: t("voice.replying", { name: selectedAgent?.name }),
                       }[voiceStatus]}
                     </p>
                     {/* Mic level + status */}
@@ -2857,8 +2869,8 @@ export function ChatPane({
                         )} />
                         <span className="text-[10px] text-muted-foreground">
                           {recRunning
-                            ? "Mic ativo"
-                            : voiceStatus === "speaking" ? "Agent speaking" : "Waiting…"}
+                            ? t("voice.micActive")
+                            : voiceStatus === "speaking" ? t("voice.agentSpeaking") : t("voice.waiting")}
                         </span>
                       </div>
                       {recRunning && (
@@ -2881,7 +2893,7 @@ export function ChatPane({
                 <div className="flex justify-center">
                   <Button variant="outline" size="sm" onClick={stopVoice} className="gap-2">
                     <X className="h-4 w-4" />
-                    End voice conversation
+                    {t("voice.endConversation")}
                   </Button>
                 </div>
               </div>
@@ -2940,7 +2952,7 @@ export function ChatPane({
                 />
               )}
               {item.status === "queued" && (
-                <p className="pl-1 text-xs italic text-muted-foreground">📥 Na fila…</p>
+                <p className="pl-1 text-xs italic text-muted-foreground">{t("queue.queued")}</p>
               )}
               {item.status === "processing" && (
                 <div className="flex max-w-[85%] flex-col gap-1">
@@ -2954,7 +2966,7 @@ export function ChatPane({
                           onClick={() => handleStopGenerating(item)}
                         >
                           <Square className="h-2.5 w-2.5" />
-                          Stop
+                          {t("queue.stop")}
                         </button>
                       )}
                     </div>
@@ -3016,12 +3028,12 @@ export function ChatPane({
                     <p className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
                       {item.isExec ? (
                         <>
-                          <span aria-hidden>💻</span> Running command
+                          <span aria-hidden>💻</span> {t("queue.runningCommand")}
                         </>
                       ) : (
                         <>
                           <span aria-hidden>✍️</span>
-                          {`${item.targetAgentName ?? selectedAgent?.name ?? "The agent"} is typing`}
+                          {t("queue.agentIsTyping", { name: item.targetAgentName ?? selectedAgent?.name ?? t("queue.agentFallback") })}
                         </>
                       )}
                       <TypingDots />
@@ -3032,7 +3044,7 @@ export function ChatPane({
               {item.approval && (
                 <div className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
                   <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    🔐 {item.targetAgentName ?? selectedAgent?.name ?? "The agent"} requests authorization to run a privileged action
+                    {t("queue.approvalRequest", { name: item.targetAgentName ?? selectedAgent?.name ?? t("queue.agentFallback") })}
                   </p>
                   {item.approval.description && (
                     <p className="text-xs text-muted-foreground">{item.approval.description}</p>
@@ -3059,32 +3071,32 @@ export function ChatPane({
                       size="sm"
                       onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "once")}
                     >
-                      ✅ Approve once
+                      {t("queue.approveOnce")}
                     </Button>
                     <Button
                       size="sm"
                       variant="secondary"
-                      title="Do not ask again for this same command type in this session"
+                      title={t("queue.approveSessionTitle")}
                       onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "session")}
                     >
-                      ☑️ Approve for this session
+                      {t("queue.approveSession")}
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => handleApprovalChoice(item.id, item.approval!.streamId, "deny")}
                     >
-                      🚫 Deny
+                      {t("queue.deny")}
                     </Button>
                   </div>
                 </div>
               )}
               {item.status === "error" && (
                 <p className="flex items-center gap-2 pl-1 text-xs text-destructive">
-                  ❌ Failed: {item.error}
+                  {t("queue.failed", { error: item.error })}
                   <button
                     type="button"
-                    aria-label="Dismiss"
+                    aria-label={t("queue.dismiss")}
                     onClick={() => setQueue((q) => q.filter((it) => it.id !== item.id))}
                   >
                     <X className="h-3 w-3" />
@@ -3121,7 +3133,7 @@ export function ChatPane({
                   {attachedImagePreviewUrls[index] ? (
                     <button
                       type="button"
-                      aria-label="View attached image"
+                      aria-label={t("composer.viewAttachedImage")}
                       onClick={() => setImagePreviewIndex(index)}
                       className="shrink-0"
                     >
@@ -3131,7 +3143,7 @@ export function ChatPane({
                     <Paperclip className="h-3 w-3" />
                   )}
                   {file.name}
-                  <button type="button" aria-label="Remove attachment" onClick={() => removeAttachedFile(index)}>
+                  <button type="button" aria-label={t("composer.removeAttachment")} onClick={() => removeAttachedFile(index)}>
                     <X className="h-3 w-3" />
                   </button>
                 </div>
@@ -3165,11 +3177,11 @@ export function ChatPane({
                   }}
                 >
                   <X className="h-4 w-4" />
-                  Remove
+                  {t("composer.remove")}
                 </Button>
                 <button
                   type="button"
-                  aria-label="Close"
+                  aria-label={t("composer.close")}
                   onClick={() => setImagePreviewIndex(null)}
                   className="absolute -right-3 -top-3 rounded-full border border-border bg-card p-1.5 shadow-md hover:bg-accent"
                 >
@@ -3199,7 +3211,7 @@ export function ChatPane({
           >
             {composerDragActive && (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-background/90 text-sm font-medium text-primary">
-                <Paperclip className="mr-2 h-4 w-4" /> Drop into assistant
+                <Paperclip className="mr-2 h-4 w-4" /> {t("composer.dropIntoAssistant")}
               </div>
             )}
             {mentionOpen && (
@@ -3306,7 +3318,7 @@ export function ChatPane({
               onPaste={handleComposerPaste}
               placeholder={
                 suggestedReply
-                  ? `${suggestedReply} (→ to complete)`
+                  ? t("composer.completeHint", { text: suggestedReply })
                   : languageTexts.ask(selectedAgent?.name ?? "agent")
               }
               rows={1}
@@ -3318,7 +3330,7 @@ export function ChatPane({
               variant={isRecording ? "destructive" : "ghost"}
               size="icon"
               className="h-8 w-8 rounded-full shrink-0"
-              aria-label={isRecording ? "Stop recording" : "Record voice message"}
+              aria-label={isRecording ? t("composer.stopRecording") : t("composer.recordVoiceMessage")}
               onClick={handleToggleRecording}
               disabled={transcribe.isPending}
             >
@@ -3334,8 +3346,8 @@ export function ChatPane({
               variant={voiceActive ? "default" : "ghost"}
               size="icon"
               className="h-8 w-8 rounded-full shrink-0"
-              aria-label={voiceActive ? "End voice conversation" : `Voice conversation with ${selectedAgent?.name ?? "agent"}`}
-              title={voiceActive ? "End voice conversation" : `Voice conversation with ${selectedAgent?.name ?? "agent"}`}
+              aria-label={voiceActive ? t("voice.endConversation") : t("voice.conversationWithAgent", { name: selectedAgent?.name ?? t("agentPicker.agentFallback") })}
+              title={voiceActive ? t("voice.endConversation") : t("voice.conversationWithAgent", { name: selectedAgent?.name ?? t("agentPicker.agentFallback") })}
               onClick={voiceActive ? stopVoice : startVoice}
               disabled={isRecording}
             >
@@ -3348,7 +3360,7 @@ export function ChatPane({
       {artifactsOpen && (
         <aside className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border p-3">
-            <span className="text-sm font-medium text-muted-foreground">Artifacts</span>
+            <span className="text-sm font-medium text-muted-foreground">{t("artifactsPanel.title")}</span>
           </div>
           <div className="border-b border-border p-2">
             <div className="relative">
@@ -3356,7 +3368,7 @@ export function ChatPane({
               <input
                 value={artifactSearchQuery}
                 onChange={(e) => setArtifactSearchQuery(e.target.value)}
-                placeholder="Search artifacts…"
+                placeholder={t("artifactsPanel.searchArtifacts")}
                 className="h-8 w-full rounded-md border border-border bg-transparent pl-7 pr-2 text-xs outline-none focus:border-primary"
               />
             </div>
@@ -3372,7 +3384,7 @@ export function ChatPane({
                     e.dataTransfer.setData("text/plain", artifact.path);
                     e.dataTransfer.effectAllowed = "copy";
                   }}
-                  title={`Drag to the message field to reference ${artifact.path}`}
+                  title={t("artifactsPanel.dragToReference", { path: artifact.path })}
                   className="group flex cursor-grab items-center justify-between gap-1 rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground active:cursor-grabbing"
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -3385,16 +3397,16 @@ export function ChatPane({
                   <div className="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100">
                     <button
                       type="button"
-                      aria-label={`Download ${artifact.name}`}
-                      title="Download"
+                      aria-label={t("artifactsPanel.download", { name: artifact.name })}
+                      title={t("artifactsPanel.downloadTitle")}
                       onClick={() => downloadChatArtifact(artifact.id)}
                     >
                       <Download className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
-                      aria-label={`Remove ${artifact.name} from list`}
-                      title="Remove from list (does not delete the actual file)"
+                      aria-label={t("artifactsPanel.removeFromList", { name: artifact.name })}
+                      title={t("artifactsPanel.removeFromListTitle")}
                       onClick={() => deleteArtifact.mutate(artifact.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -3404,14 +3416,14 @@ export function ChatPane({
               ))}
             {(artifacts ?? []).length === 0 && (
               <p className="px-2 py-2 text-xs italic text-muted-foreground">
-                No artifacts created in this conversation yet.
+                {t("artifactsPanel.noArtifactsYet")}
               </p>
             )}
             {(artifacts ?? []).length > 0 &&
               artifactSearchQuery.trim() &&
               (artifacts ?? []).filter((a) => a.name.toLowerCase().includes(artifactSearchQuery.trim().toLowerCase()))
                 .length === 0 && (
-                <p className="px-2 py-2 text-xs italic text-muted-foreground">No artifacts found.</p>
+                <p className="px-2 py-2 text-xs italic text-muted-foreground">{t("artifactsPanel.noArtifactsFound")}</p>
               )}
           </div>
         </aside>

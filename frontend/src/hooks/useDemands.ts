@@ -23,14 +23,17 @@ export const CONVERT_TARGETS = [
 ] as const;
 export type ConvertTarget = (typeof CONVERT_TARGETS)[number];
 
+// Values are i18next keys (convertMenu.targets.*), not literal text --
+// ConvertMenu translates them at render time. See CONVERT_TARGETS' JSDoc
+// above for the target list itself.
 export const CONVERT_TARGET_LABELS: Record<ConvertTarget, string> = {
-  task: "Task (existing item)",
-  doc: "Document",
-  artifact: "Artifact",
-  knowledge_base: "Knowledge Base",
-  project_doc: "Specific project (doc)",
-  quick_task: "Standalone task (new item)",
-  planning_item: "Project planning",
+  task: "targets.task",
+  doc: "targets.doc",
+  artifact: "targets.artifact",
+  knowledge_base: "targets.knowledge_base",
+  project_doc: "targets.project_doc",
+  quick_task: "targets.quick_task",
+  planning_item: "targets.planning_item",
 };
 
 export const attachmentSchema = z.object({

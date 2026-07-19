@@ -1,0 +1,57 @@
+{
+  "users": {
+    "list": {
+      "title": "Users",
+      "create": "New user"
+    },
+    "column": {
+      "user": "User",
+      "name": "Name",
+      "email": "Email",
+      "role": "Role",
+      "profile": "Profile",
+      "status": "Status"
+    },
+    "badge": {
+      "admin": "Admin",
+      "user": "User"
+    },
+    "profile": {
+      "superAdmin": "— (super admin)",
+      "loading": "loading…",
+      "none": "no profile"
+    },
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "action": {
+      "edit": "Edit",
+      "delete": "Delete"
+    },
+    "delete": {
+      "confirm": "Delete user \"{{username}}?"
+    },
+    "form": {
+      "usernameLabel": "Username *",
+      "usernamePlaceholder": "jdoe",
+      "newPassword": "New password (optional)",
+      "passwordLabel": "Password *",
+      "leaveBlank": "leave blank to keep",
+      "passwordPlaceholder": "••••••••",
+      "confirmLabel": "Confirm password",
+      "optional": "(optional)",
+      "confirmPlaceholder": "••••••••",
+      "passwordsMismatch": "Passwords do not match",
+      "fullNameLabel": "Full name",
+      "fullNamePlaceholder": "John Doe",
+      "emailLabel": "Email",
+      "emailPlaceholder": "john@example.com",
+      "superAdminLabel": "Super Admin",
+      "superAdminDesc": "full access, bypasses profiles",
+      "activeLabel": "Active",
+      "profileLabel": "Access Profile",
+      "profilePlaceholder": "— no profile —"
+    }
+  }
+}

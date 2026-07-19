@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ArrowUpRight, Clock, Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,18 +7,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type CronJob, useFoundationCrons } from "@/hooks/useFoundationCrons";
 import { usePermission } from "@/hooks/usePermission";
 
-function healthBadge(job: CronJob) {
+function healthBadge(job: CronJob, t: (key: string) => string) {
   switch (job.health) {
     case "ok":
-      return <Badge variant="success">Working</Badge>;
+      return <Badge variant="success">{t("crons.health.working")}</Badge>;
     case "error":
-      return <Badge variant="destructive">Error</Badge>;
+      return <Badge variant="destructive">{t("crons.health.error")}</Badge>;
     case "overdue":
-      return <Badge variant="warning">Not running</Badge>;
+      return <Badge variant="warning">{t("crons.health.notRunning")}</Badge>;
     case "never_ran":
-      return <Badge variant="outline">Never ran</Badge>;
+      return <Badge variant="outline">{t("crons.health.neverRan")}</Badge>;
     default:
-      return <Badge variant="outline">Off</Badge>;
+      return <Badge variant="outline">{t("crons.health.off")}</Badge>;
   }
 }
 
@@ -25,6 +26,7 @@ function healthBadge(job: CronJob) {
  * are running and which are off. Clicking any row (or the header arrow)
  * goes to the /crons page, where the actual controls live. */
 export function CronsCard() {
+  const { t } = useTranslation("dashboard");
   const perm = usePermission("crons");
   const navigate = useNavigate();
   const { data, isLoading, isError, refetch, isRefetching } = useFoundationCrons();
@@ -51,10 +53,10 @@ export function CronsCard() {
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-muted-foreground" />
-          Crons
+          {t("crons.title")}
           {jobs && (
             <span className="text-xs font-normal text-muted-foreground">
-              {workingCount}/{jobs.length} working
+              {t("crons.workingCount", { working: workingCount, total: jobs.length })}
             </span>
           )}
         </CardTitle>
@@ -63,8 +65,8 @@ export function CronsCard() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            title="Refresh"
-            aria-label="Refresh cron list"
+            title={t("crons.refresh")}
+            aria-label={t("crons.refreshAria")}
             onClick={() => refetch()}
             disabled={isRefetching}
           >
@@ -78,8 +80,8 @@ export function CronsCard() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            title="Open Crons"
-            aria-label="Open the Crons page"
+            title={t("crons.openCrons")}
+            aria-label={t("crons.openCronsAria")}
             onClick={() => navigate("/crons")}
           >
             <ArrowUpRight className="h-4 w-4" />
@@ -90,20 +92,19 @@ export function CronsCard() {
         {isLoading && (
           <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading...
+            {t("crons.loading")}
           </div>
         )}
         {isError && (
-          <p className="px-2 pb-1 text-xs text-destructive">Failed to load the cron jobs.</p>
+          <p className="px-2 pb-1 text-xs text-destructive">{t("crons.loadError")}</p>
         )}
         {storeErrors.length > 0 && (
           <p className="px-2 pb-1 text-xs text-destructive">
-            Corrupted cron store ({storeErrors.map((se) => se.profile).join(", ")}) — those jobs
-            are not running. See the Crons page.
+            {t("crons.corruptedStore", { profiles: storeErrors.map((se) => se.profile).join(", ") })}
           </p>
         )}
         {!isLoading && !isError && sorted.length === 0 && (
-          <p className="py-4 text-sm text-muted-foreground">No cron jobs registered.</p>
+          <p className="py-4 text-sm text-muted-foreground">{t("crons.empty")}</p>
         )}
         {sorted.map((job) => (
           <button
@@ -120,7 +121,7 @@ export function CronsCard() {
                 {job.schedule_display ? ` · ${job.schedule_display}` : ""}
               </div>
             </div>
-            <div className="flex shrink-0 items-center">{healthBadge(job)}</div>
+            <div className="flex shrink-0 items-center">{healthBadge(job, t)}</div>
           </button>
         ))}
       </CardContent>

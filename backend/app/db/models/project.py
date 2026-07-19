@@ -320,7 +320,11 @@ class ProjectForgeRouterConfig(Base, TimestampMixin):
 
     Tools:
       claude       → {project}/.claude/settings.local.json
-      codex        → {project}/.codex/config.toml  (project-local override)
+      codex        → {project}/.codex/forgerouter.env (API key only; Codex
+                     CLI ignores model_provider/model_providers from a
+                     project-local config.toml, so the provider itself is
+                     registered via `-c` overrides at launch time -- see
+                     FORGEROUTER_CODEX_OVERRIDES in host-bridge/app.py)
       antigravity  → {project}/.forgerouter/antigravity.env (shell-source)
     """
 
@@ -337,7 +341,13 @@ class ProjectForgeRouterConfig(Base, TimestampMixin):
         unique=True,
     )
 
-    api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Each CLI is a distinct product with its own key/token namespace
+    # (Claude Code, Codex, Antigravity) — a single shared key was silently
+    # reused across whichever tool was toggled on next, clobbering the
+    # first tool's credential. One column per tool keeps them independent.
+    claude_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    codex_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    antigravity_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     claude_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

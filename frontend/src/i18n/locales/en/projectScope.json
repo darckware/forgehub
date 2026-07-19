@@ -1,0 +1,32 @@
+{
+  "page": {
+    "title": "Project Scope",
+    "description": "Select exactly which approved System Map elements a project will add, change, remove or verify."
+  },
+  "selectors": {
+    "project": "Project",
+    "projectPlaceholder": "Select a project",
+    "scopeBaseline": "Scope baseline",
+    "scopePlaceholder": "No scope available",
+    "revisionOption": "Revision {{revision}} · {{status}}"
+  },
+  "addItem": {
+    "title": "Add scope item",
+    "description": "Every item remains traceable to the approved map.",
+    "fields": {
+      "systemElement": "System element",
+      "systemElementPlaceholder": "Select element",
+      "change": "Change",
+      "applicability": "Applicability",
+      "rationale": "Rationale",
+      "acceptanceCriterion": "Acceptance criterion"
+    },
+    "acceptanceCriterionPlaceholder": "Given… when… then…",
+    "button": "Add to scope"
+  },
+  "coverage": {
+    "title": "Scope coverage",
+    "summary": "{{selected}} of {{total}} mapped elements selected.",
+    "outsideScope": "outside current scope"
+  }
+}

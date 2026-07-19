@@ -1,0 +1,104 @@
+{
+  "settings": {
+    "title": "Settings",
+    "description": "System defaults from forgehub.config -- not credentials (those live in .env). Saving rewrites that file and applies immediately, no restart needed.",
+
+    "tabs": {
+      "forgeRouterModels": "ForgeRouter virtual models",
+      "forgeRouterModelsDescription": "Model IDs available to agents. Auto is the recommended primary model; explicit classes are useful when planning already knows the workload.",
+      "gitControl": "Git Control",
+      "gitControlDescription": "Fixed system entry System Control's Git Control card always offers.",
+      "backups": "Backups",
+      "backupsDescription": "Hermes backups land flat here; each backup-enabled project gets its own subdirectory unless it sets its own location.",
+      "cleanup": "Cleanup & Trash",
+      "cleanupDescription": "\"Run Cleanup\" invokes the same bounded Athos policy used by the weekly foundation-clear cron.",
+      "aiChat": "AI chat",
+      "aiChatDescription": "Response language for the AI chat (Workspace tabs and the Assistant panel). Sent to the agent as a hidden instruction on every message -- it never appears in the conversation.",
+      "general": "General"
+    },
+
+    "gitControl": {
+      "hermesSourcePath": {
+        "label": "Hermes checkout path",
+        "inputId": "hermes_source_path"
+      },
+      "gitControlDefaultRepo": {
+        "label": "Default repo key",
+        "inputId": "git_control_default_repo",
+        "help": "What Git Control falls back to when no repo is selected -- must resolve to an entry it can find (\"hermes\" or a registered project key), or status requests will fail."
+      }
+    },
+
+    "backups": {
+      "backupRoot": {
+        "label": "Backup root",
+        "inputId": "backup_root"
+      }
+    },
+
+    "cleanup": {
+      "trashRoot": {
+        "label": "Trash folder",
+        "inputId": "trash_root",
+        "help": "Path passed to the authoritative Athos cleanup script; keep it aligned with the weekly foundation-clear default (/root/trash)."
+      },
+      "cleanupScanRoot": {
+        "label": "Scan root",
+        "inputId": "cleanup_scan_root"
+      },
+      "prunedPaths": {
+        "label": "Pruned paths (one per line)",
+        "textareaId": "cleanup_prune_paths"
+      },
+      "prunedNames": {
+        "label": "Pruned directory names (one per line)",
+        "textareaId": "cleanup_prune_names"
+      }
+    },
+
+    "aiChat": {
+      "chatResponseLanguage": {
+        "label": "System default language",
+        "inputId": "chat_response_language"
+      },
+      "languages": [
+        { "value": "pt-BR", "label": "Português (Brasil)" },
+        { "value": "en", "label": "English" },
+        { "value": "es", "label": "Español" },
+        { "value": "fr", "label": "Français" },
+        { "value": "de", "label": "Deutsch" },
+        { "value": "it", "label": "Italiano" }
+      ]
+    },
+
+    "general": {
+      "timezone": {
+        "cardDescription": "Timezone used for timestamps ForgeHub itself generates (e.g. backup filenames).",
+        "label": "Timezone",
+        "inputId": "timezone",
+        "datalistId": "timezone-suggestions",
+        "suggestions": [
+          "America/Sao_Paulo",
+          "America/New_York",
+          "America/Los_Angeles",
+          "Europe/Lisbon",
+          "Europe/London",
+          "UTC"
+        ],
+        "help": "IANA zone name (e.g. America/Sao_Paulo for UTC-3). Validated on save."
+      }
+    },
+
+    "messages": {
+      "loading": "Loading settings...",
+      "loadingModels": "Loading models...",
+      "recommended": "recommended",
+      "error": "Failed to load settings: {{message}}",
+      "unknownError": "unknown error",
+      "saved": "Settings saved -- applied immediately, no restart needed.",
+      "saveError": "Failed to save settings",
+      "reset": "Reset",
+      "save": "Save"
+    }
+  }
+}

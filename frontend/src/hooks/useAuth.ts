@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
+import i18n, { SUPPORTED_UI_LANGUAGES, type UiLanguage } from "@/i18n";
 import { useAuthStore, type ActionPermissionMap, type AuthUser, type PermissionMap } from "@/store/authStore";
 
 interface TokenOut {
@@ -95,6 +96,23 @@ export function useSessionKeepAlive() {
   }, [token, setAuth]);
 }
 
+// Applies the logged-in user's saved ui_language to i18next -- covers
+// initial load (zustand's persisted store rehydrates before this runs),
+// login, and any change made elsewhere (e.g. UserSettingsMenu's language
+// picker, which also calls i18n.changeLanguage directly for an instant
+// switch; this hook is what makes that choice durable across reloads and
+// other devices/browsers, where localStorage alone wouldn't carry it).
+export function useSyncUiLanguage() {
+  const uiLanguage = useAuthStore((s) => s.user?.ui_language);
+
+  useEffect(() => {
+    if (!uiLanguage) return;
+    if (!(SUPPORTED_UI_LANGUAGES as readonly string[]).includes(uiLanguage)) return;
+    if (i18n.language === uiLanguage) return;
+    void i18n.changeLanguage(uiLanguage as UiLanguage);
+  }, [uiLanguage]);
+}
+
 // ---- Users ----------------------------------------------------------------
 
 export function useUsers() {
@@ -135,7 +153,7 @@ export function useDeleteUser() {
  * password/is_admin/is_active/profile_id (see backend's SelfUserUpdate). */
 export function useUpdateMe() {
   const updateUser = useAuthStore((s) => s.updateUser);
-  return useMutation<AuthUser, Error, Partial<{ email: string; full_name: string; avatar_data_url: string | null }>>({
+  return useMutation<AuthUser, Error, Partial<{ email: string; full_name: string; avatar_data_url: string | null; ui_language: UiLanguage }>>({
     mutationFn: (body) => apiClient.patch("/api/v1/users/me", body),
     onSuccess: (user) => updateUser(user),
   });

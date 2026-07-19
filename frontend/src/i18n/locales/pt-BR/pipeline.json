@@ -1,0 +1,175 @@
+{
+  "pipelineStatus": {
+    "draft": "rascunho",
+    "active": "ativo",
+    "paused": "pausado",
+    "completed": "concluído",
+    "archived": "arquivado"
+  },
+  "stageStatus": {
+    "pending": "pendente",
+    "in_progress": "em andamento",
+    "blocked": "bloqueado",
+    "completed": "concluído",
+    "skipped": "ignorado"
+  },
+  "stageType": {
+    "discovery": "descoberta",
+    "spec": "especificação",
+    "architecture_review": "revisão de arquitetura",
+    "implementation": "implementação",
+    "migration": "migração",
+    "testing": "testes",
+    "build": "build",
+    "release_notes": "notas de versão",
+    "deployment_package": "pacote de deploy",
+    "release_approval": "aprovação de release",
+    "other": "outro"
+  },
+  "checkpointType": {
+    "started": "iniciado",
+    "progress": "progresso",
+    "evidence": "evidência",
+    "blocked": "bloqueado",
+    "failed": "falhou",
+    "paused": "pausado",
+    "heartbeat_lost": "heartbeat perdido",
+    "reconciled": "reconciliado",
+    "resumed": "retomado",
+    "completed": "concluído"
+  },
+  "list": {
+    "title": "Pipelines",
+    "description": "Fluxo de entrega de cada projeto: estágios ordenados, artefatos obrigatórios e portões de aprovação que precisam passar antes do release.",
+    "newPipeline": "Novo pipeline",
+    "createTitle": "Criar pipeline",
+    "createDescription": "Cadastre um pipeline do projeto, opcionalmente iniciado a partir de um modelo de pipeline. Os estágios podem ser adicionados depois.",
+    "createError": "Falha ao criar o pipeline: {{message}}",
+    "saveChanges": "Salvar alterações",
+    "loading": "Carregando pipelines…",
+    "loadError": "Falha ao carregar os pipelines: {{message}}",
+    "emptyTitle": "Nenhum pipeline ainda",
+    "emptyDescription": "Todo projeto precisa ter um pipeline ativo. Crie um para começar a definir os estágios.",
+    "activeDescription": "Pipeline ativo para este projeto",
+    "inactiveDescription": "Inativo",
+    "projectLabel": "Projeto: {{name}}",
+    "stagesCompleted": "{{completed}}/{{total}} estágios concluídos",
+    "noStagesYet": "Nenhum estágio definido ainda",
+    "viewDetails": "Ver detalhes",
+    "editAria": "Editar {{name}}",
+    "deleteAria": "Excluir {{name}}",
+    "deleteTitle": "Excluir pipeline?",
+    "deleteDescription": "Isso excluirá permanentemente o pipeline e todos os seus estágios. Essa ação não pode ser desfeita.",
+    "deleteConfirm": "Excluir"
+  },
+  "detail": {
+    "loading": "Carregando pipeline…",
+    "loadError": "Falha ao carregar o pipeline: {{message}}",
+    "activePipelineBadge": "Pipeline ativo",
+    "requiresApproval": "Requer aprovação",
+    "requiresVerification": "Requer verificação",
+    "projectProgressTitle": "Progresso do projeto",
+    "projectProgressDescription": "Checkpoints oficiais e o ponto exato e seguro para retomar.",
+    "macroflowLabel": "Macrofluxo",
+    "lastConfirmationLabel": "Última confirmação",
+    "noCheckpointShort": "Nenhum checkpoint",
+    "nextSafeActionLabel": "Próxima ação segura",
+    "evaluateCurrentStageFallback": "Avaliar o estágio atual",
+    "stoppedAt": "Parado em {{step}}:",
+    "timelineTitle_one": "Linha do tempo · {{count}} checkpoint",
+    "timelineTitle_other": "Linha do tempo · {{count}} checkpoints",
+    "stagesTitle": "Estágios",
+    "stagesDescription": "Os estágios são executados em ordem. Um estágio só pode ser concluído quando seus artefatos obrigatórios existirem, seus portões forem aprovados e uma avaliação de conclusão atual confirmar que está pronto.",
+    "addStage": "Adicionar estágio",
+    "noStagesDefined": "Nenhum estágio definido para este pipeline ainda.",
+    "backToList": "Voltar para a lista",
+    "stageCard": {
+      "changeStatusTitle": "Clique para alterar o status",
+      "editAria": "Editar estágio {{name}}",
+      "deleteAria": "Excluir estágio {{name}}",
+      "typeLabel": "Tipo",
+      "requiredArtifactsTitle": "Artefatos obrigatórios",
+      "gatesTitle": "Portões",
+      "noneDefined": "Nenhum definido",
+      "dependsOn_one": "Depende de {{count}} estágio",
+      "dependsOn_other": "Depende de {{count}} estágios",
+      "completionControlTitle": "Controle de conclusão",
+      "confirmedCount": "{{completed}}/{{total}} confirmados",
+      "lastCheckpoint": "Último checkpoint: {{label}}",
+      "stopped": "Parado: {{reason}}",
+      "resumeFrom": "Retomar a partir de: {{resume}}",
+      "noCheckpoint": "Nenhum checkpoint registrado.",
+      "pendingItem": "Pendente: {{label}}",
+      "evaluate": "Avaliar",
+      "completeStage": "Concluir estágio"
+    },
+    "addStageForm": {
+      "nameLabel": "Nome",
+      "namePlaceholder": "Implementação",
+      "orderLabel": "Ordem",
+      "typeLabel": "Tipo",
+      "statusLabel": "Status",
+      "cancel": "Cancelar"
+    }
+  },
+  "form": {
+    "nameLabel": "Nome",
+    "namePlaceholder": "Pipeline de entrega do MVP da Foundation",
+    "projectLabel": "Projeto",
+    "loadingProjects": "Carregando projetos…",
+    "selectProject": "Selecione um projeto",
+    "templateLabel": "Modelo (opcional)",
+    "loadingTemplates": "Carregando modelos…",
+    "noTemplate": "Sem modelo",
+    "templateHint": "Cria o pipeline já com os estágios do modelo prontos.",
+    "statusLabel": "Status",
+    "cancel": "Cancelar",
+    "createPipelineLabel": "Criar pipeline"
+  },
+  "templates": {
+    "pageTitle": "Modelos de Pipeline",
+    "importPipelineButton": "Importar pipeline",
+    "newTemplateButton": "Novo modelo",
+    "cancel": "Cancelar",
+    "optionalPlaceholder": "opcional",
+    "emptyDescription": "Nenhum modelo cadastrado. Crie um ou importe a partir de um pipeline existente.",
+    "stageRow": {
+      "editTitle": "Editar",
+      "deleteTitle": "Excluir"
+    },
+    "addStageForm": {
+      "nameLabel": "Nome do estágio",
+      "namePlaceholder": "ex.: Desenvolvimento",
+      "typeLabel": "Tipo",
+      "addButton": "Adicionar"
+    },
+    "table": {
+      "nameHeader": "Nome",
+      "typeHeader": "Tipo",
+      "approvalHeader": "Aprovação",
+      "verificationHeader": "Verificação"
+    },
+    "card": {
+      "nameLabel": "Nome",
+      "descriptionLabel": "Descrição",
+      "editTitle": "Editar",
+      "deleteTitle": "Excluir",
+      "deleteConfirm": "Excluir o modelo \"{{name}}\"?",
+      "noStagesYet": "Nenhum estágio ainda. Adicione um abaixo.",
+      "addStageButton": "Adicionar estágio"
+    },
+    "import": {
+      "title": "Importar pipeline como modelo",
+      "sourceLabel": "Pipeline de origem *",
+      "selectPlaceholder": "— selecione —",
+      "nameLabel": "Nome do modelo *",
+      "namePlaceholder": "ex.: Entrega de Software",
+      "importButton": "Importar"
+    },
+    "create": {
+      "nameLabel": "Nome *",
+      "namePlaceholder": "ex.: Entrega Padrão",
+      "submitButton": "Criar"
+    }
+  }
+}

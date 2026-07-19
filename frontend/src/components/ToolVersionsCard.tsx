@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { BellOff, BellRing, ChevronDown, ChevronRight, Feather, Loader2, RefreshCw, X } from "lucide-react";
 import hermesIcon from "@lobehub/icons-static-png/light/hermesagent.png";
 import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
@@ -36,6 +37,7 @@ const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity",
 
 
 export function ToolVersionsCard() {
+  const { t } = useTranslation("dashboard");
   const { data: versions, isLoading } = useToolVersions();
   const { data: syncSetting } = useToolSyncSetting();
   const checkVersions = useCheckToolVersions();
@@ -59,14 +61,14 @@ export function ToolVersionsCard() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle>Tool Versions</CardTitle>
+        <CardTitle>{t("toolVersions.title")}</CardTitle>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            title="Check now"
-            aria-label="Check versions now"
+            title={t("toolVersions.checkNow")}
+            aria-label={t("toolVersions.checkVersionsNowAria")}
             onClick={() => {
               clearUpdateDetails();
               checkVersions.mutate();
@@ -83,8 +85,8 @@ export function ToolVersionsCard() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            title={syncEnabled ? "Disable automatic sync" : "Enable automatic sync"}
-            aria-label="Toggle automatic version sync"
+            title={syncEnabled ? t("toolVersions.disableSync") : t("toolVersions.enableSync")}
+            aria-label={t("toolVersions.toggleSyncAria")}
             onClick={() => setSyncSetting.mutate(!syncEnabled)}
             disabled={setSyncSetting.isPending}
           >
@@ -99,13 +101,13 @@ export function ToolVersionsCard() {
       <CardContent className="space-y-1">
         {checkVersions.isError && (
           <p className="px-2 pb-1 text-xs text-destructive">
-            Failed to reach the host bridge — is forgehub-chat-bridge running?
+            {t("toolVersions.hostBridgeError")}
           </p>
         )}
         {isLoading && (
           <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading...
+            {t("toolVersions.loading")}
           </div>
         )}
         {!isLoading &&
@@ -134,15 +136,15 @@ export function ToolVersionsCard() {
                     <div>
                       <div className="text-sm font-medium">{meta.label}</div>
                       <div className="text-xs text-muted-foreground">
-                        {version?.installed_version ?? (errorText ? "Error" : "Unknown")}
+                        {version?.installed_version ?? (errorText ? t("toolVersions.error") : t("toolVersions.unknown"))}
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {version?.update_available ? (
-                      <Badge variant="warning">{version.latest_version ?? "Update available"}</Badge>
+                      <Badge variant="warning">{version.latest_version ?? t("toolVersions.updateAvailable")}</Badge>
                     ) : version?.installed_version ? (
-                      <Badge variant="success">Up to date</Badge>
+                      <Badge variant="success">{t("toolVersions.upToDate")}</Badge>
                     ) : errorText ? (
                       <button
                         className="flex items-center gap-1 rounded"
@@ -150,11 +152,11 @@ export function ToolVersionsCard() {
                       >
                         <Badge variant="destructive" className="gap-1">
                           {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                          Check failed
+                          {t("toolVersions.checkFailed")}
                         </Badge>
                       </button>
                     ) : (
-                      <Badge variant="outline">Not checked</Badge>
+                      <Badge variant="outline">{t("toolVersions.notChecked")}</Badge>
                     )}
                     {version?.update_available && (
                       <Button
@@ -162,14 +164,14 @@ export function ToolVersionsCard() {
                         data-testid={`tool-update-${tool}`}
                         size="sm"
                         variant="outline"
-                        aria-label={`Update ${meta.label}`}
+                        aria-label={t("toolVersions.updateAria", { tool: meta.label })}
                         onClick={() => handleUpdate(tool)}
                         disabled={isUpdating}
                       >
                         {isUpdating ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          "Update"
+                          t("toolVersions.update")
                         )}
                       </Button>
                     )}
@@ -181,15 +183,15 @@ export function ToolVersionsCard() {
                 <div className="mx-2 mb-2 max-h-64 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Details
+                      {t("toolVersions.details")}
                     </span>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 shrink-0"
-                      title="Close and clear details"
-                      aria-label={`Close and clear ${meta.label} details`}
+                      title={t("toolVersions.closeDetails")}
+                      aria-label={t("toolVersions.closeDetailsAria", { tool: meta.label })}
                       onClick={() => dismissUpdate(tool)}
                     >
                       <X className="h-3.5 w-3.5" />

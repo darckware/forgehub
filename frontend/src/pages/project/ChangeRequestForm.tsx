@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -27,9 +28,11 @@ export function ChangeRequestForm({
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Submit change request",
+  submitLabel: submitLabelProp,
   initialValues,
 }: ChangeRequestFormProps) {
+  const { t } = useTranslation("project");
+  const submitLabel = submitLabelProp ?? t("changeRequestForm.submitLabelDefault");
   const {
     register,
     handleSubmit,
@@ -57,22 +60,22 @@ export function ChangeRequestForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="cr_title">Title</Label>
-        <Input id="cr_title" placeholder="Add SSO login support" {...register("title")} />
+        <Label htmlFor="cr_title">{t("changeRequestForm.titleLabel")}</Label>
+        <Input id="cr_title" placeholder={t("changeRequestForm.titlePlaceholder")} {...register("title")} />
         {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="justification">Justification</Label>
+        <Label htmlFor="justification">{t("changeRequestForm.justificationLabel")}</Label>
         <Textarea
           id="justification"
-          placeholder="Why this deviation from the baseline is necessary"
+          placeholder={t("changeRequestForm.justificationPlaceholder")}
           {...register("justification")}
         />
       </div>
 
       <div className="space-y-2">
-        <Label>Impact (select at least one)</Label>
+        <Label>{t("changeRequestForm.impactLabel")}</Label>
         <div className="grid grid-cols-2 gap-2 rounded-md border border-border p-3">
           {CHANGE_REQUEST_IMPACT_FLAGS.map((flag) => (
             <div key={flag.key} className="flex items-center gap-2">
@@ -95,21 +98,21 @@ export function ChangeRequestForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="schedule_delta_days">Schedule delta (days)</Label>
+          <Label htmlFor="schedule_delta_days">{t("changeRequestForm.scheduleDeltaLabel")}</Label>
           <Input
             id="schedule_delta_days"
             type="number"
-            placeholder="e.g. 5 or -2"
+            placeholder={t("changeRequestForm.scheduleDeltaPlaceholder")}
             {...register("schedule_delta_days")}
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="cost_delta">Cost delta</Label>
+          <Label htmlFor="cost_delta">{t("changeRequestForm.costDeltaLabel")}</Label>
           <Input
             id="cost_delta"
             type="number"
             step="0.01"
-            placeholder="e.g. 1500.00"
+            placeholder={t("changeRequestForm.costDeltaPlaceholder")}
             {...register("cost_delta")}
           />
         </div>
@@ -117,13 +120,13 @@ export function ChangeRequestForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="requested_by">Requested by</Label>
-          <Input id="requested_by" placeholder="Name or role" {...register("requested_by")} />
+          <Label htmlFor="requested_by">{t("changeRequestForm.requestedByLabel")}</Label>
+          <Input id="requested_by" placeholder={t("changeRequestForm.requestedByPlaceholder")} {...register("requested_by")} />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="plan_baseline_id">Against baseline</Label>
+          <Label htmlFor="plan_baseline_id">{t("changeRequestForm.baselineLabel")}</Label>
           <Select id="plan_baseline_id" {...register("plan_baseline_id")}>
-            <option value="">None</option>
+            <option value="">{t("changeRequestForm.noneOption")}</option>
             {baselines.map((baseline) => (
               <option key={baseline.id} value={baseline.id}>
                 {baseline.name}
@@ -136,7 +139,7 @@ export function ChangeRequestForm({
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-            Cancel
+            {t("shared.cancel")}
           </Button>
         )}
         <Button type="submit" disabled={isSubmitting}>

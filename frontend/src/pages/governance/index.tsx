@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { AlertCircle, Gavel, Loader2, Plus } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -44,6 +45,7 @@ const STATUS_VARIANT: Record<
 };
 
 export default function GovernancePage() {
+  const { t } = useTranslation("governance");
   const { data: approvals, isLoading, isError, error } = useApprovals();
   const createApproval = useCreateApproval();
   const [showForm, setShowForm] = useState(false);
@@ -75,25 +77,20 @@ export default function GovernancePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Governance</h1>
-          <p className="text-muted-foreground">
-            Approvals for gated transitions -- pipeline stage gates, release readiness, critical
-            skills, and change requests -- backed by audit events and policies.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
+          <p className="text-muted-foreground">{t("list.description")}</p>
         </div>
         <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="mr-2 h-4 w-4" />
-          New approval
+          {t("list.newApproval")}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Request approval</CardTitle>
-            <CardDescription>
-              Record an approval request for a gated transition before it is decided.
-            </CardDescription>
+            <CardTitle>{t("list.requestForm.title")}</CardTitle>
+            <CardDescription>{t("list.requestForm.description")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ApprovalForm
@@ -103,7 +100,7 @@ export default function GovernancePage() {
             />
             {createApproval.isError && (
               <p className="mt-3 text-sm text-destructive">
-                Failed to create approval: {(createApproval.error as Error)?.message}
+                {t("list.requestForm.createFailed", { message: (createApproval.error as Error)?.message })}
               </p>
             )}
           </CardContent>
@@ -112,36 +109,36 @@ export default function GovernancePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Governed planning approvals</CardTitle>
-          <CardDescription>Identity, revision hash, policy evaluation and separation of duties are enforced by the backend.</CardDescription>
+          <CardTitle>{t("list.governed.title")}</CardTitle>
+          <CardDescription>{t("list.governed.description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {governed.isLoading && <p className="text-sm text-muted-foreground">Loading governed approvals…</p>}
-          {governed.data?.length === 0 && <p className="text-sm text-muted-foreground">No governed approval is pending.</p>}
-          {governed.isError && <p className="text-sm text-destructive">You do not have permission to view governed approvals.</p>}
+          {governed.isLoading && <p className="text-sm text-muted-foreground">{t("list.governed.loading")}</p>}
+          {governed.data?.length === 0 && <p className="text-sm text-muted-foreground">{t("list.governed.empty")}</p>}
+          {governed.isError && <p className="text-sm text-destructive">{t("list.governed.noPermission")}</p>}
           {governed.data?.map((request) => {
             const selfApproval = request.requested_by_type === "user" && request.requested_by_id === currentUser?.id;
             return <div key={request.id} className="rounded-lg border p-4">
-              <div className="flex flex-wrap justify-between gap-3"><div><p className="font-medium">{request.approval_type.replace(/_/g, " ")}</p><p className="text-sm text-muted-foreground">Requested by {request.requested_by_name}</p><code className="block text-[11px] text-muted-foreground">revision {request.target_revision_id} · {request.target_hash.slice(0, 12)}</code><code className="text-[11px] text-muted-foreground">policy evaluation {request.policy_evaluation_id}</code></div><Badge variant="warning">{request.status}</Badge></div>
-              <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" disabled={!canDecide || selfApproval || decideGoverned.isPending} onClick={() => decideGoverned.mutate({ requestId: request.id, decision: "approved" })}>Approve</Button><Button size="sm" variant="outline" disabled={!canDecide || selfApproval || decideGoverned.isPending} onClick={() => decideGoverned.mutate({ requestId: request.id, decision: "changes_requested" })}>Request changes</Button><Button size="sm" variant="destructive" disabled={!canDecide || selfApproval || decideGoverned.isPending} onClick={() => decideGoverned.mutate({ requestId: request.id, decision: "rejected" })}>Reject</Button>{selfApproval && <span className="self-center text-xs text-amber-600">Separation of duties: another authority must decide.</span>}</div>
+              <div className="flex flex-wrap justify-between gap-3"><div><p className="font-medium">{request.approval_type.replace(/_/g, " ")}</p><p className="text-sm text-muted-foreground">{t("list.governed.requestedBy", { name: request.requested_by_name })}</p><code className="block text-[11px] text-muted-foreground">{t("list.governed.revision", { id: request.target_revision_id, hash: request.target_hash.slice(0, 12) })}</code><code className="text-[11px] text-muted-foreground">{t("list.governed.policyEvaluation", { id: request.policy_evaluation_id })}</code></div><Badge variant="warning">{request.status}</Badge></div>
+              <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" disabled={!canDecide || selfApproval || decideGoverned.isPending} onClick={() => decideGoverned.mutate({ requestId: request.id, decision: "approved" })}>{t("list.governed.approve")}</Button><Button size="sm" variant="outline" disabled={!canDecide || selfApproval || decideGoverned.isPending} onClick={() => decideGoverned.mutate({ requestId: request.id, decision: "changes_requested" })}>{t("list.governed.requestChanges")}</Button><Button size="sm" variant="destructive" disabled={!canDecide || selfApproval || decideGoverned.isPending} onClick={() => decideGoverned.mutate({ requestId: request.id, decision: "rejected" })}>{t("list.governed.reject")}</Button>{selfApproval && <span className="self-center text-xs text-amber-600">{t("list.governed.separationOfDuties")}</span>}</div>
             </div>;
           })}
-          {decideGoverned.isError && <p className="text-sm text-destructive">Decision blocked by authority, policy, expiry or separation of duties.</p>}
+          {decideGoverned.isError && <p className="text-sm text-destructive">{t("list.governed.decisionBlocked")}</p>}
         </CardContent>
       </Card>
 
       {canManageDelegation && <Card>
-        <CardHeader><CardTitle>Athos authority</CardTitle><CardDescription>Grant bounded, expiring authority. This does not release Tasks or CLI execution.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>{t("list.athos.title")}</CardTitle><CardDescription>{t("list.athos.description")}</CardDescription></CardHeader>
         <CardContent className="space-y-3">
-          {athos ? <Button variant="outline" disabled={grantDelegation.isPending} onClick={() => grantDelegation.mutate({ grantee_agent_id: athos.id, allowed_actions: ["governance.approval.decide", "planning.delivery.authorize", "planning.progress.view", "planning.progress.manage", "planning.stage.complete", "planning.execution.view", "planning.execution.manage", "planning.execution.dispatch", "planning.execution.cancel"], scope_type: "organization", max_risk: "medium", expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), reason: "24-hour governed planning, execution and recovery mandate" })}>Grant Athos 24-hour planning mandate</Button> : <p className="text-sm text-muted-foreground">Athos agent was not found in the agent registry.</p>}
-          {delegations.data?.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded border p-3 text-sm"><div><p className="font-medium">{item.status} · {item.scope_type}</p><p className="text-xs text-muted-foreground">{item.allowed_actions.join(", ")} · expires {new Date(item.expires_at).toLocaleString()}</p></div>{item.status === "active" && <Button size="sm" variant="destructive" onClick={() => revokeDelegation.mutate(item.id)}>Revoke</Button>}</div>)}
+          {athos ? <Button variant="outline" disabled={grantDelegation.isPending} onClick={() => grantDelegation.mutate({ grantee_agent_id: athos.id, allowed_actions: ["governance.approval.decide", "planning.delivery.authorize", "planning.progress.view", "planning.progress.manage", "planning.stage.complete", "planning.execution.view", "planning.execution.manage", "planning.execution.dispatch", "planning.execution.cancel"], scope_type: "organization", max_risk: "medium", expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), reason: "24-hour governed planning, execution and recovery mandate" })}>{t("list.athos.grantButton")}</Button> : <p className="text-sm text-muted-foreground">{t("list.athos.notFound")}</p>}
+          {delegations.data?.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded border p-3 text-sm"><div><p className="font-medium">{item.status} · {item.scope_type}</p><p className="text-xs text-muted-foreground">{item.allowed_actions.join(", ")} · {t("list.athos.expires", { date: new Date(item.expires_at).toLocaleString() })}</p></div>{item.status === "active" && <Button size="sm" variant="destructive" onClick={() => revokeDelegation.mutate(item.id)}>{t("list.athos.revoke")}</Button>}</div>)}
         </CardContent>
       </Card>}
 
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading approvals…
+          {t("list.loading")}
         </div>
       )}
 
@@ -149,7 +146,7 @@ export default function GovernancePage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load approvals: {(error as Error)?.message}</span>
+            <span>{t("list.loadFailed", { message: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -159,14 +156,12 @@ export default function GovernancePage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <Gavel className="h-10 w-10 text-muted-foreground" />
             <div>
-              <p className="font-medium">No approvals yet</p>
-              <p className="text-sm text-muted-foreground">
-                Request your first approval to start tracking gated decisions.
-              </p>
+              <p className="font-medium">{t("list.empty.title")}</p>
+              <p className="text-sm text-muted-foreground">{t("list.empty.description")}</p>
             </div>
             <Button onClick={() => setShowForm(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              New approval
+              {t("list.newApproval")}
             </Button>
           </CardContent>
         </Card>
@@ -178,11 +173,11 @@ export default function GovernancePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Entity</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Requested by</TableHead>
-                  <TableHead>Decided by</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("list.table.entity")}</TableHead>
+                  <TableHead>{t("list.table.status")}</TableHead>
+                  <TableHead>{t("list.table.requestedBy")}</TableHead>
+                  <TableHead>{t("list.table.decidedBy")}</TableHead>
+                  <TableHead className="text-right">{t("list.table.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -215,7 +210,7 @@ export default function GovernancePage() {
                         to={`/governance/${approval.id}`}
                         className={buttonVariants({ variant: "outline", size: "sm" })}
                       >
-                        View
+                        {t("list.table.view")}
                       </Link>
                     </TableCell>
                   </TableRow>

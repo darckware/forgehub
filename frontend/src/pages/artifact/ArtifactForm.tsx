@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,8 +28,9 @@ export function ArtifactForm({
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Create artifact",
+  submitLabel,
 }: ArtifactFormProps) {
+  const { t } = useTranslation("artifact");
   const { data: projects, isLoading: isLoadingProjects } = useProjects();
 
   const {
@@ -53,16 +55,16 @@ export function ArtifactForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="name">Name</Label>
-        <Input id="name" placeholder="Foundation MVP — PRD v1" {...register("name")} />
+        <Label htmlFor="name">{t("form.nameLabel")}</Label>
+        <Input id="name" placeholder={t("form.namePlaceholder")} {...register("name")} />
         {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="description">Description</Label>
+        <Label htmlFor="description">{t("form.descriptionLabel")}</Label>
         <Textarea
           id="description"
-          placeholder="What this deliverable covers and where it stands"
+          placeholder={t("form.descriptionPlaceholder")}
           {...register("description")}
         />
         {errors.description && (
@@ -72,7 +74,7 @@ export function ArtifactForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="artifact_type">Type</Label>
+          <Label htmlFor="artifact_type">{t("form.typeLabel")}</Label>
           <Select id="artifact_type" {...register("artifact_type")}>
             {ARTIFACT_TYPES.map((type) => (
               <option key={type} value={type}>
@@ -86,7 +88,7 @@ export function ArtifactForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="status">Status</Label>
+          <Label htmlFor="status">{t("form.statusLabel")}</Label>
           <Select id="status" {...register("status")}>
             {ARTIFACT_STATUSES.map((status) => (
               <option key={status} value={status}>
@@ -99,10 +101,10 @@ export function ArtifactForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="project_id">Project (optional)</Label>
+        <Label htmlFor="project_id">{t("form.projectLabel")}</Label>
         <Select id="project_id" disabled={isLoadingProjects} {...register("project_id")}>
           <option value="">
-            {isLoadingProjects ? "Loading projects…" : "Select a project"}
+            {isLoadingProjects ? t("form.projectLoading") : t("form.projectSelect")}
           </option>
           {projects?.map((p) => (
             <option key={p.id} value={p.id}>
@@ -117,10 +119,10 @@ export function ArtifactForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="pipeline_stage_id">Pipeline Stage ID</Label>
+          <Label htmlFor="pipeline_stage_id">{t("form.pipelineStageIdLabel")}</Label>
           <Input
             id="pipeline_stage_id"
-            placeholder="uuid of pipeline stage (optional)"
+            placeholder={t("form.pipelineStageIdPlaceholder")}
             {...register("pipeline_stage_id")}
           />
           {errors.pipeline_stage_id && (
@@ -129,10 +131,10 @@ export function ArtifactForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="task_execution_id">Task Execution ID</Label>
+          <Label htmlFor="task_execution_id">{t("form.taskExecutionIdLabel")}</Label>
           <Input
             id="task_execution_id"
-            placeholder="uuid of task execution (optional)"
+            placeholder={t("form.taskExecutionIdPlaceholder")}
             {...register("task_execution_id")}
           />
           {errors.task_execution_id && (
@@ -149,19 +151,19 @@ export function ArtifactForm({
           {...register("is_locked")}
         />
         <Label htmlFor="is_locked" className="cursor-pointer">
-          Locked (finalized — block further edits until explicitly unlocked)
+          {t("form.lockedLabel")}
         </Label>
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-            Cancel
+            {t("cancel")}
           </Button>
         )}
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {submitLabel}
+          {submitLabel ?? t("form.submitLabel")}
         </Button>
       </div>
     </form>

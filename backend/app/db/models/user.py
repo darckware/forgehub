@@ -1,11 +1,13 @@
 """User model for authentication and access control."""
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, String, Text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+
+UI_LANGUAGES = ("en", "pt-BR")
 
 
 class User(Base, TimestampMixin):
@@ -30,7 +32,17 @@ class User(Base, TimestampMixin):
         ForeignKey("company.profiles.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # App shell language (sidebar, dialogs, forms) -- independent of the
+    # AI chat's response language (SystemConfig.chat_response_language).
+    # Frontend applies it via i18next; see frontend/src/i18n/index.ts.
+    ui_language: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="pt-BR", server_default="pt-BR"
+    )
 
     profile: Mapped[object] = relationship(
         "Profile", foreign_keys=[profile_id], lazy="select"
+    )
+
+    __table_args__ = (
+        CheckConstraint("ui_language IN ('en', 'pt-BR')", name="ck_users_ui_language"),
     )

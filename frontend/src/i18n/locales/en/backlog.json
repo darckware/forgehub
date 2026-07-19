@@ -1,0 +1,185 @@
+{
+  "enums": {
+    "itemTypes": {
+      "feature": "Feature",
+      "bug": "Bug",
+      "hotfix": "Hotfix",
+      "improvement": "Improvement",
+      "technical_debt": "Technical debt",
+      "refactoring": "Refactoring",
+      "security_fix": "Security fix",
+      "research": "Research",
+      "documentation": "Documentation"
+    },
+    "statuses": {
+      "new": "New",
+      "triaged": "Triaged",
+      "scoped": "Scoped",
+      "in_progress": "In progress",
+      "blocked": "Blocked",
+      "done": "Done",
+      "rejected": "Rejected"
+    },
+    "priorities": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "severities": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "taskStatuses": {
+      "planned": "Planned",
+      "assigned": "Assigned",
+      "in_progress": "In progress",
+      "blocked": "Blocked",
+      "done": "Done",
+      "deployed": "Deployed",
+      "cancelled": "Cancelled"
+    }
+  },
+  "list": {
+    "title": "Planning",
+    "subtitle": "Planning items entering version scope: features, bugs, hotfixes, improvements, technical debt, and more.",
+    "filterAllProjects": "All projects",
+    "exportButton": "Export JSON",
+    "exportTooltip": "Export visible items + their tasks as JSON",
+    "importButton": "Import JSON",
+    "importTooltip": "Import planning items from a previously exported JSON file",
+    "importFailed": "Import failed: {{error}}",
+    "newButton": "New planning item",
+    "createCard": {
+      "title": "Create planning item",
+      "description": "Capture a feature, bug, or other planning item before it enters triage and version scope."
+    },
+    "createError": "Failed to create planning item: {{error}}",
+    "loading": "Loading planning items…",
+    "loadError": "Failed to load planning items: {{error}}",
+    "emptyState": {
+      "title": "No planning items yet",
+      "description": "Create your first feature request or bug report to start building the backlog."
+    },
+    "columns": {
+      "title": "Title",
+      "type": "Type",
+      "status": "Status",
+      "priority": "Priority",
+      "versionScope": "Version scope",
+      "actions": "Actions",
+      "versionCount": "{{count}} version(s)",
+      "unscoped": "Unscoped"
+    },
+    "collapseTasks": "Collapse tasks",
+    "expandTasks": "Expand tasks",
+    "editTooltip": "Edit planning item",
+    "editAria": "Edit {{title}}",
+    "addTaskTooltip": "Add task",
+    "addTaskAria": "Add task to {{title}}",
+    "deleteAria": "Delete {{title}}",
+    "deleteDialog": {
+      "title": "Delete planning item?",
+      "description": "This will permanently delete the planning item and all related tasks. This cannot be undone.",
+      "confirm": "Delete"
+    },
+    "editRow": {
+      "editing": "Editing: {{title}}",
+      "saveButton": "Save changes"
+    },
+    "taskRow": {
+      "editingTask": "Editing task",
+      "saveTask": "Save task",
+      "editTooltip": "Edit task",
+      "deleteTooltip": "Delete task",
+      "subtaskLabel": "(subtask)",
+      "deleteDialog": {
+        "title": "Delete task?",
+        "description": "\"{{title}}\" will be permanently deleted.",
+        "confirm": "Delete"
+      }
+    },
+    "tasksRow": {
+      "loading": "Loading tasks…",
+      "empty": "No tasks yet for this planning item.",
+      "newTaskHeading": "New task",
+      "addTaskSubmit": "Add task",
+      "addTaskButton": "Add task"
+    }
+  },
+  "detail": {
+    "breadcrumbPlanning": "Planning",
+    "loading": "Loading planning item…",
+    "loadError": "Failed to load planning item: {{error}}",
+    "outputPathLabel": "Output path",
+    "featureRequest": {
+      "title": "Feature request",
+      "description": "Acceptance criteria and business rationale.",
+      "acceptanceCriteria": "Acceptance criteria",
+      "businessValue": "Business value",
+      "requestedBy": "Requested by"
+    },
+    "bugReport": {
+      "title": "Bug report",
+      "description": "Severity, environment, and reproduction.",
+      "severity": "Severity",
+      "environment": "Environment",
+      "detectedInVersion": "Detected in version",
+      "fixedInVersion": "Fixed in version",
+      "stepsToReproduce": "Steps to reproduce"
+    },
+    "noSpecialization": {
+      "title": "Details",
+      "description": "No feature or bug specialization recorded for this item yet.",
+      "body": "Planning items of type \"{{type}}\" carry no nested specialization in this view."
+    },
+    "versionScope": {
+      "title": "Version scope",
+      "description": "Product versions this item is scoped into.",
+      "removed": "removed",
+      "inScope": "in scope",
+      "empty": "This item has not been scoped into a product version yet."
+    },
+    "triageDecisions": {
+      "title": "Triage decisions",
+      "description": "Outcomes recorded while triaging this item into (or out of) scope.",
+      "decidedBy": "Decided by {{name}}",
+      "empty": "No triage decisions have been recorded for this item yet."
+    },
+    "backToList": "Back to list"
+  },
+  "form": {
+    "submitLabelDefault": "Create planning item",
+    "titleLabel": "Title",
+    "titlePlaceholder": "Short summary of the planning item",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Context, rationale, and any relevant detail",
+    "typeLabel": "Type",
+    "statusLabel": "Status",
+    "priorityLabel": "Priority",
+    "productLabel": "Product",
+    "loadingProducts": "Loading products…",
+    "selectProduct": "Select a product",
+    "versionLabel": "Version",
+    "selectProductFirst": "Select a product first",
+    "loadingVersions": "Loading versions…",
+    "selectVersion": "Select a version",
+    "projectLabel": "Project",
+    "loadingProjects": "Loading projects…",
+    "selectProject": "Select a project",
+    "outputPathLabel": "Output path",
+    "outputPathRecommended": "(recommended for this type)",
+    "outputPathPlaceholder": "e.g. docs/api.md  or  src/modules/auth/",
+    "outputPathHelp": "Relative path within the project working directory where this item's output should land.",
+    "bugDetailsHeading": "Bug details",
+    "severityLabel": "Severity",
+    "severityUnset": "Unset",
+    "environmentLabel": "Environment",
+    "environmentPlaceholder": "production, staging…",
+    "detectedInVersionLabel": "Detected in version",
+    "detectedInVersionPlaceholder": "e.g. 0.1.0",
+    "cancelButton": "Cancel"
+  }
+}
