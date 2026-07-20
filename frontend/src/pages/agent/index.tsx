@@ -155,7 +155,13 @@ export default function AgentPage() {
         </Card>
       )}
 
-      {!isLoading && !isError && agents && <AgentEcosystemHierarchy agents={agents} skills={skills} />}
+      {/* Retired agents (e.g. the 2026-07-18 Tier B archival) stay in the
+          filterable table below for audit, but never in the live org chart --
+          the sync never deactivates a row on its own (see hermes_sync.py),
+          so this filter is what actually drops them once a human retires one. */}
+      {!isLoading && !isError && agents && (
+        <AgentEcosystemHierarchy agents={agents.filter((agent) => agent.is_active)} skills={skills} />
+      )}
 
       {!isLoading && !isError && agents && agents.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">

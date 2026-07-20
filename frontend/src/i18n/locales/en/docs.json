@@ -4,7 +4,7 @@
     "cancel": "Cancel"
   },
   "areaSwitcher": {
-    "creationArea": "creation area ·",
+    "creationArea": "select folder ·",
     "removeAreaTitle": "Remove creation area",
     "removeAreaDescription": "Removes only the area's record -- the files remain on the host, untouched.",
     "atLeastOneMustExist": "At least one area must exist",
@@ -20,6 +20,12 @@
   },
   "page": {
     "title": "Docs",
+    "searchPlaceholder": "Search files by name or path…",
+    "noSearchMatch": "No items match this search.",
+    "mindMap": "Mind map",
+    "graph": "Graph",
+    "selectDocumentFirst": "Select a document first.",
+    "buildingGraph": "Building graph…",
     "newDocument": "New document",
     "newFolder": "New folder",
     "download": "Download {{path}}",

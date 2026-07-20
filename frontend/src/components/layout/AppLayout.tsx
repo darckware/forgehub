@@ -29,6 +29,8 @@ export function AppLayout() {
     pathname.startsWith("/notifications") ||
     pathname.startsWith("/auditor") ||
     pathname.startsWith("/docs") ||
+    pathname.startsWith("/obsidian") ||
+    pathname.startsWith("/foundation") ||
     pathname.startsWith("/demands");
 
   return (

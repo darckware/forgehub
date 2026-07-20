@@ -1,5 +1,7 @@
 {
   "note": "Nota",
   "mindMap": "Mapa mental",
-  "graph": "Grafo"
+  "graph": "Grafo",
+  "workingFolder": "Pasta de trabalho",
+  "useRoot": "usar raiz"
 }

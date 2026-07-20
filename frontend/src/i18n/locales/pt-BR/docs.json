@@ -4,7 +4,7 @@
     "cancel": "Cancelar"
   },
   "areaSwitcher": {
-    "creationArea": "área de criação ·",
+    "creationArea": "selecione pasta ·",
     "removeAreaTitle": "Remover área de criação",
     "removeAreaDescription": "Remove apenas o registro da área -- os arquivos permanecem no host, intocados.",
     "atLeastOneMustExist": "Pelo menos uma área deve existir",
@@ -20,6 +20,12 @@
   },
   "page": {
     "title": "Documentos",
+    "searchPlaceholder": "Buscar arquivos por nome ou caminho…",
+    "noSearchMatch": "Nenhum item corresponde a esta busca.",
+    "mindMap": "Mapa mental",
+    "graph": "Grafo",
+    "selectDocumentFirst": "Selecione um documento primeiro.",
+    "buildingGraph": "Construindo grafo…",
     "newDocument": "Novo documento",
     "newFolder": "Nova pasta",
     "download": "Baixar {{path}}",

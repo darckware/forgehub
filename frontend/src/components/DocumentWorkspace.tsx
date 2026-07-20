@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Folder } from "lucide-react";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
-import type { DocTreeNode } from "@/components/DocTree";
 import { SearchFilterInput } from "@/components/SearchFilterInput";
 import { ViewModeToggle, type DocumentViewMode } from "@/components/ViewModeToggle";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,37 +9,18 @@ import { cn } from "@/lib/utils";
 
 export type { DocumentViewMode };
 
-/** Keeps matching files and their ancestor directories, so search results
- * remain navigable instead of becoming a flat list. */
-export function filterDocumentTree(nodes: DocTreeNode[], query: string): DocTreeNode[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return nodes;
-
-  const result: DocTreeNode[] = [];
-  for (const node of nodes) {
-    if (node.type === "file") {
-      if (node.name.toLowerCase().includes(normalized) || node.path.toLowerCase().includes(normalized)) {
-        result.push(node);
-      }
-      continue;
-    }
-
-    const children = filterDocumentTree(node.children ?? [], normalized);
-    if (children.length > 0 || node.name.toLowerCase().includes(normalized)) {
-      result.push({ ...node, children });
-    }
-  }
-  return result;
-}
-
-/** Same title/path/search/view-toggle rows and two-card tree+content split
- * as `DocumentWorkspace`, but sized to sit inline in a normally-scrolling
- * page (fixed `h-[65vh]` body instead of filling a full-bleed flex
- * ancestor) -- for pages that stack a browser alongside other cards
- * (Foundation's Scripts card). Single-purpose browser pages (Docs,
- * Knowledge Base) should use `DocumentWorkspace` instead. */
-export function DocumentBrowser({
+/** Full-bleed file-browser page shell -- the exact structure of the Docs
+ * page (title row, path/search/view-toggle row, tree+content as two
+ * separate cards), extracted so other single-purpose browser pages (the
+ * Knowledge Base) render identically instead of drifting into their own
+ * boxed-Card layout. Pages using this must be added to AppLayout's
+ * `isFullBleed` list -- it fills its flex-column ancestor's height rather
+ * than sitting inside the standard page padding. Multi-section pages that
+ * stack a browser alongside other cards (Foundation) should keep using the
+ * boxed `DocumentBrowser` instead. */
+export function DocumentWorkspace({
   title,
+  titleIcon,
   titleSuffix,
   path,
   onResetPath,
@@ -51,17 +31,21 @@ export function DocumentBrowser({
   onViewModeChange,
   mindMapDisabled,
   actions,
+  assistantOpenTitle,
   tree,
   children,
-  bodyClassName,
+  className,
 }: {
   title: string;
+  titleIcon?: ReactNode;
   /** Rendered at the left of the title row's second column, before the
    * action icons -- mirrors the Docs page's area switcher
    * ("selecione pasta · /root/docs"). */
   titleSuffix?: ReactNode;
   /** Folder currently being browsed, relative to the tree root -- "/" at
-   * the root, "/subfolder" once one is selected as the working folder. */
+   * the root, "/subfolder" once one is selected as the working folder.
+   * Deliberately not the absolute host path (already shown elsewhere,
+   * e.g. the title row) to keep this row short and stable. */
   path: string;
   /** Makes the folder icon a "go to root" button -- clicking it resets the
    * working folder, replacing the old separate "usar raiz" text link. */
@@ -73,20 +57,24 @@ export function DocumentBrowser({
   onViewModeChange: (mode: DocumentViewMode) => void;
   mindMapDisabled?: boolean;
   actions?: ReactNode;
+  assistantOpenTitle?: string;
   tree: ReactNode;
   children: ReactNode;
-  bodyClassName?: string;
+  className?: string;
 }) {
   const { t } = useTranslation("documentBrowser");
   return (
-    <div className="flex flex-col gap-4">
+    <div className={cn("flex min-h-0 w-full flex-1 flex-col gap-4 p-6", className)}>
       <div className="grid grid-cols-[280px_1fr] items-center gap-4">
-        <h2 className="flex items-center gap-2 text-xl font-semibold">{title}</h2>
+        <h1 className="flex items-center gap-2 text-xl font-semibold">
+          {titleIcon}
+          {title}
+        </h1>
         <div className="flex flex-wrap items-center justify-between gap-2">
           {titleSuffix}
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
             {actions}
-            <AssistantToggleButton size="icon" />
+            <AssistantToggleButton size="icon" openTitle={assistantOpenTitle} />
           </div>
         </div>
       </div>
@@ -123,7 +111,7 @@ export function DocumentBrowser({
         </div>
       </div>
 
-      <div className={cn("grid h-[65vh] grid-cols-[280px_1fr] gap-4", bodyClassName)}>
+      <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr] gap-4">
         <Card className="min-h-0 overflow-hidden">
           <CardContent className="h-full overflow-y-auto p-2">{tree}</CardContent>
         </Card>

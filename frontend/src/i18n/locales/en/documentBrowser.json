@@ -1,5 +1,7 @@
 {
   "note": "Note",
   "mindMap": "Mind map",
-  "graph": "Graph"
+  "graph": "Graph",
+  "workingFolder": "Working folder",
+  "useRoot": "use root"
 }

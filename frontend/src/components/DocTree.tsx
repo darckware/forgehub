@@ -15,9 +15,9 @@ export interface DocTreeNode {
   children?: DocTreeNode[];
 }
 
-/** Create/rename/delete actions for the tree rows -- optional so read-only
- * consumers (the Knowledge Base page) render the exact same tree with no
- * action icons at all. */
+/** Create/rename/delete actions for the tree rows -- optional so a
+ * consumer that only wants a plain read-only tree (Foundation) can render
+ * one with no action icons at all. */
 export interface DocTreeActions {
   onCreateFile: (folderPath: string) => void;
   onCreateFolder: (folderPath: string) => void;
@@ -230,7 +230,7 @@ export function DocTree({
   /** Drag-and-drop move: dragging any row and dropping it onto a folder row
    * (or the root drop zone below the tree) calls this with (sourcePath,
    * destFolderPath). Optional, like `actions` -- undefined disables
-   * dragging entirely (the Knowledge Base page's read-only tree). */
+   * dragging entirely (Foundation's read-only tree). */
   onMove?: (sourcePath: string, destFolderPath: string) => void;
   /** Makes rows attachable or referenceable in the global assistant. */
   getAssistantDragPayload?: (node: DocTreeNode) => AssistantFileDragPayload | undefined;

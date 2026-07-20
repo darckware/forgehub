@@ -1,14 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Download,
   Eye,
+  FileEdit,
+  FilePlus,
+  FolderPlus,
   Loader2,
+  Palette,
   Pencil,
   Plus,
   RefreshCw,
   Save,
   Search,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import {
@@ -16,6 +22,7 @@ import {
   filterDocumentTree,
   type DocumentViewMode,
 } from "@/components/DocumentBrowser";
+import { PathPrompt } from "@/components/PathPrompt";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,12 +43,18 @@ import { Markdown } from "@/components/Markdown";
 import { DocTree } from "@/components/DocTree";
 import { GraphView } from "@/components/GraphView";
 import { MindMapView } from "@/components/MindMapView";
+import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whiteboard/WhiteboardModal";
+import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
 import {
-  useDeleteFoundationDoc,
+  downloadFoundationFile,
+  useCreateFoundationFolder,
+  useDeleteFoundationPath,
   useFoundationDoc,
   useFoundationGraph,
   useFoundationTree,
+  useRenameFoundationPath,
   useUpdateFoundationDoc,
+  useUploadFoundationFile,
 } from "@/hooks/useFoundationDocs";
 import {
   useCreateFoundationScript,
@@ -52,6 +65,10 @@ import {
   useUpdateFoundationScript,
   type FoundationScript,
 } from "@/hooks/useFoundationScriptRegistry";
+
+// Whiteboard exports land in an "assets" folder at the Foundation root,
+// same convention as the Docs/Knowledge Base pages.
+const WHITEBOARD_ASSETS_FOLDER = "assets";
 
 function DocumentationCard() {
   const { t } = useTranslation("foundation");
@@ -64,17 +81,34 @@ function DocumentationCard() {
   const [selectedPath, setSelectedPath] = useState<string | undefined>();
   const { data: doc, isLoading: docLoading } = useFoundationDoc(selectedPath);
   const updateDoc = useUpdateFoundationDoc();
-  const deleteDoc = useDeleteFoundationDoc();
+  const deletePath = useDeleteFoundationPath();
+  const createFolder = useCreateFoundationFolder();
+  const renamePath = useRenameFoundationPath();
+  const uploadFile = useUploadFoundationFile();
+  const uploadRef = useRef<HTMLInputElement>(null);
+
+  // Explicit "pasta de trabalho": click a folder in the tree (or use the
+  // reset link) to choose where "Novo documento"/"Nova pasta"/"Enviar"
+  // and the tree's own inline create actions land. "" is the root.
+  const [workingDir, setWorkingDir] = useState("");
 
   const [viewMode, setViewMode] = useState<DocumentViewMode>("note");
   const { data: graph, isLoading: graphLoading } = useFoundationGraph();
 
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [prompt, setPrompt] = useState<"new-doc" | "new-folder" | "rename" | null>(null);
+  const [renameTarget, setRenameTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Whiteboard: undefined = closed; object (possibly {}) = open.
+  const [whiteboardData, setWhiteboardData] = useState<ExcalidrawInitialDataState | undefined>();
+  const [whiteboardNote, setWhiteboardNote] = useState<string | null>(null);
 
   useEffect(() => {
     setIsEditing(false);
   }, [selectedPath]);
+  useEffect(() => setWhiteboardNote(null), [selectedPath]);
 
   function handleStartEdit() {
     setDraft(doc?.content ?? "");
@@ -96,145 +130,411 @@ function DocumentationCard() {
 
   function handleDelete() {
     if (!selectedPath) return;
-    if (!window.confirm(t("docs.confirmDelete", { path: selectedPath }))) return;
-    deleteDoc.mutate(selectedPath, {
-      onSuccess: () => setSelectedPath(undefined),
+    setDeleting(selectedPath);
+  }
+
+  function handleDeletePath(path: string) {
+    setDeleting(path);
+  }
+
+  function handleCreateDoc(path: string) {
+    const finalPath = path.toLowerCase().endsWith(".md") ? path : `${path}.md`;
+    updateDoc.mutate(
+      { path: finalPath, content: `# ${finalPath.split("/").pop()?.replace(/\.md$/i, "")}\n\n` },
+      {
+        onSuccess: () => {
+          setPrompt(null);
+          setSelectedPath(finalPath);
+          setViewMode("note");
+        },
+      }
+    );
+  }
+
+  function handleCreateFileIn(folder: string) {
+    setWorkingDir(folder);
+    setPrompt("new-doc");
+  }
+
+  function handleCreateFolderIn(folder: string) {
+    setWorkingDir(folder);
+    setPrompt("new-folder");
+  }
+
+  function handleRenamePath(path: string) {
+    setRenameTarget(path);
+    setPrompt("rename");
+  }
+
+  function handleDownload() {
+    if (selectedPath) downloadFoundationFile(selectedPath);
+  }
+
+  function handleUpload(files: FileList | null) {
+    if (!files?.length) return;
+    for (const f of Array.from(files)) {
+      uploadFile.mutate({ folder: workingDir, file: f });
+    }
+  }
+
+  function handleOpenNewWhiteboard() {
+    setWhiteboardData({});
+  }
+
+  // Drag-and-drop move: a move is a rename to the same basename under the
+  // destination folder (see foundation_docs.py's /rename guard against
+  // folder-into-itself moves).
+  function handleMove(sourcePath: string, destFolderPath: string) {
+    const basename = sourcePath.split("/").pop() ?? sourcePath;
+    const newPath = destFolderPath ? `${destFolderPath}/${basename}` : basename;
+    if (newPath === sourcePath) return;
+    renamePath.mutate({ path: sourcePath, newPath }, {
+      onSuccess: () => {
+        if (selectedPath === sourcePath) setSelectedPath(newPath);
+        if (workingDir === sourcePath) setWorkingDir(newPath);
+      },
     });
   }
 
+  async function handleWhiteboardSave(result: WhiteboardSaveResult) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = `whiteboard-${stamp}`;
+    const pngFile = new File([result.pngBlob], `${base}.png`, { type: "image/png" });
+    const sceneFile = new File([result.sceneJson], `${base}.excalidraw`, {
+      type: "application/json",
+    });
+    await Promise.all([
+      uploadFile.mutateAsync({ folder: WHITEBOARD_ASSETS_FOLDER, file: pngFile }),
+      uploadFile.mutateAsync({ folder: WHITEBOARD_ASSETS_FOLDER, file: sceneFile }),
+    ]);
+    const imageRef = `![whiteboard](${WHITEBOARD_ASSETS_FOLDER}/${base}.png)`;
+    if (selectedPath && doc) {
+      setDraft(`${draft || doc.content}\n\n${imageRef}\n`);
+      setIsEditing(true);
+      setWhiteboardNote(null);
+    } else {
+      setWhiteboardNote(t("docs.drawingSaved", { path: `${WHITEBOARD_ASSETS_FOLDER}/${base}.png` }));
+    }
+    setWhiteboardData(undefined);
+  }
+
   return (
-    <DocumentBrowser
-      title={t("docs.title")}
-      searchValue={docSearch}
-      onSearchChange={setDocSearch}
-      searchPlaceholder={t("docs.searchPlaceholder")}
-      viewMode={viewMode}
-      onViewModeChange={setViewMode}
-      mindMapDisabled={!selectedPath}
-      actions={viewMode === "note" && selectedPath && (
-        !isEditing ? (
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleStartEdit} disabled={!doc}>
-              <Pencil className="mr-2 h-3.5 w-3.5" />
-              {t("docs.edit")}
+    <>
+      <ConfirmDialog
+        open={deleting !== null}
+        title={t("docs.deleteTitle", { path: deleting ?? "" })}
+        description={t("docs.deleteDescription")}
+        loading={deletePath.isPending}
+        onConfirm={() => {
+          if (deleting)
+            deletePath.mutate(deleting, {
+              onSuccess: () => {
+                if (selectedPath?.startsWith(deleting)) setSelectedPath(undefined);
+                if (workingDir === deleting || workingDir.startsWith(`${deleting}/`)) setWorkingDir("");
+                setDeleting(null);
+              },
+            });
+        }}
+        onCancel={() => setDeleting(null)}
+      />
+      <input
+        ref={uploadRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          handleUpload(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      {whiteboardData !== undefined && (
+        <WhiteboardModal
+          initialData={whiteboardData}
+          onClose={() => setWhiteboardData(undefined)}
+          onSave={handleWhiteboardSave}
+        />
+      )}
+      {prompt === "new-doc" && (
+        <PathPrompt
+          label={t("docs.newFilePathLabel")}
+          initial={workingDir ? `${workingDir}/` : ""}
+          pending={updateDoc.isPending}
+          confirmLabel={t("docs.pathPrompt.ok")}
+          cancelLabel={t("docs.pathPrompt.cancel")}
+          onConfirm={handleCreateDoc}
+          onCancel={() => setPrompt(null)}
+        />
+      )}
+      {prompt === "new-folder" && (
+        <PathPrompt
+          label={t("docs.newFolderPathLabel")}
+          initial={workingDir ? `${workingDir}/` : ""}
+          pending={createFolder.isPending}
+          confirmLabel={t("docs.pathPrompt.ok")}
+          cancelLabel={t("docs.pathPrompt.cancel")}
+          onConfirm={(p) => createFolder.mutate(p, { onSuccess: () => setPrompt(null) })}
+          onCancel={() => setPrompt(null)}
+        />
+      )}
+      {prompt === "rename" && renameTarget && (
+        <PathPrompt
+          label={t("docs.renamePathLabel", { path: renameTarget })}
+          initial={renameTarget}
+          pending={renamePath.isPending}
+          confirmLabel={t("docs.pathPrompt.ok")}
+          cancelLabel={t("docs.pathPrompt.cancel")}
+          onConfirm={(p) =>
+            renamePath.mutate(
+              { path: renameTarget, newPath: p },
+              {
+                onSuccess: () => {
+                  setPrompt(null);
+                  if (renameTarget === selectedPath) setSelectedPath(p);
+                  if (renameTarget === workingDir) setWorkingDir(p);
+                  setRenameTarget(null);
+                },
+              }
+            )
+          }
+          onCancel={() => {
+            setPrompt(null);
+            setRenameTarget(null);
+          }}
+        />
+      )}
+      {whiteboardNote && (
+        <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          {whiteboardNote}
+        </p>
+      )}
+      <DocumentBrowser
+        title={t("docs.title")}
+        titleSuffix={
+          <span className="flex items-center gap-1 text-sm font-normal text-muted-foreground">
+            {t("docs.foundationLabel")} <code className="text-foreground">~/.hermes/foundation</code>
+          </span>
+        }
+        path={workingDir ? `/${workingDir}` : "/"}
+        onResetPath={() => setWorkingDir("")}
+        searchValue={docSearch}
+        onSearchChange={setDocSearch}
+        searchPlaceholder={t("docs.searchPlaceholder")}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        mindMapDisabled={!selectedPath}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="icon"
+              title={t("docs.newDocument")}
+              aria-label={t("docs.newDocument")}
+              onClick={() => setPrompt("new-doc")}
+            >
+              <FilePlus className="h-4 w-4" />
             </Button>
             <Button
               variant="outline"
-              size="sm"
-              onClick={handleDelete}
-              disabled={!doc || deleteDoc.isPending}
-              className="text-destructive hover:text-destructive"
+              size="icon"
+              title={t("docs.newFolder")}
+              aria-label={t("docs.newFolder")}
+              onClick={() => setPrompt("new-folder")}
             >
-              {deleteDoc.isPending ? (
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="mr-2 h-3.5 w-3.5" />
-              )}
-              {t("docs.delete")}
+              <FolderPlus className="h-4 w-4" />
             </Button>
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={updateDoc.isPending}>
-              <X className="mr-2 h-3.5 w-3.5" />
-              {t("docs.cancel")}
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={!selectedPath}
+              title={selectedPath ? t("docs.download", { path: selectedPath }) : t("docs.selectToDownload")}
+              aria-label={t("docs.downloadButton")}
+              onClick={handleDownload}
+            >
+              <Download className="h-4 w-4" />
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={updateDoc.isPending}>
-              {updateDoc.isPending ? (
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-3.5 w-3.5" />
-              )}
-              {t("docs.save")}
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={uploadFile.isPending}
+              title={t("docs.uploadTo", { folder: workingDir || t("docs.theRoot") })}
+              aria-label={t("docs.upload")}
+              onClick={() => uploadRef.current?.click()}
+            >
+              {uploadFile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             </Button>
-          </div>
-        )
-      )}
-      tree={
-        <>
-          {treeLoading && (
-            <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {t("docs.loadingFoundation")}
+            <Button
+              variant="outline"
+              size="icon"
+              title={t("docs.drawAndInsert")}
+              aria-label={t("docs.whiteboard")}
+              onClick={handleOpenNewWhiteboard}
+            >
+              <Palette className="h-4 w-4" />
+            </Button>
+          </>
+        }
+        tree={
+          <>
+            {treeLoading && (
+              <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t("docs.loadingFoundation")}
+              </div>
+            )}
+            {treeError && <p className="p-2 text-sm text-destructive">{t("docs.failedToLoad")}</p>}
+            {filteredTree && (
+              <DocTree
+                nodes={filteredTree}
+                selectedPath={selectedPath}
+                onSelectFile={setSelectedPath}
+                workingDir={workingDir}
+                onSelectFolder={setWorkingDir}
+                actions={{
+                  onCreateFile: handleCreateFileIn,
+                  onCreateFolder: handleCreateFolderIn,
+                  onRename: handleRenamePath,
+                  onDelete: handleDeletePath,
+                }}
+                onMove={handleMove}
+                getAssistantDragPayload={(node) =>
+                  node.type === "dir"
+                    ? {
+                        source: "host-folder",
+                        path: `/root/.hermes/foundation/${node.path}`,
+                        name: node.name,
+                      }
+                    : {
+                        source: "foundation-docs",
+                        path: node.path,
+                        name: node.name.endsWith(".md") ? node.name : `${node.name}.md`,
+                      }
+                }
+              />
+            )}
+            {tree && tree.length === 0 && (
+              <p className="p-2 text-sm italic text-muted-foreground">{t("docs.noMarkdownDocs")}</p>
+            )}
+            {tree && tree.length > 0 && filteredTree && filteredTree.length === 0 && (
+              <p className="p-2 text-sm italic text-muted-foreground">{t("docs.noDocsMatchSearch")}</p>
+            )}
+          </>
+        }
+      >
+        {viewMode === "note" && !selectedPath && (
+          <p className="m-auto text-sm italic text-muted-foreground">{t("docs.selectDocument")}</p>
+        )}
+        {viewMode === "note" && selectedPath && (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <code className="truncate text-xs text-muted-foreground">{selectedPath}</code>
+              <div className="flex flex-wrap items-center gap-0.5">
+                {!isEditing && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    title={t("docs.edit")}
+                    aria-label={t("docs.edit")}
+                    onClick={handleStartEdit}
+                    disabled={!doc}
+                  >
+                    <FileEdit className="h-4 w-4" />
+                  </Button>
+                )}
+                {isEditing && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      title={t("docs.cancel")}
+                      aria-label={t("docs.cancel")}
+                      onClick={() => setIsEditing(false)}
+                      disabled={updateDoc.isPending}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      title={t("docs.save")}
+                      aria-label={t("docs.save")}
+                      onClick={handleSave}
+                      disabled={updateDoc.isPending}
+                    >
+                      {updateDoc.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title={t("docs.renameMove")}
+                  aria-label={t("docs.rename")}
+                  onClick={() => handleRenamePath(selectedPath)}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title={t("docs.delete")}
+                  aria-label={t("docs.delete")}
+                  className="text-destructive"
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-          )}
-          {treeError && <p className="p-2 text-sm text-destructive">{t("docs.failedToLoad")}</p>}
-          {filteredTree && (
-            <DocTree
-              nodes={filteredTree}
-              selectedPath={selectedPath}
-              onSelectFile={setSelectedPath}
-              getAssistantDragPayload={(node) =>
-                node.type === "dir"
-                  ? {
-                      source: "host-folder",
-                      path: `/root/.hermes/foundation/${node.path}`,
-                      name: node.name,
-                    }
-                  : {
-                      source: "foundation-docs",
-                      path: node.path,
-                      name: node.name.endsWith(".md") ? node.name : `${node.name}.md`,
-                    }
-              }
-            />
-          )}
-          {tree && tree.length === 0 && (
-            <p className="p-2 text-sm italic text-muted-foreground">{t("docs.noMarkdownDocs")}</p>
-          )}
-          {tree && tree.length > 0 && filteredTree && filteredTree.length === 0 && (
-            <p className="p-2 text-sm italic text-muted-foreground">{t("docs.noDocsMatchSearch")}</p>
-          )}
-        </>
-      }
-    >
-      {viewMode === "note" && (
-        <div className="flex-1 overflow-y-auto p-4">
-          {!selectedPath && (
-            <p className="text-sm italic text-muted-foreground">{t("docs.selectDocument")}</p>
-          )}
-          {selectedPath && docLoading && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {t("docs.loadingDocument")}
-            </div>
-          )}
-          {updateDoc.isError && (
-            <p className="mb-3 text-sm text-destructive">{t("docs.failedToSave", { message: (updateDoc.error as Error)?.message })}</p>
-          )}
-          {deleteDoc.isError && (
-            <p className="mb-3 text-sm text-destructive">{t("docs.failedToDelete", { message: (deleteDoc.error as Error)?.message })}</p>
-          )}
-          {doc && isEditing && (
-            <Textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              className="h-full min-h-[50vh] resize-none font-mono text-sm"
-            />
-          )}
-          {doc && !isEditing && <Markdown content={doc.content} className="text-sm" />}
-        </div>
-      )}
 
-      {viewMode === "graph" && (
-        <div className="flex-1 overflow-hidden">
-          {graphLoading && (
-            <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {t("docs.buildingGraph")}
-            </div>
-          )}
-          {graph && <GraphView graph={graph} onSelectNode={handleSelectFromGraph} />}
-        </div>
-      )}
+            {docLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t("docs.loadingDocument")}
+              </div>
+            )}
+            {updateDoc.isError && (
+              <p className="text-sm text-destructive">{t("docs.failedToSave", { message: (updateDoc.error as Error)?.message })}</p>
+            )}
+            {deletePath.isError && (
+              <p className="text-sm text-destructive">{t("docs.failedToDelete", { message: (deletePath.error as Error)?.message })}</p>
+            )}
+            {renamePath.isError && (
+              <p className="text-sm text-destructive">{t("docs.failedToRename", { message: (renamePath.error as Error)?.message })}</p>
+            )}
+            {doc && isEditing && (
+              <Textarea
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                className="h-full min-h-[50vh] resize-none font-mono text-sm"
+              />
+            )}
+            {doc && !isEditing && <Markdown content={doc.content} className="text-sm" />}
+          </>
+        )}
 
-      {viewMode === "mindmap" && (
-        <div className="flex-1 overflow-hidden">
-          {!doc && <p className="p-6 text-sm italic text-muted-foreground">{t("docs.selectDocumentFirst")}</p>}
-          {doc && <MindMapView markdown={doc.content} />}
-        </div>
-      )}
-    </DocumentBrowser>
+        {viewMode === "graph" && (
+          <div className="h-full overflow-hidden">
+            {graphLoading && (
+              <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t("docs.buildingGraph")}
+              </div>
+            )}
+            {graph && <GraphView graph={graph} onSelectNode={handleSelectFromGraph} />}
+          </div>
+        )}
+
+        {viewMode === "mindmap" && (
+          <div className="h-full overflow-hidden">
+            {!doc && <p className="p-6 text-sm italic text-muted-foreground">{t("docs.selectDocumentFirst")}</p>}
+            {doc && <MindMapView markdown={doc.content} />}
+          </div>
+        )}
+      </DocumentBrowser>
+    </>
   );
 }
 
@@ -585,7 +885,7 @@ function ScriptsCard() {
 
 export default function FoundationPage() {
   return (
-    <div className="space-y-6">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
       <DocumentationCard />
       <ScriptsCard />
     </div>

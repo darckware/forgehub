@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -24,14 +24,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
+import { PathPrompt } from "@/components/PathPrompt";
+import { SearchFilterInput } from "@/components/SearchFilterInput";
 import { DocTree, type DocTreeNode } from "@/components/DocTree";
+import { filterDocumentTree } from "@/components/DocumentBrowser";
+import { GraphView } from "@/components/GraphView";
 import { Markdown } from "@/components/Markdown";
+import { MindMapView } from "@/components/MindMapView";
+import { ViewModeToggle, type DocumentViewMode } from "@/components/ViewModeToggle";
 import { ConvertMenu, convertResultMessage } from "@/components/ConvertMenu";
 import { useConvertDoc } from "@/hooks/useDemands";
 import { useAssistantContext } from "@/hooks/useAssistant";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whiteboard/WhiteboardModal";
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
+import { cn } from "@/lib/utils";
 import {
   downloadDoc,
   useCreateDocArea,
@@ -40,6 +47,7 @@ import {
   useDeleteDocPath,
   useDocAreas,
   useDocFile,
+  useDocsGraph,
   useDocsTree,
   useRenameDocPath,
   useSaveDocFile,
@@ -55,45 +63,6 @@ const WHITEBOARD_ASSETS_FOLDER = "assets";
 // area-aware -- they always resolve against the original /root/docs mount,
 // so those panels only make sense while that area is the working one.
 const DOCS_HOST_PATH = "/root/docs";
-
-/** Small inline prompt row (new file / new folder / rename). */
-function PathPrompt({
-  label,
-  initial,
-  onConfirm,
-  onCancel,
-  pending,
-}: {
-  label: string;
-  initial: string;
-  onConfirm: (value: string) => void;
-  onCancel: () => void;
-  pending: boolean;
-}) {
-  const { t } = useTranslation("docs");
-  const [value, setValue] = useState(initial);
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 p-2">
-      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
-      <Input
-        autoFocus
-        value={value}
-        className="h-8 text-xs"
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && value.trim()) onConfirm(value.trim());
-          if (e.key === "Escape") onCancel();
-        }}
-      />
-      <Button size="sm" disabled={pending || !value.trim()} onClick={() => onConfirm(value.trim())}>
-        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("pathPrompt.ok")}
-      </Button>
-      <Button size="sm" variant="outline" onClick={onCancel}>
-        {t("pathPrompt.cancel")}
-      </Button>
-    </div>
-  );
-}
 
 /** Switch between "creation areas" (any host folder) -- add/remove/select. */
 function AreaSwitcher({
@@ -253,6 +222,13 @@ export default function DocsPage() {
   const isDocsArea = currentArea?.host_path === DOCS_HOST_PATH;
 
   const { data: tree, isLoading, isError, error } = useDocsTree(areaId);
+  const [treeSearch, setTreeSearch] = useState("");
+  const filteredTree = useMemo(
+    () => (tree ? filterDocumentTree(tree as DocTreeNode[], treeSearch) : tree),
+    [tree, treeSearch]
+  );
+  const [viewMode, setViewMode] = useState<DocumentViewMode>("note");
+  const { data: graph, isLoading: graphLoading } = useDocsGraph(areaId);
   const [searchParams] = useSearchParams();
   // Deep-link from EntityDocsCard (/docs?path=...) -- only seeds the
   // initial selection, so navigating the tree afterwards isn't fought.
@@ -321,6 +297,8 @@ export default function DocsPage() {
     setSelectedPath(null);
     setDraft(null);
     setWorkingDir("");
+    setTreeSearch("");
+    setViewMode("note");
     setWhiteboardData(undefined);
     setWhiteboardNote(null);
     setConvertMessage(null);
@@ -391,6 +369,11 @@ export default function DocsPage() {
     });
   }
 
+  function handleSelectFromGraph(path: string) {
+    setSelectedPath(path);
+    setViewMode("note");
+  }
+
   function handleOpenNewWhiteboard() {
     setWhiteboardData({});
   }
@@ -459,64 +442,98 @@ export default function DocsPage() {
         }}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="grid grid-cols-[280px_1fr] items-center gap-4">
         <h1 className="flex items-center gap-2 text-xl font-semibold">
           <BookOpen className="h-5 w-5" /> {t("page.title")}
-          {areas && <AreaSwitcher areas={areas} currentAreaId={areaId} onSelect={handleSelectArea} />}
         </h1>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPrompt("new-file")}>
-            <FilePlus className="h-4 w-4" /> {t("page.newDocument")}
-          </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPrompt("new-folder")}>
-            <FolderPlus className="h-4 w-4" /> {t("page.newFolder")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            disabled={!selectedPath}
-            title={selectedPath ? t("page.download", { path: selectedPath }) : t("page.selectToDownload")}
-            onClick={() => areaId && selectedPath && downloadDoc(areaId, selectedPath)}
-          >
-            <Download className="h-4 w-4" /> {t("page.downloadButton")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            disabled={uploadFile.isPending}
-            title={t("page.uploadTo", { folder: workingDir || t("page.theRoot") })}
-            onClick={() => uploadRef.current?.click()}
-          >
-            {uploadFile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            {t("page.upload")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            title={t("page.drawAndInsert")}
-            onClick={handleOpenNewWhiteboard}
-          >
-            <Palette className="h-4 w-4" /> {t("page.whiteboard")}
-          </Button>
-          <AssistantToggleButton
-            size="sm"
-            openTitle={t("page.openAssistantForDoc")}
-          />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {areas && <AreaSwitcher areas={areas} currentAreaId={areaId} onSelect={handleSelectArea} />}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button
+              size="icon"
+              variant="outline"
+              title={t("page.newDocument")}
+              aria-label={t("page.newDocument")}
+              onClick={() => setPrompt("new-file")}
+            >
+              <FilePlus className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              title={t("page.newFolder")}
+              aria-label={t("page.newFolder")}
+              onClick={() => setPrompt("new-folder")}
+            >
+              <FolderPlus className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              disabled={!selectedPath}
+              title={selectedPath ? t("page.download", { path: selectedPath }) : t("page.selectToDownload")}
+              aria-label={t("page.downloadButton")}
+              onClick={() => areaId && selectedPath && downloadDoc(areaId, selectedPath)}
+            >
+              <Download className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              disabled={uploadFile.isPending}
+              title={t("page.uploadTo", { folder: workingDir || t("page.theRoot") })}
+              aria-label={t("page.upload")}
+              onClick={() => uploadRef.current?.click()}
+            >
+              {uploadFile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              title={t("page.drawAndInsert")}
+              aria-label={t("page.whiteboard")}
+              onClick={handleOpenNewWhiteboard}
+            >
+              <Palette className="h-4 w-4" />
+            </Button>
+            <AssistantToggleButton
+              size="icon"
+              openTitle={t("page.openAssistantForDoc")}
+            />
+          </div>
         </div>
       </div>
 
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Folder className="h-3.5 w-3.5" />
-        {t("page.workingFolder")} <code className="text-foreground">{currentArea?.host_path ?? ""}/{workingDir || ""}</code>
-        {workingDir && (
-          <button type="button" className="underline hover:text-foreground" onClick={() => setWorkingDir("")}>
-            {t("page.useRoot")}
+      <div className="grid grid-cols-[280px_1fr] items-center gap-4">
+        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+          <button
+            type="button"
+            title={t("page.useRoot")}
+            aria-label={t("page.useRoot")}
+            onClick={() => setWorkingDir("")}
+            className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <Folder className="h-3.5 w-3.5" />
           </button>
-        )}
-      </p>
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <code className="break-all text-foreground">{workingDir ? `/${workingDir}` : "/"}</code>
+          </span>
+        </p>
+        <div className="flex items-center gap-2">
+          <SearchFilterInput
+            value={treeSearch}
+            onChange={setTreeSearch}
+            placeholder={t("page.searchPlaceholder")}
+            className="flex-1"
+          />
+          <ViewModeToggle
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            mindMapDisabled={!selectedPath}
+            labels={{ mindMap: t("page.mindMap"), graph: t("page.graph") }}
+          />
+        </div>
+      </div>
 
       {whiteboardData !== undefined && (
         <WhiteboardModal
@@ -536,6 +553,8 @@ export default function DocsPage() {
           label={t("page.newFilePathLabel")}
           initial={workingDir ? `${workingDir}/` : ""}
           pending={saveFile.isPending}
+          confirmLabel={t("pathPrompt.ok")}
+          cancelLabel={t("pathPrompt.cancel")}
           onConfirm={handleCreateFile}
           onCancel={() => setPrompt(null)}
         />
@@ -545,6 +564,8 @@ export default function DocsPage() {
           label={t("page.newFolderPathLabel")}
           initial={workingDir ? `${workingDir}/` : ""}
           pending={createFolder.isPending}
+          confirmLabel={t("pathPrompt.ok")}
+          cancelLabel={t("pathPrompt.cancel")}
           onConfirm={(p) => createFolder.mutate(p, { onSuccess: () => setPrompt(null) })}
           onCancel={() => setPrompt(null)}
         />
@@ -554,6 +575,8 @@ export default function DocsPage() {
           label={t("page.renamePathLabel", { path: renameTarget })}
           initial={renameTarget}
           pending={renamePath.isPending}
+          confirmLabel={t("pathPrompt.ok")}
+          cancelLabel={t("pathPrompt.cancel")}
           onConfirm={(p) =>
             renamePath.mutate(
               { path: renameTarget, newPath: p },
@@ -590,9 +613,12 @@ export default function DocsPage() {
             {tree && tree.length === 0 && (
               <p className="p-3 text-xs italic text-muted-foreground">{t("page.emptyFolder")}</p>
             )}
-            {tree && (
+            {tree && tree.length > 0 && filteredTree && filteredTree.length === 0 && (
+              <p className="p-3 text-xs italic text-muted-foreground">{t("page.noSearchMatch")}</p>
+            )}
+            {filteredTree && filteredTree.length > 0 && (
               <DocTree
-                nodes={tree as DocTreeNode[]}
+                nodes={filteredTree}
                 selectedPath={selectedPath ?? undefined}
                 onSelectFile={setSelectedPath}
                 workingDir={workingDir}
@@ -624,50 +650,97 @@ export default function DocsPage() {
         </Card>
 
         <Card className="min-h-0 overflow-hidden">
-          <CardContent className="flex h-full flex-col gap-2 overflow-y-auto p-4">
-            {!selectedPath && (
+          <CardContent
+            className={cn(
+              "h-full",
+              viewMode === "note" ? "flex flex-col gap-2 overflow-y-auto p-4" : "overflow-hidden p-0"
+            )}
+          >
+            {viewMode === "mindmap" && (
+              <div className="h-full overflow-hidden">
+                {!selectedPath && (
+                  <p className="p-6 text-sm italic text-muted-foreground">{t("page.selectDocumentFirst")}</p>
+                )}
+                {selectedPath && !isEditable && (
+                  <p className="p-6 text-sm italic text-muted-foreground">{t("page.binaryFile")}</p>
+                )}
+                {selectedPath && isEditable && fileLoading && (
+                  <Loader2 className="m-6 h-5 w-5 animate-spin text-muted-foreground" />
+                )}
+                {selectedPath && isEditable && file && <MindMapView markdown={draft ?? file.content} />}
+              </div>
+            )}
+            {viewMode === "graph" && (
+              <div className="h-full overflow-hidden">
+                {graphLoading && (
+                  <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t("page.buildingGraph")}
+                  </div>
+                )}
+                {graph && <GraphView graph={graph} onSelectNode={handleSelectFromGraph} />}
+              </div>
+            )}
+            {viewMode === "note" && !selectedPath && (
               <p className="m-auto text-sm italic text-muted-foreground">
                 {t("page.selectOrCreate")}
               </p>
             )}
-            {selectedPath && (
+            {viewMode === "note" && selectedPath && (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <code className="truncate text-xs text-muted-foreground">{selectedPath}</code>
                   <div className="flex flex-wrap items-center gap-0.5">
                     {isEditable && isDocsArea && (
                       <Button
-                        size="sm"
+                        size="icon"
                         variant={showConvert ? "secondary" : "outline"}
-                        className="gap-1.5"
                         title={showConvert ? t("page.hideForward") : t("page.forwardThisDocument")}
+                        aria-label={t("page.forward")}
                         onClick={() => setShowConvert((v) => !v)}
                       >
-                        <ArrowRightCircle className="h-3.5 w-3.5" /> {t("page.forward")}
+                        <ArrowRightCircle className="h-4 w-4" />
                       </Button>
                     )}
                     {isEditable && draft == null && (
-                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDraft(file?.content ?? "")}>
-                        <FileEdit className="h-3.5 w-3.5" /> {t("page.edit")}
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        title={t("page.edit")}
+                        aria-label={t("page.edit")}
+                        onClick={() => setDraft(file?.content ?? "")}
+                      >
+                        <FileEdit className="h-4 w-4" />
                       </Button>
                     )}
                     {draft != null && (
                       <>
-                        <Button size="sm" className="gap-1.5" disabled={saveFile.isPending || !dirty} onClick={handleSave}>
+                        <Button
+                          size="icon"
+                          title={t("page.save")}
+                          aria-label={t("page.save")}
+                          disabled={saveFile.isPending || !dirty}
+                          onClick={handleSave}
+                        >
                           {saveFile.isPending ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
-                            <Save className="h-3.5 w-3.5" />
+                            <Save className="h-4 w-4" />
                           )}
-                          {t("page.save")}
                         </Button>
-                        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDraft(null)}>
-                          <Eye className="h-3.5 w-3.5" /> {t("page.view")}
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          title={t("page.view")}
+                          aria-label={t("page.view")}
+                          onClick={() => setDraft(null)}
+                        >
+                          <Eye className="h-4 w-4" />
                         </Button>
                       </>
                     )}
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="icon"
                       title={t("page.renameMove")}
                       aria-label={t("page.rename")}
@@ -676,7 +749,7 @@ export default function DocsPage() {
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="icon"
                       title={t("page.delete")}
                       aria-label={t("page.delete")}

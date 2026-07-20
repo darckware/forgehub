@@ -142,7 +142,15 @@ def parse_agent_registry() -> list[dict[str, Any]]:
     for cells in _parse_md_table(matrix_content):
         if len(cells) < 4:
             continue
-        tier_by_slug[cells[0].strip("`")] = cells[3].strip()
+        # Since the 2026-07-18 Tier B archival, the only 4-cell table left in
+        # this doc is "Persistent Hermes core" (Profile | Agent | Role |
+        # Gateway) -- every row in it is tier A by construction now, there is
+        # no more per-row tier letter to read (cells[3] is the Gateway
+        # yes/no column, not a tier code; the old Tier B row is gone, and the
+        # two other tables in the file -- archived-role mapping, external
+        # runtimes -- have fewer than 4 cells and are already filtered out
+        # above).
+        tier_by_slug[cells[0].strip("`")] = "A"
 
     registry_content = _read_file_safe(ECOSYSTEM_AGENTS_PATH) or ""
     agents: list[dict[str, Any]] = []
