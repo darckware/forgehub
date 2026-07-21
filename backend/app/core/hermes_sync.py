@@ -118,13 +118,20 @@ def read_profile_forgerouter_api_key(profile_slug: str) -> str | None:
 
     ForgeHub imports this into its encrypted credential column during the
     governed Hermes sync. Placeholder/env-reference values are ignored.
+
+    The credential lives at `providers.<model.provider>.api_key`, not
+    `model.api_key` (that block only holds provider/default/api_mode/main
+    -- confirmed against every current profile's config.yaml, all of which
+    use `forgerouter` as the provider name).
     """
     config_path = PROFILES_DIR / profile_slug / "config.yaml"
     try:
         config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     except (FileNotFoundError, yaml.YAMLError):
         return None
-    api_key = str((config.get("model") or {}).get("api_key") or "").strip()
+    provider = str((config.get("model") or {}).get("provider") or "forgerouter")
+    providers = config.get("providers") or {}
+    api_key = str((providers.get(provider) or {}).get("api_key") or "").strip()
     if not api_key or api_key.startswith("${"):
         return None
     return api_key

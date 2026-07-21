@@ -268,6 +268,8 @@ export interface SkillUpdateInput {
   origin?: SkillOrigin;
   risk_level?: SkillRiskLevel;
   permissions?: string;
+  is_approved?: boolean;
+  security_reviewed?: boolean;
 }
 
 /** Partial update of a skill's registry metadata. The backend rejects

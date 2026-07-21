@@ -2,15 +2,18 @@ import { useEffect, useState } from "react";
 import {
   AlertCircle,
   Bot,
+  CheckCircle2,
   Eye,
   Loader2,
   Pencil,
   RefreshCw,
   Search,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Trash2,
   X,
+  XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -312,14 +315,67 @@ export default function SkillsPage() {
   const { data: skills, isLoading, isError, error } = useSkills();
   const syncHermes = useSyncHermesAgents();
   const deleteSkill = useDeleteSkill();
+  const updateSkill = useUpdateSkill();
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
   const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
   const [search, setSearch] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
+  const [approvalFilter, setApprovalFilter] = useState<"" | "approved" | "unapproved">("");
   const [viewing, setViewing] = useState<{ skill: Skill; editing: boolean } | null>(null);
   const [formSkill, setFormSkill] = useState<Skill | null>(null);
   const [deleting, setDeleting] = useState<Skill | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmingBulkApprove, setConfirmingBulkApprove] = useState(false);
+  const [bulkApproving, setBulkApproving] = useState(false);
+
+  function toggleApproval(skill: Skill) {
+    setApprovingId(skill.id);
+    setApprovalErrors((prev) => {
+      const next = { ...prev };
+      delete next[skill.id];
+      return next;
+    });
+    updateSkill.mutate(
+      { skillId: skill.id, updates: { is_approved: !skill.is_approved } },
+      {
+        onSettled: () => setApprovingId(null),
+        onError: (err) =>
+          setApprovalErrors((prev) => ({ ...prev, [skill.id]: (err as Error)?.message ?? "Approval failed" })),
+      }
+    );
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleBulkApprove(targets: Skill[]) {
+    setBulkApproving(true);
+    setConfirmingBulkApprove(false);
+    const failures: string[] = [];
+    for (const skill of targets) {
+      if (skill.is_approved) continue;
+      try {
+        await updateSkill.mutateAsync({ skillId: skill.id, updates: { is_approved: true } });
+      } catch (err) {
+        failures.push(skill.name);
+        setApprovalErrors((prev) => ({ ...prev, [skill.id]: (err as Error)?.message ?? "Approval failed" }));
+      }
+    }
+    setBulkApproving(false);
+    setSelected(new Set());
+    if (failures.length > 0) {
+      window.alert(`${failures.length} skill(s) could not be approved: ${failures.join(", ")}`);
+    }
+  }
 
   async function handleSendToAssistant(skill: Skill) {
     setSendingId(skill.id);
@@ -352,8 +408,12 @@ export default function SkillsPage() {
       (!term ||
         s.name.toLowerCase().includes(term) ||
         (s.description ?? "").toLowerCase().includes(term)) &&
-      (!agentFilter || (s.agents ?? []).some((a) => a.agent_name === agentFilter))
+      (!agentFilter || (s.agents ?? []).some((a) => a.agent_name === agentFilter)) &&
+      (!approvalFilter || (approvalFilter === "approved" ? s.is_approved : !s.is_approved))
   );
+  const selectedSkills = filtered.filter((s) => selected.has(s.id));
+  const unapprovedSelected = selectedSkills.filter((s) => !s.is_approved);
+  const allFilteredSelected = filtered.length > 0 && filtered.every((s) => selected.has(s.id));
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4 p-6">
@@ -376,6 +436,17 @@ export default function SkillsPage() {
         }}
         onCancel={() => setDeleting(null)}
       />
+      <ConfirmDialog
+        open={confirmingBulkApprove}
+        variant="default"
+        icon="warning"
+        title={`Approve ${unapprovedSelected.length} skill(s)?`}
+        description="This marks each selected skill as approved (third-party skills also need security_reviewed first, or the individual approval fails). This is a real governance decision -- only approve what you've actually reviewed."
+        confirmLabel="Approve"
+        loading={bulkApproving}
+        onConfirm={() => handleBulkApprove(unapprovedSelected)}
+        onCancel={() => setConfirmingBulkApprove(false)}
+      />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="flex items-center gap-2 text-xl font-semibold">
           <Sparkles className="h-5 w-5" /> Skills
@@ -386,6 +457,22 @@ export default function SkillsPage() {
           )}
         </h1>
         <div className="flex flex-wrap items-center gap-1.5">
+          {unapprovedSelected.length > 0 && (
+            <Button
+              size="sm"
+              className="gap-1.5"
+              title="Approve the selected skills (real governance action, not simulated)"
+              disabled={bulkApproving}
+              onClick={() => setConfirmingBulkApprove(true)}
+            >
+              {bulkApproving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              Approve {unapprovedSelected.length} selected
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -443,6 +530,16 @@ export default function SkillsPage() {
             </option>
           ))}
         </Select>
+        <Select
+          value={approvalFilter}
+          onChange={(e) => setApprovalFilter(e.target.value as typeof approvalFilter)}
+          className="w-44"
+          aria-label="Filter by approval"
+        >
+          <option value="">All approval states</option>
+          <option value="approved">Approved only</option>
+          <option value="unapproved">Not approved only</option>
+        </Select>
       </div>
 
       {isLoading && (
@@ -482,10 +579,21 @@ export default function SkillsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all filtered skills"
+                      checked={allFilteredSelected}
+                      onChange={(e) =>
+                        setSelected(e.target.checked ? new Set(filtered.map((s) => s.id)) : new Set())
+                      }
+                    />
+                  </TableHead>
                   <TableHead>Skill</TableHead>
                   <TableHead>Version</TableHead>
                   <TableHead>Risk</TableHead>
                   <TableHead>Agents</TableHead>
+                  <TableHead>Approval</TableHead>
                   <TableHead className="w-16 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -496,6 +604,14 @@ export default function SkillsPage() {
                   const hidden = holders.slice(MAX_AGENT_BADGES);
                   return (
                     <TableRow key={skill.id}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${skill.name}`}
+                          checked={selected.has(skill.id)}
+                          onChange={() => toggleSelected(skill.id)}
+                        />
+                      </TableCell>
                       <TableCell>
                         <p className="font-medium">{skill.name}</p>
                         {skill.description ? (
@@ -538,6 +654,45 @@ export default function SkillsPage() {
                             )}
                           </div>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-1">
+                          <Button
+                            variant={skill.is_approved ? "outline" : "secondary"}
+                            size="sm"
+                            className="h-7 gap-1.5"
+                            disabled={approvingId === skill.id}
+                            title={
+                              skill.is_approved
+                                ? "Revoke approval"
+                                : skill.origin === "third_party" && !skill.security_reviewed
+                                  ? "Third-party skills need security_reviewed before approval"
+                                  : "Mark as approved"
+                            }
+                            onClick={() => toggleApproval(skill)}
+                          >
+                            {approvingId === skill.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : skill.is_approved ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5" />
+                            )}
+                            {skill.is_approved ? "Approved" : "Not approved"}
+                          </Button>
+                          {skill.origin === "third_party" && (
+                            <span
+                              className="flex items-center gap-1 text-xs text-muted-foreground"
+                              title="Required before a third-party skill can be approved"
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              {skill.security_reviewed ? "Reviewed" : "Not reviewed"}
+                            </span>
+                          )}
+                          {approvalErrors[skill.id] && (
+                            <span className="text-xs text-destructive">{approvalErrors[skill.id]}</span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-0.5">
