@@ -13,7 +13,11 @@ import {
   Folder,
   FolderPlus,
   Loader2,
+  Maximize2,
+  Minimize2,
   Palette,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   Save,
@@ -28,6 +32,7 @@ import { PathPrompt } from "@/components/PathPrompt";
 import { SearchFilterInput } from "@/components/SearchFilterInput";
 import { DocTree, type DocTreeNode } from "@/components/DocTree";
 import { filterDocumentTree } from "@/components/DocumentBrowser";
+import { CopyButton } from "@/components/CopyButton";
 import { GraphView } from "@/components/GraphView";
 import { Markdown } from "@/components/Markdown";
 import { MindMapView } from "@/components/MindMapView";
@@ -35,6 +40,7 @@ import { ViewModeToggle, type DocumentViewMode } from "@/components/ViewModeTogg
 import { ConvertMenu, convertResultMessage } from "@/components/ConvertMenu";
 import { useConvertDoc } from "@/hooks/useDemands";
 import { useAssistantContext } from "@/hooks/useAssistant";
+import { useElementFullscreen } from "@/hooks/useElementFullscreen";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whiteboard/WhiteboardModal";
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
@@ -250,6 +256,8 @@ export default function DocsPage() {
   // null = viewing; string = editing draft. Cleared when switching files.
   const [draft, setDraft] = useState<string | null>(null);
   const [showConvert, setShowConvert] = useState(false);
+  const [hideTree, setHideTree] = useState(false);
+  const { ref: fullscreenRef, isFullscreen, toggle: toggleFullscreen } = useElementFullscreen<HTMLDivElement>();
   const [prompt, setPrompt] = useState<"new-file" | "new-folder" | "rename" | null>(null);
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -496,6 +504,15 @@ export default function DocsPage() {
             >
               <Palette className="h-4 w-4" />
             </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              title={hideTree ? t("page.showTree") : t("page.hideTree")}
+              aria-label={hideTree ? t("page.showTree") : t("page.hideTree")}
+              onClick={() => setHideTree((v) => !v)}
+            >
+              {hideTree ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </Button>
             <AssistantToggleButton
               size="icon"
               openTitle={t("page.openAssistantForDoc")}
@@ -606,48 +623,50 @@ export default function DocsPage() {
         </Card>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr] gap-4">
-        <Card className="min-h-0 overflow-hidden">
-          <CardContent className="h-full overflow-y-auto p-2">
-            {isLoading && <Loader2 className="m-4 h-5 w-5 animate-spin text-muted-foreground" />}
-            {tree && tree.length === 0 && (
-              <p className="p-3 text-xs italic text-muted-foreground">{t("page.emptyFolder")}</p>
-            )}
-            {tree && tree.length > 0 && filteredTree && filteredTree.length === 0 && (
-              <p className="p-3 text-xs italic text-muted-foreground">{t("page.noSearchMatch")}</p>
-            )}
-            {filteredTree && filteredTree.length > 0 && (
-              <DocTree
-                nodes={filteredTree}
-                selectedPath={selectedPath ?? undefined}
-                onSelectFile={setSelectedPath}
-                workingDir={workingDir}
-                onSelectFolder={setWorkingDir}
-                actions={{
-                  onCreateFile: handleCreateFileIn,
-                  onCreateFolder: handleCreateFolderIn,
-                  onRename: handleRenamePath,
-                  onDelete: handleDeletePath,
-                }}
-                onMove={handleMove}
-                getAssistantDragPayload={areaId && currentArea ? (node) =>
-                  node.type === "dir"
-                    ? {
-                        source: "host-folder",
-                        path: `${currentArea.host_path.replace(/\/$/, "")}/${node.path}`,
-                        name: node.name,
-                      }
-                    : {
-                        source: "docs",
-                        areaId,
-                        path: node.path,
-                        name: node.name,
-                      }
-                : undefined}
-              />
-            )}
-          </CardContent>
-        </Card>
+      <div className={cn("grid min-h-0 flex-1 gap-4", hideTree ? "grid-cols-1" : "grid-cols-[280px_1fr]")}>
+        {!hideTree && (
+          <Card className="min-h-0 overflow-hidden">
+            <CardContent className="h-full overflow-y-auto p-2">
+              {isLoading && <Loader2 className="m-4 h-5 w-5 animate-spin text-muted-foreground" />}
+              {tree && tree.length === 0 && (
+                <p className="p-3 text-xs italic text-muted-foreground">{t("page.emptyFolder")}</p>
+              )}
+              {tree && tree.length > 0 && filteredTree && filteredTree.length === 0 && (
+                <p className="p-3 text-xs italic text-muted-foreground">{t("page.noSearchMatch")}</p>
+              )}
+              {filteredTree && filteredTree.length > 0 && (
+                <DocTree
+                  nodes={filteredTree}
+                  selectedPath={selectedPath ?? undefined}
+                  onSelectFile={setSelectedPath}
+                  workingDir={workingDir}
+                  onSelectFolder={setWorkingDir}
+                  actions={{
+                    onCreateFile: handleCreateFileIn,
+                    onCreateFolder: handleCreateFolderIn,
+                    onRename: handleRenamePath,
+                    onDelete: handleDeletePath,
+                  }}
+                  onMove={handleMove}
+                  getAssistantDragPayload={areaId && currentArea ? (node) =>
+                    node.type === "dir"
+                      ? {
+                          source: "host-folder",
+                          path: `${currentArea.host_path.replace(/\/$/, "")}/${node.path}`,
+                          name: node.name,
+                        }
+                      : {
+                          source: "docs",
+                          areaId,
+                          path: node.path,
+                          name: node.name,
+                        }
+                  : undefined}
+                />
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="min-h-0 overflow-hidden">
           <CardContent
@@ -687,10 +706,25 @@ export default function DocsPage() {
               </p>
             )}
             {viewMode === "note" && selectedPath && (
-              <>
+              <div
+                ref={fullscreenRef}
+                className={cn("flex flex-1 flex-col gap-2", isFullscreen && "overflow-y-auto bg-background p-6")}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <code className="truncate text-xs text-muted-foreground">{selectedPath}</code>
                   <div className="flex flex-wrap items-center gap-0.5">
+                    {isEditable && (
+                      <CopyButton getText={() => draft ?? file?.content ?? ""} title={t("page.copyDocument")} />
+                    )}
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      title={isFullscreen ? t("page.exitFullscreen") : t("page.fullscreen")}
+                      aria-label={isFullscreen ? t("page.exitFullscreen") : t("page.fullscreen")}
+                      onClick={toggleFullscreen}
+                    >
+                      {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                    </Button>
                     {isEditable && isDocsArea && (
                       <Button
                         size="icon"
@@ -823,7 +857,7 @@ export default function DocsPage() {
                   />
                 )}
                 {convertMessage && <p className="text-xs text-emerald-600">{convertMessage}</p>}
-              </>
+              </div>
             )}
           </CardContent>
         </Card>

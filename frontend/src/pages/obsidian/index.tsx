@@ -7,6 +7,8 @@ import {
   FolderPlus,
   Gem,
   Loader2,
+  Maximize2,
+  Minimize2,
   Palette,
   Pencil,
   Save,
@@ -19,6 +21,7 @@ import {
   type DocumentViewMode,
 } from "@/components/DocumentWorkspace";
 import { filterDocumentTree } from "@/components/DocumentBrowser";
+import { CopyButton } from "@/components/CopyButton";
 import { DocTree } from "@/components/DocTree";
 import { GraphView } from "@/components/GraphView";
 import { Markdown } from "@/components/Markdown";
@@ -29,6 +32,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whiteboard/WhiteboardModal";
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
+import { useElementFullscreen } from "@/hooks/useElementFullscreen";
+import { cn } from "@/lib/utils";
 import {
   downloadVaultFile,
   useCreateVaultFolder,
@@ -72,6 +77,7 @@ export default function ObsidianPage() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const { ref: fullscreenRef, isFullscreen, toggle: toggleFullscreen } = useElementFullscreen<HTMLDivElement>();
   const [prompt, setPrompt] = useState<"new-note" | "new-folder" | "rename" | null>(null);
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -405,10 +411,25 @@ export default function ObsidianPage() {
           <p className="m-auto text-sm italic text-muted-foreground">{t("selectNoteToRead")}</p>
         )}
         {viewMode === "note" && selectedPath && (
-          <>
+          <div
+            ref={fullscreenRef}
+            className={cn("flex flex-1 flex-col gap-2", isFullscreen && "overflow-y-auto bg-background p-6")}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <code className="truncate text-xs text-muted-foreground">{selectedPath}</code>
               <div className="flex flex-wrap items-center gap-0.5">
+                {note && (
+                  <CopyButton getText={() => (isEditing ? draft : note.content)} title={t("copyDocument")} />
+                )}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title={isFullscreen ? t("exitFullscreen") : t("fullscreen")}
+                  aria-label={isFullscreen ? t("exitFullscreen") : t("fullscreen")}
+                  onClick={toggleFullscreen}
+                >
+                  {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                </Button>
                 {!isEditing && (
                   <Button
                     variant="outline"
@@ -493,7 +514,7 @@ export default function ObsidianPage() {
               />
             )}
             {note && !isEditing && <Markdown content={note.content} className="text-sm" />}
-          </>
+          </div>
         )}
 
         {viewMode === "graph" && (

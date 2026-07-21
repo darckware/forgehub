@@ -3,5 +3,7 @@
   "mindMap": "Mind map",
   "graph": "Graph",
   "workingFolder": "Working folder",
-  "useRoot": "use root"
+  "useRoot": "use root",
+  "hideTree": "Hide directory",
+  "showTree": "Show directory"
 }

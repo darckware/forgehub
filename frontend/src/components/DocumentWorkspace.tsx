@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Folder } from "lucide-react";
+import { Folder, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { SearchFilterInput } from "@/components/SearchFilterInput";
 import { ViewModeToggle, type DocumentViewMode } from "@/components/ViewModeToggle";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +64,7 @@ export function DocumentWorkspace({
   className?: string;
 }) {
   const { t } = useTranslation("documentBrowser");
+  const [hideTree, setHideTree] = useState(false);
   return (
     <div className={cn("flex min-h-0 w-full flex-1 flex-col gap-4 p-6", className)}>
       <div className="grid grid-cols-[280px_1fr] items-center gap-4">
@@ -74,6 +76,15 @@ export function DocumentWorkspace({
           {titleSuffix}
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
             {actions}
+            <Button
+              variant="outline"
+              size="icon"
+              title={hideTree ? t("showTree") : t("hideTree")}
+              aria-label={hideTree ? t("showTree") : t("hideTree")}
+              onClick={() => setHideTree((v) => !v)}
+            >
+              {hideTree ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </Button>
             <AssistantToggleButton size="icon" openTitle={assistantOpenTitle} />
           </div>
         </div>
@@ -111,10 +122,12 @@ export function DocumentWorkspace({
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr] gap-4">
-        <Card className="min-h-0 overflow-hidden">
-          <CardContent className="h-full overflow-y-auto p-2">{tree}</CardContent>
-        </Card>
+      <div className={cn("grid min-h-0 flex-1 gap-4", hideTree ? "grid-cols-1" : "grid-cols-[280px_1fr]")}>
+        {!hideTree && (
+          <Card className="min-h-0 overflow-hidden">
+            <CardContent className="h-full overflow-y-auto p-2">{tree}</CardContent>
+          </Card>
+        )}
 
         <Card className="min-h-0 overflow-hidden">
           <CardContent

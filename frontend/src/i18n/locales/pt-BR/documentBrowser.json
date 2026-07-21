@@ -3,5 +3,7 @@
   "mindMap": "Mapa mental",
   "graph": "Grafo",
   "workingFolder": "Pasta de trabalho",
-  "useRoot": "usar raiz"
+  "useRoot": "usar raiz",
+  "hideTree": "Ocultar diretório",
+  "showTree": "Mostrar diretório"
 }

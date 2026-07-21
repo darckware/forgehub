@@ -7,6 +7,8 @@ import {
   FilePlus,
   FolderPlus,
   Loader2,
+  Maximize2,
+  Minimize2,
   Palette,
   Pencil,
   Plus,
@@ -22,6 +24,7 @@ import {
   filterDocumentTree,
   type DocumentViewMode,
 } from "@/components/DocumentBrowser";
+import { CopyButton } from "@/components/CopyButton";
 import { PathPrompt } from "@/components/PathPrompt";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +48,8 @@ import { GraphView } from "@/components/GraphView";
 import { MindMapView } from "@/components/MindMapView";
 import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whiteboard/WhiteboardModal";
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
+import { useElementFullscreen } from "@/hooks/useElementFullscreen";
+import { cn } from "@/lib/utils";
 import {
   downloadFoundationFile,
   useCreateFoundationFolder,
@@ -97,6 +102,7 @@ function DocumentationCard() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const { ref: fullscreenRef, isFullscreen, toggle: toggleFullscreen } = useElementFullscreen<HTMLDivElement>();
   const [prompt, setPrompt] = useState<"new-doc" | "new-folder" | "rename" | null>(null);
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -424,10 +430,25 @@ function DocumentationCard() {
           <p className="m-auto text-sm italic text-muted-foreground">{t("docs.selectDocument")}</p>
         )}
         {viewMode === "note" && selectedPath && (
-          <>
+          <div
+            ref={fullscreenRef}
+            className={cn("flex flex-1 flex-col gap-2", isFullscreen && "overflow-y-auto bg-background p-6")}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <code className="truncate text-xs text-muted-foreground">{selectedPath}</code>
               <div className="flex flex-wrap items-center gap-0.5">
+                {doc && (
+                  <CopyButton getText={() => (isEditing ? draft : doc.content)} title={t("docs.copyDocument")} />
+                )}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title={isFullscreen ? t("docs.exitFullscreen") : t("docs.fullscreen")}
+                  aria-label={isFullscreen ? t("docs.exitFullscreen") : t("docs.fullscreen")}
+                  onClick={toggleFullscreen}
+                >
+                  {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                </Button>
                 {!isEditing && (
                   <Button
                     variant="outline"
@@ -512,7 +533,7 @@ function DocumentationCard() {
               />
             )}
             {doc && !isEditing && <Markdown content={doc.content} className="text-sm" />}
-          </>
+          </div>
         )}
 
         {viewMode === "graph" && (
