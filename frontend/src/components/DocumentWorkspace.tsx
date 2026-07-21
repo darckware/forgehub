@@ -76,15 +76,6 @@ export function DocumentWorkspace({
           {titleSuffix}
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
             {actions}
-            <Button
-              variant="outline"
-              size="icon"
-              title={hideTree ? t("showTree") : t("hideTree")}
-              aria-label={hideTree ? t("showTree") : t("hideTree")}
-              onClick={() => setHideTree((v) => !v)}
-            >
-              {hideTree ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </Button>
             <AssistantToggleButton size="icon" openTitle={assistantOpenTitle} />
           </div>
         </div>
@@ -107,6 +98,15 @@ export function DocumentWorkspace({
           </span>
         </p>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            title={hideTree ? t("showTree") : t("hideTree")}
+            aria-label={hideTree ? t("showTree") : t("hideTree")}
+            onClick={() => setHideTree((v) => !v)}
+          >
+            {hideTree ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
           <SearchFilterInput
             value={searchValue}
             onChange={onSearchChange}

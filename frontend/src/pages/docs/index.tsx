@@ -504,15 +504,6 @@ export default function DocsPage() {
             >
               <Palette className="h-4 w-4" />
             </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              title={hideTree ? t("page.showTree") : t("page.hideTree")}
-              aria-label={hideTree ? t("page.showTree") : t("page.hideTree")}
-              onClick={() => setHideTree((v) => !v)}
-            >
-              {hideTree ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </Button>
             <AssistantToggleButton
               size="icon"
               openTitle={t("page.openAssistantForDoc")}
@@ -537,6 +528,15 @@ export default function DocsPage() {
           </span>
         </p>
         <div className="flex items-center gap-2">
+          <Button
+            size="icon"
+            variant="outline"
+            title={hideTree ? t("page.showTree") : t("page.hideTree")}
+            aria-label={hideTree ? t("page.showTree") : t("page.hideTree")}
+            onClick={() => setHideTree((v) => !v)}
+          >
+            {hideTree ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
           <SearchFilterInput
             value={treeSearch}
             onChange={setTreeSearch}
