@@ -5,5 +5,7 @@
   "workingFolder": "Working folder",
   "useRoot": "use root",
   "hideTree": "Hide directory",
-  "showTree": "Show directory"
+  "showTree": "Show directory",
+  "expandAll": "Expand all folders",
+  "collapseAll": "Collapse all folders"
 }

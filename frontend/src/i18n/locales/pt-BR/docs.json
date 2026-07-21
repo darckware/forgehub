@@ -39,6 +39,8 @@
     "openAssistantForDoc": "Abrir o assistente para ajudar a criar/preencher este documento",
     "hideTree": "Ocultar diretório",
     "showTree": "Mostrar diretório",
+    "expandAll": "Expandir todas as pastas",
+    "collapseAll": "Recolher todas as pastas",
     "fullscreen": "Tela cheia",
     "exitFullscreen": "Sair da tela cheia",
     "copyDocument": "Copiar documento",

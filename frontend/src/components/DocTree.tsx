@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, FilePlus, FileText, Folder, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,57 @@ export interface DocTreeNode {
   path: string;
   type: "file" | "dir";
   children?: DocTreeNode[];
+}
+
+function collectDirPaths(nodes: DocTreeNode[]): string[] {
+  const out: string[] = [];
+  for (const node of nodes) {
+    if (node.type !== "dir") continue;
+    out.push(node.path);
+    if (node.children) out.push(...collectDirPaths(node.children));
+  }
+  return out;
+}
+
+/** Lifts each folder row's expanded/collapsed state out of `DocTree` so a
+ * page can drive it from a single "expand all / collapse all" toggle
+ * (`DocumentWorkspace`/`DocumentBrowser`'s tree-expand button) while still
+ * letting individual chevrons be clicked one at a time. Seeds only the
+ * top-level folders as expanded the first time `nodes` arrives, matching
+ * the tree's previous per-row default (depth 0 open, deeper closed).
+ * Pass `resetKey` (e.g. Docs' `areaId`) when the same page can point the
+ * tree at an entirely different root -- switching it reseeds back to that
+ * default instead of keeping the old root's expanded paths around. */
+export function useExpandedTree(nodes: DocTreeNode[] | undefined, resetKey?: unknown) {
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const seededRef = useRef(false);
+  const seededKeyRef = useRef<unknown>(undefined);
+
+  useEffect(() => {
+    if (!nodes) return;
+    if (seededRef.current && seededKeyRef.current === resetKey) return;
+    seededRef.current = true;
+    seededKeyRef.current = resetKey;
+    setExpandedPaths(new Set(nodes.filter((n) => n.type === "dir").map((n) => n.path)));
+  }, [nodes, resetKey]);
+
+  function toggle(path: string) {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
+  const allDirPaths = useMemo(() => (nodes ? collectDirPaths(nodes) : []), [nodes]);
+  const allExpanded = allDirPaths.length > 0 && allDirPaths.every((p) => expandedPaths.has(p));
+
+  function toggleAll() {
+    setExpandedPaths(allExpanded ? new Set() : new Set(allDirPaths));
+  }
+
+  return { expandedPaths, toggle, allExpanded, toggleAll };
 }
 
 /** Create/rename/delete actions for the tree rows -- optional so a
@@ -40,6 +91,8 @@ interface DocTreeItemProps {
   actions?: DocTreeActions;
   onMove?: (sourcePath: string, destFolderPath: string) => void;
   getAssistantDragPayload?: (node: DocTreeNode) => AssistantFileDragPayload | undefined;
+  expandedPaths: Set<string>;
+  onToggleExpand: (path: string) => void;
 }
 
 function ActionIcon({
@@ -80,9 +133,11 @@ function DocTreeItem({
   actions,
   onMove,
   getAssistantDragPayload,
+  expandedPaths,
+  onToggleExpand,
 }: DocTreeItemProps) {
   const { t } = useTranslation("docs");
-  const [expanded, setExpanded] = useState(depth === 0);
+  const expanded = expandedPaths.has(node.path);
   const [dragOver, setDragOver] = useState(false);
   const assistantDragPayload = getAssistantDragPayload?.(node);
   const draggable = Boolean(onMove || assistantDragPayload);
@@ -132,7 +187,7 @@ function DocTreeItem({
           <button
             type="button"
             onClick={() => {
-              setExpanded((v) => !v);
+              onToggleExpand(node.path);
               onSelectFolder?.(node.path);
             }}
             className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left"
@@ -165,6 +220,8 @@ function DocTreeItem({
               actions={actions}
               onMove={onMove}
               getAssistantDragPayload={getAssistantDragPayload}
+              expandedPaths={expandedPaths}
+              onToggleExpand={onToggleExpand}
             />
           ))}
       </div>
@@ -218,6 +275,8 @@ export function DocTree({
   actions,
   onMove,
   getAssistantDragPayload,
+  expandedPaths,
+  onToggleExpand,
 }: {
   nodes: DocTreeNode[];
   selectedPath: string | undefined;
@@ -234,6 +293,10 @@ export function DocTree({
   onMove?: (sourcePath: string, destFolderPath: string) => void;
   /** Makes rows attachable or referenceable in the global assistant. */
   getAssistantDragPayload?: (node: DocTreeNode) => AssistantFileDragPayload | undefined;
+  /** Which folder paths are expanded -- lifted out via `useExpandedTree` so
+   * a page-level "expand all / collapse all" button can drive every row. */
+  expandedPaths: Set<string>;
+  onToggleExpand: (path: string) => void;
 }) {
   const { t } = useTranslation("docs");
   const [rootDragOver, setRootDragOver] = useState(false);
@@ -251,6 +314,8 @@ export function DocTree({
           actions={actions}
           onMove={onMove}
           getAssistantDragPayload={getAssistantDragPayload}
+          expandedPaths={expandedPaths}
+          onToggleExpand={onToggleExpand}
         />
       ))}
       {onMove && (

@@ -39,6 +39,8 @@
     "openAssistantForDoc": "Open the assistant to help create/fill this document",
     "hideTree": "Hide directory",
     "showTree": "Show directory",
+    "expandAll": "Expand all folders",
+    "collapseAll": "Collapse all folders",
     "fullscreen": "Fullscreen",
     "exitFullscreen": "Exit fullscreen",
     "copyDocument": "Copy document",

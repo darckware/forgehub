@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Folder, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { FoldVertical, Folder, PanelLeftClose, PanelLeftOpen, UnfoldVertical } from "lucide-react";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { SearchFilterInput } from "@/components/SearchFilterInput";
 import { ViewModeToggle, type DocumentViewMode } from "@/components/ViewModeToggle";
@@ -33,6 +33,7 @@ export function DocumentWorkspace({
   mindMapDisabled,
   actions,
   assistantOpenTitle,
+  treeExpand,
   tree,
   children,
   className,
@@ -59,6 +60,11 @@ export function DocumentWorkspace({
   mindMapDisabled?: boolean;
   actions?: ReactNode;
   assistantOpenTitle?: string;
+  /** Drives the "expand all / collapse all" toggle rendered right of the
+   * hide-directory button -- omit on pages whose tree doesn't come from
+   * `useExpandedTree` (none currently, but keeps this shell reusable for a
+   * future read-only tree). */
+  treeExpand?: { allExpanded: boolean; onToggleAll: () => void };
   tree: ReactNode;
   children: ReactNode;
   className?: string;
@@ -107,6 +113,17 @@ export function DocumentWorkspace({
           >
             {hideTree ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </Button>
+          {treeExpand && (
+            <Button
+              variant="outline"
+              size="icon"
+              title={treeExpand.allExpanded ? t("collapseAll") : t("expandAll")}
+              aria-label={treeExpand.allExpanded ? t("collapseAll") : t("expandAll")}
+              onClick={treeExpand.onToggleAll}
+            >
+              {treeExpand.allExpanded ? <FoldVertical className="h-4 w-4" /> : <UnfoldVertical className="h-4 w-4" />}
+            </Button>
+          )}
           <SearchFilterInput
             value={searchValue}
             onChange={onSearchChange}

@@ -22,7 +22,7 @@ import {
 } from "@/components/DocumentWorkspace";
 import { filterDocumentTree } from "@/components/DocumentBrowser";
 import { CopyButton } from "@/components/CopyButton";
-import { DocTree } from "@/components/DocTree";
+import { DocTree, useExpandedTree } from "@/components/DocTree";
 import { GraphView } from "@/components/GraphView";
 import { Markdown } from "@/components/Markdown";
 import { MindMapView } from "@/components/MindMapView";
@@ -58,6 +58,8 @@ export default function ObsidianPage() {
     () => (tree ? filterDocumentTree(tree, noteSearch) : tree),
     [tree, noteSearch]
   );
+  const { expandedPaths, toggle: toggleExpanded, allExpanded, toggleAll: toggleAllExpanded } =
+    useExpandedTree(tree);
   const [selectedPath, setSelectedPath] = useState<string | undefined>();
   const { data: note, isLoading: noteLoading } = useVaultNote(selectedPath);
   const updateNote = useUpdateVaultNote();
@@ -309,6 +311,7 @@ export default function ObsidianPage() {
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         mindMapDisabled={!selectedPath}
+        treeExpand={{ allExpanded, onToggleAll: toggleAllExpanded }}
         actions={
           <>
             <Button
@@ -382,6 +385,8 @@ export default function ObsidianPage() {
                   onRename: handleRenamePath,
                   onDelete: handleDeletePath,
                 }}
+                expandedPaths={expandedPaths}
+                onToggleExpand={toggleExpanded}
                 onMove={handleMove}
                 getAssistantDragPayload={(node) =>
                   node.type === "dir"

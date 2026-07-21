@@ -10,6 +10,7 @@ import {
   Eye,
   FileEdit,
   FilePlus,
+  FoldVertical,
   Folder,
   FolderPlus,
   Loader2,
@@ -22,6 +23,7 @@ import {
   Plus,
   Save,
   Trash2,
+  UnfoldVertical,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,7 +32,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { PathPrompt } from "@/components/PathPrompt";
 import { SearchFilterInput } from "@/components/SearchFilterInput";
-import { DocTree, type DocTreeNode } from "@/components/DocTree";
+import { DocTree, useExpandedTree, type DocTreeNode } from "@/components/DocTree";
 import { filterDocumentTree } from "@/components/DocumentBrowser";
 import { CopyButton } from "@/components/CopyButton";
 import { GraphView } from "@/components/GraphView";
@@ -233,6 +235,8 @@ export default function DocsPage() {
     () => (tree ? filterDocumentTree(tree as DocTreeNode[], treeSearch) : tree),
     [tree, treeSearch]
   );
+  const { expandedPaths, toggle: toggleExpanded, allExpanded, toggleAll: toggleAllExpanded } =
+    useExpandedTree(tree as DocTreeNode[] | undefined, areaId);
   const [viewMode, setViewMode] = useState<DocumentViewMode>("note");
   const { data: graph, isLoading: graphLoading } = useDocsGraph(areaId);
   const [searchParams] = useSearchParams();
@@ -537,6 +541,15 @@ export default function DocsPage() {
           >
             {hideTree ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </Button>
+          <Button
+            size="icon"
+            variant="outline"
+            title={allExpanded ? t("page.collapseAll") : t("page.expandAll")}
+            aria-label={allExpanded ? t("page.collapseAll") : t("page.expandAll")}
+            onClick={toggleAllExpanded}
+          >
+            {allExpanded ? <FoldVertical className="h-4 w-4" /> : <UnfoldVertical className="h-4 w-4" />}
+          </Button>
           <SearchFilterInput
             value={treeSearch}
             onChange={setTreeSearch}
@@ -647,6 +660,8 @@ export default function DocsPage() {
                     onRename: handleRenamePath,
                     onDelete: handleDeletePath,
                   }}
+                  expandedPaths={expandedPaths}
+                  onToggleExpand={toggleExpanded}
                   onMove={handleMove}
                   getAssistantDragPayload={areaId && currentArea ? (node) =>
                     node.type === "dir"

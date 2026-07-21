@@ -43,7 +43,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Markdown } from "@/components/Markdown";
-import { DocTree } from "@/components/DocTree";
+import { DocTree, useExpandedTree } from "@/components/DocTree";
 import { GraphView } from "@/components/GraphView";
 import { MindMapView } from "@/components/MindMapView";
 import { WhiteboardModal, type WhiteboardSaveResult } from "@/components/whiteboard/WhiteboardModal";
@@ -83,6 +83,8 @@ function DocumentationCard() {
     if (!tree) return tree;
     return filterDocumentTree(tree, docSearch);
   }, [tree, docSearch]);
+  const { expandedPaths, toggle: toggleExpanded, allExpanded, toggleAll: toggleAllExpanded } =
+    useExpandedTree(tree);
   const [selectedPath, setSelectedPath] = useState<string | undefined>();
   const { data: doc, isLoading: docLoading } = useFoundationDoc(selectedPath);
   const updateDoc = useUpdateFoundationDoc();
@@ -328,6 +330,7 @@ function DocumentationCard() {
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         mindMapDisabled={!selectedPath}
+        treeExpand={{ allExpanded, onToggleAll: toggleAllExpanded }}
         actions={
           <>
             <Button
@@ -401,6 +404,8 @@ function DocumentationCard() {
                   onRename: handleRenamePath,
                   onDelete: handleDeletePath,
                 }}
+                expandedPaths={expandedPaths}
+                onToggleExpand={toggleExpanded}
                 onMove={handleMove}
                 getAssistantDragPayload={(node) =>
                   node.type === "dir"

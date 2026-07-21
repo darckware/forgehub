@@ -5,5 +5,7 @@
   "workingFolder": "Pasta de trabalho",
   "useRoot": "usar raiz",
   "hideTree": "Ocultar diretório",
-  "showTree": "Mostrar diretório"
+  "showTree": "Mostrar diretório",
+  "expandAll": "Expandir todas as pastas",
+  "collapseAll": "Recolher todas as pastas"
 }
