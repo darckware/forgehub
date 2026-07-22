@@ -79,6 +79,15 @@ export function useReviseConcept() {
     onSuccess: (data) => client.invalidateQueries({ queryKey: ["concept", data.concept.product_id] }),
   });
 }
+export function useUpdateConceptDeliveryMetadata() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conceptId, ...payload }: {
+      conceptId: string; project_description?: string; working_directory_path?: string; tech_stack_decisions?: TechStackDecision[];
+    }) => apiClient.patch<ConceptDetail>(`/api/v1/product-concepts/${conceptId}/delivery-metadata`, payload),
+    onSuccess: (data) => client.invalidateQueries({ queryKey: ["concept", data.concept.product_id] }),
+  });
+}
 export function useSubmitConcept() {
   const client = useQueryClient();
   return useMutation({ mutationFn: (conceptId: string) => apiClient.post<ConceptDetail>(`/api/v1/product-concepts/${conceptId}:submit`), onSuccess: (data) => { client.invalidateQueries({ queryKey: ["concept", data.concept.product_id] }); client.invalidateQueries({ queryKey: ["governed-approval-requests"] }); } });

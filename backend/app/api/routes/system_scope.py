@@ -20,6 +20,7 @@ from app.api.schemas.system_scope import (
     BlueprintSummaryOut,
     BlueprintValidationOut,
     ConceptDecision,
+    ConceptDeliveryMetadataUpdate,
     ConceptDetailOut,
     ConceptRevisionCreate,
     DeliveryPlanningAuthorizationOut,
@@ -394,6 +395,36 @@ async def revise_concept(
     concept.current_revision_id = revision.id
     concept.status = "draft"
     db.add(_audit("product_concept", concept.id, "revised", principal.display_name, {"revision": number}))
+    await db.commit()
+    return await get_product_concept(concept.product_id, db)
+
+
+@router.patch("/product-concepts/{concept_id}/delivery-metadata", response_model=ConceptDetailOut)
+async def update_concept_delivery_metadata(
+    concept_id: uuid.UUID, payload: ConceptDeliveryMetadataUpdate, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    """Edits project_description/working_directory_path/tech_stack_decisions
+    on the current revision in place, regardless of concept status.
+
+    Unlike revise_concept (problem_statement/vision/scope_summary), these
+    fields are delivery setup metadata, not content a governed decision
+    approves -- so this never opens a new revision and never touches
+    content_hash, meaning it can't invalidate an already-approved
+    governance decision (:authorize-delivery-planning re-checks the
+    approval against the unchanged content_hash). This is what lets
+    Marcelo pick the working directory after a concept has already been
+    submitted for review.
+    """
+    concept = await _concept(db, concept_id)
+    await authorize_action(db, principal, "planning.concept.edit", product_id=concept.product_id)
+    if not concept.current_revision_id:
+        raise HTTPException(409, "Concept has no current revision")
+    revision = await db.get(ProductConceptRevision, concept.current_revision_id)
+    data = payload.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(revision, field, value)
+    db.add(_audit("product_concept", concept.id, "delivery_metadata_updated", principal.display_name, data))
     await db.commit()
     return await get_product_concept(concept.product_id, db)
 

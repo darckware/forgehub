@@ -77,6 +77,17 @@ class ConceptRevisionOut(ConceptRevisionCreate):
     updated_at: datetime
 
 
+class ConceptDeliveryMetadataUpdate(BaseModel):
+    """Project setup metadata (where the code will live, chosen stack) --
+    unlike problem_statement/vision/scope_summary, this is not part of the
+    content a governed decision approves, so it can be edited in place on
+    the current revision regardless of concept status (draft, in_review,
+    approved...) without opening a new revision or disturbing content_hash."""
+    project_description: str | None = None
+    working_directory_path: str | None = Field(default=None, max_length=1024)
+    tech_stack_decisions: list[TechStackDecision] | None = None
+
+
 class ProductConceptOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID

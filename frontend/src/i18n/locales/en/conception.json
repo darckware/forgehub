@@ -40,7 +40,7 @@
     "description": "This creates a concept product and its first System Map revision.",
     "editTitle": "Edit idea",
     "editDescription": "Update the conception registration data.",
-    "conceptLocked": "The concept was already submitted for review, so the problem statement, vision and initial scope can no longer be edited here -- only the name and requester.",
+    "conceptLocked": "The concept was already submitted for review, so the problem statement, vision and initial scope can no longer be edited here. Name, requester, project description, working directory and tech stack remain editable.",
     "fields": {
       "name": "Name",
       "problemStatement": "Problem statement",

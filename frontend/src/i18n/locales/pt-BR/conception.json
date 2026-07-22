@@ -40,7 +40,7 @@
     "description": "Cria um produto conceito e sua primeira revisão do Mapa do Sistema.",
     "editTitle": "Editar ideia",
     "editDescription": "Atualize os dados do cadastro da concepção.",
-    "conceptLocked": "O conceito já foi enviado para revisão, então a declaração do problema, visão e escopo inicial não podem mais ser editados aqui -- apenas o nome e o solicitante.",
+    "conceptLocked": "O conceito já foi enviado para revisão, então a declaração do problema, visão e escopo inicial não podem mais ser editados aqui. Nome, solicitante, descrição do projeto, pasta de trabalho e stack tecnológico continuam editáveis.",
     "fields": {
       "name": "Nome",
       "problemStatement": "Declaração do problema",

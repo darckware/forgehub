@@ -22,6 +22,7 @@ import {
   usePreviewConceptSummary,
   useReviseConcept,
   useSubmitConcept,
+  useUpdateConceptDeliveryMetadata,
   useUpdateDevelopmentRequest,
   type DevelopmentRequest,
   type TechStackDecision,
@@ -119,6 +120,7 @@ export default function ConceptionPage() {
   const updateRequest = useUpdateDevelopmentRequest();
   const updateProduct = useUpdateProduct();
   const reviseConcept = useReviseConcept();
+  const updateDeliveryMetadata = useUpdateConceptDeliveryMetadata();
   const previewSummary = usePreviewConceptSummary();
   const [selectedProduct, setSelectedProduct] = useState("");
   const concept = useConcept(selectedProduct);
@@ -185,6 +187,17 @@ export default function ConceptionPage() {
           project_description: form.project_description || undefined, working_directory_path: form.working_directory_path || undefined,
           tech_stack_decisions: tech_stack_decisions.length ? tech_stack_decisions : undefined,
         });
+      } else if (concept.data) {
+        // Concept content (problem/vision/scope) is frozen once submitted,
+        // but delivery setup metadata isn't part of what governance
+        // approves -- it can still be edited in place (see
+        // update_concept_delivery_metadata's docstring).
+        await updateDeliveryMetadata.mutateAsync({
+          conceptId: concept.data.concept.id,
+          project_description: form.project_description || undefined,
+          working_directory_path: form.working_directory_path || undefined,
+          tech_stack_decisions: tech_stack_decisions.length ? tech_stack_decisions : undefined,
+        });
       }
     } else {
       await create.mutateAsync({
@@ -206,7 +219,7 @@ export default function ConceptionPage() {
       },
     });
   };
-  const saving = create.isPending || updateRequest.isPending || updateProduct.isPending || reviseConcept.isPending;
+  const saving = create.isPending || updateRequest.isPending || updateProduct.isPending || reviseConcept.isPending || updateDeliveryMetadata.isPending;
   return <div className="space-y-6">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div><h1 className="text-2xl font-semibold">{t("page.title")}</h1><p className="text-sm text-muted-foreground">{t("page.description")}</p></div>
@@ -255,12 +268,12 @@ export default function ConceptionPage() {
             </TabsContent>
             <TabsContent value="description" className="mt-4 space-y-4">
               <p className="text-sm text-muted-foreground">{t("wizard.description.help")}</p>
-              <div className="space-y-2"><FieldLabel label={t("wizard.description.fields.projectDescription")} count={form.project_description.length} max={PROJECT_DESCRIPTION_MAX}/><Textarea rows={6} maxLength={PROJECT_DESCRIPTION_MAX} readOnly={!conceptEditable} value={form.project_description} onChange={e => setForm({...form, project_description:e.target.value})}/></div>
+              <div className="space-y-2"><FieldLabel label={t("wizard.description.fields.projectDescription")} count={form.project_description.length} max={PROJECT_DESCRIPTION_MAX}/><Textarea rows={6} maxLength={PROJECT_DESCRIPTION_MAX} value={form.project_description} onChange={e => setForm({...form, project_description:e.target.value})}/></div>
               <div className="space-y-2">
                 <Label>{t("wizard.description.fields.workingDirectory")}</Label>
                 <div className="flex items-center gap-2">
-                  <Input readOnly={!conceptEditable} placeholder={t("wizard.description.workingDirectoryPlaceholder")} value={form.working_directory_path} onChange={e => setForm({...form, working_directory_path:e.target.value})}/>
-                  {conceptEditable && <WorkingDirPicker workingDir={form.working_directory_path || undefined} onSelect={(path) => setForm({...form, working_directory_path: path ?? ""})}/>}
+                  <Input placeholder={t("wizard.description.workingDirectoryPlaceholder")} value={form.working_directory_path} onChange={e => setForm({...form, working_directory_path:e.target.value})}/>
+                  <WorkingDirPicker workingDir={form.working_directory_path || undefined} onSelect={(path) => setForm({...form, working_directory_path: path ?? ""})}/>
                 </div>
               </div>
             </TabsContent>
@@ -270,14 +283,14 @@ export default function ConceptionPage() {
                 <div key={layer} className="grid gap-3 rounded-lg border p-3 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{t(`wizard.stack.layers.${layer}`)}</Label>
-                    <Select disabled={!conceptEditable} value={techStack[layer].decision} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], decision: e.target.value } })}>
+                    <Select value={techStack[layer].decision} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], decision: e.target.value } })}>
                       <option value="">{t("wizard.stack.selectPlaceholder")}</option>
                       {TECH_STACK_OPTIONS[layer].map((option) => <option key={option} value={option}>{option}</option>)}
                     </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>{t("wizard.stack.rationale")}</Label>
-                    <Input readOnly={!conceptEditable} value={techStack[layer].rationale} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], rationale: e.target.value } })}/>
+                    <Input value={techStack[layer].rationale} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], rationale: e.target.value } })}/>
                   </div>
                 </div>
               ))}
