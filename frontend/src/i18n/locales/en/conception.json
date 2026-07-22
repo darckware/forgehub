@@ -7,6 +7,34 @@
     "newIdea": "New idea",
     "backToList": "Back to requests"
   },
+  "wizard": {
+    "updateFromDiagram": "Update from diagram",
+    "updateFromDiagramEmpty": "The entity and functionality diagram is still empty -- open the System Map to start modeling.",
+    "steps": {
+      "problem": "1. Problem and vision",
+      "description": "2. Description and folder",
+      "stack": "3. Tech stack"
+    },
+    "description": {
+      "help": "Describe the system in plain language and, if the code already exists, point to its working directory -- this description feeds the entity and functionality diagram in the next steps.",
+      "fields": {
+        "projectDescription": "Project description",
+        "workingDirectory": "Working directory"
+      },
+      "workingDirectoryPlaceholder": "/root/project/my-project"
+    },
+    "stack": {
+      "help": "Pick the technology for each layer following the organization's architecture standards. This is recorded on the concept and feeds the Tech Spec once the concept is approved.",
+      "layers": {
+        "frontend": "Frontend",
+        "backend": "Backend",
+        "database": "Database",
+        "deploy_infra": "Deploy / infrastructure"
+      },
+      "selectPlaceholder": "Select an option",
+      "rationale": "Rationale (optional)"
+    }
+  },
   "captureIdea": {
     "title": "Capture idea",
     "description": "This creates a concept product and its first System Map revision.",
@@ -66,7 +94,8 @@
     "authorizeForm": {
       "version": "Version",
       "projectName": "Project name",
-      "owner": "Owner"
+      "owner": "Owner",
+      "tasksGenerated": "{{count}} task(s) generated in the Backlog from this scope."
     }
   }
 }

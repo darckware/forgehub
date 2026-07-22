@@ -25,7 +25,8 @@ MODULES = [
 SENSITIVE_ACTIONS = (
     "planning.concept.view", "planning.concept.edit", "planning.concept.submit",
     "planning.concept.decide", "planning.blueprint.edit", "planning.blueprint.approve",
-    "planning.delivery.authorize", "planning.progress.view", "planning.progress.manage",
+    "planning.delivery.authorize", "planning.delivery.generate_artifacts",
+    "planning.progress.view", "planning.progress.manage",
     "planning.stage.complete", "governance.approval.view",
     "planning.execution.view", "planning.execution.manage",
     "planning.execution.release", "planning.execution.dispatch", "planning.execution.cancel",

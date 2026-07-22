@@ -38,13 +38,66 @@
     "paletteHint": "Arraste uma camada para o mapa:",
     "readOnlyHint": "Esta revisão não é rascunho -- o mapa está somente para visualização.",
     "assistantHelp": "Pedir ajuda ao assistente",
-    "copyPasteHint": "Selecione um elemento e use Ctrl+C/Ctrl+V para duplicá-lo, ou cole (Ctrl+V) um fluxo que o assistente escreveu para criar tudo de uma vez. Dê dois cliques num elemento para editar ou excluir.",
+    "copyPasteHint": "Selecione um elemento e use Ctrl+C/Ctrl+V para duplicá-lo, ou cole (Ctrl+V) um fluxo que o assistente escreveu para criar tudo de uma vez. Clique num elemento para editá-lo no painel à direita.",
     "pasteSuccess": "Criado(s) {{elements}} elemento(s) e {{relations}} relação(ões).",
     "pasteInvalid": "Nada válido encontrado no texto colado.",
     "editTitle": "Editar elemento",
     "save": "Salvar",
     "removeElement": "Remover elemento",
-    "autoArrange": "Organizar automaticamente"
+    "autoArrange": "Organizar automaticamente",
+    "presetsHint": "Ou arraste um componente pronto:",
+    "views": {
+      "all": "Todas as camadas",
+      "entities": "Entidades",
+      "functionality": "Funcionalidades",
+      "screens": "Telas e Navegação"
+    },
+    "panel": {
+      "descriptionLabel": "Descrição",
+      "relationsTitle": "Relações",
+      "noRelations": "Nenhuma relação ainda.",
+      "toWord": "para",
+      "fromWord": "de",
+      "addRelationTitle": "Adicionar relação",
+      "directionOutgoing": "Este elemento → outro",
+      "directionIncoming": "Outro → este elemento",
+      "relateToPlaceholder": "Selecione um elemento",
+      "addRelationButton": "Adicionar relação",
+      "newRelatedEntity": "Novo elemento relacionado",
+      "screenSpecTitle": "Regras da tela",
+      "screenSpecFields": {
+        "objective": "Objetivo",
+        "authorized_users": "Usuários autorizados",
+        "required_data": "Dados necessários",
+        "actions": "Ações",
+        "validation_rules": "Regras de validação",
+        "states": "Estados obrigatórios (carregando, vazio, erro...)"
+      },
+      "fieldSpecTitle": "Coluna",
+      "fieldSpecFields": {
+        "sqlType": "Tipo SQL",
+        "isPk": "Chave primária",
+        "isFk": "Chave estrangeira",
+        "fkTablePlaceholder": "Referencia a tabela..."
+      }
+    },
+    "dataSpecPreview": {
+      "toggle": "Pré-visualizar DATA-SPEC",
+      "title": "Pré-visualização do DATA-SPEC",
+      "help": "Gerado a partir dos elementos tabela/coluna desta visão -- uma tabela \"contém\" suas colunas, e uma relação direta entre duas tabelas vira chave estrangeira. É só rascunho; revise a nomenclatura antes de virar migration real.",
+      "empty": "Nenhuma tabela modelada nesta visão ainda -- arraste a camada \"data\" e escolha o tipo \"table\" para começar."
+    }
+  },
+  "presets": {
+    "loginScreen": "Tela de login",
+    "loginScreenObjective": "Autenticar o usuário antes de liberar acesso ao sistema.",
+    "loginScreenActions": "Entrar; recuperar senha.",
+    "appShell": "Base do app (App Shell)",
+    "appShellObjective": "Layout base onde toda tela autenticada é renderizada (cabeçalho, navegação, área de conteúdo).",
+    "sidebar": "Sidebar (menu)",
+    "sidebarObjective": "Navegação principal entre os módulos/telas do sistema.",
+    "genericScreen": "Tela do sistema",
+    "database": "Banco de Dados"
   },
   "detailCards": {
     "map": "Mapa",

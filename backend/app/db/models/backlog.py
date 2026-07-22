@@ -101,6 +101,15 @@ class PlanningItem(Base, TimestampMixin):
     structure_node_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.project_structure_nodes.id", ondelete="SET NULL"), nullable=True
     )
+    # Which Conception/System Map scope element this item was generated
+    # from (system_scope domain, string FK) -- set only for planning items
+    # auto-created by :authorize-delivery-planning off a ProjectScopeItem,
+    # so the Project Scope page can roll up each diagram element's linked
+    # task(s) status for the visual execution-tracking overlay. Nullable:
+    # most planning items (manual intake, bugs, etc.) have no scope origin.
+    project_scope_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.project_scope_items.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Relative path (within the project's working_directory_path) where the
     # output of this planning item should be written -- e.g. "docs/api.md"

@@ -1,18 +1,23 @@
 """Planning APIs for conception, System Blueprint, and Project Scope."""
 import hashlib
 import json
+import re
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.api.schemas.artifact import ArtifactWithVersionsOut
 from app.api.schemas.system_scope import (
     BlueprintDetailOut,
     BlueprintGraphOut,
     BlueprintRevisionCreate,
     BlueprintRevisionOut,
+    BlueprintSummaryOut,
     BlueprintValidationOut,
     ConceptDecision,
     ConceptDetailOut,
@@ -38,11 +43,22 @@ from app.api.schemas.system_scope import (
     SystemElementOut,
 )
 from app.db.base import get_db
+from app.core.concept_artifacts import (
+    TECH_STACK_LAYER_LABELS,
+    build_design_system_markdown,
+    build_prd_markdown,
+    build_screen_templates_markdown,
+    build_tech_spec_markdown,
+)
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.governed_approval import approved_concept_request, canonical_hash, request_concept_approval
+from app.core.markdown_docs import resolve_doc_path
+from app.db.models.artifact import Artifact, ArtifactStatus, ArtifactType, ArtifactVersion, ArtifactVersionStatus
+from app.db.models.backlog import PlanningItem
 from app.db.models.governance import AuditEvent
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
+from app.db.models.task import ProjectTask
 from app.db.models.system_scope import (
     BLUEPRINT_REVISION_STATUSES,
     ELEMENT_FAMILIES,
@@ -62,6 +78,40 @@ from app.db.models.system_scope import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["planning-scope"])
+
+# Same filesystem-backed "docs area" the Docs page writes to (see
+# api/routes/docs.py's DOCS_ROOT) -- generated concept artifacts land under
+# concepts/<product-slug>/ there so they're editable/browsable exactly like
+# any hand-authored doc, instead of a new storage mechanism.
+CONCEPT_ARTIFACTS_DOCS_ROOT = Path("/docs")
+
+# (artifact dict key, ArtifactType, generated filename) -- generation order
+# also drives the four documents Marcelo asked the approval gate to produce.
+GENERATED_ARTIFACT_KINDS = [
+    ("prd", ArtifactType.PRD, "PRD.md"),
+    ("spec", ArtifactType.SPEC, "SPEC-TECNOLOGIA.md"),
+    ("screen", ArtifactType.SCREEN, "SCREEN-TEMPLATES.md"),
+    ("design_system", ArtifactType.OTHER, "DESIGN-SYSTEM.md"),
+]
+
+
+def _product_slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "product"
+
+
+# Which family maps to which delivery layer for auto-generated task
+# breakdown (:authorize-delivery-planning) -- business/process/assurance
+# elements are conceptual/cross-cutting, not a single buildable layer, so
+# they don't get an auto-generated task of their own.
+FAMILY_LAYER_LABELS = {
+    "experience": "Frontend",
+    "interface": "Backend",
+    "application": "Backend",
+    "domain": "Backend",
+    "data": "Banco de Dados",
+    "runtime": "Deploy/Infra",
+}
+
 
 FAMILY_TYPES = {
     "business": {"capability", "module", "persona"},
@@ -136,6 +186,35 @@ async def _graph(db: AsyncSession, revision: SystemBlueprintRevision) -> Bluepri
         elements=elements,
         relations=[SystemElementRelationOut.model_validate(item) for item in relations],
     )
+
+
+def build_concept_summary(graph: BlueprintGraphOut) -> str:
+    """Deterministic (no LLM) text summary of a blueprint graph, grouped by
+    family in ELEMENT_FAMILIES order -- the Conception wizard's "update from
+    diagram" action proposes this as a new scope_summary, never overwriting
+    the current one silently (Marcelo: template-based sync, not AI-assisted,
+    so it's fast/predictable/free and stays reviewable before saving)."""
+    if not graph.elements:
+        return ""
+    by_family: dict[str, list] = {}
+    names: dict[uuid.UUID, str] = {}
+    for item in graph.elements:
+        by_family.setdefault(item.element.family, []).append(item.element)
+        names[item.element.id] = item.element.name
+    sections: list[str] = []
+    for family in ELEMENT_FAMILIES:
+        elements = by_family.get(family)
+        if not elements:
+            continue
+        lines = [f"- {el.name} ({el.element_type})" + (f": {el.description}" if el.description else "") for el in elements]
+        sections.append(f"{family.capitalize()}:\n" + "\n".join(lines))
+    if graph.relations:
+        relation_lines = [
+            f"- {names.get(rel.from_element_id, '?')} --{rel.relation_type}--> {names.get(rel.to_element_id, '?')}"
+            for rel in graph.relations
+        ]
+        sections.append("Relations:\n" + "\n".join(relation_lines))
+    return "\n\n".join(sections)
 
 
 def _has_cycle(edges: list[tuple[uuid.UUID, uuid.UUID]]) -> bool:
@@ -224,6 +303,9 @@ async def create_idea(
     revision = ProductConceptRevision(
         concept_id=concept.id, revision=1, problem_statement=payload.problem_statement,
         vision=payload.vision, scope_summary=payload.scope_summary,
+        project_description=payload.project_description,
+        working_directory_path=payload.working_directory_path,
+        tech_stack_decisions=[item.model_dump() for item in payload.tech_stack_decisions] if payload.tech_stack_decisions else None,
         content_hash=_hash(payload.model_dump(exclude={"requested_by"}) | {"created_by": actor}), created_by=actor,
     )
     db.add(revision)
@@ -304,9 +386,13 @@ async def revise_concept(
         concept_id=concept.id, revision=number, content_hash=_hash(data),
         created_by=principal.display_name, **data,
     )
+    db.add(revision)
+    # revision.id is only server-generated once flushed (default=uuid.uuid4
+    # is applied at INSERT time, not at construction) -- must flush before
+    # reading it back here, same as create_idea does for its own revision.
+    await db.flush()
     concept.current_revision_id = revision.id
     concept.status = "draft"
-    db.add(revision)
     db.add(_audit("product_concept", concept.id, "revised", principal.display_name, {"revision": number}))
     await db.commit()
     return await get_product_concept(concept.product_id, db)
@@ -345,6 +431,96 @@ async def decide_concept(concept_id: uuid.UUID, payload: ConceptDecision, db: As
     raise HTTPException(409, "Direct decisions are disabled; use /api/v1/governed/approval-requests/{id}:decide")
 
 
+@router.post("/product-concepts/{concept_id}:generate-artifacts", response_model=list[ArtifactWithVersionsOut])
+async def generate_concept_artifacts(
+    concept_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    """PRD / Tech Spec / Screen Templates / Design System note, generated
+    from the approved concept + its System Map, per
+    stack/18-DOCUMENTATION-GOVERNANCE-STANDARD.md's document templates.
+
+    Registered as draft Artifacts (requires_approval=True) with content
+    written under the same /docs area the Docs page manages -- content is
+    reviewable/editable there and a human still has to promote a version to
+    FINAL and approve the Artifact before it counts as authoritative (AI-
+    generated docs are "unverified until reviewed", per that same standard).
+    Re-running this action (e.g. after revising the concept) adds a new
+    draft version onto the same four Artifacts instead of creating
+    duplicates.
+    """
+    concept = await _concept(db, concept_id)
+    await authorize_action(db, principal, "planning.delivery.generate_artifacts", product_id=concept.product_id)
+    if concept.status != "approved":
+        raise HTTPException(409, "Concept approval is required before generating artifacts")
+
+    product = await db.get(Product, concept.product_id)
+    revision = await db.get(ProductConceptRevision, concept.current_revision_id)
+
+    blueprint = (await db.execute(select(SystemBlueprint).where(SystemBlueprint.product_id == concept.product_id))).scalar_one_or_none()
+    graph = None
+    if blueprint and blueprint.current_revision_id:
+        graph = await _graph(db, await _blueprint_revision(db, blueprint.current_revision_id))
+    elements = graph.elements if graph else []
+    functionality_names = [item.element.name for item in elements if item.element.family in ("business", "process")]
+    screens = [
+        {"name": item.element.name, "screen_spec": item.revision.spec_snapshot.get("screen_spec")}
+        for item in elements if item.element.family == "experience" and item.element.element_type in ("screen", "route")
+    ]
+    tech_stack_decisions = revision.tech_stack_decisions or []
+    frontend_decision = next((d.get("decision") for d in tech_stack_decisions if d.get("layer") == "frontend"), None)
+
+    owner = principal.display_name or "system"
+    contents = {
+        "prd": build_prd_markdown(product.name, revision.problem_statement, revision.vision, revision.scope_summary, functionality_names, owner),
+        "spec": build_tech_spec_markdown(product.name, tech_stack_decisions, owner),
+        "screen": build_screen_templates_markdown(product.name, screens, owner),
+        "design_system": build_design_system_markdown(product.name, frontend_decision, owner),
+    }
+
+    slug = _product_slug(product.name)
+    generated_ids: list[uuid.UUID] = []
+    for key, artifact_type, filename in GENERATED_ARTIFACT_KINDS:
+        rel_path = f"concepts/{slug}/{filename}"
+        target = resolve_doc_path(CONCEPT_ARTIFACTS_DOCS_ROOT, rel_path)
+        if target is None:
+            raise HTTPException(500, f"Could not resolve a safe path for {rel_path}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(contents[key], encoding="utf-8")
+
+        artifact_name = f"{product.name} — {filename}"
+        artifact = (await db.execute(select(Artifact).where(Artifact.name == artifact_name))).scalar_one_or_none()
+        if artifact is None:
+            artifact = Artifact(
+                name=artifact_name, artifact_type=artifact_type,
+                description=f"Generated from concept revision {revision.id}",
+                requires_approval=True, status=ArtifactStatus.DRAFT,
+            )
+            db.add(artifact)
+            await db.flush()
+            version_number = 1
+        else:
+            # Mirrors create_artifact_version's rule: a new revision on an
+            # already-approved artifact reopens governance review.
+            if artifact.status == ArtifactStatus.APPROVED:
+                artifact.status = ArtifactStatus.SUBMITTED
+            version_number = (await db.scalar(select(func.max(ArtifactVersion.version_number)).where(
+                ArtifactVersion.artifact_id == artifact.id
+            )) or 0) + 1
+        db.add(ArtifactVersion(
+            artifact_id=artifact.id, version_number=version_number, location_uri=rel_path,
+            status=ArtifactVersionStatus.DRAFT, notes=f"Auto-generated from concept revision {revision.id}",
+        ))
+        generated_ids.append(artifact.id)
+
+    db.add(_audit("product_concept", concept.id, "artifacts_generated", principal.display_name, {"artifact_ids": [str(i) for i in generated_ids]}))
+    await db.commit()
+    result = await db.execute(
+        select(Artifact).where(Artifact.id.in_(generated_ids)).options(selectinload(Artifact.versions))
+    )
+    return list(result.scalars())
+
+
 @router.get("/products/{product_id}/system-blueprint", response_model=BlueprintDetailOut)
 async def get_system_blueprint(product_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     blueprint = (await db.execute(select(SystemBlueprint).where(SystemBlueprint.product_id == product_id))).scalar_one_or_none()
@@ -356,6 +532,16 @@ async def get_system_blueprint(product_id: uuid.UUID, db: AsyncSession = Depends
     )).scalars())
     current = next((item for item in revisions if item.id == blueprint.current_revision_id), None)
     return BlueprintDetailOut(blueprint=blueprint, current_revision=current, revisions=revisions)
+
+
+@router.get("/products/{product_id}/system-blueprint/summary", response_model=BlueprintSummaryOut)
+async def get_system_blueprint_summary(product_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    blueprint = (await db.execute(select(SystemBlueprint).where(SystemBlueprint.product_id == product_id))).scalar_one_or_none()
+    if blueprint is None or blueprint.current_revision_id is None:
+        return BlueprintSummaryOut(summary="")
+    revision = await _blueprint_revision(db, blueprint.current_revision_id)
+    graph = await _graph(db, revision)
+    return BlueprintSummaryOut(summary=build_concept_summary(graph))
 
 
 @router.post("/products/{product_id}/system-blueprint/revisions", response_model=BlueprintRevisionOut)
@@ -487,6 +673,8 @@ async def update_system_element(
         element.element_type = element_type
     if payload.name is not None:
         element.name = payload.name
+    if payload.description is not None:
+        element.description = payload.description
     if payload.stable_key is not None:
         element.stable_key = payload.stable_key
 
@@ -605,6 +793,14 @@ async def authorize_delivery_planning(
                     blueprint_revision_id=revision.id,
                 )
         raise HTTPException(409, "This product version already exists")
+    # Snapshot the graph before any further writes touch `revision` --
+    # flushing a dirty `revision` below expires its onupdate timestamp
+    # attribute, and _graph()'s Pydantic validation reading it back
+    # afterwards would need an implicit lazy-load outside greenlet context
+    # (MissingGreenlet). The graph content itself doesn't change in this
+    # function, so it's safe to capture early.
+    graph = await _graph(db, revision)
+
     product_version = ProductVersion(product_id=concept.product_id, version=payload.version, status="planned")
     db.add(product_version)
     await db.flush()
@@ -629,11 +825,57 @@ async def authorize_delivery_planning(
     for request in requests:
         request.status = "converted"
     db.add(project_scope)
-    db.add(_audit("product_concept", concept.id, "delivery_planning_authorized", principal.display_name, {"project_id": str(project.id), "approval_hash": target_hash}))
+    await db.flush()
+
+    # Task breakdown: one ProjectScopeItem + PlanningItem + ProjectTask per
+    # buildable blueprint element, tagged with its delivery layer, plus one
+    # more PlanningItem+ProjectTask per tech-stack decision from Conception
+    # (Docker/deploy setup included via the deploy_infra layer). Draft/planned
+    # by default -- this seeds the Backlog, it doesn't auto-start work.
+    scope_items_created = 0
+    tasks_created = 0
+    for graph_item in graph.elements:
+        layer = FAMILY_LAYER_LABELS.get(graph_item.element.family)
+        if not layer:
+            continue
+        scope_item = ProjectScopeItem(
+            project_scope_id=project_scope.id, system_element_id=graph_item.element.id,
+            base_element_revision_id=graph_item.revision.id, change_type="add", applicability="required",
+        )
+        db.add(scope_item)
+        await db.flush()
+        task_title = f"[{layer}] {graph_item.element.name}"
+        planning_item = PlanningItem(
+            project_id=project.id, title=task_title, description=graph_item.element.description,
+            item_type="feature", project_scope_item_id=scope_item.id,
+        )
+        db.add(planning_item)
+        await db.flush()
+        db.add(ProjectTask(planning_item_id=planning_item.id, title=task_title, task_type="feature"))
+        scope_items_created += 1
+        tasks_created += 1
+
+    for decision in (concept_revision.tech_stack_decisions or []):
+        decision_text = decision.get("decision")
+        if not decision_text:
+            continue
+        layer_label = TECH_STACK_LAYER_LABELS.get(decision.get("layer"), decision.get("layer") or "Stack")
+        task_title = f"[{layer_label}] Configurar stack: {decision_text}"
+        planning_item = PlanningItem(project_id=project.id, title=task_title, item_type="feature")
+        db.add(planning_item)
+        await db.flush()
+        db.add(ProjectTask(planning_item_id=planning_item.id, title=task_title, task_type="feature"))
+        tasks_created += 1
+
+    db.add(_audit("product_concept", concept.id, "delivery_planning_authorized", principal.display_name, {
+        "project_id": str(project.id), "approval_hash": target_hash,
+        "scope_items_created": scope_items_created, "tasks_created": tasks_created,
+    }))
     await db.commit()
     return DeliveryPlanningAuthorizationOut(
         product_id=concept.product_id, product_version_id=product_version.id,
         project_id=project.id, project_scope_id=project_scope.id, blueprint_revision_id=revision.id,
+        scope_items_created=scope_items_created, tasks_created=tasks_created,
     )
 
 
@@ -713,3 +955,21 @@ async def add_project_scope_item(scope_id: uuid.UUID, payload: ProjectScopeItemC
         raise HTTPException(409, "The element is already part of this Project Scope") from None
     await db.refresh(item)
     return await _scope_item_out(db, item)
+
+
+@router.get("/project-scopes/{scope_id}/execution-status", response_model=dict[uuid.UUID, str])
+async def get_scope_execution_status(scope_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """system_element_id -> ProjectTask.status, for every scope item that
+    has a linked task (i.e. every element :authorize-delivery-planning
+    generated a task for). Backs the Project Scope page's visual overlay:
+    the same diagram that defined scope in Conception becomes the
+    execution-tracking panel, colored by this map."""
+    if not await db.get(ProjectScope, scope_id):
+        raise HTTPException(404, "Project Scope not found")
+    rows = (await db.execute(
+        select(ProjectScopeItem.system_element_id, ProjectTask.status)
+        .join(PlanningItem, PlanningItem.project_scope_item_id == ProjectScopeItem.id)
+        .join(ProjectTask, ProjectTask.planning_item_id == PlanningItem.id)
+        .where(ProjectScopeItem.project_scope_id == scope_id)
+    )).all()
+    return {element_id: status for element_id, status in rows}

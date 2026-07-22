@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -17,13 +17,16 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./SystemMapCanvas.css";
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Loader2, ShieldCheck, Trash2, X } from "lucide-react";
+import { Database, LayoutGrid, Loader2, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { useTheme } from "@/lib/theme";
+import { buildMermaidERD, renderMermaid } from "@/lib/mermaidErd";
 import {
   useAddSystemElement,
   useAddSystemRelation,
@@ -34,6 +37,7 @@ import {
   useValidateBlueprint,
   type BlueprintGraph,
 } from "@/hooks/useSystemScope";
+import { buildErdSchemaFromBlueprint, EMPTY_FIELD_SPEC, lintDataSpecNaming, type FieldSpec } from "./dataSpec";
 
 // dataviz skill's validated 8-slot categorical palette (references/palette.md),
 // ported from the never-wired ScopeGraphDiagram.tsx this canvas replaces.
@@ -73,14 +77,98 @@ export const RELATION_TYPES = [
   "reads", "writes", "depends_on", "persists_as", "runs_on", "deployed_to", "verified_by",
 ];
 
+// Lenses over the same underlying blueprint graph -- "Entities"/"Functionality"
+// narrow the canvas to a subset of families so the diagram doubles as a
+// didactic requirements-gathering view from Conception, without forking the
+// data model (still the same SystemElement/SystemElementRelation graph the
+// full "All layers" view shows). `null` means no filter.
+export const CANVAS_VIEWS = ["all", "entities", "functionality", "screens"] as const;
+export type CanvasView = (typeof CANVAS_VIEWS)[number];
+export const VIEW_FAMILIES: Record<CanvasView, readonly string[] | null> = {
+  all: null,
+  entities: ["domain", "data"],
+  functionality: ["business", "process"],
+  screens: ["experience"],
+};
+
+export interface ScreenSpec {
+  objective: string; authorized_users: string; required_data: string;
+  actions: string; validation_rules: string; states: string;
+}
+export const EMPTY_SCREEN_SPEC: ScreenSpec = {
+  objective: "", authorized_users: "", required_data: "", actions: "", validation_rules: "", states: "",
+};
+const SCREEN_ELEMENT_TYPES = ["screen", "route"];
+
+// Ready-made building blocks Marcelo asked for so the Screens/Navigation and
+// Entities views don't start from a blank element every time -- each preset
+// drags onto the canvas like a family chip but pre-fills element_type and (for
+// screens) a starter screen_spec, so the user only has to confirm/tweak a name
+// instead of authoring every field from scratch. "Database" bridges the
+// Entities view into Phase 6's data modeling (family=data/datastore, related
+// to entities via the existing `persists_as` relation type).
+interface CanvasPreset {
+  id: string; family: string; element_type: string; nameKey: string;
+  views: CanvasView[]; screenSpec?: Partial<ScreenSpec>;
+}
+const CANVAS_PRESETS: CanvasPreset[] = [
+  {
+    id: "login-screen", family: "experience", element_type: "screen", views: ["screens", "all"],
+    nameKey: "presets.loginScreen",
+    screenSpec: { objective: "presets.loginScreenObjective", actions: "presets.loginScreenActions" },
+  },
+  {
+    id: "app-shell", family: "experience", element_type: "screen", views: ["screens", "all"],
+    nameKey: "presets.appShell",
+    screenSpec: { objective: "presets.appShellObjective" },
+  },
+  {
+    id: "sidebar", family: "experience", element_type: "ui_component", views: ["screens", "all"],
+    nameKey: "presets.sidebar",
+    screenSpec: { objective: "presets.sidebarObjective" },
+  },
+  {
+    id: "generic-screen", family: "experience", element_type: "screen", views: ["screens", "all"],
+    nameKey: "presets.genericScreen",
+  },
+  {
+    id: "database", family: "data", element_type: "datastore", views: ["entities", "all"],
+    nameKey: "presets.database",
+  },
+];
+
 const NODE_WIDTH = 200;
 const COL_WIDTH = 240;
 const ROW_HEIGHT = 76;
 const PADDING = 40;
 
 type ElementItem = BlueprintGraph["elements"][number];
-type ElementNodeData = { item: ElementItem };
-type ElementFlowNode = Node<ElementNodeData, "systemElement">;
+type ElementNodeData = { item: ElementItem; status?: string };
+type ElementFlowNode = Node<ElementNodeData, "systemElement" | "screenElement">;
+
+// ProjectTask.status (backend/app/db/models/task.py TASK_STATUSES) rolled
+// up per element for the Project Scope page's visual execution overlay --
+// same diagram that defined scope in Conception, now colored by how each
+// piece is actually progressing.
+const EXECUTION_STATUS_COLOR: Record<string, string> = {
+  planned: "#9ca3af", ready: "#9ca3af",
+  assigned: "#3b82f6", in_progress: "#3b82f6",
+  blocked: "#ef4444",
+  done: "#22c55e", deployed: "#22c55e",
+  cancelled: "#6b7280",
+};
+
+function ExecutionStatusDot({ status }: { status?: string }) {
+  if (!status) return null;
+  const color = EXECUTION_STATUS_COLOR[status] ?? "#9ca3af";
+  return (
+    <span
+      className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-background"
+      style={{ background: color }}
+      title={status}
+    />
+  );
+}
 
 /** Shared clipboard format for both Ctrl+C/Ctrl+V duplication and pasting a
  * flow the assistant wrote out as JSON in the chat -- both paths end up
@@ -200,9 +288,10 @@ function SystemElementNode({ data, selected }: NodeProps<ElementFlowNode>) {
   const color = (FAMILY_COLOR[element.family] ?? FAMILY_COLOR.assurance)[resolvedTheme];
   return (
     <div
-      className="overflow-hidden rounded-md border bg-card shadow-sm"
+      className="relative overflow-hidden rounded-md border bg-card shadow-sm"
       style={{ width: NODE_WIDTH, borderColor: selected ? color : undefined }}
     >
+      <ExecutionStatusDot status={data.status} />
       <Handle type="target" position={Position.Left} style={{ background: color }} />
       <div className="flex">
         <div className="w-1 shrink-0" style={{ background: color }} />
@@ -216,16 +305,57 @@ function SystemElementNode({ data, selected }: NodeProps<ElementFlowNode>) {
   );
 }
 
-const nodeTypes = { systemElement: SystemElementNode };
+/** Distinct "wireframe" look for screen/route elements -- a mock browser
+ * chrome (dots) + content placeholder lines -- so the Screens/Navigation view
+ * reads as a screen flow at a glance instead of generic colored boxes. */
+function ScreenElementNode({ data, selected }: NodeProps<ElementFlowNode>) {
+  const { resolvedTheme } = useTheme();
+  const { element } = data.item;
+  const color = FAMILY_COLOR.experience[resolvedTheme];
+  return (
+    <div
+      className="relative overflow-hidden rounded-md border bg-card shadow-sm"
+      style={{ width: NODE_WIDTH, borderColor: selected ? color : undefined }}
+    >
+      <ExecutionStatusDot status={data.status} />
+      <Handle type="target" position={Position.Left} style={{ background: color }} />
+      <div className="flex items-center gap-1 border-b bg-muted/50 px-2 py-1">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
+        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
+      </div>
+      <div className="space-y-1.5 px-3 py-2">
+        <p className="truncate text-xs font-medium">{element.name}</p>
+        <div className="h-1.5 w-3/4 rounded-full bg-muted" />
+        <div className="h-1.5 w-1/2 rounded-full bg-muted" />
+        <p className="truncate text-[10px] text-muted-foreground">{element.element_type} · {element.stable_key}</p>
+      </div>
+      <Handle type="source" position={Position.Right} style={{ background: color }} />
+    </div>
+  );
+}
+
+function isScreenElement(family: string, elementType: string): boolean {
+  return family === "experience" && SCREEN_ELEMENT_TYPES.includes(elementType);
+}
+
+function isFieldElement(family: string, elementType: string): boolean {
+  return family === "data" && elementType === "field";
+}
+
+const nodeTypes = { systemElement: SystemElementNode, screenElement: ScreenElementNode };
 
 interface SystemMapCanvasProps {
   revisionId: string;
   graph: BlueprintGraph | undefined;
   isLoading: boolean;
   readOnly: boolean;
+  /** system_element_id -> ProjectTask.status, for the Project Scope page's
+   * execution-tracking overlay. Omit entirely outside that context. */
+  statusByElementId?: Record<string, string>;
 }
 
-function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvasProps) {
+function CanvasInner({ revisionId, graph, isLoading, readOnly, statusByElementId }: SystemMapCanvasProps) {
   const { t } = useTranslation("systemMap");
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, fitView } = useReactFlow();
@@ -239,16 +369,54 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
 
   const [nodes, setNodes, onNodesChange] = useNodesState<ElementFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [view, setView] = useState<CanvasView>("all");
   const [pendingCreate, setPendingCreate] = useState<{
     family: string; screen: { x: number; y: number }; flow: { x: number; y: number };
     element_type: string; name: string; stable_key: string; stableKeyTouched: boolean;
+    relateFrom: string | null; presetSpec: Partial<ScreenSpec> | null;
   } | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<{ id: string; screen: { x: number; y: number }; relation_type: string } | null>(null);
-  const [pendingEdit, setPendingEdit] = useState<{
-    elementId: string; screen: { x: number; y: number };
-    family: string; element_type: string; name: string; stable_key: string;
+  // Persistent right-side inspector -- selecting an element (single click)
+  // keeps it open across edits instead of the old at-cursor popover, so it
+  // reads as "click an entity, edit it on the right" per the Conception
+  // wizard's didactic diagram requirement.
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{
+    family: string; element_type: string; name: string; stable_key: string; description: string;
+    screenSpec: ScreenSpec; fieldSpec: FieldSpec;
   } | null>(null);
+  const [newRelation, setNewRelation] = useState<{ targetId: string; relationType: string; direction: "outgoing" | "incoming" }>({
+    targetId: "", relationType: RELATION_TYPES[0], direction: "outgoing",
+  });
   const [pasteStatus, setPasteStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [showDataSpec, setShowDataSpec] = useState(false);
+  const dataSpecRef = useRef<HTMLDivElement>(null);
+
+  const selectedItem = graph?.elements.find((item) => item.element.id === selectedElementId) ?? null;
+
+  const dataSpecWarnings = useMemo(() => (graph ? lintDataSpecNaming(graph) : []), [graph]);
+  useEffect(() => {
+    if (!showDataSpec || view !== "entities" || !graph || !dataSpecRef.current) return;
+    const schema = buildErdSchemaFromBlueprint(graph);
+    if (schema.tables.length === 0) { dataSpecRef.current.innerHTML = ""; return; }
+    renderMermaid(buildMermaidERD(schema, "all"), dataSpecRef.current).catch(() => {});
+  }, [showDataSpec, view, graph]);
+
+  useEffect(() => {
+    if (!selectedElementId) { setEditDraft(null); return; }
+    const item = graph?.elements.find((el) => el.element.id === selectedElementId);
+    if (!item) { setSelectedElementId(null); return; }
+    const savedSpec = item.revision.spec_snapshot?.screen_spec as Partial<ScreenSpec> | undefined;
+    const savedFieldSpec = item.revision.spec_snapshot?.field_spec as Partial<FieldSpec> | undefined;
+    setEditDraft({
+      family: item.element.family, element_type: item.element.element_type,
+      name: item.element.name, stable_key: item.element.stable_key,
+      description: item.element.description ?? "",
+      screenSpec: { ...EMPTY_SCREEN_SPEC, ...savedSpec },
+      fieldSpec: { ...EMPTY_FIELD_SPEC, ...savedFieldSpec },
+    });
+    setNewRelation({ targetId: "", relationType: RELATION_TYPES[0], direction: "outgoing" });
+  }, [selectedElementId, graph]);
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
@@ -264,9 +432,9 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
     const elements = graph?.elements ?? [];
     setNodes(elements.map((item) => ({
       id: item.element.id,
-      type: "systemElement",
+      type: isScreenElement(item.element.family, item.element.element_type) ? "screenElement" : "systemElement",
       position: readPosition(item, elements),
-      data: { item },
+      data: { item, status: statusByElementId?.[item.element.id] },
       draggable: !readOnly,
       connectable: !readOnly,
     })));
@@ -279,33 +447,52 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
       labelStyle: { fontSize: 10 },
       labelBgStyle: { fillOpacity: 0.85 },
     })));
-  }, [graph, readOnly, setNodes, setEdges]);
+  }, [graph, readOnly, statusByElementId, setNodes, setEdges]);
 
-  const onNodeDoubleClick = useCallback((event: React.MouseEvent, node: ElementFlowNode) => {
-    if (readOnly) return;
-    const bounds = wrapperRef.current?.getBoundingClientRect();
-    const { element } = node.data.item;
-    setPendingEdit({
-      elementId: element.id,
-      screen: { x: event.clientX - (bounds?.left ?? 0), y: event.clientY - (bounds?.top ?? 0) },
-      family: element.family,
-      element_type: element.element_type,
-      name: element.name,
-      stable_key: element.stable_key,
-    });
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: ElementFlowNode) => {
+    if (readOnly) { setSelectedElementId(node.id); return; }
+    setSelectedElementId(node.id);
   }, [readOnly]);
 
   const confirmEdit = () => {
-    if (!pendingEdit) return;
+    if (!selectedElementId || !editDraft) return;
     updateElement.mutate({
-      revisionId, elementId: pendingEdit.elementId,
-      name: pendingEdit.name, family: pendingEdit.family, element_type: pendingEdit.element_type, stable_key: pendingEdit.stable_key,
-    }, { onSuccess: () => setPendingEdit(null) });
+      revisionId, elementId: selectedElementId,
+      name: editDraft.name, description: editDraft.description,
+      family: editDraft.family, element_type: editDraft.element_type, stable_key: editDraft.stable_key,
+      ...(isScreenElement(editDraft.family, editDraft.element_type) ? { spec_snapshot: { screen_spec: editDraft.screenSpec } } : {}),
+      ...(isFieldElement(editDraft.family, editDraft.element_type) ? { spec_snapshot: { field_spec: editDraft.fieldSpec } } : {}),
+    });
   };
 
   const deleteEditingElement = () => {
-    if (!pendingEdit) return;
-    removeElement.mutate({ revisionId, elementId: pendingEdit.elementId }, { onSuccess: () => setPendingEdit(null) });
+    if (!selectedElementId) return;
+    removeElement.mutate({ revisionId, elementId: selectedElementId }, { onSuccess: () => setSelectedElementId(null) });
+  };
+
+  const addRelationFromPanel = () => {
+    if (!selectedElementId || !newRelation.targetId) return;
+    const [from, to] = newRelation.direction === "outgoing"
+      ? [selectedElementId, newRelation.targetId]
+      : [newRelation.targetId, selectedElementId];
+    addRelation.mutate({ revisionId, from_element_id: from, to_element_id: to, relation_type: newRelation.relationType }, {
+      onSuccess: () => setNewRelation({ targetId: "", relationType: RELATION_TYPES[0], direction: "outgoing" }),
+    });
+  };
+
+  const addRelatedEntity = () => {
+    if (!selectedElementId) return;
+    const selectedNode = nodes.find((node) => node.id === selectedElementId);
+    const family = selectedItem?.element.family ?? FAMILY_ORDER[0];
+    const bounds = wrapperRef.current?.getBoundingClientRect();
+    setPendingCreate({
+      family,
+      screen: { x: (bounds?.width ?? 400) / 2 - 140, y: (bounds?.height ?? 400) / 2 - 130 },
+      flow: selectedNode ? { x: selectedNode.position.x + COL_WIDTH, y: selectedNode.position.y + ROW_HEIGHT } : { x: 0, y: 0 },
+      element_type: FAMILY_TYPES[family]?.[0] ?? "",
+      name: "", stable_key: "", stableKeyTouched: false,
+      relateFrom: selectedElementId, presetSpec: null,
+    });
   };
 
   const [arranging, setArranging] = useState(false);
@@ -350,7 +537,10 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
 
   const onNodesDelete = useCallback((deleted: ElementFlowNode[]) => {
     if (readOnly) return;
-    for (const node of deleted) removeElement.mutate({ revisionId, elementId: node.id });
+    for (const node of deleted) {
+      removeElement.mutate({ revisionId, elementId: node.id });
+      setSelectedElementId((current) => (current === node.id ? null : current));
+    }
   }, [readOnly, revisionId, removeElement]);
 
   const importPayload = useCallback(async (payload: SystemMapClipboardPayload) => {
@@ -445,20 +635,39 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
   const onDrop = useCallback((event: React.DragEvent) => {
     if (readOnly) return;
     event.preventDefault();
-    const family = event.dataTransfer.getData("application/x-systemmap-family");
-    if (!family) return;
     const bounds = wrapperRef.current?.getBoundingClientRect();
     const flow = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    const screen = { x: event.clientX - (bounds?.left ?? 0), y: event.clientY - (bounds?.top ?? 0) };
+
+    const presetId = event.dataTransfer.getData("application/x-systemmap-preset");
+    const preset = presetId ? CANVAS_PRESETS.find((p) => p.id === presetId) : undefined;
+    if (preset) {
+      const name = t(preset.nameKey);
+      const presetSpec = preset.screenSpec
+        ? Object.fromEntries(Object.entries(preset.screenSpec).map(([key, value]) => [key, t(value as string)]))
+        : null;
+      setPendingCreate({
+        family: preset.family, screen, flow,
+        element_type: preset.element_type, name, stable_key: `${preset.element_type}.${slugify(name)}`,
+        stableKeyTouched: true, relateFrom: null, presetSpec,
+      });
+      return;
+    }
+
+    const family = event.dataTransfer.getData("application/x-systemmap-family");
+    if (!family) return;
     setPendingCreate({
       family,
-      screen: { x: event.clientX - (bounds?.left ?? 0), y: event.clientY - (bounds?.top ?? 0) },
+      screen,
       flow,
       element_type: FAMILY_TYPES[family]?.[0] ?? "",
       name: "",
       stable_key: "",
       stableKeyTouched: false,
+      relateFrom: null,
+      presetSpec: null,
     });
-  }, [readOnly, screenToFlowPosition]);
+  }, [readOnly, screenToFlowPosition, t]);
 
   const confirmCreate = () => {
     if (!pendingCreate) return;
@@ -468,8 +677,20 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
       family: pendingCreate.family,
       element_type: pendingCreate.element_type,
       name: pendingCreate.name,
-      spec_snapshot: { position: pendingCreate.flow },
-    }, { onSuccess: () => setPendingCreate(null) });
+      spec_snapshot: {
+        position: pendingCreate.flow,
+        ...(pendingCreate.presetSpec ? { screen_spec: { ...EMPTY_SCREEN_SPEC, ...pendingCreate.presetSpec } } : {}),
+      },
+    }, {
+      onSuccess: (result) => {
+        const relateFrom = pendingCreate.relateFrom;
+        if (relateFrom) {
+          const created = result as { element: { id: string } };
+          addRelation.mutate({ revisionId, from_element_id: relateFrom, to_element_id: created.element.id, relation_type: "contains" });
+        }
+        setPendingCreate(null);
+      },
+    });
   };
 
   const confirmRelationType = () => {
@@ -491,8 +712,26 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
     deleteRelation.mutate({ revisionId, relationId: selectedEdge.id }, { onSuccess: () => setSelectedEdge(null) });
   };
 
+  const visibleFamilies = VIEW_FAMILIES[view];
+  const visibleNodes = useMemo(
+    () => (visibleFamilies ? nodes.filter((node) => visibleFamilies.includes(node.data.item.element.family)) : nodes),
+    [nodes, visibleFamilies]
+  );
+  const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
+  const visibleEdges = useMemo(
+    () => (visibleFamilies ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)) : edges),
+    [edges, visibleNodeIds, visibleFamilies]
+  );
+  const paletteFamilies = visibleFamilies ?? FAMILY_ORDER;
+
   return (
     <div className="space-y-3">
+      <Tabs value={view} onValueChange={(value) => setView(value as CanvasView)}>
+        <TabsList>
+          {CANVAS_VIEWS.map((v) => <TabsTrigger key={v} value={v}>{t(`canvas.views.${v}`)}</TabsTrigger>)}
+        </TabsList>
+      </Tabs>
+
       {!readOnly && (
         <p className="text-xs text-muted-foreground">{t("canvas.copyPasteHint")}</p>
       )}
@@ -506,7 +745,7 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
       {!readOnly && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2">
           <span className="mr-1 text-xs text-muted-foreground">{t("canvas.paletteHint")}</span>
-          {FAMILY_ORDER.map((family) => {
+          {paletteFamilies.map((family) => {
             const color = FAMILY_COLOR[family].light;
             return (
               <div
@@ -544,6 +783,40 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
             {validate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
             {t("scopeGraph.validateButton")}
           </Button>
+          {view === "entities" && (
+            <Button
+              size="sm"
+              variant={showDataSpec ? "default" : "outline"}
+              className="gap-1.5"
+              onClick={() => setShowDataSpec((v) => !v)}
+            >
+              <Database className="h-4 w-4" />
+              {t("canvas.dataSpecPreview.toggle")}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {!readOnly && CANVAS_PRESETS.some((preset) => preset.views.includes(view)) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2">
+          <span className="mr-1 text-xs text-muted-foreground">{t("canvas.presetsHint")}</span>
+          {CANVAS_PRESETS.filter((preset) => preset.views.includes(view)).map((preset) => {
+            const color = FAMILY_COLOR[preset.family].light;
+            return (
+              <div
+                key={preset.id}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/x-systemmap-preset", preset.id);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                className="cursor-grab select-none rounded-full border px-2.5 py-1 text-xs font-medium active:cursor-grabbing"
+                style={{ borderColor: color, color }}
+              >
+                {t(preset.nameKey)}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -560,27 +833,28 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
         </div>
       )}
 
-      <div ref={wrapperRef} className="relative h-[600px] rounded-md border" onDragOver={onDragOver} onDrop={onDrop}>
+      <div className="flex gap-3">
+      <div ref={wrapperRef} className="relative h-[600px] flex-1 rounded-md border" onDragOver={onDragOver} onDrop={onDrop}>
         {isLoading ? (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
-        ) : nodes.length === 0 ? (
+        ) : visibleNodes.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             {t("scopeGraph.empty")}
           </div>
         ) : (
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
+            nodes={visibleNodes}
+            edges={visibleEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeDragStop={onNodeDragStop}
-            onNodeDoubleClick={onNodeDoubleClick}
+            onNodeClick={onNodeClick}
             onConnect={onConnect}
             onEdgeClick={onEdgeClick}
             onNodesDelete={onNodesDelete}
-            onPaneClick={() => setSelectedEdge(null)}
+            onPaneClick={() => { setSelectedEdge(null); setSelectedElementId(null); }}
             nodeTypes={nodeTypes}
             nodesDraggable={!readOnly}
             nodesConnectable={!readOnly}
@@ -644,65 +918,6 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
           </Card>
         )}
 
-        {pendingEdit && (
-          <Card
-            className="absolute z-10 w-72 shadow-lg"
-            style={{ left: Math.min(pendingEdit.screen.x, (wrapperRef.current?.clientWidth ?? 400) - 300), top: Math.min(pendingEdit.screen.y, (wrapperRef.current?.clientHeight ?? 400) - 300) }}
-          >
-            <CardContent className="space-y-3 pt-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">{t("canvas.editTitle")}</p>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setPendingEdit(null)}><X className="h-3.5 w-3.5" /></Button>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">{t("addElement.fields.layer")}</Label>
-                <Select
-                  value={pendingEdit.family}
-                  onChange={(e) => {
-                    const family = e.target.value;
-                    setPendingEdit((prev) => prev && ({ ...prev, family, element_type: FAMILY_TYPES[family]?.[0] ?? "" }));
-                  }}
-                >
-                  {FAMILY_ORDER.map((family) => <option key={family}>{family}</option>)}
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">{t("addElement.fields.type")}</Label>
-                <Select
-                  value={pendingEdit.element_type}
-                  onChange={(e) => setPendingEdit({ ...pendingEdit, element_type: e.target.value })}
-                >
-                  {(FAMILY_TYPES[pendingEdit.family] ?? []).map((type) => <option key={type}>{type}</option>)}
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">{t("addElement.fields.name")}</Label>
-                <Input
-                  autoFocus
-                  value={pendingEdit.name}
-                  onChange={(e) => setPendingEdit({ ...pendingEdit, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">{t("addElement.fields.stableKey")}</Label>
-                <Input
-                  value={pendingEdit.stable_key}
-                  onChange={(e) => setPendingEdit({ ...pendingEdit, stable_key: e.target.value })}
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" className="flex-1" disabled={!pendingEdit.name || !pendingEdit.stable_key || updateElement.isPending} onClick={confirmEdit}>
-                  {updateElement.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-                  {t("canvas.save")}
-                </Button>
-                <Button size="sm" variant="outline" onClick={deleteEditingElement} disabled={removeElement.isPending} title={t("canvas.removeElement")}>
-                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
         {selectedEdge && (
           <Card
             className="absolute z-10 w-56 shadow-lg"
@@ -731,6 +946,210 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly }: SystemMapCanvas
           </Card>
         )}
       </div>
+
+      {selectedItem && editDraft && (
+        <Card className="h-[600px] w-80 shrink-0 overflow-y-auto">
+          <CardContent className="space-y-4 pt-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">{t("canvas.editTitle")}</p>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setSelectedElementId(null)}><X className="h-3.5 w-3.5" /></Button>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t("addElement.fields.layer")}</Label>
+              <Select
+                disabled={readOnly}
+                value={editDraft.family}
+                onChange={(e) => {
+                  const family = e.target.value;
+                  setEditDraft((prev) => prev && ({ ...prev, family, element_type: FAMILY_TYPES[family]?.[0] ?? "" }));
+                }}
+              >
+                {FAMILY_ORDER.map((family) => <option key={family}>{family}</option>)}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t("addElement.fields.type")}</Label>
+              <Select
+                disabled={readOnly}
+                value={editDraft.element_type}
+                onChange={(e) => setEditDraft(editDraft && { ...editDraft, element_type: e.target.value })}
+              >
+                {(FAMILY_TYPES[editDraft.family] ?? []).map((type) => <option key={type}>{type}</option>)}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t("addElement.fields.name")}</Label>
+              <Input
+                disabled={readOnly}
+                value={editDraft.name}
+                onChange={(e) => setEditDraft(editDraft && { ...editDraft, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t("addElement.fields.stableKey")}</Label>
+              <Input
+                disabled={readOnly}
+                value={editDraft.stable_key}
+                onChange={(e) => setEditDraft(editDraft && { ...editDraft, stable_key: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t("canvas.panel.descriptionLabel")}</Label>
+              <Textarea
+                rows={3}
+                disabled={readOnly}
+                value={editDraft.description}
+                onChange={(e) => setEditDraft(editDraft && { ...editDraft, description: e.target.value })}
+              />
+            </div>
+
+            {isScreenElement(editDraft.family, editDraft.element_type) && (
+              <div className="space-y-3 border-t pt-3">
+                <p className="text-xs font-semibold">{t("canvas.panel.screenSpecTitle")}</p>
+                {(Object.keys(EMPTY_SCREEN_SPEC) as (keyof ScreenSpec)[]).map((field) => (
+                  <div key={field} className="space-y-1.5">
+                    <Label className="text-xs">{t(`canvas.panel.screenSpecFields.${field}`)}</Label>
+                    <Textarea
+                      rows={2}
+                      disabled={readOnly}
+                      value={editDraft.screenSpec[field]}
+                      onChange={(e) => setEditDraft(editDraft && { ...editDraft, screenSpec: { ...editDraft.screenSpec, [field]: e.target.value } })}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {isFieldElement(editDraft.family, editDraft.element_type) && (
+              <div className="space-y-3 border-t pt-3">
+                <p className="text-xs font-semibold">{t("canvas.panel.fieldSpecTitle")}</p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t("canvas.panel.fieldSpecFields.sqlType")}</Label>
+                  <Input
+                    disabled={readOnly} placeholder="text, integer, uuid, timestamptz..."
+                    value={editDraft.fieldSpec.sql_type}
+                    onChange={(e) => setEditDraft(editDraft && { ...editDraft, fieldSpec: { ...editDraft.fieldSpec, sql_type: e.target.value } })}
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox" disabled={readOnly} checked={editDraft.fieldSpec.is_pk}
+                    onChange={(e) => setEditDraft(editDraft && { ...editDraft, fieldSpec: { ...editDraft.fieldSpec, is_pk: e.target.checked } })}
+                  />
+                  {t("canvas.panel.fieldSpecFields.isPk")}
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox" disabled={readOnly} checked={editDraft.fieldSpec.is_fk}
+                    onChange={(e) => setEditDraft(editDraft && { ...editDraft, fieldSpec: { ...editDraft.fieldSpec, is_fk: e.target.checked } })}
+                  />
+                  {t("canvas.panel.fieldSpecFields.isFk")}
+                </label>
+                {editDraft.fieldSpec.is_fk && (
+                  <Select
+                    disabled={readOnly} value={editDraft.fieldSpec.fk_ref_table}
+                    onChange={(e) => setEditDraft(editDraft && { ...editDraft, fieldSpec: { ...editDraft.fieldSpec, fk_ref_table: e.target.value } })}
+                  >
+                    <option value="">{t("canvas.panel.fieldSpecFields.fkTablePlaceholder")}</option>
+                    {graph?.elements.filter((item) => item.element.family === "data" && item.element.element_type === "table")
+                      .map((item) => <option key={item.element.id} value={item.element.name}>{item.element.name}</option>)}
+                  </Select>
+                )}
+              </div>
+            )}
+
+            {!readOnly && (
+              <div className="flex gap-2">
+                <Button size="sm" className="flex-1" disabled={!editDraft.name || !editDraft.stable_key || updateElement.isPending} onClick={confirmEdit}>
+                  {updateElement.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                  {t("canvas.save")}
+                </Button>
+                <Button size="sm" variant="outline" onClick={deleteEditingElement} disabled={removeElement.isPending} title={t("canvas.removeElement")}>
+                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                </Button>
+              </div>
+            )}
+
+            <div className="space-y-2 border-t pt-3">
+              <p className="text-xs font-semibold">{t("canvas.panel.relationsTitle")}</p>
+              {edges.filter((edge) => edge.source === selectedElementId || edge.target === selectedElementId).length === 0 && (
+                <p className="text-xs text-muted-foreground">{t("canvas.panel.noRelations")}</p>
+              )}
+              {edges.filter((edge) => edge.source === selectedElementId || edge.target === selectedElementId).map((edge) => {
+                const outgoing = edge.source === selectedElementId;
+                const otherId = outgoing ? edge.target : edge.source;
+                const other = graph?.elements.find((item) => item.element.id === otherId)?.element;
+                return (
+                  <div key={edge.id} className="flex items-center justify-between gap-2 rounded-md border p-2 text-xs">
+                    <span className="min-w-0 flex-1 truncate">
+                      {outgoing ? "→" : "←"} {edge.label as string} {outgoing ? t("canvas.panel.toWord") : t("canvas.panel.fromWord")} <span className="font-medium">{other?.name ?? "?"}</span>
+                    </span>
+                    {!readOnly && (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => deleteRelation.mutate({ revisionId, relationId: edge.id })} disabled={deleteRelation.isPending}>
+                        <Trash2 className="h-3 w-3 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {!readOnly && (
+              <div className="space-y-2 border-t pt-3">
+                <p className="text-xs font-semibold">{t("canvas.panel.addRelationTitle")}</p>
+                <Select value={newRelation.direction} onChange={(e) => setNewRelation({ ...newRelation, direction: e.target.value as "outgoing" | "incoming" })}>
+                  <option value="outgoing">{t("canvas.panel.directionOutgoing")}</option>
+                  <option value="incoming">{t("canvas.panel.directionIncoming")}</option>
+                </Select>
+                <Select value={newRelation.targetId} onChange={(e) => setNewRelation({ ...newRelation, targetId: e.target.value })}>
+                  <option value="">{t("canvas.panel.relateToPlaceholder")}</option>
+                  {graph?.elements.filter((item) => item.element.id !== selectedElementId).map((item) => (
+                    <option key={item.element.id} value={item.element.id}>{item.element.name} ({item.element.family})</option>
+                  ))}
+                </Select>
+                <Select value={newRelation.relationType} onChange={(e) => setNewRelation({ ...newRelation, relationType: e.target.value })}>
+                  {RELATION_TYPES.map((type) => <option key={type}>{type}</option>)}
+                </Select>
+                <Button size="sm" className="w-full gap-1.5" disabled={!newRelation.targetId || addRelation.isPending} onClick={addRelationFromPanel}>
+                  {addRelation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  {t("canvas.panel.addRelationButton")}
+                </Button>
+              </div>
+            )}
+
+            {!readOnly && (
+              <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={addRelatedEntity}>
+                <Plus className="h-3.5 w-3.5" />
+                {t("canvas.panel.newRelatedEntity")}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      </div>
+
+      {showDataSpec && view === "entities" && (
+        <Card>
+          <CardContent className="space-y-3 pt-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">{t("canvas.dataSpecPreview.title")}</p>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowDataSpec(false)}><X className="h-3.5 w-3.5" /></Button>
+            </div>
+            <p className="text-xs text-muted-foreground">{t("canvas.dataSpecPreview.help")}</p>
+            {dataSpecWarnings.length > 0 && (
+              <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+                {dataSpecWarnings.map((warning, i) => <p key={i} className="text-xs text-amber-700 dark:text-amber-400">{warning}</p>)}
+              </div>
+            )}
+            {(graph ? buildErdSchemaFromBlueprint(graph).tables.length : 0) === 0 ? (
+              <p className="text-xs text-muted-foreground">{t("canvas.dataSpecPreview.empty")}</p>
+            ) : (
+              <div ref={dataSpecRef} className="w-full overflow-auto" />
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

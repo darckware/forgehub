@@ -5,9 +5,15 @@ export interface DevelopmentRequest {
   id: string; product_id: string; title: string; description: string;
   requested_by: string | null; priority: string; status: string; created_at: string;
 }
+export type TechStackLayer = "frontend" | "backend" | "database" | "deploy_infra";
+export interface TechStackDecision {
+  layer: TechStackLayer; decision: string; rationale: string | null;
+}
 export interface ConceptRevision {
   id: string; revision: number; problem_statement: string; vision: string | null;
   scope_summary: string | null; created_by: string | null; created_at: string;
+  project_description: string | null; working_directory_path: string | null;
+  tech_stack_decisions: TechStackDecision[] | null;
 }
 export interface ConceptDetail {
   concept: { id: string; product_id: string; status: string; current_revision_id: string | null };
@@ -45,8 +51,10 @@ export function useDevelopmentRequests() {
 export function useCreateIdea() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; problem_statement: string; vision?: string; scope_summary?: string; requested_by?: string }) =>
-      apiClient.post("/api/v1/conception/ideas", payload),
+    mutationFn: (payload: {
+      name: string; problem_statement: string; vision?: string; scope_summary?: string; requested_by?: string;
+      project_description?: string; working_directory_path?: string; tech_stack_decisions?: TechStackDecision[];
+    }) => apiClient.post("/api/v1/conception/ideas", payload),
     onSuccess: () => { client.invalidateQueries({ queryKey: ["conception"] }); client.invalidateQueries({ queryKey: ["products"] }); },
   });
 }
@@ -64,8 +72,10 @@ export function useConcept(productId?: string) {
 export function useReviseConcept() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ conceptId, productId: _productId, ...payload }: { conceptId: string; productId: string; problem_statement: string; vision?: string; scope_summary?: string; created_by?: string }) =>
-      apiClient.post<ConceptDetail>(`/api/v1/product-concepts/${conceptId}/revisions`, payload),
+    mutationFn: ({ conceptId, productId: _productId, ...payload }: {
+      conceptId: string; productId: string; problem_statement: string; vision?: string; scope_summary?: string; created_by?: string;
+      project_description?: string; working_directory_path?: string; tech_stack_decisions?: TechStackDecision[];
+    }) => apiClient.post<ConceptDetail>(`/api/v1/product-concepts/${conceptId}/revisions`, payload),
     onSuccess: (data) => client.invalidateQueries({ queryKey: ["concept", data.concept.product_id] }),
   });
 }
@@ -84,9 +94,14 @@ export function useDecideConcept() {
 export function useAuthorizeDeliveryPlanning() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ conceptId, ...payload }: { conceptId: string; version: string; project_name: string; project_description?: string; owner?: string }) =>
-      apiClient.post<{ project_id: string; project_scope_id: string }>(`/api/v1/product-concepts/${conceptId}:authorize-delivery-planning`, payload),
+    mutationFn: ({ conceptId, ...payload }: { conceptId: string; version: string; project_name: string; project_description?: string; owner?: string; working_directory_path?: string }) =>
+      apiClient.post<{ project_id: string; project_scope_id: string; scope_items_created: number; tasks_created: number }>(`/api/v1/product-concepts/${conceptId}:authorize-delivery-planning`, payload),
     onSuccess: () => { client.invalidateQueries({ queryKey: ["products"] }); client.invalidateQueries({ queryKey: ["projects"] }); },
+  });
+}
+export function usePreviewConceptSummary() {
+  return useMutation({
+    mutationFn: (productId: string) => apiClient.get<{ summary: string }>(`/api/v1/products/${productId}/system-blueprint/summary`),
   });
 }
 export function useBlueprint(productId?: string) {
@@ -121,7 +136,7 @@ export function useMoveSystemElement() {
 export function useUpdateSystemElement() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ revisionId, elementId, ...payload }: { revisionId: string; elementId: string; name?: string; family?: string; element_type?: string; stable_key?: string }) =>
+    mutationFn: ({ revisionId, elementId, ...payload }: { revisionId: string; elementId: string; name?: string; description?: string; family?: string; element_type?: string; stable_key?: string; spec_snapshot?: Record<string, unknown> }) =>
       apiClient.patch(`/api/v1/blueprint-revisions/${revisionId}/elements/${elementId}`, payload),
     onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["blueprint-graph", variables.revisionId] }),
   });
@@ -163,5 +178,12 @@ export function useAddScopeItem() {
   return useMutation({
     mutationFn: ({ scopeId, ...payload }: { scopeId: string; system_element_id: string; change_type: string; applicability: string; rationale?: string; acceptance_criteria: { criterion: string }[] }) => apiClient.post(`/api/v1/project-scopes/${scopeId}/items`, payload),
     onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["scope-items", variables.scopeId] }),
+  });
+}
+export function useScopeExecutionStatus(scopeId?: string) {
+  return useQuery({
+    queryKey: ["scope-execution-status", scopeId],
+    queryFn: () => apiClient.get<Record<string, string>>(`/api/v1/project-scopes/${scopeId}/execution-status`),
+    enabled: Boolean(scopeId),
   });
 }

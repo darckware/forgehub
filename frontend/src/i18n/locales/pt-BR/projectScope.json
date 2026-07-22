@@ -28,5 +28,12 @@
     "title": "Cobertura do escopo",
     "summary": "{{selected}} de {{total}} elementos mapeados selecionados.",
     "outsideScope": "fora do escopo atual"
+  },
+  "visualScope": {
+    "title": "Escopo visual",
+    "description": "O mesmo diagrama que definiu o escopo na Concepção, agora colorido pelo status de execução de cada elemento (cinza = planejado, azul = em andamento, vermelho = bloqueado, verde = concluído)."
+  },
+  "changeRequest": {
+    "link": "Registrar Change Request"
   }
 }

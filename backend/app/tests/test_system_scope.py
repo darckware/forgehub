@@ -185,6 +185,12 @@ async def test_idea_system_map_approval_and_project_scope(client: AsyncClient, g
         assert authorization.status_code == 200, authorization.text
         project_id = authorization.json()["project_id"]
         scope_id = authorization.json()["project_scope_id"]
+        # authorize-delivery-planning auto-generates the task breakdown: one
+        # ProjectScopeItem (+ PlanningItem + ProjectTask) per buildable
+        # element already in the blueprint graph -- the one "experience"
+        # family screen created above.
+        assert authorization.json()["scope_items_created"] == 1
+        assert authorization.json()["tasks_created"] == 1
 
         repeated = await client.post(
             f"/api/v1/product-concepts/{concept_id}:authorize-delivery-planning",
@@ -198,14 +204,22 @@ async def test_idea_system_map_approval_and_project_scope(client: AsyncClient, g
         assert scopes.status_code == 200
         assert scopes.json()[0]["blueprint_base_revision_id"] == revision_id
 
-        item = await client.post(f"/api/v1/project-scopes/{scope_id}/items", json={
+        auto_items = await client.get(f"/api/v1/project-scopes/{scope_id}/items")
+        assert auto_items.status_code == 200
+        assert len(auto_items.json()) == 1
+        auto_item = auto_items.json()[0]
+        assert auto_item["system_element_id"] == element_id
+        assert auto_item["change_type"] == "add"
+        assert auto_item["applicability"] == "required"
+
+        # The element is already scoped (auto-generated above) -- adding it
+        # again is rejected, same uniqueness rule as manual scoping.
+        duplicate_item = await client.post(f"/api/v1/project-scopes/{scope_id}/items", json={
             "system_element_id": element_id,
             "change_type": "add",
             "applicability": "required",
-            "acceptance_criteria": [{"criterion": "The cockpit displays the current engineering phase."}],
         })
-        assert item.status_code == 201, item.text
-        assert item.json()["acceptance_criteria"][0]["criterion"].startswith("The cockpit")
+        assert duplicate_item.status_code == 409, duplicate_item.text
 
         # Once delivery is authorized off the approved revision, a new draft
         # revision can be started to keep evolving the map -- current_revision_id

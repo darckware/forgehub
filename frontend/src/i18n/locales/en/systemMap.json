@@ -38,13 +38,66 @@
     "paletteHint": "Drag a layer onto the map:",
     "readOnlyHint": "This revision isn't a draft -- the map is read-only.",
     "assistantHelp": "Ask the assistant",
-    "copyPasteHint": "Select an element and press Ctrl+C/Ctrl+V to duplicate it, or paste (Ctrl+V) a flow the assistant wrote out to create it all at once. Double-click an element to edit or delete it.",
+    "copyPasteHint": "Select an element and press Ctrl+C/Ctrl+V to duplicate it, or paste (Ctrl+V) a flow the assistant wrote out to create it all at once. Click an element to edit it on the right panel.",
     "pasteSuccess": "Created {{elements}} element(s) and {{relations}} relation(s).",
     "pasteInvalid": "Nothing valid found in the pasted text.",
     "editTitle": "Edit element",
     "save": "Save",
     "removeElement": "Remove element",
-    "autoArrange": "Auto-arrange"
+    "autoArrange": "Auto-arrange",
+    "presetsHint": "Or drag a ready-made component:",
+    "views": {
+      "all": "All layers",
+      "entities": "Entities",
+      "functionality": "Functionality",
+      "screens": "Screens & Navigation"
+    },
+    "panel": {
+      "descriptionLabel": "Description",
+      "relationsTitle": "Relations",
+      "noRelations": "No relations yet.",
+      "toWord": "to",
+      "fromWord": "from",
+      "addRelationTitle": "Add relation",
+      "directionOutgoing": "This element → other",
+      "directionIncoming": "Other → this element",
+      "relateToPlaceholder": "Select an element",
+      "addRelationButton": "Add relation",
+      "newRelatedEntity": "New related element",
+      "screenSpecTitle": "Screen rules",
+      "screenSpecFields": {
+        "objective": "Objective",
+        "authorized_users": "Authorized users",
+        "required_data": "Required data",
+        "actions": "Actions",
+        "validation_rules": "Validation rules",
+        "states": "Required states (loading, empty, error...)"
+      },
+      "fieldSpecTitle": "Column",
+      "fieldSpecFields": {
+        "sqlType": "SQL type",
+        "isPk": "Primary key",
+        "isFk": "Foreign key",
+        "fkTablePlaceholder": "References table..."
+      }
+    },
+    "dataSpecPreview": {
+      "toggle": "DATA-SPEC preview",
+      "title": "DATA-SPEC preview",
+      "help": "Generated from this view's table/field elements -- a table \"contains\" its columns, and a relation directly between two tables becomes a foreign key. Draft only; review naming before it becomes a real migration.",
+      "empty": "No table elements modeled in this view yet -- drag a \"data\" layer chip and pick type \"table\" to start."
+    }
+  },
+  "presets": {
+    "loginScreen": "Login screen",
+    "loginScreenObjective": "Authenticate the user before they can access the system.",
+    "loginScreenActions": "Sign in; recover password.",
+    "appShell": "App shell",
+    "appShellObjective": "Base layout every authenticated screen renders inside (header, navigation, content area).",
+    "sidebar": "Sidebar (menu)",
+    "sidebarObjective": "Primary navigation between the system's modules/screens.",
+    "genericScreen": "System screen",
+    "database": "Database"
   },
   "detailCards": {
     "map": "Map",

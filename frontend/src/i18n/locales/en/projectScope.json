@@ -28,5 +28,12 @@
     "title": "Scope coverage",
     "summary": "{{selected}} of {{total}} mapped elements selected.",
     "outsideScope": "outside current scope"
+  },
+  "visualScope": {
+    "title": "Visual scope",
+    "description": "The same diagram that defined scope in Conception, now colored by each element's execution status (gray = planned, blue = in progress, red = blocked, green = done)."
+  },
+  "changeRequest": {
+    "link": "File a Change Request"
   }
 }

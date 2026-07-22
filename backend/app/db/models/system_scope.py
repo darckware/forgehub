@@ -37,6 +37,7 @@ RELATION_TYPES = (
 PROJECT_SCOPE_STATUSES = ("draft", "in_review", "baselined", "superseded")
 SCOPE_CHANGE_TYPES = ("add", "modify", "remove", "deprecate", "verify")
 SCOPE_APPLICABILITY = ("required", "optional", "not_applicable")
+TECH_STACK_LAYERS = ("frontend", "backend", "database", "deploy_infra")
 
 
 class DevelopmentRequest(Base, TimestampMixin):
@@ -93,6 +94,18 @@ class ProductConceptRevision(Base, TimestampMixin):
     assumptions: Mapped[list | dict | None] = mapped_column(JSONB, nullable=True)
     risks: Mapped[list | dict | None] = mapped_column(JSONB, nullable=True)
     scope_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Staged ahead of Project creation -- copied onto Project.description /
+    # Project.working_directory_path by :authorize-delivery-planning, so the
+    # Conception wizard can capture "what is this system and where does its
+    # code live" before a real Project row exists (see AuthorizeDeliveryPlanning
+    # schema, which already accepted these two fields with no UI to fill them).
+    project_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    working_directory_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # List of {layer, decision, rationale} dicts, one per TECH_STACK_LAYERS
+    # entry -- kept as JSONB like the sibling stakeholders/personas/etc.
+    # fields above rather than a separate table, since it's the same
+    # "flexible per-revision structured data" shape as those.
+    tech_stack_decisions: Mapped[list | dict | None] = mapped_column(JSONB, nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     __table_args__ = (

@@ -7,6 +7,34 @@
     "title": "Concepção",
     "description": "Transforme uma ideia em uma definição de produto versionada e revisável antes da execução começar."
   },
+  "wizard": {
+    "updateFromDiagram": "Atualizar a partir do diagrama",
+    "updateFromDiagramEmpty": "O diagrama de entidades e funcionalidades ainda está vazio -- abra o Mapa do Sistema para começar a modelar.",
+    "steps": {
+      "problem": "1. Problema e visão",
+      "description": "2. Descrição e pasta",
+      "stack": "3. Stack tecnológico"
+    },
+    "description": {
+      "help": "Descreva o sistema em linguagem natural e, se o código já existir, aponte a pasta de trabalho -- essa descrição alimenta o diagrama de entidades e funcionalidades nas próximas etapas.",
+      "fields": {
+        "projectDescription": "Descrição do projeto",
+        "workingDirectory": "Pasta de trabalho"
+      },
+      "workingDirectoryPlaceholder": "/root/project/meu-projeto"
+    },
+    "stack": {
+      "help": "Escolha a tecnologia de cada camada seguindo os padrões organizacionais de arquitetura. Fica registrado na concepção e alimenta o Spec de tecnologia quando o conceito for aprovado.",
+      "layers": {
+        "frontend": "Frontend",
+        "backend": "Backend",
+        "database": "Banco de dados",
+        "deploy_infra": "Deploy / infraestrutura"
+      },
+      "selectPlaceholder": "Selecione uma opção",
+      "rationale": "Justificativa (opcional)"
+    }
+  },
   "captureIdea": {
     "title": "Capturar ideia",
     "description": "Cria um produto conceito e sua primeira revisão do Mapa do Sistema.",
@@ -66,7 +94,8 @@
     "authorizeForm": {
       "version": "Versão",
       "projectName": "Nome do projeto",
-      "owner": "Responsável"
+      "owner": "Responsável",
+      "tasksGenerated": "{{count}} tarefa(s) gerada(s) no Backlog a partir deste escopo."
     }
   }
 }

@@ -9,6 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 JsonValue = dict[str, Any] | list[Any]
 
 
+class TechStackDecision(BaseModel):
+    layer: Literal["frontend", "backend", "database", "deploy_infra"]
+    decision: str = Field(min_length=1, max_length=255)
+    rationale: str | None = None
+
+
 class IdeaCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     problem_statement: str = Field(min_length=1)
@@ -16,6 +22,9 @@ class IdeaCreate(BaseModel):
     scope_summary: str | None = None
     requested_by: str | None = Field(default=None, max_length=255)
     priority: Literal["low", "medium", "high", "critical"] = "medium"
+    project_description: str | None = None
+    working_directory_path: str | None = Field(default=None, max_length=1024)
+    tech_stack_decisions: list[TechStackDecision] | None = None
 
 
 class DevelopmentRequestUpdate(BaseModel):
@@ -52,6 +61,9 @@ class ConceptRevisionCreate(BaseModel):
     assumptions: JsonValue | None = None
     risks: JsonValue | None = None
     scope_summary: str | None = None
+    project_description: str | None = None
+    working_directory_path: str | None = Field(default=None, max_length=1024)
+    tech_stack_decisions: list[TechStackDecision] | None = None
     created_by: str | None = Field(default=None, max_length=255)
 
 
@@ -134,6 +146,7 @@ class SystemElementCreate(BaseModel):
 class SystemElementUpdate(BaseModel):
     spec_snapshot: dict[str, Any] | None = None
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
     family: str | None = Field(default=None, min_length=1, max_length=30)
     element_type: str | None = Field(default=None, min_length=1, max_length=40)
     stable_key: str | None = Field(default=None, min_length=1, max_length=160, pattern=r"^[a-z0-9][a-z0-9._-]*$")
@@ -199,6 +212,10 @@ class BlueprintGraphOut(BaseModel):
     relations: list[SystemElementRelationOut]
 
 
+class BlueprintSummaryOut(BaseModel):
+    summary: str
+
+
 class ValidationIssue(BaseModel):
     severity: Literal["error", "warning"]
     code: str
@@ -231,6 +248,8 @@ class DeliveryPlanningAuthorizationOut(BaseModel):
     project_id: uuid.UUID
     project_scope_id: uuid.UUID
     blueprint_revision_id: uuid.UUID
+    scope_items_created: int = 0
+    tasks_created: int = 0
 
 
 class ProjectScopeCreate(BaseModel):
