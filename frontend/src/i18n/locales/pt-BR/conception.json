@@ -13,7 +13,20 @@
     "steps": {
       "problem": "1. Problema e visão",
       "description": "2. Descrição e pasta",
-      "stack": "3. Stack tecnológico"
+      "stack": "3. Stack tecnológico",
+      "documentation": "4. Documentação"
+    },
+    "documentation": {
+      "help": "Anexe material de referência em markdown ou modelos para preencher a concepção -- envie um arquivo ou crie um novo, depois edite direto aqui.",
+      "saveFirst": "Salve esta ideia primeiro (Criar concepção) antes de anexar documentos.",
+      "filesTitle": "Arquivos",
+      "upload": "Enviar arquivo",
+      "newDocument": "Novo documento",
+      "create": "Criar",
+      "loading": "Carregando…",
+      "empty": "Nenhum documento ainda.",
+      "selectHint": "Selecione um arquivo à esquerda, ou envie/crie um.",
+      "save": "Salvar"
     },
     "description": {
       "help": "Descreva o sistema em linguagem natural e, se o código já existir, aponte a pasta de trabalho -- essa descrição alimenta o diagrama de entidades e funcionalidades nas próximas etapas.",

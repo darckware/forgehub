@@ -77,6 +77,22 @@ class ConceptRevisionOut(ConceptRevisionCreate):
     updated_at: datetime
 
 
+class ConceptDocumentSummary(BaseModel):
+    filename: str
+    size: int
+    updated_at: datetime
+
+
+class ConceptDocumentOut(BaseModel):
+    filename: str
+    content: str
+    updated_at: datetime
+
+
+class ConceptDocumentWrite(BaseModel):
+    content: str
+
+
 class ConceptDeliveryMetadataUpdate(BaseModel):
     """Project setup metadata (where the code will live, chosen stack) --
     unlike problem_statement/vision/scope_summary, this is not part of the

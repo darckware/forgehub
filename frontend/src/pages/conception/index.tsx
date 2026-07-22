@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Lightbulb, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, FileText, Lightbulb, Loader2, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,13 +17,18 @@ import { useDeleteProduct, useUpdateProduct } from "@/hooks/useProduct";
 import {
   useAuthorizeDeliveryPlanning,
   useConcept,
+  useConceptDocument,
+  useConceptDocuments,
   useCreateIdea,
+  useDeleteConceptDocument,
   useDevelopmentRequests,
   usePreviewConceptSummary,
   useReviseConcept,
+  useSaveConceptDocument,
   useSubmitConcept,
   useUpdateConceptDeliveryMetadata,
   useUpdateDevelopmentRequest,
+  useUploadConceptDocument,
   type DevelopmentRequest,
   type TechStackDecision,
   type TechStackLayer,
@@ -111,6 +116,115 @@ const EMPTY_FORM = {
   project_description: "", working_directory_path: "",
 };
 
+/** Step 4 "Documentation": markdown files attached to this concept (fill-in
+ * templates, reference material) -- upload one from disk or write a new one
+ * directly, then edit inline. Lives in the same concepts/<slug>/ folder the
+ * approval-gated artifact generation (PRD/Spec/...) writes to, so both show
+ * up together once a concept is approved. */
+function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined }) {
+  const { t } = useTranslation("conception");
+  const documents = useConceptDocuments(conceptId);
+  const [selectedFilename, setSelectedFilename] = useState<string | null>(null);
+  const document = useConceptDocument(conceptId, selectedFilename ?? undefined);
+  const saveDocument = useSaveConceptDocument();
+  const uploadDocument = useUploadConceptDocument();
+  const deleteDocument = useDeleteConceptDocument();
+  const [editedContent, setEditedContent] = useState("");
+  const [newFilename, setNewFilename] = useState("");
+  const [creating, setCreating] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (document.data) setEditedContent(document.data.content);
+  }, [document.data]);
+
+  if (!conceptId) {
+    return <p className="text-sm text-muted-foreground">{t("wizard.documentation.saveFirst")}</p>;
+  }
+
+  const createDocument = async () => {
+    const trimmed = newFilename.trim();
+    if (!trimmed) return;
+    const filename = /\.(md|markdown|txt)$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
+    const result = await saveDocument.mutateAsync({ conceptId, filename, content: "" });
+    setNewFilename("");
+    setCreating(false);
+    setSelectedFilename(result.filename);
+  };
+
+  return (
+    <div className="grid gap-4 md:grid-cols-[240px_1fr]">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">{t("wizard.documentation.filesTitle")}</p>
+          <div className="flex gap-1">
+            <input
+              ref={fileInputRef} type="file" accept=".md,.markdown,.txt" className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                const result = await uploadDocument.mutateAsync({ conceptId, file });
+                setSelectedFilename(result.filename);
+              }}
+            />
+            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" title={t("wizard.documentation.upload")} onClick={() => fileInputRef.current?.click()} disabled={uploadDocument.isPending}>
+              {uploadDocument.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Upload className="h-3.5 w-3.5"/>}
+            </Button>
+            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" title={t("wizard.documentation.newDocument")} onClick={() => setCreating((v) => !v)}>
+              <Plus className="h-3.5 w-3.5"/>
+            </Button>
+          </div>
+        </div>
+        {creating && (
+          <div className="flex gap-1">
+            <Input className="h-7 text-xs" placeholder="01-CONCEPCAO-....md" value={newFilename} onChange={(e) => setNewFilename(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); createDocument(); } }} />
+            <Button type="button" size="sm" className="h-7 px-2 text-xs" onClick={createDocument} disabled={saveDocument.isPending || !newFilename.trim()}>{t("wizard.documentation.create")}</Button>
+          </div>
+        )}
+        {documents.isLoading && <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>}
+        {documents.data?.length === 0 && !creating && <p className="text-xs text-muted-foreground">{t("wizard.documentation.empty")}</p>}
+        <div className="space-y-1">
+          {documents.data?.map((doc) => (
+            <button
+              key={doc.filename} type="button" onClick={() => setSelectedFilename(doc.filename)}
+              className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs ${selectedFilename === doc.filename ? "border-primary bg-primary/5" : ""}`}
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground"/>
+              <span className="truncate">{doc.filename}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        {!selectedFilename ? (
+          <p className="text-sm text-muted-foreground">{t("wizard.documentation.selectHint")}</p>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">{selectedFilename}</p>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" disabled={saveDocument.isPending || document.isLoading} onClick={() => saveDocument.mutate({ conceptId, filename: selectedFilename, content: editedContent })}>
+                  {saveDocument.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>}
+                  {t("wizard.documentation.save")}
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => { deleteDocument.mutate({ conceptId, filename: selectedFilename }); setSelectedFilename(null); }} disabled={deleteDocument.isPending}>
+                  <Trash2 className="h-3.5 w-3.5 text-destructive"/>
+                </Button>
+              </div>
+            </div>
+            {document.isLoading ? (
+              <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>
+            ) : (
+              <Textarea rows={18} className="font-mono text-xs" value={editedContent} onChange={(e) => setEditedContent(e.target.value)} />
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ConceptionPage() {
   const { t } = useTranslation("conception");
   const queryClient = useQueryClient();
@@ -129,7 +243,7 @@ export default function ConceptionPage() {
   const [delivery, setDelivery] = useState({ version: "0.1.0", project_name: "", owner: "" });
   const [form, setForm] = useState(EMPTY_FORM);
   const [techStack, setTechStack] = useState<TechStackState>(EMPTY_TECH_STACK);
-  const [wizardStep, setWizardStep] = useState<"problem" | "description" | "stack">("problem");
+  const [wizardStep, setWizardStep] = useState<"problem" | "description" | "stack" | "documentation">("problem");
   const [view, setView] = useState<"list" | "form">("list");
   const [pendingDelete, setPendingDelete] = useState<{ productId: string; title: string } | null>(null);
   const [editingRequest, setEditingRequest] = useState<DevelopmentRequest | null>(null);
@@ -238,6 +352,7 @@ export default function ConceptionPage() {
               <TabsTrigger value="problem">{t("wizard.steps.problem")}</TabsTrigger>
               <TabsTrigger value="description">{t("wizard.steps.description")}</TabsTrigger>
               <TabsTrigger value="stack">{t("wizard.steps.stack")}</TabsTrigger>
+              <TabsTrigger value="documentation">{t("wizard.steps.documentation")}</TabsTrigger>
             </TabsList>
             <TabsContent value="problem" className="mt-4 space-y-4">
               <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.name")} count={form.name.length} max={NAME_MAX}/><Input required maxLength={NAME_MAX} value={form.name} onChange={e => setForm({...form, name:e.target.value})}/></div>
@@ -294,6 +409,10 @@ export default function ConceptionPage() {
                   </div>
                 </div>
               ))}
+            </TabsContent>
+            <TabsContent value="documentation" className="mt-4 space-y-4">
+              <p className="text-sm text-muted-foreground">{t("wizard.documentation.help")}</p>
+              <ConceptDocumentsPanel conceptId={concept.data?.concept.id}/>
             </TabsContent>
           </Tabs>
           {editingRequest && !conceptEditable && <p className="text-sm text-muted-foreground">{t("captureIdea.conceptLocked")}</p>}

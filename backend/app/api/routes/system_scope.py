@@ -3,9 +3,10 @@ import hashlib
 import json
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,9 @@ from app.api.schemas.system_scope import (
     ConceptDecision,
     ConceptDeliveryMetadataUpdate,
     ConceptDetailOut,
+    ConceptDocumentOut,
+    ConceptDocumentSummary,
+    ConceptDocumentWrite,
     ConceptRevisionCreate,
     DeliveryPlanningAuthorizationOut,
     DevelopmentRequestOut,
@@ -550,6 +554,119 @@ async def generate_concept_artifacts(
         select(Artifact).where(Artifact.id.in_(generated_ids)).options(selectinload(Artifact.versions))
     )
     return list(result.scalars())
+
+
+# ---------------------------------------------------------------------------
+# Conception documents -- the "4. Documentation" tab: markdown files a human
+# uploads or writes directly (fill-in templates, reference material) that
+# live in the same concepts/<slug>/ folder :generate-artifacts writes its
+# own output to, so both show up together. Deliberately flat (no
+# subfolders) and markdown/text-only -- this is a small per-concept
+# document list, not a general file browser (see api/routes/docs.py for
+# that).
+# ---------------------------------------------------------------------------
+_DOC_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(md|markdown|txt)$")
+
+
+def _validate_doc_filename(filename: str) -> None:
+    if not _DOC_FILENAME_RE.match(filename):
+        raise HTTPException(422, "Filename must be a single .md/.markdown/.txt file name (no folders)")
+
+
+async def _concept_docs_dir(db: AsyncSession, concept_id: uuid.UUID) -> Path:
+    concept = await _concept(db, concept_id)
+    product = await db.get(Product, concept.product_id)
+    rel = f"concepts/{_product_slug(product.name)}"
+    target = resolve_doc_path(CONCEPT_ARTIFACTS_DOCS_ROOT, rel)
+    if target is None:
+        raise HTTPException(500, f"Could not resolve a safe path for {rel}")
+    return target
+
+
+@router.get("/product-concepts/{concept_id}/documents", response_model=list[ConceptDocumentSummary])
+async def list_concept_documents(concept_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    docs_dir = await _concept_docs_dir(db, concept_id)
+    if not docs_dir.is_dir():
+        return []
+    summaries = []
+    for path in sorted(docs_dir.iterdir()):
+        if not path.is_file() or not _DOC_FILENAME_RE.match(path.name):
+            continue
+        stat = path.stat()
+        summaries.append(ConceptDocumentSummary(
+            filename=path.name, size=stat.st_size,
+            updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        ))
+    return summaries
+
+
+@router.get("/product-concepts/{concept_id}/documents/{filename}", response_model=ConceptDocumentOut)
+async def get_concept_document(concept_id: uuid.UUID, filename: str, db: AsyncSession = Depends(get_db)):
+    _validate_doc_filename(filename)
+    docs_dir = await _concept_docs_dir(db, concept_id)
+    target = docs_dir / filename
+    if not target.is_file():
+        raise HTTPException(404, "Document not found")
+    stat = target.stat()
+    return ConceptDocumentOut(
+        filename=filename, content=target.read_text(encoding="utf-8", errors="replace"),
+        updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+    )
+
+
+@router.put("/product-concepts/{concept_id}/documents/{filename}", response_model=ConceptDocumentOut)
+async def write_concept_document(
+    concept_id: uuid.UUID, filename: str, payload: ConceptDocumentWrite, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    _validate_doc_filename(filename)
+    await authorize_action(db, principal, "planning.concept.edit", product_id=(await _concept(db, concept_id)).product_id)
+    docs_dir = await _concept_docs_dir(db, concept_id)
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    target = docs_dir / filename
+    target.write_text(payload.content, encoding="utf-8")
+    stat = target.stat()
+    return ConceptDocumentOut(
+        filename=filename, content=payload.content,
+        updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+    )
+
+
+@router.post("/product-concepts/{concept_id}/documents:upload", response_model=ConceptDocumentOut, status_code=201)
+async def upload_concept_document(
+    concept_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+    file: UploadFile = File(...),
+):
+    filename = Path(file.filename or "").name
+    _validate_doc_filename(filename)
+    await authorize_action(db, principal, "planning.concept.edit", product_id=(await _concept(db, concept_id)).product_id)
+    docs_dir = await _concept_docs_dir(db, concept_id)
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    raw = await file.read()
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(413, "Document exceeds the 5MB limit")
+    content = raw.decode("utf-8", errors="replace")
+    target = docs_dir / filename
+    target.write_text(content, encoding="utf-8")
+    stat = target.stat()
+    return ConceptDocumentOut(
+        filename=filename, content=content,
+        updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+    )
+
+
+@router.delete("/product-concepts/{concept_id}/documents/{filename}", status_code=204)
+async def delete_concept_document(
+    concept_id: uuid.UUID, filename: str, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    _validate_doc_filename(filename)
+    await authorize_action(db, principal, "planning.concept.edit", product_id=(await _concept(db, concept_id)).product_id)
+    docs_dir = await _concept_docs_dir(db, concept_id)
+    target = docs_dir / filename
+    if target.is_file():
+        target.unlink()
 
 
 @router.get("/products/{product_id}/system-blueprint", response_model=BlueprintDetailOut)

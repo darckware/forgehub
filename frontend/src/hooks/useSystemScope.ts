@@ -88,6 +88,52 @@ export function useUpdateConceptDeliveryMetadata() {
     onSuccess: (data) => client.invalidateQueries({ queryKey: ["concept", data.concept.product_id] }),
   });
 }
+export interface ConceptDocumentSummary { filename: string; size: number; updated_at: string; }
+export interface ConceptDocument { filename: string; content: string; updated_at: string; }
+export function useConceptDocuments(conceptId?: string) {
+  return useQuery({
+    queryKey: ["concept-documents", conceptId],
+    queryFn: () => apiClient.get<ConceptDocumentSummary[]>(`/api/v1/product-concepts/${conceptId}/documents`),
+    enabled: Boolean(conceptId),
+  });
+}
+export function useConceptDocument(conceptId?: string, filename?: string) {
+  return useQuery({
+    queryKey: ["concept-document", conceptId, filename],
+    queryFn: () => apiClient.get<ConceptDocument>(`/api/v1/product-concepts/${conceptId}/documents/${encodeURIComponent(filename!)}`),
+    enabled: Boolean(conceptId && filename),
+  });
+}
+export function useSaveConceptDocument() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conceptId, filename, content }: { conceptId: string; filename: string; content: string }) =>
+      apiClient.put<ConceptDocument>(`/api/v1/product-concepts/${conceptId}/documents/${encodeURIComponent(filename)}`, { content }),
+    onSuccess: (_, variables) => {
+      client.invalidateQueries({ queryKey: ["concept-documents", variables.conceptId] });
+      client.invalidateQueries({ queryKey: ["concept-document", variables.conceptId, variables.filename] });
+    },
+  });
+}
+export function useUploadConceptDocument() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conceptId, file }: { conceptId: string; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return apiClient.postForm<ConceptDocument>(`/api/v1/product-concepts/${conceptId}/documents:upload`, form);
+    },
+    onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["concept-documents", variables.conceptId] }),
+  });
+}
+export function useDeleteConceptDocument() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conceptId, filename }: { conceptId: string; filename: string }) =>
+      apiClient.delete(`/api/v1/product-concepts/${conceptId}/documents/${encodeURIComponent(filename)}`),
+    onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["concept-documents", variables.conceptId] }),
+  });
+}
 export function useSubmitConcept() {
   const client = useQueryClient();
   return useMutation({ mutationFn: (conceptId: string) => apiClient.post<ConceptDetail>(`/api/v1/product-concepts/${conceptId}:submit`), onSuccess: (data) => { client.invalidateQueries({ queryKey: ["concept", data.concept.product_id] }); client.invalidateQueries({ queryKey: ["governed-approval-requests"] }); } });
