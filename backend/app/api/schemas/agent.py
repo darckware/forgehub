@@ -9,6 +9,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.db.models.agent import (
+    AGENT_RUNTIME_TYPES,
     AGENT_STATUSES,
     AGENT_TYPES,
     COST_RATE_UNITS,
@@ -277,11 +278,17 @@ class AgentUpdate(BaseModel):
     is_active: bool | None = None
     forgerouter_api_key: str | None = Field(default=None, min_length=1, max_length=1000)
     clear_forgerouter_api_key: bool = False
+    runtime_type: str | None = None
 
     @field_validator("agent_type")
     @classmethod
     def _check_agent_type(cls, v: str | None) -> str | None:
         return v if v is None else _validate_choice(v, AGENT_TYPES, "agent_type")
+
+    @field_validator("runtime_type")
+    @classmethod
+    def _check_runtime_type(cls, v: str | None) -> str | None:
+        return v if v is None else _validate_choice(v, AGENT_RUNTIME_TYPES, "runtime_type")
 
     @field_validator("status")
     @classmethod
@@ -310,6 +317,10 @@ class AgentOut(AgentBase):
     sector: str | None = None
     reports_to_profile_slug: str | None = None
     forgerouter_api_key_configured: bool = False
+    # See AGENT_RUNTIME_TYPES (db/models/agent.py) -- only set for agents
+    # with a stateless single-shot CLI dispatch mode (Inbox dispatch target
+    # eligibility, api/routes/demand.py's /dispatch).
+    runtime_type: str | None = None
 
 
 class AgentListItemOut(AgentOut):

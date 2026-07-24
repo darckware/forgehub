@@ -12,5 +12,21 @@
   "attachFileButton": "Attach file",
   "send": "Send",
   "cancel": "Cancel",
-  "new": "New"
+  "new": "New",
+  "dispatch": {
+    "title": "Dispatch to agent",
+    "loading": "Loading agents...",
+    "selectAgent": "Select agent...",
+    "replyToSender": "Reply to sender",
+    "commandPlaceholder": "What should the agent do with this?",
+    "submit": "Dispatch",
+    "replyArrived": "reply arrived",
+    "status": {
+      "pending": "Queued for dispatch...",
+      "dispatched": "Dispatched, waiting for the agent to start...",
+      "running": "Agent is running...",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
+  }
 }

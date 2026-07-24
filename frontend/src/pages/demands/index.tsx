@@ -21,10 +21,12 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/Markdown";
 import { ConvertMenu } from "@/components/ConvertMenu";
+import { DispatchMenu } from "@/components/DispatchMenu";
 import { ComposeDemandDialog } from "@/pages/demands/ComposeDemandDialog";
 import { useAssistantContext } from "@/hooks/useAssistant";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { DEMAND_DRAG_MIME, InboxGroupTree } from "@/components/InboxGroupTree";
+import { AgentInboxTree, type AgentDirection } from "@/components/AgentInboxTree";
 import {
   downloadDemandAttachment,
   useConvertDemand,
@@ -32,6 +34,8 @@ import {
   useDeleteDemandAttachment,
   useDemandGroups,
   useDemands,
+  useDispatchDemand,
+  useDispatchStatus,
   useMoveDemand,
   useNotifyTelegram,
   useUpdateDemandStatus,
@@ -60,8 +64,13 @@ const CONVERT_TARGET_LABELS: Record<ConvertTarget, string> = {
 /** Which folder the message list/reading pane are scoped to -- "inbox" is
  * Incoming (everything not archived); "archived" is the Archived tree,
  * where groupId null means the Archived root (uncategorized) and a
- * string means a specific user-created subfolder. */
-type SelectedFolder = { kind: "inbox" } | { kind: "archived"; groupId: string | null };
+ * string means a specific user-created subfolder; "agent" is a node in the
+ * Agent tree (PROPOSTA-INBOX-DISPATCH §6) -- items with no target_agent_id
+ * ("sem agente") never appear there, only in inbox/archived. */
+type SelectedFolder =
+  | { kind: "inbox" }
+  | { kind: "archived"; groupId: string | null }
+  | { kind: "agent"; agentId: string; direction: AgentDirection };
 
 function formatTimestamp(value: string): string {
   const d = new Date(value);
@@ -111,10 +120,13 @@ function AttachmentRow({ demand, attachment }: { demand: Demand; attachment: Dem
 }
 
 function ReadingPane({ demand }: { demand: Demand }) {
+  const { t } = useTranslation("demands");
   const updateStatus = useUpdateDemandStatus();
   const deleteDemand = useDeleteDemand();
   const convertDemand = useConvertDemand();
   const notifyTelegram = useNotifyTelegram();
+  const dispatchDemand = useDispatchDemand();
+  const dispatchStatus = useDispatchStatus(demand.id, Boolean(demand.dispatch_status));
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
@@ -217,6 +229,32 @@ function ReadingPane({ demand }: { demand: Demand }) {
             error={(convertDemand.error as Error)?.message}
           />
         )}
+
+        {demand.dispatch_status && (
+          <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 p-3 text-sm">
+            {(demand.dispatch_status === "dispatched" || demand.dispatch_status === "running") && (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+            )}
+            {demand.dispatch_status === "completed" && (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+            )}
+            {demand.dispatch_status === "failed" && (
+              <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+            )}
+            <span>
+              {t(`dispatch.status.${demand.dispatch_status}`)}
+              {dispatchStatus.data?.reply_demand_id && ` — ${t("dispatch.replyArrived")}`}
+            </span>
+          </div>
+        )}
+
+        <DispatchMenu
+          key={`dispatch-${demand.id}`}
+          demand={demand}
+          onDispatch={(payload) => dispatchDemand.mutate({ id: demand.id, payload })}
+          isPending={dispatchDemand.isPending}
+          error={(dispatchDemand.error as Error)?.message}
+        />
       </div>
     </div>
   );
@@ -285,8 +323,28 @@ export default function DemandsPage() {
     if (folder.kind === "inbox") {
       return all.filter((d) => d.status !== "archived" && (filter === "all" || d.status === "new"));
     }
+    if (folder.kind === "agent") {
+      return folder.direction === "inbox"
+        ? all.filter((d) => d.target_agent_id === folder.agentId)
+        : all.filter((d) => d.from_agent_id === folder.agentId && d.target_agent_id !== null);
+    }
     return all.filter((d) => d.status === "archived" && d.group_id === folder.groupId);
   }, [demands, folder, filter]);
+
+  const agentInboxCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const d of demands ?? []) {
+      if (d.target_agent_id) counts[d.target_agent_id] = (counts[d.target_agent_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [demands]);
+  const agentOutboxCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const d of demands ?? []) {
+      if (d.from_agent_id && d.target_agent_id) counts[d.from_agent_id] = (counts[d.from_agent_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [demands]);
 
   const archivedCount = (demands ?? []).filter((d) => d.status === "archived").length;
   const archivedCounts = useMemo(() => {
@@ -456,6 +514,12 @@ export default function DemandsPage() {
               {archivedCount > 0 && folder.kind !== "archived" && (
                 <p className="px-2 pt-1 text-[10px] text-muted-foreground">{archivedCount} archived in total</p>
               )}
+              <AgentInboxTree
+                inboxCounts={agentInboxCounts}
+                outboxCounts={agentOutboxCounts}
+                selection={folder.kind === "agent" ? { agentId: folder.agentId, direction: folder.direction } : undefined}
+                onSelect={(sel) => selectFolder({ kind: "agent", agentId: sel.agentId, direction: sel.direction })}
+              />
             </div>
 
             <div className="min-h-0 flex-1">
@@ -465,6 +529,8 @@ export default function DemandsPage() {
                 {t("emptyInboxMessage")}
                     {folder.kind === "inbox"
                       ? 'Nothing here yet. Agents submit via /demands/submit, or click "New note".'
+                      : folder.kind === "agent"
+                      ? "Nothing dispatched here yet."
                       : "No archived messages here yet. Drag a message from Incoming into this folder."}
                 </p>
               )}

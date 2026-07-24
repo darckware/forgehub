@@ -44,6 +44,12 @@ from app.db.base import Base, TimestampMixin
 
 AGENT_STATUSES = ("active", "inactive", "retired")
 AGENT_TYPES = ("coordinator", "executor", "hybrid")
+# Host-bridge /v1/agent-runs' AgentRunRequest.runtime_type -- only agents with
+# their own stateless single-shot CLI dispatch mode can be an Inbox dispatch
+# target (see api/routes/demand.py's /dispatch). NULL for every agent that
+# isn't one of the three external runtime programmers (Athos/Aegis/etc. run
+# as persistent Hermes gateways, not a `claude -p`-style invocation).
+AGENT_RUNTIME_TYPES = ("claude", "codex", "agy")
 
 SKILL_RISK_LEVELS = ("low", "medium", "high", "critical")
 SKILL_ORIGINS = ("internal", "third_party", "foundation")
@@ -97,6 +103,8 @@ class Agent(Base, TimestampMixin):
     # Write-only through the API and encrypted before persistence. The raw
     # ForgeRouter agent key must never appear in response schemas or audit data.
     forgerouter_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # See AGENT_RUNTIME_TYPES above -- only Aramis/Porthos/Dartan have one today.
+    runtime_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     sub_agents: Mapped[list["SubAgent"]] = relationship(
         back_populates="agent", cascade="all, delete-orphan"
@@ -119,6 +127,10 @@ class Agent(Base, TimestampMixin):
         CheckConstraint(
             "runtime_tier IS NULL OR runtime_tier IN ('A', 'B', 'C')",
             name="ck_agents_runtime_tier",
+        ),
+        CheckConstraint(
+            f"runtime_type IS NULL OR runtime_type IN {AGENT_RUNTIME_TYPES}",
+            name="ck_agents_runtime_type",
         ),
         UniqueConstraint("profile_slug", name="uq_agents_profile_slug"),
     )

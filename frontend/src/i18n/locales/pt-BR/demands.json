@@ -12,5 +12,21 @@
   "attachFileButton": "Anexar arquivo",
   "send": "Enviar",
   "cancel": "Cancelar",
-  "new": "Novo"
+  "new": "Novo",
+  "dispatch": {
+    "title": "Disparar para agente",
+    "loading": "Carregando agentes...",
+    "selectAgent": "Selecionar agente...",
+    "replyToSender": "Responder para quem enviou",
+    "commandPlaceholder": "O que o agente deve fazer com isso?",
+    "submit": "Disparar",
+    "replyArrived": "retorno chegou",
+    "status": {
+      "pending": "Na fila para disparo...",
+      "dispatched": "Disparado, aguardando o agente iniciar...",
+      "running": "Agente em execução...",
+      "completed": "Concluído",
+      "failed": "Falhou"
+    }
+  }
 }

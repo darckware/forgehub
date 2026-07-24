@@ -7,13 +7,23 @@ api/routes/docs.py's /convert, without needing a demand row.
 """
 import uuid
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
 
 DEMAND_STATUSES = ("new", "read", "converted", "archived")
+
+# Independent of DEMAND_STATUSES (the item's own inbox lifecycle) -- a demand
+# can be status="read" and dispatch_status="running" at the same time. NULL
+# until target_agent_id is set and a dispatch is actually triggered.
+DEMAND_DISPATCH_STATUSES = ("pending", "dispatched", "running", "completed", "failed")
+
+# Polymorphic origin, same convention as governance.py's Approval/AuditEvent
+# (entity_type, entity_id) -- no real FK since it points at two different
+# tables. NULL origin = this item is the root of a new dispatch thread.
+DEMAND_ORIGIN_TYPES = ("task", "demand")
 
 # Kept in sync with core/conversions.py's CONVERT_TARGETS.
 DEMAND_CONVERT_TARGETS = (
@@ -55,11 +65,46 @@ class AgentDemand(Base, TimestampMixin):
     converted_entity_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     converted_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # --- Agent dispatch (see api/routes/demand.py's /dispatch) ---
+    # NULL = "sem agente" (item sits in Marcelo's evaluation queue, outside
+    # the agent tree). Set = this item is a dispatch to that agent.
+    target_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id", ondelete="SET NULL"), nullable=True
+    )
+    # Resolves the free-text from_agent (Hermes profile slug or arbitrary
+    # submitter) to a real Agent row when the sender is one of the 12
+    # registered agents -- lets the Inbox tree group by agent without a
+    # string match. NULL for submitters that aren't a registered agent.
+    from_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id", ondelete="SET NULL"), nullable=True
+    )
+    # Marcelo's instruction when dispatching/forwarding an item that had no
+    # prior direction of its own. NULL when the body itself already IS the
+    # full prompt (autonomous agent-to-agent handoff, or a reply continuing
+    # an existing thread).
+    command_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    origin_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    origin_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    dispatch_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # host-bridge POST /v1/agent-runs' run_id, for polling GET .../{run_id}.
+    agent_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Guards against sending the "independent dispatch" Telegram notice more
+    # than once if the status poll runs multiple times.
+    notice_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     __table_args__ = (
         CheckConstraint(f"status IN {DEMAND_STATUSES}", name="ck_agent_demands_status"),
         CheckConstraint(
             f"converted_entity_type IS NULL OR converted_entity_type IN {DEMAND_CONVERT_TARGETS}",
             name="ck_agent_demands_converted_entity_type",
+        ),
+        CheckConstraint(
+            f"dispatch_status IS NULL OR dispatch_status IN {DEMAND_DISPATCH_STATUSES}",
+            name="ck_agent_demands_dispatch_status",
+        ),
+        CheckConstraint(
+            f"origin_type IS NULL OR origin_type IN {DEMAND_ORIGIN_TYPES}",
+            name="ck_agent_demands_origin_type",
         ),
     )
 

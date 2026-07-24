@@ -29,6 +29,10 @@ class DemandUpdateIn(BaseModel):
     # Sending group_id (non-null) without an explicit status forces
     # status="archived" at the route layer.
     group_id: uuid.UUID | None = None
+    # Associates an item with an agent without dispatching yet (§3.1 of the
+    # dispatch proposal) -- lets Marcelo pick a target before writing the
+    # command_text that actually triggers POST .../dispatch.
+    target_agent_id: uuid.UUID | None = None
 
     @field_validator("status")
     @classmethod
@@ -89,6 +93,32 @@ class DemandOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     attachments: list[DemandAttachmentOut] = []
+    target_agent_id: uuid.UUID | None
+    from_agent_id: uuid.UUID | None
+    command_text: str | None
+    origin_type: str | None
+    origin_id: uuid.UUID | None
+    dispatch_status: str | None
+    agent_run_id: str | None
+
+
+class DispatchIn(BaseModel):
+    """Body for POST /demands/{id}/dispatch. Either target_agent_id or
+    reply_to_sender=True must resolve to an agent -- the route rejects both
+    missing and both present as ambiguous."""
+
+    target_agent_id: uuid.UUID | None = None
+    reply_to_sender: bool = False
+    # Marcelo's instruction, combined with the item's body as the prompt.
+    # Not required -- for a reply continuing an existing thread, the body
+    # (Marcelo's own reply text) is already the full prompt on its own.
+    command_text: str | None = None
+
+
+class DispatchStatusOut(BaseModel):
+    dispatch_status: str | None
+    agent_run_id: str | None
+    reply_demand_id: uuid.UUID | None = None
 
 
 class ConvertIn(BaseModel):
