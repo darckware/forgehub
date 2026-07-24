@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Archive, ChevronDown, ChevronRight, FolderPlus, Loader2, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
+import { DEMAND_DRAG_MIME, InlineMessageList } from "@/components/AgentInboxTree";
 import {
   useCreateDemandGroup,
   useDeleteDemandGroup,
@@ -11,10 +12,11 @@ import {
   type DemandGroup,
 } from "@/hooks/useDemands";
 
-// Namespaced custom MIME types so dropping something dragged from
-// elsewhere on the page (or another app) is a no-op instead of misreading
-// unrelated drag data -- same pattern as DocTree.tsx's DRAG_MIME.
-const DEMAND_DRAG_MIME = "application/x-forgehub-demand-id";
+// Namespaced custom MIME type for reparenting a folder onto another folder
+// (or the Archived root) via drag-and-drop -- same pattern as
+// DocTree.tsx's DRAG_MIME. DEMAND_DRAG_MIME (dragging a message) is now
+// defined in AgentInboxTree.tsx and re-exported below, since that
+// component's root row also needs to be a drop target.
 const GROUP_DRAG_MIME = "application/x-forgehub-demand-group-id";
 
 interface TreeNode extends DemandGroup {
@@ -94,7 +96,8 @@ function NewGroupRow({ depth, onConfirm, onCancel }: { depth: number; onConfirm:
   );
 }
 
-function GroupRow({
+function GroupRow<T>({
+  label,
   node,
   depth,
   groups,
@@ -102,7 +105,11 @@ function GroupRow({
   onSelectGroup,
   onDropDemand,
   counts,
+  messages,
+  renderMessage,
+  emptyMessage,
 }: {
+  label: string;
   node: TreeNode;
   depth: number;
   groups: DemandGroup[];
@@ -110,8 +117,15 @@ function GroupRow({
   onSelectGroup: (id: string) => void;
   onDropDemand: (demandId: string, groupId: string | null) => void;
   counts?: Record<string, number>;
+  messages: T[];
+  renderMessage: (item: T) => ReactNode;
+  emptyMessage: string;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  // Defaults collapsed, matching Incoming/Outbox: clicking a row both
+  // toggles expansion and selects it (renders its inline messages), so
+  // starting expanded would make the very first click collapse it and hide
+  // the list it just selected.
+  const [expanded, setExpanded] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(node.name);
@@ -166,7 +180,7 @@ function GroupRow({
         <ConfirmDialog
           open={confirmDelete}
           title={`Delete folder "${node.name}"`}
-          description="Subfolders are deleted too. Messages inside this folder fall back to the Archived root -- nothing is deleted."
+          description={`Subfolders are deleted too. Messages inside this folder fall back to the ${label} root -- nothing is deleted.`}
           loading={deleteGroup.isPending}
           onConfirm={() => deleteGroup.mutate(node.id, { onSuccess: () => setConfirmDelete(false) })}
           onCancel={() => setConfirmDelete(false)}
@@ -219,9 +233,15 @@ function GroupRow({
       </div>
       {expanded && (
         <>
+          {selectedGroupId === node.id && (
+            <div style={{ paddingLeft: `${(depth + 1) * 0.9 + 0.5}rem` }} className="pr-1">
+              <InlineMessageList messages={messages} renderMessage={renderMessage} emptyMessage={emptyMessage} />
+            </div>
+          )}
           {node.children.map((child) => (
             <GroupRow
               key={child.id}
+              label={label}
               node={child}
               depth={depth + 1}
               groups={groups}
@@ -229,6 +249,9 @@ function GroupRow({
               onSelectGroup={onSelectGroup}
               onDropDemand={onDropDemand}
               counts={counts}
+              messages={messages}
+              renderMessage={renderMessage}
+              emptyMessage={emptyMessage}
             />
           ))}
           {creatingChild && (
@@ -252,14 +275,24 @@ function GroupRow({
  * Inbox page's DEMAND_DRAG_MIME producer) onto the root or any subfolder
  * files it there (and archives it, server-side). Dragging a folder row
  * onto another folder (or the root) reparents it. */
-export function InboxGroupTree({
+export function InboxGroupTree<T>({
+  label,
   groups,
   selectedGroupId,
   onSelectRoot,
   onSelectGroup,
   onDropDemand,
   counts,
+  rootCount,
+  messages,
+  renderMessage,
+  emptyMessage,
 }: {
+  /** Root row label -- "Archived" started as the literal folder name, now
+   * user-facing copy calls it "Anotações"/"Notes" (2026-07-24), so this is
+   * a prop instead of hardcoded text. The underlying concept (demand.status
+   * === "archived", group_id, drag targets) is unchanged, only the label. */
+  label: string;
   groups: DemandGroup[];
   /** undefined = Archived isn't the active view at all (Incoming is
    * selected); null = the Archived root itself is selected; a group id =
@@ -270,9 +303,20 @@ export function InboxGroupTree({
   onDropDemand: (demandId: string, groupId: string | null) => void;
   /** Optional per-group demand count badge. */
   counts?: Record<string, number>;
+  /** Badge shown on the root row -- total archived count. */
+  rootCount?: number;
+  /** The already-filtered list for whichever node is currently active --
+   * only rendered under that one node (root or a subfolder). */
+  messages: T[];
+  renderMessage: (item: T) => ReactNode;
+  emptyMessage: string;
 }) {
   const tree = buildTree(groups);
-  const [expanded, setExpanded] = useState(true);
+  // Defaults collapsed, matching Incoming/Outbox: clicking a row both
+  // toggles expansion and selects it (renders its inline messages), so
+  // starting expanded would make the very first click collapse it and hide
+  // the list it just selected.
+  const [expanded, setExpanded] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [creatingRoot, setCreatingRoot] = useState(false);
   const createGroup = useCreateDemandGroup();
@@ -322,7 +366,8 @@ export function InboxGroupTree({
         >
           {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
           <Archive className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate font-medium">Archived</span>
+          <span className="flex-1 truncate font-medium">{label}</span>
+          {!!rootCount && <span className="text-[10px] text-muted-foreground">{rootCount}</span>}
         </button>
         <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
           <ActionIcon icon={FolderPlus} label="New folder" onClick={() => setCreatingRoot(true)} />
@@ -331,9 +376,15 @@ export function InboxGroupTree({
       </div>
       {expanded && (
         <>
+          {selectedGroupId === null && (
+            <div style={{ paddingLeft: "1.4rem" }} className="pr-1">
+              <InlineMessageList messages={messages} renderMessage={renderMessage} emptyMessage={emptyMessage} />
+            </div>
+          )}
           {tree.map((node) => (
             <GroupRow
               key={node.id}
+              label={label}
               node={node}
               depth={1}
               groups={groups}
@@ -341,6 +392,9 @@ export function InboxGroupTree({
               onSelectGroup={onSelectGroup}
               onDropDemand={onDropDemand}
               counts={counts}
+              messages={messages}
+              renderMessage={renderMessage}
+              emptyMessage={emptyMessage}
             />
           ))}
           {creatingRoot && (
