@@ -138,6 +138,11 @@ export const agentSchema = z.object({
   sector: z.string().nullable().optional(),
   reports_to_profile_slug: z.string().nullable().optional(),
   forgerouter_api_key_configured: z.boolean().default(false),
+  // Host-bridge /v1/agent-runs' runtime_type -- only set for agents with a
+  // stateless single-shot CLI dispatch mode (Aramis/Porthos/Dartan today).
+  // Null for everyone else; the Inbox dispatch UI only offers agents where
+  // this is set (see DispatchMenu.tsx).
+  runtime_type: z.enum(["claude", "codex", "agy"]).nullable().optional(),
   sub_agents: z.array(subAgentSchema).optional().default([]),
   agent_skills: z.array(agentSkillSchema).optional().default([]),
   cost_rates: z.array(agentCostRateSchema).optional().default([]),

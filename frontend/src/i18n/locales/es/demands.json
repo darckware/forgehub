@@ -1,0 +1,17 @@
+{
+  "inboxTitle": "Bandeja de entrada",
+  "incomingFolder": "Entrantes",
+  "archivedFolder": "Notas",
+  "newNoteButton": "Nueva nota",
+  "emptyArchivedFolderMessage": "",
+  "emptyInboxMessage": "",
+  "selectMessagePrompt": "Selecciona un mensaje para leer.",
+  "newNoteTitle": "Nueva nota",
+  "newNoteDescription": "Te permite crear tu propio elemento de bandeja de entrada (no solo agentes vía /submit), según el caso de uso 'consola de desarrollo': las notas/procedimientos cotidianos se guardan primero aquí, para ser clasificados más tarde. Los archivos se guardan como `from_agent = username` para que la bandeja de entrada muestre un remitente real tanto si lo envías tú como un agente.",
+  "subjectPlaceholder": "Asunto",
+  "bodyPlaceholder": "Contenido en Markdown...",
+  "attachFileButton": "Adjuntar archivo",
+  "send": "Enviar",
+  "cancel": "Cancelar",
+  "new": "Nuevo"
+}

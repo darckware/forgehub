@@ -32,6 +32,11 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
   const { data: allTasks = [] } = useTasks();
   const createDependency = useCreateTaskDependency(taskId);
   const deleteDependency = useDeleteTaskDependency(taskId);
+  // Gates the "link to another task" row below Nenhum/Dependência --
+  // Marcelo's framing: a task either depends on another one, or it has no
+  // relation at all. Keeps the add-dependency controls hidden by default
+  // instead of always showing an empty picker row.
+  const [relation, setRelation] = useState<"none" | "dependency">("none");
   const [dependsOnTaskId, setDependsOnTaskId] = useState("");
   const [dependencyType, setDependencyType] = useState<(typeof DEPENDENCY_TYPES)[number]>("finish_to_start");
 
@@ -56,7 +61,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
     if (!dependsOnTaskId) return;
     createDependency.mutate(
       { depends_on_task_id: dependsOnTaskId, dependency_type: dependencyType },
-      { onSuccess: () => setDependsOnTaskId("") }
+      { onSuccess: () => { setDependsOnTaskId(""); setRelation("none"); } }
     );
   }
 
@@ -114,35 +119,52 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
               ))}
             </ul>
           )}
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-            <Select value={dependsOnTaskId} onChange={(e) => setDependsOnTaskId(e.target.value)}>
-              <option value="">Select a task this one depends on…</option>
-              {dependencyCandidates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.title}
-                </option>
-              ))}
-            </Select>
-            <Select value={dependencyType} onChange={(e) => setDependencyType(e.target.value as (typeof DEPENDENCY_TYPES)[number])}>
-              {DEPENDENCY_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type.replace(/_/g, " ")}
-                </option>
-              ))}
-            </Select>
-            <Button
-              size="sm"
-              disabled={!dependsOnTaskId || createDependency.isPending}
-              onClick={handleAddDependency}
+          <div className="space-y-2">
+            <Label className="!mb-0 text-xs text-muted-foreground">Resposta</Label>
+            <Select
+              value={relation}
+              className="sm:w-56"
+              onChange={(e) => {
+                const next = e.target.value as "none" | "dependency";
+                setRelation(next);
+                if (next === "none") setDependsOnTaskId("");
+              }}
             >
-              {createDependency.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="mr-2 h-4 w-4" />
-              )}
-              Add
-            </Button>
+              <option value="none">Nenhum</option>
+              <option value="dependency">Dependência</option>
+            </Select>
           </div>
+          {relation === "dependency" && (
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+              <Select value={dependsOnTaskId} onChange={(e) => setDependsOnTaskId(e.target.value)}>
+                <option value="">Select a task this one depends on…</option>
+                {dependencyCandidates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title}
+                  </option>
+                ))}
+              </Select>
+              <Select value={dependencyType} onChange={(e) => setDependencyType(e.target.value as (typeof DEPENDENCY_TYPES)[number])}>
+                {DEPENDENCY_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                size="sm"
+                disabled={!dependsOnTaskId || createDependency.isPending}
+                onClick={handleAddDependency}
+              >
+                {createDependency.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 h-4 w-4" />
+                )}
+                Add
+              </Button>
+            </div>
+          )}
           {(createDependency.error || deleteDependency.error) && (
             <p className="text-sm text-destructive">
               {((createDependency.error ?? deleteDependency.error) as Error).message}

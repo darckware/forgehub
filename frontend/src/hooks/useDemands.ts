@@ -61,9 +61,27 @@ export const demandSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   attachments: z.array(attachmentSchema).default([]),
+  // Agent dispatch (backend/app/api/routes/demand.py's /dispatch) -- null
+  // target_agent_id means this item has no agent yet ("sem agente", sits
+  // outside the agent tree in Marcelo's own evaluation queue).
+  target_agent_id: z.string().nullable(),
+  from_agent_id: z.string().nullable(),
+  command_text: z.string().nullable(),
+  origin_type: z.enum(["task", "demand"]).nullable(),
+  origin_id: z.string().nullable(),
+  dispatch_status: z.enum(["pending", "dispatched", "running", "completed", "failed"]).nullable(),
+  agent_run_id: z.string().nullable(),
 });
 
 export type Demand = z.infer<typeof demandSchema>;
+
+const dispatchStatusResultSchema = z.object({
+  dispatch_status: z.enum(["pending", "dispatched", "running", "completed", "failed"]).nullable(),
+  agent_run_id: z.string().nullable(),
+  reply_demand_id: z.string().nullable().optional(),
+});
+
+export type DispatchStatusResult = z.infer<typeof dispatchStatusResultSchema>;
 
 /** A user-created subfolder inside the Inbox's "Archived" bucket --
  * freely nestable via parent_id. "Incoming" and the "Archived" root
@@ -187,6 +205,52 @@ export function useConvertDemand() {
     mutationFn: async ({ id, payload }: { id: string; payload: ConvertPayload }) =>
       convertResultSchema.parse(await apiClient.post<unknown>(`${RESOURCE}/${id}/convert`, payload)),
     onSuccess: invalidate,
+  });
+}
+
+export interface DispatchPayload {
+  targetAgentId?: string;
+  replyToSender?: boolean;
+  commandText?: string;
+}
+
+/** Sends this item's context (+ commandText, if any) as a prompt to the
+ * target agent's CLI (backend's /dispatch, backed by the host-bridge's
+ * governed /v1/agent-runs). Never blocks -- the mutation resolves as soon
+ * as the run starts; poll useDispatchStatus for progress. */
+export function useDispatchDemand() {
+  const invalidate = useInvalidateDemands();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: DispatchPayload }) =>
+      apiClient.post<Demand>(`${RESOURCE}/${id}/dispatch`, {
+        target_agent_id: payload.targetAgentId,
+        reply_to_sender: payload.replyToSender ?? false,
+        command_text: payload.commandText,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Polls a dispatched item's run status. Only meaningful once
+ * dispatch_status is set -- pass `enabled: false` otherwise (the 400 the
+ * backend returns for a never-dispatched item isn't worth a request). */
+export function useDispatchStatus(demandId: string, enabled: boolean) {
+  const invalidate = useInvalidateDemands();
+  return useQuery({
+    queryKey: [...demandKeys.all, demandId, "dispatch-status"],
+    enabled,
+    refetchInterval: (query) => {
+      const status = query.state.data?.dispatch_status;
+      return status === "dispatched" || status === "running" ? 3_000 : false;
+    },
+    queryFn: async () => {
+      const data = await apiClient.get<unknown>(`${RESOURCE}/${demandId}/dispatch-status`);
+      const parsed = dispatchStatusResultSchema.parse(data);
+      // A reply item just landed -- refresh the list so it shows up
+      // without waiting for the next 30s poll.
+      if (parsed.reply_demand_id) invalidate();
+      return parsed;
+    },
   });
 }
 

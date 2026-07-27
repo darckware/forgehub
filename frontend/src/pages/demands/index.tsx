@@ -3,12 +3,12 @@ import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   Archive,
-  CheckCheck,
   CheckCircle2,
   Download,
   Inbox as InboxIcon,
   Loader2,
   Paperclip,
+  Pencil,
   Plus,
   RefreshCw,
   Send,
@@ -20,18 +20,20 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/Markdown";
-import { ConvertMenu } from "@/components/ConvertMenu";
-import { ComposeDemandDialog } from "@/pages/demands/ComposeDemandDialog";
+import { DispatchMenu } from "@/components/DispatchMenu";
+import { DemandFormPanel } from "@/pages/demands/DemandFormPanel";
 import { useAssistantContext } from "@/hooks/useAssistant";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
-import { DEMAND_DRAG_MIME, InboxGroupTree } from "@/components/InboxGroupTree";
+import { InboxGroupTree } from "@/components/InboxGroupTree";
+import { AgentDirectionTree, DEMAND_DRAG_MIME, NO_AGENT_ID } from "@/components/AgentInboxTree";
 import {
   downloadDemandAttachment,
-  useConvertDemand,
   useDeleteDemand,
   useDeleteDemandAttachment,
   useDemandGroups,
   useDemands,
+  useDispatchDemand,
+  useDispatchStatus,
   useMoveDemand,
   useNotifyTelegram,
   useUpdateDemandStatus,
@@ -57,11 +59,25 @@ const CONVERT_TARGET_LABELS: Record<ConvertTarget, string> = {
   quick_task: "Quick Task",
 };
 
-/** Which folder the message list/reading pane are scoped to -- "inbox" is
- * Incoming (everything not archived); "archived" is the Archived tree,
- * where groupId null means the Archived root (uncategorized) and a
- * string means a specific user-created subfolder. */
-type SelectedFolder = { kind: "inbox" } | { kind: "archived"; groupId: string | null };
+/** Which folder the message list/reading pane are scoped to. Three
+ * top-level groups (PROPOSTA-INBOX-DISPATCH §6, reorganized 2026-07-24 to
+ * group by direction first, agent second):
+ * - "inbox": agentId null = every non-archived message (the root "Incoming"
+ *   view); NO_AGENT_ID = only messages with no target agent ("Admin"); a
+ *   string = only messages dispatched TO that agent.
+ * - "outbox": agentId null = every message this instance dispatched
+ *   onward; NO_AGENT_ID = only messages dispatched by no agent ("Admin",
+ *   i.e. by the logged-in user); a string = only messages dispatched BY
+ *   that agent.
+ * - "archived": the Archived tree, where groupId null means the Archived
+ *   root (uncategorized) and a string means a specific user-created
+ *   subfolder.
+ * Each row's messages render inline, directly under itself in the tree
+ * (see AgentDirectionTree/InboxGroupTree) rather than in a separate pane. */
+type SelectedFolder =
+  | { kind: "inbox"; agentId: string | null }
+  | { kind: "outbox"; agentId: string | null }
+  | { kind: "archived"; groupId: string | null };
 
 function formatTimestamp(value: string): string {
   const d = new Date(value);
@@ -110,11 +126,13 @@ function AttachmentRow({ demand, attachment }: { demand: Demand; attachment: Dem
   );
 }
 
-function ReadingPane({ demand }: { demand: Demand }) {
+function ReadingPane({ demand, onEdit }: { demand: Demand; onEdit: () => void }) {
+  const { t } = useTranslation("demands");
   const updateStatus = useUpdateDemandStatus();
   const deleteDemand = useDeleteDemand();
-  const convertDemand = useConvertDemand();
   const notifyTelegram = useNotifyTelegram();
+  const dispatchDemand = useDispatchDemand();
+  const dispatchStatus = useDispatchStatus(demand.id, Boolean(demand.dispatch_status));
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
@@ -137,7 +155,10 @@ function ReadingPane({ demand }: { demand: Demand }) {
       />
       <div className="shrink-0 border-b border-border/60 px-5 py-4">
         <div className="flex items-start justify-between gap-3">
-          <h2 className="text-lg font-semibold leading-tight">{demand.subject}</h2>
+          <h2 className="text-lg font-semibold leading-tight">
+            <span className="mr-1.5 text-muted-foreground">#{demand.number}</span>
+            {demand.subject}
+          </h2>
           <Badge variant={STATUS_BADGE[demand.status].variant} className="shrink-0">
             {STATUS_BADGE[demand.status].label}
           </Badge>
@@ -148,6 +169,9 @@ function ReadingPane({ demand }: { demand: Demand }) {
           <span>· {formatTimestamp(demand.created_at)}</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={onEdit}>
+            <Pencil className="h-3.5 w-3.5" /> {t("editButton")}
+          </Button>
           {demand.status !== "archived" && (
             <Button
               size="sm"
@@ -208,15 +232,31 @@ function ReadingPane({ demand }: { demand: Demand }) {
           </div>
         )}
 
-        {demand.status !== "converted" && (
-          <ConvertMenu
-            key={demand.id}
-            defaultTitle={demand.subject}
-            onConvert={(payload) => convertDemand.mutate({ id: demand.id, payload })}
-            isPending={convertDemand.isPending}
-            error={(convertDemand.error as Error)?.message}
-          />
+        {demand.dispatch_status && (
+          <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 p-3 text-sm">
+            {(demand.dispatch_status === "dispatched" || demand.dispatch_status === "running") && (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+            )}
+            {demand.dispatch_status === "completed" && (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+            )}
+            {demand.dispatch_status === "failed" && (
+              <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+            )}
+            <span>
+              {t(`dispatch.status.${demand.dispatch_status}`)}
+              {dispatchStatus.data?.reply_demand_id && ` — ${t("dispatch.replyArrived")}`}
+            </span>
+          </div>
         )}
+
+        <DispatchMenu
+          key={`dispatch-${demand.id}`}
+          demand={demand}
+          onDispatch={(payload) => dispatchDemand.mutate({ id: demand.id, payload })}
+          isPending={dispatchDemand.isPending}
+          error={(dispatchDemand.error as Error)?.message}
+        />
       </div>
     </div>
   );
@@ -256,7 +296,9 @@ function DemandListRow({
           {new Date(demand.created_at).toLocaleDateString()}
         </span>
       </div>
-      <span className="truncate text-xs text-muted-foreground">{demand.subject}</span>
+      <span className="truncate text-xs text-muted-foreground">
+        <span className="text-muted-foreground/70">#{demand.number}</span> {demand.subject}
+      </span>
       {demand.attachments.length > 0 && (
         <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
           <Paperclip className="h-3 w-3" /> {demand.attachments.length}
@@ -270,23 +312,78 @@ export default function DemandsPage() {
   const { t } = useTranslation("demands");
   const { data: demands, isLoading, isError, error, refetch, isFetching } = useDemands();
   const { data: groups } = useDemandGroups();
-  const updateStatus = useUpdateDemandStatus();
   const moveDemand = useMoveDemand();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "unread">("all");
-  const [folder, setFolder] = useState<SelectedFolder>({ kind: "inbox" });
-  const [composeOpen, setComposeOpen] = useState(false);
+  const [folder, setFolder] = useState<SelectedFolder>({ kind: "inbox", agentId: null });
+  // Side panel state (DemandFormPanel) -- "create" for New note, "edit" for
+  // the Alterar button on an existing message. Not a modal: it renders
+  // inline in the reading-pane slot (see the panel-vs-ReadingPane branch
+  // below), per Marcelo's mailbox/internal-email framing.
+  const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
+  const [editingDemand, setEditingDemand] = useState<Demand | null>(null);
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
-  const [inboxDragOver, setInboxDragOver] = useState(false);
+
+  function openCompose() {
+    setEditingDemand(null);
+    setComposeSubject("");
+    setComposeBody("");
+    setFormMode("create");
+  }
+
+  function openEdit(demand: Demand) {
+    setEditingDemand(demand);
+    setComposeSubject(demand.subject);
+    setComposeBody(demand.body);
+    setFormMode("edit");
+  }
+
+  function closeForm() {
+    setFormMode(null);
+    setEditingDemand(null);
+  }
 
   const filtered = useMemo(() => {
     const all = demands ?? [];
     if (folder.kind === "inbox") {
-      return all.filter((d) => d.status !== "archived" && (filter === "all" || d.status === "new"));
+      if (folder.agentId === null) return all.filter((d) => d.status !== "archived");
+      if (folder.agentId === NO_AGENT_ID) return all.filter((d) => d.status !== "archived" && !d.target_agent_id);
+      return all.filter((d) => d.target_agent_id === folder.agentId);
+    }
+    if (folder.kind === "outbox") {
+      if (folder.agentId === null) return all.filter((d) => d.from_agent_id && d.target_agent_id);
+      if (folder.agentId === NO_AGENT_ID) return all.filter((d) => !d.from_agent_id && d.target_agent_id);
+      return all.filter((d) => d.from_agent_id === folder.agentId && d.target_agent_id !== null);
     }
     return all.filter((d) => d.status === "archived" && d.group_id === folder.groupId);
-  }, [demands, folder, filter]);
+  }, [demands, folder]);
+
+  const agentInboxCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const d of demands ?? []) {
+      if (d.target_agent_id) counts[d.target_agent_id] = (counts[d.target_agent_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [demands]);
+  const agentOutboxCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const d of demands ?? []) {
+      if (d.from_agent_id && d.target_agent_id) counts[d.from_agent_id] = (counts[d.from_agent_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [demands]);
+  const adminInboxCount = useMemo(
+    () => (demands ?? []).filter((d) => d.status !== "archived" && !d.target_agent_id).length,
+    [demands]
+  );
+  const adminOutboxCount = useMemo(
+    () => (demands ?? []).filter((d) => !d.from_agent_id && d.target_agent_id).length,
+    [demands]
+  );
+  const outboxTotalCount = useMemo(
+    () => (demands ?? []).filter((d) => d.from_agent_id && d.target_agent_id).length,
+    [demands]
+  );
 
   const archivedCount = (demands ?? []).filter((d) => d.status === "archived").length;
   const archivedCounts = useMemo(() => {
@@ -313,9 +410,9 @@ export default function DemandsPage() {
         "```",
       ].join("\n");
     },
-    form: composeOpen
+    form: formMode
       ? {
-          description: "New Inbox note",
+          description: formMode === "edit" ? "Edit Inbox message" : "New Inbox note",
           fields: [
             { name: "subject", label: "Subject", hint: "required, max 255 characters" },
             { name: "body", label: "Body", hint: "required, markdown" },
@@ -331,19 +428,32 @@ export default function DemandsPage() {
   function selectFolder(next: SelectedFolder) {
     setFolder(next);
     setSelectedId(null);
+    closeForm();
+  }
+
+  const emptyMessage =
+    folder.kind === "inbox" && folder.agentId === null
+      ? 'Nothing here yet. Agents submit via /demands/submit, or click "New message".'
+      : folder.kind === "archived"
+      ? "No archived messages here yet. Drag a message from Incoming into this folder."
+      : "Nothing dispatched here yet.";
+
+  function renderMessage(demand: Demand) {
+    return (
+      <DemandListRow
+        key={demand.id}
+        demand={demand}
+        selected={selectedId === demand.id}
+        onSelect={() => {
+          setSelectedId(demand.id);
+          closeForm();
+        }}
+      />
+    );
   }
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
-      <ComposeDemandDialog
-        open={composeOpen}
-        onClose={() => setComposeOpen(false)}
-        subject={composeSubject}
-        onSubjectChange={setComposeSubject}
-        body={composeBody}
-        onBodyChange={setComposeBody}
-      />
-
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
         <h1 className="flex items-center gap-2 text-xl font-semibold">
           {t("inboxTitle")}
@@ -361,9 +471,8 @@ export default function DemandsPage() {
           >
             {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           </Button>
-          <Button size="sm" className="gap-1.5" onClick={() => setComposeOpen(true)}>
-            {t("newNoteButton")}
-            <Plus className="h-4 w-4" /> New note
+          <Button size="sm" className="gap-1.5" onClick={openCompose}>
+            <Plus className="h-4 w-4" /> {t("newNoteButton")}
           </Button>
           <AssistantToggleButton
             size="sm"
@@ -371,32 +480,6 @@ export default function DemandsPage() {
           />
         </div>
       </div>
-
-      {folder.kind === "inbox" && (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-2">
-          <div className="flex items-center gap-1">
-            <Button size="sm" variant={filter === "all" ? "secondary" : "ghost"} onClick={() => setFilter("all")}>
-              All
-            </Button>
-            <Button size="sm" variant={filter === "unread" ? "secondary" : "ghost"} onClick={() => setFilter("unread")}>
-              Unread
-            </Button>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            disabled={unreadCount === 0}
-            onClick={() => {
-              (demands ?? [])
-                .filter((d) => d.status === "new")
-                .forEach((d) => updateStatus.mutate({ id: d.id, status: "read" }));
-            }}
-          >
-            <CheckCheck className="h-4 w-4" /> Mark all as read
-          </Button>
-        </div>
-      )}
 
       {isLoading && (
         <div className="flex flex-1 items-center justify-center">
@@ -412,80 +495,64 @@ export default function DemandsPage() {
 
       {!isLoading && !isError && (
         <div className="flex min-h-0 flex-1">
-          <div className="flex w-80 shrink-0 flex-col overflow-y-auto border-r border-border/60">
-            <div className="shrink-0 border-b border-border/60 p-2">
-              <button
-                type="button"
-                onClick={() => selectFolder({ kind: "inbox" })}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                }}
-                onDragEnter={(e) => {
-                  e.preventDefault();
-                  setInboxDragOver(true);
-                }}
-                onDragLeave={() => setInboxDragOver(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setInboxDragOver(false);
-                  const demandId = e.dataTransfer.getData(DEMAND_DRAG_MIME);
-                  if (demandId) moveDemand.mutate({ id: demandId, groupId: null, status: "read" });
-                }}
-                className={cn(
-                  "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm font-medium",
-                  inboxDragOver
-                    ? "bg-accent ring-1 ring-inset ring-primary"
-                    : folder.kind === "inbox"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-              >
-                <InboxIcon className="h-3.5 w-3.5 shrink-0" />
-                <span className="flex-1">{t("incomingFolder")}</span>
-                {unreadCount > 0 && <span className="text-[10px] text-muted-foreground">{unreadCount}</span>}
-              </button>
-              <InboxGroupTree
-                groups={groups ?? []}
-                selectedGroupId={folder.kind === "archived" ? folder.groupId : undefined}
-                onSelectRoot={() => selectFolder({ kind: "archived", groupId: null })}
-                onSelectGroup={(id) => selectFolder({ kind: "archived", groupId: id })}
-                onDropDemand={(demandId, groupId) => moveDemand.mutate({ id: demandId, groupId, status: "archived" })}
-                counts={archivedCounts}
-              />
-              {archivedCount > 0 && folder.kind !== "archived" && (
-                <p className="px-2 pt-1 text-[10px] text-muted-foreground">{archivedCount} archived in total</p>
-              )}
-            </div>
-
-            <div className="min-h-0 flex-1">
-              {filtered.length === 0 && (
-                <p className="p-6 text-center text-sm italic text-muted-foreground">
-                {t("emptyArchivedFolderMessage")}
-                {t("emptyInboxMessage")}
-                    {folder.kind === "inbox"
-                      ? 'Nothing here yet. Agents submit via /demands/submit, or click "New note".'
-                      : "No archived messages here yet. Drag a message from Incoming into this folder."}
-                </p>
-              )}
-              {filtered.map((demand) => (
-                <DemandListRow
-                  key={demand.id}
-                  demand={demand}
-                  selected={selectedId === demand.id}
-                  onSelect={() => setSelectedId(demand.id)}
-                />
-              ))}
-            </div>
+          <div className="flex w-80 shrink-0 flex-col overflow-y-auto border-r border-border/60 p-2">
+            <AgentDirectionTree
+              direction="inbox"
+              label={t("incomingFolder")}
+              rootCount={unreadCount}
+              adminCount={adminInboxCount}
+              agentCounts={agentInboxCounts}
+              selected={folder.kind === "inbox" ? { agentId: folder.agentId } : undefined}
+              onSelectRoot={() => selectFolder({ kind: "inbox", agentId: null })}
+              onSelectAgent={(agentId) => selectFolder({ kind: "inbox", agentId })}
+              onDropDemand={(demandId) => moveDemand.mutate({ id: demandId, groupId: null, status: "read" })}
+              messages={filtered}
+              renderMessage={renderMessage}
+              emptyMessage={emptyMessage}
+            />
+            <AgentDirectionTree
+              direction="outbox"
+              label="Outbox"
+              rootCount={outboxTotalCount}
+              adminCount={adminOutboxCount}
+              agentCounts={agentOutboxCounts}
+              selected={folder.kind === "outbox" ? { agentId: folder.agentId } : undefined}
+              onSelectRoot={() => selectFolder({ kind: "outbox", agentId: null })}
+              onSelectAgent={(agentId) => selectFolder({ kind: "outbox", agentId })}
+              messages={filtered}
+              renderMessage={renderMessage}
+              emptyMessage={emptyMessage}
+            />
+            <InboxGroupTree
+              label={t("archivedFolder")}
+              groups={groups ?? []}
+              selectedGroupId={folder.kind === "archived" ? folder.groupId : undefined}
+              onSelectRoot={() => selectFolder({ kind: "archived", groupId: null })}
+              onSelectGroup={(id) => selectFolder({ kind: "archived", groupId: id })}
+              onDropDemand={(demandId, groupId) => moveDemand.mutate({ id: demandId, groupId, status: "archived" })}
+              counts={archivedCounts}
+              rootCount={archivedCount}
+              messages={filtered}
+              renderMessage={renderMessage}
+              emptyMessage={emptyMessage}
+            />
           </div>
 
           <div className="min-w-0 flex-1">
-            {selected ? (
-              <ReadingPane demand={selected} />
+            {formMode ? (
+              <DemandFormPanel
+                demand={editingDemand ?? undefined}
+                subject={composeSubject}
+                onSubjectChange={setComposeSubject}
+                body={composeBody}
+                onBodyChange={setComposeBody}
+                onClose={closeForm}
+              />
+            ) : selected ? (
+              <ReadingPane demand={selected} onEdit={() => openEdit(selected)} />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 {t("selectMessagePrompt")}
-                Select a message to read.
               </div>
             )}
           </div>

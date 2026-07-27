@@ -1,16 +1,48 @@
 {
-  "inboxTitle": "Caixa de Entrada",
+  "inboxTitle": "Mensagens",
   "incomingFolder": "Entrada",
-  "newNoteButton": "Nova nota",
+  "archivedFolder": "Anotações",
+  "newNoteButton": "Nova mensagem",
   "emptyArchivedFolderMessage": "",
   "emptyInboxMessage": "",
   "selectMessagePrompt": "Selecione uma mensagem para ler.",
-  "newNoteTitle": "Nova nota",
+  "newNoteTitle": "Nova mensagem",
+  "editTitle": "Editar mensagem",
   "newNoteDescription": "Permite que você registre seu próprio item na caixa de entrada (não apenas agentes via /submit), conforme o caso de uso 'console de desenvolvimento': anotações/procedimentos do dia a dia chegam aqui primeiro e são triados depois. Arquivados como `from_agent = username` para que a caixa de entrada mostre um remetente real em ambos os casos.",
   "subjectPlaceholder": "Assunto",
   "bodyPlaceholder": "Conteúdo em Markdown...",
   "attachFileButton": "Anexar arquivo",
   "send": "Enviar",
   "cancel": "Cancelar",
-  "new": "Novo"
+  "new": "Novo",
+  "editButton": "Alterar",
+  "form": {
+    "toAgent": "Para (agente)",
+    "noAgent": "Sem agente",
+    "origin": "Origem",
+    "originNone": "Nenhuma",
+    "originTask": "Task",
+    "originMessage": "Nota",
+    "taskNumber": "Task",
+    "selectTask": "Selecionar task…",
+    "taskLoading": "Carregando tasks…",
+    "messageNumber": "Nota #",
+    "originNumberRequired": "Informe o número pra vincular"
+  },
+  "dispatch": {
+    "title": "Disparar para agente",
+    "loading": "Carregando agentes...",
+    "selectAgent": "Selecionar agente...",
+    "replyToSender": "Responder para quem enviou",
+    "commandPlaceholder": "O que o agente deve fazer com isso?",
+    "submit": "Disparar",
+    "replyArrived": "retorno chegou",
+    "status": {
+      "pending": "Na fila para disparo...",
+      "dispatched": "Disparado, aguardando o agente iniciar...",
+      "running": "Agente em execução...",
+      "completed": "Concluído",
+      "failed": "Falhou"
+    }
+  }
 }

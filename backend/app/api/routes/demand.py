@@ -8,6 +8,7 @@ the full CONVERT_TARGETS list. Existing /root/docs notes/annotations get
 the same conversion menu through docs.py's /convert -- no demand row
 needed for those, they already have a body (the file content).
 """
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,11 +30,16 @@ from app.api.schemas.demand import (
     DemandOut,
     DemandSubmitIn,
     DemandUpdateIn,
+    DispatchIn,
+    DispatchStatusOut,
 )
 from app.core import conversions
+from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
+from app.core.demand_thread import build_thread_prompt
 from app.core.markdown_docs import resolve_doc_path
 from app.db.base import get_db
+from app.db.models.agent import Agent
 from app.db.models.backlog import PLANNING_ITEM_TYPES
 from app.db.models.demand import AgentDemand, DemandAttachment, DemandGroup
 from app.db.models.notification import Notification
@@ -54,6 +60,13 @@ async def _get_demand_or_404(db: AsyncSession, demand_id: uuid.UUID) -> AgentDem
     if demand is None:
         raise HTTPException(status_code=404, detail="Demand not found")
     return demand
+
+
+async def _get_agent_or_404(db: AsyncSession, agent_id: uuid.UUID) -> Agent:
+    agent = await db.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return agent
 
 
 async def _get_group_or_404(db: AsyncSession, group_id: uuid.UUID) -> DemandGroup:
@@ -211,6 +224,10 @@ async def update_demand(
         if data["group_id"] is not None:
             await _get_group_or_404(db, data["group_id"])
         demand.group_id = data["group_id"]
+    if "target_agent_id" in data:
+        if data["target_agent_id"] is not None:
+            await _get_agent_or_404(db, data["target_agent_id"])
+        demand.target_agent_id = data["target_agent_id"]
     if "status" in data:
         demand.status = data["status"]
     elif "group_id" in data and data["group_id"] is not None:
@@ -317,6 +334,159 @@ async def notify_telegram(demand_id: uuid.UUID, db: AsyncSession = Depends(get_d
     if resp.status_code != 200:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Host-bridge error: {resp.text[:500]}")
     return resp.json()
+
+
+def _extract_run_result_text(run: dict[str, Any]) -> str:
+    """Best-effort human-readable text from a finished agent-runs output.
+    `claude --output-format json` returns one JSON object with a "result"
+    field (verified against a real run 2026-07-23) -- other runtimes'
+    formats weren't exercised yet, so this falls back to the raw
+    output/error rather than guessing at their shape."""
+    output = (run.get("output") or "").strip()
+    if output:
+        try:
+            parsed = json.loads(output)
+            if isinstance(parsed, dict) and isinstance(parsed.get("result"), str):
+                return parsed["result"]
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return output or (run.get("error") or "").strip() or "(no output)"
+
+
+async def _send_notice(text: str) -> None:
+    """Best-effort Telegram notice for an "independent" dispatch (§5 of the
+    dispatch proposal) -- same proxy notify_telegram above already uses.
+    Never blocks/fails the dispatch itself: the run already started, a
+    notice delivery hiccup shouldn't roll that back."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await client.post(
+                f"{settings.CHAT_BRIDGE_URL}/v1/messages/send",
+                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+                json={"target": "telegram", "message": text[:4000]},
+            )
+    except httpx.HTTPError:
+        pass
+
+
+@router.post("/{demand_id}/dispatch", response_model=DemandOut)
+async def dispatch_demand(
+    demand_id: uuid.UUID, payload: DispatchIn, db: AsyncSession = Depends(get_db)
+) -> AgentDemand:
+    """Sends this item's context (+ Marcelo's command_text, if any) as a
+    prompt to a target agent's CLI via the host-bridge's governed runner
+    (app/core/agent_runs.py). Never blocks: the dispatch always proceeds:
+    a Telegram notice is sent only when the action is "independent" --
+    see PROPOSTA-INBOX-DISPATCH-E-DIALOGO-ENTRE-AGENTES.md §5 for the full
+    governance model this implements."""
+    demand = await _get_demand_or_404(db, demand_id)
+
+    if payload.reply_to_sender:
+        if payload.target_agent_id is not None:
+            raise HTTPException(400, "Send either target_agent_id or reply_to_sender, not both")
+        if demand.from_agent_id is None:
+            raise HTTPException(400, "This item has no registered agent sender to reply to")
+        target_agent_id = demand.from_agent_id
+    else:
+        if payload.target_agent_id is None:
+            raise HTTPException(400, "target_agent_id or reply_to_sender is required")
+        target_agent_id = payload.target_agent_id
+
+    agent = await _get_agent_or_404(db, target_agent_id)
+
+    # Independent vs. descendant: no origin, a task origin (not yet
+    # cross-referenced against an assignee -- v1 always treats these as
+    # independent), or an origin dispatched to a DIFFERENT agent all count
+    # as independent. Staying with the same already-notified target agent
+    # never re-notifies.
+    independent = True
+    if demand.origin_type == "demand" and demand.origin_id is not None:
+        origin = await db.get(AgentDemand, demand.origin_id)
+        if origin is not None and origin.target_agent_id == target_agent_id:
+            independent = False
+
+    prompt = await build_thread_prompt(db, demand, payload.command_text)
+    project_path = settings.AGENT_RUNTIME_PATHS.get(agent.runtime_type, "/root")
+
+    run_id = str(uuid.uuid4())
+    try:
+        run = await dispatch_agent_run(run_id, agent, prompt, project_path)
+    except AgentRunDispatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Host-bridge dispatch failed: {exc}") from exc
+
+    demand.target_agent_id = target_agent_id
+    demand.command_text = payload.command_text
+    demand.agent_run_id = run["run_id"]
+    demand.dispatch_status = "dispatched"
+
+    if independent and not demand.notice_sent:
+        await _send_notice(f"*Disparo para {agent.name}*\n\n{prompt}")
+        demand.notice_sent = True
+
+    await db.commit()
+    await db.refresh(demand)
+    return demand
+
+
+@router.get("/{demand_id}/dispatch-status", response_model=DispatchStatusOut)
+async def get_dispatch_status(
+    demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> DispatchStatusOut:
+    """Polled by the frontend while a dispatch is dispatched/running.
+    Idempotent past the first terminal poll -- the reply item is only
+    created once (dispatch_status flips to completed/failed exactly once)."""
+    demand = await _get_demand_or_404(db, demand_id)
+    if demand.agent_run_id is None:
+        raise HTTPException(status_code=400, detail="This item has not been dispatched")
+
+    if demand.dispatch_status in ("completed", "failed"):
+        return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id)
+
+    try:
+        run = await poll_agent_run(demand.agent_run_id)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Host-bridge poll failed: {exc}") from exc
+
+    run_status = run.get("status")
+    if run_status in ("starting", "running"):
+        demand.dispatch_status = "running"
+        await db.commit()
+        return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id)
+
+    # Terminal: completed / failed / timed_out / cancelled / stale.
+    demand.dispatch_status = "completed" if run_status == "completed" else "failed"
+
+    agent = await db.get(Agent, demand.target_agent_id) if demand.target_agent_id else None
+    reply_body = _extract_run_result_text(run)
+    reply = AgentDemand(
+        from_agent=agent.name if agent else "agent",
+        from_agent_id=demand.target_agent_id,
+        subject=f"Re: {demand.subject}",
+        body=reply_body,
+        origin_type="demand",
+        origin_id=demand.id,
+    )
+    db.add(reply)
+    await db.flush()
+
+    db.add(Notification(
+        source="system",
+        severity="info",
+        title=f"Reply in Inbox: {reply.subject}",
+        message=_demand_preview(reply_body),
+        event_key=f"demand-reply:{demand.id}",
+        occurred_at=datetime.now(timezone.utc),
+    ))
+
+    await db.commit()
+    await db.refresh(reply)
+    return DispatchStatusOut(
+        dispatch_status=demand.dispatch_status,
+        agent_run_id=demand.agent_run_id,
+        reply_demand_id=reply.id,
+    )
 
 
 @router.post("/{demand_id}/convert", response_model=ConvertOut)

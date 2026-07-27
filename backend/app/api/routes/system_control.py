@@ -670,6 +670,12 @@ TIMEZONE={timezone}
 # each outgoing agent call (like the voice brevity note); the user's
 # stored message text is never touched.
 CHAT_RESPONSE_LANGUAGE={chat_response_language}
+
+# Agent runtime paths
+# Root config/state directory per agent runtime (reference/visibility only,
+# not consumed by Git Control/Backup -- see this module's docstring). JSON
+# object -- pydantic-settings parses Dict[str, str] env values as JSON.
+AGENT_RUNTIME_PATHS={agent_runtime_paths}
 """
 
 
@@ -684,6 +690,7 @@ def _settings_to_config_out(s) -> dict[str, Any]:
         "cleanup_prune_names": list(s.CLEANUP_PRUNE_NAMES),
         "timezone": s.TIMEZONE,
         "chat_response_language": s.CHAT_RESPONSE_LANGUAGE,
+        "agent_runtime_paths": dict(s.AGENT_RUNTIME_PATHS),
     }
 
 
@@ -697,6 +704,7 @@ class AppConfigUpdate(BaseModel):
     cleanup_prune_names: list[str] = Field(default_factory=list)
     timezone: str = Field(min_length=1, max_length=64)
     chat_response_language: str = Field(default="pt-BR", max_length=16)
+    agent_runtime_paths: dict[str, str] = Field(default_factory=dict)
 
 
 @router.get("/config")
@@ -733,6 +741,12 @@ async def update_app_config(
                 f"{', '.join(CHAT_RESPONSE_LANGUAGE_NOTES)}"
             ),
         )
+    for runtime_name, runtime_path in payload.agent_runtime_paths.items():
+        if not runtime_path.startswith("/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"agent_runtime_paths.{runtime_name} must be an absolute path",
+            )
 
     # Mutates the live singleton in place -- every module imported `settings`
     # once at load time (`from app.core.config import settings`), so they
@@ -747,6 +761,7 @@ async def update_app_config(
     settings.CLEANUP_PRUNE_NAMES = payload.cleanup_prune_names
     settings.TIMEZONE = payload.timezone
     settings.CHAT_RESPONSE_LANGUAGE = payload.chat_response_language
+    settings.AGENT_RUNTIME_PATHS = payload.agent_runtime_paths
 
     _APP_CONFIG_FILE.write_text(
         _APP_CONFIG_TEMPLATE.format(
@@ -759,6 +774,7 @@ async def update_app_config(
             cleanup_prune_names=json.dumps(settings.CLEANUP_PRUNE_NAMES),
             timezone=settings.TIMEZONE,
             chat_response_language=settings.CHAT_RESPONSE_LANGUAGE,
+            agent_runtime_paths=json.dumps(settings.AGENT_RUNTIME_PATHS),
         )
     )
 

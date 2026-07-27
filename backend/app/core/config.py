@@ -98,6 +98,21 @@ class Settings(BaseSettings):
     # System Control (api/routes/system_control.py) -- see forgehub.config
     # for the operator-facing explanation of each of these.
     HERMES_SOURCE_PATH: str = "/root/.hermes"
+    # Root config/state directory per agent runtime, for reference/visibility
+    # in Settings -> Agent runtime paths (not consumed by Git Control/Backup
+    # -- those stay Project- or HERMES_SOURCE_PATH-driven, see
+    # system_control.py's module docstring for why). Keyed by runtime name,
+    # not by individual agent -- every Hermes-profile agent (Athos, Aegis,
+    # ...) shares HERMES_SOURCE_PATH's tree via /profiles/<slug>, so one
+    # entry covers all of them; Aramis/Porthos/Dartan/Vector each get their
+    # own runtime's root since they aren't Hermes profiles.
+    AGENT_RUNTIME_PATHS: dict[str, str] = {
+        "hermes": "/root/.hermes",
+        "claude": "/root/.claude",
+        "codex": "/root/.codex",
+        "gemini": "/root/.gemini",
+        "openclaw": "/root/.openclaw",
+    }
     GIT_CONTROL_DEFAULT_REPO: str = "hermes"
     BACKUP_ROOT: str = "/root/backup"
     # Trash path passed by System Control to the authoritative Athos cleanup

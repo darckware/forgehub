@@ -44,6 +44,7 @@ import tempfile
 import termios
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -821,6 +822,13 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
         "ANTHROPIC_API_KEY": req.api_key,
     })
     if req.runtime_type == "claude":
+        # Without this, ANTHROPIC_API_KEY above still points `claude` at the
+        # real Anthropic API with a ForgeRouter-issued key -> 401 Invalid
+        # API key. Same fix /root/.claude/scripts/claude_fallback.sh already
+        # applies, and the same constant _configure_claude_forgerouter
+        # already uses for the project-settings.json flow -- just never
+        # wired into this ad hoc agent-runs dispatch path before now.
+        agent_env = {**agent_env, "ANTHROPIC_BASE_URL": FORGEROUTER_ANTHROPIC_BASE_URL}
         command = [
             "/root/.local/bin/claude",
             "--print",

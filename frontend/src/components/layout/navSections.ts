@@ -9,7 +9,7 @@ import {
   ClipboardList,
   CheckSquare,
   Bot,
-  FileBox,
+  Gauge,
   Gavel,
   Gem,
   Brain,
@@ -24,7 +24,7 @@ import {
   Share2,
   Code2,
   BookOpen,
-  Inbox,
+  Mail,
   ClipboardCheck,
   Users,
   ShieldCheck,
@@ -46,6 +46,11 @@ export interface NavLinkEntry {
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
   module?: string; // if set, check can_view; undefined = always visible
+  /** Keep the route out of the sidebar while leaving it in the command
+   * palette. For pages reached from inside another page rather than from the
+   * nav -- dropping the entry entirely would also drop it from Cmd/Ctrl+K,
+   * which is a search surface, not a menu. */
+  hiddenInSidebar?: boolean;
 }
 
 export interface NavGroupEntry {
@@ -72,30 +77,98 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       // AI news digests archived by report-generating crons (e.g.
       // ai-news-noon), see news.py -- filesystem-only, no DB table.
       { type: "link", to: "/news", labelKey: "nav.news", icon: Newspaper },
-      // Inbox de demandas de agentes ("como um e-mail"), conversível em
-      // Task/Doc/Artefato/Knowledge Base (core/conversions.py).
-      { type: "link", to: "/demands", labelKey: "nav.inbox", icon: Inbox, module: "demands" },
+      // Mensagens: canal de demandas de agentes ("como um e-mail"),
+      // conversível em Task/Doc/Knowledge Base (core/conversions.py). Rotulado
+      // "Mensagens" desde 2026-07-26 -- a rota /demands e o domínio `demand`
+      // mantêm o nome antigo para não quebrar links e integrações existentes.
+      { type: "link", to: "/demands", labelKey: "nav.inbox", icon: Mail, module: "demands" },
       // Área de criação: markdown editável em /root/docs, cruzado com
       // produtos/projetos/tasks (doc_links, fase 3).
       { type: "link", to: "/docs", labelKey: "nav.docs", icon: BookOpen, module: "docs" },
     ],
   },
+  // Fábrica de Software -- EM REPLANEJAMENTO (2026-07-27).
+  //
+  // A versão anterior desta seção organizava o ciclo de desenvolvimento em
+  // cinco fases numeradas, derivadas de um documento externo ao repositório.
+  // Ela foi desfeita porque divergia da arquitetura canônica do projeto
+  // (docs/architecture/PLANNING_DELIVERY_ARCHITECTURE.md), que descreve três
+  // macrofluxos movidos por três autorizações -- Concept Approval, Delivery
+  // Authorization e Release Approval -- com telas ancoradas em Product/Project
+  // e um Cockpit especificado em docs/modules/06_COCKPIT_AND_INTEGRATIONS.md.
+  // Três dos cinco rótulos também prometiam telas que não existem: o mapa do
+  // sistema não é um designer de telas navegável, e o backlog não é um editor
+  // de stored procedures.
+  //
+  // Enquanto o novo conceito é desenhado, a seção **não expõe nenhum item no
+  // menu** (decisão do Marcelo, 2026-07-27). As entradas continuam aqui com
+  // `hiddenInSidebar: true`: as rotas seguem no ar e alcançáveis pelo
+  // Cmd/Ctrl+K, que é superfície de busca e não menu -- apagá-las daqui seria
+  // remover as telas, não esvaziar o menu. O Sidebar omite o cabeçalho de uma
+  // seção sem itens visíveis, então a seção inteira desaparece da navegação
+  // enquanto estiver assim.
+  //
+  // Não acrescente aqui uma nova organização de fases/etapas sem uma spec
+  // aprovada em docs/modules/ -- ver o Definition Gate em docs/README.md.
   {
     type: "section",
-    labelKey: "nav.section.planning",
+    labelKey: "nav.section.factory",
     entries: [
-      { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
-      { type: "link", to: "/system-map", labelKey: "nav.systemMap", icon: Share2, module: "product" },
-      { type: "link", to: "/project-scope", labelKey: "nav.projectScope", icon: ClipboardList, module: "projects" },
-      { type: "link", to: "/product", labelKey: "nav.products", icon: Package, module: "product" },
-      { type: "link", to: "/projects", labelKey: "nav.projects", icon: FolderKanban, module: "projects" },
-      { type: "link", to: "/pipeline", labelKey: "nav.pipelines", icon: GitBranch, module: "pipeline" },
-      { type: "link", to: "/pipeline-templates", labelKey: "nav.templates", icon: GitBranch, module: "pipeline" },
-      { type: "link", to: "/backlog", labelKey: "nav.planningItem", icon: ClipboardList, module: "backlog" },
-      { type: "link", to: "/tasks", labelKey: "nav.execution", icon: CheckSquare, module: "tasks" },
-      { type: "link", to: "/artifact", labelKey: "nav.artifacts", icon: FileBox, module: "artifacts" },
-      { type: "link", to: "/governance", labelKey: "nav.governance", icon: Gavel, module: "governance" },
-      { type: "link", to: "/governance/policies", labelKey: "nav.policies", icon: ShieldCheck, module: "governance" },
+      { type: "link", to: "/product", labelKey: "nav.products", icon: Package, module: "product", hiddenInSidebar: true },
+      { type: "link", to: "/projects", labelKey: "nav.projects", icon: FolderKanban, module: "projects", hiddenInSidebar: true },
+      { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product", hiddenInSidebar: true },
+      { type: "link", to: "/system-map", labelKey: "nav.systemMap", icon: Share2, module: "product", hiddenInSidebar: true },
+      { type: "link", to: "/backlog", labelKey: "nav.backlog", icon: Code2, module: "backlog", hiddenInSidebar: true },
+      { type: "link", to: "/tasks", labelKey: "nav.tasks", icon: CheckSquare, module: "tasks", hiddenInSidebar: true },
+      { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance", hiddenInSidebar: true },
+      // As entradas abaixo já estavam fora do menu antes desta decisão.
+      // Artefatos saiu da navegação por decisão do Marcelo (2026-07-26): o
+      // detalhamento passa a ser feito em arquivos .md (Docs e o step de
+      // Documentação da Concepção). A rota e o domínio `artifact` continuam no
+      // backend por causa das FKs existentes.
+      // /cockpit continua roteável pelo mesmo motivo: a tela e o endpoint
+      // `factory` seguem no ar, mas fora do menu até o módulo 06 ser
+      // especificado e decidir o que aproveitar.
+      {
+        type: "link",
+        to: "/cockpit",
+        labelKey: "nav.cockpit",
+        icon: Gauge,
+        module: "product",
+        hiddenInSidebar: true,
+      },
+      {
+        type: "link",
+        to: "/project-scope",
+        labelKey: "nav.projectScope",
+        icon: ClipboardList,
+        module: "projects",
+        hiddenInSidebar: true,
+      },
+      {
+        type: "link",
+        to: "/pipeline",
+        labelKey: "nav.pipelines",
+        icon: GitBranch,
+        module: "pipeline",
+        hiddenInSidebar: true,
+      },
+      {
+        type: "link",
+        to: "/pipeline-templates",
+        labelKey: "nav.templates",
+        icon: GitBranch,
+        module: "pipeline",
+        hiddenInSidebar: true,
+      },
+      {
+        type: "link",
+        to: "/governance/policies",
+        labelKey: "nav.policies",
+        icon: Gavel,
+        module: "governance",
+        hiddenInSidebar: true,
+      },
     ],
   },
   {
@@ -103,7 +176,19 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     labelKey: "nav.section.agentsAi",
     entries: [
       { type: "link", to: "/agents", labelKey: "nav.agents", icon: Bot, module: "agents" },
-      { type: "link", to: "/tools", labelKey: "nav.agentTools", icon: Wrench, module: "agents" },
+      // Agent Tools is reached from the button in the Agents page header, not
+      // from the sidebar (2026-07-26) -- the tools registry is scoped to the
+      // agent roster rather than being a peer destination of it, and its page
+      // carries a back link to /agents. Still listed here so Cmd/Ctrl+K finds
+      // it; only the sidebar hides it.
+      {
+        type: "link",
+        to: "/tools",
+        labelKey: "nav.agentTools",
+        icon: Wrench,
+        module: "agents",
+        hiddenInSidebar: true,
+      },
       { type: "link", to: "/prompt-commands", labelKey: "nav.chatCommands", icon: Command, module: "agents" },
       { type: "link", to: "/skills", labelKey: "nav.skills", icon: Sparkles, module: "agents" },
       { type: "link", to: "/crons", labelKey: "nav.crons", icon: Clock, module: "crons" },
@@ -115,7 +200,21 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     labelKey: "nav.section.integrations",
     entries: [
-      { type: "link", to: "/kanboard", labelKey: "nav.kanboard", icon: Kanban, module: "kanboard" },
+      // Kanboard saiu do menu por decisão do Marcelo (2026-07-26): o controle
+      // de tarefas passa a ser nativo do ForgeHub. A rota continua registrada
+      // e alcançável pelo Cmd/Ctrl+K enquanto a integração não é desligada de
+      // fato -- o board externo ainda é escrito por outros agentes do
+      // ecossistema (ver CLAUDE.md), então arrancar o cliente/sync e as
+      // colunas kanboard_* é uma remoção à parte, não um efeito colateral
+      // desta reorganização de menu.
+      {
+        type: "link",
+        to: "/kanboard",
+        labelKey: "nav.kanboard",
+        icon: Kanban,
+        module: "kanboard",
+        hiddenInSidebar: true,
+      },
       { type: "link", to: "/obsidian", labelKey: "nav.knowledgeBase", icon: Gem, module: "obsidian" },
     ],
   },

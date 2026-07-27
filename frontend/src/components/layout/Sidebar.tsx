@@ -19,6 +19,7 @@ import { Logo, LogoMark } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/authStore";
 import { usePermission } from "@/hooks/usePermission";
+import { useDemands } from "@/hooks/useDemands";
 
 const COLLAPSE_STORAGE_KEY = "forgehub-sidebar-collapsed";
 const GROUP_COLLAPSE_STORAGE_KEY = "forgehub-sidebar-group-collapsed";
@@ -73,6 +74,12 @@ export function Sidebar() {
   const { t } = useTranslation("common");
   const location = useLocation();
   const { user } = useAuthStore();
+  // Unread badge on the "Messages" nav link -- same count/query the
+  // Messages page's own header badge uses (react-query dedupes the
+  // request regardless of which page is mounted, so this doesn't add a
+  // second poll while /demands is open).
+  const { data: demandsForBadge } = useDemands();
+  const unreadDemandsCount = (demandsForBadge ?? []).filter((d) => d.status === "new").length;
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(COLLAPSE_STORAGE_KEY) === "1"
   );
@@ -125,19 +132,41 @@ export function Sidebar() {
   const toggleGroup = (key: string) =>
     setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const renderLink = (entry: NavLinkEntry) => (
-    <PermissionGate key={entry.to} module={entry.module}>
-      <NavLink
-        to={entry.to}
-        end={entry.to === "/"}
-        title={effectiveCollapsed ? t(entry.labelKey) : undefined}
-        className={({ isActive }) => navLinkClasses(isActive, effectiveCollapsed)}
-      >
-        <entry.icon className="h-4 w-4 shrink-0" />
-        {!effectiveCollapsed && t(entry.labelKey)}
-      </NavLink>
-    </PermissionGate>
-  );
+  const renderLink = (entry: NavLinkEntry) => {
+    // Only "Messages" carries a badge today -- generalize (a `badgeCount`
+    // field on NavLinkEntry) if a second nav item ever needs one.
+    const badgeCount = entry.to === "/demands" ? unreadDemandsCount : 0;
+    const badgeText = badgeCount > 9 ? "9+" : String(badgeCount);
+    return (
+      <PermissionGate key={entry.to} module={entry.module}>
+        <NavLink
+          to={entry.to}
+          end={entry.to === "/"}
+          title={effectiveCollapsed ? t(entry.labelKey) : undefined}
+          className={({ isActive }) => navLinkClasses(isActive, effectiveCollapsed)}
+        >
+          <span className="relative shrink-0">
+            <entry.icon className="h-4 w-4" />
+            {effectiveCollapsed && badgeCount > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-destructive text-[8px] font-bold text-destructive-foreground">
+                {badgeText}
+              </span>
+            )}
+          </span>
+          {!effectiveCollapsed && (
+            <span className="flex flex-1 items-center justify-between gap-2">
+              {t(entry.labelKey)}
+              {badgeCount > 0 && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                  {badgeText}
+                </span>
+              )}
+            </span>
+          )}
+        </NavLink>
+      </PermissionGate>
+    );
+  };
 
   const renderGroup = (entry: NavGroupEntry) => {
     const visibleItems = entry.items; // PermissionGate handles hiding inside
@@ -298,6 +327,15 @@ export function Sidebar() {
             )}
           </button>
           {NAV_SECTIONS.map((section) => {
+            // hiddenInSidebar routes are reached from inside another page; they
+            // stay in NAV_SECTIONS only so the command palette can still find
+            // them. Filtered here (not further down) because a section where
+            // every entry is hidden must not render at all -- otherwise it
+            // leaves a bare header with a chevron opening onto nothing.
+            const visibleEntries = section.entries.filter(
+              (entry) => !(entry.type === "link" && entry.hiddenInSidebar)
+            );
+            if (visibleEntries.length === 0) return null;
             // Icon-rail mode ignores section collapse -- there's no label to
             // click there, so items always render as bare icons.
             const isSectionCollapsed = !effectiveCollapsed && (collapsedGroups[section.labelKey] ?? false);
@@ -319,8 +357,10 @@ export function Sidebar() {
                 )}
                 {!isSectionCollapsed && (
                   <div className="space-y-1">
-                    {section.entries.map((entry, i) => (
-                      <React.Fragment key={i}>{renderEntry(entry as NavLinkEntry | NavGroupEntry)}</React.Fragment>
+                    {visibleEntries.map((entry, i) => (
+                      <React.Fragment key={i}>
+                        {renderEntry(entry as NavLinkEntry | NavGroupEntry)}
+                      </React.Fragment>
                     ))}
                   </div>
                 )}

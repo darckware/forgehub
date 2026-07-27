@@ -13,7 +13,20 @@
     "steps": {
       "problem": "1. Problem and vision",
       "description": "2. Description and folder",
-      "stack": "3. Tech stack"
+      "stack": "3. Tech stack",
+      "documentation": "4. Documentation"
+    },
+    "documentation": {
+      "help": "Attach markdown reference material or fill-in templates for this concept -- upload a file or write a new one, then edit it inline.",
+      "saveFirst": "Save this idea first (Create conception) before attaching documents.",
+      "filesTitle": "Files",
+      "upload": "Upload file",
+      "newDocument": "New document",
+      "create": "Create",
+      "loading": "Loading…",
+      "empty": "No documents yet.",
+      "selectHint": "Select a file on the left, or upload/create one.",
+      "save": "Save"
     },
     "description": {
       "help": "Describe the system in plain language and, if the code already exists, point to its working directory -- this description feeds the entity and functionality diagram in the next steps.",
@@ -40,7 +53,7 @@
     "description": "This creates a concept product and its first System Map revision.",
     "editTitle": "Edit idea",
     "editDescription": "Update the conception registration data.",
-    "conceptLocked": "The concept was already submitted for review, so the problem statement, vision and initial scope can no longer be edited here -- only the name and requester.",
+    "conceptLocked": "The concept was already submitted for review, so the problem statement, vision and initial scope can no longer be edited here. Name, requester, project description, working directory and tech stack remain editable.",
     "fields": {
       "name": "Name",
       "problemStatement": "Problem statement",
