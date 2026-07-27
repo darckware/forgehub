@@ -100,23 +100,28 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
   // sistema não é um designer de telas navegável, e o backlog não é um editor
   // de stored procedures.
   //
-  // Enquanto o módulo é redesenhado, a seção lista as telas de domínio que já
-  // existiam antes, sem taxonomia por cima delas. Não acrescente aqui uma nova
-  // organização de fases/etapas sem uma spec aprovada em docs/modules/ --
-  // ver o Definition Gate em docs/README.md.
+  // Enquanto o novo conceito é desenhado, a seção **não expõe nenhum item no
+  // menu** (decisão do Marcelo, 2026-07-27). As entradas continuam aqui com
+  // `hiddenInSidebar: true`: as rotas seguem no ar e alcançáveis pelo
+  // Cmd/Ctrl+K, que é superfície de busca e não menu -- apagá-las daqui seria
+  // remover as telas, não esvaziar o menu. O Sidebar omite o cabeçalho de uma
+  // seção sem itens visíveis, então a seção inteira desaparece da navegação
+  // enquanto estiver assim.
+  //
+  // Não acrescente aqui uma nova organização de fases/etapas sem uma spec
+  // aprovada em docs/modules/ -- ver o Definition Gate em docs/README.md.
   {
     type: "section",
     labelKey: "nav.section.factory",
     entries: [
-      { type: "link", to: "/product", labelKey: "nav.products", icon: Package, module: "product" },
-      { type: "link", to: "/projects", labelKey: "nav.projects", icon: FolderKanban, module: "projects" },
-      { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
-      { type: "link", to: "/system-map", labelKey: "nav.systemMap", icon: Share2, module: "product" },
-      { type: "link", to: "/backlog", labelKey: "nav.backlog", icon: Code2, module: "backlog" },
-      { type: "link", to: "/tasks", labelKey: "nav.tasks", icon: CheckSquare, module: "tasks" },
-      { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance" },
-      // Fora do menu, mas roteáveis e no Cmd/Ctrl+K -- tirá-las do navSections
-      // também as tiraria da busca, que é o oposto do que se quer aqui.
+      { type: "link", to: "/product", labelKey: "nav.products", icon: Package, module: "product", hiddenInSidebar: true },
+      { type: "link", to: "/projects", labelKey: "nav.projects", icon: FolderKanban, module: "projects", hiddenInSidebar: true },
+      { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product", hiddenInSidebar: true },
+      { type: "link", to: "/system-map", labelKey: "nav.systemMap", icon: Share2, module: "product", hiddenInSidebar: true },
+      { type: "link", to: "/backlog", labelKey: "nav.backlog", icon: Code2, module: "backlog", hiddenInSidebar: true },
+      { type: "link", to: "/tasks", labelKey: "nav.tasks", icon: CheckSquare, module: "tasks", hiddenInSidebar: true },
+      { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance", hiddenInSidebar: true },
+      // As entradas abaixo já estavam fora do menu antes desta decisão.
       // Artefatos saiu da navegação por decisão do Marcelo (2026-07-26): o
       // detalhamento passa a ser feito em arquivos .md (Docs e o step de
       // Documentação da Concepção). A rota e o domínio `artifact` continuam no

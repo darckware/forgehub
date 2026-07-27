@@ -327,6 +327,15 @@ export function Sidebar() {
             )}
           </button>
           {NAV_SECTIONS.map((section) => {
+            // hiddenInSidebar routes are reached from inside another page; they
+            // stay in NAV_SECTIONS only so the command palette can still find
+            // them. Filtered here (not further down) because a section where
+            // every entry is hidden must not render at all -- otherwise it
+            // leaves a bare header with a chevron opening onto nothing.
+            const visibleEntries = section.entries.filter(
+              (entry) => !(entry.type === "link" && entry.hiddenInSidebar)
+            );
+            if (visibleEntries.length === 0) return null;
             // Icon-rail mode ignores section collapse -- there's no label to
             // click there, so items always render as bare icons.
             const isSectionCollapsed = !effectiveCollapsed && (collapsedGroups[section.labelKey] ?? false);
@@ -348,16 +357,11 @@ export function Sidebar() {
                 )}
                 {!isSectionCollapsed && (
                   <div className="space-y-1">
-                    {section.entries
-                      // hiddenInSidebar routes are reached from inside another
-                      // page; they stay in NAV_SECTIONS only so the command
-                      // palette can still find them.
-                      .filter((entry) => !(entry.type === "link" && entry.hiddenInSidebar))
-                      .map((entry, i) => (
-                        <React.Fragment key={i}>
-                          {renderEntry(entry as NavLinkEntry | NavGroupEntry)}
-                        </React.Fragment>
-                      ))}
+                    {visibleEntries.map((entry, i) => (
+                      <React.Fragment key={i}>
+                        {renderEntry(entry as NavLinkEntry | NavGroupEntry)}
+                      </React.Fragment>
+                    ))}
                   </div>
                 )}
               </div>
