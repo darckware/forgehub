@@ -147,6 +147,11 @@ def _persist_agent_run(run_id: str) -> None:
 def _pid_alive(pid: int | None) -> bool:
     if not pid:
         return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
 
 
 def _redact_run_output(value: str) -> str:
@@ -154,11 +159,6 @@ def _redact_run_output(value: str) -> str:
     value = re.sub(r"(?i)((?:api[_-]?key|auth[_-]?token)\s*[=:]\s*)[^\s,}\"]+", r"\1[REDACTED]", value)
     value = re.sub(r"\b(?:sk|key)-[A-Za-z0-9_-]{16,}\b", "[REDACTED]", value)
     return value
-    try:
-        os.kill(pid, 0)
-        return True
-    except (ProcessLookupError, PermissionError):
-        return False
 
 
 def _load_agent_runs() -> None:
@@ -761,7 +761,7 @@ def _validate_project_path(project_path: str) -> Path:
 
 class AgentRunRequest(BaseModel):
     run_id: str
-    runtime_type: str  # claude | codex | agy (antigravity accepted as legacy alias)
+    runtime_type: str  # claude | codex | agy (antigravity accepted as legacy alias) | hermes
     project_path: str
     prompt: str
     model_ref: str = "forgerouter/auto"
@@ -769,6 +769,9 @@ class AgentRunRequest(BaseModel):
     api_key: str = ""
     mode: str = "execute"  # plan | execute
     max_seconds: int = 1800
+    # Required when runtime_type == "hermes": which /root/.hermes/profiles/<slug>
+    # to run as (Athos, Aegis, ...). Ignored for every other runtime_type.
+    hermes_profile: str | None = None
     max_budget_usd: float | None = None
     work_package_hash: str | None = None
 
@@ -797,38 +800,100 @@ def _antigravity_env(project_dir: Path) -> dict[str, str]:
 def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[str], dict[str, str]]:
     if req.mode not in {"plan", "execute"}:
         raise HTTPException(status_code=400, detail="mode must be plan or execute")
-    if req.runtime_type not in {"claude", "codex", "agy", "antigravity"}:
+    if req.runtime_type not in {"claude", "codex", "agy", "antigravity", "hermes", "openclaw"}:
         raise HTTPException(status_code=400, detail="unsupported runtime_type")
     if not 30 <= req.max_seconds <= 7200:
         raise HTTPException(status_code=400, detail="max_seconds must be between 30 and 7200")
     if len(req.prompt) > 100_000:
         raise HTTPException(status_code=400, detail="prompt is too large")
 
+    if req.runtime_type == "hermes":
+        # Classic Hermes-profile agents (Athos, Aegis, ...) already have
+        # their own model/provider configured per-profile (config.yaml) --
+        # unlike claude/codex/agy they don't take a ForgeRouter credential
+        # from this request, so model_args/agent_env below don't apply.
+        # This is a one-shot CLI invocation scoped to the profile's own
+        # HERMES_HOME; it runs alongside that profile's persistent
+        # `gateway run` daemon (same HERMES_HOME/state.db, SQLite WAL mode
+        # -- verified concurrent-safe 2026-07-25), not a replacement for it.
+        if not req.hermes_profile:
+            raise HTTPException(status_code=400, detail="hermes_profile is required for hermes runtime_type")
+        profile_home = Path("/root/.hermes/profiles") / req.hermes_profile
+        if not profile_home.is_dir():
+            raise HTTPException(status_code=400, detail=f"unknown hermes profile: {req.hermes_profile}")
+        hermes_env = os.environ.copy()
+        hermes_env["HERMES_HOME"] = str(profile_home)
+        return (
+            [
+                "/usr/local/bin/hermes",
+                "chat",
+                "-q",
+                req.prompt,
+                "-Q",
+                "--yolo",
+            ],
+            hermes_env,
+        )
+
+    if req.runtime_type == "openclaw":
+        # Vector (Marcelo's personal OpenClaw assistant) already runs as a
+        # persistent daemon (openclaw-gateway.service) with its own
+        # ForgeRouter credential wired into openclaw.json
+        # (models.providers.forgerouter) -- same "agent already has its own
+        # credential" pattern as "hermes" above, no req.api_key needed. The
+        # only configured agent id on this host is "main" (identity: Vector
+        # -- confirmed via `openclaw agents list` 2026-07-25).
+        return (
+            [
+                "/root/.npm-global/bin/openclaw",
+                "agent",
+                "--agent",
+                "main",
+                "--message",
+                req.prompt,
+                "--json",
+            ],
+            os.environ.copy(),
+        )
+
     routing_groups = {"auto", "simple", "standard", "complex", "reasoning", "vision", "audio", "code"}
     if req.routing_group not in routing_groups:
         raise HTTPException(status_code=400, detail="unsupported ForgeRouter routing_group")
+    # req.api_key is only set when the Agent row in ForgeHub has a
+    # ForgeRouter credential configured. Porthos/Aramis/Dartan each have
+    # their own native CLI auth already logged in on this host (Claude
+    # Code subscription, Codex's own auth.json, Antigravity's own OAuth
+    # token under ~/.gemini/antigravity-cli/) -- with no ForgeRouter key
+    # on file, dispatch falls back to that native auth instead of forcing
+    # ForgeRouter with an empty/invalid key (which would 401). Same
+    # "agent already has its own credential" pattern as runtime_type ==
+    # "hermes" above.
+    use_forgerouter = bool(req.api_key)
     effective_model = (
         f"forgerouter/{req.routing_group}"
         if req.model_ref == "forgerouter/auto"
         else req.model_ref
     )
-    model_args = ["--model", effective_model]
+    model_args = ["--model", effective_model] if use_forgerouter else []
     agent_env = os.environ.copy()
-    agent_env.update({
-        "FORGEROUTER_API_KEY": req.api_key,
-        "FORGEROUTER_MODEL": effective_model,
-        "OPENAI_API_KEY": req.api_key,
-        "ANTHROPIC_AUTH_TOKEN": req.api_key,
-        "ANTHROPIC_API_KEY": req.api_key,
-    })
+    if use_forgerouter:
+        agent_env.update({
+            "FORGEROUTER_API_KEY": req.api_key,
+            "FORGEROUTER_MODEL": effective_model,
+            "OPENAI_API_KEY": req.api_key,
+            "ANTHROPIC_AUTH_TOKEN": req.api_key,
+            "ANTHROPIC_API_KEY": req.api_key,
+        })
     if req.runtime_type == "claude":
-        # Without this, ANTHROPIC_API_KEY above still points `claude` at the
-        # real Anthropic API with a ForgeRouter-issued key -> 401 Invalid
-        # API key. Same fix /root/.claude/scripts/claude_fallback.sh already
-        # applies, and the same constant _configure_claude_forgerouter
-        # already uses for the project-settings.json flow -- just never
-        # wired into this ad hoc agent-runs dispatch path before now.
-        agent_env = {**agent_env, "ANTHROPIC_BASE_URL": FORGEROUTER_ANTHROPIC_BASE_URL}
+        if use_forgerouter:
+            # Without this, ANTHROPIC_API_KEY above still points `claude` at
+            # the real Anthropic API with a ForgeRouter-issued key -> 401
+            # Invalid API key. Same fix
+            # /root/.claude/scripts/claude_fallback.sh already applies, and
+            # the same constant _configure_claude_forgerouter already uses
+            # for the project-settings.json flow -- just never wired into
+            # this ad hoc agent-runs dispatch path before now.
+            agent_env = {**agent_env, "ANTHROPIC_BASE_URL": FORGEROUTER_ANTHROPIC_BASE_URL}
         command = [
             "/root/.local/bin/claude",
             "--print",
@@ -846,10 +911,13 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
 
     if req.runtime_type == "codex":
         codex_overrides: list[str] = []
-        if effective_model.startswith("forgerouter/"):
+        if use_forgerouter and effective_model.startswith("forgerouter/"):
             # -c overrides, not the project's .codex/config.toml: Codex
             # ignores model_provider/model_providers from project-local
-            # files (see FORGEROUTER_CODEX_OVERRIDES comment above).
+            # files (see FORGEROUTER_CODEX_OVERRIDES comment above). Skipped
+            # entirely when running on Codex's own native auth.json login
+            # (use_forgerouter False) -- those overrides would otherwise
+            # force Codex's provider back to ForgeRouter.
             for override in FORGEROUTER_CODEX_OVERRIDES:
                 codex_overrides += ["-c", override]
         return (
@@ -880,7 +948,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             f"{req.max_seconds}s",
             *model_args,
         ],
-        {**_antigravity_env(project_dir), **agent_env},
+        {**_antigravity_env(project_dir), **agent_env} if use_forgerouter else agent_env,
     )
 
 
@@ -989,6 +1057,8 @@ async def agent_runner_health(x_bridge_token: str | None = Header(default=None))
         "claude": {"available": Path("/root/.local/bin/claude").exists()},
         "codex": {"available": Path("/root/.npm-global/bin/codex").exists()},
         "agy": {"available": Path("/root/.local/bin/agy").exists()},
+        "hermes": {"available": Path("/usr/local/bin/hermes").exists()},
+        "openclaw": {"available": Path("/root/.npm-global/bin/openclaw").exists()},
     }
     return {
         "status": "ok" if any(item["available"] for item in adapters.values()) else "degraded",

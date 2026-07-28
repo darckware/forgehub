@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import {
+  ArrowLeft,
   Bot,
   Eye,
   Loader2,
@@ -342,6 +344,15 @@ export default function ToolsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 w-full flex-col gap-4 p-6">
+      {/* This page has no sidebar entry (2026-07-26) -- it is reached from the
+          Agents header -- so it must carry its own way back. */}
+      <Link
+        to="/agents"
+        className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        {t("page.backToAgents")}
+      </Link>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold flex items-center gap-2">
           <Wrench className="h-5 w-5" /> {t("page.title")}

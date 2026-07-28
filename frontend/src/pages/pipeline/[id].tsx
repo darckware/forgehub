@@ -43,7 +43,6 @@ import {
   type StageProgress,
 } from "@/hooks/usePipeline";
 import { useProjects } from "@/hooks/useProject";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { useActionPermission } from "@/hooks/usePermission";
 
 const STAGE_STATUS_VARIANT: Record<
@@ -460,13 +459,6 @@ export default function PipelineDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumb
-        items={[
-          { label: t("list.title"), href: "/pipeline" },
-          { label: pipeline?.name ?? "…" },
-        ]}
-      />
-
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />

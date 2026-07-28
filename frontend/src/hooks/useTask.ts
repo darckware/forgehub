@@ -138,6 +138,10 @@ export type TaskAssignment = z.infer<typeof taskAssignmentSchema>;
 
 export const projectTaskSchema = z.object({
   id: z.string(),
+  // Server-assigned display number (#1, #2, ...) -- a real Postgres
+  // IDENTITY column (see ProjectTask.number's docstring backend-side),
+  // always set from creation regardless of kanboard_task_id below.
+  number: z.number(),
   planning_item_id: z.string().nullable().optional(),
   change_request_id: z.string().nullable().optional(),
   // Computed by the backend (task.py's _attach_project_ids) from whichever
@@ -147,6 +151,11 @@ export const projectTaskSchema = z.object({
   // to be sent from here too, which is why every task looked unlinked from
   // its project on screen -- fixed 2026-07-16).
   project_id: z.string().nullable().optional(),
+  // Computed by the backend (core/task_health.py's compute_health_map) --
+  // "ok" | "overdue" (deadline passed, never executed) | "stalled"
+  // (execution stuck pending/running) | "failed" (latest execution
+  // failed). Never sent on create/update.
+  health: z.enum(["ok", "overdue", "stalled", "failed"]).default("ok"),
   parent_task_id: z.string().nullable().optional(),
   policy_id: z.string().nullable().optional(),
   title: z.string(),
@@ -411,6 +420,37 @@ export function useCreateTaskRequiredSkill(taskId: string) {
       // Eligibility (Governed CLI execution card) is computed from required
       // skills -- keep it in sync with a fresh required-skills row.
       queryClient.invalidateQueries({ queryKey: ["eligible-memberships", taskId] });
+    },
+  });
+}
+
+/** Despacha a task pelo processo de Mensagens.
+ *
+ * Decisão do Marcelo (2026-07-26): toda tarefa é executada pelo canal de
+ * mensagens -- este hook não fala com nenhum runner, ele chama
+ * POST /api/v1/tasks/{id}/dispatch, que cria a mensagem vinculada
+ * (origin_type="task") e a entrega ao mesmo dispatch que o Messages já usa
+ * para comunicação entre agentes. Invalida também a lista de mensagens,
+ * já que a chamada cria uma. */
+export interface TaskInboxDispatch {
+  task_id: string;
+  task_status: string;
+  demand_id: string;
+  demand_number: number;
+  target_agent_id: string;
+  dispatch_status: string | null;
+  agent_run_id: string | null;
+}
+
+export function useDispatchTask(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { target_agent_id?: string; command_text?: string; requires_response?: boolean } = {}) =>
+      apiClient.post<TaskInboxDispatch>(`/api/v1/tasks/${taskId}/dispatch`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
+      queryClient.invalidateQueries({ queryKey: taskKeys.all });
+      queryClient.invalidateQueries({ queryKey: ["demands"] });
     },
   });
 }

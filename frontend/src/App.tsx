@@ -17,6 +17,7 @@ import TaskDetailPage from "@/pages/task/[id]";
 import AgentPage from "@/pages/agent";
 import AgentDetailPage from "@/pages/agent/[id]";
 import ToolsPage from "@/pages/tools";
+import McpPage from "@/pages/mcp";
 import PromptCommandsPage from "@/pages/prompt-commands";
 import SkillsPage from "@/pages/skills";
 import AuditorPage from "@/pages/auditor";
@@ -49,6 +50,11 @@ import SettingsPage from "@/pages/settings";
 import ConceptionPage from "@/pages/conception";
 import SystemMapPage from "@/pages/system-map";
 import ProjectScopePage from "@/pages/project-scope";
+import CockpitPage from "@/pages/cockpit";
+
+import ScreenInspectorPage from "@/pages/screen-inspector";
+import ConceptErdViewerPage from "@/pages/concept-erd";
+import VersionClosurePage from "@/pages/version-closure";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -91,6 +97,7 @@ export default function App() {
         <Route path="agents" element={<AgentPage />} />
         <Route path="agents/:id" element={<AgentDetailPage />} />
         <Route path="tools" element={<ToolsPage />} />
+        <Route path="mcp" element={<McpPage />} />
         <Route path="prompt-commands" element={<PromptCommandsPage />} />
         <Route path="skills" element={<SkillsPage />} />
         <Route path="artifact" element={<ArtifactPage />} />
@@ -113,6 +120,12 @@ export default function App() {
         <Route path="servers" element={<ServersPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="profiles" element={<ProfilesPage />} />
+        
+        <Route path="screen-inspector" element={<ScreenInspectorPage />} />
+        <Route path="concept-erd" element={<ConceptErdViewerPage />} />
+        <Route path="screen-rules" element={<ScreenInspectorPage />} />
+        <Route path="version-closure" element={<VersionClosurePage />} />
+        <Route path="cockpit" element={<CockpitPage />} />
         <Route path="database" element={<DatabaseLayout />}>
           <Route index element={<DatabaseSchemaPage />} />
           <Route path="schema" element={<DatabaseSchemaPage />} />

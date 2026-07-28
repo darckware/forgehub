@@ -172,9 +172,14 @@ def _target_filter(model, product_id: uuid.UUID | None, standalone_app_id: uuid.
 async def _resolve_start_url(db: AsyncSession, product_id: uuid.UUID | None, standalone_app_id: uuid.UUID | None) -> str:
     if product_id:
         product = await db.get(Product, product_id)
-        if not product or not product.application_url:
+        # Production first, dev as the fallback: since the URL was split per
+        # environment (2026-07-26) a product may have only its dev environment
+        # up, and demanding the production one would leave that case with
+        # nothing to open. Mirrors WebAppPane.tsx's selectProduct.
+        url = product and (product.application_url or product.application_url_dev)
+        if not url:
             raise HTTPException(409, "Product application URL is not configured")
-        return product.application_url
+        return url
     app = await db.get(StandaloneApp, standalone_app_id)
     if not app:
         raise HTTPException(404, "Standalone app not found")

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
+  Columns3,
   Download,
   Layers,
   Loader2,
@@ -20,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useDatabaseSchema } from "@/hooks/useDatabase";
 import type { SchemaOut } from "@/hooks/useDatabase";
-import { buildMermaidERD, renderMermaid } from "@/lib/mermaidErd";
+import { buildMermaidERD, injectMermaidSvg, renderMermaidToString } from "@/lib/mermaidErd";
 import { useSchema } from "./SchemaContext";
 import { useTranslation } from "react-i18next";
 
@@ -35,6 +36,19 @@ interface DiagramConfig {
 }
 
 const STORAGE_KEY = "forgehub-db-diagrams";
+
+/** Above this many tables the diagram renders *compact* (entity boxes and
+ * relations, no attribute rows) unless the user explicitly asks for columns.
+ *
+ * `mermaid.render` lays out synchronously on the main thread and measures every
+ * attribute row through the DOM, so the cost tracks total column count. The
+ * default "Full Schema" diagram is the live `company` schema -- 102 tables /
+ * 1036 columns / 154 FKs -- which took ~12s and produced a ~2.9 MB SVG: the tab
+ * froze on page open, before the user did anything. Compact renders the same
+ * 102 tables in ~1.8s / ~265 KB. Measured at 20 tables ~2.3s, 40 ~4.7s, 60
+ * ~8.2s, so the cutoff sits just below the point where a render stops feeling
+ * like a wait and starts feeling like a hang. */
+const AUTO_FULL_TABLE_LIMIT = 25;
 
 const DEFAULT_DIAGRAMS: DiagramConfig[] = [
   { id: "all", name: "Full Schema", tables: "all" },
@@ -146,23 +160,51 @@ export default function DiagramPage() {
   const [renderError, setRenderError] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
 
+  const [showColumns, setShowColumns] = useState(false);
+
   const svgRef = useRef<HTMLDivElement>(null);
+  const renderSeq = useRef(0);
   const activeDiagram = diagrams.find((d) => d.id === activeId) ?? diagrams[0];
-  const allTables = schema?.tables.map((t) => t.name) ?? [];
+  const allTables = useMemo(() => schema?.tables.map((t) => t.name) ?? [], [schema]);
+
+  const activeTableCount = activeDiagram.tables === "all" ? allTables.length : activeDiagram.tables.length;
+  const isLarge = activeTableCount > AUTO_FULL_TABLE_LIMIT;
+  const compact = isLarge && !showColumns;
 
   // Persist on change
   useEffect(() => { saveDiagrams(diagrams); }, [diagrams]);
 
-  // Re-render when active diagram or schema changes
+  // Switching diagrams re-arms the guard: "show columns" is a per-diagram
+  // decision, otherwise opening a 5-table diagram and then the full schema
+  // would silently inherit the expensive mode and freeze the tab again.
+  useEffect(() => { setShowColumns(false); }, [activeId]);
+
+  // Re-render when active diagram, schema, or column visibility changes
   useEffect(() => {
     if (!schema || !svgRef.current || editing || creating) return;
+    const container = svgRef.current;
+    const seq = ++renderSeq.current;
     setRenderError(null);
     setRendering(true);
-    const definition = buildMermaidERD(schema, activeDiagram.tables);
-    renderMermaid(definition, svgRef.current)
-      .then(() => setRendering(false))
-      .catch((e) => { setRenderError(String(e)); setRendering(false); });
-  }, [schema, activeId, editing, creating, activeDiagram]);
+    const definition = buildMermaidERD(schema, activeDiagram.tables, { compact });
+    // Defer past a paint: mermaid's layout blocks the main thread, so kicking it
+    // off in the same task as setRendering(true) means the spinner never gets
+    // drawn and the seconds that follow read as a dead tab rather than as work.
+    const timer = window.setTimeout(() => {
+      renderMermaidToString(definition)
+        .then((svg) => {
+          if (seq !== renderSeq.current) return; // superseded mid-render
+          injectMermaidSvg(svg, container);
+          setRendering(false);
+        })
+        .catch((e) => {
+          if (seq !== renderSeq.current) return;
+          setRenderError(String(e));
+          setRendering(false);
+        });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [schema, activeId, editing, creating, activeDiagram, compact]);
 
   const startCreate = () => {
     setCreating(true);
@@ -333,6 +375,18 @@ export default function DiagramPage() {
               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setZoom((z) => Math.min(2, z + 0.15))} title={t('database:diagram.zoomIn')}>
                 <ZoomIn className="h-3.5 w-3.5" />
               </Button>
+              {isLarge && (
+                <Button
+                  size="sm"
+                  variant={showColumns ? "secondary" : "ghost"}
+                  className="h-7 px-2 gap-1 text-xs"
+                  onClick={() => setShowColumns((v) => !v)}
+                  title={showColumns ? undefined : t('database:diagram.showColumnsWarning', { count: activeTableCount })}
+                >
+                  <Columns3 className="h-3.5 w-3.5" />
+                  {showColumns ? t('database:diagram.hideColumns') : t('database:diagram.showColumns')}
+                </Button>
+              )}
               <Button size="sm" variant="ghost" className="h-7 px-2 gap-1 text-xs" onClick={() => refetch()} disabled={isFetching}>
                 <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
               </Button>
@@ -345,6 +399,12 @@ export default function DiagramPage() {
                 <Download className="h-3.5 w-3.5" /> {t('database:diagram.svg')}
               </Button>
             </div>
+
+            {compact && (
+              <div className="shrink-0 px-4 py-1.5 border-b border-border bg-muted/30 text-[11px] text-muted-foreground">
+                {t('database:diagram.compactNotice', { count: activeTableCount })}
+              </div>
+            )}
 
             <div className="flex-1 min-h-0 overflow-auto bg-muted/10 relative p-4">
               {schemaLoading ? (
@@ -367,7 +427,14 @@ export default function DiagramPage() {
                   )}
                   <div
                     ref={svgRef}
-                    style={{ transform: `scale(${zoom})`, transformOrigin: "top left", transition: "transform 0.15s" }}
+                    style={{
+                      transform: `scale(${zoom})`,
+                      transformOrigin: "top left",
+                      // Animating the scale of a large SVG re-rasterizes tens of
+                      // thousands of vector nodes each frame; only worth it when
+                      // the diagram is small enough for it to stay smooth.
+                      transition: isLarge ? undefined : "transform 0.15s",
+                    }}
                     className="w-full"
                   />
                 </>
@@ -385,18 +452,40 @@ export default function DiagramPage() {
 // ---------------------------------------------------------------------------
 
 function DiagramPreview({ schema, tables }: { schema: SchemaOut; tables: string[] }) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
+  const seqRef = useRef(0);
   const [err, setErr] = useState<string | null>(null);
 
+  const compact = tables.length > AUTO_FULL_TABLE_LIMIT;
+
+  // Debounced: every checkbox click changes `tables`, and "All" jumps straight
+  // to the whole schema. Rendering on each change would queue one multi-second
+  // main-thread layout per keystroke/click and lock the editor.
   useEffect(() => {
     if (!ref.current || tables.length === 0) return;
+    const container = ref.current;
+    const seq = ++seqRef.current;
     setErr(null);
-    const definition = buildMermaidERD(schema, tables);
-    renderMermaid(definition, ref.current).catch((e) => setErr(String(e)));
-  }, [schema, tables]);
+    const timer = window.setTimeout(() => {
+      renderMermaidToString(buildMermaidERD(schema, tables, { compact }))
+        .then((svg) => { if (seq === seqRef.current) injectMermaidSvg(svg, container); })
+        .catch((e) => { if (seq === seqRef.current) setErr(String(e)); });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [schema, tables, compact]);
 
   if (err) {
     return <p className="text-xs text-destructive">{err}</p>;
   }
-  return <div ref={ref} className="w-full" />;
+  return (
+    <div className="w-full">
+      {compact && (
+        <p className="text-[10px] text-muted-foreground mb-2">
+          {t('database:diagram.compactNotice', { count: tables.length })}
+        </p>
+      )}
+      <div ref={ref} className="w-full" />
+    </div>
+  );
 }

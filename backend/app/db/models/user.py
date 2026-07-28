@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
 
-UI_LANGUAGES = ("en", "pt-BR")
+UI_LANGUAGES = ("en", "pt-BR", "es")
 
 
 class User(Base, TimestampMixin):
@@ -44,5 +44,5 @@ class User(Base, TimestampMixin):
     )
 
     __table_args__ = (
-        CheckConstraint("ui_language IN ('en', 'pt-BR')", name="ck_users_ui_language"),
+        CheckConstraint("ui_language IN ('en', 'pt-BR', 'es')", name="ck_users_ui_language"),
     )

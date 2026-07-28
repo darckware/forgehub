@@ -19,7 +19,7 @@ BACKEND_PID_FILE="$STATE_DIR/backend.pid"
 FRONTEND_PID_FILE="$STATE_DIR/frontend.pid"
 
 BACKEND_PORT=8001
-FRONTEND_PORT=5173
+FRONTEND_PORT=5172
 
 mkdir -p "$LOG_DIR"
 
@@ -109,13 +109,18 @@ start_backend() {
     exit 1
   fi
   info "Starting backend (uvicorn --reload) on :$BACKEND_PORT ..."
-  (
-    cd "$BACKEND_DIR" && \
-    nohup .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT" \
-      > "$LOG_DIR/backend.log" 2>&1 &
-    echo $! > "$BACKEND_PID_FILE"
-    disown
-  )
+  python3 -c "
+import subprocess
+p = subprocess.Popen(
+    ['.venv/bin/uvicorn', 'app.main:app', '--reload', '--host', '0.0.0.0', '--port', '$BACKEND_PORT'],
+    cwd='$BACKEND_DIR',
+    stdout=open('$LOG_DIR/backend.log', 'a'),
+    stderr=subprocess.STDOUT,
+    start_new_session=True
+)
+with open('$BACKEND_PID_FILE', 'w') as f:
+    f.write(str(p.pid))
+"
   wait_for_http "http://localhost:$BACKEND_PORT/health" "backend" "$LOG_DIR/backend.log"
 }
 
@@ -131,14 +136,21 @@ start_frontend() {
     exit 1
   fi
   info "Starting frontend (vite dev) on :$FRONTEND_PORT ..."
-  (
-    cd "$FRONTEND_DIR" && \
-    VITE_API_URL="http://localhost:$BACKEND_PORT" \
-      nohup npm run dev -- --port "$FRONTEND_PORT" --host \
-      > "$LOG_DIR/frontend.log" 2>&1 &
-    echo $! > "$FRONTEND_PID_FILE"
-    disown
-  )
+  python3 -c "
+import os, subprocess
+env = os.environ.copy()
+env['VITE_API_URL'] = 'http://localhost:$BACKEND_PORT'
+p = subprocess.Popen(
+    ['npm', 'run', 'dev', '--', '--port', '$FRONTEND_PORT', '--host'],
+    cwd='$FRONTEND_DIR',
+    env=env,
+    stdout=open('$LOG_DIR/frontend.log', 'a'),
+    stderr=subprocess.STDOUT,
+    start_new_session=True
+)
+with open('$FRONTEND_PID_FILE', 'w') as f:
+    f.write(str(p.pid))
+"
   wait_for_http "http://localhost:$FRONTEND_PORT" "frontend" "$LOG_DIR/frontend.log"
 }
 

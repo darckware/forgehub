@@ -9,7 +9,7 @@ import { initReactI18next } from "react-i18next";
 // first paint before that sync effect runs still pick up the last choice.
 export const UI_LANGUAGE_STORAGE_KEY = "forgehub-ui-language";
 
-export const SUPPORTED_UI_LANGUAGES = ["en", "pt-BR"] as const;
+export const SUPPORTED_UI_LANGUAGES = ["en", "pt-BR", "es"] as const;
 
 export const NAMESPACES = ["artifact", "auditor", "crons", "deploy", "forgerouter"] as const;
 export type UiLanguage = (typeof SUPPORTED_UI_LANGUAGES)[number];

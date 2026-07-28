@@ -381,7 +381,7 @@ export default function HindsightPage() {
               ))}
             </div>
           </div>
-          <div className="overflow-hidden rounded-md border">
+          <div className="max-h-80 overflow-y-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>

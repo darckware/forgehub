@@ -279,6 +279,7 @@ export default function TaskPage() {
                   <TableRow key={task.id}>
                     <TableCell>
                       <Link to={`/tasks/${task.id}`} className="font-medium hover:underline">
+                        <span className="mr-1 text-muted-foreground">#{task.number}</span>
                         {task.title}
                       </Link>
                       {task.parent_task_id && (
@@ -286,9 +287,16 @@ export default function TaskPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANT[task.status] ?? "outline"}>
-                        {t(`enums.taskStatus.${task.status}`, task.status.replace("_", " "))}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        {task.health !== "ok" && (
+                          <span title={t(`enums.taskHealth.${task.health}`, task.health)}>
+                            <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                          </span>
+                        )}
+                        <Badge variant={STATUS_VARIANT[task.status] ?? "outline"}>
+                          {t(`enums.taskStatus.${task.status}`, task.status.replace("_", " "))}
+                        </Badge>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant={PRIORITY_VARIANT[task.priority] ?? "outline"}>

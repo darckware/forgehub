@@ -65,6 +65,25 @@ class ProjectTaskCreate(ProjectTaskBase):
     pass
 
 
+class TaskSubmitIn(BaseModel):
+    """Body for POST /tasks/submit -- lets any Hermes agent on the host
+    (bridge token, same trust boundary as demand.py's /submit) log a task
+    directly, without a human triaging it through the Inbox first. Creates
+    a minimal PlanningItem + the task under it in one call (core/conversions.
+    py's convert_to_quick_task -- same "task avulsa" shortcut the Inbox's
+    quick_task convert target already uses), since a task can never exist
+    without a planning item per the core traceability invariant."""
+
+    project_id: uuid.UUID
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1)
+    item_type: str | None = None
+    # Free-text, e.g. a Hermes profile slug -- purely for the audit trail
+    # (prefixed onto the description), not resolved against a real Agent
+    # row the way demand.py's from_agent_id is.
+    from_agent: str | None = None
+
+
 class ProjectTaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
@@ -95,6 +114,9 @@ class ProjectTaskOut(ProjectTaskBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    # Server-assigned display number -- see ProjectTask.number's docstring
+    # for why this exists independent of kanboard_task_id.
+    number: int
     planning_item_id: uuid.UUID | None = None
     change_request_id: uuid.UUID | None = None
     policy_id: uuid.UUID | None = None
@@ -107,6 +129,11 @@ class ProjectTaskOut(ProjectTaskBase):
     # every task looked unlinked from its project on screen (found during
     # the Planning end-to-end test, 2026-07-16).
     project_id: uuid.UUID | None = None
+    # Computed, read-only, same pattern as project_id above -- see
+    # core/task_health.py's module docstring for what each value means.
+    # The route layer attaches this via _attach_task_health before
+    # returning; never accepted on create/update.
+    health: str = "ok"
     status: str
     actual_cost: float | None = None
     started_at: datetime | None = None
@@ -311,3 +338,35 @@ class TaskExecutionOut(BaseModel):
     actual_cost: float | None = None
     created_at: datetime
     updated_at: datetime
+
+
+# --------------------------------------------------------------------------
+# Task dispatch (via the Inbox message process)
+# --------------------------------------------------------------------------
+class TaskInboxDispatchIn(BaseModel):
+    """Body for POST /tasks/{task_id}/dispatch.
+
+    `target_agent_id` is optional: when omitted the route resolves the
+    agent from the task's own active assignment, so the common path is a
+    body-less dispatch of an already-assigned task.
+    """
+
+    target_agent_id: uuid.UUID | None = None
+    # Extra instruction prepended to the task context in the prompt, same
+    # role as AgentDemand.command_text in an Inbox dispatch.
+    command_text: str | None = None
+    # Whether the agent's reply should come back as a linked Inbox item.
+    requires_response: bool = True
+
+
+class TaskInboxDispatchOut(BaseModel):
+    """What the caller needs to follow the run: the task's new status plus
+    the Inbox message that actually carries the execution."""
+
+    task_id: uuid.UUID
+    task_status: str
+    demand_id: uuid.UUID
+    demand_number: int
+    target_agent_id: uuid.UUID
+    dispatch_status: str | None = None
+    agent_run_id: str | None = None

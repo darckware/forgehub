@@ -47,7 +47,10 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
   const [isMandatory, setIsMandatory] = useState(true);
   const [minimumProficiency, setMinimumProficiency] = useState("");
 
-  const taskTitle = (id: string) => allTasks.find((t) => t.id === id)?.title ?? id.slice(0, 8) + "…";
+  const taskTitle = (id: string) => {
+    const task = allTasks.find((t) => t.id === id);
+    return task ? `#${task.number} ${task.title}` : id.slice(0, 8) + "…";
+  };
   const skillName = (id: string) => skills.find((s) => s.id === id)?.name ?? id.slice(0, 8) + "…";
   // Excludes this task and anything it already depends on -- the backend
   // rejects a direct A->B/B->A cycle anyway, but this keeps the picker from
@@ -140,7 +143,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
                 <option value="">Select a task this one depends on…</option>
                 {dependencyCandidates.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.title}
+                    #{t.number} {t.title}
                   </option>
                 ))}
               </Select>

@@ -35,13 +35,20 @@ async def dispatch_agent_run(
     max_budget_usd: float | None = None,
 ) -> dict:
     """POST /v1/agent-runs for `agent`. Raises AgentRunDispatchError if the
-    agent can't be dispatched at all (no credential/runtime_type); raises
-    httpx.HTTPError if the host-bridge call itself fails."""
+    agent can't be dispatched at all (no runtime_type/profile_slug); raises
+    httpx.HTTPError if the host-bridge call itself fails.
+
+    A ForgeRouter credential (forgerouter_api_key_encrypted) is optional,
+    not required: Porthos/Aramis/Dartan each already have their own native
+    CLI auth logged in on the host (Claude Code subscription, Codex's own
+    auth.json, Antigravity's own OAuth token) independent of ForgeRouter.
+    When unset, host-bridge's _agent_run_command dispatches on that native
+    auth instead of forcing ForgeRouter with an empty key."""
     if not agent.runtime_type:
         raise AgentRunDispatchError(f"Agent '{agent.name}' has no runtime_type for CLI dispatch")
-    if not agent.forgerouter_api_key_encrypted:
-        raise AgentRunDispatchError(f"Agent '{agent.name}' has no ForgeRouter credential")
-    api_key = decrypt_secret(agent.forgerouter_api_key_encrypted)
+    if agent.runtime_type == "hermes" and not agent.profile_slug:
+        raise AgentRunDispatchError(f"Agent '{agent.name}' has no profile_slug for hermes dispatch")
+    api_key = decrypt_secret(agent.forgerouter_api_key_encrypted) if agent.forgerouter_api_key_encrypted else ""
 
     body = {
         "run_id": run_id,
@@ -54,6 +61,7 @@ async def dispatch_agent_run(
         "mode": mode,
         "max_seconds": max_seconds,
         "max_budget_usd": max_budget_usd,
+        "hermes_profile": agent.profile_slug if agent.runtime_type == "hermes" else None,
     }
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(

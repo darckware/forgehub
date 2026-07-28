@@ -30,7 +30,8 @@
       "delete": "Excluir"
     },
     "delete": {
-      "confirm": "Excluir usuário \"{{username}}?"
+      "confirm": "Excluir usuário \"{{username}}\"?",
+      "description": "Esta ação não pode ser desfeita. O usuário perderá acesso imediatamente."
     },
     "form": {
       "usernameLabel": "Nome de usuário *",

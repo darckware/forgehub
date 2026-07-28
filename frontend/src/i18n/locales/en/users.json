@@ -30,7 +30,8 @@
       "delete": "Delete"
     },
     "delete": {
-      "confirm": "Delete user \"{{username}}?"
+      "confirm": "Delete user \"{{username}}\"?",
+      "description": "This action cannot be undone. The user will lose access immediately."
     },
     "form": {
       "usernameLabel": "Username *",

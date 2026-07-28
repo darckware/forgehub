@@ -33,6 +33,7 @@ from app.api.routes import (
     demand,
     execution,
     docs,
+    factory,
     forgerouter,
     foundation,
     foundation_docs,
@@ -69,7 +70,20 @@ app = FastAPI(title="ForgeHub (ForgeHub) API", version="0.1.0")
 # -- just the login endpoint itself, which is how a client gets a token in
 # the first place.
 # /audit/run-internal self-guards with the shared bridge token (see audit.py).
-_PUBLIC_API_PATHS = {"/api/v1/auth/token", "/api/v1/audit/run-internal", "/api/v1/demands/submit"}
+_PUBLIC_API_PATHS = {
+    "/api/v1/auth/token",
+    "/api/v1/audit/run-internal",
+    "/api/v1/demands/submit",
+    # An agent's own cron/loop pulling its pending mail -- see
+    # demand.py's list_pending_for_agent docstring.
+    "/api/v1/demands/pending",
+    # The read-only counterpart: an agent listing its own messages by status
+    # without consuming them (/pending is a queue) -- see list_for_agent.
+    "/api/v1/demands/for-agent",
+    # Any Hermes agent logging a task directly (project_id + planning item
+    # auto-created) -- see task.py's submit_task docstring.
+    "/api/v1/tasks/submit",
+}
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -143,6 +157,7 @@ app.include_router(project.router)
 app.include_router(pipeline.router)
 app.include_router(progress.router)
 app.include_router(execution.router)
+app.include_router(factory.router)
 app.include_router(backlog.router)
 app.include_router(task.router)
 app.include_router(agent.router)
@@ -188,6 +203,29 @@ TOOL_VERSION_POLL_INTERVAL_SECONDS = 900
 
 _tool_version_poll_task: asyncio.Task | None = None
 
+# How often the scheduled-send loop checks for demands whose scheduled_at
+# has come due. Short interval -- unlike tool version sync, a message
+# sitting in the queue past its scheduled time is directly user-visible.
+SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS = 30
+
+_scheduled_dispatch_poll_task: asyncio.Task | None = None
+
+# How often in-flight dispatches are polled to completion. Same interval as
+# the scheduled-send loop above and for the same reason: this is what turns
+# a finished agent run into a reply item in the Inbox, so latency here is
+# latency in an agent-to-agent conversation.
+DISPATCH_COMPLETION_POLL_INTERVAL_SECONDS = 30
+
+_dispatch_completion_poll_task: asyncio.Task | None = None
+
+# How often the task-health pass scans for overdue/stalled tasks (see
+# core/task_health.py). Much longer than the dispatch poll -- a missed
+# deadline or a stalled execution isn't as time-sensitive as a queued
+# message, and this pass walks every non-terminal task in the system.
+TASK_FAILURE_POLL_INTERVAL_SECONDS = 900
+
+_task_failure_poll_task: asyncio.Task | None = None
+
 
 async def _tool_version_poll_loop() -> None:
     from app.db.base import AsyncSessionLocal
@@ -204,6 +242,51 @@ async def _tool_version_poll_loop() -> None:
         except Exception:
             logger.exception("Tool version poll failed")
         await asyncio.sleep(TOOL_VERSION_POLL_INTERVAL_SECONDS)
+
+
+async def _scheduled_dispatch_poll_loop() -> None:
+    from app.api.routes.demand import run_scheduled_dispatch_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_scheduled_dispatch_pass(db)
+        except Exception:
+            logger.exception("Scheduled dispatch poll failed")
+        await asyncio.sleep(SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS)
+
+
+async def _dispatch_completion_poll_loop() -> None:
+    """Finishes dispatches whose agent run has ended -- creating the reply
+    item -- without needing the message open in a reading pane. Kept as its
+    own task rather than a second call inside the loop above: the two passes
+    fail independently (one talks to agent CLIs through the bridge, the
+    other only reads run status), and a slow dispatch shouldn't delay
+    delivering a reply that's already sitting there finished."""
+    from app.api.routes.demand import run_dispatch_completion_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_dispatch_completion_pass(db)
+        except Exception:
+            logger.exception("Dispatch completion poll failed")
+        await asyncio.sleep(DISPATCH_COMPLETION_POLL_INTERVAL_SECONDS)
+
+
+async def _task_failure_poll_loop() -> None:
+    from app.core.task_health import run_task_failure_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_task_failure_pass(db)
+        except Exception:
+            logger.exception("Task failure poll failed")
+        await asyncio.sleep(TASK_FAILURE_POLL_INTERVAL_SECONDS)
 
 
 @app.on_event("startup")
@@ -275,3 +358,48 @@ async def _stop_tool_version_poll() -> None:
     _tool_version_poll_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await _tool_version_poll_task
+
+
+@app.on_event("startup")
+async def _start_scheduled_dispatch_poll() -> None:
+    global _scheduled_dispatch_poll_task
+    _scheduled_dispatch_poll_task = asyncio.create_task(_scheduled_dispatch_poll_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_scheduled_dispatch_poll() -> None:
+    if _scheduled_dispatch_poll_task is None:
+        return
+    _scheduled_dispatch_poll_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _scheduled_dispatch_poll_task
+
+
+@app.on_event("startup")
+async def _start_dispatch_completion_poll() -> None:
+    global _dispatch_completion_poll_task
+    _dispatch_completion_poll_task = asyncio.create_task(_dispatch_completion_poll_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_dispatch_completion_poll() -> None:
+    if _dispatch_completion_poll_task is None:
+        return
+    _dispatch_completion_poll_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _dispatch_completion_poll_task
+
+
+@app.on_event("startup")
+async def _start_task_failure_poll() -> None:
+    global _task_failure_poll_task
+    _task_failure_poll_task = asyncio.create_task(_task_failure_poll_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_task_failure_poll() -> None:
+    if _task_failure_poll_task is None:
+        return
+    _task_failure_poll_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _task_failure_poll_task

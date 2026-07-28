@@ -16,6 +16,7 @@ from app.api.schemas.user import (
     UserOut,
     UserUpdate,
 )
+from app.core.config import settings
 from app.core.deps import get_current_admin, get_current_user
 from app.core.security import hash_password, verify_password
 from app.db.base import get_db
@@ -48,6 +49,7 @@ async def create_user(
         email=body.email,
         full_name=body.full_name,
         is_admin=body.is_admin,
+        ui_language=settings.DEFAULT_UI_LANGUAGE,
     )
     db.add(user)
     await db.commit()

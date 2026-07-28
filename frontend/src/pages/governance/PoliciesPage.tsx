@@ -340,7 +340,9 @@ function PolicyTasksRow({ policyId }: { policyId: string }) {
             } className="text-xs shrink-0">
               {task.status.replace("_", " ")}
             </StatusBadge>
-            <span className="truncate">{task.title}</span>
+            <span className="truncate">
+              <span className="text-muted-foreground">#{task.number}</span> {task.title}
+            </span>
           </div>
         ))}
       </div>

@@ -18,12 +18,20 @@
     "refresh": "Refresh",
     "edit": "Edit",
     "svg": "SVG",
-    "diagramNamePlaceholder": "Diagram name...",
     "cancel": "Cancel",
     "save": "Save",
     "tablesSelected": "{{count}} table(s) selected",
     "tablesCount": "{{count}} tables",
-    "deleteDiagram": "Delete diagram"
+    "deleteDiagram": "Delete diagram",
+    "placeholderName": "Diagram name...",
+    "tables": "tables",
+    "loading": "Loading...",
+    "loadingSchema": "Loading schema...",
+    "renderError": "Failed to render the diagram",
+    "showColumns": "Show columns",
+    "hideColumns": "Hide columns",
+    "showColumnsWarning": "Rendering {{count}} tables with every column can freeze the tab for several seconds.",
+    "compactNotice": "{{count}} tables — columns hidden to keep the diagram responsive. Use \"Show columns\" for the full detail."
   },
   "query": {
     "sqlEditor": "SQL Editor",

@@ -3,6 +3,7 @@ import { Loader2, Plus, Pencil, Trash2, ShieldCheck, ShieldOff, User } from "luc
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useUsers, useDeleteUser, useProfiles } from "@/hooks/useAuth";
 import { useAuthStore } from "@/store/authStore";
 import UserForm from "./UserForm";
@@ -17,14 +18,20 @@ export default function UsersPage() {
   const currentUser = useAuthStore((s) => s.user);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-
-  const handleDelete = async (id: string, username: string) => {
-    if (!confirm(t("users.delete.confirm", { username }))) return;
-    await deleteMut.mutateAsync(id);
-  };
+  const [deleting, setDeleting] = useState<{ id: string; username: string } | null>(null);
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-4">
+      <ConfirmDialog
+        open={deleting !== null}
+        title={t("users.delete.confirm", { username: deleting?.username ?? "" })}
+        description={t("users.delete.description")}
+        loading={deleteMut.isPending}
+        onConfirm={() => {
+          if (deleting) deleteMut.mutate(deleting.id, { onSuccess: () => setDeleting(null) });
+        }}
+        onCancel={() => setDeleting(null)}
+      />
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold flex items-center gap-2">
           <User className="h-5 w-5" /> {t("users.list.title")}
@@ -108,7 +115,7 @@ export default function UsersPage() {
                           {u.id !== currentUser?.id && (
                             <Button
                               size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
-                              onClick={() => handleDelete(u.id, u.username)}
+                              onClick={() => setDeleting({ id: u.id, username: u.username })}
                               disabled={deleteMut.isPending}
                               title={t("users.action.delete")}
                             >

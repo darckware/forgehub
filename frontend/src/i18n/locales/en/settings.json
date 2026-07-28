@@ -8,12 +8,14 @@
       "forgeRouterModelsDescription": "Model IDs available to agents. Auto is the recommended primary model; explicit classes are useful when planning already knows the workload.",
       "gitControl": "Git Control",
       "gitControlDescription": "Fixed system entry System Control's Git Control card always offers.",
+      "agentRuntimePaths": "Agent runtime paths",
+      "agentRuntimePathsDescription": "Root config/state directory per agent runtime, for reference -- not used by Git Control or Backups. One entry per runtime, not per agent: every Hermes-profile agent (Athos, Aegis, ...) shares the \"hermes\" path.",
       "backups": "Backups",
       "backupsDescription": "Hermes backups land flat here; each backup-enabled project gets its own subdirectory unless it sets its own location.",
       "cleanup": "Cleanup & Trash",
       "cleanupDescription": "\"Run Cleanup\" invokes the same bounded Athos policy used by the weekly foundation-clear cron.",
-      "aiChat": "AI chat",
-      "aiChatDescription": "Response language for the AI chat (Workspace tabs and the Assistant panel). Sent to the agent as a hidden instruction on every message -- it never appears in the conversation.",
+      "aiChat": "Language",
+      "aiChatDescription": "Default interface language for new users, and the response language for the AI chat (Workspace tabs and the Assistant panel). The chat one is sent to the agent as a hidden instruction on every message -- it never appears in the conversation.",
       "general": "General"
     },
 
@@ -57,10 +59,19 @@
     },
 
     "aiChat": {
-      "chatResponseLanguage": {
+      "defaultUiLanguage": {
         "label": "System default language",
+        "inputId": "default_ui_language",
+        "help": "Initial interface language (menus, screens, forms) for newly created users. Each user can change their own language afterwards; this only sets the value they start with."
+      },
+      "chatResponseLanguage": {
+        "label": "Chat language",
         "inputId": "chat_response_language"
       },
+      "uiLanguages": [
+        { "value": "pt-BR", "label": "Português (Brasil)" },
+        { "value": "en", "label": "English" }
+      ],
       "languages": [
         { "value": "pt-BR", "label": "Português (Brasil)" },
         { "value": "en", "label": "English" },

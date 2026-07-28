@@ -18,12 +18,20 @@
     "refresh": "Atualizar",
     "edit": "Editar",
     "svg": "SVG",
-    "diagramNamePlaceholder": "Nome do diagrama...",
     "cancel": "Cancelar",
     "save": "Salvar",
     "tablesSelected": "{{count}} tabela(s) selecionada(s)",
     "tablesCount": "{{count}} tabelas",
-    "deleteDiagram": "Excluir diagrama"
+    "deleteDiagram": "Excluir diagrama",
+    "placeholderName": "Nome do diagrama...",
+    "tables": "tabelas",
+    "loading": "Carregando...",
+    "loadingSchema": "Carregando esquema...",
+    "renderError": "Falha ao renderizar o diagrama",
+    "showColumns": "Mostrar colunas",
+    "hideColumns": "Ocultar colunas",
+    "showColumnsWarning": "Renderizar {{count}} tabelas com todas as colunas pode congelar a aba por vários segundos.",
+    "compactNotice": "{{count}} tabelas — colunas ocultas para o diagrama seguir responsivo. Use \"Mostrar colunas\" para o detalhe completo."
   },
   "query": {
     "sqlEditor": "Editor SQL",

@@ -15,6 +15,10 @@ services:
       # (docker-compose `environment:` wins over `env_file:`).
       POSTGRES_HOST: company_postgres
       POSTGRES_PORT: "5432"
+      # .env carries the host path (/root/messages) so ./dev.sh and pytest
+      # write somewhere real; inside the container that same directory is
+      # bind-mounted at /messages.
+      MESSAGE_ATTACHMENTS_ROOT: /messages
       # Same host-vs-container-network split as above, for the other
       # Postgres instance (Hindsight/Foundation data, port 5433->5432).
       FOUNDATION_POSTGRES_HOST: foundation_postgres
@@ -44,6 +48,10 @@ services:
       # personal markdown docs, uploads and whiteboard assets, cross-linked
       # to Planning entities from the Docs page.
       - /root/docs:/docs
+      # Read-write: files attached to a message (api/routes/demand.py's
+      # upload handler). Kept out of /docs on purpose -- these are message
+      # payloads, not documents in the browsable Docs tree.
+      - /root/messages:/messages
       # Read-write: the WHOLE host filesystem, backing multiple
       # user-configurable "áreas de criação" (docs_creation_areas table,
       # api/routes/docs.py's /areas endpoints) -- any absolute host path

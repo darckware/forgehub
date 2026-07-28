@@ -173,12 +173,16 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   function selectProduct(productId: string) {
     setTargetProductId(productId);
     const product = products.find((item) => item.id === productId);
-    if (!product?.application_url) {
+    // Produção primeiro, dev como reserva: desde que a URL virou uma por
+    // ambiente (2026-07-26) um produto pode ter só o ambiente de dev no ar --
+    // exigir a de produção deixaria esse caso sem nada para abrir.
+    const url = product?.application_url || product?.application_url_dev;
+    if (!url) {
       setMissingTargetUrl(true);
       return;
     }
     setMissingTargetUrl(false);
-    go(product.application_url);
+    go(url);
   }
 
   function selectApp(appId: string) {

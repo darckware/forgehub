@@ -147,6 +147,11 @@
       "high": "High",
       "critical": "Critical"
     },
+    "taskHealth": {
+      "overdue": "Overdue",
+      "stalled": "Stalled",
+      "failed": "Execution failed"
+    },
     "executorType": {
       "agent": "Agent",
       "sub_agent": "Sub-agent",

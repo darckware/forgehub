@@ -48,6 +48,7 @@
     "deleteFileAndRegistration": "Excluir arquivo e registro",
     "deleteTitle": "Excluir \"{{name}}\"",
     "deleteDescription": "Remove o registro e exclui o arquivo {{path}} do disco. Esta ação não pode ser desfeita.",
-    "delete": "Excluir"
+    "delete": "Excluir",
+    "backToAgents": "Voltar para Agents"
   }
 }

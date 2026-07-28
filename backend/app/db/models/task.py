@@ -20,6 +20,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Identity,
     Integer,
     Numeric,
     String,
@@ -65,6 +66,15 @@ class ProjectTask(Base, TimestampMixin):
     __tablename__ = "project_tasks"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Human-readable display number (#1, #2, ...), a real Postgres IDENTITY
+    # column -- same convention as AgentDemand.number (db/models/demand.py).
+    # Independent of kanboard_task_id: that one stays NULL until this task
+    # is pushed to Kanboard (and Kanboard resets periodically -- see that
+    # column's docstring), so it was never a reliable "this task has a
+    # number" guarantee. This column always exists, from creation, whether
+    # or not the task ever syncs to Kanboard -- closes the traceability gap
+    # found while reviewing the Inbox's own AgentDemand.number (2026-07-25).
+    number: Mapped[int] = mapped_column(Integer, Identity(always=False), unique=True, nullable=False)
 
     planning_item_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.planning_items.id", ondelete="CASCADE"), nullable=True

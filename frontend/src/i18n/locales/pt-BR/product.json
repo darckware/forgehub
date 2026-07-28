@@ -19,13 +19,15 @@
       "namePlaceholder": "ex. ForgeHub",
       "descriptionLabel": "Descrição",
       "descriptionPlaceholder": "Descrição opcional do produto",
-      "urlLabel": "URL da Aplicação",
-      "urlPlaceholder": "http://localhost:4173",
-      "urlHint": "Aberta quando este produto é selecionado em Workspace > Web App.",
+      "urlLabel": "URL de Produção",
+      "urlPlaceholder": "https://app.exemplo.com",
+      "urlHint": "A URL de produção é a aberta quando este produto é selecionado em Workspace > Web App.",
       "statusLabel": "Status",
       "error": "Falha ao criar o produto. Tente novamente.",
       "save": "Salvar",
-      "cancel": "Cancelar"
+      "cancel": "Cancelar",
+      "urlDevLabel": "URL de Desenvolvimento",
+      "urlDevPlaceholder": "http://localhost:4173"
     },
     "loading": "Carregando produtos...",
     "loadError": "Falha ao carregar os produtos.",
@@ -61,12 +63,14 @@
     "description": "Atualize os dados do cadastro de \"{{name}}\".",
     "nameLabel": "Nome",
     "descriptionLabel": "Descrição",
-    "urlLabel": "URL da Aplicação",
-    "urlPlaceholder": "http://localhost:4173",
+    "urlLabel": "URL de Produção",
+    "urlPlaceholder": "https://app.exemplo.com",
     "statusLabel": "Status",
     "error": "Falha ao salvar. Tente novamente.",
     "save": "Salvar",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "urlDevLabel": "URL de Desenvolvimento",
+    "urlDevPlaceholder": "http://localhost:4173"
   },
   "restoreModal": {
     "title": "Restaurar backup",

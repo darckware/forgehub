@@ -22,6 +22,15 @@ export interface AppConfig {
    * instruction to each outgoing agent call; nothing visible changes in
    * the transcript. */
   chat_response_language: string;
+  /** App shell language ("en" or "pt-BR") new users get on creation --
+   * independent of chat_response_language above. Existing users' own
+   * ui_language is untouched by changing this. */
+  default_ui_language: string;
+  /** Root config/state directory per agent runtime (e.g. "claude" ->
+   * "/root/.claude"), keyed by runtime name -- not by individual agent,
+   * since every Hermes-profile agent shares hermes_source_path's tree.
+   * Reference/visibility only, not consumed by Git Control/Backup. */
+  agent_runtime_paths: Record<string, string>;
 }
 
 export function useAppConfig() {

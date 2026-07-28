@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
 import {
   AlertCircle,
   Archive,
@@ -426,13 +425,6 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumb
-        items={[
-          { label: t("list.title"), href: "/projects" },
-          { label: project?.name ?? "…" },
-        ]}
-      />
-
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />

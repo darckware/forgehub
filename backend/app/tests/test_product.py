@@ -160,3 +160,58 @@ async def test_product_module_crud(client: AsyncClient):
         assert len(list_resp.json()) == 1
     finally:
         await _cleanup_product(uuid.UUID(product_id))
+
+
+@pytest.mark.asyncio
+async def test_product_carries_a_dev_and_a_production_url(client: AsyncClient):
+    """A URL da aplicação é uma por ambiente (2026-07-26).
+
+    `application_url` é a de produção -- o nome histórico foi mantido porque
+    WebAppPane.tsx e workspace_browser.py já o leem -- e `application_url_dev`
+    é a de desenvolvimento. Ambas são criáveis e alteráveis, e passar "" não
+    vale: o pattern ^https?:// rejeita string vazia, então limpar uma URL é
+    enviar null.
+    """
+    unique_name = f"Test Product URLs {uuid.uuid4()}"
+    create_resp = await client.post(
+        "/api/v1/products",
+        json={
+            "name": unique_name,
+            "application_url": "https://app.example.test",
+            "application_url_dev": "http://localhost:5173",
+        },
+    )
+    product_id = None
+    try:
+        assert create_resp.status_code == 201, create_resp.text
+        body = create_resp.json()
+        product_id = body["id"]
+        assert body["application_url"] == "https://app.example.test"
+        assert body["application_url_dev"] == "http://localhost:5173"
+
+        # Alterar apenas a de dev não mexe na de produção.
+        update_resp = await client.put(
+            f"/api/v1/products/{product_id}",
+            json={"application_url_dev": "http://localhost:4173"},
+        )
+        assert update_resp.status_code == 200, update_resp.text
+        updated = update_resp.json()
+        assert updated["application_url_dev"] == "http://localhost:4173"
+        assert updated["application_url"] == "https://app.example.test"
+
+        # Limpar a de dev com null é aceito e não afeta a de produção.
+        clear_resp = await client.put(
+            f"/api/v1/products/{product_id}", json={"application_url_dev": None}
+        )
+        assert clear_resp.status_code == 200, clear_resp.text
+        assert clear_resp.json()["application_url_dev"] is None
+        assert clear_resp.json()["application_url"] == "https://app.example.test"
+
+        # Uma URL sem esquema http(s) é rejeitada em qualquer um dos campos.
+        bad_resp = await client.put(
+            f"/api/v1/products/{product_id}", json={"application_url_dev": "localhost:5173"}
+        )
+        assert bad_resp.status_code == 422
+    finally:
+        if product_id:
+            await client.delete(f"/api/v1/products/{product_id}")

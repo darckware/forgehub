@@ -14,7 +14,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useArtifact, useUpdateArtifact, type ArtifactVersion } from "@/hooks/useArtifact";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 const STATUS_VARIANT: Record<
   string,
@@ -81,13 +80,6 @@ export default function ArtifactDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumb
-        items={[
-          { label: t("title"), href: "/artifact" },
-          { label: artifact?.name ?? "…" },
-        ]}
-      />
-
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />

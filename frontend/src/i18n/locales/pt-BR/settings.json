@@ -8,12 +8,14 @@
       "forgeRouterModelsDescription": "IDs de modelos disponíveis para agentes. Auto é o modelo principal recomendado; classes explícitas são úteis quando o planejamento já conhece a carga de trabalho.",
       "gitControl": "Controle Git",
       "gitControlDescription": "Entrada de sistema fixa; o cartão de Controle Git da System Control sempre oferece.",
+      "agentRuntimePaths": "Caminhos dos agentes",
+      "agentRuntimePathsDescription": "Diretório raiz de config/estado por tipo de runtime, só como referência -- não é usado pelo Controle Git nem por Backups. Uma entrada por runtime, não por agente: todo agente com perfil Hermes (Athos, Aegis, ...) compartilha o caminho \"hermes\".",
       "backups": "Backups",
       "backupsDescription": "Backups do Hermes chegam aqui; cada projeto com backup habilitado ganha seu próprio subdiretório a menos que defina seu próprio local.",
       "cleanup": "Limpeza & Lixeira",
       "cleanupDescription": "\"Executar limpeza\" chama a mesma política limitada do Athos usada pelo cron semanal foundation-clear.",
-      "aiChat": "Chat de IA",
-      "aiChatDescription": "Língua da resposta do chat de IA (abas Workspace e painel Assistente). Enviado ao agente como instrução oculta em cada mensagem -- nunca aparece na conversa.",
+      "aiChat": "Idioma",
+      "aiChatDescription": "Idioma padrão da interface para novos usuários e idioma de resposta do chat de IA (abas Workspace e painel Assistente). O do chat é enviado ao agente como instrução oculta em cada mensagem -- nunca aparece na conversa.",
       "general": "Geral"
     },
 
@@ -57,10 +59,19 @@
     },
 
     "aiChat": {
-      "chatResponseLanguage": {
+      "defaultUiLanguage": {
         "label": "Idioma padrão do sistema",
+        "inputId": "default_ui_language",
+        "help": "Idioma inicial da interface (menus, telas, formulários) para usuários recém-criados. Cada usuário pode trocar o próprio idioma depois; isto só define o valor com que ele começa."
+      },
+      "chatResponseLanguage": {
+        "label": "Idioma do Chat",
         "inputId": "chat_response_language"
       },
+      "uiLanguages": [
+        { "value": "pt-BR", "label": "Português (Brasil)" },
+        { "value": "en", "label": "English" }
+      ],
       "languages": [
         { "value": "pt-BR", "label": "Português (Brasil)" },
         { "value": "en", "label": "English" },

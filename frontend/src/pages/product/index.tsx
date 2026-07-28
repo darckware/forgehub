@@ -75,12 +75,23 @@ function EditProductForm({ product, onClose }: EditFormProps) {
       description: product.description ?? "",
       status: (product.status as "active" | "inactive" | "archived") ?? "active",
       application_url: product.application_url ?? "",
+      application_url_dev: product.application_url_dev ?? "",
     },
   });
 
   return (
     <Card>
-      <form onSubmit={handleSubmit((v) => update.mutate({ ...v, application_url: v.application_url || null }))}>
+      <form
+        onSubmit={handleSubmit((v) =>
+          update.mutate({
+            ...v,
+            // "" limpa a URL: o backend precisa de null, não de string vazia
+            // (o pattern ^https?:// rejeitaria "").
+            application_url: v.application_url || null,
+            application_url_dev: v.application_url_dev || null,
+          }),
+        )}
+      >
         <CardHeader>
           <CardTitle>{t("editRow.title")}</CardTitle>
           <CardDescription>{t("editRow.description", { name: product.name })}</CardDescription>
@@ -95,10 +106,23 @@ function EditProductForm({ product, onClose }: EditFormProps) {
             <Label htmlFor="edit-description">{t("editRow.descriptionLabel")}</Label>
             <Textarea id="edit-description" rows={6} {...register("description")} />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="edit-url">{t("editRow.urlLabel")}</Label>
-            <Input id="edit-url" placeholder={t("editRow.urlPlaceholder")} {...register("application_url")} />
-            {errors.application_url && <p className="text-sm text-destructive">{errors.application_url.message}</p>}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="edit-url-dev">{t("editRow.urlDevLabel")}</Label>
+              <Input
+                id="edit-url-dev"
+                placeholder={t("editRow.urlDevPlaceholder")}
+                {...register("application_url_dev")}
+              />
+              {errors.application_url_dev && (
+                <p className="text-sm text-destructive">{errors.application_url_dev.message}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-url">{t("editRow.urlLabel")}</Label>
+              <Input id="edit-url" placeholder={t("editRow.urlPlaceholder")} {...register("application_url")} />
+              {errors.application_url && <p className="text-sm text-destructive">{errors.application_url.message}</p>}
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="edit-status">{t("editRow.statusLabel")}</Label>
@@ -216,11 +240,21 @@ export default function ProductPage() {
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ProductInput>({
     resolver: zodResolver(productInputSchema),
-    defaultValues: { name: "", description: "", status: "active", application_url: "" },
+    defaultValues: {
+      name: "",
+      description: "",
+      status: "active",
+      application_url: "",
+      application_url_dev: "",
+    },
   });
 
   const onSubmit = async (values: ProductInput) => {
-    await createProduct.mutateAsync({ ...values, application_url: values.application_url || undefined });
+    await createProduct.mutateAsync({
+      ...values,
+      application_url: values.application_url || undefined,
+      application_url_dev: values.application_url_dev || undefined,
+    });
     reset();
     setView("list");
   };
@@ -368,19 +402,37 @@ export default function ProductPage() {
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="application_url">{t("list.createForm.urlLabel")}</Label>
-                  <Input
-                    id="application_url"
-                    type="url"
-                    placeholder={t("list.createForm.urlPlaceholder")}
-                    {...register("application_url")}
-                  />
-                  <p className="text-xs text-muted-foreground">{t("list.createForm.urlHint")}</p>
-                  {errors.application_url && (
-                    <p className="text-sm text-destructive">{errors.application_url.message}</p>
-                  )}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="application_url_dev">
+                      {t("list.createForm.urlDevLabel")}
+                    </Label>
+                    <Input
+                      id="application_url_dev"
+                      type="url"
+                      placeholder={t("list.createForm.urlDevPlaceholder")}
+                      {...register("application_url_dev")}
+                    />
+                    {errors.application_url_dev && (
+                      <p className="text-sm text-destructive">
+                        {errors.application_url_dev.message}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="application_url">{t("list.createForm.urlLabel")}</Label>
+                    <Input
+                      id="application_url"
+                      type="url"
+                      placeholder={t("list.createForm.urlPlaceholder")}
+                      {...register("application_url")}
+                    />
+                    {errors.application_url && (
+                      <p className="text-sm text-destructive">{errors.application_url.message}</p>
+                    )}
+                  </div>
                 </div>
+                <p className="text-xs text-muted-foreground">{t("list.createForm.urlHint")}</p>
 
                 <div className="space-y-2">
                   <Label htmlFor="status">{t("list.createForm.statusLabel")}</Label>
@@ -467,15 +519,31 @@ export default function ProductPage() {
                             {product.description}
                           </p>
                         )}
-                        {product.application_url && (
-                          <a
-                            href={product.application_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block truncate text-xs text-muted-foreground hover:underline"
-                          >
-                            {product.application_url}
-                          </a>
+                        {(product.application_url_dev || product.application_url) && (
+                          <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                            {product.application_url_dev && (
+                              <a
+                                href={product.application_url_dev}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="truncate hover:underline"
+                                title={product.application_url_dev}
+                              >
+                                dev: {product.application_url_dev}
+                              </a>
+                            )}
+                            {product.application_url && (
+                              <a
+                                href={product.application_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="truncate hover:underline"
+                                title={product.application_url}
+                              >
+                                prod: {product.application_url}
+                              </a>
+                            )}
+                          </div>
                         )}
                       </TableCell>
                       <TableCell>

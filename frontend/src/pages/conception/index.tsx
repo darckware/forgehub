@@ -1,31 +1,26 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, FileText, Lightbulb, Loader2, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, FileText, Lightbulb, Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { useDeleteProduct, useUpdateProduct } from "@/hooks/useProduct";
 import {
-  useAuthorizeDeliveryPlanning,
   useConcept,
   useConceptDocument,
   useConceptDocuments,
   useCreateIdea,
   useDeleteConceptDocument,
   useDevelopmentRequests,
-  usePreviewConceptSummary,
   useReviseConcept,
   useSaveConceptDocument,
-  useSubmitConcept,
   useUpdateConceptDeliveryMetadata,
   useUpdateDevelopmentRequest,
   useUploadConceptDocument,
@@ -51,30 +46,6 @@ const PROJECT_DESCRIPTION_MAX = 4000;
 // documented deploy baseline (stack/10-DEVSECOPS-CI-CD-AND-RELEASE-STANDARD.md),
 // so it anchors that layer's options instead.
 const TECH_STACK_LAYERS: TechStackLayer[] = ["frontend", "backend", "database", "deploy_infra"];
-const TECH_STACK_OPTIONS: Record<TechStackLayer, string[]> = {
-  frontend: [
-    "React + Vite + shadcn/ui (SPA autenticada)",
-    "Next.js + shadcn/ui (público/SEO)",
-    "React + PrimeReact/MUI/Ant Design (back-office com muitos dados)",
-    "React Native + Expo (mobile)",
-  ],
-  backend: [
-    "C#/.NET — Modular Monolith (core de negócio, APIs críticas)",
-    "Node.js (BFF, WebSocket, orientado a eventos)",
-    "Python (IA, automação, ETL)",
-  ],
-  database: [
-    "PostgreSQL (padrão relacional)",
-    "SQL Server (ecossistema Microsoft)",
-    "MongoDB (documentos, necessidade comprovada)",
-    "Redis (cache, locks, sessões)",
-  ],
-  deploy_infra: [
-    "Docker Compose (host único)",
-    "Kubernetes",
-    "Serverless / plataforma gerenciada",
-  ],
-};
 
 type TechStackState = Record<TechStackLayer, { decision: string; rationale: string }>;
 
@@ -142,6 +113,14 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
     return <p className="text-sm text-muted-foreground">{t("wizard.documentation.saveFirst")}</p>;
   }
 
+  const [fileDescriptions, setFileDescriptions] = useState<Record<string, string>>({
+    "PRD.md": "Documento de Requisitos do Produto (PRD)",
+    "SPEC.md": "Especificação Técnica e Arquitetura do Sistema",
+    "STACK.md": "Decisão das Tecnologias e Frameworks",
+    "DESIGN_SYSTEM.md": "Guia de Estilos e Componentes UI",
+    "DATABASE_SPEC.md": "Modelagem e Tabelas do Banco de Dados",
+  });
+
   const createDocument = async () => {
     const trimmed = newFilename.trim();
     if (!trimmed) return;
@@ -152,14 +131,49 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
     setSelectedFilename(result.filename);
   };
 
+  const updateDescription = (filename: string, desc: string) => {
+    setFileDescriptions((prev) => ({ ...prev, [filename]: desc }));
+  };
+
+  useEffect(() => {
+    const handleGlobalPaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items || !conceptId) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf("image") !== -1) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (!file) continue;
+
+          const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
+          const extension = file.type.split("/")[1] || "png";
+          const pastedFile = new File([file], `paste_${timestamp}.${extension}`, { type: file.type });
+
+          const result = await uploadDocument.mutateAsync({ conceptId, file: pastedFile });
+          setSelectedFilename(result.filename);
+          setFileDescriptions((prev) => ({
+            ...prev,
+            [result.filename]: "Imagem da Área de Transferência",
+          }));
+          break;
+        }
+      }
+    };
+
+    window.addEventListener("paste", handleGlobalPaste);
+    return () => window.removeEventListener("paste", handleGlobalPaste);
+  }, [conceptId, uploadDocument]);
+
   return (
-    <div className="grid gap-4 md:grid-cols-[240px_1fr]">
-      <div className="space-y-2">
+    <div className="grid gap-4 md:grid-cols-[320px_1fr] focus:outline-none" tabIndex={0}>
+      <div className="space-y-3 border-r pr-4">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">{t("wizard.documentation.filesTitle")}</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("wizard.documentation.filesTitle")}</p>
           <div className="flex gap-1">
             <input
-              ref={fileInputRef} type="file" accept=".md,.markdown,.txt" className="hidden"
+              ref={fileInputRef} type="file" accept=".md,.markdown,.txt,.png,.jpg,.svg" className="hidden"
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 e.target.value = "";
@@ -168,41 +182,70 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                 setSelectedFilename(result.filename);
               }}
             />
-            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" title={t("wizard.documentation.upload")} onClick={() => fileInputRef.current?.click()} disabled={uploadDocument.isPending}>
+            <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" title={t("wizard.documentation.upload")} onClick={() => fileInputRef.current?.click()} disabled={uploadDocument.isPending}>
               {uploadDocument.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Upload className="h-3.5 w-3.5"/>}
+              Upload
             </Button>
-            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" title={t("wizard.documentation.newDocument")} onClick={() => setCreating((v) => !v)}>
+            <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" title={t("wizard.documentation.newDocument")} onClick={() => setCreating((v) => !v)}>
               <Plus className="h-3.5 w-3.5"/>
+              Novo
             </Button>
           </div>
         </div>
         {creating && (
           <div className="flex gap-1">
-            <Input className="h-7 text-xs" placeholder="01-CONCEPCAO-....md" value={newFilename} onChange={(e) => setNewFilename(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); createDocument(); } }} />
-            <Button type="button" size="sm" className="h-7 px-2 text-xs" onClick={createDocument} disabled={saveDocument.isPending || !newFilename.trim()}>{t("wizard.documentation.create")}</Button>
+            <Input className="h-8 text-xs" placeholder="Nome do arquivo (ex: SPEC.md)" value={newFilename} onChange={(e) => setNewFilename(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); createDocument(); } }} />
+            <Button type="button" size="sm" className="h-8 px-2 text-xs" onClick={createDocument} disabled={saveDocument.isPending || !newFilename.trim()}>{t("wizard.documentation.create")}</Button>
           </div>
         )}
         {documents.isLoading && <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>}
         {documents.data?.length === 0 && !creating && <p className="text-xs text-muted-foreground">{t("wizard.documentation.empty")}</p>}
-        <div className="space-y-1">
+        <div className="space-y-2">
           {documents.data?.map((doc) => (
-            <button
-              key={doc.filename} type="button" onClick={() => setSelectedFilename(doc.filename)}
-              className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs ${selectedFilename === doc.filename ? "border-primary bg-primary/5" : ""}`}
+            <div
+              key={doc.filename}
+              onClick={() => setSelectedFilename(doc.filename)}
+              className={`rounded-lg border p-2 text-xs space-y-1.5 cursor-pointer transition-colors ${selectedFilename === doc.filename ? "border-primary bg-primary/5" : "hover:bg-accent/40"}`}
             >
-              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground"/>
-              <span className="truncate">{doc.filename}</span>
-            </button>
+              <div className="flex items-center justify-between gap-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-primary"/>
+                  <span className="font-semibold truncate">{doc.filename}</span>
+                </div>
+                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
+                  {doc.filename.endsWith(".md") ? "Markdown" : "Asset"}
+                </Badge>
+              </div>
+
+              {/* Campo de Descrição do Arquivo */}
+              <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                <Input
+                  className="h-6 text-[11px] px-2 bg-background/80 placeholder:text-muted-foreground/60"
+                  placeholder="Descreva a finalidade (ex: PRD, Stack...)"
+                  value={fileDescriptions[doc.filename] ?? ""}
+                  onChange={(e) => updateDescription(doc.filename, e.target.value)}
+                />
+              </div>
+            </div>
           ))}
         </div>
       </div>
       <div className="space-y-2">
         {!selectedFilename ? (
-          <p className="text-sm text-muted-foreground">{t("wizard.documentation.selectHint")}</p>
+          <div className="flex flex-col items-center justify-center h-64 border rounded-lg border-dashed text-muted-foreground space-y-1 text-center p-4">
+            <FileText className="h-8 w-8 text-muted-foreground/40" />
+            <p className="text-sm font-medium">{t("wizard.documentation.selectHint")}</p>
+            <p className="text-xs text-muted-foreground max-w-xs">Selecione um arquivo da lista ou pressione Ctrl+V / Cmd+V para colar uma imagem da área de transferência.</p>
+          </div>
         ) : (
           <>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">{selectedFilename}</p>
+            <div className="flex items-center justify-between pb-2 border-b">
+              <div>
+                <p className="text-sm font-bold">{selectedFilename}</p>
+                <p className="text-xs text-muted-foreground">
+                  {fileDescriptions[selectedFilename] || "Sem descrição informada"}
+                </p>
+              </div>
               <div className="flex gap-2">
                 <Button type="button" size="sm" disabled={saveDocument.isPending || document.isLoading} onClick={() => saveDocument.mutate({ conceptId, filename: selectedFilename, content: editedContent })}>
                   {saveDocument.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>}
@@ -235,12 +278,8 @@ export default function ConceptionPage() {
   const updateProduct = useUpdateProduct();
   const reviseConcept = useReviseConcept();
   const updateDeliveryMetadata = useUpdateConceptDeliveryMetadata();
-  const previewSummary = usePreviewConceptSummary();
   const [selectedProduct, setSelectedProduct] = useState("");
   const concept = useConcept(selectedProduct);
-  const submitConcept = useSubmitConcept();
-  const authorize = useAuthorizeDeliveryPlanning();
-  const [delivery, setDelivery] = useState({ version: "0.1.0", project_name: "", owner: "" });
   const [form, setForm] = useState(EMPTY_FORM);
   const [techStack, setTechStack] = useState<TechStackState>(EMPTY_TECH_STACK);
   const [wizardStep, setWizardStep] = useState<"problem" | "description" | "stack" | "documentation">("problem");
@@ -337,7 +376,16 @@ export default function ConceptionPage() {
   return <div className="space-y-6">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div><h1 className="text-2xl font-semibold">{t("page.title")}</h1><p className="text-sm text-muted-foreground">{t("page.description")}</p></div>
-      <Button variant="outline" onClick={() => view === "list" ? setView("form") : backToList()}>
+      <Button variant="outline" onClick={() => {
+        if (view === "list") {
+          setEditingRequest(null);
+          setForm(EMPTY_FORM);
+          setWizardStep("problem");
+          setView("form");
+        } else {
+          backToList();
+        }
+      }}>
         {view === "list"
           ? <><Lightbulb className="mr-2 h-4 w-4"/>{t("toggle.newIdea")}</>
           : <><ArrowLeft className="mr-2 h-4 w-4"/>{t("toggle.backToList")}</>}
@@ -348,36 +396,24 @@ export default function ConceptionPage() {
         <form onSubmit={submit}>
         <CardContent className="space-y-4">
           <Tabs value={wizardStep} onValueChange={(value) => setWizardStep(value as typeof wizardStep)}>
-            <TabsList>
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="problem">{t("wizard.steps.problem")}</TabsTrigger>
               <TabsTrigger value="description">{t("wizard.steps.description")}</TabsTrigger>
-              <TabsTrigger value="stack">{t("wizard.steps.stack")}</TabsTrigger>
               <TabsTrigger value="documentation">{t("wizard.steps.documentation")}</TabsTrigger>
             </TabsList>
             <TabsContent value="problem" className="mt-4 space-y-4">
-              <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.name")} count={form.name.length} max={NAME_MAX}/><Input required maxLength={NAME_MAX} value={form.name} onChange={e => setForm({...form, name:e.target.value})}/></div>
-              <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.problemStatement")} count={form.problem_statement.length} max={PROBLEM_STATEMENT_MAX}/><Textarea required rows={6} maxLength={PROBLEM_STATEMENT_MAX} readOnly={!conceptEditable} value={form.problem_statement} onChange={e => setForm({...form, problem_statement:e.target.value})}/></div>
-              <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.vision")} count={form.vision.length} max={VISION_MAX}/><Textarea rows={5} maxLength={VISION_MAX} readOnly={!conceptEditable} value={form.vision} onChange={e => setForm({...form, vision:e.target.value})}/></div>
+              <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.name")} count={form.name.length} max={NAME_MAX}/><Input maxLength={NAME_MAX} value={form.name} onChange={e => setForm({...form, name:e.target.value})}/></div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <FieldLabel label={t("captureIdea.fields.initialScope")} count={form.scope_summary.length} max={SCOPE_SUMMARY_MAX}/>
-                  {editingRequest && conceptEditable && (
-                    <Button
-                      type="button" variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs"
-                      disabled={previewSummary.isPending}
-                      onClick={() => previewSummary.mutate(editingRequest.product_id, {
-                        onSuccess: (data) => setForm((f) => ({ ...f, scope_summary: data.summary })),
-                      })}
-                    >
-                      {previewSummary.isPending ? <Loader2 className="h-3 w-3 animate-spin"/> : <RefreshCw className="h-3 w-3"/>}
-                      {t("wizard.updateFromDiagram")}
-                    </Button>
-                  )}
-                </div>
-                <Textarea rows={5} maxLength={SCOPE_SUMMARY_MAX} readOnly={!conceptEditable} value={form.scope_summary} onChange={e => setForm({...form, scope_summary:e.target.value})}/>
-                {previewSummary.data && previewSummary.data.summary === "" && (
-                  <p className="text-xs text-muted-foreground">{t("wizard.updateFromDiagramEmpty")}</p>
-                )}
+                <FieldLabel label={t("captureIdea.fields.problemStatement")} count={form.problem_statement.length} max={PROBLEM_STATEMENT_MAX}/>
+                <Textarea rows={4} maxLength={PROBLEM_STATEMENT_MAX} value={form.problem_statement} onChange={e => setForm({...form, problem_statement:e.target.value})}/>
+              </div>
+              <div className="space-y-2">
+                <FieldLabel label={t("captureIdea.fields.vision")} count={form.vision.length} max={VISION_MAX}/>
+                <Textarea rows={3} maxLength={VISION_MAX} value={form.vision} onChange={e => setForm({...form, vision:e.target.value})}/>
+              </div>
+              <div className="space-y-2">
+                <FieldLabel label={t("captureIdea.fields.initialScope")} count={form.scope_summary.length} max={SCOPE_SUMMARY_MAX}/>
+                <Textarea rows={3} maxLength={SCOPE_SUMMARY_MAX} value={form.scope_summary} onChange={e => setForm({...form, scope_summary:e.target.value})}/>
               </div>
               <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.requestedBy")} count={form.requested_by.length} max={REQUESTED_BY_MAX}/><Input maxLength={REQUESTED_BY_MAX} value={form.requested_by} onChange={e => setForm({...form, requested_by:e.target.value})}/></div>
             </TabsContent>
@@ -391,24 +427,6 @@ export default function ConceptionPage() {
                   <WorkingDirPicker workingDir={form.working_directory_path || undefined} onSelect={(path) => setForm({...form, working_directory_path: path ?? ""})}/>
                 </div>
               </div>
-            </TabsContent>
-            <TabsContent value="stack" className="mt-4 space-y-4">
-              <p className="text-sm text-muted-foreground">{t("wizard.stack.help")}</p>
-              {TECH_STACK_LAYERS.map((layer) => (
-                <div key={layer} className="grid gap-3 rounded-lg border p-3 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>{t(`wizard.stack.layers.${layer}`)}</Label>
-                    <Select value={techStack[layer].decision} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], decision: e.target.value } })}>
-                      <option value="">{t("wizard.stack.selectPlaceholder")}</option>
-                      {TECH_STACK_OPTIONS[layer].map((option) => <option key={option} value={option}>{option}</option>)}
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t("wizard.stack.rationale")}</Label>
-                    <Input value={techStack[layer].rationale} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], rationale: e.target.value } })}/>
-                  </div>
-                </div>
-              ))}
             </TabsContent>
             <TabsContent value="documentation" className="mt-4 space-y-4">
               <p className="text-sm text-muted-foreground">{t("wizard.documentation.help")}</p>
@@ -435,12 +453,12 @@ export default function ConceptionPage() {
           key={item.id}
           role="button"
           tabIndex={0}
-          onClick={()=>{setSelectedProduct(item.product_id);setDelivery(value=>({...value,project_name:item.title}));}}
-          onKeyDown={(e)=>{if(e.key==="Enter"||e.key===" "){setSelectedProduct(item.product_id);setDelivery(value=>({...value,project_name:item.title}));}}}
-          className={`w-full cursor-pointer rounded-lg border p-4 text-left ${selectedProduct===item.product_id?"border-primary bg-primary/5":""}`}
+          onClick={() => startEdit(item)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") startEdit(item); }}
+          className={`w-full cursor-pointer rounded-lg border p-4 text-left transition-colors hover:border-primary/50 ${selectedProduct === item.product_id ? "border-primary bg-primary/5" : ""}`}
         >
           <div className="flex items-start justify-between gap-2">
-            <p className="font-medium">{item.title}</p>
+            <p className="font-medium text-base">{item.title}</p>
             <div className="flex shrink-0 items-center gap-1">
               <Badge variant="outline">{item.status}</Badge>
               <Button
@@ -448,30 +466,26 @@ export default function ConceptionPage() {
                 size="icon"
                 className="h-7 w-7"
                 title={t("developmentRequests.edit")}
-                onClick={(e)=>{e.stopPropagation();startEdit(item);}}
+                onClick={(e) => { e.stopPropagation(); startEdit(item); }}
               ><Pencil className="h-3.5 w-3.5"/></Button>
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
                 title={t("developmentRequests.delete")}
-                onClick={(e)=>{e.stopPropagation();setPendingDelete({ productId: item.product_id, title: item.title });}}
+                onClick={(e) => { e.stopPropagation(); setPendingDelete({ productId: item.product_id, title: item.title }); }}
               ><Trash2 className="h-3.5 w-3.5 text-destructive"/></Button>
             </div>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
-          <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground"><span>{item.requested_by || "system"} · {item.priority}</span><Link className="text-primary hover:underline" to={`/system-map?product=${item.product_id}`} onClick={(e)=>e.stopPropagation()}>{t("developmentRequests.openSystemMap")}</Link></div>
+          <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+            <span>{item.requested_by || "system"} · {item.priority}</span>
+            <span className="text-primary font-medium hover:underline flex items-center gap-1">
+              Editar Ideia & Documentos →
+            </span>
+          </div>
         </div>)}
       </CardContent></Card>
-      {concept.data && <Card><CardHeader><div className="flex items-center justify-between gap-3"><div><CardTitle className="text-lg">{t("conceptDecision.title")}</CardTitle><CardDescription>{t("conceptDecision.description")}</CardDescription></div><Badge variant="outline">{concept.data.concept.status}</Badge></div></CardHeader><CardContent className="space-y-4">
-        <div className="rounded-md bg-muted/40 p-3 text-sm"><p className="font-medium">{concept.data.current_revision?.problem_statement}</p><p className="mt-1 text-muted-foreground">{concept.data.current_revision?.vision}</p></div>
-        <div className="flex flex-wrap gap-2"><Link to={`/system-map?product=${selectedProduct}`}><Button variant="outline">{t("conceptDecision.actions.reviewSystemMap")}</Button></Link>
-          {["draft","rework"].includes(concept.data.concept.status) && <Button onClick={()=>submitConcept.mutate(concept.data!.concept.id)} disabled={submitConcept.isPending}>{t("conceptDecision.actions.submitForReview")}</Button>}
-          {concept.data.concept.status==="in_review" && <Link to="/governance"><Button>{t("conceptDecision.actions.openApprovalInbox")}</Button></Link>}
-        </div>
-        {submitConcept.isError && <p className="text-sm text-destructive">{t("conceptDecision.error.submitBlocked")}</p>}
-        {concept.data.concept.status==="approved" && <form className="grid gap-3 rounded-lg border p-4 md:grid-cols-3" onSubmit={async e=>{e.preventDefault();await authorize.mutateAsync({conceptId:concept.data!.concept.id,...delivery,project_description:concept.data!.current_revision?.project_description ?? undefined,working_directory_path:concept.data!.current_revision?.working_directory_path ?? undefined});}}><div><Label>{t("conceptDecision.authorizeForm.version")}</Label><Input required value={delivery.version} onChange={e=>setDelivery({...delivery,version:e.target.value})}/></div><div><Label>{t("conceptDecision.authorizeForm.projectName")}</Label><Input required value={delivery.project_name} onChange={e=>setDelivery({...delivery,project_name:e.target.value})}/></div><div><Label>{t("conceptDecision.authorizeForm.owner")}</Label><Input value={delivery.owner} onChange={e=>setDelivery({...delivery,owner:e.target.value})}/></div><div className="md:col-span-3 flex items-center gap-3"><Button disabled={authorize.isPending}>{authorize.isPending&&<Loader2 className="mr-2 h-4 w-4 animate-spin"/>}{t("conceptDecision.actions.authorizeDelivery")}</Button>{authorize.data&&<Link className="text-sm text-primary hover:underline" to={`/project-scope`}>{t("conceptDecision.actions.openProjectScope")}</Link>}</div>{authorize.data&&<p className="md:col-span-3 text-xs text-muted-foreground">{t("conceptDecision.authorizeForm.tasksGenerated",{count:authorize.data.tasks_created})}</p>}</form>}
-      </CardContent></Card>}
       </div>
     )}
     <ConfirmDialog

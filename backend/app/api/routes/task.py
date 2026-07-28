@@ -37,8 +37,8 @@ import uuid
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, or_, select
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.task import (
@@ -55,13 +55,18 @@ from app.api.schemas.task import (
     ProjectTaskKanboardSyncOut,
     ProjectTaskOut,
     ProjectTaskUpdate,
+    TaskInboxDispatchIn,
+    TaskInboxDispatchOut,
+    TaskSubmitIn,
 )
 from app.core import kanboard_client
 from app.core.config import settings
 from app.db.base import get_db
 from app.db.models.agent import Agent, SubAgent
-from app.db.models.backlog import PlanningItem
+from app.db.models.backlog import PLANNING_ITEM_TYPES, PlanningItem
+from app.db.models.demand import AgentDemand
 from app.db.models.governance import AuditEvent
+from app.db.models.notification import Notification
 from app.db.models.progress import ProgressCheckpoint
 from app.db.models.orchestration import AgentRuntimeProfile, ProjectAgentMembership, ProjectLoopPolicy
 from app.db.models.product import Product, ProductVersion
@@ -153,6 +158,18 @@ async def _attach_project_ids(db: AsyncSession, tasks: list[ProjectTask]) -> Non
         task.project_id = project_id
 
 
+async def _attach_task_health(db: AsyncSession, tasks: list[ProjectTask]) -> None:
+    """Populates the transient `health` attribute ProjectTaskOut reads --
+    see core/task_health.py's module docstring for what "overdue"/
+    "stalled"/"failed" mean. Same batched, read-only, never-raises
+    discipline as _attach_project_ids above."""
+    from app.core.task_health import compute_health_map
+
+    health_map = await compute_health_map(db, tasks)
+    for task in tasks:
+        task.health = health_map.get(task.id, "ok")
+
+
 async def _record_execution_lifecycle_checkpoint(
     db: AsyncSession,
     task: ProjectTask,
@@ -187,6 +204,19 @@ async def _record_execution_lifecycle_checkpoint(
     # The create route may add both started and terminal checkpoints in one
     # transaction. Flush so the next sequence query observes this row.
     await db.flush()
+    if checkpoint_type == "failed":
+        # Unlike progress.py's own checkpoint routes (which call
+        # _notify_checkpoint), this helper used to leave a failed execution
+        # silent -- the ProgressCheckpoint row above existed, but nothing
+        # ever told a human. event_key ties to this same idempotency_key so
+        # a retried/duplicate call never double-notifies.
+        db.add(Notification(
+            source="system", severity="warning",
+            title=f"Task execution failed: {task.title}",
+            message=execution.outcome_summary or f"Task #{task.number}, attempt {execution.attempt_number} failed.",
+            event_key=f"task-execution-failed:{idempotency_key}",
+            occurred_at=datetime.now(timezone.utc),
+        ))
 
 
 # --------------------------------------------------------------------------
@@ -250,6 +280,39 @@ async def kanboard_cleanup(project_id: uuid.UUID, db: AsyncSession = Depends(get
 # --------------------------------------------------------------------------
 
 
+@router.post("/submit", response_model=ProjectTaskOut, status_code=status.HTTP_201_CREATED)
+async def submit_task(
+    payload: TaskSubmitIn,
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> ProjectTask:
+    """Public path (see main.py's _PUBLIC_API_PATHS) guarded by the shared
+    bridge token -- same trust boundary as demand.py's /submit, so any
+    Hermes agent on the host can log a task with a plain curl (no user JWT
+    available to a cron/agent). See TaskSubmitIn's docstring for why this
+    creates a PlanningItem alongside the task rather than a bare task."""
+    if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid bridge token")
+    if await db.get(Project, payload.project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    # Lazy import: core/conversions.py imports create_task from this module
+    # at its own top level, so importing it back at module scope here would
+    # be a circular import -- deferring to call time breaks the cycle.
+    from app.core import conversions
+
+    item_type = payload.item_type or conversions.DEFAULT_ITEM_TYPE
+    if item_type not in PLANNING_ITEM_TYPES:
+        raise HTTPException(400, f"item_type must be one of {PLANNING_ITEM_TYPES}")
+    content = f"(via {payload.from_agent})\n\n{payload.description}" if payload.from_agent else payload.description
+    task_id, _ = await conversions.convert_to_quick_task(
+        db, title=payload.title, content=content, project_id=payload.project_id, item_type=item_type
+    )
+    task = await _get_task_or_404(db, task_id)
+    await _attach_project_ids(db, [task])
+    await _attach_task_health(db, [task])
+    return task
+
+
 @router.post("", response_model=ProjectTaskOut, status_code=status.HTTP_201_CREATED)
 async def create_task(payload: ProjectTaskCreate, db: AsyncSession = Depends(get_db)) -> ProjectTask:
     # Traceability: a task must trace back to a planning item or a change request.
@@ -281,6 +344,7 @@ async def create_task(payload: ProjectTaskCreate, db: AsyncSession = Depends(get
     await db.commit()
     await db.refresh(task)
     await _attach_project_ids(db, [task])
+    await _attach_task_health(db, [task])
     return task
 
 
@@ -322,6 +386,7 @@ async def list_tasks(
     result = await db.execute(stmt.order_by(ProjectTask.created_at))
     tasks = list(result.scalars().all())
     await _attach_project_ids(db, tasks)
+    await _attach_task_health(db, tasks)
     return tasks
 
 
@@ -329,6 +394,7 @@ async def list_tasks(
 async def get_task(task_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> ProjectTask:
     task = await _get_task_or_404(db, task_id)
     await _attach_project_ids(db, [task])
+    await _attach_task_health(db, [task])
     return task
 
 
@@ -386,6 +452,7 @@ async def update_task(
     await db.commit()
     await db.refresh(task)
     await _attach_project_ids(db, [task])
+    await _attach_task_health(db, [task])
     return task
 
 
@@ -494,6 +561,7 @@ async def sync_task_kanboard(
     await db.commit()
     await db.refresh(task)
     await _attach_project_ids(db, [task])
+    await _attach_task_health(db, [task])
     return ProjectTaskKanboardSyncOut(
         **ProjectTaskOut.model_validate(task).model_dump(),
         kanboard_url=kanboard_client.task_url(task.kanboard_task_id),
@@ -533,6 +601,7 @@ async def pull_kanboard_status(
         await db.refresh(task)
 
     await _attach_project_ids(db, [task])
+    await _attach_task_health(db, [task])
     return task
 
 
@@ -696,6 +765,19 @@ async def update_task_execution(
             db, task, execution, checkpoint_type,
             f"execution.{new_status}", f"Execution {new_status}",
         )
+        if new_status == "completed":
+            # Exact match on origin_id (a real ProjectTask.id) since the
+            # 2026-07-25 origin unification -- every Inbox message whose
+            # Tipo=Task points at this task gets its execution timestamp
+            # stamped. See AgentDemand.task_execution_at's docstring.
+            await db.execute(
+                update(AgentDemand)
+                .where(
+                    AgentDemand.origin_type == "task",
+                    AgentDemand.origin_id == task.id,
+                )
+                .values(task_execution_at=execution.finished_at or datetime.now(timezone.utc))
+            )
 
     await db.commit()
     await db.refresh(execution)
@@ -858,3 +940,138 @@ async def list_task_assignments(
         select(TaskAssignment).where(TaskAssignment.task_id == task_id)
     )
     return list(result.scalars().all())
+
+
+# --------------------------------------------------------------------------
+# Task dispatch -- executed through the Inbox message process
+# --------------------------------------------------------------------------
+@router.post("/{task_id}/dispatch", response_model=TaskInboxDispatchOut)
+async def dispatch_task(
+    task_id: uuid.UUID, payload: TaskInboxDispatchIn, db: AsyncSession = Depends(get_db)
+) -> TaskInboxDispatchOut:
+    """Executes a task by filing it into the Inbox and dispatching it there.
+
+    Decisão do Marcelo (2026-07-26): **toda** tarefa é processada pelo
+    processo de mensagens. Por isso este endpoint não cria um segundo
+    executor -- ele monta a mensagem vinculada (`AgentDemand` com
+    `origin_type="task"`, `origin_id=task.id`, o mesmo vínculo que
+    update_task_execution já carimba de volta) e a entrega ao dispatch do
+    domínio demand, que continua sendo o único caminho até o runner
+    governado do host-bridge (core/agent_runs.py).
+
+    Consequências de reusar aquele caminho, todas desejadas: a execução
+    aparece no Inbox como qualquer outra, o retorno do agente volta como
+    item ligado quando `requires_response`, e o polling/reconciliação de
+    run já existente (`run_dispatch_completion_pass`) vale para tarefas sem
+    nenhum código novo.
+    """
+    # Import local: demand.py já importa o modelo ProjectTask, e um import
+    # route->route no topo deste módulo criaria um ciclo assim que aquele
+    # módulo precisar de qualquer coisa daqui.
+    from app.api.routes.demand import _execute_dispatch, _demand_preview
+    from app.core.agent_runs import AgentRunDispatchError
+
+    task = await _get_task_or_404(db, task_id)
+
+    if task.status in ("done", "deployed", "cancelled"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Task is already {task.status} and cannot be dispatched",
+        )
+
+    # Alvo: o informado, senão o agente da atribuição ativa da task.
+    target_agent_id = payload.target_agent_id
+    if target_agent_id is None:
+        assignment = (
+            await db.execute(
+                select(TaskAssignment)
+                .where(
+                    TaskAssignment.task_id == task.id,
+                    TaskAssignment.status == "active",
+                    TaskAssignment.agent_id.isnot(None),
+                )
+                .order_by(TaskAssignment.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if assignment is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Task has no active agent assignment; pass target_agent_id or assign it first",
+            )
+        target_agent_id = assignment.agent_id
+
+    agent = await db.get(Agent, target_agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    project_id = await _resolve_task_project_id(db, task)
+
+    body_parts = [f"Task #{task.number}: {task.title}"]
+    if task.description:
+        body_parts.append(task.description)
+    body_parts.append(
+        f"Tipo: {task.task_type} | Prioridade: {task.priority} | Status atual: {task.status}"
+    )
+
+    demand = AgentDemand(
+        from_agent="forgehub",
+        subject=f"Task #{task.number} — {task.title}"[:255],
+        body="\n\n".join(body_parts),
+        status="new",
+        target_agent_id=target_agent_id,
+        project_id=project_id,
+        origin_type="task",
+        origin_id=task.id,
+        requires_response=payload.requires_response,
+    )
+    db.add(demand)
+    await db.flush()  # atribui demand.id/number antes da notificação referenciá-los
+
+    db.add(
+        Notification(
+            source="system",
+            severity="info",
+            title=f"New in Inbox: {demand.subject}",
+            message=_demand_preview(demand.body),
+            event_key=f"demand:{demand.id}",
+            occurred_at=datetime.now(timezone.utc),
+        )
+    )
+
+    try:
+        demand = await _execute_dispatch(db, demand, target_agent_id, payload.command_text)
+    except AgentRunDispatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Host-bridge dispatch failed: {exc}") from exc
+
+    # Regra 6.4.1 estendida: despachar tira a task de planned/ready/assigned.
+    # Estados posteriores (in_progress, blocked) não regridem.
+    if task.status in ("planned", "ready", "assigned"):
+        task.status = "in_progress"
+        if task.started_at is None:
+            task.started_at = datetime.now(timezone.utc)
+
+    db.add(
+        AuditEvent(
+            entity_type="project_task",
+            entity_id=task.id,
+            event_type="task.dispatched",
+            description=f"Task #{task.number} dispatched to {agent.name} via Inbox #{demand.number}",
+        )
+    )
+
+    await db.commit()
+    await db.refresh(demand)
+    await db.refresh(task)
+
+    return TaskInboxDispatchOut(
+        task_id=task.id,
+        task_status=task.status,
+        demand_id=demand.id,
+        demand_number=demand.number,
+        target_agent_id=target_agent_id,
+        dispatch_status=demand.dispatch_status,
+        agent_run_id=demand.agent_run_id,
+    )

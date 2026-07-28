@@ -48,6 +48,7 @@
     "deleteFileAndRegistration": "Delete file and registration",
     "deleteTitle": "Delete \"{{name}}\"",
     "deleteDescription": "Removes the registration and deletes the file {{path}} from disk. This action cannot be undone.",
-    "delete": "Delete"
+    "delete": "Delete",
+    "backToAgents": "Back to Agents"
   }
 }

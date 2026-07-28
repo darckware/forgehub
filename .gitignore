@@ -6,9 +6,14 @@
 *.pem
 *.key
 
-# Claude Code local settings (machine-specific permissions)
+# Claude Code local settings (machine-specific permissions) and worktrees
+# (isolated copies for background agents -- transient, never project source)
 .claude/settings.local.json
 .claude/settings.local.json.bak
+.claude/settings.local.json.*.bak
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+*.bak
 
 # Per-project ForgeRouter credentials (see host-bridge/app.py)
 .codex/forgerouter.env

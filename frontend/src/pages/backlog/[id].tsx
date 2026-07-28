@@ -13,7 +13,6 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { usePlanningItem } from "@/hooks/useBacklog";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EntityDocsCard } from "@/components/EntityDocsCard";
 
 export default function PlanningItemDetailPage() {
@@ -23,13 +22,6 @@ export default function PlanningItemDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumb
-        items={[
-          { label: t("detail.breadcrumbPlanning"), href: "/backlog" },
-          { label: item?.title ?? "…" },
-        ]}
-      />
-
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />

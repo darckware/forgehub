@@ -9,6 +9,7 @@ import {
   ExternalLink,
   History,
   Loader2,
+  Mail,
   Play,
   RefreshCw,
 } from "lucide-react";
@@ -34,12 +35,12 @@ import {
   type ExecutionCreateInput,
   useSyncTaskToKanboard,
   usePullKanboard,
+  useDispatchTask,
   useTask,
   useTasks,
   useCreateExecution,
 } from "@/hooks/useTask";
 import { useProjects } from "@/hooks/useProject";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EntityDocsCard } from "@/components/EntityDocsCard";
 import { usePlanningItems } from "@/hooks/useBacklog";
 import { TaskAutomationCard } from "@/components/TaskAutomationCard";
@@ -56,6 +57,16 @@ const STATUS_VARIANT: Record<
   done: "success",
   deployed: "success",
   cancelled: "destructive",
+};
+
+const HEALTH_VARIANT: Record<
+  string,
+  "default" | "secondary" | "success" | "warning" | "outline" | "destructive"
+> = {
+  ok: "success",
+  overdue: "warning",
+  stalled: "warning",
+  failed: "destructive",
 };
 
 const KANBOARD_URL =
@@ -168,6 +179,7 @@ export default function TaskDetailPage() {
   const { data: task, isLoading, isError, error } = useTask(id);
   const syncKanboard = useSyncTaskToKanboard(id ?? "");
   const pullKanboard = usePullKanboard(id ?? "");
+  const dispatchTask = useDispatchTask(id ?? "");
   const { data: projects } = useProjects();
   const { data: planningItems } = usePlanningItems();
   const { data: allTasks } = useTasks();
@@ -182,13 +194,6 @@ export default function TaskDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumb
-        items={[
-          { label: t("detail.breadcrumbExecution"), href: "/tasks" },
-          { label: task?.title ?? "…" },
-        ]}
-      />
-
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
@@ -209,12 +214,21 @@ export default function TaskDetailPage() {
         <>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">{task.title}</h1>
+              <h1 className="text-3xl font-bold tracking-tight">
+                <span className="mr-2 text-muted-foreground">#{task.number}</span>
+                {task.title}
+              </h1>
               {task.description && (
                 <p className="mt-1 max-w-2xl text-muted-foreground">{task.description}</p>
               )}
             </div>
             <div className="flex flex-col items-end gap-2">
+              {task.health !== "ok" && (
+                <Badge variant={HEALTH_VARIANT[task.health] ?? "warning"} className="text-sm capitalize gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {t(`enums.taskHealth.${task.health}`, task.health)}
+                </Badge>
+              )}
               <Badge
                 variant={STATUS_VARIANT[task.status] ?? "outline"}
                 className="text-sm capitalize"
@@ -371,11 +385,53 @@ export default function TaskDetailPage() {
                 </CardTitle>
                 <CardDescription>{t("detail.executions.description")}</CardDescription>
               </div>
-              <Button size="sm" onClick={() => setShowExecForm((v) => !v)}>
-                <Play className="mr-2 h-4 w-4" />
-                {showExecForm ? t("detail.executions.cancel") : t("detail.executions.record")}
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* Executa a task pelo canal de Mensagens -- o único caminho
+                    de execução (decisão de 2026-07-26). Cria a mensagem
+                    vinculada e a despacha ao agente atribuido. */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    dispatchTask.isPending ||
+                    ["done", "deployed", "cancelled"].includes(task.status)
+                  }
+                  onClick={() => dispatchTask.mutate({})}
+                  title="Cria a mensagem vinculada a esta task e despacha ao agente atribuído"
+                >
+                  {dispatchTask.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Mail className="mr-2 h-4 w-4" />
+                  )}
+                  Executar por Mensagens
+                </Button>
+                <Button size="sm" onClick={() => setShowExecForm((v) => !v)}>
+                  <Play className="mr-2 h-4 w-4" />
+                  {showExecForm ? t("detail.executions.cancel") : t("detail.executions.record")}
+                </Button>
+              </div>
             </CardHeader>
+
+            {dispatchTask.isError && (
+              <CardContent className="border-t pt-4">
+                <p className="rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                  {(dispatchTask.error as Error)?.message}
+                </p>
+              </CardContent>
+            )}
+
+            {dispatchTask.isSuccess && dispatchTask.data && (
+              <CardContent className="border-t pt-4">
+                <p className="rounded border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
+                  Despachada como mensagem{" "}
+                  <Link to="/demands" className="font-medium text-primary underline">
+                    #{dispatchTask.data.demand_number}
+                  </Link>{" "}
+                  — status do envio: {dispatchTask.data.dispatch_status ?? "—"}.
+                </p>
+              </CardContent>
+            )}
 
             {showExecForm && (
               <CardContent className="border-t pt-4">

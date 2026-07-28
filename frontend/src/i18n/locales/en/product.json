@@ -19,13 +19,15 @@
       "namePlaceholder": "e.g. ForgeHub",
       "descriptionLabel": "Description",
       "descriptionPlaceholder": "Optional description of the product",
-      "urlLabel": "Application URL",
-      "urlPlaceholder": "http://localhost:4173",
-      "urlHint": "Opened when this product is selected in Workspace > Web App.",
+      "urlLabel": "Production URL",
+      "urlPlaceholder": "https://app.example.com",
+      "urlHint": "The production URL is the one opened when this product is selected in Workspace > Web App.",
       "statusLabel": "Status",
       "error": "Failed to create product. Please try again.",
       "save": "Save",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "urlDevLabel": "Development URL",
+      "urlDevPlaceholder": "http://localhost:4173"
     },
     "loading": "Loading products...",
     "loadError": "Failed to load products.",
@@ -61,12 +63,14 @@
     "description": "Update the registration data for \"{{name}}\".",
     "nameLabel": "Name",
     "descriptionLabel": "Description",
-    "urlLabel": "Application URL",
-    "urlPlaceholder": "http://localhost:4173",
+    "urlLabel": "Production URL",
+    "urlPlaceholder": "https://app.example.com",
     "statusLabel": "Status",
     "error": "Failed to save. Please try again.",
     "save": "Save",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "urlDevLabel": "Development URL",
+    "urlDevPlaceholder": "http://localhost:4173"
   },
   "restoreModal": {
     "title": "Restore backup",

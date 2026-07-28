@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { FolderOpen, Loader2 } from "lucide-react";
+import { FolderOpen, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +16,7 @@ import {
   planningItemCreateSchema,
   type PlanningItemCreateInput,
 } from "@/hooks/useBacklog";
-import { useProjects } from "@/hooks/useProject";
+import { useCreateProject, useProjects } from "@/hooks/useProject";
 import { useProducts, useProductVersions } from "@/hooks/useProduct";
 
 interface PlanningItemFormProps {
@@ -66,6 +66,10 @@ export function PlanningItemForm({
 
   const { data: products, isLoading: isLoadingProducts } = useProducts();
   const { data: projects, isLoading: isLoadingProjects } = useProjects();
+  const createProject = useCreateProject();
+
+  const [showInlineProjectForm, setShowInlineProjectForm] = useState(false);
+  const [quickProjectName, setQuickProjectName] = useState("");
 
   const [selectedProductId, setSelectedProductId] = useState("");
   const { data: versions, isLoading: isLoadingVersions } = useProductVersions(
@@ -185,17 +189,103 @@ export function PlanningItemForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="project_id">{t("form.projectLabel")}</Label>
-        <Select id="project_id" disabled={isLoadingProjects} {...register("project_id")}>
-          <option value="">
-            {isLoadingProjects ? t("form.loadingProjects") : t("form.selectProject")}
-          </option>
-          {projects?.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
+        <div className="flex items-center justify-between">
+          <Label htmlFor="project_id">{t("form.projectLabel")}</Label>
+          {showInlineProjectForm ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => setShowInlineProjectForm(false)}
+            >
+              {t("form.cancelQuickProject")}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs text-primary"
+              onClick={() => setShowInlineProjectForm(true)}
+            >
+              <Plus className="mr-1 h-3 w-3" />
+              {t("form.createQuickProject")}
+            </Button>
+          )}
+        </div>
+
+        {showInlineProjectForm ? (
+          <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground">{t("form.quickProjectTitle")}</p>
+            <div className="space-y-1.5">
+              <Label htmlFor="quick_project_name" className="text-xs">{t("form.projectNameLabel")}</Label>
+              <Input
+                id="quick_project_name"
+                size={30}
+                placeholder={t("form.projectNamePlaceholder")}
+                value={quickProjectName}
+                onChange={(e) => setQuickProjectName(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setShowInlineProjectForm(false)}
+              >
+                {t("form.cancelButton")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={!quickProjectName.trim() || !watch("product_version_id") || createProject.isPending}
+                onClick={() => {
+                  const versionId = watch("product_version_id");
+                  if (!versionId || !quickProjectName.trim()) return;
+                  createProject.mutate(
+                    {
+                      name: quickProjectName.trim(),
+                      product_version_id: versionId,
+                      status: "planned",
+                      backup_enabled: false,
+                    },
+                    {
+                      onSuccess: (newProj) => {
+                        setValue("project_id", newProj.id);
+                        setShowInlineProjectForm(false);
+                        setQuickProjectName("");
+                      },
+                    }
+                  );
+                }}
+              >
+                {createProject.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                {t("form.saveQuickProject")}
+              </Button>
+            </div>
+            {!watch("product_version_id") && (
+              <p className="text-xs text-amber-500">{t("form.quickProjectRequiresVersion")}</p>
+            )}
+            {createProject.isError && (
+              <p className="text-xs text-destructive">{(createProject.error as Error)?.message}</p>
+            )}
+          </div>
+        ) : (
+          <Select id="project_id" disabled={isLoadingProjects} {...register("project_id")}>
+            <option value="">
+              {isLoadingProjects ? t("form.loadingProjects") : t("form.selectProject")}
             </option>
-          ))}
-        </Select>
+            {projects?.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </Select>
+        )}
         {errors.project_id && (
           <p className="text-sm text-destructive">{errors.project_id.message}</p>
         )}

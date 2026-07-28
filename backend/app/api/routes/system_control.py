@@ -671,6 +671,10 @@ TIMEZONE={timezone}
 # stored message text is never touched.
 CHAT_RESPONSE_LANGUAGE={chat_response_language}
 
+# App shell language ("en" or "pt-BR") new users get on creation --
+# independent of CHAT_RESPONSE_LANGUAGE above. See User.ui_language.
+DEFAULT_UI_LANGUAGE={default_ui_language}
+
 # Agent runtime paths
 # Root config/state directory per agent runtime (reference/visibility only,
 # not consumed by Git Control/Backup -- see this module's docstring). JSON
@@ -690,6 +694,7 @@ def _settings_to_config_out(s) -> dict[str, Any]:
         "cleanup_prune_names": list(s.CLEANUP_PRUNE_NAMES),
         "timezone": s.TIMEZONE,
         "chat_response_language": s.CHAT_RESPONSE_LANGUAGE,
+        "default_ui_language": s.DEFAULT_UI_LANGUAGE,
         "agent_runtime_paths": dict(s.AGENT_RUNTIME_PATHS),
     }
 
@@ -704,6 +709,7 @@ class AppConfigUpdate(BaseModel):
     cleanup_prune_names: list[str] = Field(default_factory=list)
     timezone: str = Field(min_length=1, max_length=64)
     chat_response_language: str = Field(default="pt-BR", max_length=16)
+    default_ui_language: str = Field(default="pt-BR", max_length=8)
     agent_runtime_paths: dict[str, str] = Field(default_factory=dict)
 
 
@@ -741,6 +747,14 @@ async def update_app_config(
                 f"{', '.join(CHAT_RESPONSE_LANGUAGE_NOTES)}"
             ),
         )
+    # Matches User.ui_language's own CheckConstraint (ck_users_ui_language)
+    # -- a value outside this pair would let an admin save a system default
+    # that then fails at the DB the moment a new user is actually created.
+    if payload.default_ui_language not in ("en", "pt-BR"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="default_ui_language must be one of en, pt-BR",
+        )
     for runtime_name, runtime_path in payload.agent_runtime_paths.items():
         if not runtime_path.startswith("/"):
             raise HTTPException(
@@ -761,6 +775,7 @@ async def update_app_config(
     settings.CLEANUP_PRUNE_NAMES = payload.cleanup_prune_names
     settings.TIMEZONE = payload.timezone
     settings.CHAT_RESPONSE_LANGUAGE = payload.chat_response_language
+    settings.DEFAULT_UI_LANGUAGE = payload.default_ui_language
     settings.AGENT_RUNTIME_PATHS = payload.agent_runtime_paths
 
     _APP_CONFIG_FILE.write_text(
@@ -774,6 +789,7 @@ async def update_app_config(
             cleanup_prune_names=json.dumps(settings.CLEANUP_PRUNE_NAMES),
             timezone=settings.TIMEZONE,
             chat_response_language=settings.CHAT_RESPONSE_LANGUAGE,
+            default_ui_language=settings.DEFAULT_UI_LANGUAGE,
             agent_runtime_paths=json.dumps(settings.AGENT_RUNTIME_PATHS),
         )
     )

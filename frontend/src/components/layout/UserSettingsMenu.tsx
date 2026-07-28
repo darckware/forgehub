@@ -5,7 +5,7 @@ import { Camera, Check, KeyRound, Laptop, LogOut, Loader2, Moon, Settings, Setti
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useTheme } from "@/lib/theme";
-import i18n, { type UiLanguage } from "@/i18n";
+import type { UiLanguage } from "@/i18n";
 import { useAuthStore } from "@/store/authStore";
 import { useUpdateMe, useChangeMyPassword, useClearQueryCacheOnLogout } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ const THEME_OPTIONS = [
 const LANGUAGE_OPTIONS: { value: UiLanguage; labelKey: string }[] = [
   { value: "pt-BR", labelKey: "languagePt" },
   { value: "en", labelKey: "languageEn" },
+  { value: "es", labelKey: "languageEs" },
 ];
 
 /** Backdrop + centered panel, same pattern as components/ui/confirm-dialog.tsx. */
@@ -41,6 +42,12 @@ function AccountModal({ onClose }: { onClose: () => void }) {
   const [fullName, setFullName] = useState(user?.full_name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatar_data_url ?? null);
+  // Staged like fullName/email above -- previously this field applied
+  // (i18n.changeLanguage) and persisted (mutate) directly in its onChange,
+  // bypassing Cancel entirely (picking a language then hitting Cancel still
+  // left you on the new language). Now it only takes effect on Save, same
+  // as every other field in this modal.
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>((user?.ui_language as UiLanguage) ?? "pt-BR");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handlePickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -53,9 +60,18 @@ function AccountModal({ onClose }: { onClose: () => void }) {
 
   function handleSave() {
     updateMe.mutate(
-      { full_name: fullName.trim() || undefined, email: email.trim() || undefined, avatar_data_url: avatarPreview },
+      {
+        full_name: fullName.trim() || undefined,
+        email: email.trim() || undefined,
+        avatar_data_url: avatarPreview,
+        ui_language: uiLanguage,
+      },
       { onSuccess: onClose }
     );
+    // No explicit i18n.changeLanguage here -- useUpdateMe's onSuccess writes
+    // the fresh user (including ui_language) into authStore, and
+    // useSyncUiLanguage (mounted once in AppLayout) reactively applies it
+    // app-wide the moment that store value changes.
   }
 
   return (
@@ -105,12 +121,8 @@ function AccountModal({ onClose }: { onClose: () => void }) {
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">{t("userMenu.language")}</label>
           <select
-            value={user?.ui_language ?? "pt-BR"}
-            onChange={(e) => {
-              const lang = e.target.value as UiLanguage;
-              void i18n.changeLanguage(lang);
-              updateMe.mutate({ ui_language: lang });
-            }}
+            value={uiLanguage}
+            onChange={(e) => setUiLanguage(e.target.value as UiLanguage)}
             className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm outline-none focus:border-primary"
           >
             {LANGUAGE_OPTIONS.map((opt) => (

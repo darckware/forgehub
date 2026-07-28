@@ -1,51 +1,45 @@
-import type React from "react";
 import {
   Bell,
-  LayoutDashboard,
-  LayoutPanelLeft,
-  Package,
-  FolderKanban,
-  GitBranch,
-  ClipboardList,
-  CheckSquare,
+  BookOpen,
   Bot,
-  FileBox,
-  Gavel,
-  Gem,
   Brain,
+  CheckCircle2,
+  ClipboardCheck,
+  Clock,
+  Code2,
+  Command,
+  Database,
+  FolderKanban,
+  Gauge,
+  Gem,
+  GitBranch,
   Kanban,
   Landmark,
-  Route,
-  Clock,
-  Server,
-  Network,
-  Database,
+  Layout,
+  LayoutDashboard,
   LayoutList,
+  LayoutPanelLeft,
+  Lightbulb,
+  Mail,
+  Newspaper,
+  Plug,
+  Route,
+  Server,
   Share2,
-  Code2,
-  BookOpen,
-  Inbox,
-  ClipboardCheck,
-  Users,
   ShieldCheck,
   Sparkles,
+  Users,
   Wrench,
-  Command,
-  Newspaper,
-  Lightbulb,
+  Network,
 } from "lucide-react";
 
-// `labelKey` is an i18next key into common.json's "nav" tree (e.g.
-// "nav.dashboard"), not display text -- Sidebar.tsx and CommandPalette.tsx
-// (the two consumers) call t(entry.labelKey) at render time so the menu
-// reacts live to a language switch. This module stays plain data (no hook
-// access), so translation happens at the point of consumption, not here.
 export interface NavLinkEntry {
   type: "link";
   to: string;
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
-  module?: string; // if set, check can_view; undefined = always visible
+  module?: string;
+  hiddenInSidebar?: boolean;
 }
 
 export interface NavGroupEntry {
@@ -69,33 +63,22 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/", labelKey: "nav.dashboard", icon: LayoutDashboard },
       { type: "link", to: "/workspace", labelKey: "nav.workspace", icon: LayoutPanelLeft },
       { type: "link", to: "/notifications", labelKey: "nav.notifications", icon: Bell },
-      // AI news digests archived by report-generating crons (e.g.
-      // ai-news-noon), see news.py -- filesystem-only, no DB table.
       { type: "link", to: "/news", labelKey: "nav.news", icon: Newspaper },
-      // Inbox de demandas de agentes ("como um e-mail"), conversível em
-      // Task/Doc/Artefato/Knowledge Base (core/conversions.py).
-      { type: "link", to: "/demands", labelKey: "nav.inbox", icon: Inbox, module: "demands" },
-      // Área de criação: markdown editável em /root/docs, cruzado com
-      // produtos/projetos/tasks (doc_links, fase 3).
+      { type: "link", to: "/demands", labelKey: "nav.inbox", icon: Mail, module: "demands" },
       { type: "link", to: "/docs", labelKey: "nav.docs", icon: BookOpen, module: "docs" },
     ],
   },
   {
     type: "section",
-    labelKey: "nav.section.planning",
+    labelKey: "nav.section.factory2",
     entries: [
       { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
-      { type: "link", to: "/system-map", labelKey: "nav.systemMap", icon: Share2, module: "product" },
-      { type: "link", to: "/project-scope", labelKey: "nav.projectScope", icon: ClipboardList, module: "projects" },
-      { type: "link", to: "/product", labelKey: "nav.products", icon: Package, module: "product" },
-      { type: "link", to: "/projects", labelKey: "nav.projects", icon: FolderKanban, module: "projects" },
-      { type: "link", to: "/pipeline", labelKey: "nav.pipelines", icon: GitBranch, module: "pipeline" },
-      { type: "link", to: "/pipeline-templates", labelKey: "nav.templates", icon: GitBranch, module: "pipeline" },
-      { type: "link", to: "/backlog", labelKey: "nav.planningItem", icon: ClipboardList, module: "backlog" },
-      { type: "link", to: "/tasks", labelKey: "nav.execution", icon: CheckSquare, module: "tasks" },
-      { type: "link", to: "/artifact", labelKey: "nav.artifacts", icon: FileBox, module: "artifacts" },
-      { type: "link", to: "/governance", labelKey: "nav.governance", icon: Gavel, module: "governance" },
-      { type: "link", to: "/governance/policies", labelKey: "nav.policies", icon: ShieldCheck, module: "governance" },
+      { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
+      { type: "link", to: "/concept-erd", labelKey: "nav.databaseDiagram", icon: Share2, module: "database" },
+      { type: "link", to: "/projects", labelKey: "nav.projectCenter", icon: FolderKanban, module: "projects" },
+      { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance" },
+      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
+      { type: "link", to: "/version-closure", labelKey: "nav.versionClosure", icon: CheckCircle2, module: "product" },
     ],
   },
   {
@@ -103,7 +86,23 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     labelKey: "nav.section.agentsAi",
     entries: [
       { type: "link", to: "/agents", labelKey: "nav.agents", icon: Bot, module: "agents" },
-      { type: "link", to: "/tools", labelKey: "nav.agentTools", icon: Wrench, module: "agents" },
+      // Agent Tools is reached from the button in the Agents page header, not
+      // from the sidebar (2026-07-26) -- the tools registry is scoped to the
+      // agent roster rather than being a peer destination of it, and its page
+      // carries a back link to /agents. Still listed here so Cmd/Ctrl+K finds
+      // it; only the sidebar hides it.
+      {
+        type: "link",
+        to: "/tools",
+        labelKey: "nav.agentTools",
+        icon: Wrench,
+        module: "agents",
+        hiddenInSidebar: true,
+      },
+      // MCP servers are agent configuration, not a tool registry: the same
+      // server is installed per agent, in each runtime's own config file, so
+      // the roster-wide view belongs next to Agents rather than under Tools.
+      { type: "link", to: "/mcp", labelKey: "nav.mcp", icon: Plug, module: "agents" },
       { type: "link", to: "/prompt-commands", labelKey: "nav.chatCommands", icon: Command, module: "agents" },
       { type: "link", to: "/skills", labelKey: "nav.skills", icon: Sparkles, module: "agents" },
       { type: "link", to: "/crons", labelKey: "nav.crons", icon: Clock, module: "crons" },
@@ -115,7 +114,21 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     labelKey: "nav.section.integrations",
     entries: [
-      { type: "link", to: "/kanboard", labelKey: "nav.kanboard", icon: Kanban, module: "kanboard" },
+      // Kanboard saiu do menu por decisão do Marcelo (2026-07-26): o controle
+      // de tarefas passa a ser nativo do ForgeHub. A rota continua registrada
+      // e alcançável pelo Cmd/Ctrl+K enquanto a integração não é desligada de
+      // fato -- o board externo ainda é escrito por outros agentes do
+      // ecossistema (ver CLAUDE.md), então arrancar o cliente/sync e as
+      // colunas kanboard_* é uma remoção à parte, não um efeito colateral
+      // desta reorganização de menu.
+      {
+        type: "link",
+        to: "/kanboard",
+        labelKey: "nav.kanboard",
+        icon: Kanban,
+        module: "kanboard",
+        hiddenInSidebar: true,
+      },
       { type: "link", to: "/obsidian", labelKey: "nav.knowledgeBase", icon: Gem, module: "obsidian" },
     ],
   },

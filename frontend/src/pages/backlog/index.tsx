@@ -159,12 +159,17 @@ function TaskRow({
     <>
       <li className="flex items-center justify-between gap-3 text-sm">
         <Link to={`/tasks/${task.id}`} className="min-w-0 flex-1 hover:underline truncate">
-          {task.title}
+          <span className="text-muted-foreground">#{task.number}</span> {task.title}
           {task.parent_task_id && (
             <span className="ml-2 text-xs text-muted-foreground">{t("list.taskRow.subtaskLabel")}</span>
           )}
         </Link>
         <div className="flex shrink-0 items-center gap-1.5">
+          {task.health !== "ok" && (
+            <span title={t(`list.taskRow.health.${task.health}`, task.health)}>
+              <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+            </span>
+          )}
           <Badge variant={TASK_STATUS_VARIANT[task.status] ?? "outline"}>
             {t(`enums.taskStatuses.${task.status}`, { defaultValue: task.status.replace("_", " ") })}
           </Badge>
@@ -402,7 +407,7 @@ export default function BacklogPage() {
   const queryClient = useQueryClient();
 
   const [showForm, setShowForm] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addingTaskForId, setAddingTaskForId] = useState<string | null>(null);
   const [filterProjectId, setFilterProjectId] = useState("");
@@ -541,6 +546,30 @@ export default function BacklogPage() {
             ))}
           </select>
 
+          {/* Expand / Collapse All Tasks */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const allExpanded = visibleItems.length > 0 && expandedIds.size === visibleItems.length;
+              if (allExpanded) {
+                setExpandedIds(new Set());
+              } else {
+                setExpandedIds(new Set(visibleItems.map((i) => i.id)));
+              }
+            }}
+            title={
+              visibleItems.length > 0 && expandedIds.size === visibleItems.length
+                ? t("list.collapseAllTooltip")
+                : t("list.expandAllTooltip")
+            }
+          >
+            <ChevronDown className={`mr-1 h-4 w-4 transition-transform ${visibleItems.length > 0 && expandedIds.size === visibleItems.length ? "rotate-180" : ""}`} />
+            {visibleItems.length > 0 && expandedIds.size === visibleItems.length
+              ? t("list.collapseAllButton")
+              : t("list.expandAllButton")}
+          </Button>
+
           {/* Export */}
           <Button
             variant="outline"
@@ -659,7 +688,7 @@ export default function BacklogPage() {
               </TableHeader>
               <TableBody>
                 {visibleItems.map((item) => {
-                  const isExpanded = expandedId === item.id;
+                  const isExpanded = expandedIds.has(item.id);
                   const isEditing = editingId === item.id;
                   return (
                     <Fragment key={item.id}>
@@ -671,7 +700,15 @@ export default function BacklogPage() {
                             className="h-6 w-6 p-0"
                             aria-label={isExpanded ? t("list.collapseTasks") : t("list.expandTasks")}
                             onClick={() => {
-                              setExpandedId(isExpanded ? null : item.id);
+                              setExpandedIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(item.id)) {
+                                  next.delete(item.id);
+                                } else {
+                                  next.add(item.id);
+                                }
+                                return next;
+                              });
                               if (isEditing) setEditingId(null);
                             }}
                           >
@@ -726,7 +763,7 @@ export default function BacklogPage() {
                               aria-label={t("list.editAria", { title: item.title })}
                               onClick={() => {
                                 setEditingId(isEditing ? null : item.id);
-                                setExpandedId(null);
+                                setEditingId(isEditing ? null : item.id);
                                 setAddingTaskForId(null);
                               }}
                               title={t("list.editTooltip")}
@@ -739,7 +776,7 @@ export default function BacklogPage() {
                               className="h-8 w-8 p-0"
                               aria-label={t("list.addTaskAria", { title: item.title })}
                               onClick={() => {
-                                setExpandedId(item.id);
+                                setExpandedIds((prev) => new Set(prev).add(item.id));
                                 setEditingId(null);
                                 setAddingTaskForId(item.id);
                               }}

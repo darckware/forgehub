@@ -58,7 +58,13 @@ class Product(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active", server_default="active")
+    # Where the running application lives, one URL per environment. The
+    # production one keeps the historical column name `application_url`: it
+    # predates the split (2026-07-26) and is what WebAppPane.tsx and
+    # workspace_browser.py already open, so renaming it would break those
+    # callers and any external consumer of ProductOut for no gain.
     application_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    application_url_dev: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
     # Kanboard project created when this product is registered.
     # kanboard_column_ids maps ForgeHub task status → Kanboard column id for

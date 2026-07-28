@@ -37,6 +37,15 @@ const CHAT_RESPONSE_LANGUAGES = [
   { value: "it", label: "Italiano" },
 ];
 
+// App shell language new users get on creation -- narrower than
+// CHAT_RESPONSE_LANGUAGES above because it's constrained by
+// User.ui_language's own CheckConstraint (ck_users_ui_language, backend);
+// the PUT validator rejects anything outside this pair.
+const DEFAULT_UI_LANGUAGES = [
+  { value: "pt-BR", label: "Português (Brasil)" },
+  { value: "en", label: "English" },
+];
+
 function linesToList(value: string): string[] {
   return value
     .split("\n")
@@ -146,6 +155,30 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-xl">{t("settings.tabs.agentRuntimePaths")}</CardTitle>
+          <CardDescription>{t("settings.tabs.agentRuntimePathsDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          {Object.entries(form.agent_runtime_paths).map(([runtime, path]) => (
+            <div className="space-y-2" key={runtime}>
+              <Label htmlFor={`agent_runtime_path_${runtime}`}>{runtime}</Label>
+              <Input
+                id={`agent_runtime_path_${runtime}`}
+                value={path}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    agent_runtime_paths: { ...form.agent_runtime_paths, [runtime]: e.target.value },
+                  })
+                }
+              />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-xl">{t("settings.tabs.backups")}</CardTitle>
           <CardDescription>
             {t("settings.tabs.backupsDescription")}
@@ -220,7 +253,23 @@ export default function SettingsPage() {
             {t("settings.tabs.aiChatDescription")}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
+          <div className="max-w-sm space-y-2">
+            <Label htmlFor="default_ui_language">{t("settings.aiChat.defaultUiLanguage.label")}</Label>
+            <Select
+              id="default_ui_language"
+              value={form.default_ui_language}
+              onChange={(e) => setForm({ ...form, default_ui_language: e.target.value })}
+            >
+              {DEFAULT_UI_LANGUAGES.map((lang) => (
+                <option key={lang.value} value={lang.value}>
+                  {lang.label}
+                </option>
+              ))}
+            </Select>
+            <p className="text-sm text-muted-foreground">{t("settings.aiChat.defaultUiLanguage.help")}</p>
+          </div>
+
           <div className="max-w-sm space-y-2">
             <Label htmlFor="chat_response_language">{t("settings.aiChat.chatResponseLanguage.label")}</Label>
             <Select

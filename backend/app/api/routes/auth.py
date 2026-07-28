@@ -94,6 +94,7 @@ async def login_for_access_token(
             username=form_data.username,
             hashed_password=hash_password(form_data.password),
             full_name="Admin (bootstrap)", is_active=True, is_admin=True,
+            ui_language=settings.DEFAULT_UI_LANGUAGE,
         )
         db.add(user)
         await db.commit()

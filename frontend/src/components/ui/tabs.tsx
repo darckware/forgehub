@@ -44,10 +44,14 @@ function TabsTrigger({
   value,
   children,
   className,
+  title,
 }: {
   value: string;
   children: React.ReactNode;
   className?: string;
+  /** Tooltip -- lets an icon-only trigger (no visible label) still expose
+   * its name on hover/to assistive tech. */
+  title?: string;
 }) {
   const ctx = useTabsContext("TabsTrigger");
   const isActive = ctx.value === value;
@@ -56,6 +60,8 @@ function TabsTrigger({
       type="button"
       role="tab"
       aria-selected={isActive}
+      aria-label={title}
+      title={title}
       onClick={() => ctx.setValue(value)}
       className={cn(
         "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",

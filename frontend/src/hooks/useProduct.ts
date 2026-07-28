@@ -29,6 +29,7 @@ export const productSchema = z.object({
   description: z.string().nullable().optional(),
   status: z.enum(["concept", "active", "inactive", "archived"]).default("active"),
   application_url: z.string().nullable().optional(),
+  application_url_dev: z.string().nullable().optional(),
   versions: z.array(productVersionSchema).optional().default([]),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
@@ -41,12 +42,19 @@ export const productInputSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
   description: z.string().max(2000).optional().or(z.literal("")),
   status: z.enum(["active", "inactive", "archived"]).default("active"),
+  // Uma URL por ambiente. `application_url` é a de producao (nome historico
+  // mantido -- ver o comentario no modelo do backend); `application_url_dev` e
+  // a de desenvolvimento.
   application_url: z.string().url("Enter a valid http(s) URL").optional().or(z.literal("")),
+  application_url_dev: z.string().url("Enter a valid http(s) URL").optional().or(z.literal("")),
 });
 
 export type ProductInput = z.infer<typeof productInputSchema>;
-export type ProductUpdateInput = Partial<Omit<ProductInput, "application_url">> & {
+export type ProductUpdateInput = Partial<
+  Omit<ProductInput, "application_url" | "application_url_dev">
+> & {
   application_url?: string | null;
+  application_url_dev?: string | null;
 };
 
 const RESOURCE = "/api/v1/products";
