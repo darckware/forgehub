@@ -42,12 +42,17 @@ export const attachmentSchema = z.object({
   size_bytes: z.number(),
   content_type: z.string().nullable(),
   created_at: z.string(),
+  /** Optional caption given at upload time; null when none. */
+  description: z.string().nullable().optional(),
 });
 
 export type DemandAttachment = z.infer<typeof attachmentSchema>;
 
 export const demandSchema = z.object({
   id: z.string(),
+  // Human-readable display number (#1, #2, ...) -- reference an existing
+  // message as another item's origin by typing this instead of its UUID.
+  number: z.number(),
   from_agent: z.string(),
   subject: z.string(),
   body: z.string(),
@@ -66,14 +71,96 @@ export const demandSchema = z.object({
   // outside the agent tree in Marcelo's own evaluation queue).
   target_agent_id: z.string().nullable(),
   from_agent_id: z.string().nullable(),
+  // Which project this message is about -- classification only (see the
+  // "Controle" tab), independent of ConvertPayload.project_id below (that
+  // one picks the project a *converted* entity lands in).
+  project_id: z.string().nullable(),
   command_text: z.string().nullable(),
-  origin_type: z.enum(["task", "demand"]).nullable(),
+  // Mandatory (2026-07-28) -- always "task" or "backlog", never null.
+  // "demand" was retired: an auto-generated return message is now Tipo=task
+  // too (see reply_to_id below).
+  origin_type: z.enum(["task", "backlog"]),
+  // ProjectTask.id when origin_type="task" and this message tracks/dispatches
+  // that task -- real, resolved row (no more raw Kanboard-number label). The
+  // compose form resolves this id to a display number itself. Always null
+  // for "backlog", which is a classification, not a link.
   origin_id: z.string().nullable(),
+  // Stamped automatically by the backend once the linked task's execution
+  // is marked "completed" (exact match on origin_id, see
+  // task.py's update_task_execution). Never sent by the compose form.
+  task_execution_at: z.string().nullable(),
+  // The agent's raw output once a dispatch finishes -- recorded on this
+  // same message regardless of requires_response ("processamento",
+  // 2026-07-28). See reply_to_id below for when a real return message
+  // also gets created.
+  dispatch_result: z.string().nullable(),
+  // "Retorno" -- whether this message expects a response back. Gates
+  // whether a real return message gets created on completion (2026-07-28)
+  // -- no longer just routing, see reply_to_id.
+  requires_response: z.boolean(),
+  // Set only on an auto-generated return message -- points back at the
+  // message it answers (2026-07-28, replaces the old origin_type="demand"
+  // + origin_id link).
+  reply_to_id: z.string().nullable(),
+  // Scheduled send -- set together with target_agent_id, dispatched
+  // automatically by the backend's poll loop once this time is reached.
+  scheduled_at: z.string().nullable(),
   dispatch_status: z.enum(["pending", "dispatched", "running", "completed", "failed"]).nullable(),
   agent_run_id: z.string().nullable(),
 });
 
 export type Demand = z.infer<typeof demandSchema>;
+
+/** Entrada (2026-07-27, Marcelo: "a message é como se fosse uma carta, ela
+ * anda em cada casa (grupo)"): a message only counts as having *arrived* at
+ * an agent's Incoming once dispatch has actually started -- addressed but
+ * still `dispatch_status IS NULL` (not yet promoted/scheduled, or scheduled
+ * for later) means it hasn't left the sender's house yet, so it belongs in
+ * Outgoing/Backlog only, not Incoming too. A self-addressed item (To left
+ * blank, target_agent_id === from_agent_id -- "para você mesmo") never
+ * counts as Incoming either.
+ *
+ * Excludes Running/Completed/Failed too (2026-07-28, Marcelo: "as message
+ * no Incoming em processamento tem que serem movidas para Running, fim do
+ * processamento, deu erro vai para Failed, senão vai para Completed") --
+ * each message counts in exactly one of Incoming/Running/Failed/Completed
+ * at a time, never two at once.
+ *
+ * Shared between pages/demands/index.tsx (the tree's own per-folder
+ * counts) and Sidebar.tsx (the global nav badge) -- both must agree, see
+ * computeInboxTotalCount below (2026-07-28, Marcelo: "tudo tem que
+ * obedecer o total do grupo de entrada... tem que haver sync"). */
+export function isIncomingItem(d: Demand, agentId: string): boolean {
+  return (
+    d.status !== "archived" &&
+    d.target_agent_id === agentId &&
+    d.dispatch_status != null &&
+    d.dispatch_status !== "dispatched" &&
+    d.dispatch_status !== "running" &&
+    d.dispatch_status !== "completed" &&
+    d.dispatch_status !== "failed" &&
+    d.target_agent_id !== d.from_agent_id
+  );
+}
+
+/** Total for the Incoming tree's root badge: System's count (unaddressed,
+ * ungated -- never enters dispatch, so isIncomingItem would wrongly erase
+ * it) plus every agent's *arrived* count. The single source of truth every
+ * "how many incoming" badge in the app must read from -- see
+ * isIncomingItem's docstring for why this stopped being safe to
+ * approximate with a broader "status=new" count (2026-07-28). */
+export function computeInboxTotalCount(demands: Demand[]): number {
+  let total = 0;
+  for (const d of demands) {
+    if (d.status === "archived") continue;
+    if (!d.target_agent_id) {
+      total += 1;
+    } else if (isIncomingItem(d, d.target_agent_id)) {
+      total += 1;
+    }
+  }
+  return total;
+}
 
 const dispatchStatusResultSchema = z.object({
   dispatch_status: z.enum(["pending", "dispatched", "running", "completed", "failed"]).nullable(),
@@ -128,10 +215,32 @@ export const demandKeys = {
   all: ["demands"] as const,
 };
 
+const IN_FLIGHT_DISPATCH_STATUSES = new Set(["pending", "dispatched", "running"]);
+
 export function useDemands(statusFilter?: DemandStatus) {
   return useQuery({
     queryKey: [...demandKeys.all, statusFilter ?? "all"],
-    refetchInterval: 30_000,
+    // Adaptive: while at least one message is actively dispatching, poll
+    // fast so a status change (dispatched -> running -> completed/failed)
+    // shows up promptly and the sidebar groups it's counted under
+    // recompute right away -- every group count/membership is a `useMemo`
+    // keyed on this query's data, so a fresh fetch is the only thing that
+    // was ever missing (2026-07-27/28, Marcelo: "para cada mudança de
+    // status a messages, tem que recalcular os grupos" -- the groups
+    // already did recompute on every fetch, the fetch itself just wasn't
+    // frequent enough to catch a run that finished between polls). Falls
+    // back to the original 30s cadence once nothing is in flight, so an
+    // idle inbox doesn't get hammered.
+    refetchInterval: (query) => {
+      const data = query.state.data as Demand[] | undefined;
+      const hasInFlight = data?.some((d) => d.dispatch_status && IN_FLIGHT_DISPATCH_STATUSES.has(d.dispatch_status));
+      return hasInFlight ? 3_000 : 30_000;
+    },
+    // The fast path only matters if it keeps running while the operator is
+    // reading a different browser tab / has this one unfocused -- the
+    // default pauses background polling, which would silently undo the
+    // whole point of polling faster in the first place.
+    refetchIntervalInBackground: true,
     queryFn: async () => {
       const data = await apiClient.get<unknown>(RESOURCE, {
         params: statusFilter ? { status_filter: statusFilter } : undefined,
@@ -146,27 +255,112 @@ function useInvalidateDemands() {
   return () => queryClient.invalidateQueries({ queryKey: demandKeys.all });
 }
 
+export interface DemandOriginInput {
+  /** "Tipo" da mensagem -- mandatory, always "task" or "backlog" (2026-07-28).
+   * "task" resolves a real vínculo from a display number (never a UUID)
+   * against ProjectTask.number. "backlog" é classificação, não vínculo:
+   * marca trabalho estacionado, nunca carrega número e nunca dispara.
+   * `originNumber` só faz sentido junto com "task". */
+  originType?: "task" | "backlog";
+  originNumber?: number;
+}
+
 /** JWT-authenticated create -- backs the chat composer's "/demanda"
  * command (see ChatPane.tsx): ForgeHub itself files the row on the
  * logged-in user's behalf, as opposed to /submit's bridge-token path
- * for autonomous host-side agents. */
+ * for autonomous host-side agents. Also backs the "New note" panel, which
+ * can set a target agent and/or an origin right away instead of a
+ * separate PATCH afterward. */
 export function useCreateDemand() {
   const invalidate = useInvalidateDemands();
   return useMutation({
-    mutationFn: (payload: { from_agent: string; subject: string; body: string }) =>
-      apiClient.post<Demand>(RESOURCE, payload),
+    mutationFn: (
+      payload: {
+        from_agent: string;
+        /** Picks a real registered Agent as sender ("From (agent)") --
+         * needed for the requires_response relay (see demand.py's
+         * get_dispatch_status: a reply routes back to this agent). */
+        fromAgentId?: string;
+        subject: string;
+        body: string;
+        targetAgentId?: string;
+        /** Which project this message is about -- see demandSchema's
+         * project_id comment. */
+        projectId?: string;
+        requiresResponse?: boolean;
+        /** ISO datetime string -- backend 400s if set without targetAgentId. */
+        scheduledAt?: string;
+        /** Files straight into Notes (Archived) instead of Incoming --
+         * e.g. Origin="Note" compose. Omitted = "new" (Incoming), as before. */
+        status?: DemandStatus;
+      } & DemandOriginInput
+    ) =>
+      apiClient.post<Demand>(RESOURCE, {
+        from_agent: payload.from_agent,
+        from_agent_id: payload.fromAgentId,
+        subject: payload.subject,
+        body: payload.body,
+        target_agent_id: payload.targetAgentId,
+        project_id: payload.projectId,
+        origin_type: payload.originType,
+        origin_number: payload.originNumber,
+        requires_response: payload.requiresResponse ?? false,
+        scheduled_at: payload.scheduledAt,
+        status: payload.status,
+      }),
     onSuccess: invalidate,
   });
 }
 
-/** "Notify via Telegram" -- proxies through the backend to Hermes's
- * cross-channel gateway (backend/app/api/routes/demand.py's
- * /notify-telegram, host-bridge/send_message.py). No target picker: it
- * always goes to the configured home channel (the user's own Telegram). */
-export function useNotifyTelegram() {
+/** Full edit ("Alterar" button) -- subject/body/target agent/origin, on
+ * top of the narrower useUpdateDemandStatus/useMoveDemand mutations below
+ * (kept separate since drag-and-drop and status toggles are hot paths that
+ * shouldn't need to build this whole payload shape). */
+export function useUpdateDemand() {
+  const invalidate = useInvalidateDemands();
   return useMutation({
-    mutationFn: (demandId: string) =>
-      apiClient.post<{ success?: boolean; note?: string }>(`${RESOURCE}/${demandId}/notify-telegram`, {}),
+    mutationFn: ({
+      id,
+      subject,
+      body,
+      targetAgentId,
+      fromAgentId,
+      projectId,
+      originType,
+      originNumber,
+      requiresResponse,
+      scheduledAt,
+    }: {
+      id: string;
+      subject?: string;
+      body?: string;
+      targetAgentId?: string | null;
+      fromAgentId?: string | null;
+      /** Which project this message is about, or null to clear. */
+      projectId?: string | null;
+      requiresResponse?: boolean;
+      /** ISO datetime string, or null to clear. */
+      scheduledAt?: string | null;
+    } & DemandOriginInput) =>
+      apiClient.patch<Demand>(`${RESOURCE}/${id}`, {
+        // Fields left `undefined` here are dropped by JSON.stringify, so
+        // they never appear in the PATCH body -- matching the backend's
+        // exclude_unset semantics (untouched, not cleared). Callers that
+        // want to explicitly clear the origin must pass originType:
+        // undefined together with an explicit originNumber: null (backend
+        // 400s on only one of the pair being set) -- not needed by the
+        // current edit panel, which always sends both or neither.
+        subject,
+        body,
+        target_agent_id: targetAgentId,
+        from_agent_id: fromAgentId,
+        project_id: projectId,
+        origin_type: originType,
+        scheduled_at: scheduledAt,
+        origin_number: originNumber,
+        requires_response: requiresResponse,
+      }),
+    onSuccess: invalidate,
   });
 }
 
@@ -199,6 +393,42 @@ export function useDeleteDemand() {
   });
 }
 
+/** Bulk-cleanup for the Messages toolbar's "Keep last N days"/"Clear all"
+ * buttons and each sidebar group's cleanup icon -- there's no bulk-delete
+ * endpoint, so this fires one DELETE per id (the caller computes which ids
+ * qualify, from the already-loaded list -- no extra fetch) and invalidates
+ * once at the end. */
+export function useCleanupDemands() {
+  const invalidate = useInvalidateDemands();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map((id) => apiClient.delete<void>(`${RESOURCE}/${id}`)));
+      return ids.length;
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** Bulk-archive for a whole sidebar group's archive icon (Completed,
+ * Failed) -- same one-PATCH-per-id, invalidate-once shape as
+ * useCleanupDemands, just `status: "archived"` instead of DELETE. A
+ * finished message (ran, one way or another) doesn't need to keep
+ * cluttering Finalizado/Falhas once its result has been seen, but
+ * shouldn't be gone outright the way the trash icon next to it makes it
+ * gone -- archiving keeps the history, filed under Arquivadas. */
+export function useArchiveDemands() {
+  const invalidate = useInvalidateDemands();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(
+        ids.map((id) => apiClient.patch<Demand>(`${RESOURCE}/${id}`, { status: "archived" }))
+      );
+      return ids.length;
+    },
+    onSuccess: invalidate,
+  });
+}
+
 export function useConvertDemand() {
   const invalidate = useInvalidateDemands();
   return useMutation({
@@ -214,10 +444,10 @@ export interface DispatchPayload {
   commandText?: string;
 }
 
-/** Sends this item's context (+ commandText, if any) as a prompt to the
- * target agent's CLI (backend's /dispatch, backed by the host-bridge's
- * governed /v1/agent-runs). Never blocks -- the mutation resolves as soon
- * as the run starts; poll useDispatchStatus for progress. */
+/** "Send to Outgoing" -- sends this item's context (+ commandText, if any)
+ * as a prompt to the target agent's CLI (backend's /dispatch, backed by
+ * the host-bridge's governed /v1/agent-runs). Never blocks -- the mutation
+ * resolves as soon as the run starts; poll useDispatchStatus for progress. */
 export function useDispatchDemand() {
   const invalidate = useInvalidateDemands();
   return useMutation({
@@ -232,8 +462,12 @@ export function useDispatchDemand() {
 }
 
 /** Polls a dispatched item's run status. Only meaningful once
- * dispatch_status is set -- pass `enabled: false` otherwise (the 400 the
- * backend returns for a never-dispatched item isn't worth a request). */
+ * dispatch_status *and* agent_run_id are both set -- pass `enabled: false`
+ * otherwise (the 400 the backend returns for an item with no agent_run_id
+ * isn't worth a request). dispatch_status alone isn't enough: a scheduled
+ * dispatch that fails before ever starting a run (e.g. the target agent
+ * has no runtime_type) sets dispatch_status="failed" with agent_run_id
+ * still NULL, since _execute_dispatch never got that far. */
 export function useDispatchStatus(demandId: string, enabled: boolean) {
   const invalidate = useInvalidateDemands();
   return useQuery({
@@ -257,9 +491,20 @@ export function useDispatchStatus(demandId: string, enabled: boolean) {
 export function useUploadDemandAttachment() {
   const invalidate = useInvalidateDemands();
   return useMutation({
-    mutationFn: ({ demandId, file }: { demandId: string; file: File }) => {
+    mutationFn: ({
+      demandId,
+      file,
+      description,
+    }: {
+      demandId: string;
+      file: File;
+      description?: string;
+    }) => {
       const form = new FormData();
       form.append("file", file);
+      // Only sent when there is one: the backend stores "" as NULL anyway,
+      // and an empty part just adds noise to the request.
+      if (description?.trim()) form.append("description", description.trim());
       return apiClient.postForm<DemandAttachment>(`${RESOURCE}/${demandId}/attachments`, form);
     },
     onSuccess: invalidate,

@@ -1,7 +1,9 @@
 {
-  "inboxTitle": "Bandeja de entrada",
+  "inboxTitle": "Mensajes",
   "incomingFolder": "Entrantes",
-  "archivedFolder": "Notas",
+  "outgoingFolder": "Salientes",
+  "systemLabel": "Sistema",
+  "archivedFolder": "Archivadas",
   "newNoteButton": "Nueva nota",
   "emptyArchivedFolderMessage": "",
   "emptyInboxMessage": "",
@@ -9,9 +11,41 @@
   "newNoteTitle": "Nueva nota",
   "newNoteDescription": "Te permite crear tu propio elemento de bandeja de entrada (no solo agentes vía /submit), según el caso de uso 'consola de desarrollo': las notas/procedimientos cotidianos se guardan primero aquí, para ser clasificados más tarde. Los archivos se guardan como `from_agent = username` para que la bandeja de entrada muestre un remitente real tanto si lo envías tú como un agente.",
   "subjectPlaceholder": "Asunto",
-  "bodyPlaceholder": "Contenido en Markdown...",
+  "bodyPlaceholder": "Nota/Prompt",
   "attachFileButton": "Adjuntar archivo",
+  "attachmentDescriptionPlaceholder": "Descripción (opcional)",
   "send": "Enviar",
   "cancel": "Cancelar",
-  "new": "Nuevo"
+  "new": "Nuevo",
+  "filter": {
+    "typeLabel": "Filtrar por tipo",
+    "typeAll": "Todos los tipos",
+    "typeTask": "Task",
+    "searchPlaceholder": "Buscar por #número, asunto, cuerpo o remitente",
+    "clearSearch": "Limpiar búsqueda",
+    "typeBacklog": "Backlog"
+  },
+  "promoteToTask": "Promover a Task",
+  "form": {
+    "typeBacklog": "Backlog",
+    "status": "Estado",
+    "statusDispatched": "Procesado",
+    "statusRunning": "En ejecución",
+    "statusFailed": "Fallo",
+    "statusCompleted": "Finalizado",
+    "fromAgentRequired": "Elige el agente De — todo mensaje pertenece a uno.",
+    "toAgentSelf": "Él mismo (igual que De)",
+    "noFromAgent": "Elige un agente"
+  },
+  "completedFolder": "Finalizado",
+  "emptyCompletedMessage": "Nada ha terminado de ejecutarse todavía.",
+  "sendToOutgoing": {
+    "backlogNeedsSender": "Un elemento de Backlog necesita un remitente (De) para poder despacharse — asigna De a un agente o promuévelo a Task."
+  },
+  "promoteToTaskNeedsAgent": "Define un remitente (De) primero — una Task siempre necesita un agente que la ejecute.",
+  "archive": {
+    "confirmTitle": "¿Archivar todos los mensajes?",
+    "confirmGroupDescription": "Todo mensaje que esté en {{group}} se moverá a Archivados. Nada se elimina -- esto solo saca los mensajes de este grupo.",
+    "confirmButton": "Archivar todos"
+  }
 }

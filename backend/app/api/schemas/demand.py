@@ -5,15 +5,83 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.conversions import CONVERT_TARGETS
-from app.db.models.demand import DEMAND_STATUSES
+from app.db.models.demand import DEMAND_ORIGIN_TYPES, DEMAND_STATUSES
+
+
+def _check_origin_type(v: str | None) -> str | None:
+    if v is not None and v not in DEMAND_ORIGIN_TYPES:
+        raise ValueError(f"origin_type must be one of {DEMAND_ORIGIN_TYPES}")
+    return v
+
+
+def _check_status_value(v: str | None) -> str | None:
+    if v is not None and v not in DEMAND_STATUSES:
+        raise ValueError(f"status must be one of {DEMAND_STATUSES}")
+    return v
 
 
 class DemandSubmitIn(BaseModel):
-    """Body for POST /demands/submit (agents, via the shared bridge token)."""
+    """Body for POST /demands/submit (agents, via the shared bridge token)
+    and POST /demands (the "New note" panel)."""
 
     from_agent: str = Field(min_length=1, max_length=50)
     subject: str = Field(min_length=1, max_length=255)
     body: str = Field(min_length=1)
+    # Optional at creation time -- set the dispatch target right away
+    # instead of a separate PATCH afterward.
+    target_agent_id: uuid.UUID | None = None
+    # Alternative to target_agent_id for callers that only know the Hermes
+    # profile slug, not the ForgeHub UUID -- namely send_demand.sh (bridge
+    # token only, can't call the JWT-gated GET /agents to look the UUID up
+    # itself). Resolved against Agent.profile_slug at the route layer;
+    # ignored if target_agent_id is also given.
+    target_agent_slug: str | None = None
+    # Lets the compose panel pick a real registered Agent as the sender
+    # ("From (agent)") instead of leaving from_agent_id null (the case for
+    # every other human-composed item, only ever set server-side on an
+    # auto-generated reply -- see get_dispatch_status). Validated same as
+    # target_agent_id. Needed for the requires_response relay: see
+    # get_dispatch_status's reply-creation docstring. When omitted, the
+    # route layer still tries an automatic match: from_agent against
+    # Agent.profile_slug (best-effort, no error on a miss -- covers
+    # send_demand.sh, which already sends the sending profile's slug as
+    # from_agent for display and shouldn't need a second field for the
+    # same value).
+    from_agent_id: uuid.UUID | None = None
+    # Which project this message is about -- see AgentDemand.project_id's
+    # docstring for how this differs from ConvertIn.project_id below.
+    project_id: uuid.UUID | None = None
+    # Links this new item to an existing Task or Demand as its origin,
+    # resolved from a human-typed number rather than a UUID (§4.1 of the
+    # dispatch proposal): "task" -> ProjectTask.kanboard_task_id,
+    # "demand" -> AgentDemand.number. Both origin_type and origin_number
+    # must be given together, or neither.
+    origin_type: str | None = None
+    origin_number: int | None = None
+    # "Retorno" -- whether this message expects a response back from the
+    # recipient. Defaults to False (no response expected).
+    requires_response: bool = False
+    # Scheduled send -- if set, target_agent_id must be given too (checked
+    # at the route layer, same as origin_type/origin_number pairing above).
+    # See AgentDemand.scheduled_at's docstring for how the actual dispatch
+    # gets triggered.
+    scheduled_at: datetime | None = None
+    # Lets the compose panel file a new item straight into the Notes
+    # (Archived) tree instead of Incoming -- e.g. Origin="Note" messages,
+    # per the Inbox sidebar's direction-first grouping (see
+    # DemandsPage's SelectedFolder docstring). Defaults to "new" (Incoming)
+    # when omitted, same as before this field existed.
+    status: str | None = None
+
+    @field_validator("origin_type")
+    @classmethod
+    def _check_origin_type(cls, v: str | None) -> str | None:
+        return _check_origin_type(v)
+
+    @field_validator("status")
+    @classmethod
+    def _check_status(cls, v: str | None) -> str | None:
+        return _check_status_value(v)
 
 
 class DemandUpdateIn(BaseModel):
@@ -33,13 +101,29 @@ class DemandUpdateIn(BaseModel):
     # dispatch proposal) -- lets Marcelo pick a target before writing the
     # command_text that actually triggers POST .../dispatch.
     target_agent_id: uuid.UUID | None = None
+    # Lets "Alterar" fix up the sender identity too -- e.g. a message that
+    # arrived with no From (agent) picked. See DemandSubmitIn.from_agent_id's
+    # docstring for what this feeds (the requires_response relay).
+    from_agent_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+    # Full edit support ("Alterar" button) -- subject/body plus re-pointing
+    # the origin, same resolution as DemandSubmitIn.origin_number above.
+    subject: str | None = Field(default=None, min_length=1, max_length=255)
+    body: str | None = Field(default=None, min_length=1)
+    origin_type: str | None = None
+    origin_number: int | None = None
+    requires_response: bool | None = None
+    scheduled_at: datetime | None = None
 
     @field_validator("status")
     @classmethod
     def _check_status(cls, v: str | None) -> str | None:
-        if v is not None and v not in DEMAND_STATUSES:
-            raise ValueError(f"status must be one of {DEMAND_STATUSES}")
-        return v
+        return _check_status_value(v)
+
+    @field_validator("origin_type")
+    @classmethod
+    def _check_origin_type_update(cls, v: str | None) -> str | None:
+        return _check_origin_type(v)
 
 
 class DemandGroupCreateIn(BaseModel):
@@ -76,6 +160,8 @@ class DemandAttachmentOut(BaseModel):
     size_bytes: int
     content_type: str | None
     created_at: datetime
+    # Optional caption supplied at upload time; None when none was given.
+    description: str | None = None
 
 
 class DemandOut(BaseModel):
@@ -83,6 +169,7 @@ class DemandOut(BaseModel):
         from_attributes = True
 
     id: uuid.UUID
+    number: int
     from_agent: str
     subject: str
     body: str
@@ -95,9 +182,32 @@ class DemandOut(BaseModel):
     attachments: list[DemandAttachmentOut] = []
     target_agent_id: uuid.UUID | None
     from_agent_id: uuid.UUID | None
+    project_id: uuid.UUID | None
     command_text: str | None
-    origin_type: str | None
+    origin_type: str
+    # ProjectTask.id for origin_type="task" -- see AgentDemand.origin_id's
+    # docstring. Always None for origin_type="backlog".
     origin_id: uuid.UUID | None
+    # When this message actually finished running -- stamped server-side by
+    # get_dispatch_status (the recipient agent's run reached a terminal
+    # state) or by task.py (a linked ProjectTask completed). See
+    # AgentDemand.task_execution_at's docstring for both writers. Never
+    # sent by the compose form; not accepted by DemandSubmitIn/DemandUpdateIn.
+    task_execution_at: datetime | None
+    # The agent's raw output once dispatch finishes -- recorded on this same
+    # message regardless of requires_response ("processamento"). See
+    # AgentDemand.dispatch_result's docstring.
+    dispatch_result: str | None
+    requires_response: bool
+    # Set only on an auto-generated return message (requires_response=true
+    # on the original) -- points back at the message it answers. See
+    # AgentDemand.reply_to_id's docstring.
+    reply_to_id: uuid.UUID | None
+    scheduled_at: datetime | None
+    # Set once the target agent itself pulls this item via GET
+    # .../pending -- see AgentDemand.agent_processed_at's docstring. Never
+    # sent by the compose form.
+    agent_processed_at: datetime | None
     dispatch_status: str | None
     agent_run_id: str | None
 

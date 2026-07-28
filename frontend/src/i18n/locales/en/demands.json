@@ -1,7 +1,17 @@
 {
   "inboxTitle": "Messages",
   "incomingFolder": "Incoming",
-  "archivedFolder": "Notes",
+  "outgoingFolder": "Outgoing",
+  "systemLabel": "System",
+  "archivedFolder": "Archived",
+  "expandAllGroups": "Expand all groups",
+  "collapseAllGroups": "Collapse all groups",
+  "backlogFolder": "Backlog",
+  "runningFolder": "Running",
+  "failedFolder": "Failed",
+  "emptyBacklogMessage": "Nothing queued for dispatch right now.",
+  "emptyRunningMessage": "Nothing dispatched/running right now.",
+  "emptyFailedMessage": "No dispatch has failed so far.",
   "newNoteButton": "New message",
   "emptyArchivedFolderMessage": "",
   "emptyInboxMessage": "",
@@ -10,32 +20,52 @@
   "editTitle": "Edit message",
   "newNoteDescription": "Lets you file your own inbox item (not just agents via /submit), per the 'console de desenvolvimento' use case: day-to-day notes/procedures land here first, get triaged later. Files as `from_agent = username` so the inbox shows a real sender either way.",
   "subjectPlaceholder": "Subject",
-  "bodyPlaceholder": "Markdown content...",
+  "bodyPlaceholder": "Note/Prompt",
   "attachFileButton": "Attach file",
+  "attachmentDescriptionPlaceholder": "Description (optional)",
   "send": "Send",
   "cancel": "Cancel",
   "new": "New",
   "editButton": "Edit",
+  "tabs": {
+    "messages": "Messages",
+    "overview": "Overview",
+    "stats": "Statistics",
+    "control": "Control"
+  },
   "form": {
+    "scheduledAt": "Send at",
+    "fromAgent": "From (agent)",
+    "noFromAgent": "Pick an agent",
     "toAgent": "To (agent)",
     "noAgent": "No agent",
-    "origin": "Origin",
-    "originNone": "None",
-    "originTask": "Task",
-    "originMessage": "Note",
-    "taskNumber": "Task",
-    "selectTask": "Select task…",
-    "taskLoading": "Loading tasks…",
-    "messageNumber": "Note #",
-    "originNumberRequired": "Enter the number to link"
+    "project": "Project",
+    "noProject": "No project",
+    "originId": "ID",
+    "type": "Type",
+    "typeTaskOutgoing": "Task",
+    "typeTaskIncoming": "Task",
+    "taskExecutionAt": "Executed at",
+    "dispatchResult": "Result",
+    "requiresResponse": "Return",
+    "requiresResponseYes": "Yes",
+    "requiresResponseNo": "No",
+    "agentRequiredForTask": "Pick a target agent when linking to a Task",
+    "agentRequiredForSchedule": "Pick a target agent to schedule a send",
+    "typeBacklog": "Backlog",
+    "status": "Status",
+    "statusDispatched": "Processed",
+    "statusRunning": "Running",
+    "statusFailed": "Failed",
+    "statusCompleted": "Completed",
+    "fromAgentRequired": "Pick the From agent — every message belongs to one.",
+    "toAgentSelf": "Itself (same as From)"
+  },
+  "pending": {
+    "sigla": "AR",
+    "tooltip": "Awaiting Reply -- this message asked for a response and none has arrived yet"
   },
   "dispatch": {
-    "title": "Dispatch to agent",
-    "loading": "Loading agents...",
-    "selectAgent": "Select agent...",
-    "replyToSender": "Reply to sender",
-    "commandPlaceholder": "What should the agent do with this?",
-    "submit": "Dispatch",
     "replyArrived": "reply arrived",
     "status": {
       "pending": "Queued for dispatch...",
@@ -44,5 +74,104 @@
       "completed": "Completed",
       "failed": "Failed"
     }
+  },
+  "sendToOutgoing": {
+    "button": "Send to Outgoing",
+    "loading": "Loading agents...",
+    "selectAgent": "Select agent...",
+    "instructionsPlaceholder": "Instructions for the agent (sent together with this message's content)",
+    "submit": "Send",
+    "backlogNeedsSender": "A Backlog item needs a sender (From) before it can be dispatched — set From to an agent, or promote it to Task."
+  },
+  "cleanup": {
+    "keep30": "Keep last 30 days",
+    "keep15": "Keep last 15 days",
+    "clearAll": "Clear all",
+    "confirmTitle": "Clean up messages",
+    "confirmKeepDescription": "Permanently deletes every message older than {{days}} days. This cannot be undone.",
+    "confirmClearAllDescription": "Permanently deletes every message. This cannot be undone.",
+    "confirmGroupDescription": "Permanently deletes every message in {{group}}. This cannot be undone.",
+    "cleanupGroupLabel": "Clean up {{group}}"
+  },
+  "overview": {
+    "title": "Agent communications map",
+    "subtitle": "Who's exchanging messages with whom, with volume and dispatch status.",
+    "emptyState": "Not enough traffic between agents yet to show this view.",
+    "tableToggleShow": "View as table",
+    "tableToggleHide": "View as graph",
+    "tooltip": "{{from}} → {{to}}: {{count}} messages",
+    "hoverHint": "Hover or click an agent/line to see details.",
+    "legend": {
+      "completed": "Completed",
+      "inFlight": "In progress / queued",
+      "failed": "Failed",
+      "plain": "No dispatch",
+      "thickness": "Line thickness = message volume"
+    },
+    "table": {
+      "from": "From",
+      "to": "To",
+      "total": "Total",
+      "completed": "Completed",
+      "failed": "Failed",
+      "inFlight": "In progress",
+      "plain": "No dispatch"
+    },
+    "nodeSummary": {
+      "sent": "Sent",
+      "received": "Received",
+      "failed": "Failed",
+      "pending": "Pending"
+    }
+  },
+  "stats": {
+    "totalMessages": "Total messages",
+    "activeAgents": "Agents with traffic",
+    "awaitingReply": "Awaiting reply",
+    "dispatchSuccessRate": "Dispatch success rate",
+    "noDispatchData": "Not enough dispatches yet to calculate.",
+    "volumeByAgent": "Volume by agent",
+    "statusBreakdown": "Dispatch status",
+    "messagesOverTime": "Messages in the last 14 days",
+    "status": {
+      "completed": "Completed",
+      "inFlight": "In progress",
+      "failed": "Failed"
+    }
+  },
+  "control": {
+    "title": "Demand control",
+    "subtitle": "Classify messages by project, agent, or login to track work in progress.",
+    "loading": "Loading...",
+    "noProject": "No project",
+    "agentsBucket": "Agents",
+    "dimension": {
+      "project": "Project",
+      "agent": "Agent",
+      "login": "Login"
+    },
+    "table": {
+      "subject": "Subject",
+      "from": "From",
+      "status": "Status",
+      "date": "Date"
+    }
+  },
+  "filter": {
+    "typeLabel": "Filter by type",
+    "typeAll": "All types",
+    "typeTask": "Task",
+    "searchPlaceholder": "Search by #number, subject, body or sender",
+    "clearSearch": "Clear search",
+    "typeBacklog": "Backlog"
+  },
+  "promoteToTask": "Promote to Task",
+  "completedFolder": "Completed",
+  "emptyCompletedMessage": "Nothing has finished running yet.",
+  "promoteToTaskNeedsAgent": "Set a sender (From) first — a Task always needs an agent to run it.",
+  "archive": {
+    "confirmTitle": "Archive all messages?",
+    "confirmGroupDescription": "Every message currently in {{group}} will be filed under Arquivadas. Nothing is deleted -- this only moves them out of this group.",
+    "confirmButton": "Archive all"
   }
 }

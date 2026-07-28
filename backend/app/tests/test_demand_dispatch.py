@@ -39,14 +39,38 @@ async def client():
 
 @pytest_asyncio.fixture
 async def dispatchable_agent():
-    """A throwaway agent with runtime_type set but no ForgeRouter
-    credential -- enough to exercise the "no credential" 409 path without
-    ever reaching the host-bridge."""
+    """A throwaway agent with runtime_type set -- used by the tests that
+    only assign/read a target agent, never the ones that actually POST
+    .../dispatch (a claude-runtime agent now dispatches for real, credential
+    or not; see hermes_agent_without_profile for the 409 path)."""
     async with AsyncSessionLocal() as session:
         agent = Agent(
             name=f"Test Dispatch Agent {uuid.uuid4().hex[:8]}",
             agent_type="executor",
             runtime_type="claude",
+        )
+        session.add(agent)
+        await session.commit()
+        await session.refresh(agent)
+        agent_id = agent.id
+
+    yield agent_id
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete(Agent).where(Agent.id == agent_id))
+        await session.commit()
+
+
+@pytest_asyncio.fixture
+async def hermes_agent_without_profile():
+    """A hermes-runtime agent with no profile_slug -- enough to exercise the
+    remaining AgentRunDispatchError 409 path without ever reaching the
+    host-bridge (see test_dispatch_hermes_agent_without_profile_rejected)."""
+    async with AsyncSessionLocal() as session:
+        agent = Agent(
+            name=f"Test Hermes No-Profile Agent {uuid.uuid4().hex[:8]}",
+            agent_type="executor",
+            runtime_type="hermes",
         )
         session.add(agent)
         await session.commit()
@@ -142,8 +166,12 @@ async def test_dispatch_reply_to_sender_without_origin_fails(client: AsyncClient
         await _delete_demand(demand["id"])
 
 
-async def test_dispatch_unknown_agent_404s(client: AsyncClient):
-    demand = await _create_demand(client)
+async def test_dispatch_unknown_agent_404s(client: AsyncClient, dispatchable_agent):
+    # Backlog (Tipo default since 2026-07-28) needs a registered sender to
+    # be dispatchable at all -- see _assert_dispatchable -- so this needs
+    # a real from_agent_id to reach the target-agent lookup this test is
+    # actually about, rather than 400ing on that guard first.
+    demand = await _create_demand(client, from_agent_id=str(dispatchable_agent))
     try:
         resp = await client.post(
             f"/api/v1/demands/{demand['id']}/dispatch",
@@ -154,8 +182,12 @@ async def test_dispatch_unknown_agent_404s(client: AsyncClient):
         await _delete_demand(demand["id"])
 
 
-async def test_dispatch_agent_without_runtime_type_rejected(client: AsyncClient, non_dispatchable_agent):
-    demand = await _create_demand(client)
+async def test_dispatch_agent_without_runtime_type_rejected(
+    client: AsyncClient, non_dispatchable_agent, dispatchable_agent
+):
+    # See test_dispatch_unknown_agent_404s -- Backlog needs a real sender
+    # to clear _assert_dispatchable before reaching this test's own check.
+    demand = await _create_demand(client, from_agent_id=str(dispatchable_agent))
     try:
         resp = await client.post(
             f"/api/v1/demands/{demand['id']}/dispatch",
@@ -166,16 +198,65 @@ async def test_dispatch_agent_without_runtime_type_rejected(client: AsyncClient,
         await _delete_demand(demand["id"])
 
 
-async def test_dispatch_agent_without_credential_rejected(client: AsyncClient, dispatchable_agent):
-    """dispatchable_agent has runtime_type but no forgerouter_api_key_encrypted
-    -- fails before ever reaching the host-bridge network call."""
-    demand = await _create_demand(client)
+async def test_dispatch_hermes_agent_without_profile_rejected(
+    client: AsyncClient, hermes_agent_without_profile, dispatchable_agent
+):
+    """A hermes agent with no profile_slug can't be dispatched -- host-bridge
+    scopes the run with HERMES_HOME=/root/.hermes/profiles/<slug>, so there's
+    nothing to run without one. Fails before ever reaching the host-bridge
+    network call.
+
+    Replaced test_dispatch_agent_without_credential_rejected (2026-07-25):
+    that one asserted a missing ForgeRouter credential still 409s, which
+    stopped being true when dispatch_agent_run made the credential optional
+    (agents fall back to their CLI's own native auth -- see that function's
+    docstring). Left as-is, the test not only failed, it *dispatched a real
+    agent run to the host-bridge on every suite run*, since the guard it
+    relied on to stop short of the network was exactly the one that was
+    removed. A missing profile_slug is the AgentRunDispatchError path that's
+    still real, so the 409 contract stays covered without spawning a CLI.
+
+    See test_dispatch_unknown_agent_404s -- Backlog needs a real sender to
+    clear _assert_dispatchable before reaching this test's own check."""
+    demand = await _create_demand(client, from_agent_id=str(dispatchable_agent))
     try:
         resp = await client.post(
             f"/api/v1/demands/{demand['id']}/dispatch",
-            json={"target_agent_id": str(dispatchable_agent)},
+            json={"target_agent_id": str(hermes_agent_without_profile)},
         )
         assert resp.status_code == 409
+    finally:
+        await _delete_demand(demand["id"])
+
+
+async def test_scheduled_at_locked_once_dispatched(client: AsyncClient, dispatchable_agent):
+    """"Send at" is history on a message that already went out. The
+    scheduled-send loop only picks up dispatch_status IS NULL, so rewriting
+    the time can't re-send anything -- it would only falsify the record of
+    when the message was actually sent."""
+    demand = await _create_demand(client)
+    try:
+        resp = await client.patch(
+            f"/api/v1/demands/{demand['id']}",
+            json={"target_agent_id": str(dispatchable_agent), "scheduled_at": "2030-01-01T00:00:00Z"},
+        )
+        assert resp.status_code == 200, resp.text
+
+        async with AsyncSessionLocal() as session:
+            row = await session.get(AgentDemand, uuid.UUID(demand["id"]))
+            row.dispatch_status = "completed"
+            await session.commit()
+
+        resp = await client.patch(
+            f"/api/v1/demands/{demand['id']}", json={"scheduled_at": "2031-01-01T00:00:00Z"}
+        )
+        assert resp.status_code == 400, resp.text
+        assert "already dispatched" in resp.json()["detail"]
+
+        # Editar o resto continua livre -- só a data de envio congela.
+        resp = await client.patch(f"/api/v1/demands/{demand['id']}", json={"subject": "novo assunto"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["subject"] == "novo assunto"
     finally:
         await _delete_demand(demand["id"])
 

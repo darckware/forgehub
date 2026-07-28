@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { Archive, ChevronDown, ChevronRight, FolderPlus, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
-import { DEMAND_DRAG_MIME, InlineMessageList } from "@/components/AgentInboxTree";
+import { AgentRow, DEMAND_DRAG_MIME, InlineMessageList, NO_AGENT_ID } from "@/components/AgentInboxTree";
+import { useAgents } from "@/hooks/useAgent";
 import {
   useCreateDemandGroup,
   useDeleteDemandGroup,
@@ -46,7 +47,7 @@ function isSelfOrDescendant(groups: DemandGroup[], groupId: string, candidateAnc
   return children.some((c) => isSelfOrDescendant(groups, c.id, candidateAncestorId));
 }
 
-function ActionIcon({
+export function ActionIcon({
   icon: Icon,
   label,
   onClick,
@@ -279,11 +280,19 @@ export function InboxGroupTree<T>({
   label,
   groups,
   selectedGroupId,
+  expanded,
+  onToggleExpanded,
   onSelectRoot,
   onSelectGroup,
   onDropDemand,
+  onCleanup,
   counts,
   rootCount,
+  noAgentLabel,
+  adminCount,
+  agentCounts,
+  selectedAgentId,
+  onSelectAgent,
   messages,
   renderMessage,
   emptyMessage,
@@ -298,29 +307,58 @@ export function InboxGroupTree<T>({
    * selected); null = the Archived root itself is selected; a group id =
    * that subfolder is selected. */
   selectedGroupId: string | null | undefined;
+  /** Controlled -- lifted to DemandsPage so the toolbar's expand/collapse-
+   * all toggle can drive every top-level group at once (2026-07-25). Only
+   * the root row; nested subfolders (GroupRow) keep their own local
+   * expand state, unaffected by the global toggle. */
+  expanded: boolean;
+  onToggleExpanded: () => void;
   onSelectRoot: () => void;
   onSelectGroup: (id: string) => void;
   onDropDemand: (demandId: string, groupId: string | null) => void;
+  /** Opens the cleanup confirm dialog scoped to every message in this
+   * whole tree (root + every subfolder) -- shown as an icon on the root
+   * row, replacing the old "New folder" affordance there (2026-07-25). */
+  onCleanup: () => void;
   /** Optional per-group demand count badge. */
   counts?: Record<string, number>;
-  /** Badge shown on the root row -- total archived count. */
+  /** Badge shown on the root row -- total archived count (root-level +
+   * every subfolder combined). */
   rootCount?: number;
+  /** Root-level (uncategorized, group_id null) breaks down by agent, same
+   * as Incoming/Outgoing/Completed (2026-07-28, Marcelo: "tem que agrupo
+   * por agentes igual ao Incoming") -- a real subfolder stays a flat list,
+   * that axis is user-organized, not agent-organized. Label for the
+   * no-agent ("System") row. */
+  noAgentLabel: string;
+  /** Badge on the System row -- root-level items with no target agent. */
+  adminCount: number;
+  /** agentId -> count of root-level (uncategorized) archived items for
+   * that agent. */
+  agentCounts: Record<string, number>;
+  /** Which root-level row is active: undefined = none (a subfolder is
+   * selected, or Archived isn't expanded into agent view at all);
+   * NO_AGENT_ID = System; a string = that agent. */
+  selectedAgentId: string | undefined;
+  onSelectAgent: (agentId: string) => void;
   /** The already-filtered list for whichever node is currently active --
-   * only rendered under that one node (root or a subfolder). */
+   * only rendered under that one node (a subfolder, or a root-level
+   * System/agent row). */
   messages: T[];
   renderMessage: (item: T) => ReactNode;
   emptyMessage: string;
 }) {
   const tree = buildTree(groups);
-  // Defaults collapsed, matching Incoming/Outbox: clicking a row both
-  // toggles expansion and selects it (renders its inline messages), so
-  // starting expanded would make the very first click collapse it and hide
-  // the list it just selected.
-  const [expanded, setExpanded] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [creatingRoot, setCreatingRoot] = useState(false);
-  const createGroup = useCreateDemandGroup();
   const updateGroup = useUpdateDemandGroup();
+  const { data: agents } = useAgents();
+  // Same "only agents with traffic get a row" rule as AgentDirectionTree
+  // (2026-07-25, Marcelo: "só mostrar os agentes com task ou notes... o
+  // restante deixa oculto").
+  const allAgents = [...(agents ?? [])]
+    .filter((agent) => (agentCounts[agent.id] ?? 0) > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const messagesSlot = <InlineMessageList messages={messages} renderMessage={renderMessage} emptyMessage={emptyMessage} />;
 
   function handleRootDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -359,7 +397,7 @@ export function InboxGroupTree<T>({
         <button
           type="button"
           onClick={() => {
-            setExpanded((v) => !v);
+            onToggleExpanded();
             onSelectRoot();
           }}
           className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left"
@@ -370,15 +408,34 @@ export function InboxGroupTree<T>({
           {!!rootCount && <span className="text-[10px] text-muted-foreground">{rootCount}</span>}
         </button>
         <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-          <ActionIcon icon={FolderPlus} label="New folder" onClick={() => setCreatingRoot(true)} />
+          <ActionIcon icon={Trash2} label={`Clean up ${label}`} destructive onClick={onCleanup} />
         </div>
-        {createGroup.isPending && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />}
       </div>
       {expanded && (
         <>
           {selectedGroupId === null && (
-            <div style={{ paddingLeft: "1.4rem" }} className="pr-1">
-              <InlineMessageList messages={messages} renderMessage={renderMessage} emptyMessage={emptyMessage} />
+            <div className="ml-3 space-y-0.5 border-l pl-2">
+              <AgentRow
+                agentId={NO_AGENT_ID}
+                name={noAgentLabel}
+                count={adminCount}
+                active={selectedAgentId === NO_AGENT_ID}
+                onSelect={onSelectAgent}
+              >
+                {messagesSlot}
+              </AgentRow>
+              {allAgents.map((agent) => (
+                <AgentRow
+                  key={agent.id}
+                  agentId={agent.id}
+                  name={agent.name}
+                  count={agentCounts[agent.id] ?? 0}
+                  active={selectedAgentId === agent.id}
+                  onSelect={onSelectAgent}
+                >
+                  {messagesSlot}
+                </AgentRow>
+              ))}
             </div>
           )}
           {tree.map((node) => (
@@ -397,15 +454,6 @@ export function InboxGroupTree<T>({
               emptyMessage={emptyMessage}
             />
           ))}
-          {creatingRoot && (
-            <NewGroupRow
-              depth={1}
-              onConfirm={(name) => {
-                createGroup.mutate({ name, parent_id: null }, { onSuccess: () => setCreatingRoot(false) });
-              }}
-              onCancel={() => setCreatingRoot(false)}
-            />
-          )}
         </>
       )}
     </div>

@@ -1,7 +1,17 @@
 {
   "inboxTitle": "Mensagens",
   "incomingFolder": "Entrada",
-  "archivedFolder": "Anotações",
+  "outgoingFolder": "Saída",
+  "systemLabel": "Sistema",
+  "archivedFolder": "Arquivadas",
+  "expandAllGroups": "Expandir todos os grupos",
+  "collapseAllGroups": "Recolher todos os grupos",
+  "backlogFolder": "Backlog",
+  "runningFolder": "Em execução",
+  "failedFolder": "Falhas",
+  "emptyBacklogMessage": "Nada na fila de disparo no momento.",
+  "emptyRunningMessage": "Nenhum disparo em execução no momento.",
+  "emptyFailedMessage": "Nenhum disparo falhou até agora.",
   "newNoteButton": "Nova mensagem",
   "emptyArchivedFolderMessage": "",
   "emptyInboxMessage": "",
@@ -10,32 +20,52 @@
   "editTitle": "Editar mensagem",
   "newNoteDescription": "Permite que você registre seu próprio item na caixa de entrada (não apenas agentes via /submit), conforme o caso de uso 'console de desenvolvimento': anotações/procedimentos do dia a dia chegam aqui primeiro e são triados depois. Arquivados como `from_agent = username` para que a caixa de entrada mostre um remetente real em ambos os casos.",
   "subjectPlaceholder": "Assunto",
-  "bodyPlaceholder": "Conteúdo em Markdown...",
+  "bodyPlaceholder": "Nota/Prompt",
   "attachFileButton": "Anexar arquivo",
+  "attachmentDescriptionPlaceholder": "Descrição (opcional)",
   "send": "Enviar",
   "cancel": "Cancelar",
   "new": "Novo",
   "editButton": "Alterar",
+  "tabs": {
+    "messages": "Mensagens",
+    "overview": "Visão Geral",
+    "stats": "Estatísticas",
+    "control": "Controle"
+  },
   "form": {
+    "scheduledAt": "Enviar em",
+    "fromAgent": "De (agente)",
+    "noFromAgent": "Escolha um agente",
     "toAgent": "Para (agente)",
     "noAgent": "Sem agente",
-    "origin": "Origem",
-    "originNone": "Nenhuma",
-    "originTask": "Task",
-    "originMessage": "Nota",
-    "taskNumber": "Task",
-    "selectTask": "Selecionar task…",
-    "taskLoading": "Carregando tasks…",
-    "messageNumber": "Nota #",
-    "originNumberRequired": "Informe o número pra vincular"
+    "project": "Projeto",
+    "noProject": "Sem projeto",
+    "originId": "ID",
+    "type": "Tipo",
+    "typeTaskOutgoing": "Task",
+    "typeTaskIncoming": "Task",
+    "taskExecutionAt": "Executado em",
+    "dispatchResult": "Resultado",
+    "requiresResponse": "Retorno",
+    "requiresResponseYes": "Sim",
+    "requiresResponseNo": "Não",
+    "agentRequiredForTask": "Escolha um agente de destino ao vincular a uma Task",
+    "agentRequiredForSchedule": "Escolha um agente de destino para agendar o envio",
+    "typeBacklog": "Backlog",
+    "status": "Status",
+    "statusDispatched": "Processado",
+    "statusRunning": "Em execução",
+    "statusFailed": "Falha",
+    "statusCompleted": "Finalizado",
+    "fromAgentRequired": "Escolha o agente De — toda mensagem pertence a um.",
+    "toAgentSelf": "Ele mesmo (igual ao De)"
+  },
+  "pending": {
+    "sigla": "AR",
+    "tooltip": "Aguardando Retorno -- esta mensagem pediu resposta e nenhuma chegou ainda"
   },
   "dispatch": {
-    "title": "Disparar para agente",
-    "loading": "Carregando agentes...",
-    "selectAgent": "Selecionar agente...",
-    "replyToSender": "Responder para quem enviou",
-    "commandPlaceholder": "O que o agente deve fazer com isso?",
-    "submit": "Disparar",
     "replyArrived": "retorno chegou",
     "status": {
       "pending": "Na fila para disparo...",
@@ -44,5 +74,104 @@
       "completed": "Concluído",
       "failed": "Falhou"
     }
+  },
+  "sendToOutgoing": {
+    "button": "Enviar para Saída",
+    "loading": "Carregando agentes...",
+    "selectAgent": "Selecionar agente...",
+    "instructionsPlaceholder": "Instruções para o agente (enviadas junto com o conteúdo desta mensagem)",
+    "submit": "Enviar",
+    "backlogNeedsSender": "Um item de Backlog precisa de um remetente (De) para ser despachado — defina De como um agente, ou promova a Task."
+  },
+  "cleanup": {
+    "keep30": "Manter últimos 30 dias",
+    "keep15": "Manter últimos 15 dias",
+    "clearAll": "Limpar tudo",
+    "confirmTitle": "Limpar mensagens",
+    "confirmKeepDescription": "Apaga permanentemente toda mensagem com mais de {{days}} dias. Isso não pode ser desfeito.",
+    "confirmClearAllDescription": "Apaga permanentemente todas as mensagens. Isso não pode ser desfeito.",
+    "confirmGroupDescription": "Apaga permanentemente todas as mensagens em {{group}}. Isso não pode ser desfeito.",
+    "cleanupGroupLabel": "Limpar {{group}}"
+  },
+  "overview": {
+    "title": "Mapa de comunicação entre agentes",
+    "subtitle": "Quem troca mensagens com quem, com volume e status de despacho.",
+    "emptyState": "Ainda não há tráfego suficiente entre agentes para exibir esta visão.",
+    "tableToggleShow": "Ver como tabela",
+    "tableToggleHide": "Ver como grafo",
+    "tooltip": "{{from}} → {{to}}: {{count}} mensagens",
+    "hoverHint": "Passe o mouse ou clique em um agente/linha para ver os detalhes.",
+    "legend": {
+      "completed": "Concluído",
+      "inFlight": "Em andamento / na fila",
+      "failed": "Falhou",
+      "plain": "Sem despacho",
+      "thickness": "Espessura da linha = volume de mensagens"
+    },
+    "table": {
+      "from": "De",
+      "to": "Para",
+      "total": "Total",
+      "completed": "Concluídas",
+      "failed": "Falharam",
+      "inFlight": "Em andamento",
+      "plain": "Sem despacho"
+    },
+    "nodeSummary": {
+      "sent": "Enviadas",
+      "received": "Recebidas",
+      "failed": "Falharam",
+      "pending": "Aguardando"
+    }
+  },
+  "stats": {
+    "totalMessages": "Total de mensagens",
+    "activeAgents": "Agentes com tráfego",
+    "awaitingReply": "Aguardando retorno",
+    "dispatchSuccessRate": "Taxa de sucesso de despacho",
+    "noDispatchData": "Ainda não há despachos suficientes para calcular.",
+    "volumeByAgent": "Volume por agente",
+    "statusBreakdown": "Status dos despachos",
+    "messagesOverTime": "Mensagens nos últimos 14 dias",
+    "status": {
+      "completed": "Concluído",
+      "inFlight": "Em andamento",
+      "failed": "Falhou"
+    }
+  },
+  "control": {
+    "title": "Controle de demandas",
+    "subtitle": "Classifique as mensagens por projeto, agente ou login para acompanhar o trabalho em andamento.",
+    "loading": "Carregando...",
+    "noProject": "Sem projeto",
+    "agentsBucket": "Agentes",
+    "dimension": {
+      "project": "Projeto",
+      "agent": "Agente",
+      "login": "Login"
+    },
+    "table": {
+      "subject": "Assunto",
+      "from": "De",
+      "status": "Status",
+      "date": "Data"
+    }
+  },
+  "filter": {
+    "typeLabel": "Filtrar por tipo",
+    "typeAll": "Todos os tipos",
+    "typeTask": "Task",
+    "searchPlaceholder": "Buscar por #número, assunto, corpo ou remetente",
+    "clearSearch": "Limpar busca",
+    "typeBacklog": "Backlog"
+  },
+  "promoteToTask": "Promover a Task",
+  "completedFolder": "Finalizado",
+  "emptyCompletedMessage": "Nada terminou de executar ainda.",
+  "promoteToTaskNeedsAgent": "Defina um remetente (De) primeiro — uma Task sempre precisa de um agente para executá-la.",
+  "archive": {
+    "confirmTitle": "Arquivar todas as mensagens?",
+    "confirmGroupDescription": "Toda mensagem que estiver em {{group}} será movida para Arquivadas. Nada é apagado -- isso só tira as mensagens deste grupo.",
+    "confirmButton": "Arquivar todas"
   }
 }
