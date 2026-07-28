@@ -5,6 +5,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ExternalLink,
+  FolderTree,
   Loader2,
   Pencil,
   ShieldAlert,
@@ -25,8 +26,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAgent, useRemoveSkillFromAgent, useSkills, useUpdateAgent } from "@/hooks/useAgent";
-import { ProfileFilesCard } from "./ProfileFilesCard";
+import { TelegramStatusBadge } from "@/components/TelegramStatusBadge";
+import {
+  isExternalRuntime,
+  useAgent,
+  useAgentsTelegramStatus,
+  useRemoveSkillFromAgent,
+  useSkills,
+  useUpdateAgent,
+} from "@/hooks/useAgent";
+import { AgentProfileFilesCard } from "./AgentProfileFilesCard";
+import { AgentAutomationCard } from "./AgentAutomationCard";
+import { AgentMcpServersCard } from "./AgentMcpServersCard";
 
 const STATUS_VARIANT: Record<
   string,
@@ -52,6 +63,8 @@ export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: agent, isLoading, isError, error } = useAgent(id);
   const { data: skillsCatalog } = useSkills();
+  const { data: telegramStatus } = useAgentsTelegramStatus();
+  const telegram = telegramStatus?.agents.find((entry) => entry.agent_id === id);
 
   const removeSkill = useRemoveSkillFromAgent(id ?? "");
   const updateAgent = useUpdateAgent(id ?? "");
@@ -59,6 +72,9 @@ export default function AgentDetailPage() {
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [forgeRouterApiKey, setForgeRouterApiKey] = useState("");
+  // null = not editing; the field is prefilled with the *effective* path so
+  // registering the runtime default is one click rather than retyping it.
+  const [homePathDraft, setHomePathDraft] = useState<string | null>(null);
 
   function handleStartEditDescription() {
     setDescriptionDraft(agent?.description ?? "");
@@ -129,6 +145,12 @@ export default function AgentDetailPage() {
               <Badge variant="outline" className="text-sm capitalize">
                 {agent.agent_type}
               </Badge>
+              {agent.runtime_type && (
+                <Badge variant={isExternalRuntime(agent.runtime_type) ? "warning" : "secondary"}>
+                  {t(`runtimes.${agent.runtime_type}`)}
+                </Badge>
+              )}
+              <TelegramStatusBadge status={telegram} showLabel />
               {agent.profile_slug && (
                 <>
                   {agent.layer && <Badge variant="secondary">{agent.layer}</Badge>}
@@ -218,7 +240,82 @@ export default function AgentDetailPage() {
             </CardContent>
           </Card>
 
-          {agent.profile_slug && <ProfileFilesCard profileSlug={agent.profile_slug} />}
+          {/* Where the agent's profile files live. Registerable per agent
+              because the runtime convention cannot cover everything: a
+              runtime that moves its config dir, or a second agent sharing a
+              runtime, needs an explicit path (see
+              backend/app/core/agent_profile_files.py). */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <FolderTree className="h-5 w-5" />
+                {t("homePath.title")}
+              </CardTitle>
+              <CardDescription>{t("homePath.description")}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {homePathDraft === null ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="rounded bg-muted px-2 py-1 text-sm">
+                    {agent.effective_home_path ?? t("homePath.none")}
+                  </code>
+                  <Badge variant={agent.home_path ? "secondary" : "outline"}>
+                    {agent.home_path ? t("homePath.registered") : t("homePath.fromRuntime")}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setHomePathDraft(agent.effective_home_path ?? "")}
+                  >
+                    <Pencil className="mr-2 h-4 w-4" />
+                    {t("detail.editButton")}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    value={homePathDraft}
+                    onChange={(e) => setHomePathDraft(e.target.value)}
+                    placeholder="/root/.hermes/profiles/<slug>"
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">{t("homePath.hint")}</p>
+                  {updateAgent.isError && (
+                    <p className="text-sm text-destructive">{(updateAgent.error as Error)?.message}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={updateAgent.isPending}
+                      onClick={() =>
+                        updateAgent.mutate(
+                          { home_path: homePathDraft },
+                          { onSuccess: () => setHomePathDraft(null) }
+                        )
+                      }
+                    >
+                      {updateAgent.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {t("detail.saveButton")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={updateAgent.isPending}
+                      onClick={() => setHomePathDraft(null)}
+                    >
+                      {t("detail.cancelButton")}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <AgentProfileFilesCard agent={agent} />
+
+          <AgentMcpServersCard agent={agent} />
+
+          <AgentAutomationCard agent={agent} />
 
           <Card>
             <CardHeader>

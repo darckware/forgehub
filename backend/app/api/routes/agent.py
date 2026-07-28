@@ -26,9 +26,23 @@ Business rules enforced here (SPEC.md section 6.5 / 5.5):
 Also owns POST /sync/hermes-foundation, which upserts Agent/SubAgent/
 Skill/AgentSkill rows from the Hermes Foundation canonical docs (parsing
 lives in app/core/hermes_sync.py, kept DB-free/pure there).
-"""
-import uuid
 
+And GET/PUT /{agent_id}/profile-files[/{filename}], the per-agent view of
+the SOUL.md / IDENTITY.md / TOOLS.md / ... set that defines an agent.
+Directory resolution (Hermes profile vs external CLI runtime home) and the
+filename allow-list live in app/core/agent_profile_files.py.
+
+Plus GET/PUT/DELETE /{agent_id}/mcp-servers[/{name}], the per-agent view of
+the MCP servers that runtime loads. Each of the five runtimes stores those in
+its own file and format; reading and editing them lives in
+app/core/agent_mcp.py. ForgeHub keeps no copy of that configuration -- it
+edits the runtime's own file, which is what the runtime actually reads.
+"""
+import shlex
+import uuid
+from pathlib import Path
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -44,9 +58,22 @@ from app.api.schemas.agent import (
     AgentCreate,
     AgentDetailOut,
     AgentListItemOut,
+    AgentMcpOverviewItem,
+    AgentMcpOverviewOut,
+    AgentMcpServerIn,
+    AgentMcpServerOut,
+    AgentMcpServersOut,
     AgentOut,
+    AgentProfileFileInfo,
+    AgentProfileFileOut,
+    AgentProfileFilesOut,
+    AgentProfileFileUpdateIn,
+    AgentRuntimeSyncAgentOut,
+    AgentRuntimeSyncOut,
     AgentSkillCreate,
     AgentSkillOut,
+    AgentTelegramStatusListOut,
+    AgentTelegramStatusOut,
     AgentUpdate,
     HermesSyncResultOut,
     SkillAgentRef,
@@ -61,7 +88,8 @@ from app.api.schemas.agent import (
     SubAgentUpdate,
     SyncCounts,
 )
-from app.core import hermes_sync
+from app.core import agent_mcp, agent_profile_files, agent_runtime_sync, agent_telegram, hermes_sync
+from app.core.config import settings
 from app.core.secrets import encrypt_secret
 from app.db.base import get_db
 from app.db.models.agent import (
@@ -164,6 +192,195 @@ async def list_agents(
         query = query.where(Agent.status == status_filter)
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+# ---------------------------------------------------------------------------
+# Telegram channel status
+#
+# Registered before /{agent_id} so the literal path segment wins over the
+# UUID converter. Whole-roster in one call: the systemd check is a single
+# host-bridge round trip for every agent, not one per row.
+# ---------------------------------------------------------------------------
+
+
+async def _active_gateway_services(services: list[str]) -> tuple[set[str] | None, str | None]:
+    """Which of `services` systemd reports as active, via the host-bridge
+    (`/v1/exec` -- the backend container has no systemd of its own).
+
+    Returns (None, error) rather than raising: a Telegram badge that cannot
+    be computed must degrade to "unknown", never take down the Agents page."""
+    if not services:
+        return set(), None
+    command = "systemctl show --no-pager --property=Id --property=ActiveState " + " ".join(
+        shlex.quote(service) for service in services
+    )
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{settings.CHAT_BRIDGE_URL}/v1/exec",
+                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+                json={"command": command},
+            )
+    except httpx.HTTPError as e:
+        return None, f"Host-bridge unreachable: {e}"
+    if resp.status_code != 200:
+        return None, f"Host-bridge error: {resp.text[:200]}"
+    data = resp.json()
+    # A non-zero exit is normal here: systemctl show returns non-zero when any
+    # named unit does not exist, while still printing the ones that do.
+    return agent_telegram.parse_active_services(data.get("stdout") or ""), None
+
+
+@router.post("/sync/runtimes", response_model=AgentRuntimeSyncOut)
+async def sync_agent_runtimes(db: AsyncSession = Depends(get_db)) -> AgentRuntimeSyncOut:
+    """Reconcile the registry with what is actually installed on this host.
+
+    The companion to /sync/hermes-foundation, which reads the canonical *docs*
+    and therefore cannot know what an agent runs -- nothing in a contract says
+    "this is a Hermes profile". That is why Kairos sat registered with a NULL
+    `runtime_type` while its profile directory, gateway unit and MCP config all
+    existed: the doc sync had nothing to copy, so every MCP screen reported it
+    as an agent no runtime would ever load a server for.
+
+    Detection is by evidence on disk (see core/agent_runtime_sync.py) and only
+    ever *fills in* a missing runtime: a registered value is never overwritten,
+    because it decides the real command line used to execute the agent. A
+    registry that contradicts the disk, an unreachable home, or a profile
+    directory nobody claims are reported for a human to judge."""
+    result = await db.execute(select(Agent).where(Agent.is_active.is_(True)).order_by(Agent.name))
+    agents = list(result.scalars().all())
+
+    rows: list[AgentRuntimeSyncAgentOut] = []
+    updated = 0
+    for agent in agents:
+        plan = agent_runtime_sync.plan_for_agent(
+            agent_id=str(agent.id),
+            agent_name=agent.name,
+            profile_slug=agent.profile_slug,
+            runtime_type=agent.runtime_type,
+            home_path=agent.home_path,
+        )
+        applied = False
+        if plan.fill_runtime_type:
+            agent.runtime_type = plan.fill_runtime_type
+            applied = True
+            updated += 1
+        rows.append(
+            AgentRuntimeSyncAgentOut(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                profile_slug=agent.profile_slug,
+                runtime_type=agent.runtime_type,
+                detected_runtime_type=plan.detected.runtime_type,
+                evidence=plan.detected.evidence,
+                home_path=plan.detected.home_path,
+                home_resolved=plan.detected.home_resolved,
+                mcp_config_path=plan.detected.mcp_config_path,
+                mcp_config_exists=plan.detected.mcp_config_exists,
+                applied=applied,
+                issues=plan.issues,
+            )
+        )
+    if updated:
+        await db.commit()
+
+    return AgentRuntimeSyncOut(
+        checked=len(agents),
+        updated=updated,
+        agents=rows,
+        unregistered_profiles=agent_runtime_sync.unregistered_profiles(
+            {a.profile_slug for a in agents if a.profile_slug}
+        ),
+    )
+
+
+@router.get("/mcp-servers", response_model=AgentMcpOverviewOut)
+async def get_agents_mcp_overview(db: AsyncSession = Depends(get_db)) -> AgentMcpOverviewOut:
+    """Every agent's MCP servers in one payload, for the ecosystem-wide MCP
+    screen. Declared before /{agent_id} so this literal path is not parsed as
+    an agent UUID.
+
+    Agents whose runtime cannot load MCP servers are included with
+    `supported=False` and an empty list: the point of this screen is comparing
+    who has which server, and silently dropping an agent would read as "it has
+    none configured" rather than "it cannot have any".
+
+    Retired agents (`is_active=False`) are excluded, though: this screen is a
+    coverage matrix, one column per agent, and an agent nobody runs anymore
+    adds a permanently empty column that reads as a gap to close."""
+    result = await db.execute(select(Agent).where(Agent.is_active.is_(True)).order_by(Agent.name))
+    items: list[AgentMcpOverviewItem] = []
+    for agent in result.scalars().all():
+        fmt = agent_mcp.format_for(agent.runtime_type)
+        host_path = agent_mcp.config_host_path(agent.effective_home_path, fmt) if fmt else None
+        resolved = agent_mcp.resolve_host_file(host_path) if host_path else None
+        servers: list[AgentMcpServerOut] = []
+        error: str | None = None
+        if fmt and host_path and resolved is not None:
+            try:
+                servers = [
+                    AgentMcpServerOut(**info.__dict__)
+                    for info in agent_mcp.read_servers(host_path, fmt)
+                ]
+            except agent_mcp.McpConfigError as e:
+                error = str(e)
+        items.append(
+            AgentMcpOverviewItem(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                profile_slug=agent.profile_slug,
+                runtime_type=agent.runtime_type,
+                config_path=host_path,
+                config_exists=resolved is not None,
+                supported=fmt is not None,
+                supports_toggle=bool(fmt and fmt.toggle_field),
+                error=error,
+                servers=servers,
+            )
+        )
+    return AgentMcpOverviewOut(agents=items)
+
+
+@router.get("/telegram-status", response_model=AgentTelegramStatusListOut)
+async def get_agents_telegram_status(
+    db: AsyncSession = Depends(get_db),
+) -> AgentTelegramStatusListOut:
+    """Telegram channel health for every registered agent: whether the
+    channel is installed (bot token + home channel in the profile's own .env)
+    and whether the gateway daemon that serves it is running."""
+    result = await db.execute(select(Agent).order_by(Agent.name))
+    agents = list(result.scalars().all())
+    services = sorted(
+        {
+            service
+            for agent in agents
+            if (
+                service := agent_telegram.gateway_service_name(
+                    agent.profile_slug, agent.runtime_type
+                )
+            )
+        }
+    )
+    active, check_error = await _active_gateway_services(services)
+    return AgentTelegramStatusListOut(
+        agents=[
+            AgentTelegramStatusOut(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                **vars(
+                    agent_telegram.build_status(
+                        profile_slug=agent.profile_slug,
+                        required=agent.telegram_required,
+                        home_path=agent.effective_home_path,
+                        runtime_type=agent.runtime_type,
+                        active_services=active,
+                    )
+                ),
+            )
+            for agent in agents
+        ],
+        check_error=check_error,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -487,9 +704,13 @@ async def update_agent(
         await db.commit()
     except IntegrityError:
         await db.rollback()
+        # Two unique constraints can land here now that profile_slug is
+        # editable (uq_agents_profile_slug alongside agents_name_key) --
+        # naming only the first would send someone hunting for a duplicate
+        # name that doesn't exist.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="An agent with this name already exists",
+            detail="Another agent already uses this name or profile_slug",
         ) from None
     await db.refresh(agent)
     return agent
@@ -500,6 +721,258 @@ async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) 
     agent = await _get_agent_or_404(db, agent_id)
     await db.delete(agent)
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Profile Markdown files (SOUL.md, IDENTITY.md, TOOLS.md, ...)
+#
+# Keyed by agent, not by Hermes profile: foundation.py's
+# /profiles/{profile}/files/{filename} can only ever reach the eight agents
+# that have a directory under /root/.hermes/profiles, which left the four
+# external CLI runtimes (Porthos/claude, Aramis/codex, Dartan/agy,
+# Vector/openclaw) with no way to show their own identity files. Directory
+# resolution and the filename allow-list live in core/agent_profile_files.py.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_profile_home(agent: Agent) -> tuple[str | None, Path | None]:
+    host_home = agent.effective_home_path
+    return host_home, agent_profile_files.resolve_home_dir(host_home)
+
+
+def _require_profile_file(agent: Agent, filename: str) -> tuple[str, Path]:
+    """Resolve one profile file for an agent, or raise. Both the allow-list
+    check and the "stays inside the home directory" check happen here --
+    `filename` comes straight from the URL."""
+    host_home, home_dir = _resolve_profile_home(agent)
+    if host_home is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "This agent has no profile directory. Register one in "
+                "'Profile directory' on the agent page."
+            ),
+        )
+    if home_dir is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Profile directory not reachable from the backend: {host_home}",
+        )
+    allowed = agent_profile_files.allowed_filenames(agent.runtime_type, agent.profile_slug)
+    path = agent_profile_files.resolve_file(home_dir, filename, allowed)
+    if path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown profile file")
+    return host_home, path
+
+
+@router.get("/{agent_id}/profile-files", response_model=AgentProfileFilesOut)
+async def list_agent_profile_files(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> AgentProfileFilesOut:
+    """List every profile file this agent may have, present or not. Missing
+    files are returned with exists=False rather than omitted -- "SOUL.md was
+    never written" is exactly what an operator needs to see."""
+    agent = await _get_agent_or_404(db, agent_id)
+    host_home, home_dir = _resolve_profile_home(agent)
+    allowed = agent_profile_files.allowed_filenames(agent.runtime_type, agent.profile_slug)
+    files: list[AgentProfileFileInfo] = []
+    for filename in allowed:
+        if home_dir is None:
+            files.append(
+                AgentProfileFileInfo(
+                    filename=filename,
+                    path=f"{(host_home or '').rstrip('/')}/{filename}",
+                    exists=False,
+                )
+            )
+            continue
+        info = agent_profile_files.stat_file(home_dir / filename, filename, host_home or "")
+        files.append(AgentProfileFileInfo(**info.__dict__))
+    return AgentProfileFilesOut(
+        agent_id=agent.id,
+        home_path=host_home,
+        home_resolved=home_dir is not None,
+        files=files,
+    )
+
+
+@router.get("/{agent_id}/profile-files/{filename}", response_model=AgentProfileFileOut)
+async def get_agent_profile_file(
+    agent_id: uuid.UUID, filename: str, db: AsyncSession = Depends(get_db)
+) -> AgentProfileFileOut:
+    agent = await _get_agent_or_404(db, agent_id)
+    host_home, path = _require_profile_file(agent, filename)
+    try:
+        content: str | None = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        content = None
+    except OSError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read {filename}: {e}",
+        ) from e
+    return AgentProfileFileOut(
+        agent_id=agent.id,
+        filename=filename,
+        path=f"{host_home.rstrip('/')}/{filename}",
+        content=content,
+    )
+
+
+@router.put("/{agent_id}/profile-files/{filename}", response_model=AgentProfileFileOut)
+async def update_agent_profile_file(
+    agent_id: uuid.UUID,
+    filename: str,
+    payload: AgentProfileFileUpdateIn,
+    db: AsyncSession = Depends(get_db),
+) -> AgentProfileFileOut:
+    """Write a profile file, creating it if absent. These files are what the
+    agent loads at session start, so a write here changes real agent behaviour
+    on its next run -- same contract as foundation.py's profile-file writer."""
+    agent = await _get_agent_or_404(db, agent_id)
+    host_home, path = _require_profile_file(agent, filename)
+    try:
+        path.write_text(payload.content, encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to write {filename}: {e}",
+        ) from e
+    return AgentProfileFileOut(
+        agent_id=agent.id,
+        filename=filename,
+        path=f"{host_home.rstrip('/')}/{filename}",
+        content=payload.content,
+    )
+
+
+# ---------------------------------------------------------------------------
+# MCP servers
+#
+# Each runtime keeps its MCP servers in its own file and format (see
+# core/agent_mcp.py); these routes read and edit that file in place. There is
+# deliberately no ForgeHub-side table: a copy would drift the moment someone
+# ran `claude mcp add` in a terminal, and the runtime reads the file, not us.
+# ---------------------------------------------------------------------------
+
+
+def _require_mcp_target(agent: Agent) -> tuple[agent_mcp.McpConfigFormat, str]:
+    """The MCP config format and host file path for an agent, or 400/404.
+
+    An agent with no `runtime_type` is not an error in the registry (Kairos is
+    registered without one), but it has no runtime that could load an MCP
+    server -- so it gets an explicit 400 rather than an empty list that would
+    read as "configured, none yet"."""
+    fmt = agent_mcp.format_for(agent.runtime_type)
+    if fmt is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Agent {agent.name} has no runtime that loads MCP servers"
+                + (f" (runtime_type={agent.runtime_type!r})." if agent.runtime_type else ".")
+            ),
+        )
+    host_path = agent_mcp.config_host_path(agent.effective_home_path, fmt)
+    if not host_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "This agent has no home directory on file, so its MCP config "
+                "cannot be located. Set 'Profile directory' on the agent page."
+            ),
+        )
+    return fmt, host_path
+
+
+@router.get("/{agent_id}/mcp-servers", response_model=AgentMcpServersOut)
+async def list_agent_mcp_servers(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> AgentMcpServersOut:
+    """The MCP servers this agent's runtime will load on its next run.
+
+    A config file that exists but cannot be parsed is reported through `error`
+    with an empty server list, never as a 500: a hand-edited config with a
+    syntax error is exactly the situation an operator opens this screen to
+    diagnose, and a failing screen would hide it."""
+    agent = await _get_agent_or_404(db, agent_id)
+    fmt, host_path = _require_mcp_target(agent)
+    resolved = agent_mcp.resolve_host_file(host_path)
+    servers: list[AgentMcpServerOut] = []
+    error: str | None = None
+    if resolved is not None:
+        try:
+            servers = [
+                AgentMcpServerOut(**info.__dict__)
+                for info in agent_mcp.read_servers(host_path, fmt)
+            ]
+        except agent_mcp.McpConfigError as e:
+            error = str(e)
+    return AgentMcpServersOut(
+        agent_id=agent.id,
+        runtime_type=agent.runtime_type,
+        config_path=host_path,
+        config_exists=resolved is not None,
+        supports_toggle=fmt.toggle_field is not None,
+        error=error,
+        servers=servers,
+    )
+
+
+@router.put("/{agent_id}/mcp-servers/{name}", response_model=AgentMcpServersOut)
+async def upsert_agent_mcp_server(
+    agent_id: uuid.UUID,
+    name: str,
+    payload: AgentMcpServerIn,
+    db: AsyncSession = Depends(get_db),
+) -> AgentMcpServersOut:
+    """Add or update one MCP server in the runtime's own config file.
+
+    This changes what the agent can do on its next run -- for the Hermes
+    profiles and OpenClaw that also means their persistent gateway daemon
+    keeps the old set until it is restarted, while a one-shot dispatch picks
+    the change up immediately."""
+    agent = await _get_agent_or_404(db, agent_id)
+    fmt, host_path = _require_mcp_target(agent)
+    if bool(payload.command) == bool(payload.url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide either a command (stdio server) or a url (HTTP server), not both.",
+        )
+    if not payload.enabled and fmt.toggle_field is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"The {agent.runtime_type} runtime has no enable/disable flag for MCP servers — "
+                "remove the server instead."
+            ),
+        )
+    server = agent_mcp.McpServerInfo(
+        name=name,
+        command=payload.command,
+        args=payload.args,
+        env=payload.env,
+        url=payload.url,
+        enabled=payload.enabled,
+    )
+    try:
+        agent_mcp.write_server(host_path, fmt, name, server)
+    except agent_mcp.McpConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return await list_agent_mcp_servers(agent_id, db)
+
+
+@router.delete("/{agent_id}/mcp-servers/{name}", response_model=AgentMcpServersOut)
+async def delete_agent_mcp_server(
+    agent_id: uuid.UUID, name: str, db: AsyncSession = Depends(get_db)
+) -> AgentMcpServersOut:
+    """Remove one MCP server from the runtime's own config file."""
+    agent = await _get_agent_or_404(db, agent_id)
+    fmt, host_path = _require_mcp_target(agent)
+    try:
+        agent_mcp.write_server(host_path, fmt, name, None)
+    except agent_mcp.McpConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return await list_agent_mcp_servers(agent_id, db)
 
 
 # ---------------------------------------------------------------------------

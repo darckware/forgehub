@@ -279,6 +279,36 @@ class AgentUpdate(BaseModel):
     forgerouter_api_key: str | None = Field(default=None, min_length=1, max_length=1000)
     clear_forgerouter_api_key: bool = False
     runtime_type: str | None = None
+    # Editable since 2026-07-26. It used to be set only by the Hermes
+    # Foundation sync, which walks /root/.hermes/profiles/ -- so the four
+    # agents that are external CLI runtimes rather than Hermes profiles
+    # (Porthos/claude, Aramis/codex, Dartan/agy, Vector/openclaw) had no
+    # directory to be discovered from and stayed NULL forever, with no way
+    # to fix it short of raw SQL. That's not cosmetic: profile_slug is the
+    # *addressing key* of the message channel -- `--to <profile>` and
+    # `check_agent_inbox.sh <profile>` both resolve against it (see
+    # demand.py's _get_agent_by_slug_or_404), so a NULL slug means that
+    # agent simply can't be reached or read its own mail by name. Only
+    # required by dispatch itself for runtime_type="hermes"
+    # (agent_runs.py), which is why the gap stayed invisible: those four
+    # dispatch fine by UUID from the UI.
+    profile_slug: str | None = Field(default=None, min_length=1, max_length=50)
+    # Absolute host path of the agent's profile-file directory. Empty string
+    # clears the override and falls back to the runtime convention (see
+    # core/agent_profile_files.py); that is why it is not min_length=1.
+    home_path: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("home_path")
+    @classmethod
+    def _check_home_path(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not v.startswith("/"):
+            raise ValueError("home_path must be an absolute path")
+        return v.rstrip("/") or "/"
 
     @field_validator("agent_type")
     @classmethod
@@ -321,6 +351,12 @@ class AgentOut(AgentBase):
     # with a stateless single-shot CLI dispatch mode (Inbox dispatch target
     # eligibility, api/routes/demand.py's /dispatch).
     runtime_type: str | None = None
+    # Registered override for where this agent's profile Markdown files live
+    # (host path). `effective_home_path` is what the UI should show and what
+    # the profile-file endpoints actually read: the override when set, the
+    # runtime convention otherwise. See core/agent_profile_files.py.
+    home_path: str | None = None
+    effective_home_path: str | None = None
 
 
 class AgentListItemOut(AgentOut):
@@ -339,6 +375,185 @@ class AgentDetailOut(AgentOut):
     agent_skills: list[AgentSkillOut] = Field(default_factory=list)
     cost_rates: list[AgentCostRateOut] = Field(default_factory=list)
     capacities: list[AgentCapacityOut] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Profile Markdown files (SOUL.md, IDENTITY.md, TOOLS.md, ...)
+# ---------------------------------------------------------------------------
+
+
+class AgentProfileFileInfo(BaseModel):
+    """One profile file's presence and stats. `path` is always the host path,
+    even when the backend reads it through a container mount."""
+
+    filename: str
+    path: str
+    exists: bool
+    size: int | None = None
+    modified_at: datetime | None = None
+
+
+class AgentProfileFilesOut(BaseModel):
+    """The agent's whole profile-file directory as one payload.
+
+    `home_resolved` False means the directory named by `home_path` is not
+    reachable from the backend process -- under Docker that is a missing bind
+    mount, not a missing agent, so the UI must say which path it tried."""
+
+    agent_id: uuid.UUID
+    home_path: str | None = None
+    home_resolved: bool = False
+    files: list[AgentProfileFileInfo] = Field(default_factory=list)
+
+
+class AgentProfileFileOut(BaseModel):
+    """Content of a single profile file. `content` is None when the file does
+    not exist yet -- distinct from an empty file."""
+
+    agent_id: uuid.UUID
+    filename: str
+    path: str
+    content: str | None = None
+
+
+class AgentProfileFileUpdateIn(BaseModel):
+    content: str
+
+
+# ---------------------------------------------------------------------------
+# MCP servers
+# ---------------------------------------------------------------------------
+
+
+class AgentMcpServerOut(BaseModel):
+    """One MCP server as configured for this agent's runtime.
+
+    `enabled` is always meaningful to read (a runtime with no toggle reports
+    True), but only writable when the runtime's format has a field for it --
+    see `supports_toggle` on the list payload."""
+
+    name: str
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    url: str | None = None
+    enabled: bool = True
+
+
+class AgentMcpServersOut(BaseModel):
+    """Every MCP server configured for one agent, plus where that came from.
+
+    `config_path` is the host path of the runtime's own config file (a Hermes
+    `config.yaml`, `~/.claude.json`, ...) -- ForgeHub edits that file in place
+    rather than keeping its own copy, so an operator can always check the
+    result outside the app. `config_exists` False with a non-null path means
+    the runtime simply has no MCP config yet, which is the normal state before
+    the first server is added, not an error."""
+
+    agent_id: uuid.UUID
+    runtime_type: str | None = None
+    config_path: str | None = None
+    config_exists: bool = False
+    supports_toggle: bool = False
+    error: str | None = None
+    servers: list[AgentMcpServerOut] = Field(default_factory=list)
+
+
+class AgentRuntimeSyncAgentOut(BaseModel):
+    """One agent's reconciliation against the filesystem."""
+
+    agent_id: uuid.UUID
+    agent_name: str
+    profile_slug: str | None = None
+    runtime_type: str | None = None
+    detected_runtime_type: str | None = None
+    evidence: str | None = None
+    home_path: str | None = None
+    home_resolved: bool = False
+    mcp_config_path: str | None = None
+    mcp_config_exists: bool = False
+    # Set when this sync filled a missing runtime_type in this run.
+    applied: bool = False
+    issues: list[str] = Field(default_factory=list)
+
+
+class AgentRuntimeSyncOut(BaseModel):
+    """Result of the real (filesystem) sync, as opposed to the doc-driven one.
+
+    `updated` counts agents whose missing `runtime_type` was filled in from
+    disk evidence; an existing value is never overwritten, so a registry that
+    contradicts the disk shows up in `issues` instead."""
+
+    checked: int = 0
+    updated: int = 0
+    agents: list[AgentRuntimeSyncAgentOut] = Field(default_factory=list)
+    # Hermes profile directories with no agent registered against them.
+    unregistered_profiles: list[str] = Field(default_factory=list)
+
+
+class AgentMcpOverviewItem(AgentMcpServersOut):
+    """One agent's row on the ecosystem-wide MCP screen.
+
+    `supported` False is the Kairos case: a registered agent with no
+    `runtime_type`, so nothing would ever load an MCP server for it. It is
+    listed rather than hidden — an operator looking for "who can use the
+    messages MCP" needs to see the agent that cannot."""
+
+    agent_name: str
+    profile_slug: str | None = None
+    supported: bool = True
+
+
+class AgentMcpOverviewOut(BaseModel):
+    agents: list[AgentMcpOverviewItem] = Field(default_factory=list)
+
+
+class AgentMcpServerIn(BaseModel):
+    """Upsert payload. Either `command` (stdio) or `url` (HTTP) -- the runtimes
+    all treat a server carrying both as HTTP, so requiring exactly one here
+    keeps the stored config unambiguous."""
+
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    url: str | None = None
+    enabled: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Telegram channel status
+# ---------------------------------------------------------------------------
+
+
+class AgentTelegramStatusOut(BaseModel):
+    """Whether an agent's Telegram channel is installed *and* running.
+
+    Two independent signals (see core/agent_telegram.py): `installed` reads
+    the profile's own .env (bot token + home channel; the token itself never
+    leaves the backend), `running` is the `hermes-gateway-<profile>.service`
+    systemd state. `running` is None when the host-bridge could not be
+    reached -- "not checked" must not render as "broken"."""
+
+    agent_id: uuid.UUID
+    agent_name: str
+    profile_slug: str | None = None
+    required: bool = False
+    installed: bool = False
+    home_channel_name: str | None = None
+    service: str | None = None
+    running: bool | None = None
+    # ok | not_running | not_configured | unknown | not_applicable
+    status: str
+
+
+class AgentTelegramStatusListOut(BaseModel):
+    """Whole-roster view, so the list page and org chart need one request
+    instead of one per agent."""
+
+    agents: list[AgentTelegramStatusOut] = Field(default_factory=list)
+    # Populated when the systemd check could not run at all; every entry then
+    # carries running=None / status="unknown".
+    check_error: str | None = None
 
 
 # ---------------------------------------------------------------------------

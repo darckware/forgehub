@@ -45,11 +45,22 @@ from app.db.base import Base, TimestampMixin
 AGENT_STATUSES = ("active", "inactive", "retired")
 AGENT_TYPES = ("coordinator", "executor", "hybrid")
 # Host-bridge /v1/agent-runs' AgentRunRequest.runtime_type -- only agents with
-# their own stateless single-shot CLI dispatch mode can be an Inbox dispatch
-# target (see api/routes/demand.py's /dispatch). NULL for every agent that
-# isn't one of the three external runtime programmers (Athos/Aegis/etc. run
-# as persistent Hermes gateways, not a `claude -p`-style invocation).
-AGENT_RUNTIME_TYPES = ("claude", "codex", "agy")
+# their own dispatchable CLI mode can be an Inbox dispatch target (see
+# api/routes/demand.py's /dispatch). "hermes" dispatches a one-shot
+# `hermes chat -q <prompt> -Q --yolo` scoped to the agent's own
+# HERMES_HOME=/root/.hermes/profiles/<profile_slug> -- it runs alongside
+# that profile's already-persistent `gateway run` daemon (both share the
+# same HERMES_HOME/state.db in SQLite WAL mode; verified concurrent-safe
+# 2026-07-25), it does not replace it. Every classic Hermes-profile agent
+# (Athos, Aegis, Atlas, Mnemosyne, Scriba, Themis, Daedalus, Hephaestus)
+# uses this. "claude"/"codex"/"agy" remain the three external runtime
+# programmers (Porthos/Aramis/Dartan) with their own non-Hermes CLI.
+# "openclaw" dispatches `openclaw agent --agent main --message <prompt>
+# --json` against Vector's already-running openclaw-gateway.service -- like
+# hermes/claude/codex/agy, Vector's own config already has its own
+# credential (openclaw.json's models.providers.forgerouter), no ForgeHub
+# ForgeRouter credential needed.
+AGENT_RUNTIME_TYPES = ("claude", "codex", "agy", "hermes", "openclaw")
 
 SKILL_RISK_LEVELS = ("low", "medium", "high", "critical")
 SKILL_ORIGINS = ("internal", "third_party", "foundation")
@@ -105,6 +116,14 @@ class Agent(Base, TimestampMixin):
     forgerouter_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     # See AGENT_RUNTIME_TYPES above -- only Aramis/Porthos/Dartan have one today.
     runtime_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Host path of the directory holding this agent's profile Markdown files
+    # (SOUL.md, IDENTITY.md, TOOLS.md, ...). Nullable because it is an
+    # *override*: when unset, core/agent_profile_files.py derives it from the
+    # runtime convention (/root/.hermes/profiles/<slug> for Hermes profiles,
+    # /root/.claude, /root/.codex, /root/.gemini/config, /root/.openclaw/
+    # workspace for the external runtimes). Stored as the host canonical path,
+    # like source_path -- the container mount translation happens at read time.
+    home_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     sub_agents: Mapped[list["SubAgent"]] = relationship(
         back_populates="agent", cascade="all, delete-orphan"
@@ -138,6 +157,15 @@ class Agent(Base, TimestampMixin):
     @property
     def forgerouter_api_key_configured(self) -> bool:
         return bool(self.forgerouter_api_key_encrypted)
+
+    @property
+    def effective_home_path(self) -> str | None:
+        """Where this agent's profile files are actually read from: the
+        registered `home_path` override, or the runtime convention. Imported
+        lazily so the model module stays free of core-layer imports."""
+        from app.core.agent_profile_files import effective_home_path
+
+        return effective_home_path(self.home_path, self.runtime_type, self.profile_slug)
 
 
 class AgentServiceCredential(Base, TimestampMixin):

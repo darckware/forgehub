@@ -23,6 +23,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
 from app.api.routes import agent as agent_routes
+from app.core import agent_telegram
 from app.db.base import AsyncSessionLocal, Base, engine
 from app.db.models.agent import (
     Agent,
@@ -273,3 +274,215 @@ async def test_sub_agent_skill_requires_parent_agent_grant(
         json={"skill_id": skill_id},
     )
     assert grant_resp_2.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# Profile files (SOUL.md, IDENTITY.md, ... -- see core/agent_profile_files.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_profile_files_use_registered_home_path(client, cleanup_agent_ids, tmp_path):
+    """A registered home_path wins over the runtime convention, and the
+    listing reports which of the expected files actually exist."""
+    (tmp_path / "SOUL.md").write_text("# soul", encoding="utf-8")
+
+    create_resp = await client.post(
+        "/api/v1/agents",
+        json={"name": _unique_name("test-agent-home"), "agent_type": "executor"},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    agent_id = create_resp.json()["id"]
+    cleanup_agent_ids.append(agent_id)
+
+    patch_resp = await client.patch(
+        f"/api/v1/agents/{agent_id}", json={"home_path": str(tmp_path)}
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert patch_resp.json()["effective_home_path"] == str(tmp_path)
+
+    list_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files")
+    assert list_resp.status_code == 200, list_resp.text
+    listing = list_resp.json()
+    assert listing["home_resolved"] is True
+    by_name = {f["filename"]: f for f in listing["files"]}
+    assert by_name["SOUL.md"]["exists"] is True
+    assert by_name["IDENTITY.md"]["exists"] is False
+    # No profile_slug -> no <PROFILE>_SUBAGENTS.md entry at all.
+    assert not any(name.endswith("_SUBAGENTS.md") for name in by_name)
+
+    read_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files/SOUL.md")
+    assert read_resp.status_code == 200
+    assert read_resp.json()["content"] == "# soul"
+
+    # A file that does not exist yet reads as null content, not 404 --
+    # the editor must be able to create it.
+    missing_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files/IDENTITY.md")
+    assert missing_resp.status_code == 200
+    assert missing_resp.json()["content"] is None
+
+    write_resp = await client.put(
+        f"/api/v1/agents/{agent_id}/profile-files/IDENTITY.md",
+        json={"content": "# identity"},
+    )
+    assert write_resp.status_code == 200, write_resp.text
+    assert (tmp_path / "IDENTITY.md").read_text(encoding="utf-8") == "# identity"
+
+
+@pytest.mark.asyncio
+async def test_profile_files_reject_paths_outside_the_allow_list(
+    client, cleanup_agent_ids, tmp_path
+):
+    """`filename` comes straight from the URL, so anything off the
+    allow-list -- including traversal -- must 404 rather than read."""
+    (tmp_path / "secrets.json").write_text("{}", encoding="utf-8")
+
+    create_resp = await client.post(
+        "/api/v1/agents",
+        json={"name": _unique_name("test-agent-guard"), "agent_type": "executor"},
+    )
+    agent_id = create_resp.json()["id"]
+    cleanup_agent_ids.append(agent_id)
+    await client.patch(f"/api/v1/agents/{agent_id}", json={"home_path": str(tmp_path)})
+
+    for filename in ("secrets.json", "../secrets.json", "..%2F..%2Fetc%2Fpasswd"):
+        resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files/{filename}")
+        assert resp.status_code == 404, f"{filename} -> {resp.status_code}"
+
+    write_resp = await client.put(
+        f"/api/v1/agents/{agent_id}/profile-files/secrets.json",
+        json={"content": "pwned"},
+    )
+    assert write_resp.status_code == 404
+    assert (tmp_path / "secrets.json").read_text(encoding="utf-8") == "{}"
+
+
+@pytest.mark.asyncio
+async def test_profile_files_404_when_agent_has_no_directory(client, cleanup_agent_ids):
+    """An agent with neither a profile_slug nor a runtime has no profile
+    directory -- that is a registration gap, not a server error."""
+    create_resp = await client.post(
+        "/api/v1/agents",
+        json={"name": _unique_name("test-agent-nohome"), "agent_type": "executor"},
+    )
+    agent_id = create_resp.json()["id"]
+    cleanup_agent_ids.append(agent_id)
+
+    list_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files")
+    assert list_resp.status_code == 200
+    assert list_resp.json()["home_resolved"] is False
+    assert list_resp.json()["home_path"] is None
+
+    read_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files/SOUL.md")
+    assert read_resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Telegram channel status (see core/agent_telegram.py)
+# ---------------------------------------------------------------------------
+
+
+def test_telegram_gateway_service_only_for_hermes_profiles():
+    """The external CLI runtimes carry a profile_slug too -- it is their
+    Inbox addressing key, not a directory under /root/.hermes/profiles -- so
+    keying the systemd unit off the slug alone invented a
+    `hermes-gateway-porthos.service` and reported that non-existent unit as
+    down."""
+    assert (
+        agent_telegram.gateway_service_name("athos", "hermes")
+        == "hermes-gateway-athos.service"
+    )
+    assert agent_telegram.gateway_service_name("porthos", "claude") is None
+    assert agent_telegram.gateway_service_name(None, "hermes") is None
+
+
+def test_telegram_parse_active_services():
+    stdout = (
+        "Id=hermes-gateway-athos.service\nActiveState=active\n"
+        "\n"
+        "Id=hermes-gateway-scriba.service\nActiveState=inactive\n"
+        "\n"
+        "Id=hermes-gateway-atlas.service\nActiveState=active\n"
+    )
+    assert agent_telegram.parse_active_services(stdout) == {
+        "hermes-gateway-athos.service",
+        "hermes-gateway-atlas.service",
+    }
+    assert agent_telegram.parse_active_services("") == set()
+
+
+def test_telegram_status_reads_env_without_leaking_the_token(tmp_path):
+    (tmp_path / ".env").write_text(
+        "# comment\n"
+        "TELEGRAM_BOT_TOKEN=123456:super-secret\n"
+        "TELEGRAM_HOME_CHANNEL=1085550644\n"
+        "TELEGRAM_HOME_CHANNEL_NAME=Marcelo\n"
+        "OPENAI_API_KEY=must-not-be-read\n",
+        encoding="utf-8",
+    )
+    status = agent_telegram.build_status(
+        profile_slug="athos",
+        required=True,
+        home_path=str(tmp_path),
+        runtime_type="hermes",
+        active_services={"hermes-gateway-athos.service"},
+    )
+    assert status.installed is True
+    assert status.running is True
+    assert status.status == "ok"
+    assert status.home_channel_name == "Marcelo"
+    # The token is reduced to a boolean and must never reach the response.
+    assert "super-secret" not in repr(status)
+
+
+def test_telegram_status_states(tmp_path):
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    (configured / ".env").write_text(
+        "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_HOME_CHANNEL=1\n", encoding="utf-8"
+    )
+
+    # Installed but the gateway is down -- messages silently go nowhere, so
+    # this is its own state rather than a generic failure.
+    down = agent_telegram.build_status(
+        profile_slug="athos",
+        required=True,
+        home_path=str(configured),
+        runtime_type="hermes",
+        active_services=set(),
+    )
+    assert down.status == "not_running"
+
+    # Host-bridge unreachable: "we could not check" must not render as
+    # "it is broken".
+    unchecked = agent_telegram.build_status(
+        profile_slug="athos",
+        required=True,
+        home_path=str(configured),
+        runtime_type="hermes",
+        active_services=None,
+    )
+    assert unchecked.running is None
+    assert unchecked.status == "unknown"
+
+    # A required channel with no bot token at all.
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    missing = agent_telegram.build_status(
+        profile_slug="athos",
+        required=True,
+        home_path=str(empty),
+        runtime_type="hermes",
+        active_services=set(),
+    )
+    assert missing.status == "not_configured"
+
+    # An external runtime Telegram was never part of.
+    external = agent_telegram.build_status(
+        profile_slug="porthos",
+        required=False,
+        home_path=str(empty),
+        runtime_type="claude",
+        active_services=set(),
+    )
+    assert external.status == "not_applicable"
