@@ -58,7 +58,7 @@ Backend: `backend/app/api/routes/vault.py`, router prefix `/api/v1/vault`. It re
 
 ## Business Rules Surfaced Here
 
-None — this is a filesystem-backed note browser/editor, outside ForgeHub's core domain model (`docs/DATA_MODEL.md`, `docs/BUSINESS_RULES.md` cover Product/Pipeline/Planning/Execution/Agent/Skill/Task/Governance only). The only constraints enforced are filesystem/path-safety ones, not business rules: notes must resolve inside the vault root and must have a `.md` extension (`backend/app/core/markdown_docs.py:54-60`, `backend/app/api/routes/vault.py:38-44`).
+None — this is a filesystem-backed note browser/editor, outside ForgeHub's core domain model (`docs/reference/DATA_MODEL.md`, `docs/reference/BUSINESS_RULES.md` cover Product/Pipeline/Planning/Execution/Agent/Skill/Task/Governance only). The only constraints enforced are filesystem/path-safety ones, not business rules: notes must resolve inside the vault root and must have a `.md` extension (`backend/app/core/markdown_docs.py:54-60`, `backend/app/api/routes/vault.py:38-44`).
 
 ## Dependencies
 

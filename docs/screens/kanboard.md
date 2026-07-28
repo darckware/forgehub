@@ -42,7 +42,7 @@ No loading, empty, or error states are handled by this component. There is:
 
 ## Business Rules Surfaced Here
 
-None — external tool integration. This screen has no relationship to any entity in `docs/DATA_MODEL.md` or rule in `docs/BUSINESS_RULES.md`. Per `CLAUDE.md`, Kanboard is explicitly called out as sharing the same `company_postgres` Postgres container as ForgeHub (for its own, separate schema/database) and having credentials provisioned in the repo-root `.env`, but none of that backend/credential wiring is touched by this frontend screen — the iframe talks straight to Kanboard's own web server, not through ForgeHub's backend or its Postgres connection.
+None — external tool integration. This screen has no relationship to any entity in `docs/reference/DATA_MODEL.md` or rule in `docs/reference/BUSINESS_RULES.md`. Per `CLAUDE.md`, Kanboard is explicitly called out as sharing the same `company_postgres` Postgres container as ForgeHub (for its own, separate schema/database) and having credentials provisioned in the repo-root `.env`, but none of that backend/credential wiring is touched by this frontend screen — the iframe talks straight to Kanboard's own web server, not through ForgeHub's backend or its Postgres connection.
 
 ## Dependencies
 

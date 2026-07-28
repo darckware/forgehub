@@ -78,7 +78,7 @@ Backend routes are thin proxies: `backend/app/api/routes/chat.py` persists `chat
 
 ## Business Rules Surfaced Here
 
-None directly enforced here against `docs/BUSINESS_RULES.md` — that document's numbered rules cover the core domain entities (Product, Pipeline, Planning, Execution, Agent/Skill, Task, Governance). The Workspace screen's backing tables (`chat_sessions`, `chat_messages`, defined in `backend/app/db/models/chat.py`) and the terminal/tmux session concept are not part of that domain model; they are a separate "ops/chat bridge" surface. The only rule-like behavior visibly enforced in this screen's own code:
+None directly enforced here against `docs/reference/BUSINESS_RULES.md` — that document's numbered rules cover the core domain entities (Product, Pipeline, Planning, Execution, Agent/Skill, Task, Governance). The Workspace screen's backing tables (`chat_sessions`, `chat_messages`, defined in `backend/app/db/models/chat.py`) and the terminal/tmux session concept are not part of that domain model; they are a separate "ops/chat bridge" surface. The only rule-like behavior visibly enforced in this screen's own code:
 
 - A chat session can only target an agent that has a Hermes profile (`profile_slug` set) — enforced both client-side (`chatableAgents` filter, `index.tsx:669-672`) and server-side (`_get_chattable_agent_or_404`, `backend/app/api/routes/chat.py:41-50`, 400 if the agent lacks a profile).
 - A message must have non-empty text or a file (`backend/app/api/routes/chat.py:182-183`, 400 otherwise) — not separately enforced in the frontend (Send is disabled client-side under the same condition, `index.tsx:430`).

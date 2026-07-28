@@ -63,7 +63,7 @@ No request goes through `apiClient`'s Zod runtime validation — `usePipelines`/
 
 ## Business Rules Surfaced Here
 
-Referencing `docs/BUSINESS_RULES.md` §2 (Pipeline Rules):
+Referencing `docs/reference/BUSINESS_RULES.md` §2 (Pipeline Rules):
 
 - **Rule 1** ("Every project must have an active pipeline") — surfaced only as copy text in the list page's empty state ("Every project must have an active pipeline. Create one to start defining stages.", `index.tsx:114-115`) and in the detail page's Stages card description. Not actually enforced or checked by this screen; the backend doesn't auto-create one either (`backend/app/api/routes/pipeline.py:10-14`).
 - **Rule 6** (stages may require mandatory artifacts) and **Rule 7** (a stage cannot complete if mandatory artifacts are missing) — surfaced visually via the "Required artifacts" checklist per stage, with a filled vs. outline `CheckCircle2`/`CircleDashed` icon keyed off `artifact.is_satisfied` (`[id].tsx:86-104`). Not enforced here (read-only) — actual enforcement is `_enforce_stage_advance_rules` in `backend/app/api/routes/pipeline.py:467-522`, reached only via `PATCH /pipelines/stages/{id}`, which this UI never calls.

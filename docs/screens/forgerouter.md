@@ -33,7 +33,7 @@ None handled. There is no loading indicator, no empty state, and no error/fallba
 
 ## Business Rules Surfaced Here
 
-None — out of ForgeHub's core domain model. ForgeRouter has no relationship to Product, Pipeline, Planning, Execution, Skill, Traceability, or Governance entities as defined in `docs/DATA_MODEL.md` / `docs/BUSINESS_RULES.md`. Nothing here touches the database, an artifact, an approval gate, or an audit trail.
+None — out of ForgeHub's core domain model. ForgeRouter has no relationship to Product, Pipeline, Planning, Execution, Skill, Traceability, or Governance entities as defined in `docs/reference/DATA_MODEL.md` / `docs/reference/BUSINESS_RULES.md`. Nothing here touches the database, an artifact, an approval gate, or an audit trail.
 
 ## Dependencies
 

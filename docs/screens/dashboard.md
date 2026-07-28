@@ -60,11 +60,11 @@ Backend-side wiring (not visible in the frontend but relevant to understanding t
 
 ## Business Rules Surfaced Here
 
-None directly enforced here. This screen does not touch any entity covered by `docs/BUSINESS_RULES.md` (Product, Pipeline, Planning, Execution, Skill, Traceability, Governance) — it has no DB-backed domain model relationship to product/version/project/pipeline/owner/audit trail. The only "rule"-like behavior is operational and local to this domain: the tool-versions cache is read-cheap (GET never hits the host) while `/check` and `/update` always hit the host bridge live (`toolversions.py:126-131` vs `134-170`).
+None directly enforced here. This screen does not touch any entity covered by `docs/reference/BUSINESS_RULES.md` (Product, Pipeline, Planning, Execution, Skill, Traceability, Governance) — it has no DB-backed domain model relationship to product/version/project/pipeline/owner/audit trail. The only "rule"-like behavior is operational and local to this domain: the tool-versions cache is read-cheap (GET never hits the host) while `/check` and `/update` always hit the host bridge live (`toolversions.py:126-131` vs `134-170`).
 
 ## Dependencies
 
-- **`tool-versions` domain** (non-core, infra/observability) — `backend/app/db/models/toolversions.py`, `backend/app/api/routes/toolversions.py`. Not part of the Product/Project/Pipeline/Backlog/Task/Agent/Artifact/Governance domain set described in `docs/DATA_MODEL.md`.
+- **`tool-versions` domain** (non-core, infra/observability) — `backend/app/db/models/toolversions.py`, `backend/app/api/routes/toolversions.py`. Not part of the Product/Project/Pipeline/Backlog/Task/Agent/Artifact/Governance domain set described in `docs/reference/DATA_MODEL.md`.
 - **`system-stats` domain** (non-core) — `backend/app/api/routes/systemstats.py`. No DB model at all.
 - **External: host-bridge service** (`host-bridge/app.py`, referenced as `forgehub-chat-bridge` in error copy) — both cards are non-functional (loading or error state) if this service is down, since neither backend route can serve real data without it.
 

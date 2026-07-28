@@ -43,7 +43,7 @@ Mutations triggered from this screen:
   - Frontend `Approval` uses `subject_type`/`subject_id`/`approved_by`/`decision_notes`; backend `ApprovalOut` uses `entity_type`/`entity_id`/`decided_by`/`comments` (`governance.py` schemas vs `useGovernance.ts:51-64`). No field name is shared except `id`, `status`, `policy_id`, `created_at`, `updated_at`.
   - Frontend `AuditEvent` uses `action`/`metadata`/`occurred_at`; backend `AuditEventOut` uses `event_type`/`payload`/`created_at` (no `occurred_at`).
   - Frontend `Policy` expects `risk_level` and `requires_approval`; the backend `Policy` model/schema has neither field — it has `policy_type` (free-text) and `rules` (JSONB) instead (`db/models/governance.py:48-67`, `api/schemas/governance.py` `PolicyBase`). The detail page's "Governing policy" card (`[id].tsx:132-139`) renders `policy.risk_level`, which would be `undefined` against the real API response.
-- Net effect: as wired today, the list page's GET would fail against the real backend (zod parse would also fail even if the URL were fixed, given the field mismatches above), so in practice this screen cannot show the 32 pre-existing `approvals` or 77 pre-existing `audit_events` rows mentioned in `docs/DATA_MODEL.md` §4 without code changes on one side or the other.
+- Net effect: as wired today, the list page's GET would fail against the real backend (zod parse would also fail even if the URL were fixed, given the field mismatches above), so in practice this screen cannot show the 32 pre-existing `approvals` or 77 pre-existing `audit_events` rows mentioned in `docs/reference/DATA_MODEL.md` §4 without code changes on one side or the other.
 
 ## Actions Available
 
@@ -73,7 +73,7 @@ There is no Approve/Reject action anywhere in the frontend, even though the back
 
 ## Business Rules Surfaced Here
 
-Cross-referencing `docs/BUSINESS_RULES.md` §7:
+Cross-referencing `docs/reference/BUSINESS_RULES.md` §7:
 
 - **Rule 1** ("Deciding an Approval writes a companion AuditEvent") is implemented at the backend (`governance.py:148-161`, also on creation at `governance.py:67-79`) but is **not exercised by this screen** — since the UI never calls `/approve` or `/reject`, a user driving this screen alone cannot trigger the audit-write side effect described by the rule; they can only fabricate an already-decided row via direct creation with `status: "approved"`/`"rejected"` in the form, which does *not* go through `_decide_approval` and therefore writes no companion AuditEvent.
 - **Rule 2** ("AuditEvent is append-only — no update/delete endpoints") is consistent with what the UI offers: there is no edit or delete control anywhere for audit events on either page — the detail page only ever reads/lists them (`[id].tsx:171-198`). This matches the backend route surface (`governance.py:169-207`, create+list+get only).

@@ -70,7 +70,7 @@ Backend (`backend/app/api/routes/foundation.py`):
 
 ## Business Rules Surfaced Here
 
-None — filesystem-backed cron/script catalog viewer, outside ForgeHub's core DB domain model (`docs/DATA_MODEL.md` / `docs/BUSINESS_RULES.md` cover Product, Pipeline, Planning, Task, Agent/Skill, Artifact, Governance; this screen's data is not stored in any `company.*` table). The only safety mechanism enforced server-side:
+None — filesystem-backed cron/script catalog viewer, outside ForgeHub's core DB domain model (`docs/reference/DATA_MODEL.md` / `docs/reference/BUSINESS_RULES.md` cover Product, Pipeline, Planning, Task, Agent/Skill, Artifact, Governance; this screen's data is not stored in any `company.*` table). The only safety mechanism enforced server-side:
 
 - **Advisory file lock on writes.** Both `update_cron_job` and `delete_cron_job` acquire the same `flock` on `<cron dir>/.jobs.lock` that the live `hermes` CLI and gateway scheduler use (`_cron_jobs_lock`, `backend/app/api/routes/foundation.py:343-352`), so a ForgeHub edit/delete cannot race a concurrent write from the scheduler. Reads (`list_cron_jobs`) do not take the lock.
 - **Atomic write.** Both mutating operations rewrite the whole `jobs.json` via a tempfile + `os.replace` (`_atomic_write_jobs`), avoiding a partially-written file if the process is interrupted mid-write.

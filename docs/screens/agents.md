@@ -2,10 +2,12 @@
 
 ## Route & Purpose
 
-- `/agents` — list view (`frontend/src/pages/agent/index.tsx`, component `AgentPage`). Shows every registered `Agent` with its `sub_agents` flattened underneath as indented rows, plus a button to trigger the Hermes Foundation sync.
-- `/agents/:id` — detail view (`frontend/src/pages/agent/[id].tsx`, component `AgentDetailPage`). Shows one agent's metadata, an editable description, its sub-agents, its granted skills, and (if the agent has a Hermes profile) its profile Markdown files.
+- `/agents` — the org chart (`frontend/src/pages/agent/index.tsx`, component `AgentPage`). Page header carries an agent filter dropdown and the Hermes Foundation sync button; the body is `AgentEcosystemHierarchy`. As of 2026-07-26 there is **no roster table**: once each chart card carried the agent's runtime, profile directory, profile files, Telegram health, skills, sub-agents, crons and scripts, the table below showed strictly less than the card above it. Its two real capabilities — View and Delete (agent and sub-agent) — moved onto the card, and retired agents, which the table used to preserve for audit, got their own chart section.
+- `/agents/:id` — detail view (`frontend/src/pages/agent/[id].tsx`, component `AgentDetailPage`). Shows one agent's metadata, an editable description, its registered profile directory, its profile Markdown files, its sub-agents and its granted skills.
 
-Both routes are registered in `frontend/src/App.tsx:46-47`. Sidebar entry: "Agents" / `Bot` icon, `frontend/src/components/layout/Sidebar.tsx:67`.
+Both routes are registered in `frontend/src/App.tsx`. Sidebar entry: "Agents" / `Bot` icon.
+
+**Agent Tools (`/tools`) is reached from this page**, not from the sidebar (2026-07-26) — the tools registry is scoped to the agent roster rather than being a peer destination of it. Its `NAV_SECTIONS` entry carries `hiddenInSidebar: true`, which `Sidebar.tsx` filters out while `CommandPalette` still lists it: dropping the entry outright would have removed it from Cmd/Ctrl+K too, and that is a search surface, not a menu. The tools page carries its own back link to `/agents`.
 
 Purpose: this is the only UI surface for the Agent domain (`agents`, `sub_agents`, `skills`, `agent_skills`, `sub_agent_skills`, `agent_cost_rates`, `agent_capacities`) — it lets a user inspect the roster of executor/coordinator agents available for `TaskAssignment`, see what sub-agents and governed skills each one carries, and pull a fresh roster from the Hermes Foundation filesystem source of truth.
 
@@ -13,11 +15,15 @@ Purpose: this is the only UI surface for the Agent domain (`agents`, `sub_agents
 
 | File | Role |
 |---|---|
-| `frontend/src/pages/agent/index.tsx` | List view: table of agents + nested sub-agent rows, "Sync from Hermes Foundation" action, sync result/error banners. |
-| `frontend/src/pages/agent/[id].tsx` | Detail view: agent header (name/mission/status/type/layer/tier), editable description card, sub-agents table, skills table with remove action, embeds `ProfileFilesCard`. |
-| `frontend/src/pages/agent/ProfileFilesCard.tsx` | Tabbed editor (`SOUL.md`/`MEMORY.md`/`TOOLS.md`/`AGENTS.md`/`HEARTBEAT.md`/`USER.md`) for the agent's Hermes profile Markdown files on disk; only rendered when `agent.profile_slug` is set. |
+| `frontend/src/pages/agent/index.tsx` | Page shell: title, agent filter dropdown, "Sync from Foundation" action, sync result/error banners, and the chart. |
+| `frontend/src/pages/agent/[id].tsx` | Detail view: agent header (name/mission/status/type/runtime/layer/tier), editable description card, editable **profile directory** card, sub-agents table, skills table with remove action, embeds `AgentProfileFilesCard`. |
+| `frontend/src/pages/agent/AgentProfileFilesCard.tsx` | **One tab per profile file**, each with a rendered read view and an editor. Covers the full set — `SOUL.md`, `IDENTITY.md`, `USER.md`, `TOOLS.md`, `AGENTS.md`, `FOUNDATION_LINK.md`, `HEARTBEAT.md`, `MEMORY.md`, `CONTINUITY.md`, the runtime extra (`CLAUDE.md`) and the optional `<PROFILE>_SUBAGENTS.md` — with a one-line explanation of what each file is for. The tab strip scrolls horizontally (up to 11 tabs); a dot on a tab marks a file that does not exist yet. Rendered for **every** agent, not only Hermes profiles. |
+| `frontend/src/components/TelegramStatusBadge.tsx` | Telegram channel health icon, shown in the org chart, the list table and the detail header. |
+| `frontend/src/components/AgentProfileFileChips.tsx` | One chip per profile file, on the org chart card's profile-directory line. The chip list is computed client-side (`profileFileNamesFor`, mirroring the backend allow-list) so a dozen cards cost zero requests; opening a chip fetches just that file and previews it as rendered Markdown. |
+| `frontend/src/pages/agent/AgentAutomationCard.tsx` | Detail-page card: the agent's `hermes cron` jobs and its profile `scripts/` directory, both keyed off `profile_slug`. Surfaces a corrupted `jobs.json` as an explicit error — that state stops the profile's scheduler entirely. |
+| `frontend/src/components/AgentEcosystemHierarchy.tsx` | Org chart. Splits the roster by runtime family (Hermes system agents vs external CLI runtimes), then by layer/tier/department inside the Hermes side. Skills and sub-agents are behind per-agent collapses with their own vertical scrollbars. |
 | `frontend/src/hooks/useAgent.ts` | Zod schemas + TanStack Query hooks for `Agent`/`SubAgent`/`Skill`/`AgentSkill`/`SubAgentSkill`/`AgentCostRate`/`AgentCapacity` and the Hermes sync mutation. |
-| `frontend/src/hooks/useFoundation.ts` | Hooks for reading/writing the raw profile Markdown files (`/api/v1/foundation/profiles/...`), used only by `ProfileFilesCard`. |
+| `backend/app/core/agent_profile_files.py` | Resolves an agent's profile directory (registered `home_path`, else the runtime convention), the per-agent filename allow-list, and the host↔container path translation. |
 
 ## Data & API Calls
 
@@ -29,8 +35,13 @@ Purpose: this is the only UI surface for the Agent domain (`agents`, `sub_agents
 | Hermes Foundation sync (agents/sub-agents/skills/grants upserted) | `useSyncHermesAgents()` | `/api/v1/agents/sync/hermes-foundation` | POST |
 | Description edit | `useUpdateAgent(id)` | `/api/v1/agents/{id}` | PATCH |
 | Skill removal (revoke grant) | `useRemoveSkillFromAgent(id)` | `/api/v1/agents/{id}/skills/{agentSkillId}` | DELETE |
-| Profile Markdown file content (Soul/Memory/Tools/Agents/Heartbeat/User) | `useProfileFile(slug, filename)` | `/api/v1/foundation/profiles/{slug}/files/{filename}` | GET |
-| Profile Markdown file save | `useUpdateProfileFile(slug, filename)` | `/api/v1/foundation/profiles/{slug}/files/{filename}` | PUT |
+| Profile file inventory (which files exist, size, mtime) | `useAgentProfileFiles(id)` | `/api/v1/agents/{id}/profile-files` | GET |
+| Profile Markdown file content | `useAgentProfileFile(id, filename)` | `/api/v1/agents/{id}/profile-files/{filename}` | GET |
+| Profile Markdown file save | `useUpdateAgentProfileFile(id, filename)` | `/api/v1/agents/{id}/profile-files/{filename}` | PUT |
+| Profile directory registration | `useUpdateAgent(id)` | `/api/v1/agents/{id}` (`home_path`) | PATCH |
+| Telegram channel status (whole roster, polled every 60s) | `useAgentsTelegramStatus()` | `/api/v1/agents/telegram-status` | GET |
+| Cron jobs per profile | `useFoundationCrons()` | `/api/v1/foundation/crons` | GET |
+| Profile scripts per profile | `useFoundationAllScripts()` | `/api/v1/foundation/scripts` | GET |
 
 Hooks defined in `useAgent.ts` but **not called anywhere in these two page files** (verified by grep across `frontend/src/pages/agent/`): `useCreateAgent`, `useDeleteAgent`, `useCreateSubAgent`, `useDeleteSubAgent`, `useAssignSkillToAgent`. See Notes.
 
@@ -40,7 +51,14 @@ Hooks defined in `useAgent.ts` but **not called anywhere in these two page files
 - **View agent** (`index.tsx:213-218`, also per sub-agent row "View parent") — navigates to `/agents/:id`.
 - **Edit description** (`[id].tsx:143-176`) — inline textarea + Save/Cancel, calls `PATCH /api/v1/agents/{id}` with `{ description }` only.
 - **Remove skill grant** (`[id].tsx:284-293`) — trash icon per skill row, calls `DELETE /api/v1/agents/{id}/skills/{agentSkillId}` (revokes the `agent_skills` association row, not the `Skill` itself).
-- **Edit/save profile Markdown file** (`ProfileFilesCard.tsx`) — per-tab textarea + Save button, calls `PUT /api/v1/foundation/profiles/{slug}/files/{filename}`; only enabled when the textarea content differs from the loaded content (`isDirty` check).
+- **View / edit a profile Markdown file** (`AgentProfileFilesCard.tsx`) — pick the file's tab; it opens in a rendered Markdown read view, and the View/Edit toggle switches to a textarea. Save calls `PUT /api/v1/agents/{id}/profile-files/{filename}`, only enabled while the buffer differs from the loaded content (`isDirty`). Saving a file that does not exist yet creates it.
+- **Register profile directory** (`[id].tsx`) — inline path field, calls `PATCH /api/v1/agents/{id}` with `{ home_path }`. Empty clears the override and restores the runtime default.
+- **Filter by agent** (`index.tsx`) — dropdown left of the sync button. Selecting one puts the chart in focused mode: that agent's card alone, with the ecosystem counters and the baseline warning hidden (they are statements about the whole ecosystem and would be lies about a single card). Built from the full roster so a retired agent can still be selected.
+- **Edit an agent** (`AgentEcosystemHierarchy.tsx`) — pencil icon in the card footer, navigates to `/agents/:id`. The agent name in the card header is a link to the same place.
+- **Delete an agent or sub-agent** (`AgentEcosystemHierarchy.tsx`) — trash icon in the card footer, and per row inside the Sub-agents collapse. Same `ConfirmDialog` the removed table used.
+- **Open Agent Tools** (`index.tsx`) — button right of Sync.
+- **Preview a profile file from the org chart** (`AgentProfileFileChips.tsx`) — click a file chip on an agent card's directory line; it fetches that one file and renders it inline (scrollable, read-only). Editing stays on the agent page.
+- **Inspect an agent's crons and scripts** — collapsed sections on the org chart card, and a full table pair on the detail page.
 
 Not present on either screen, despite backend + hook support: create agent, delete agent, create/delete sub-agent, grant a skill to an agent (only revoke), any skill catalog management (create/approve/review a `Skill`), cost rate or capacity display/management.
 
@@ -63,7 +81,7 @@ Not present on either screen, despite backend + hook support: create agent, dele
 
 ## Business Rules Surfaced Here
 
-Citing `docs/BUSINESS_RULES.md` §5 (Skill Rules):
+Citing `docs/reference/BUSINESS_RULES.md` §5 (Skill Rules):
 
 - **§5 rules 1-4** (skill must have version, origin, risk level, permissions) — surfaced read-only in the detail view's skills table: version is appended to the skill name (`[id].tsx:263-267`), origin and risk level each get their own column with a badge (`[id].tsx:269-279`, risk badge colored via `RISK_VARIANT`), but **permissions** (the `Text` field declared required at the DB layer) is not displayed anywhere on this screen.
 - **§5 rule 5** (critical skills require approval) — the skills table shows an "Approval" column rendering "Approved"/"Not approved" from `skill.is_approved` (`[id].tsx:281-283`), but the screen has no action to grant approval (no approve button, no risk-level-aware gating in the UI) — the backend enforces the actual gate (critical skills can't self-approve at creation; `agent.py:332-347`) but no part of this screen exercises it.
@@ -90,6 +108,28 @@ No Pipeline/Task/Project rules are surfaced on this screen — it is Agent-domai
 - **No skill catalog management UI.** Skill create/update/delete (`POST/PATCH/DELETE /api/v1/agents/skills...`) and the approval/security-review workflow are fully implemented on the backend (`agent.py:332-419`) but there is no `frontend/src/pages/skill/` (or similar) screen at all — skills can currently only be viewed indirectly, joined into an agent's detail page.
 - **`permission_scope` invisible.** `SubAgent.permission_scope` is part of the Zod schema (`useAgent.ts:81`) and the DB model, but the sub-agents table on the detail page (`[id].tsx:202-209`) only renders name/description/status — the field that actually encodes the SPEC §5 rule 7 boundary is never shown to the user.
 - **No "not found" / 404 empty state on the detail page.** If `agent` resolves to `undefined` without `isLoading`/`isError` being true (e.g., a malformed response), the page silently renders just the back-link with no body and no error message (`[id].tsx:101` guard simply skips rendering).
-- **`ProfileFilesCard` is rendered conditionally on `agent.profile_slug`** (`[id].tsx:188`) — agents created manually (no Hermes sync) or sub-agents have no profile files and thus no way to view/edit a SOUL/MEMORY/etc. doc from this screen; this is by design (those files only exist for Hermes-synced top-level agents) but is worth flagging since it means most of the "detail" richness here only applies to the 25 Hermes-sourced agents, not any future manually-created ones.
+- **Profile files are per-agent, not per-Hermes-profile (2026-07-26).** The card used to be gated on `agent.profile_slug` and read through `/api/v1/foundation/profiles/{slug}/files/...`, which walks the `/profiles` mount — so the four external CLI runtimes (Porthos/claude, Aramis/codex, Dartan/agy, Vector/openclaw) could never show their own identity files, and only six of the ten canonical files were reachable at all. Resolution now goes through the agent's own `home_path`/runtime, and the older foundation route is left in place untouched for its existing callers.
 - **List view "Layer / Tier" and "Sub-agents count" columns are blank (`—`) for sub-agent rows** (`index.tsx:244-245`) since those columns are agent-only; acceptable given the flattened-table design but slightly redundant given sub-agents already render under their parent.
 - **Sync result banner persists across re-syncs** via `syncHermes.isSuccess`/`isError` mutation state — there's no explicit "dismiss" control, so the banner only changes when another sync is triggered or the page is reloaded.
+
+## Telegram channel status
+
+The ecosystem's human channel is Telegram, one bot per Hermes profile. The badge folds **two independent signals** (`backend/app/core/agent_telegram.py`), deliberately kept apart because they fail apart:
+
+- **installed** — `TELEGRAM_BOT_TOKEN` *and* `TELEGRAM_HOME_CHANNEL` present in the agent's own profile `.env`, read off the resolved profile directory. The token never leaves the backend: it is reduced to a boolean before the response is built (only the home-channel *name* is returned).
+- **running** — the systemd unit `hermes-gateway-<profile>.service` is active. That daemon is what long-polls Telegram, so *installed but not running* means messages silently go nowhere; it gets its own state (`not_running`), not a generic error. The backend container has no systemd, so this goes through the host-bridge `/v1/exec`, one call for the whole roster.
+
+States: `ok` (green) · `not_running` (red) · `not_configured` (amber) · `unknown` (muted) · `not_applicable` (faint). `running` is `null` — and the status degrades to `unknown`, never to red — when the host-bridge could not be reached: *we failed to observe* must not render as *we observed a failure*.
+
+Only Hermes profiles have a gateway unit. The four external CLI runtimes carry a `profile_slug` too (it is their Inbox addressing key, not a directory under `/root/.hermes/profiles`), so the unit name is keyed off `runtime_type == "hermes"` as well — keying off the slug alone invented a `hermes-gateway-porthos.service` and reported that non-existent unit as down.
+
+## Crons and scripts per agent
+
+`hermes cron` job stores and script directories are **per profile** on disk (`<profile>/cron/jobs.json`, `<profile>/scripts/`), so both are keyed off `profile_slug` — an agent with no Hermes profile owns neither, and that is stated rather than shown as an empty table.
+
+Two things worth knowing when touching this:
+
+- A cron job's `status` only mirrors the enabled/paused flag; **`health` is what says whether it actually runs** (`ok` / `error` / `overdue` / `never_ran` / `off`, computed by `foundation.py`'s `_job_health`). `overdue` means `next_run_at` is in the past — the scheduler is not ticking it. The badge colours off `health`, never `status`.
+- `cronData.store_errors` must never be swallowed: a `jobs.json` that fails to parse does not merely hide that profile's jobs, it makes that profile's gateway refuse to tick at all, so every cron in the profile has stopped. `AgentAutomationCard` renders it as a destructive banner.
+
+Scripts come from `/api/v1/foundation/scripts` (full per-profile catalog off the filesystem), **not** `/api/v1/scripts` (DB-backed, deliberately only the scripts a cron job references). Note the two endpoints' `referenced_by` shapes differ — the Foundation one carries no `last_run_at` — which is why `useFoundationScripts.ts` defines a separate ref schema instead of reusing `cronJobRefSchema`.

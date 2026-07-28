@@ -1,5 +1,57 @@
 # ForgeHub — Mapa e Governança da Documentação
 
+## Estrutura da pasta `docs/`
+
+```
+docs/
+├── README.md                      ← este arquivo (índice)
+├── architecture/                  ← arquitetura e contrato operacional
+│   ├── ENGINEERING_LOOP.md
+│   ├── IMPLEMENTATION_READINESS.md
+│   ├── AGENT_CLI_DEVELOPMENT_PROTOCOL.md
+│   ├── PLANNING_IMPLEMENTATION_BOUNDARY.md
+│   └── PLANNING_DELIVERY_ARCHITECTURE.md
+├── agents/                        ← organização e ecossistema de agentes
+│   ├── AGENT_ORGANIZATION_CHART.md
+│   ├── AGENT_ECOSYSTEM_ASSESSMENT.md
+│   └── FOUNDATION_AGENT_ORGANIZATION.md
+├── baseline/                      ← documentos históricos de origem
+│   └── CONTEXT_BRIEF.md
+├── guides/                        ← guias operacionais e experiência
+│   ├── MANUAL.md
+│   └── PROJECT_DELIVERY_GUIDE.md
+├── reference/                     ← especificação técnica do estado atual
+│   ├── DATA_MODEL.md
+│   ├── BUSINESS_RULES.md
+│   ├── TECHNOLOGY.md
+│   └── DB_README.md
+├── specs/                         ← visão original de produto (baseline)
+│   ├── PRD.md
+│   └── SPEC.md
+├── specs-ready/                   ← (vazio — renomeado para baseline/)
+├── stack/                         ← (vazio — reservado para arquivos de stack)
+├── modules/                       ← specs de módulos implementáveis
+│   ├── README.md
+│   ├── 01_CONCEPTION_AND_SYSTEM_SCOPE.md
+│   ├── 02_PIPELINE_AND_PLANNING.md
+│   ├── 03_EXECUTION_AND_ORCHESTRATION.md
+│   ├── 04_GOVERNANCE_AND_EVIDENCE.md
+│   ├── 05_RELEASE_OPERATIONS_MAINTENANCE.md
+│   ├── 06_COCKPIT_AND_INTEGRATIONS.md
+│   ├── 07_ATHOS_CONTROL_ROOM.md
+│   ├── 08_GOVERNED_PLANNING_APPROVAL.md
+│   └── 09_STAGE_COMPLETION_AND_RECOVERY.md
+├── screens/                       ← inventário de telas (parcial)
+│   └── *.md
+├── templates/                     ← templates canônicos
+│   ├── MODULE_SPEC_TEMPLATE.md
+│   └── DAILY_ENGINEERING_REVIEW.md
+└── assets/
+    └── forgehub-logo.svg
+```
+
+---
+
 ## Finalidade
 
 Este arquivo define como humanos e agentes devem interpretar a documentação do ForgeHub. Ele existe para impedir que uma LLM combine uma visão futura com um endpoint atual, trate uma proposta como implementada ou escolha arbitrariamente entre documentos divergentes.
@@ -9,13 +61,13 @@ Este arquivo define como humanos e agentes devem interpretar a documentação do
 Quando houver conflito, use esta ordem:
 
 1. **Código, migrations e testes executados** — comportamento implementado hoje.
-2. **`DATA_MODEL.md`, `BUSINESS_RULES.md` e `TECHNOLOGY.md`** — descrição do estado implementado, desde que confirmada pelo código.
-3. **`PLANNING_DELIVERY_ARCHITECTURE.md`** — direção canônica do produto e arquitetura-alvo.
-4. **`ENGINEERING_LOOP.md`** — contrato operacional-alvo para execução determinística por agentes/LLMs.
-5. **`IMPLEMENTATION_READINESS.md`** — lacunas entre estado atual e arquitetura-alvo e ordem de fechamento.
-6. **`AGENT_CLI_DEVELOPMENT_PROTOCOL.md`** — conduta transitória para executar Tasks no modelo disponível.
-7. **`PROJECT_DELIVERY_GUIDE.md` e `MANUAL.md`** — experiência de uso desejada e orientação ao operador.
-8. **`PRD.md`, `SPEC.md` e documentos de tela históricos** — baseline original; não substituem decisões posteriores.
+2. **`reference/DATA_MODEL.md`, `reference/BUSINESS_RULES.md` e `reference/TECHNOLOGY.md`** — descrição do estado implementado, desde que confirmada pelo código.
+3. **`architecture/PLANNING_DELIVERY_ARCHITECTURE.md`** — direção canônica do produto e arquitetura-alvo.
+4. **`architecture/ENGINEERING_LOOP.md`** — contrato operacional-alvo para execução determinística por agentes/LLMs.
+5. **`architecture/IMPLEMENTATION_READINESS.md`** — lacunas entre estado atual e arquitetura-alvo e ordem de fechamento.
+6. **`architecture/AGENT_CLI_DEVELOPMENT_PROTOCOL.md`** — conduta transitória para executar Tasks no modelo disponível.
+7. **`guides/PROJECT_DELIVERY_GUIDE.md` e `guides/MANUAL.md`** — experiência de uso desejada e orientação ao operador.
+8. **`specs/PRD.md`, `specs/SPEC.md` e documentos de tela históricos** — baseline original; não substituem decisões posteriores.
 
 Regra: documento de direção pode exigir uma mudança, mas não prova que ela já existe. Documento do estado atual pode descrever uma limitação, mas não revoga a arquitetura-alvo.
 
@@ -23,50 +75,50 @@ Regra: documento de direção pode exigir uma mudança, mas não prova que ela j
 
 | Documento | Papel | Estado |
 |---|---|---|
-| `CONTEXT_BRIEF.md` | contexto original do ForgeHub | histórico, válido como origem |
-| `PRD.md` | visão e requisitos originais | desatualizado para a arquitetura-alvo |
-| `SPEC.md` | especificação original de software | desatualizado para a arquitetura-alvo |
-| `PLANNING_DELIVERY_ARCHITECTURE.md` | concepção consolidada e arquitetura-alvo | canônico para direção |
-| `ENGINEERING_LOOP.md` | máquina operacional de engenharia e anti-alucinação | canônico para o runtime-alvo |
-| `IMPLEMENTATION_READINESS.md` | auditoria de completude e sequência de implementação | canônico para planejamento técnico |
-| `DATA_MODEL.md` | dicionário do banco atualmente implementado | estado atual |
-| `BUSINESS_RULES.md` | regras aplicadas atualmente e inconsistências conhecidas | estado atual |
-| `TECHNOLOGY.md` | stack implementada | estado atual |
-| `AGENT_CLI_DEVELOPMENT_PROTOCOL.md` | pacote e conduta de execução | transição atual → alvo |
-| `PROJECT_DELIVERY_GUIDE.md` | jornada operacional desejada | misto; confirmar disponibilidade |
-| `MANUAL.md` | navegação e operação da aplicação atual | operacional |
-| `AGENT_ORGANIZATION_CHART.md` | organização operacional dos agentes | arquitetura organizacional |
-| `AGENT_ECOSYSTEM_ASSESSMENT.md` | justificativa e acionamento dos agentes | análise de apoio |
-| `FOUNDATION_AGENT_ORGANIZATION.md` | projeção proposta para Hermes Foundation | integração proposta |
+| `baseline/CONTEXT_BRIEF.md` | contexto original do ForgeHub | histórico, válido como origem |
+| `specs/PRD.md` | visão e requisitos originais | desatualizado para a arquitetura-alvo |
+| `specs/SPEC.md` | especificação original de software | desatualizado para a arquitetura-alvo |
+| `architecture/PLANNING_DELIVERY_ARCHITECTURE.md` | concepção consolidada e arquitetura-alvo | canônico para direção |
+| `architecture/ENGINEERING_LOOP.md` | máquina operacional de engenharia e anti-alucinação | canônico para o runtime-alvo |
+| `architecture/IMPLEMENTATION_READINESS.md` | auditoria de completude e sequência de implementação | canônico para planejamento técnico |
+| `reference/DATA_MODEL.md` | dicionário do banco atualmente implementado | estado atual |
+| `reference/BUSINESS_RULES.md` | regras aplicadas atualmente e inconsistências conhecidas | estado atual |
+| `reference/TECHNOLOGY.md` | stack implementada | estado atual |
+| `architecture/AGENT_CLI_DEVELOPMENT_PROTOCOL.md` | pacote e conduta de execução | transição atual → alvo |
+| `guides/PROJECT_DELIVERY_GUIDE.md` | jornada operacional desejada | misto; confirmar disponibilidade |
+| `guides/MANUAL.md` | navegação e operação da aplicação atual | operacional |
+| `agents/AGENT_ORGANIZATION_CHART.md` | organização operacional dos agentes | arquitetura organizacional |
+| `agents/AGENT_ECOSYSTEM_ASSESSMENT.md` | justificativa e acionamento dos agentes | análise de apoio |
+| `agents/FOUNDATION_AGENT_ORGANIZATION.md` | projeção proposta para Hermes Foundation | integração proposta |
 | `screens/*.md` | inventário de telas selecionadas | parcial e não exaustivo |
 | `templates/MODULE_SPEC_TEMPLATE.md` | contrato mínimo antes da implementação de um módulo | template canônico |
 | `templates/DAILY_ENGINEERING_REVIEW.md` | revisão diária humana/agente | template canônico |
-| `modules/README.md` e `modules/01_...` a `07_...` | contratos implementáveis por fatia | specs-alvo; exigem aprovação antes do código |
-| `PLANNING_IMPLEMENTATION_BOUNDARY.md` | fronteira autorizada da primeira onda | escopo ativo da implementação |
+| `modules/README.md` e `modules/01_...` a `09_...` | contratos implementáveis por fatia | specs-alvo; exigem aprovação antes do código |
+| `architecture/PLANNING_IMPLEMENTATION_BOUNDARY.md` | fronteira autorizada da primeira onda | escopo ativo da implementação |
 
 ## Leitura obrigatória por tipo de trabalho
 
 ### Para analisar ou planejar o produto
 
 1. este arquivo;
-2. `PLANNING_DELIVERY_ARCHITECTURE.md`;
-3. `ENGINEERING_LOOP.md`;
-4. `IMPLEMENTATION_READINESS.md`;
+2. `architecture/PLANNING_DELIVERY_ARCHITECTURE.md`;
+3. `architecture/ENGINEERING_LOOP.md`;
+4. `architecture/IMPLEMENTATION_READINESS.md`;
 5. código e documentos do domínio afetado.
 
 ### Para implementar um módulo
 
-1. identificar o item em `IMPLEMENTATION_READINESS.md`;
+1. identificar o item em `architecture/IMPLEMENTATION_READINESS.md`;
 2. confirmar que o Definition Gate do módulo está completo;
 3. ler o recorte correspondente da arquitetura-alvo;
 4. inspecionar modelos, schemas, rotas, hooks e telas atuais;
-5. seguir `AGENT_CLI_DEVELOPMENT_PROTOCOL.md`;
+5. seguir `architecture/AGENT_CLI_DEVELOPMENT_PROTOCOL.md`;
 6. não implementar campos ou estados ainda não decididos sem registrar a decisão.
 
 ### Para operar o sistema atual
 
-1. `MANUAL.md`;
-2. `DATA_MODEL.md` e `BUSINESS_RULES.md` quando houver dúvida;
+1. `guides/MANUAL.md`;
+2. `reference/DATA_MODEL.md` e `reference/BUSINESS_RULES.md` quando houver dúvida;
 3. código/rotas atuais;
 4. nunca presumir que itens marcados como propostos estejam disponíveis.
 
