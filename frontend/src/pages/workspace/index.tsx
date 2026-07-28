@@ -21,6 +21,7 @@ import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
 import antigravityIcon from "@lobehub/icons-static-png/dark/antigravity-color.png";
 import opencodeIcon from "@lobehub/icons-static-png/light/opencode.png";
 import hermesIcon from "@lobehub/icons-static-png/light/hermesagent.png";
+import openclawIcon from "@lobehub/icons-static-png/light/openclaw.png";
 import piIcon from "@/assets/icons/pi.svg";
 import { Button } from "@/components/ui/button";
 import { TerminalPane } from "@/components/TerminalPane";
@@ -77,6 +78,7 @@ const CLI_LAUNCHERS: Launcher[] = [
 // coding CLIs above). Add OpenClaw or similar here once it has a launch
 // command.
 const RUNTIME_LAUNCHERS: Launcher[] = [
+  { label: "OpenClaw", command: "openclaw", icon: openclawIcon },
   { label: "Hermes", command: "hermes", icon: hermesIcon },
 ];
 
@@ -240,13 +242,16 @@ export default function WorkspacePage() {
 
   function openChatTab(agentId: string) {
     const id = crypto.randomUUID();
-    setTabs((t) => [...t, { kind: "chat", id, agentId }]);
+    // Defaults to collapsed (2026-07-28, Marcelo) -- the conversation list
+    // takes up room that most sessions don't need open; toggled back on
+    // per-tab via the history button same as before.
+    setTabs((t) => [...t, { kind: "chat", id, agentId, historyCollapsed: true }]);
     setActiveTabId(id);
   }
 
-  function openTerminalTab(label: string, command?: string) {
+  function openTerminalTab(label: string, command?: string, cwdOverride?: string) {
     const id = crypto.randomUUID();
-    setTabs((t) => [...t, { kind: "terminal", id, label, command, cwd: workingDir }]);
+    setTabs((t) => [...t, { kind: "terminal", id, label, command, cwd: cwdOverride ?? workingDir }]);
     setActiveTabId(id);
   }
 
@@ -286,6 +291,22 @@ export default function WorkspacePage() {
     if (!openSsh || openSshHandledRef.current) return;
     openSshHandledRef.current = true;
     openTerminalTab(openSsh.label, openSsh.command);
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
+  // Same handoff pattern as openSsh above -- "open terminal in this
+  // project" (Fase 6.5) from a Project's detail page or the Systems Hub's
+  // "Project MCP servers" tab, pre-seeded with that project's
+  // working_directory_path instead of making the operator navigate
+  // WorkingDirPicker's folder tree by hand every time.
+  const openTerminalHandledRef = useRef(false);
+  useEffect(() => {
+    const openTerminal = (location.state as { openTerminal?: { label: string; cwd: string } } | null)
+      ?.openTerminal;
+    if (!openTerminal || openTerminalHandledRef.current) return;
+    openTerminalHandledRef.current = true;
+    openTerminalTab(openTerminal.label, undefined, openTerminal.cwd);
     navigate(location.pathname, { replace: true, state: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
@@ -444,12 +465,13 @@ export default function WorkspacePage() {
           <Button
             variant={activeWebTab ? "outline" : "ghost"}
             size="sm"
-            className="h-8 gap-1.5"
+            className="h-8 w-8 p-0"
             disabled={!activeWebTab}
             title={activeWebTab ? t("toolbar.openAssistantWithWeb") : t("toolbar.openWebTabFirst")}
+            aria-label={activeWebTab ? t("toolbar.openAssistantWithWeb") : t("toolbar.openWebTabFirst")}
             onClick={openAssistantForWebEnvironment}
           >
-            <Bot className="h-4 w-4" /> {t("toolbar.assistant")}
+            <Bot className="h-4 w-4" />
           </Button>
           <SshLauncherMenu onLaunch={openTerminalTab} />
           <div className="flex-1" />

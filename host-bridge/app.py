@@ -659,6 +659,342 @@ async def run_workspace_browser_routine(
     return {"status": status_value, "steps": results, "browser": await _workspace_browser_state()}
 
 
+# ---------------------------------------------------------------------------
+# Isolated background test browser -- a dedicated, throwaway CDP Chromium
+# per test run, deliberately separate from the shared Workspace Browser
+# above (own port, own ephemeral profile dir per run). A background test
+# must never compete with whatever the operator/agent is doing live in the
+# shared instance -- that's the whole reason this isn't a `headless: true`
+# flag on run-routine (which was already headless; isolation, not
+# visibility, is what a background test needs -- see the plan's Fase 3).
+#
+# The step-execution logic here (_run_test_browser_step and its helpers)
+# deliberately duplicates _run_browser_routine_step's ~80 lines rather than
+# refactoring that shared function to take an explicit CDP target: the
+# shared version is called from many other live endpoints above, threading
+# a target through all of them is a large, risky change for a
+# comparatively small amount of duplication.
+# ---------------------------------------------------------------------------
+
+TEST_BROWSER_CDP_PORT_BASE = int(os.environ.get("FORGEHUB_TEST_BROWSER_CDP_PORT_BASE", "9300"))
+TEST_BROWSER_PROFILE_ROOT = Path(
+    os.environ.get("FORGEHUB_TEST_BROWSER_PROFILE_ROOT", "/root/.forgehub/browser/test-runs")
+)
+TEST_BROWSER_PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
+TEST_RUN_STATE_DIR = Path(os.environ.get("FORGEHUB_TEST_RUN_STATE_DIR", "/root/.forgehub/test-runs"))
+TEST_RUN_STATE_DIR.mkdir(parents=True, exist_ok=True)
+TEST_RUN_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+
+_test_runs: dict[str, dict] = {}
+_test_runs_lock = threading.Lock()
+
+
+def _test_run_state_path(test_run_id: str) -> Path:
+    return TEST_RUN_STATE_DIR / f"{test_run_id}.json"
+
+
+def _persist_test_run(test_run_id: str) -> None:
+    run = _test_runs.get(test_run_id)
+    if run is None:
+        return
+    target = _test_run_state_path(test_run_id)
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps(run, sort_keys=True))
+    tmp.replace(target)
+
+
+def _allocate_test_browser_port() -> int:
+    """First port in the range with nothing listening on it. Racy in theory
+    (another process could grab it between the check and Chromium's own
+    bind), but concurrent background test runs are rare enough that a
+    50-port range makes a real collision very unlikely, and Chromium simply
+    fails to start cleanly if one does happen."""
+    for offset in range(50):
+        port = TEST_BROWSER_CDP_PORT_BASE + offset
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.05):
+                continue
+        except OSError:
+            return port
+    raise HTTPException(status_code=503, detail="No free port available for an isolated test browser")
+
+
+def _launch_test_browser(test_run_id: str, port: int) -> subprocess.Popen:
+    binary = Path(WORKSPACE_BROWSER_BINARY)
+    if not binary.is_file():
+        raise HTTPException(status_code=503, detail=f"Chromium binary not found: {binary}")
+    profile_dir = TEST_BROWSER_PROFILE_ROOT / test_run_id
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return subprocess.Popen(
+        [
+            str(binary), "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+            "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+            "--remote-allow-origins=*", "--remote-debugging-address=127.0.0.1",
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={profile_dir}", "--window-size=1440,900",
+            "about:blank",
+        ],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+async def _test_browser_target(port: int) -> dict:
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        for _ in range(50):
+            try:
+                response = await client.get(f"http://127.0.0.1:{port}/json/list")
+                response.raise_for_status()
+                page = next((item for item in response.json() if item.get("type") == "page"), None)
+                if page and page.get("webSocketDebuggerUrl"):
+                    return page
+            except (httpx.HTTPError, ValueError):
+                pass
+            await asyncio.sleep(0.1)
+    raise HTTPException(status_code=503, detail="Isolated test browser did not expose a CDP page")
+
+
+async def _test_browser_cdp(ws_url: str, method: str, params: dict | None = None) -> dict:
+    async with websockets.connect(
+        ws_url, open_timeout=5, close_timeout=2, max_size=16 * 1024 * 1024
+    ) as socket_conn:
+        await socket_conn.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
+        while True:
+            payload = json.loads(await asyncio.wait_for(socket_conn.recv(), timeout=15))
+            if payload.get("id") != 1:
+                continue
+            if "error" in payload:
+                raise HTTPException(status_code=502, detail=f"Test browser CDP error: {payload['error']}")
+            return payload.get("result", {})
+
+
+async def _test_routine_evaluate(ws_url: str, expression: str):
+    result = await _test_browser_cdp(
+        ws_url, "Runtime.evaluate", {"expression": expression, "returnByValue": True, "awaitPromise": True}
+    )
+    remote = result.get("result", {})
+    if remote.get("subtype") == "error":
+        raise HTTPException(status_code=409, detail=remote.get("description", "Browser expression failed"))
+    return remote.get("value")
+
+
+async def _test_element_center_evaluate(ws_url: str, expression_body: str, selector: str) -> str | None:
+    raw = await _test_routine_evaluate(
+        ws_url,
+        f"""(() => {{
+          const el=document.querySelector({json.dumps(selector)});
+          if(!el) return null;
+          {expression_body}
+          const rect = el.getBoundingClientRect();
+          return JSON.stringify({{outcome, x: rect.left + rect.width/2, y: rect.top + rect.height/2}});
+        }})()""",
+    )
+    if raw is None:
+        return None
+    return json.loads(raw)["outcome"]
+
+
+async def _test_browser_screenshot(ws_url: str) -> str:
+    result = await _test_browser_cdp(ws_url, "Page.captureScreenshot", {"format": "jpeg", "quality": 70, "fromSurface": True})
+    return result.get("data", "")
+
+
+async def _run_test_browser_step(ws_url: str, step: dict) -> str:
+    """Mirrors _run_browser_routine_step exactly (same actions, same
+    outcomes) but against an explicit CDP target and with none of the
+    shared browser's control-owner/pointer-overlay side effects, which are
+    UI feedback for the live shared pane and meaningless for an isolated
+    run nobody is watching."""
+    action = step.get("action")
+    selector = step.get("selector")
+    value = step.get("value")
+    if action == "navigate":
+        await _test_browser_cdp(ws_url, "Page.navigate", {"url": _validated_browser_url(str(step.get("url", "")))})
+        await asyncio.sleep(0.8)
+        return "navigated"
+    if action == "click":
+        outcome = await _test_element_center_evaluate(
+            ws_url, "el.scrollIntoView({block:'center'}); el.click(); const outcome='clicked';", selector
+        )
+        if outcome != "clicked":
+            raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
+        await asyncio.sleep(0.3)
+        return outcome
+    if action == "type":
+        outcome = await _test_element_center_evaluate(
+            ws_url,
+            """el.scrollIntoView({block:'center'}); el.focus();
+              if ('value' in el) {
+                const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;
+                setter ? setter.call(el,'') : (el.value='');
+                el.dispatchEvent(new Event('input',{bubbles:true}));
+              } else if (el.isContentEditable) el.textContent='';
+              const outcome='focused';""",
+            selector,
+        )
+        if outcome != "focused":
+            raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
+        await _test_browser_cdp(ws_url, "Input.insertText", {"text": str(value or "")})
+        await asyncio.sleep(0.2)
+        return "typed"
+    if action == "select":
+        outcome = await _test_element_center_evaluate(
+            ws_url,
+            f"""if(!(el instanceof HTMLSelectElement)) return null;
+              el.value={json.dumps(value)}; el.dispatchEvent(new Event('input',{{bubbles:true}}));
+              el.dispatchEvent(new Event('change',{{bubbles:true}})); const outcome='selected';""",
+            selector,
+        )
+        if outcome != "selected":
+            raise HTTPException(status_code=409, detail=f"Select not found: {selector}")
+        return outcome
+    if action == "press":
+        key = str(value or "")
+        if key not in {"Enter", "Tab", "Escape", "ArrowUp", "ArrowDown", "Space"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported key: {key}")
+        await _test_browser_cdp(ws_url, "Input.dispatchKeyEvent", {"type": "keyDown", "key": key})
+        await _test_browser_cdp(ws_url, "Input.dispatchKeyEvent", {"type": "keyUp", "key": key})
+        await asyncio.sleep(0.2)
+        return f"pressed:{key}"
+    if action == "scroll":
+        delta = max(-5000, min(5000, int(step.get("delta_y") or 500)))
+        await _test_routine_evaluate(ws_url, f"window.scrollBy({{top:{delta},behavior:'instant'}}); 'scrolled'")
+        await asyncio.sleep(0.15)
+        return "scrolled"
+    if action == "wait":
+        wait_ms = max(0, min(30_000, int(step.get("wait_ms") or 500)))
+        await asyncio.sleep(wait_ms / 1000)
+        return f"waited:{wait_ms}"
+    if action == "assert_text":
+        outcome = await _test_routine_evaluate(
+            ws_url,
+            f"(() => {{ const root={json.dumps(selector)} ? document.querySelector({json.dumps(selector)}) : document.body; if(!root) return 'not-found'; return (root.innerText || root.textContent || '').includes({json.dumps(value)}); }})()",
+        )
+        if outcome is not True:
+            raise HTTPException(status_code=409, detail=f"Expected text not found: {value}")
+        return "asserted"
+    raise HTTPException(status_code=400, detail=f"Unsupported routine action: {action}")
+
+
+async def _execute_test_browser_run(test_run_id: str, start_url: str, steps: list[dict]) -> None:
+    """Runs entirely in the background (kicked off via asyncio.create_task
+    by the endpoint below, which has already returned 202) -- launches the
+    isolated Chromium, runs every step capturing a screenshot after each
+    one (best-effort: a screenshot failure never aborts the test itself),
+    tears the process and its profile dir down unconditionally, and writes
+    the final result to both the in-memory dict and disk (same
+    survives-a-restart pattern as _agent_runs/_persist_agent_run)."""
+    port = _allocate_test_browser_port()
+    proc: subprocess.Popen | None = None
+    screenshot_dir = TEST_RUN_STATE_DIR / test_run_id
+    screenshot_paths: list[str] = []
+    step_results: list[dict] = []
+    status_value = "passed"
+    error_text: str | None = None
+    try:
+        proc = _launch_test_browser(test_run_id, port)
+        page = await _test_browser_target(port)
+        ws_url = page["webSocketDebuggerUrl"]
+
+        if not (steps and steps[0].get("action") == "navigate"):
+            await _test_browser_cdp(ws_url, "Page.navigate", {"url": _validated_browser_url(start_url)})
+            await asyncio.sleep(0.8)
+
+        for index, step in enumerate(steps, 1):
+            try:
+                outcome = await _run_test_browser_step(ws_url, step)
+                step_results.append({"index": index, "action": step.get("action"), "status": "passed", "outcome": outcome})
+            except HTTPException as exc:
+                status_value = "failed"
+                step_results.append(
+                    {"index": index, "action": step.get("action"), "status": "failed", "outcome": str(exc.detail)}
+                )
+                break
+            finally:
+                try:
+                    shot = await _test_browser_screenshot(ws_url)
+                    if shot:
+                        screenshot_dir.mkdir(parents=True, exist_ok=True)
+                        shot_path = screenshot_dir / f"step-{index}.jpg"
+                        shot_path.write_bytes(base64.b64decode(shot))
+                        screenshot_paths.append(str(shot_path))
+                except Exception:
+                    pass
+    except HTTPException as exc:
+        status_value = "error"
+        error_text = str(exc.detail)
+    except Exception as exc:
+        status_value = "error"
+        error_text = str(exc)
+    finally:
+        if proc is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGTERM)
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=5)
+        with contextlib.suppress(OSError):
+            shutil.rmtree(TEST_BROWSER_PROFILE_ROOT / test_run_id, ignore_errors=True)
+
+    report_lines = [f"{'PASSED' if status_value == 'passed' else status_value.upper()} -- {len(step_results)} step(s) executed"]
+    for r in step_results:
+        report_lines.append(f"  [{r['status']}] {r['index']}. {r['action']}: {r['outcome']}")
+    if error_text:
+        report_lines.append(f"Error: {error_text}")
+
+    with _test_runs_lock:
+        _test_runs[test_run_id] = {
+            "test_run_id": test_run_id,
+            "status": status_value,
+            "steps": step_results,
+            "report": "\n".join(report_lines),
+            "screenshot_paths": screenshot_paths,
+            "error": error_text,
+            "finished_at": datetime.now().isoformat(),
+        }
+        _persist_test_run(test_run_id)
+
+
+class TestBrowserRunRequest(BaseModel):
+    test_run_id: str
+    start_url: str
+    steps: list[dict]
+
+
+@app.post("/v1/workspace-browser/test-run", status_code=202)
+async def start_test_browser_run(
+    req: TestBrowserRunRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Fire-and-forget: returns as soon as the isolated browser is queued to
+    launch, never waits for the test to finish. Poll GET .../test-run/{id}."""
+    _check_token(x_bridge_token)
+    if not TEST_RUN_ID_RE.match(req.test_run_id):
+        raise HTTPException(status_code=400, detail="Invalid test_run_id")
+    if not 1 <= len(req.steps) <= 100:
+        raise HTTPException(status_code=400, detail="A test run must contain 1 to 100 steps")
+    with _test_runs_lock:
+        _test_runs[req.test_run_id] = {
+            "test_run_id": req.test_run_id, "status": "running", "steps": [], "report": None,
+            "screenshot_paths": [], "error": None, "started_at": datetime.now().isoformat(),
+        }
+        _persist_test_run(req.test_run_id)
+    asyncio.create_task(_execute_test_browser_run(req.test_run_id, req.start_url, req.steps))
+    return {"test_run_id": req.test_run_id, "status": "running"}
+
+
+@app.get("/v1/workspace-browser/test-run/{test_run_id}")
+async def get_test_browser_run(test_run_id: str, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    with _test_runs_lock:
+        run = _test_runs.get(test_run_id)
+    if run is not None:
+        return run
+    path = _test_run_state_path(test_run_id)
+    if path.exists():
+        return json.loads(path.read_text())
+    raise HTTPException(status_code=404, detail="Test run not found")
+
+
 class ForgeRouterIntegrationRequest(BaseModel):
     enabled: bool
     api_key: str = ""
@@ -1269,6 +1605,181 @@ async def get_project_forgerouter_status(
     }
 
 
+# ---------------------------------------------------------------------------
+# Project-scoped MCP servers -- Claude Code's `.mcp.json` at the project
+# root, ForgeHub's counterpart to per-agent MCP (agent_mcp.py, a different
+# Python process/venv entirely -- this file can't import from it, so the
+# JSON entry upsert is reimplemented here, minimal since .mcp.json is plain
+# JSON with no comments to preserve, unlike Hermes YAML/Codex TOML). Only
+# "claude" is supported today -- confirmed 2026-07-28 that Codex/Hermes/agy/
+# OpenClaw have no equivalent project-local MCP mechanism; extend
+# PROJECT_MCP_SUPPORTED_RUNTIMES only after confirming a runtime's own CLI
+# genuinely reads one, never from documentation alone.
+# ---------------------------------------------------------------------------
+
+PROJECT_MCP_SUPPORTED_RUNTIMES = {"claude"}
+# Mirrors app/core/mcp_config_io.py's SERVER_NAME_RE -- a server name lands
+# inside a JSON object key, kept to characters that can't change the file's
+# meaning. Duplicated (not imported) for the same cross-process reason as
+# the rest of this section.
+_MCP_SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+class ProjectMcpServerRequest(BaseModel):
+    project_path: str
+    runtime_type: str
+    name: str
+    transport: str = "stdio"
+    command: str | None = None
+    args: list[str] = []
+    env: dict[str, str] = {}
+    url: str | None = None
+    enabled: bool = True
+
+
+def _project_mcp_config_path(project_dir: Path, runtime_type: str) -> Path:
+    # Only "claude" today -- see PROJECT_MCP_SUPPORTED_RUNTIMES above.
+    return project_dir / ".mcp.json"
+
+
+@app.put("/v1/project-mcp-servers")
+async def set_project_mcp_server(
+    req: ProjectMcpServerRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Upsert one MCP server entry in a project's `.mcp.json`
+    (`mcpServers[name]`) -- the project-scoped counterpart of
+    PUT /agents/{id}/mcp-servers/{name}, written here (not the backend
+    container) for the same reason every other project-file route in
+    project.py proxies through this bridge: an arbitrary project
+    working_directory_path isn't guaranteed reachable from the backend
+    container."""
+    _check_token(x_bridge_token)
+    if req.runtime_type not in PROJECT_MCP_SUPPORTED_RUNTIMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"runtime_type {req.runtime_type!r} has no project-scoped MCP mechanism.",
+        )
+    if not _MCP_SERVER_NAME_RE.match(req.name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid MCP server name {req.name!r}: use letters, digits, '.', '_' or '-' (max 64 chars).",
+        )
+    if bool(req.command) == bool(req.url):
+        raise HTTPException(status_code=400, detail="Provide either command or url, not both.")
+
+    project_dir = _validate_project_path(req.project_path)
+    config_path = _project_mcp_config_path(project_dir, req.runtime_type)
+
+    try:
+        document = json.loads(config_path.read_text()) if config_path.exists() else {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"{config_path} is not valid JSON: {exc}") from exc
+
+    servers = document.setdefault("mcpServers", {})
+    entry: dict = {}
+    if req.url:
+        entry["url"] = req.url
+    else:
+        entry["command"] = req.command
+        entry["args"] = list(req.args)
+    if req.env:
+        entry["env"] = dict(req.env)
+    if not req.enabled:
+        # Claude Code's .mcp.json has no enable/disable field -- "off" is
+        # removal only, same as the per-agent format (agent_mcp.py's
+        # FORMATS["claude"] has no toggle_field either). The route layer
+        # (backend/app/api/routes/project.py) rejects this before it ever
+        # reaches here; this is a defense-in-depth 400, not the primary gate.
+        raise HTTPException(
+            status_code=400,
+            detail="Claude Code's .mcp.json has no enable/disable flag -- remove the server instead.",
+        )
+    existing = servers.get(req.name) if isinstance(servers.get(req.name), dict) else {}
+    merged = {**{k: v for k, v in existing.items() if k in {"type", "transport"}}, **entry}
+    if "type" not in merged and not entry.get("url"):
+        merged = {"type": "stdio", **merged}
+    servers[req.name] = merged
+
+    config_path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+    os.chmod(config_path, 0o600)
+    return {"project_path": req.project_path, "config_path": str(config_path), "name": req.name}
+
+
+@app.delete("/v1/project-mcp-servers")
+async def delete_project_mcp_server(
+    project_path: str,
+    runtime_type: str,
+    name: str,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Remove one MCP server entry from a project's `.mcp.json`."""
+    _check_token(x_bridge_token)
+    if runtime_type not in PROJECT_MCP_SUPPORTED_RUNTIMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"runtime_type {runtime_type!r} has no project-scoped MCP mechanism.",
+        )
+    project_dir = _validate_project_path(project_path)
+    config_path = _project_mcp_config_path(project_dir, runtime_type)
+    if not config_path.exists():
+        return {"project_path": project_path, "config_path": str(config_path), "removed": False}
+
+    try:
+        document = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"{config_path} is not valid JSON: {exc}") from exc
+    servers = document.get("mcpServers")
+    removed = isinstance(servers, dict) and servers.pop(name, None) is not None
+    if removed:
+        config_path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+    return {"project_path": project_path, "config_path": str(config_path), "removed": removed}
+
+
+@app.get("/v1/project-mcp-servers/status")
+async def get_project_mcp_servers_status(
+    project_path: str,
+    runtime_type: str,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Live filesystem read of a project's `.mcp.json` -- the disk-truth
+    counterpart of the DB-stored ProjectMcpServer rows, same role as
+    GET /project-forgerouter/status above."""
+    _check_token(x_bridge_token)
+    if runtime_type not in PROJECT_MCP_SUPPORTED_RUNTIMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"runtime_type {runtime_type!r} has no project-scoped MCP mechanism.",
+        )
+    project_dir = _validate_project_path(project_path)
+    config_path = _project_mcp_config_path(project_dir, runtime_type)
+    if not config_path.exists():
+        return {"project_path": project_path, "config_path": str(config_path), "config_exists": False, "servers": []}
+
+    try:
+        document = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"{config_path} is not valid JSON: {exc}") from exc
+    servers_raw = document.get("mcpServers") or {}
+    servers = [
+        {
+            "name": name,
+            "command": entry.get("command"),
+            "args": entry.get("args") or [],
+            "env": entry.get("env") or {},
+            "url": entry.get("url"),
+        }
+        for name, entry in servers_raw.items()
+        if isinstance(entry, dict)
+    ]
+    return {
+        "project_path": project_path,
+        "config_path": str(config_path),
+        "config_exists": True,
+        "servers": servers,
+    }
+
+
 @app.get("/v1/forgerouter/global-audit")
 async def audit_global_forgerouter(
     x_bridge_token: str | None = Header(default=None),
@@ -1514,6 +2025,7 @@ async def chat_stream(
     message: str,
     session_id: str | None = None,
     history: str | None = None,  # JSON array of {role,content} — enables direct ForgeRouter path
+    cwd: str | None = None,  # ChatSession.working_directory_path, see chat.py's /stream
     x_bridge_token: str | None = Header(default=None),
 ) -> StreamingResponse:
     """SSE endpoint — streams token deltas from the agent.
@@ -1547,6 +2059,8 @@ async def chat_stream(
     cmd = [HERMES_PYTHON, "-u", helper, "--profile-home", profile_home, "--message", message]
     if effective_session_id:
         cmd += ["--session-id", effective_session_id]
+    if cwd:
+        cmd += ["--cwd", cwd]
 
     async def event_stream():
         proc = await asyncio.create_subprocess_exec(
@@ -2684,6 +3198,83 @@ def _tmux(*args: str, timeout: int = 10) -> subprocess.CompletedProcess:
 
 def _tmux_session_exists(name: str) -> bool:
     return _tmux("has-session", "-t", name).returncode == 0
+
+
+def _list_forgehub_tmux_sessions() -> list[dict]:
+    """Shared by the `/v1/terminal/sessions` listing endpoint (Fase 6.2)
+    and the inactivity sweep below (Fase 6.4) -- one source of truth for
+    parsing tmux's own session table, so the two never drift out of sync
+    on what counts as a "forgehub" session."""
+    result = _tmux(
+        "list-sessions",
+        "-F",
+        "#{session_name}\t#{session_created}\t#{session_activity}\t#{session_attached}",
+    )
+    sessions = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 4 or not parts[0].startswith("forgehub-"):
+            continue
+        name, created, activity, attached = parts
+        sessions.append(
+            {
+                "session_id": name[len("forgehub-") :],
+                "created_at": int(created),
+                "last_activity_at": int(activity),
+                "attached": attached == "1",
+            }
+        )
+    return sessions
+
+
+@app.get("/v1/terminal/sessions")
+async def list_terminal_sessions(x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Lists every live `forgehub-*` tmux session on the host (Fase 6.2,
+    2026-07-28) -- a tab closed without going through the UI's own close
+    button (browser crash, F5 outside the Workspace flow) leaves its tmux
+    session running forever with nothing in ForgeHub aware it exists. This
+    is the disk-truth read the System Control screen's cleanup card uses
+    to surface and kill those orphans, same reasoning as
+    `_list_scripts`/`_audit_check_script_refs` elsewhere in this file."""
+    _check_token(x_bridge_token)
+    return {"sessions": _list_forgehub_tmux_sessions()}
+
+
+# Fase 6.4 (2026-07-28): a tmux session never expires on its own -- an
+# orphan (see Fase 6.2 above) sits there forever, invisible unless someone
+# happens to open System Control. This sweep kills only what tmux's own
+# `session_activity` (real last input/output, not creation time) proves
+# has been quiet past the timeout -- never a young session, only a
+# genuinely forgotten one. Both knobs are env-configurable since "how long
+# is too long" is an operational judgment call, not a constant worth
+# hardcoding.
+TERMINAL_INACTIVITY_TIMEOUT_SECONDS = int(os.environ.get("FORGEHUB_TERMINAL_INACTIVITY_TIMEOUT_HOURS", "24")) * 3600
+TERMINAL_INACTIVITY_SWEEP_INTERVAL_SECONDS = int(os.environ.get("FORGEHUB_TERMINAL_SWEEP_INTERVAL_SECONDS", "1800"))
+_terminal_inactivity_sweep_task: asyncio.Task | None = None
+
+
+async def _terminal_inactivity_sweep_loop() -> None:
+    while True:
+        try:
+            now = int(time.time())
+            for session in _list_forgehub_tmux_sessions():
+                if now - session["last_activity_at"] >= TERMINAL_INACTIVITY_TIMEOUT_SECONDS:
+                    _tmux("kill-session", "-t", f"forgehub-{session['session_id']}")
+        except Exception:
+            pass
+        await asyncio.sleep(TERMINAL_INACTIVITY_SWEEP_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+async def _start_terminal_inactivity_sweep() -> None:
+    global _terminal_inactivity_sweep_task
+    _terminal_inactivity_sweep_task = asyncio.create_task(_terminal_inactivity_sweep_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_terminal_inactivity_sweep() -> None:
+    if _terminal_inactivity_sweep_task:
+        _terminal_inactivity_sweep_task.cancel()
 
 
 @app.post("/v1/terminal/sessions/{session_id}/kill")

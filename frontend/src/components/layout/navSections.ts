@@ -20,6 +20,7 @@ import {
   LayoutList,
   LayoutPanelLeft,
   Lightbulb,
+  Boxes,
   Mail,
   Newspaper,
   Plug,
@@ -79,6 +80,12 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance" },
       { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/version-closure", labelKey: "nav.versionClosure", icon: CheckCircle2, module: "product" },
+      // Deliberately NOT in "Agents & AI" next to /mcp: that page is
+      // per-agent MCP config, this one is scoped to systems (Project/
+      // Product) -- a catalog to assign MCP servers by, per-project MCP
+      // servers, and background app testing (see docs/plans -- "Central de
+      // MCPs por sistema").
+      { type: "link", to: "/systems-hub", labelKey: "nav.systemsHub", icon: Boxes, module: "agents" },
     ],
   },
   {

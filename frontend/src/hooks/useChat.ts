@@ -16,11 +16,28 @@ export const chatSessionSchema = z.object({
   title: z.string(),
   pinned: z.boolean(),
   hermes_session_id: z.string().nullable().optional(),
+  // When set, this session's agent terminal runs from this folder instead
+  // of the agent's own profile home (see backend chat.py's /stream +
+  // host-bridge/hermes_stream.py's --cwd). Plain path, not tied to a
+  // registered Project -- same as the Workspace toolbar's WorkingDirPicker.
+  working_directory_path: z.string().nullable().optional(),
+  // Exclusive with working_directory_path above -- a session sits in
+  // Project XOR Group XOR neither (loose list). See ChatGroup below.
+  group_id: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });
 
 export type ChatSession = z.infer<typeof chatSessionSchema>;
+
+export const chatGroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type ChatGroup = z.infer<typeof chatGroupSchema>;
 
 export const chatMessageSchema = z.object({
   id: z.string(),
@@ -59,6 +76,7 @@ export const chatKeys = {
   sessions: (agentId?: string) => ["chat-sessions", agentId ?? "all"] as const,
   messages: (sessionId: string) => ["chat-messages", sessionId] as const,
   artifacts: (sessionId: string) => ["chat-artifacts", sessionId] as const,
+  groups: ["chat-groups"] as const,
 };
 
 export function useChatSessions(agentId: string | undefined) {
@@ -85,7 +103,7 @@ export function useSearchChatSessions(query: string, agentId: string | undefined
 export function useCreateChatSession() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { agent_id: string; title?: string }) =>
+    mutationFn: (payload: { agent_id: string; title?: string; working_directory_path?: string | null }) =>
       apiClient.post<ChatSession>(`${RESOURCE}/sessions`, payload),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: chatKeys.sessions(session.agent_id) });
@@ -103,6 +121,12 @@ export function useUpdateChatSession(agentId: string | undefined) {
       sessionId: string;
       title?: string;
       pinned?: boolean;
+      /** Also doubles as "move this chat to a different folder/project"
+       * after creation -- same PATCH, no special-cased endpoint. */
+      working_directory_path?: string | null;
+      /** Moves this chat to a Group -- exclusive with
+       * working_directory_path above, enforced backend-side. */
+      group_id?: string | null;
     }) => apiClient.patch<ChatSession>(`${RESOURCE}/sessions/${sessionId}`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: chatKeys.sessions(agentId) });
@@ -116,6 +140,54 @@ export function useDeleteChatSession(agentId: string | undefined) {
     mutationFn: (sessionId: string) => apiClient.delete<void>(`${RESOURCE}/sessions/${sessionId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: chatKeys.sessions(agentId) });
+    },
+  });
+}
+
+// --------------------------------------------------------------------------
+// ChatGroup -- user-created named folders for the Workspace sidebar (see
+// backend db/models/chat.py's ChatGroup docstring). Not scoped to an
+// agent, unlike sessions -- one flat roster shared across every tab.
+// --------------------------------------------------------------------------
+
+export function useChatGroups() {
+  return useQuery({
+    queryKey: chatKeys.groups,
+    queryFn: () => apiClient.get<ChatGroup[]>(`${RESOURCE}/groups`),
+  });
+}
+
+export function useCreateChatGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => apiClient.post<ChatGroup>(`${RESOURCE}/groups`, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chatKeys.groups });
+    },
+  });
+}
+
+export function useUpdateChatGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, name }: { groupId: string; name: string }) =>
+      apiClient.patch<ChatGroup>(`${RESOURCE}/groups/${groupId}`, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chatKeys.groups });
+    },
+  });
+}
+
+export function useDeleteChatGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (groupId: string) => apiClient.delete<void>(`${RESOURCE}/groups/${groupId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chatKeys.groups });
+      // A deleted group's sessions return to the loose list (backend's
+      // ON DELETE SET NULL) -- every agent's session list may now show
+      // one differently, so invalidate broadly rather than guessing which.
+      queryClient.invalidateQueries({ queryKey: ["chat-sessions"] });
     },
   });
 }
@@ -225,7 +297,18 @@ export function useDeleteChatMessage(sessionId: string | undefined) {
 export type ChatStreamEvent =
   | { type: "delta"; text: string }
   | { type: "tool_start"; toolId: string; name: string; context?: string; detail?: string }
-  | { type: "tool_complete"; toolId: string; name: string; summary?: string }
+  | {
+      type: "tool_complete";
+      toolId: string;
+      name: string;
+      summary?: string;
+      /** Set only for mcp__forgehub_messages__send_agent_message -- the
+       * #number of the message it just created (2026-07-28). Lets the UI
+       * render a live status card for a mid-conversation delegation
+       * instead of just a "done" checkmark -- see FORGEHUB_MESSAGE.md's
+       * "Delegating to another agent mid-conversation". */
+      demandNumber?: number;
+    }
   | { type: "approval_request"; streamId: string; command?: string; description?: string; patternKeys?: string[] }
   | { type: "done"; reply: string }
   | { type: "error"; message: string };
@@ -256,6 +339,7 @@ function parseChatStreamLine(raw: string): ChatStreamEvent | null {
       toolId: data.tool_complete.tool_id,
       name: data.tool_complete.name,
       summary: data.tool_complete.summary,
+      demandNumber: data.tool_complete.demand_number,
     };
   }
   if (data.approval_request) {
@@ -294,7 +378,29 @@ export function useStreamChatMessage(agentId: string | undefined) {
     // wrapped in hidden markers on both sides, dropped from the transcript.
     if (options?.hidden) extraParams += "&hidden=true";
     const url = `${apiBase}${RESOURCE}/sessions/${sessionId}/messages/stream?message=${encodeURIComponent(message)}${extraParams}`;
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
+
+    // Connection resilience (2026-07-28, see the plan's Fase 5 item 5):
+    // a self-maintenance turn against ForgeHub's own repo can trigger a
+    // backend restart (uvicorn --reload) at the exact moment this fetch
+    // opens -- a brief window where the connection is flat-out refused,
+    // not a mid-stream drop. Retry ONLY the initial connect (nothing
+    // received yet, so the server has almost certainly not persisted the
+    // user message yet either -- safe to resend as-is). Once any SSE
+    // bytes have arrived, the server-side persistence may already have
+    // happened; no retry from here on -- the existing "connection
+    // interrupted mid-response" handling below already covers that
+    // without risking a duplicated user turn.
+    const CONNECT_RETRY_DELAYS_MS = [1000, 2000];
+    let resp: Response | undefined;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
+        break;
+      } catch (err) {
+        if (signal?.aborted || attempt >= CONNECT_RETRY_DELAYS_MS.length) throw err;
+        await new Promise((r) => setTimeout(r, CONNECT_RETRY_DELAYS_MS[attempt]));
+      }
+    }
     if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
 
     const reader = resp.body.getReader();

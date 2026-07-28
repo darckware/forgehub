@@ -222,6 +222,8 @@
     "description": "Os servidores MCP que o runtime deste agente carrega. O ForgeHub edita o próprio arquivo de configuração do runtime, então a mudança aqui é o que o agente realmente recebe na próxima execução.",
     "loading": "Carregando servidores MCP…",
     "empty": "Nenhum servidor MCP configurado para este agente ainda.",
+    "projectNoWorkingDir": "Este projeto não tem working_directory_path definido — defina um antes de configurar servidores MCP.",
+    "emptyProject": "Nenhum servidor MCP configurado para este projeto ainda.",
     "addServer": "Adicionar servidor",
     "configMissing": "ainda não criado",
     "noToggleHint": "Este runtime não tem flag de habilitar/desabilitar — remover o servidor é a única forma de desligá-lo.",
@@ -232,6 +234,28 @@
     "editAction": "Editar",
     "removeTitle": "Remover este servidor MCP?",
     "removeDescription": "\"{{name}}\" será removido de {{path}}. O agente perde essas ferramentas na próxima execução.",
+    "catalog": {
+      "newServer": "Novo servidor",
+      "searchPlaceholder": "Buscar no catálogo…",
+      "empty": "Nenhum servidor MCP cadastrado no catálogo ainda.",
+      "builtinBadge": "Pronto",
+      "globalBadge": "Aplicado a todos os agentes",
+      "globalNotice": "Este servidor é aplicado automaticamente a todo agente elegível, inclusive os registrados depois — desatribuir abaixo remove só desse agente, não desliga a opção.",
+      "targetAgent": "Agente",
+      "targetProject": "Projeto",
+      "pickTarget": "Selecione…",
+      "assignButton": "Atribuir",
+      "synced": "Instalado",
+      "noAssignments": "Ainda não atribuído a nenhum agente ou projeto.",
+      "removeTitle": "Remover este servidor do catálogo?",
+      "removeDescription": "\"{{name}}\" será removido do catálogo. Ele NÃO é removido de nenhum agente/projeto onde já foi instalado — desatribua de cada um primeiro se também quiser desinstalar lá.",
+      "form": {
+        "description": "Descrição",
+        "descriptionPlaceholder": "O que este servidor faz",
+        "applyToAll": "Aplicar a todos os agentes",
+        "applyToAllHint": "Instala este servidor em todo agente cujo runtime suporta MCP, inclusive os registrados depois — escreve nos arquivos de configuração reais deles."
+      }
+    },
     "form": {
       "name": "Nome",
       "nameInvalid": "Use letras, dígitos, '.', '_' ou '-' (máx. 64 caracteres).",

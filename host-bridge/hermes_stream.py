@@ -154,13 +154,37 @@ def main() -> None:
     p.add_argument("--profile-home", required=True)
     p.add_argument("--message", required=True)
     p.add_argument("--session-id", default=None)
+    p.add_argument("--cwd", default=None)
     args = p.parse_args()
 
     os.environ["HERMES_HOME"] = args.profile_home
     os.environ.setdefault("HERMES_SESSION_SOURCE", "tool")
+    # Without this, MCP tools (forgehub-messages included) are never
+    # available to the model during a chat.py-driven turn (2026-07-28).
+    # This process instantiates HermesCLI directly and calls _init_agent()
+    # itself, skipping hermes_cli/main.py's main() -- which is the only
+    # place that normally calls start_background_mcp_discovery() before a
+    # real hermes chat session. _init_agent() already calls
+    # _prepare_deferred_agent_startup() (cli.py) unconditionally and then
+    # waits on wait_for_mcp_discovery() (mcp_startup.py) -- but
+    # _prepare_deferred_agent_startup() is itself a no-op unless this env
+    # var is set, so the wait was returning instantly with nothing ever
+    # discovered. Setting it here reuses hermes-agent's own existing
+    # deferred-startup path (built for Termux) instead of duplicating MCP
+    # discovery logic in this file or patching the installed package.
+    os.environ.setdefault("HERMES_DEFER_AGENT_STARTUP", "1")
 
     sys.path.insert(0, "/usr/local/lib/hermes-agent")
-    os.chdir(args.profile_home)
+    # ChatSession.working_directory_path (see chat.py's /stream) -- runs the
+    # turn's terminal/tools from a project's folder instead of the agent's
+    # own profile home, without losing the profile's identity/config
+    # (HERMES_HOME above still points at profile_home regardless). Falls
+    # back to profile_home rather than raising if the path is stale/gone
+    # (e.g. a project folder moved/deleted after the session picked it) --
+    # stderr is discarded by the host-bridge caller, so an unhandled
+    # exception here would silently kill the whole turn with no output.
+    cwd = args.cwd if args.cwd and os.path.isdir(args.cwd) else args.profile_home
+    os.chdir(cwd)
 
     stream_id = str(uuid.uuid4())
     _emit({"stream_id": stream_id})
@@ -215,6 +239,19 @@ def main() -> None:
             if name in ("write_file", "patch") and isinstance(tool_args, dict) and tool_args.get("path"):
                 payload["summary"] = f"Artefato criado: {tool_args['path']}"
                 payload["path"] = tool_args["path"]
+            # Delegating to another agent mid-conversation (2026-07-28, see
+            # FORGEHUB_MESSAGE.md's "Delegating to another agent
+            # mid-conversation"): forgehub-messages' send_agent_message
+            # always replies with "Sent message #<N> (...)" as its first
+            # line (forgehub_messages_mcp.py). Surfacing the number here --
+            # not by having the frontend re-parse the model's own paraphrase
+            # of it -- lets ChatPane render a live status card for the
+            # message this tool call just created, backed by the same
+            # dispatch_status the Messages page already polls.
+            if name == "mcp__forgehub_messages__send_agent_message" and isinstance(result, str):
+                match = re.search(r"Sent message #(\d+)", result)
+                if match:
+                    payload["demand_number"] = int(match.group(1))
             _emit({"tool_complete": payload})
 
         def on_approval_request(approval_data: dict) -> None:

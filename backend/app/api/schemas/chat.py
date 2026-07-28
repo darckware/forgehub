@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 class ChatSessionCreate(BaseModel):
     agent_id: uuid.UUID
     title: str = Field(default="New chat", max_length=150)
+    working_directory_path: str | None = Field(default=None, max_length=1024)
 
 
 class ChatSessionUpdate(BaseModel):
@@ -15,6 +16,16 @@ class ChatSessionUpdate(BaseModel):
 
     title: str | None = Field(default=None, min_length=1, max_length=150)
     pinned: bool | None = None
+    # No sentinel needed for "clear the folder" -- unlike title/pinned,
+    # explicitly setting this to null is a valid, meaningful update (unpin
+    # the session from its folder), not "leave unchanged". The route uses
+    # "working_directory_path"/"group_id" in payload.model_fields_set to
+    # tell "omitted" from "explicitly nulled".
+    working_directory_path: str | None = Field(default=None, max_length=1024)
+    # A session's sidebar placement is exclusive with working_directory_path
+    # above (Project XOR Group XOR neither) -- setting one explicitly clears
+    # the other, enforced in update_chat_session.
+    group_id: uuid.UUID | None = None
 
 
 class ChatSessionOut(BaseModel):
@@ -23,6 +34,25 @@ class ChatSessionOut(BaseModel):
     title: str
     pinned: bool
     hermes_session_id: str | None
+    working_directory_path: str | None
+    group_id: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChatGroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=150)
+
+
+class ChatGroupUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=150)
+
+
+class ChatGroupOut(BaseModel):
+    id: uuid.UUID
+    name: str
     created_at: datetime
     updated_at: datetime
 

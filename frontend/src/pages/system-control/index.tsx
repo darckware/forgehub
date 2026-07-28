@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, ChevronDown, ChevronRight, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import {
   useRunCleanup,
   useSystemControlStatus,
 } from "@/hooks/useSystemControl";
+import { useKillTerminalSession, useTerminalSessions } from "@/hooks/useTerminalBrowse";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
 function formatBytes(bytes: number | null | undefined): string {
@@ -32,6 +33,10 @@ function formatBytes(bytes: number | null | undefined): string {
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+function formatUnixDateTime(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleString();
 }
 
 export default function SystemControlPage() {
@@ -59,6 +64,10 @@ export default function SystemControlPage() {
   const runCleanup = useRunCleanup();
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+
+  const { data: terminalSessions, isLoading: terminalSessionsLoading } = useTerminalSessions();
+  const killTerminalSession = useKillTerminalSession();
+  const [killingSession, setKillingSession] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -496,6 +505,97 @@ export default function SystemControlPage() {
                   </div>
                 ))}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <SquareTerminal className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-base font-semibold">Terminal Sessions</h2>
+              {terminalSessions && (
+                <span className="text-xs text-muted-foreground">
+                  {terminalSessions.sessions.length} live tmux session(s)
+                </span>
+              )}
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Every live <span className="font-mono">forgehub-*</span> tmux session on the host, whether or not a
+            Workspace tab is currently attached to it. A tab closed by a browser crash or a page reload outside the
+            Workspace's own close button leaves its session running here indefinitely -- kill it to free it up.
+            ForgeHub keeps no separate record of terminal tabs; this is a live read of the host itself.
+          </p>
+          {terminalSessionsLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading sessions...
+            </div>
+          )}
+          {killTerminalSession.isError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {(killTerminalSession.error as Error)?.message ?? "Failed to kill session"}
+            </div>
+          )}
+          <ConfirmDialog
+            open={killingSession !== null}
+            title="Kill this terminal session?"
+            description="Ends the tmux session and any process still running inside it (shell, CLI agent, etc). This cannot be undone."
+            confirmLabel="Kill session"
+            loading={killTerminalSession.isPending}
+            onConfirm={() => {
+              if (killingSession) {
+                killTerminalSession.mutate(killingSession, { onSuccess: () => setKillingSession(null) });
+              }
+            }}
+            onCancel={() => setKillingSession(null)}
+          />
+          {!terminalSessionsLoading && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Session</TableHead>
+                  <TableHead>Attached</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Last activity</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(terminalSessions?.sessions ?? []).map((s) => (
+                  <TableRow key={s.session_id}>
+                    <TableCell className="font-mono text-xs">{s.session_id}</TableCell>
+                    <TableCell>
+                      <Badge variant={s.attached ? "success" : "outline"}>
+                        {s.attached ? "Attached" : "Orphaned"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs">{formatUnixDateTime(s.created_at)}</TableCell>
+                    <TableCell className="text-xs">{formatUnixDateTime(s.last_activity_at)}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive"
+                        aria-label={`Kill session ${s.session_id}`}
+                        title={`Kill session ${s.session_id}`}
+                        onClick={() => setKillingSession(s.session_id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {(terminalSessions?.sessions ?? []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-sm text-muted-foreground">
+                      No live terminal sessions.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

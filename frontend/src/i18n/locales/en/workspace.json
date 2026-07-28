@@ -46,7 +46,8 @@
     "useThisFolder": "Use this folder"
   },
   "terminal": {
-    "authFailed": "Failed to authenticate terminal session."
+    "authFailed": "Failed to authenticate terminal session.",
+    "reconnecting": "Connection lost -- reconnecting in {{seconds}}s…"
   },
   "webAppPane": {
     "back": "Back",

@@ -71,6 +71,11 @@ from app.api.schemas.project import (
     ProjectStructureNodeUpdate,
     ProjectUpdate,
 )
+from app.api.schemas.project_mcp import (
+    ProjectMcpServerIn,
+    ProjectMcpServerOut,
+    ProjectMcpServersLiveOut,
+)
 from app.core.config import settings
 from app.db.base import get_db
 from app.db.models.project import (
@@ -81,6 +86,7 @@ from app.db.models.project import (
     ProjectPlan,
     ProjectStructureNode,
 )
+from app.db.models.project_mcp import PROJECT_MCP_RUNTIME_TYPES, ProjectMcpServer
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
@@ -942,3 +948,172 @@ async def get_project_forgerouter_live(
         params={"project_path": project.working_directory_path},
     )
     return ProjectForgeRouterStatusOut(**data)
+
+
+# ---------------------------------------------------------------------------
+# Project-scoped MCP servers
+# Routes: GET/PUT/DELETE /{project_id}/mcp-servers[/{name}]
+#         GET /{project_id}/mcp-servers/live
+#
+# Claude Code only today (confirmed 2026-07-28 -- see
+# db/models/project_mcp.py's module docstring for why Codex/Hermes/agy/
+# OpenClaw aren't supported yet). Unlike per-agent MCP (core/agent_mcp.py,
+# no ForgeHub-side table at all), these rows ARE a DB-stored desired state --
+# same hybrid shape as ProjectForgeRouterConfig above: the DB is the source
+# of truth for "what should be installed", the host-bridge write is the
+# source of truth for "what actually is" (see /live below), and
+# last_synced_at/last_sync_error record the last attempt to reconcile them.
+# ---------------------------------------------------------------------------
+
+
+def _require_project_mcp_runtime(runtime_type: str) -> None:
+    if runtime_type not in PROJECT_MCP_RUNTIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"runtime_type {runtime_type!r} has no project-scoped MCP mechanism yet "
+                f"(supported: {', '.join(PROJECT_MCP_RUNTIME_TYPES)})."
+            ),
+        )
+
+
+@router.get("/{project_id}/mcp-servers", response_model=list[ProjectMcpServerOut])
+async def list_project_mcp_servers(
+    project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[ProjectMcpServer]:
+    await _get_project_or_404(db, project_id)
+    result = await db.execute(
+        select(ProjectMcpServer)
+        .where(ProjectMcpServer.project_id == project_id)
+        .order_by(ProjectMcpServer.name)
+    )
+    return list(result.scalars().all())
+
+
+@router.put("/{project_id}/mcp-servers/{name}", response_model=ProjectMcpServerOut)
+async def upsert_project_mcp_server(
+    project_id: uuid.UUID,
+    name: str,
+    payload: ProjectMcpServerIn,
+    db: AsyncSession = Depends(get_db),
+) -> ProjectMcpServer:
+    """Add or update one MCP server in the project's `.mcp.json`. 422 without
+    a working_directory_path (mirrors toggle_project_forgerouter's guard) --
+    there is nowhere to write the file without one."""
+    project = await _get_project_or_404(db, project_id)
+    working_dir = project.working_directory_path
+    if not working_dir:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Project has no working_directory_path — set it before configuring MCP servers.",
+        )
+    _require_project_mcp_runtime(payload.runtime_type)
+    if bool(payload.command) == bool(payload.url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide either a command (stdio server) or a url (HTTP server), not both.",
+        )
+    if not payload.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Claude Code's .mcp.json has no enable/disable flag — remove the server instead.",
+        )
+
+    result = await db.execute(
+        select(ProjectMcpServer).where(
+            ProjectMcpServer.project_id == project_id,
+            ProjectMcpServer.runtime_type == payload.runtime_type,
+            ProjectMcpServer.name == name,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        row = ProjectMcpServer(project_id=project_id, runtime_type=payload.runtime_type, name=name)
+        db.add(row)
+
+    try:
+        await _bridge_request(
+            "PUT",
+            "/v1/project-mcp-servers",
+            json={
+                "project_path": working_dir,
+                "runtime_type": payload.runtime_type,
+                "name": name,
+                "transport": payload.transport,
+                "command": payload.command,
+                "args": payload.args,
+                "env": payload.env,
+                "url": payload.url,
+                "enabled": payload.enabled,
+            },
+        )
+    except HTTPException as exc:
+        row.last_sync_error = str(exc.detail)[:2000]
+        await db.commit()
+        raise
+
+    row.transport = payload.transport
+    row.command = payload.command
+    row.args = payload.args
+    row.env = payload.env
+    row.url = payload.url
+    row.enabled = payload.enabled
+    row.last_synced_at = datetime.now(timezone.utc)
+    row.last_sync_error = None
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/{project_id}/mcp-servers/{name}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project_mcp_server(
+    project_id: uuid.UUID,
+    name: str,
+    runtime_type: str = "claude",
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    project = await _get_project_or_404(db, project_id)
+    working_dir = project.working_directory_path
+    if not working_dir:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Project has no working_directory_path.",
+        )
+    _require_project_mcp_runtime(runtime_type)
+    await _bridge_request(
+        "DELETE",
+        "/v1/project-mcp-servers",
+        params={"project_path": working_dir, "runtime_type": runtime_type, "name": name},
+    )
+    result = await db.execute(
+        select(ProjectMcpServer).where(
+            ProjectMcpServer.project_id == project_id,
+            ProjectMcpServer.runtime_type == runtime_type,
+            ProjectMcpServer.name == name,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is not None:
+        await db.delete(row)
+        await db.commit()
+
+
+@router.get("/{project_id}/mcp-servers/live", response_model=ProjectMcpServersLiveOut)
+async def get_project_mcp_servers_live(
+    project_id: uuid.UUID, runtime_type: str = "claude", db: AsyncSession = Depends(get_db)
+) -> ProjectMcpServersLiveOut:
+    """Live filesystem read of the project's `.mcp.json`, independent of the
+    DB-stored rows -- same disk-truth role as /forgerouter/live above."""
+    project = await _get_project_or_404(db, project_id)
+    if not project.working_directory_path:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Project has no working_directory_path.",
+        )
+    _require_project_mcp_runtime(runtime_type)
+    data = await _bridge_request(
+        "GET",
+        "/v1/project-mcp-servers/status",
+        params={"project_path": project.working_directory_path, "runtime_type": runtime_type},
+    )
+    return ProjectMcpServersLiveOut(**data)

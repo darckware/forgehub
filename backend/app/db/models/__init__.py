@@ -47,7 +47,7 @@ from app.db.models.governance import (  # noqa: F401
     Policy, Approval, AuditEvent, PolicyVersion, PolicyBinding, PolicyEvaluation,
     ApprovalRequest, ApprovalDecisionRecord, AuthorityDelegation,
 )
-from app.db.models.chat import ChatSession, ChatMessage, ChatArtifact, ChatSessionParticipant  # noqa: F401
+from app.db.models.chat import ChatSession, ChatMessage, ChatArtifact, ChatSessionParticipant, ChatGroup  # noqa: F401
 from app.db.models.toolversions import ToolVersionStatus, ToolSyncSetting  # noqa: F401
 from app.db.models.cron_script import CronScript  # noqa: F401
 from app.db.models.deploy import DeployInstallation, DeployGroup, DeploySyncIgnore  # noqa: F401
@@ -87,3 +87,5 @@ from app.db.models.execution import (  # noqa: F401
     ExecutionLease, ExecutionEvent, ExecutionResult,
 )
 from app.db.models.web_automation import StandaloneApp, WebAutomationRoutine, MacroInstructionSet  # noqa: F401
+from app.db.models.mcp_catalog import McpCatalogServer, McpCatalogAssignment  # noqa: F401
+from app.db.models.project_mcp import ProjectMcpServer  # noqa: F401

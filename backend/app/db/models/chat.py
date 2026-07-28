@@ -37,6 +37,26 @@ class ChatSession(Base, TimestampMixin):
     # the chat bridge's first reply and reused via --resume on every
     # subsequent turn. Null until the first message gets a reply.
     hermes_session_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # When set, the agent's terminal for this session runs from this path
+    # instead of the agent's own profile home (see chat.py's /stream +
+    # host-bridge/hermes_stream.py's --cwd). Plain text, same as
+    # Project.working_directory_path and ChatExecRequest.cwd (the
+    # "!command" prefix's own cwd) -- deliberately NOT a FK to Project:
+    # confirmed with Marcelo that a session's isolation is about which
+    # folder its terminal runs in, not about being tied to a registered
+    # Project row (an arbitrary/unregistered folder must work too, exactly
+    # like "!command" already allows via WorkingDirPicker).
+    working_directory_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # A session's sidebar placement is exclusive: Project (via
+    # working_directory_path above) XOR Group (via this column) XOR neither
+    # (loose list) -- enforced in update_chat_session, never both at once.
+    # Unlike working_directory_path, a Group has no meaning outside
+    # ForgeHub (no disk path, no Project row), so it's a real FK with
+    # ON DELETE SET NULL: deleting a group returns its sessions to the
+    # loose list rather than cascading their deletion.
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.chat_groups.id", ondelete="SET NULL"), nullable=True
+    )
 
     messages: Mapped[list["ChatMessage"]] = relationship(
         "ChatMessage", back_populates="session", cascade="all, delete-orphan", order_by="ChatMessage.created_at"
@@ -47,6 +67,22 @@ class ChatSession(Base, TimestampMixin):
     participants: Mapped[list["ChatSessionParticipant"]] = relationship(
         "ChatSessionParticipant", back_populates="session", cascade="all, delete-orphan"
     )
+    group: Mapped["ChatGroup | None"] = relationship("ChatGroup", back_populates="sessions")
+
+
+class ChatGroup(Base, TimestampMixin):
+    """A user-created named folder for organizing chat sessions in the
+    Workspace sidebar -- purely a ForgeHub-side label (name only), unlike
+    ChatSession.working_directory_path which ties a session to a
+    registered Project's real folder. See ChatSession.group_id for the
+    exclusivity rule with Project placement."""
+
+    __tablename__ = "chat_groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+
+    sessions: Mapped[list["ChatSession"]] = relationship("ChatSession", back_populates="group")
 
 
 class ChatMessage(Base, TimestampMixin):

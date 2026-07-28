@@ -7,14 +7,19 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  AlertCircle,
   ArrowUp,
   AudioLines,
   Bot,
   Check,
+  CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Copy,
   Download,
+  Eraser,
   Folder,
+  FolderKanban,
   Loader2,
   Mic,
   MoreVertical,
@@ -22,6 +27,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plug,
   Plus,
   RotateCcw,
   Search,
@@ -33,6 +39,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/Markdown";
+import { TestApplicationDialog } from "@/components/chat/TestApplicationDialog";
 import { useFsList, type FsEntry } from "@/hooks/useTerminalBrowse";
 import { getToken } from "@/lib/api";
 import {
@@ -40,10 +47,12 @@ import {
   loadAssistantDraggedFile,
 } from "@/lib/assistantFileDrag";
 import { cn } from "@/lib/utils";
-import { type Agent } from "@/hooks/useAgent";
+import { type Agent, useAgents, useAgentMcpServers } from "@/hooks/useAgent";
 import { useChatLanguage } from "@/hooks/useChatLanguage";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { usePromptCommands, type PromptCommand } from "@/hooks/usePromptCommands";
+import { useDemands } from "@/hooks/useDemands";
+import { useProjects } from "@/hooks/useProject";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   chatKeys,
@@ -58,6 +67,10 @@ import {
   useDeleteChatMessage,
   useDeleteChatSession,
   useUpdateChatSession,
+  useChatGroups,
+  useCreateChatGroup,
+  useUpdateChatGroup,
+  useDeleteChatGroup,
   useApproveChat,
   useSendChatMessage,
   useStreamChatMessage,
@@ -65,6 +78,7 @@ import {
   downloadChatArtifact,
   type ChatMessage,
   type ChatSession,
+  type ChatGroup,
   type ChatStreamEvent,
 } from "@/hooks/useChat";
 
@@ -103,10 +117,30 @@ const COMPOSER_MAX_HEIGHT_PX = 240;
 // carry user text after it (the older piggyback format), so internal
 // instructions never render in the transcript.
 const HIDDEN_CONTEXT_RE = /^\[\[forgehub:contexto-interno\]\]\n[\s\S]*?\n\[\[\/forgehub:contexto-interno\]\]\s*/;
-type ChatQueueStep = { id: string; name: string; label: string; detail?: string; done: boolean };
+type ChatQueueStep = {
+  id: string;
+  name: string;
+  label: string;
+  detail?: string;
+  done: boolean;
+  /** Set for mcp__forgehub_messages__send_agent_message -- renders a live
+   * SubagentStatusCard instead of a plain checkmark line (2026-07-28). */
+  demandNumber?: number;
+};
 
-/** Tool-name → emoji, mirroring the Telegram gateway's processing feed
- * (🔍 search_files, 📖 Reading …, 💻 terminal, 🐍 Running code, …). */
+/** Heuristic warning only (Fase 5 item 5, 2026-07-28) -- a session bound
+ * to ForgeHub's own checkout, sending a command that looks like it
+ * restarts the very backend/frontend serving this page, risks dropping
+ * this turn's own connection mid-flight (see useChat.ts's connect-retry
+ * comment for why a retry can't always save it). Advisory only, never
+ * blocks sending -- false positives/negatives are both fine here. */
+const SELF_RESTART_COMMAND_RE =
+  /\b(docker\s+compose\s+(up|restart|down)|systemctl\s+restart|\.?\/?dev\.sh\s+restart|pm2\s+restart|supervisorctl\s+restart|kill(all)?\s+.*(uvicorn|vite|node))\b/i;
+
+function isForgeHubRepoPath(path: string | null | undefined): boolean {
+  return Boolean(path && /forgehub/i.test(path));
+}
+
 function toolEmoji(name: string): string {
   const n = name.toLowerCase();
   if (n.includes("search")) return "🔍";
@@ -134,6 +168,51 @@ function TypingDots() {
       <span className="animate-bounce [animation-delay:150ms]">·</span>
       <span className="animate-bounce [animation-delay:300ms]">·</span>
     </span>
+  );
+}
+
+/** Live status for a message just created via
+ * mcp__forgehub_messages__send_agent_message mid-conversation (see
+ * FORGEHUB_MESSAGE.md's "Delegating to another agent mid-conversation").
+ * Reuses useDemands() -- already shared/cached via react-query and already
+ * polls faster (3s) while anything is in flight -- rather than a bespoke
+ * fetch-by-number call, so this card updates on the same cadence as the
+ * Messages page itself. */
+function SubagentStatusCard({ number }: { number: number }) {
+  const { t } = useTranslation(["chat", "demands"]);
+  const { data: demands } = useDemands();
+  const { data: agents } = useAgents();
+  const demand = useMemo(() => demands?.find((d) => d.number === number), [demands, number]);
+  const targetAgent = useMemo(
+    () => agents?.find((a) => a.id === demand?.target_agent_id),
+    [agents, demand?.target_agent_id]
+  );
+
+  if (!demand) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+        {t("queue.subagentLoading")}
+      </div>
+    );
+  }
+
+  const status = demand.dispatch_status;
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-xs">
+      {status === "completed" ? (
+        <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600" />
+      ) : status === "failed" ? (
+        <AlertCircle className="h-3 w-3 shrink-0 text-destructive" />
+      ) : (
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+      )}
+      <span className="truncate">
+        {t("queue.subagentDelegatedTo", { number: demand.number, agent: targetAgent?.name ?? "?" })}
+        {" — "}
+        {status ? t(`dispatch.status.${status}`, { ns: "demands" }) : t("dispatch.status.pending", { ns: "demands" })}
+      </span>
+    </div>
   );
 }
 
@@ -274,25 +353,130 @@ function AgentPickerButton({
   );
 }
 
+/** Assigns/clears the CURRENT session's Project (Fase 5) -- lives inside
+ * the chat history panel itself (see its render site: the Chats sidebar
+ * header), deliberately separate from the generic filesystem
+ * WorkingDirPicker used by the Workspace toolbar/"!command" (that one is
+ * untouched -- this is project *management*, not folder browsing).
+ * Backed by ChatSession.working_directory_path under the hood (a plain
+ * path, not a FK -- see the model's docstring), but the picker itself
+ * only ever offers registered Projects, never an arbitrary path. Disabled
+ * with no active session -- there is nothing to PATCH yet (a brand new
+ * tab creates its session lazily on first send). */
+function SessionProjectPicker({
+  currentPath,
+  disabled,
+  onSelect,
+}: {
+  currentPath: string | null | undefined;
+  disabled: boolean;
+  onSelect: (path: string | null) => void;
+}) {
+  const { t } = useTranslation("chat");
+  const { data: projects } = useProjects();
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, () => setOpen(false), open);
+
+  const projectsWithPath = (projects ?? []).filter(
+    (p): p is typeof p & { working_directory_path: string } => Boolean(p.working_directory_path)
+  );
+  const current = projectsWithPath.find((p) => p.working_directory_path === currentPath);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={disabled}
+        title={current ? current.working_directory_path : t("sessionFolder.pickProject")}
+        onClick={() => setOpen((v) => !v)}
+        className="h-6 max-w-full gap-1 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+      >
+        <FolderKanban className="h-3 w-3 shrink-0" />
+        <span className="max-w-[8rem] truncate">{current ? current.name : t("sessionFolder.noProject")}</span>
+      </Button>
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md">
+          <button
+            type="button"
+            onClick={() => {
+              onSelect(null);
+              setOpen(false);
+            }}
+            className="flex w-full items-center px-3 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          >
+            {t("sessionFolder.noProject")}
+          </button>
+          {projectsWithPath.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                onSelect(p.working_directory_path);
+                setOpen(false);
+              }}
+              className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+            >
+              <span className="truncate text-sm">{p.name}</span>
+              <span className="truncate text-[10px] text-muted-foreground">{p.working_directory_path}</span>
+            </button>
+          ))}
+          {projectsWithPath.length === 0 && (
+            <p className="px-3 py-2 text-xs italic text-muted-foreground">{t("sessionFolder.noProjectsRegistered")}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Per-chat-item "..." menu: rename / pin / delete. Replaces the lone
  * hover-only trash icon so the row doesn't get cluttered with separate
  * icons per action. */
+type ProjectWithPath = { id: string; name: string; working_directory_path: string };
+
 function ChatItemMenu({
   session,
+  projects,
+  groups,
   onRename,
   onTogglePin,
   onDelete,
+  onMoveToProject,
+  onMoveToGroup,
+  onCreateGroupAndMove,
 }: {
   session: ChatSession;
+  projects: ProjectWithPath[];
+  groups: ChatGroup[];
   onRename: () => void;
   onTogglePin: () => void;
   onDelete: () => void;
+  onMoveToProject: (path: string | null) => void;
+  onMoveToGroup: (groupId: string | null) => void;
+  onCreateGroupAndMove: (name: string) => void;
 }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"main" | "project" | "group">("main");
+  const [newGroupName, setNewGroupName] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useClickOutside(containerRef, () => setOpen(false), open);
+  useClickOutside(
+    containerRef,
+    () => {
+      setOpen(false);
+      setView("main");
+    },
+    open
+  );
+
+  function close() {
+    setOpen(false);
+    setView("main");
+    setNewGroupName("");
+  }
 
   return (
     <div className="relative shrink-0" ref={containerRef}>
@@ -308,14 +492,16 @@ function ChatItemMenu({
       >
         <MoreVertical className="h-3.5 w-3.5" />
       </button>
-      {open && (
-        <div className="absolute right-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md">
+      {open && view === "main" && (
+        <div
+          className="absolute right-0 top-full z-10 mt-1 w-44 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md"
+          onClick={(e) => e.stopPropagation()}
+        >
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(false);
+            onClick={() => {
+              close();
               onRename();
             }}
           >
@@ -325,9 +511,8 @@ function ChatItemMenu({
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(false);
+            onClick={() => {
+              close();
               onTogglePin();
             }}
           >
@@ -336,16 +521,136 @@ function ChatItemMenu({
           </button>
           <button
             type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            onClick={() => setView("project")}
+          >
+            <FolderKanban className="h-3.5 w-3.5" />
+            {t("itemMenu.moveToProject")}
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            onClick={() => setView("group")}
+          >
+            <Folder className="h-3.5 w-3.5" />
+            {t("itemMenu.moveToGroup")}
+          </button>
+          <button
+            type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-destructive hover:bg-accent"
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(false);
+            onClick={() => {
+              close();
               onDelete();
             }}
           >
             <Trash2 className="h-3.5 w-3.5" />
             {t("itemMenu.delete")}
           </button>
+        </div>
+      )}
+      {open && view === "project" && (
+        <div
+          className="absolute right-0 top-full z-10 mt-1 max-h-72 w-56 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            onClick={() => setView("main")}
+          >
+            {t("itemMenu.back")}
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center px-3 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              close();
+              onMoveToProject(null);
+            }}
+          >
+            {t("sessionFolder.noProject")}
+          </button>
+          {projects.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                close();
+                onMoveToProject(p.working_directory_path);
+              }}
+            >
+              <span className="truncate text-sm">{p.name}</span>
+            </button>
+          ))}
+          {projects.length === 0 && (
+            <p className="px-3 py-2 text-xs italic text-muted-foreground">{t("sessionFolder.noProjectsRegistered")}</p>
+          )}
+        </div>
+      )}
+      {open && view === "group" && (
+        <div
+          className="absolute right-0 top-full z-10 mt-1 max-h-80 w-56 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            onClick={() => setView("main")}
+          >
+            {t("itemMenu.back")}
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center px-3 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              close();
+              onMoveToGroup(null);
+            }}
+          >
+            {t("groups.noGroup")}
+          </button>
+          {groups.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              className="flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                close();
+                onMoveToGroup(g.id);
+              }}
+            >
+              <span className="truncate">{g.name}</span>
+            </button>
+          ))}
+          <div className="flex items-center gap-1 border-t border-border px-2 py-1.5">
+            <input
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newGroupName.trim()) {
+                  onCreateGroupAndMove(newGroupName.trim());
+                  close();
+                }
+              }}
+              placeholder={t("groups.newGroupPlaceholder")}
+              className="h-7 min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 text-xs outline-none focus:border-primary"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              disabled={!newGroupName.trim()}
+              onClick={() => {
+                if (!newGroupName.trim()) return;
+                onCreateGroupAndMove(newGroupName.trim());
+                close();
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       )}
     </div>
@@ -396,6 +701,67 @@ function AgentSelectorPill({
               <span className="truncate">{a.name}</span>
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Shows the MCP servers configured for the tab's currently selected agent
+ * -- lets the user check what tools the agent has available without
+ * leaving the chat to open the Agent or MCP Servers page. Read-only here;
+ * editing stays on those pages. */
+function AgentMcpInfoButton({ agentId }: { agentId: string }) {
+  const { t } = useTranslation("chat");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { data, isLoading, isError } = useAgentMcpServers(open ? agentId : undefined);
+
+  useClickOutside(containerRef, () => setOpen(false), open);
+
+  return (
+    <div className="relative shrink-0" ref={containerRef}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 rounded-full"
+        aria-label={t("mcpInfo.viewMcps")}
+        title={t("mcpInfo.viewMcps")}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Plug className="h-4 w-4" />
+      </Button>
+      {open && (
+        <div className="absolute bottom-full right-0 z-10 mb-2 max-h-72 w-64 overflow-y-auto rounded-md border border-border bg-card p-2 shadow-md">
+          <p className="px-1 pb-1 text-xs font-medium text-muted-foreground">{t("mcpInfo.title")}</p>
+          {isLoading && <p className="px-1 py-2 text-sm text-muted-foreground">{t("mcpInfo.loading")}</p>}
+          {isError && <p className="px-1 py-2 text-sm text-destructive">{t("mcpInfo.error")}</p>}
+          {!isLoading && !isError && data?.error && (
+            <p className="px-1 py-2 text-sm text-destructive">{data.error}</p>
+          )}
+          {!isLoading && !isError && !data?.error && data && data.servers.length === 0 && (
+            <p className="px-1 py-2 text-sm text-muted-foreground">{t("mcpInfo.empty")}</p>
+          )}
+          {!isLoading &&
+            !isError &&
+            data?.servers.map((server) => (
+              <div key={server.name} className="flex items-center justify-between gap-2 rounded-md px-1 py-1.5 text-sm">
+                <span className="truncate">{server.name}</span>
+                {data.supports_toggle && (
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-[11px]",
+                      server.enabled
+                        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                        : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {server.enabled ? t("mcpInfo.enabled") : t("mcpInfo.disabled")}
+                  </span>
+                )}
+              </div>
+            ))}
         </div>
       )}
     </div>
@@ -607,6 +973,7 @@ const SAFE_SLASH_COMMANDS: { command: string; description: string }[] = [
  * i18next-key convention as SAFE_SLASH_COMMANDS above. */
 const LOCAL_SLASH_COMMANDS: { command: string; description: string }[] = [
   { command: "/new", description: "slashCommands.new" },
+  { command: "/testar", description: "slashCommands.testar" },
 ];
 
 type SlashCommandItem =
@@ -1294,6 +1661,61 @@ export function ChatPane({
   );
   const displayedSessions = chatSearchTerm.trim() ? chatSearchResults ?? [] : sessions ?? [];
 
+  // Sidebar tree (2026-07-28): a session's placement is exclusive --
+  // Project (working_directory_path) XOR Group (group_id) XOR neither
+  // (loose list, the only thing the sidebar showed before this). See
+  // ChatSession.group_id's backend docstring for the exclusivity rule.
+  const { data: chatProjects } = useProjects();
+  const { data: chatGroups } = useChatGroups();
+  const createChatGroup = useCreateChatGroup();
+  const updateChatGroup = useUpdateChatGroup();
+  const deleteChatGroup = useDeleteChatGroup();
+
+  const projectsWithPath = useMemo(
+    () =>
+      (chatProjects ?? []).filter(
+        (p): p is typeof p & { working_directory_path: string } => Boolean(p.working_directory_path)
+      ),
+    [chatProjects]
+  );
+  const sessionsByProjectPath = useMemo(() => {
+    const map = new Map<string, ChatSession[]>();
+    for (const s of displayedSessions) {
+      if (!s.working_directory_path) continue;
+      map.set(s.working_directory_path, [...(map.get(s.working_directory_path) ?? []), s]);
+    }
+    return map;
+  }, [displayedSessions]);
+  const sessionsByGroupId = useMemo(() => {
+    const map = new Map<string, ChatSession[]>();
+    for (const s of displayedSessions) {
+      if (!s.group_id) continue;
+      map.set(s.group_id, [...(map.get(s.group_id) ?? []), s]);
+    }
+    return map;
+  }, [displayedSessions]);
+  const looseSessions = useMemo(
+    () => displayedSessions.filter((s) => !s.working_directory_path && !s.group_id),
+    [displayedSessions]
+  );
+  const projectFoldersWithSessions = useMemo(
+    () => projectsWithPath.filter((p) => (sessionsByProjectPath.get(p.working_directory_path) ?? []).length > 0),
+    [projectsWithPath, sessionsByProjectPath]
+  );
+
+  const [projectsRootOpen, setProjectsRootOpen] = useState(true);
+  const [groupsRootOpen, setGroupsRootOpen] = useState(true);
+  const [openProjectPaths, setOpenProjectPaths] = useState<Set<string>>(new Set());
+  const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set());
+  function toggleOpenPath(set: Set<string>, key: string): Set<string> {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  }
+  const [newGroupNameRoot, setNewGroupNameRoot] = useState("");
+  const [creatingGroup, setCreatingGroup] = useState(false);
+
   // Shared session bootstrap: the priming effect below and handleSend can
   // both need to create the session, and can genuinely race on a fresh
   // pane (priming fires on mount; a fast paste+send lands right after) --
@@ -1464,6 +1886,53 @@ export function ChatPane({
   }, [composerText, active]);
 
   const selectedAgent = chatableAgents.find((a) => a.id === agentId);
+  const activeSession = sessions?.find((s) => s.id === sessionId);
+  const showSelfRestartWarning =
+    isForgeHubRepoPath(activeSession?.working_directory_path) && SELF_RESTART_COMMAND_RE.test(composerText);
+
+  function handleSetSessionWorkingDirectory(path: string | null) {
+    if (!sessionId) return;
+    updateSession.mutate({ sessionId, working_directory_path: path });
+  }
+
+  // Per-row moves from ChatItemMenu -- unlike handleSetSessionWorkingDirectory
+  // above (header picker, active session only), these work on any session
+  // in the tree, not just the one currently open.
+  function handleMoveSessionToProject(targetSessionId: string, path: string | null) {
+    updateSession.mutate({ sessionId: targetSessionId, working_directory_path: path });
+  }
+  function handleMoveSessionToGroup(targetSessionId: string, groupId: string | null) {
+    updateSession.mutate({ sessionId: targetSessionId, group_id: groupId });
+  }
+  function handleCreateGroupAndMoveSession(targetSessionId: string, name: string) {
+    createChatGroup.mutate(name, {
+      onSuccess: (group) => {
+        updateSession.mutate({ sessionId: targetSessionId, group_id: group.id });
+      },
+    });
+  }
+
+  // Bulk "limpeza" (2026-07-28): hard-deletes every session in the given
+  // scope -- Project folder, Group folder, or the loose list ("geral", no
+  // project/group) -- each cleared independently from its own icon, never
+  // bundled. Confirms once for the whole batch, not per session.
+  function handleClearSessions(sessionsToClear: ChatSession[], confirmMessage: string) {
+    if (sessionsToClear.length === 0) return;
+    if (!window.confirm(confirmMessage)) return;
+    for (const s of sessionsToClear) {
+      deleteSession.mutate(s.id, {
+        onSuccess: () => {
+          if (s.id === sessionId) setSessionId("");
+        },
+      });
+    }
+  }
+
+  // "/testar" (LOCAL_SLASH_COMMANDS) opens this dialog instead of sending a
+  // message -- dispatches straight to the background-test endpoint via
+  // apiClient, same reasoning as "/new": never depends on the LLM session
+  // or MCP tool discovery being available.
+  const [testDialogOpen, setTestDialogOpen] = useState(false);
 
   function handleNewChat() {
     if (!agentId) return;
@@ -1477,7 +1946,10 @@ export function ChatPane({
   }
 
   async function handleSend(overrideText?: string) {
-    if (!agentId) return;
+    if (!agentId) {
+      setComposerWarning(t("composer.selectAgentFirst"));
+      return;
+    }
     const isOverride = overrideText !== undefined;
 
     const trimmed = (isOverride ? overrideText : composerText).trim();
@@ -1486,12 +1958,18 @@ export function ChatPane({
       return;
     }
 
-    // "/new" is a local command (see LOCAL_SLASH_COMMANDS) -- catches the
-    // paste-then-click-Send path, which never opens the slash picker (that
-    // only triggers on typing "/" as a fresh keystroke) so handleSlashSelect
-    // never runs for it.
+    // "/new" and "/testar" are local commands (see LOCAL_SLASH_COMMANDS) --
+    // catches the paste-then-click-Send path, which never opens the slash
+    // picker (that only triggers on typing "/" as a fresh keystroke) so
+    // handleSlashSelect never runs for it.
     if (!isOverride && attachedFiles.length === 0 && trimmed.toLowerCase() === "/new") {
       handleNewChat();
+      setComposerText("");
+      setComposerWarning(null);
+      return;
+    }
+    if (!isOverride && attachedFiles.length === 0 && trimmed.toLowerCase() === "/testar") {
+      setTestDialogOpen(true);
       setComposerText("");
       setComposerWarning(null);
       return;
@@ -1621,7 +2099,11 @@ export function ChatPane({
         if (event.type === "tool_complete") {
           return {
             ...item,
-            steps: item.steps.map((s) => (s.id === event.toolId ? { ...s, label: event.summary || s.label, done: true } : s)),
+            steps: item.steps.map((s) =>
+              s.id === event.toolId
+                ? { ...s, label: event.summary || s.label, done: true, demandNumber: event.demandNumber }
+                : s
+            ),
           };
         }
         if (event.type === "approval_request") {
@@ -1917,6 +2399,7 @@ export function ChatPane({
     // picker) is cleared rather than filled with the command text.
     if (item.kind === "local") {
       if (item.command === "/new") handleNewChat();
+      if (item.command === "/testar") setTestDialogOpen(true);
       setComposerText("");
       composerTextareaRef.current?.focus();
       return;
@@ -2663,6 +3146,65 @@ export function ChatPane({
   }, [voiceMsgs]);
   // ── end voice ────────────────────────────────────────────────────────────
 
+  // One row renderer shared by the loose list and every Project/Group
+  // sub-folder in the tree above -- same row, three possible parents.
+  function renderSessionRow(s: ChatSession) {
+    return (
+      <div
+        key={s.id}
+        className={cn(
+          "group flex items-center justify-between gap-1 rounded-md px-2 py-2 text-sm",
+          s.id === sessionId
+            ? "bg-accent text-accent-foreground"
+            : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        )}
+        onClick={() => editingSessionId !== s.id && setSessionId(s.id)}
+      >
+        {editingSessionId === s.id ? (
+          <input
+            autoFocus
+            value={editingTitle}
+            onChange={(e) => setEditingTitle(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={handleCommitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleCommitRename();
+              if (e.key === "Escape") setEditingSessionId(null);
+            }}
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+          />
+        ) : (
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
+            <span className="flex min-w-0 items-center gap-1.5 truncate">
+              {s.pinned && <Pin className="h-3 w-3 shrink-0 opacity-70" />}
+              <span className="truncate">{s.title}</span>
+            </span>
+          </span>
+        )}
+        {editingSessionId !== s.id && (
+          <ChatItemMenu
+            session={s}
+            projects={projectsWithPath}
+            groups={chatGroups ?? []}
+            onRename={() => handleStartRename(s)}
+            onTogglePin={() => handleTogglePin(s)}
+            onDelete={() => {
+              if (!window.confirm(t("itemMenu.confirmDelete", { title: s.title }))) return;
+              deleteSession.mutate(s.id, {
+                onSuccess: () => {
+                  if (s.id === sessionId) setSessionId("");
+                },
+              });
+            }}
+            onMoveToProject={(path) => handleMoveSessionToProject(s.id, path)}
+            onMoveToGroup={(groupId) => handleMoveSessionToGroup(s.id, groupId)}
+            onCreateGroupAndMove={(name) => handleCreateGroupAndMoveSession(s.id, name)}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={cn("absolute inset-0 flex gap-2 p-2", !active && "hidden")}>
       {!historyCollapsed && (
@@ -2675,6 +3217,13 @@ export function ChatPane({
               </Button>
               <AgentPickerButton agents={chatableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
             </div>
+          </div>
+          <div className="flex items-center border-b border-border px-2 py-1">
+            <SessionProjectPicker
+              currentPath={activeSession?.working_directory_path}
+              disabled={!sessionId}
+              onSelect={handleSetSessionWorkingDirectory}
+            />
           </div>
           <div className="border-b border-border p-2">
             <div className="relative">
@@ -2694,55 +3243,233 @@ export function ChatPane({
             {chatSearchTerm.trim() && !isSearchingChats && displayedSessions.length === 0 && (
               <p className="px-2 py-2 text-xs italic text-muted-foreground">{t("sidebar.noConversationsFound")}</p>
             )}
-            {displayedSessions.map((s) => (
-              <div
-                key={s.id}
-                className={cn(
-                  "group flex items-center justify-between gap-1 rounded-md px-2 py-2 text-sm",
-                  s.id === sessionId
-                    ? "bg-accent text-accent-foreground"
-                    : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-                onClick={() => editingSessionId !== s.id && setSessionId(s.id)}
-              >
-                {editingSessionId === s.id ? (
-                  <input
-                    autoFocus
-                    value={editingTitle}
-                    onChange={(e) => setEditingTitle(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onBlur={handleCommitRename}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleCommitRename();
-                      if (e.key === "Escape") setEditingSessionId(null);
-                    }}
-                    className="min-w-0 flex-1 bg-transparent text-sm outline-none"
-                  />
-                ) : (
-                  <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
-                    {s.pinned && <Pin className="h-3 w-3 shrink-0 opacity-70" />}
-                    <span className="truncate">{s.title}</span>
-                  </span>
-                )}
-                {editingSessionId !== s.id && (
-                  <ChatItemMenu
-                    session={s}
-                    onRename={() => handleStartRename(s)}
-                    onTogglePin={() => handleTogglePin(s)}
-                    onDelete={() =>
-                      deleteSession.mutate(s.id, {
-                        onSuccess: () => {
-                          if (s.id === sessionId) setSessionId("");
-                        },
-                      })
-                    }
-                  />
-                )}
-              </div>
-            ))}
-            {!chatSearchTerm.trim() && (sessions ?? []).length === 0 && (
-              <p className="px-2 py-2 text-xs italic text-muted-foreground">{t("sidebar.noConversationsYet")}</p>
-            )}
+            {chatSearchTerm.trim()
+              ? displayedSessions.map((s) => renderSessionRow(s))
+              : (
+                <>
+                  {/* Root folder: Projetos -- always visible, one sub-row
+                      per registered Project that has >=1 session (see
+                      projectFoldersWithSessions above). */}
+                  <div>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-1 rounded-md px-1 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      onClick={() => setProjectsRootOpen((v) => !v)}
+                    >
+                      {projectsRootOpen ? (
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                      )}
+                      <FolderKanban className="h-3.5 w-3.5 shrink-0" />
+                      <span>{t("groups.projectsRoot")}</span>
+                    </button>
+                    {projectsRootOpen && (
+                      <div className="ml-2 space-y-1 border-l border-border pl-2">
+                        {projectFoldersWithSessions.length === 0 && (
+                          <p className="px-2 py-1 text-xs italic text-muted-foreground">{t("groups.noProjectChats")}</p>
+                        )}
+                        {projectFoldersWithSessions.map((p) => {
+                          const isOpen = openProjectPaths.has(p.working_directory_path);
+                          const sessionsHere = sessionsByProjectPath.get(p.working_directory_path) ?? [];
+                          return (
+                            <div key={p.id} className="group/p">
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                  onClick={() => setOpenProjectPaths((s) => toggleOpenPath(s, p.working_directory_path))}
+                                >
+                                  {isOpen ? (
+                                    <ChevronDown className="h-3 w-3 shrink-0" />
+                                  ) : (
+                                    <ChevronRight className="h-3 w-3 shrink-0" />
+                                  )}
+                                  <span className="truncate">{p.name}</span>
+                                  <span className="ml-auto shrink-0 opacity-60">{sessionsHere.length}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  title={t("groups.clearProjectChats")}
+                                  aria-label={t("groups.clearProjectChats")}
+                                  className="shrink-0 rounded-md p-1 opacity-0 hover:bg-accent group-hover/p:opacity-100"
+                                  onClick={() =>
+                                    handleClearSessions(
+                                      sessionsHere,
+                                      t("groups.confirmClearProject", { count: sessionsHere.length, name: p.name })
+                                    )
+                                  }
+                                >
+                                  <Eraser className="h-3 w-3" />
+                                </button>
+                              </div>
+                              {isOpen && <div className="space-y-1">{sessionsHere.map((s) => renderSessionRow(s))}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Root folder: Grupos -- user-created named folders, no
+                      link to Project/disk path (see ChatGroup docstring). */}
+                  <div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        onClick={() => setGroupsRootOpen((v) => !v)}
+                      >
+                        {groupsRootOpen ? (
+                          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                        )}
+                        <Folder className="h-3.5 w-3.5 shrink-0" />
+                        <span>{t("groups.groupsRoot")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        title={t("groups.newGroup")}
+                        aria-label={t("groups.newGroup")}
+                        className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        onClick={() => {
+                          setGroupsRootOpen(true);
+                          setCreatingGroup(true);
+                        }}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {groupsRootOpen && (
+                      <div className="ml-2 space-y-1 border-l border-border pl-2">
+                        {creatingGroup && (
+                          <div className="flex items-center gap-1 px-1 py-1">
+                            <input
+                              autoFocus
+                              value={newGroupNameRoot}
+                              onChange={(e) => setNewGroupNameRoot(e.target.value)}
+                              onBlur={() => {
+                                if (!newGroupNameRoot.trim()) setCreatingGroup(false);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && newGroupNameRoot.trim()) {
+                                  createChatGroup.mutate(newGroupNameRoot.trim());
+                                  setNewGroupNameRoot("");
+                                  setCreatingGroup(false);
+                                }
+                                if (e.key === "Escape") {
+                                  setNewGroupNameRoot("");
+                                  setCreatingGroup(false);
+                                }
+                              }}
+                              placeholder={t("groups.newGroupPlaceholder")}
+                              className="h-7 min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                            />
+                          </div>
+                        )}
+                        {(chatGroups ?? []).length === 0 && !creatingGroup && (
+                          <p className="px-2 py-1 text-xs italic text-muted-foreground">{t("groups.noGroupsYet")}</p>
+                        )}
+                        {(chatGroups ?? []).map((g) => {
+                          const isOpen = openGroupIds.has(g.id);
+                          const sessionsHere = sessionsByGroupId.get(g.id) ?? [];
+                          return (
+                            <div key={g.id}>
+                              <div className="group/g flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                  onClick={() => setOpenGroupIds((s) => toggleOpenPath(s, g.id))}
+                                >
+                                  {isOpen ? (
+                                    <ChevronDown className="h-3 w-3 shrink-0" />
+                                  ) : (
+                                    <ChevronRight className="h-3 w-3 shrink-0" />
+                                  )}
+                                  <span className="truncate">{g.name}</span>
+                                  <span className="ml-auto shrink-0 opacity-60">{sessionsHere.length}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  title={t("groups.clearGroupChats")}
+                                  aria-label={t("groups.clearGroupChats")}
+                                  className="shrink-0 rounded-md p-1 opacity-0 hover:bg-accent group-hover/g:opacity-100"
+                                  onClick={() =>
+                                    handleClearSessions(
+                                      sessionsHere,
+                                      t("groups.confirmClearGroup", { count: sessionsHere.length, name: g.name })
+                                    )
+                                  }
+                                >
+                                  <Eraser className="h-3 w-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  title={t("itemMenu.rename")}
+                                  aria-label={t("itemMenu.rename")}
+                                  className="shrink-0 rounded-md p-1 opacity-0 hover:bg-accent group-hover/g:opacity-100"
+                                  onClick={() => {
+                                    const name = window.prompt(t("groups.renamePrompt"), g.name);
+                                    if (name && name.trim()) updateChatGroup.mutate({ groupId: g.id, name: name.trim() });
+                                  }}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  title={t("itemMenu.delete")}
+                                  aria-label={t("itemMenu.delete")}
+                                  className="shrink-0 rounded-md p-1 text-destructive opacity-0 hover:bg-accent group-hover/g:opacity-100"
+                                  onClick={() => {
+                                    if (window.confirm(t("groups.confirmDeleteGroup", { name: g.name }))) {
+                                      deleteChatGroup.mutate(g.id);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                              {isOpen && <div className="space-y-1">{sessionsHere.map((s) => renderSessionRow(s))}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Loose conversations -- no Project, no Group ("geral").
+                      Same flat list the sidebar always showed before this
+                      tree existed, now with its own independent clear icon. */}
+                  <div className="space-y-1 pt-1">
+                    {looseSessions.length > 0 && (
+                      <div className="group/loose flex items-center gap-1 px-1">
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
+                          {t("groups.generalRoot")}
+                        </span>
+                        <button
+                          type="button"
+                          title={t("groups.clearGeneralChats")}
+                          aria-label={t("groups.clearGeneralChats")}
+                          className="shrink-0 rounded-md p-1 opacity-0 hover:bg-accent group-hover/loose:opacity-100"
+                          onClick={() =>
+                            handleClearSessions(
+                              looseSessions,
+                              t("groups.confirmClearGeneral", { count: looseSessions.length })
+                            )
+                          }
+                        >
+                          <Eraser className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                    {looseSessions.map((s) => renderSessionRow(s))}
+                    {looseSessions.length === 0 && (sessions ?? []).length === 0 && (
+                      <p className="px-2 py-2 text-xs italic text-muted-foreground">{t("sidebar.noConversationsYet")}</p>
+                    )}
+                  </div>
+                </>
+              )}
           </div>
         </aside>
       )}
@@ -3013,6 +3740,11 @@ export function ChatPane({
                             </code>
                           </div>
                         )}
+                        {step.demandNumber != null && (
+                          <div className="ml-5 max-w-sm">
+                            <SubagentStatusCard number={step.demandNumber} />
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -3125,6 +3857,12 @@ export function ChatPane({
           )}
           {composerWarning && (
             <p className="px-1 text-xs text-destructive">{composerWarning}</p>
+          )}
+          {!composerWarning && showSelfRestartWarning && (
+            <p className="flex items-center gap-1.5 px-1 text-xs text-amber-500">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              {t("composer.selfRestartWarning")}
+            </p>
           )}
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -3326,6 +4064,7 @@ export function ChatPane({
               className="min-h-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             <AgentSelectorPill agents={chatableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
+            {agentId && <AgentMcpInfoButton agentId={agentId} />}
             <Button
               variant={isRecording ? "destructive" : "ghost"}
               size="icon"
@@ -3428,6 +4167,7 @@ export function ChatPane({
           </div>
         </aside>
       )}
+      <TestApplicationDialog open={testDialogOpen} onClose={() => setTestDialogOpen(false)} />
     </div>
   );
 }

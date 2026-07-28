@@ -46,7 +46,8 @@
     "useThisFolder": "Usar esta pasta"
   },
   "terminal": {
-    "authFailed": "Falha ao autenticar a sessão do terminal."
+    "authFailed": "Falha ao autenticar a sessão do terminal.",
+    "reconnecting": "Conexão perdida -- reconectando em {{seconds}}s…"
   },
   "webAppPane": {
     "back": "Voltar",

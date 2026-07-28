@@ -25,6 +25,9 @@ from app.api.schemas.chat import (
     ChatArtifactGlobalOut,
     ChatArtifactOut,
     ChatExecRequest,
+    ChatGroupCreate,
+    ChatGroupOut,
+    ChatGroupUpdate,
     ChatMessageOut,
     ChatSendResult,
     ChatSessionCreate,
@@ -34,7 +37,8 @@ from app.api.schemas.chat import (
 from app.core.config import CHAT_RESPONSE_LANGUAGE_NOTES, settings
 from app.db.base import get_db
 from app.db.models.agent import Agent
-from app.db.models.chat import ChatArtifact, ChatMessage, ChatSession, ChatSessionParticipant
+from app.db.models.chat import ChatArtifact, ChatGroup, ChatMessage, ChatSession, ChatSessionParticipant
+from app.db.models.project import Project
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
@@ -46,6 +50,20 @@ async def _get_session_or_404(db: AsyncSession, session_id: uuid.UUID) -> ChatSe
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
     return session
+
+
+async def _get_project_or_404(db: AsyncSession, project_id: uuid.UUID) -> Project:
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return project
+
+
+async def _get_chat_group_or_404(db: AsyncSession, group_id: uuid.UUID) -> ChatGroup:
+    group = await db.get(ChatGroup, group_id)
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat group not found")
+    return group
 
 
 async def _get_chattable_agent_or_404(db: AsyncSession, agent_id: uuid.UUID) -> Agent:
@@ -150,7 +168,9 @@ async def create_chat_session(
     payload: ChatSessionCreate, db: AsyncSession = Depends(get_db)
 ) -> ChatSession:
     await _get_chattable_agent_or_404(db, payload.agent_id)
-    session = ChatSession(agent_id=payload.agent_id, title=payload.title)
+    session = ChatSession(
+        agent_id=payload.agent_id, title=payload.title, working_directory_path=payload.working_directory_path
+    )
     db.add(session)
     await db.commit()
     await db.refresh(session)
@@ -207,6 +227,20 @@ async def update_chat_session(
         session.title = payload.title.strip()
     if payload.pinned is not None:
         session.pinned = payload.pinned
+    # Sidebar placement is exclusive: Project XOR Group XOR neither (see
+    # ChatSession.group_id's docstring) -- explicitly setting one to a
+    # real value clears the other. Order matters only if a single payload
+    # somehow sets both non-null at once (not something the UI does): the
+    # last one processed wins, so group_id is checked second.
+    if "working_directory_path" in payload.model_fields_set:
+        session.working_directory_path = payload.working_directory_path
+        if payload.working_directory_path is not None:
+            session.group_id = None
+    if "group_id" in payload.model_fields_set:
+        if payload.group_id is not None:
+            await _get_chat_group_or_404(db, payload.group_id)
+            session.working_directory_path = None
+        session.group_id = payload.group_id
     await db.commit()
     await db.refresh(session)
     return session
@@ -216,6 +250,48 @@ async def update_chat_session(
 async def delete_chat_session(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     session = await _get_session_or_404(db, session_id)
     await db.delete(session)
+    await db.commit()
+
+
+# --------------------------------------------------------------------------
+# ChatGroup -- user-created named folders for the Workspace sidebar (see
+# db/models/chat.py's ChatGroup docstring). CRUD only; assigning a session
+# to a group happens through PATCH /sessions/{id} above (group_id).
+# --------------------------------------------------------------------------
+
+
+@router.post("/groups", response_model=ChatGroupOut, status_code=status.HTTP_201_CREATED)
+async def create_chat_group(payload: ChatGroupCreate, db: AsyncSession = Depends(get_db)) -> ChatGroup:
+    group = ChatGroup(name=payload.name.strip())
+    db.add(group)
+    await db.commit()
+    await db.refresh(group)
+    return group
+
+
+@router.get("/groups", response_model=list[ChatGroupOut])
+async def list_chat_groups(db: AsyncSession = Depends(get_db)) -> list[ChatGroup]:
+    result = await db.execute(select(ChatGroup).order_by(ChatGroup.name))
+    return list(result.scalars().all())
+
+
+@router.patch("/groups/{group_id}", response_model=ChatGroupOut)
+async def update_chat_group(
+    group_id: uuid.UUID, payload: ChatGroupUpdate, db: AsyncSession = Depends(get_db)
+) -> ChatGroup:
+    group = await _get_chat_group_or_404(db, group_id)
+    group.name = payload.name.strip()
+    await db.commit()
+    await db.refresh(group)
+    return group
+
+
+@router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat_group(group_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+    # Sessions in this group return to the loose list via ON DELETE SET
+    # NULL on chat_sessions.group_id -- never cascade-deletes them.
+    group = await _get_chat_group_or_404(db, group_id)
+    await db.delete(group)
     await db.commit()
 
 
@@ -577,6 +653,10 @@ async def stream_chat_message(
             bridge_params["session_id"] = participant.hermes_session_id
     elif session.hermes_session_id:
         bridge_params["session_id"] = session.hermes_session_id
+    # Text-mode (subprocess) turns only -- voice's direct ForgeRouter path
+    # has no terminal/tools, so a cwd wouldn't do anything there anyway.
+    if not voice and session.working_directory_path:
+        bridge_params["cwd"] = session.working_directory_path
 
     accumulated: list[str] = []
     created_paths: list[str] = []

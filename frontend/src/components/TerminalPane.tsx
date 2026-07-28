@@ -75,6 +75,26 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     // /ws-ticket + /ws), and put only that short-lived ticket in the URL.
     let ws: WebSocket | null = null;
     let cancelled = false;
+    // Reconnection with backoff (Fase 6.1, 2026-07-28) -- a dropped
+    // connection (host-bridge restart, brief network hiccup) used to leave
+    // the pane dead on screen until the user navigated away and back. The
+    // host tmux session survives a drop on its own (see terminal_ws's
+    // docstring); reattaching with the SAME sessionId is what resumes it,
+    // and `tmux attach-session` redraws the pane's current content by
+    // itself, so no manual history replay is needed here.
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000];
+
+    function scheduleReconnect() {
+      if (cancelled) return;
+      const delay = RECONNECT_DELAYS_MS[Math.min(reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
+      reconnectAttempt += 1;
+      term.write(`\r\n\x1b[33m${t("terminal.reconnecting", { seconds: Math.round(delay / 1000) })}\x1b[0m\r\n`);
+      reconnectTimer = setTimeout(() => {
+        if (!cancelled) connect();
+      }, delay);
+    }
 
     async function connect() {
       const params = new URLSearchParams();
@@ -86,7 +106,10 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
         if (cancelled) return;
         params.set("ticket", ticket);
       } catch {
-        if (!cancelled) term.write(`\r\n\x1b[31m${t("terminal.authFailed")}\x1b[0m\r\n`);
+        if (!cancelled) {
+          term.write(`\r\n\x1b[31m${t("terminal.authFailed")}\x1b[0m\r\n`);
+          scheduleReconnect();
+        }
         return;
       }
 
@@ -116,7 +139,17 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
         term.write(data);
       };
       socket.onopen = () => {
+        reconnectAttempt = 0;
         socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      };
+      // Fires for both a clean server-initiated close and a dropped
+      // connection alike (WebSocket has no reliable way to tell them
+      // apart) -- always attempt to reconnect unless this effect itself is
+      // tearing down (`cancelled`, set right before the deliberate
+      // `ws?.close()` in the cleanup below).
+      socket.onclose = () => {
+        if (ws === socket) ws = null;
+        if (!cancelled) scheduleReconnect();
       };
     }
     connect();
@@ -204,12 +237,16 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
 
     return () => {
       cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       inputDisposable.dispose();
       container.removeEventListener("paste", handlePaste, true);
       container.removeEventListener("dragover", handleDragOver);
       container.removeEventListener("drop", handleDrop);
       resizeObserver.disconnect();
-      ws?.close();
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
       term.dispose();
     };
     // sessionId/command/cwd are fixed for the lifetime of a tab -- only mount/unmount matters.

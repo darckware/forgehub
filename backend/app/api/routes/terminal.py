@@ -29,12 +29,33 @@ from sqlalchemy import select
 from websockets import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
+import uuid
+
 from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.db.base import AsyncSessionLocal
+from app.db.models.governance import AuditEvent
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/terminal", tags=["terminal"])
+
+
+async def _audit_terminal_event(session_id: str, event_type: str, actor: str, payload: dict) -> None:
+    """Fase 6.3 (2026-07-28): open/close only, never keystroke content --
+    the terminal is otherwise a transparent byte pipe (see this module's
+    docstring), and logging every byte typed would be a keylogger, not an
+    audit trail. `entity_id` requires session_id to parse as a UUID (true
+    for every real tab -- see workspace/index.tsx's crypto.randomUUID());
+    silently skips otherwise rather than failing the connection over it."""
+    try:
+        entity_id = uuid.UUID(session_id)
+    except ValueError:
+        return
+    async with AsyncSessionLocal() as db:
+        db.add(
+            AuditEvent(entity_type="terminal_session", entity_id=entity_id, event_type=event_type, actor=actor, payload=payload)
+        )
+        await db.commit()
 
 
 @router.get("/browse-dirs")
@@ -62,6 +83,25 @@ async def fs_list(path: str | None = Query(default=None), user: User = Depends(g
         resp = await client.get(
             f"{settings.CHAT_BRIDGE_URL}/v1/fs/list",
             params={"path": path} if path else {},
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Chat bridge error: {resp.text[:500]}"
+        )
+    return resp.json()
+
+
+@router.get("/sessions")
+async def list_sessions(user: User = Depends(get_current_admin)) -> dict:
+    """Proxy to the bridge's live tmux session listing -- backs the
+    orphaned-session cleanup view (Fase 6.2). ForgeHub has no DB record of
+    terminal tabs at all (see terminal_ws's docstring: this is a
+    transparent byte pipe), so this disk-truth read is the only way to see
+    a tab that was never closed through the UI."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{settings.CHAT_BRIDGE_URL}/v1/terminal/sessions",
             headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
         )
     if resp.status_code != 200:
@@ -178,6 +218,7 @@ async def terminal_ws(
         await websocket.close(code=4403)
         return
     await websocket.accept()
+    await _audit_terminal_event(session, "opened", user.username, {"command": command, "cwd": cwd})
 
     bridge_ws_url = settings.CHAT_BRIDGE_URL.replace("http://", "ws://").replace("https://", "wss://")
     bridge_ws_url += f"/v1/terminal/ws?token={settings.CHAT_BRIDGE_TOKEN}&session={quote(session)}"
@@ -186,26 +227,32 @@ async def terminal_ws(
     if cwd:
         bridge_ws_url += f"&cwd={quote(cwd)}"
 
-    async with ws_connect(bridge_ws_url) as bridge_ws:
+    try:
+        async with ws_connect(bridge_ws_url) as bridge_ws:
 
-        async def pump_to_bridge() -> None:
-            try:
-                while True:
-                    message = await websocket.receive_text()
-                    await bridge_ws.send(message)
-            except (WebSocketDisconnect, ConnectionClosed):
-                pass
+            async def pump_to_bridge() -> None:
+                try:
+                    while True:
+                        message = await websocket.receive_text()
+                        await bridge_ws.send(message)
+                except (WebSocketDisconnect, ConnectionClosed):
+                    pass
 
-        async def pump_from_bridge() -> None:
-            try:
-                async for message in bridge_ws:
-                    await websocket.send_text(message)
-            except ConnectionClosed:
-                pass
+            async def pump_from_bridge() -> None:
+                try:
+                    async for message in bridge_ws:
+                        await websocket.send_text(message)
+                except ConnectionClosed:
+                    pass
 
-        _done, pending = await asyncio.wait(
-            [asyncio.create_task(pump_to_bridge()), asyncio.create_task(pump_from_bridge())],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
+            _done, pending = await asyncio.wait(
+                [asyncio.create_task(pump_to_bridge()), asyncio.create_task(pump_from_bridge())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+    finally:
+        # Covers a dropped connection (Fase 6.1's client-side reconnect
+        # loop) exactly like a deliberate tab close -- both are real
+        # disconnects from this session's point of view.
+        await _audit_terminal_event(session, "closed", user.username, {})

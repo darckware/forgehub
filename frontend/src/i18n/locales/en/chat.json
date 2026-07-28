@@ -11,9 +11,32 @@
     "platforms": "Show gateway/messaging platform status",
     "plugins": "List installed plugins; add an agent name (e.g. /plugins athos) to check a different profile",
     "new": "Start a new chat",
+    "testar": "Test an application in the background or live",
     "kindLocal": "Local",
     "kindHermes": "Hermes",
     "kindPrompt": "Prompt"
+  },
+  "testDialog": {
+    "title": "Test application",
+    "description": "Pick a product and automation routine, and whether to watch it live or run it in the background.",
+    "loading": "Loading…",
+    "noRoutines": "This product has no testable automation routines yet -- create one from the Systems Hub first.",
+    "fields": {
+      "product": "Product",
+      "pickProduct": "Select a product…",
+      "routine": "Routine",
+      "pickRoutine": "Select a routine…",
+      "mode": "Mode"
+    },
+    "modeBackground": "Background",
+    "modeVisible": "Watch live",
+    "dispatchedBackground": "Test dispatched in the background. Track it in the Systems Hub, \"Background tests\" tab.",
+    "dispatchedVisible": "Test finished -- see the result in the Systems Hub, \"Background tests\" tab.",
+    "buttons": {
+      "cancel": "Cancel",
+      "close": "Close",
+      "run": "Run test"
+    }
   },
   "attachMenu": {
     "addAttachment": "Add attachment",
@@ -29,12 +52,43 @@
     "rename": "Rename",
     "pin": "Pin",
     "unpin": "Unpin",
-    "delete": "Delete"
+    "delete": "Delete",
+    "moveToProject": "Move to project",
+    "moveToGroup": "Move to group",
+    "back": "Back",
+    "confirmDelete": "Delete chat \"{{title}}\"? This cannot be undone."
+  },
+  "groups": {
+    "projectsRoot": "Projects",
+    "groupsRoot": "Groups",
+    "generalRoot": "General",
+    "noProjectChats": "No chat linked to a project.",
+    "noGroupsYet": "No group created yet.",
+    "noGroup": "No group",
+    "newGroup": "New group",
+    "newGroupPlaceholder": "Group name",
+    "renamePrompt": "New group name",
+    "clearProjectChats": "Clear this project's chats",
+    "clearGroupChats": "Clear this group's chats",
+    "clearGeneralChats": "Clear general chats (no project/group)",
+    "confirmClearProject": "Permanently delete {{count}} chat(s) from project \"{{name}}\"? This cannot be undone.",
+    "confirmClearGroup": "Permanently delete {{count}} chat(s) from group \"{{name}}\"? This cannot be undone.",
+    "confirmClearGeneral": "Permanently delete {{count}} chat(s) with no project/group? This cannot be undone.",
+    "confirmDeleteGroup": "Delete group \"{{name}}\"? Its chats return to the general list (not deleted)."
   },
   "agentPicker": {
     "agentLabel": "Agent: {{name}}",
     "selectAgent": "Select agent",
     "agentFallback": "Agent"
+  },
+  "mcpInfo": {
+    "viewMcps": "View available MCPs",
+    "title": "Agent MCPs",
+    "loading": "Loading MCPs...",
+    "error": "Could not load MCPs.",
+    "empty": "No MCP server configured.",
+    "enabled": "Enabled",
+    "disabled": "Disabled"
   },
   "mentionFilePicker": {
     "useFolder": "Use folder",
@@ -62,7 +116,9 @@
   },
   "composer": {
     "typeMessageFirst": "Type a message before sending.",
+    "selectAgentFirst": "Select an agent before sending.",
     "alreadySent": "You already sent this message.",
+    "selfRestartWarning": "This may briefly drop this very conversation -- history is saved, but the in-flight turn might need to be resent.",
     "couldNotAttach": "Could not attach {{name}}.",
     "suggestedReplyYes": "Yes",
     "completeHint": "{{text}} (→ to complete)",
@@ -119,6 +175,11 @@
     "noConversationsFound": "No conversations found.",
     "noConversationsYet": "No conversations yet."
   },
+  "sessionFolder": {
+    "pickProject": "Link this chat to a project",
+    "noProject": "No project",
+    "noProjectsRegistered": "No project with a working directory registered."
+  },
   "queue": {
     "queued": "📥 Queued…",
     "stop": "Stop",
@@ -131,7 +192,9 @@
     "approveSession": "☑️ Approve for this session",
     "deny": "🚫 Deny",
     "failed": "❌ Failed: {{error}}",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "subagentLoading": "Loading delegation status…",
+    "subagentDelegatedTo": "Delegated #{{number}} to {{agent}}"
   },
   "artifactsPanel": {
     "title": "Artifacts",

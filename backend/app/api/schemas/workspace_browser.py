@@ -104,6 +104,7 @@ class WebAutomationRoutineOut(BaseModel):
     name: str
     description: str | None
     steps: list[WebAutomationStep]
+    background_test_enabled: bool
     created_at: datetime
     updated_at: datetime
 
@@ -113,6 +114,58 @@ class WebAutomationRunOut(BaseModel):
     status: str
     steps: list[dict]
     browser: WorkspaceBrowserStateOut
+
+
+# ---------------------------------------------------------------------------
+# Background app testing (WebAutomationTestRun)
+# ---------------------------------------------------------------------------
+
+
+class BackgroundTestToggle(BaseModel):
+    enabled: bool
+
+
+class BackgroundTestDispatchIn(BaseModel):
+    mode: Literal["background", "visible"] = "background"
+
+
+class BackgroundTestAdHocIn(BaseModel):
+    """Ad hoc dispatch with no saved routine -- the MCP-tool trigger path,
+    which has no routine to point at, only a target and inline steps."""
+
+    product_id: uuid.UUID | None = None
+    standalone_app_id: uuid.UUID | None = None
+    steps: list[WebAutomationStep] = Field(min_length=1, max_length=100)
+    # Always "background" in practice (an MCP tool call has no live pane to
+    # open) -- accepted rather than hardcoded so a future non-MCP ad hoc
+    # caller (e.g. a manual "test now" button with no saved routine) isn't
+    # forced through a routine first.
+    mode: Literal["background", "visible"] = "background"
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        _validate_one_target(self.product_id, self.standalone_app_id)
+        return self
+
+
+class WebAutomationTestRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    routine_id: uuid.UUID | None
+    product_id: uuid.UUID | None
+    standalone_app_id: uuid.UUID | None
+    triggered_by: str
+    mode: str
+    status: str
+    bridge_run_id: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    report: str | None
+    screenshot_paths: list[str] | None
+    error: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class StandaloneAppCreate(BaseModel):

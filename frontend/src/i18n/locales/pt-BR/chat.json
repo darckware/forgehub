@@ -11,9 +11,32 @@
     "platforms": "Mostrar status da plataforma de gateway/mensagens",
     "plugins": "Listar plugins instalados; adicione um nome de agente (ex.: /plugins athos) para verificar outro perfil",
     "new": "Iniciar uma nova conversa",
+    "testar": "Testar uma aplicação em segundo plano ou ao vivo",
     "kindLocal": "Local",
     "kindHermes": "Hermes",
     "kindPrompt": "Prompt"
+  },
+  "testDialog": {
+    "title": "Testar aplicação",
+    "description": "Escolha o produto e a rotina de automação, e se quer acompanhar ao vivo ou rodar em segundo plano.",
+    "loading": "Carregando…",
+    "noRoutines": "Este produto ainda não tem rotinas de automação testáveis -- crie uma na Central de Sistemas primeiro.",
+    "fields": {
+      "product": "Produto",
+      "pickProduct": "Selecione um produto…",
+      "routine": "Rotina",
+      "pickRoutine": "Selecione uma rotina…",
+      "mode": "Modo"
+    },
+    "modeBackground": "Segundo plano",
+    "modeVisible": "Acompanhar ao vivo",
+    "dispatchedBackground": "Teste disparado em segundo plano. Acompanhe o resultado na Central de Sistemas, aba \"Testes em Background\".",
+    "dispatchedVisible": "Teste concluído -- veja o resultado na Central de Sistemas, aba \"Testes em Background\".",
+    "buttons": {
+      "cancel": "Cancelar",
+      "close": "Fechar",
+      "run": "Rodar teste"
+    }
   },
   "attachMenu": {
     "addAttachment": "Adicionar anexo",
@@ -29,12 +52,43 @@
     "rename": "Renomear",
     "pin": "Fixar",
     "unpin": "Desafixar",
-    "delete": "Excluir"
+    "delete": "Excluir",
+    "moveToProject": "Mover para projeto",
+    "moveToGroup": "Mover para grupo",
+    "back": "Voltar",
+    "confirmDelete": "Excluir a conversa \"{{title}}\"? Essa ação não pode ser desfeita."
+  },
+  "groups": {
+    "projectsRoot": "Projetos",
+    "groupsRoot": "Grupos",
+    "generalRoot": "Geral",
+    "noProjectChats": "Nenhuma conversa vinculada a um projeto.",
+    "noGroupsYet": "Nenhum grupo criado ainda.",
+    "noGroup": "Sem grupo",
+    "newGroup": "Novo grupo",
+    "newGroupPlaceholder": "Nome do grupo",
+    "renamePrompt": "Novo nome do grupo",
+    "clearProjectChats": "Limpar conversas deste projeto",
+    "clearGroupChats": "Limpar conversas deste grupo",
+    "clearGeneralChats": "Limpar conversas gerais (sem projeto/grupo)",
+    "confirmClearProject": "Excluir permanentemente {{count}} conversa(s) do projeto \"{{name}}\"? Essa ação não pode ser desfeita.",
+    "confirmClearGroup": "Excluir permanentemente {{count}} conversa(s) do grupo \"{{name}}\"? Essa ação não pode ser desfeita.",
+    "confirmClearGeneral": "Excluir permanentemente {{count}} conversa(s) sem projeto/grupo? Essa ação não pode ser desfeita.",
+    "confirmDeleteGroup": "Excluir o grupo \"{{name}}\"? As conversas nele voltam para a lista geral (não são apagadas)."
   },
   "agentPicker": {
     "agentLabel": "Agente: {{name}}",
     "selectAgent": "Selecionar agente",
     "agentFallback": "Agente"
+  },
+  "mcpInfo": {
+    "viewMcps": "Ver MCPs disponíveis",
+    "title": "MCPs do agente",
+    "loading": "Carregando MCPs...",
+    "error": "Não foi possível carregar os MCPs.",
+    "empty": "Nenhum servidor MCP configurado.",
+    "enabled": "Ativado",
+    "disabled": "Desativado"
   },
   "mentionFilePicker": {
     "useFolder": "Usar pasta",
@@ -62,7 +116,9 @@
   },
   "composer": {
     "typeMessageFirst": "Digite uma mensagem antes de enviar.",
+    "selectAgentFirst": "Selecione um agente antes de enviar.",
     "alreadySent": "Você já enviou esta mensagem.",
+    "selfRestartWarning": "Isso pode derrubar esta própria conversa por um instante -- o histórico fica salvo, mas o turno em andamento pode precisar ser reenviado.",
     "couldNotAttach": "Não foi possível anexar {{name}}.",
     "suggestedReplyYes": "Sim",
     "completeHint": "{{text}} (→ para completar)",
@@ -119,6 +175,11 @@
     "noConversationsFound": "Nenhuma conversa encontrada.",
     "noConversationsYet": "Nenhuma conversa ainda."
   },
+  "sessionFolder": {
+    "pickProject": "Vincular esta conversa a um projeto",
+    "noProject": "Sem projeto",
+    "noProjectsRegistered": "Nenhum projeto com pasta de trabalho cadastrada."
+  },
   "queue": {
     "queued": "📥 Na fila…",
     "stop": "Parar",
@@ -131,7 +192,9 @@
     "approveSession": "☑️ Aprovar para esta sessão",
     "deny": "🚫 Negar",
     "failed": "❌ Falhou: {{error}}",
-    "dismiss": "Descartar"
+    "dismiss": "Descartar",
+    "subagentLoading": "Carregando status da delegação…",
+    "subagentDelegatedTo": "Delegou #{{number}} para {{agent}}"
   },
   "artifactsPanel": {
     "title": "Artefatos",

@@ -89,6 +89,7 @@ from app.api.schemas.agent import (
     SyncCounts,
 )
 from app.core import agent_mcp, agent_profile_files, agent_runtime_sync, agent_telegram, hermes_sync
+from app.core.mcp_catalog_apply import apply_global_servers_to_agent
 from app.core.config import settings
 from app.core.secrets import encrypt_secret
 from app.db.base import get_db
@@ -174,6 +175,12 @@ async def create_agent(payload: AgentCreate, db: AsyncSession = Depends(get_db))
             detail="An agent with this name already exists",
         ) from None
     await db.refresh(agent)
+    # "apply_to_all_agents" (MCP catalog) must reach agents registered after
+    # the flag was set, not just the ones that existed at the time -- see
+    # core/mcp_catalog_apply.py's module docstring.
+    if await apply_global_servers_to_agent(db, agent):
+        await db.commit()
+        await db.refresh(agent)
     return agent
 
 
@@ -265,6 +272,10 @@ async def sync_agent_runtimes(db: AsyncSession = Depends(get_db)) -> AgentRuntim
             agent.runtime_type = plan.fill_runtime_type
             applied = True
             updated += 1
+            # Same "global reaches agents registered/typed later" rule as
+            # create_agent above -- this agent just became MCP-eligible for
+            # the first time, so global catalog servers apply now too.
+            await apply_global_servers_to_agent(db, agent)
         rows.append(
             AgentRuntimeSyncAgentOut(
                 agent_id=agent.id,
@@ -698,6 +709,7 @@ async def update_agent(
         agent.forgerouter_api_key_encrypted = encrypt_secret(api_key)
     elif clear_api_key:
         agent.forgerouter_api_key_encrypted = None
+    runtime_eligibility_touched = "runtime_type" in updates or "home_path" in updates
     for field, value in updates.items():
         setattr(agent, field, value)
     try:
@@ -713,6 +725,14 @@ async def update_agent(
             detail="Another agent already uses this name or profile_slug",
         ) from None
     await db.refresh(agent)
+    # AgentCreate has no runtime_type/home_path fields at all (an agent is
+    # always created bare, then typed later here or by sync_agent_runtimes)
+    # -- this PATCH, not creation, is where an agent actually becomes
+    # MCP-eligible for the first time, so this is where "apply_to_all_agents"
+    # must also reach it.
+    if runtime_eligibility_touched and await apply_global_servers_to_agent(db, agent):
+        await db.commit()
+        await db.refresh(agent)
     return agent
 
 

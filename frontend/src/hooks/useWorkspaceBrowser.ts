@@ -56,6 +56,29 @@ export interface WebAutomationRoutine {
   name: string;
   description?: string | null;
   steps: WebAutomationStep[];
+  background_test_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One background-test dispatch -- "background" (isolated CDP instance,
+ * nobody has to watch) or "visible" (delegates to the existing shared
+ * Workspace Browser, finishes synchronously). See useWorkspaceBrowser.ts's
+ * useRunRoutineBackgroundTest/useDispatchAdHocBackgroundTest/useTestRuns. */
+export interface WebAutomationTestRun {
+  id: string;
+  routine_id: string | null;
+  product_id: string | null;
+  standalone_app_id: string | null;
+  triggered_by: "slash_command" | "mcp_tool" | "manual";
+  mode: "background" | "visible";
+  status: "queued" | "running" | "passed" | "failed" | "error";
+  bridge_run_id: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  report: string | null;
+  screenshot_paths: string[] | null;
+  error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -202,6 +225,64 @@ export function useRunWebAutomationRoutine() {
   return useMutation<WebAutomationRun, Error, string>({
     mutationFn: (id) => apiClient.post(`/api/v1/workspace-browser/routines/${id}:run`, {}),
     onSuccess: (result) => queryClient.setQueryData(browserKey, result.browser),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Background app testing (WebAutomationTestRun)
+// ---------------------------------------------------------------------------
+
+const testRunsKey = (target: AutomationTarget | undefined) =>
+  ["workspace-browser", "test-runs", ...targetKey(target)] as const;
+
+export function useToggleRoutineBackgroundTest() {
+  const queryClient = useQueryClient();
+  return useMutation<WebAutomationRoutine, Error, { id: string; target: AutomationTarget; enabled: boolean }>({
+    mutationFn: ({ id, enabled }) =>
+      apiClient.put(`/api/v1/workspace-browser/routines/${id}/background-test`, { enabled }),
+    onSuccess: (_, variables) =>
+      queryClient.invalidateQueries({ queryKey: ["workspace-browser", "routines", ...targetKey(variables.target)] }),
+  });
+}
+
+export function useRunRoutineBackgroundTest() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    WebAutomationTestRun,
+    Error,
+    { id: string; target: AutomationTarget; mode: "background" | "visible" }
+  >({
+    mutationFn: ({ id, mode }) => apiClient.post(`/api/v1/workspace-browser/routines/${id}:run-background`, { mode }),
+    onSuccess: (_, variables) => queryClient.invalidateQueries({ queryKey: testRunsKey(variables.target) }),
+  });
+}
+
+export function useDispatchAdHocBackgroundTest() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    WebAutomationTestRun,
+    Error,
+    { target: AutomationTarget; steps: WebAutomationStep[]; mode?: "background" | "visible" }
+  >({
+    mutationFn: ({ target, steps, mode = "background" }) =>
+      apiClient.post("/api/v1/workspace-browser/background-test", { ...targetPayload(target), steps, mode }),
+    onSuccess: (_, variables) => queryClient.invalidateQueries({ queryKey: testRunsKey(variables.target) }),
+  });
+}
+
+const IN_FLIGHT_TEST_RUN_STATUSES = new Set(["queued", "running"]);
+
+export function useTestRuns(target: AutomationTarget | undefined) {
+  return useQuery<WebAutomationTestRun[]>({
+    queryKey: testRunsKey(target),
+    queryFn: () => apiClient.get(`/api/v1/workspace-browser/test-runs?${targetQuery(target!)}`),
+    enabled: Boolean(target),
+    // Adaptive, same reasoning as useDemands' dispatch polling: fast while
+    // anything is still queued/running, idle otherwise.
+    refetchInterval: (query) => {
+      const data = query.state.data as WebAutomationTestRun[] | undefined;
+      return data?.some((r) => IN_FLIGHT_TEST_RUN_STATUSES.has(r.status)) ? 3_000 : false;
+    },
   });
 }
 

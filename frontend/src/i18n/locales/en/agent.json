@@ -222,6 +222,8 @@
     "description": "The MCP servers this agent's runtime loads. ForgeHub edits the runtime's own config file, so a change here is what the agent really gets on its next run.",
     "loading": "Loading MCP servers…",
     "empty": "No MCP server configured for this agent yet.",
+    "projectNoWorkingDir": "This project has no working_directory_path set — set one before configuring MCP servers.",
+    "emptyProject": "No MCP server configured for this project yet.",
     "addServer": "Add server",
     "configMissing": "not created yet",
     "noToggleHint": "This runtime has no enable/disable flag — removing the server is the only way to turn it off.",
@@ -232,6 +234,28 @@
     "editAction": "Edit",
     "removeTitle": "Remove this MCP server?",
     "removeDescription": "\"{{name}}\" will be removed from {{path}}. The agent loses these tools on its next run.",
+    "catalog": {
+      "newServer": "New server",
+      "searchPlaceholder": "Search catalog…",
+      "empty": "No MCP server registered in the catalog yet.",
+      "builtinBadge": "Built-in",
+      "globalBadge": "Applied to all agents",
+      "globalNotice": "This server is applied to every eligible agent automatically, including ones registered later — unassigning below only removes it from that one agent, it does not turn the flag off.",
+      "targetAgent": "Agent",
+      "targetProject": "Project",
+      "pickTarget": "Select…",
+      "assignButton": "Assign",
+      "synced": "Installed",
+      "noAssignments": "Not assigned to any agent or project yet.",
+      "removeTitle": "Remove this catalog server?",
+      "removeDescription": "\"{{name}}\" will be removed from the catalog. It is NOT removed from any agent/project it was already installed on — unassign it from each one first if you also want it uninstalled there.",
+      "form": {
+        "description": "Description",
+        "descriptionPlaceholder": "What this server does",
+        "applyToAll": "Apply to all agents",
+        "applyToAllHint": "Installs this server on every agent whose runtime supports MCP, including ones registered later — writes to their real config files."
+      }
+    },
     "form": {
       "name": "Name",
       "nameInvalid": "Use letters, digits, '.', '_' or '-' (max 64 characters).",

@@ -18,6 +18,7 @@ import AgentPage from "@/pages/agent";
 import AgentDetailPage from "@/pages/agent/[id]";
 import ToolsPage from "@/pages/tools";
 import McpPage from "@/pages/mcp";
+import SystemsHubPage from "@/pages/systems-hub";
 import PromptCommandsPage from "@/pages/prompt-commands";
 import SkillsPage from "@/pages/skills";
 import AuditorPage from "@/pages/auditor";
@@ -98,6 +99,7 @@ export default function App() {
         <Route path="agents/:id" element={<AgentDetailPage />} />
         <Route path="tools" element={<ToolsPage />} />
         <Route path="mcp" element={<McpPage />} />
+        <Route path="systems-hub" element={<SystemsHubPage />} />
         <Route path="prompt-commands" element={<PromptCommandsPage />} />
         <Route path="skills" element={<SkillsPage />} />
         <Route path="artifact" element={<ArtifactPage />} />

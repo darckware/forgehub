@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
 import {
   AlertCircle,
@@ -16,6 +16,7 @@ import {
   Lock,
   Pencil,
   Plus,
+  SquareTerminal,
   Trash2,
   Unlock,
   XCircle,
@@ -51,6 +52,8 @@ import { useProductVersion } from "@/hooks/useProduct";
 import { useTasksByChangeRequest, useKanboardCleanup } from "@/hooks/useTask";
 import { useDeletePlanningItem } from "@/hooks/useBacklog";
 import { EntityDocsCard } from "@/components/EntityDocsCard";
+import { ProjectMcpServerManager } from "@/components/mcp/ProjectMcpServerManager";
+import { useProjectMcpServers } from "@/hooks/useProjectMcp";
 import { ProjectForm } from "./ProjectForm";
 import { StructureNodeForm } from "./StructureNodeForm";
 import { ProjectPlanForm } from "./ProjectPlanForm";
@@ -374,9 +377,11 @@ function ProjectBackups({
 export default function ProjectDetailPage() {
   const { t } = useTranslation("project");
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { data: project, isLoading, isError, error } = useProject(id);
   const { data: productVersion } = useProductVersion(project?.product_version_id ?? undefined);
   const { data: structureNodes } = useStructureNodes(id);
+  const { data: projectMcpServers, isLoading: projectMcpLoading } = useProjectMcpServers(id);
   const updateProject = useUpdateProject(id ?? "");
   const createStructureNode = useCreateStructureNode(id ?? "");
   const updateStructureNode = useUpdateStructureNode(id ?? "");
@@ -673,17 +678,35 @@ export default function ProjectDetailPage() {
                 <CardDescription>{t("detail.workingDirectoryDescription")}</CardDescription>
               </div>
               {!editingPath && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setPathDraft(project.working_directory_path ?? "");
-                    setEditingPath(true);
-                  }}
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  {t("shared.edit")}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {project.working_directory_path && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        navigate("/workspace", {
+                          state: {
+                            openTerminal: { label: project.name, cwd: project.working_directory_path },
+                          },
+                        })
+                      }
+                    >
+                      <SquareTerminal className="mr-2 h-4 w-4" />
+                      {t("detail.openTerminalHere")}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setPathDraft(project.working_directory_path ?? "");
+                      setEditingPath(true);
+                    }}
+                  >
+                    <Pencil className="mr-2 h-4 w-4" />
+                    {t("shared.edit")}
+                  </Button>
+                </div>
               )}
             </CardHeader>
             <CardContent>
@@ -722,6 +745,21 @@ export default function ProjectDetailPage() {
                   {(updateProject.error as Error)?.message}
                 </p>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl">{t("detail.mcpServersTitle")}</CardTitle>
+              <CardDescription>{t("detail.mcpServersDescription")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ProjectMcpServerManager
+                projectId={project.id}
+                servers={projectMcpServers}
+                isLoading={projectMcpLoading}
+                workingDirectoryPath={project.working_directory_path ?? null}
+              />
             </CardContent>
           </Card>
 

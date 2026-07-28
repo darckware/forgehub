@@ -41,6 +41,7 @@ from app.api.routes import (
     governance,
     governed_approval,
     hindsight,
+    mcp_catalog,
     news,
     notifications,
     orchestration,
@@ -161,6 +162,7 @@ app.include_router(factory.router)
 app.include_router(backlog.router)
 app.include_router(task.router)
 app.include_router(agent.router)
+app.include_router(mcp_catalog.router)
 app.include_router(tool.router)
 app.include_router(artifact.router)
 app.include_router(audit.router)
@@ -226,6 +228,13 @@ TASK_FAILURE_POLL_INTERVAL_SECONDS = 900
 
 _task_failure_poll_task: asyncio.Task | None = None
 
+# How often in-flight background app-test runs (mode="background") are
+# polled to completion -- same role as DISPATCH_COMPLETION_POLL_INTERVAL_
+# SECONDS above, for the "Background tests" tab / /testar's results.
+BACKGROUND_TEST_COMPLETION_POLL_INTERVAL_SECONDS = 15
+
+_background_test_completion_poll_task: asyncio.Task | None = None
+
 
 async def _tool_version_poll_loop() -> None:
     from app.db.base import AsyncSessionLocal
@@ -274,6 +283,23 @@ async def _dispatch_completion_poll_loop() -> None:
         except Exception:
             logger.exception("Dispatch completion poll failed")
         await asyncio.sleep(DISPATCH_COMPLETION_POLL_INTERVAL_SECONDS)
+
+
+async def _background_test_completion_poll_loop() -> None:
+    """Finishes background app-test runs whose isolated CDP browser has
+    ended, mirroring _dispatch_completion_poll_loop above for the same
+    reason: the result must be ready in the history list whether or not
+    anyone has the tab open."""
+    from app.api.routes.workspace_browser import run_background_test_completion_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_background_test_completion_pass(db)
+        except Exception:
+            logger.exception("Background test completion poll failed")
+        await asyncio.sleep(BACKGROUND_TEST_COMPLETION_POLL_INTERVAL_SECONDS)
 
 
 async def _task_failure_poll_loop() -> None:
@@ -388,6 +414,21 @@ async def _stop_dispatch_completion_poll() -> None:
     _dispatch_completion_poll_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await _dispatch_completion_poll_task
+
+
+@app.on_event("startup")
+async def _start_background_test_completion_poll() -> None:
+    global _background_test_completion_poll_task
+    _background_test_completion_poll_task = asyncio.create_task(_background_test_completion_poll_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_background_test_completion_poll() -> None:
+    if _background_test_completion_poll_task is None:
+        return
+    _background_test_completion_poll_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _background_test_completion_poll_task
 
 
 @app.on_event("startup")

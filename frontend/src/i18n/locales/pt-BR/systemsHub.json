@@ -1,0 +1,44 @@
+{
+  "title": "Central de Sistemas",
+  "subtitle": "Servidores MCP e testes de aplicação, escopados por sistema (Projeto/Produto), não por agente -- veja /mcp para configuração de MCP por agente.",
+  "tabs": {
+    "catalog": "Catálogo",
+    "projectMcp": "MCPs do Projeto",
+    "backgroundTests": "Testes em Background"
+  },
+  "catalog": {
+    "title": "Catálogo de MCPs",
+    "description": "Cadastre um servidor uma vez, depois atribua a quantos agentes ou projetos quiser -- incluindo 'aplicar a todos os agentes, inclusive os registrados depois'."
+  },
+  "projectMcp": {
+    "title": "MCPs do Projeto",
+    "description": "Servidores MCP presos à pasta de trabalho de um projeto (.mcp.json do Claude Code por enquanto). Escolha um projeto para gerenciar os servidores dele.",
+    "pickProject": "Selecione um projeto…",
+    "openTerminalHere": "Abrir terminal aqui"
+  },
+  "backgroundTests": {
+    "title": "Testes de aplicação em background",
+    "description": "Peça a um agente para testar a aplicação viva de um produto, em segundo plano ou acompanhando ao vivo, sem travar o chat.",
+    "pickProduct": "Selecione um produto…",
+    "routinesTitle": "Rotinas",
+    "loading": "Carregando…",
+    "noRoutines": "Este produto ainda não tem rotinas de automação -- crie uma pelo painel Automations do Web App primeiro, depois volte aqui pra habilitar o teste em background.",
+    "enableToggle": "Testável em background",
+    "runBackground": "Rodar em background",
+    "runVisible": "Acompanhar ao vivo",
+    "historyTitle": "Histórico",
+    "noHistory": "Nenhuma execução ainda.",
+    "screenshotCount": "{{count}} screenshot(s) capturado(s)",
+    "status": {
+      "queued": "Na fila",
+      "running": "Rodando",
+      "passed": "Passou",
+      "failed": "Falhou",
+      "error": "Erro"
+    },
+    "mode": {
+      "background": "Background",
+      "visible": "Visível"
+    }
+  }
+}
