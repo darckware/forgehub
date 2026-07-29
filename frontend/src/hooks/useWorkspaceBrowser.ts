@@ -7,6 +7,20 @@ export interface WorkspaceBrowserPointerState {
   at: string;
 }
 
+/** A native window.alert/confirm/prompt() the shared page just called --
+ * already auto-resolved by the time this is ever seen (host-bridge's
+ * DIALOG_OVERRIDE_SCRIPT replaces alert/confirm/prompt before any page
+ * script runs, since this headless Chrome build doesn't reliably support
+ * CDP's own dialog-handling round-trip -- confirmed by reproduction,
+ * 2026-07-28, that an unhandled one otherwise freezes the shared browser
+ * for every viewer with no way found to un-stick it). Purely informational:
+ * WebAppPane shows it as a transient, already-resolved toast. */
+export interface WorkspaceBrowserLastDialog {
+  message: string;
+  type: string;
+  at: number;
+}
+
 export interface WorkspaceBrowserState {
   running: boolean;
   cdp_url: string;
@@ -19,6 +33,7 @@ export interface WorkspaceBrowserState {
   captured_at: string;
   last_pointer: WorkspaceBrowserPointerState | null;
   control_owner: "user" | "agent" | null;
+  last_dialog: WorkspaceBrowserLastDialog | null;
 }
 
 /** What Automations/Macro operate on -- a registered Product, or a
@@ -147,6 +162,14 @@ export function useWorkspaceBrowserText() {
 
 export function useWorkspaceBrowserScroll() {
   return useBrowserCommand<{ x: number; y: number; delta_y: number }>("/api/v1/workspace-browser/scroll");
+}
+
+/** Resizes the shared headless Chrome window to match the pane's actual
+ * on-screen size (see WebAppPane.tsx's ResizeObserver) -- keeps the
+ * screenshot filling the pane edge-to-edge instead of letterboxing, and
+ * keeps browserCoordinates()'s click math 1:1 instead of scaled. */
+export function useResizeWorkspaceBrowser() {
+  return useBrowserCommand<{ width: number; height: number }>("/api/v1/workspace-browser/resize");
 }
 
 export function useReloadWorkspaceBrowser() {

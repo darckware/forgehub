@@ -21,7 +21,7 @@ import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
 import antigravityIcon from "@lobehub/icons-static-png/dark/antigravity-color.png";
 import opencodeIcon from "@lobehub/icons-static-png/light/opencode.png";
 import hermesIcon from "@lobehub/icons-static-png/light/hermesagent.png";
-import openclawIcon from "@lobehub/icons-static-png/light/openclaw.png";
+import openclawIcon from "@lobehub/icons-static-png/dark/openclaw-color.png";
 import piIcon from "@/assets/icons/pi.svg";
 import { Button } from "@/components/ui/button";
 import { TerminalPane } from "@/components/TerminalPane";
@@ -29,6 +29,8 @@ import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { apiClient } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useServers, buildSshCommand } from "@/hooks/useServers";
+import { useNavigateWorkspaceBrowser } from "@/hooks/useWorkspaceBrowser";
+import { fetchOpenclawDashboardUrl } from "@/hooks/useTerminalBrowse";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { useAgents } from "@/hooks/useAgent";
@@ -60,26 +62,46 @@ type WorkspaceTab =
   | { kind: "terminal"; id: string; label: string; command?: string; cwd?: string }
   | { kind: "web"; id: string; label: string; url: string };
 
-type Launcher = { label: string; command: string; icon?: string; iconBg?: string };
+type Launcher = { label: string; command: string; icon?: string; iconBg?: string; hasWebPanel?: boolean };
+
+// Used only if fetchOpenclawDashboardUrl fails (bridge unreachable) -- same
+// URL host-bridge itself falls back to when it can't read the gateway
+// token, just without the auth fragment (the dashboard then prompts for it).
+const OPENCLAW_DASHBOARD_FALLBACK_URL = "http://127.0.0.1:28340/";
 
 // "CLI" -- AI coding-assistant CLIs you'd run ad-hoc against this checkout.
 const CLI_LAUNCHERS: Launcher[] = [
   { label: "Claude", command: "claude", icon: claudeIcon },
   { label: "Codex", command: "codex", icon: codexIcon },
   { label: "Antigravity", command: "agy", icon: antigravityIcon },
-  // pi's mark is a plain white glyph (no built-in background), so it needs
-  // a dark backing square to read against this button's light background --
-  // unlike the others above, which are already self-contained color PNGs.
+  // pi's mark is a plain white glyph and opencode's is a plain black glyph
+  // (neither has a built-in background) -- unlike the color logos above,
+  // which read fine on both a light and a dark page theme on their own,
+  // these need a fixed backing chip so they don't wash out into whichever
+  // theme is active (a black glyph on the dark-mode toolbar is otherwise
+  // invisible, same reasoning as hermes below).
   { label: "PI", command: "pi", icon: piIcon, iconBg: "bg-black" },
-  { label: "Opencode", command: "opencode", icon: opencodeIcon },
+  { label: "Opencode", command: "opencode", icon: opencodeIcon, iconBg: "bg-white" },
 ];
 
 // "Runtimes" -- agent orchestration platforms (as opposed to one-shot
-// coding CLIs above). Add OpenClaw or similar here once it has a launch
-// command.
+// coding CLIs above).
 const RUNTIME_LAUNCHERS: Launcher[] = [
-  { label: "OpenClaw", command: "openclaw", icon: openclawIcon },
-  { label: "Hermes", command: "hermes", icon: hermesIcon },
+  // openclaw-color is a full-color mark (like the CLI logos above), so it
+  // needs no backing chip; hermes' mark is a plain black glyph, same
+  // dark-mode-invisibility issue as opencode's above.
+  //
+  // OpenClaw also runs its own web Control UI (`openclaw dashboard`, same
+  // gateway port as the TUI's websocket) -- `hasWebPanel` below opens it
+  // through the internal Workspace Browser rather than a new external
+  // browser tab: its `127.0.0.1` only resolves to the actual OpenClaw host
+  // from a browser already running there, which the Workspace Browser is
+  // (host-bridge-driven) and an operator's own external browser tab isn't.
+  // Never embedded as an iframe either -- it sends `X-Frame-Options: DENY`.
+  // A second entry point alongside the TUI terminal tab every other
+  // launcher opens. See LauncherMenu.
+  { label: "OpenClaw", command: "openclaw", icon: openclawIcon, hasWebPanel: true },
+  { label: "Hermes", command: "hermes", icon: hermesIcon, iconBg: "bg-white" },
 ];
 
 function LauncherIcon({ icon, iconBg }: { icon?: string; iconBg?: string }) {
@@ -141,6 +163,80 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
               </span>
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Launcher with two entry points (currently just OpenClaw, via its
+ * `hasWebPanel`): a dropdown offering "Terminal" (same openTerminalTab flow
+ * as every other launcher button) and "Web" (opens the tool's own web UI
+ * through the internal Workspace Browser, fetching a fresh, pre-authed URL
+ * from the backend on each click -- see fetchOpenclawDashboardUrl and
+ * RUNTIME_LAUNCHERS). */
+function LauncherMenu({
+  launcher,
+  onOpenTerminal,
+  onOpenWeb,
+}: {
+  launcher: Launcher;
+  onOpenTerminal: (label: string, command: string) => void;
+  onOpenWeb: (label: string, url: string) => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const [open, setOpen] = useState(false);
+  const [loadingWeb, setLoadingWeb] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, () => setOpen(false), open);
+
+  async function openWeb() {
+    setOpen(false);
+    setLoadingWeb(true);
+    try {
+      const { url } = await fetchOpenclawDashboardUrl();
+      onOpenWeb(launcher.label, url);
+    } catch {
+      onOpenWeb(launcher.label, OPENCLAW_DASHBOARD_FALLBACK_URL);
+    } finally {
+      setLoadingWeb(false);
+    }
+  }
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-7 w-7"
+        title={launcher.label}
+        aria-label={t("toolbar.openLauncher", { label: launcher.label })}
+        onClick={() => setOpen((v) => !v)}
+        disabled={loadingWeb}
+      >
+        {loadingWeb ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LauncherIcon icon={launcher.icon} iconBg={launcher.iconBg} />}
+      </Button>
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              onOpenTerminal(launcher.label, launcher.command);
+              setOpen(false);
+            }}
+          >
+            <SquareTerminal className="h-3.5 w-3.5" />
+            {t("toolbar.terminal")}
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            onClick={openWeb}
+          >
+            <Globe2 className="h-3.5 w-3.5" />
+            {t("toolbar.web")}
+          </button>
         </div>
       )}
     </div>
@@ -259,6 +355,33 @@ export default function WorkspacePage() {
     const id = crypto.randomUUID();
     setTabs((current) => [...current, { kind: "web", id, label, url }]);
     setActiveTabId(id);
+  }
+
+  const navigateWebBrowser = useNavigateWorkspaceBrowser();
+
+  // Used by the OpenClaw launcher menu's "Web" option (and anything else
+  // that needs to land on a specific URL, as opposed to toggleWebBrowser's
+  // "just show whatever's already there"). openWebTab alone isn't safe here:
+  // every "web" tab renders its own WebAppPane, but all of them share the
+  // exact same backend browser session (one singleton Chromium instance --
+  // see WebAppPane.tsx/useWorkspaceBrowserState's shared query key), and a
+  // freshly mounted WebAppPane only ever auto-navigates on its own if the
+  // shared session has no state yet or is still at "about:blank" -- so
+  // blindly creating a second "web" tab while one already exists (e.g. a
+  // Product's "Web App" tab already open) would NOT navigate anywhere; it'd
+  // just silently show that other tab's stale content under the OpenClaw
+  // label. Reusing/relabeling the single existing tab and explicitly
+  // triggering the navigate mutation keeps this correct regardless of
+  // whatever the shared browser was already showing.
+  function openOrNavigateWebTab(label: string, url: string) {
+    const existing = tabs.find((tab): tab is WorkspaceTab & { kind: "web" } => tab.kind === "web");
+    if (existing) {
+      setTabs((current) => current.map((tab) => (tab.id === existing.id ? { ...tab, label, url } : tab)));
+      setActiveTabId(existing.id);
+    } else {
+      openWebTab(label, url);
+    }
+    navigateWebBrowser.mutate({ url });
   }
 
   function toggleWebBrowser() {
@@ -523,19 +646,23 @@ export default function WorkspacePage() {
           <span className="text-[10px] font-medium uppercase text-muted-foreground" title={t("toolbar.runtimeLaunchers")}>
             {t("toolbar.runtimes")}
           </span>
-          {RUNTIME_LAUNCHERS.map((l) => (
-            <Button
-              key={l.command}
-              variant="outline"
-              size="icon"
-              className="h-7 w-7"
-              title={l.label}
-              aria-label={t("toolbar.openLauncher", { label: l.label })}
-              onClick={() => openTerminalTab(l.label, l.command)}
-            >
-              <LauncherIcon icon={l.icon} iconBg={l.iconBg} />
-            </Button>
-          ))}
+          {RUNTIME_LAUNCHERS.map((l) =>
+            l.hasWebPanel ? (
+              <LauncherMenu key={l.command} launcher={l} onOpenTerminal={openTerminalTab} onOpenWeb={openOrNavigateWebTab} />
+            ) : (
+              <Button
+                key={l.command}
+                variant="outline"
+                size="icon"
+                className="h-7 w-7"
+                title={l.label}
+                aria-label={t("toolbar.openLauncher", { label: l.label })}
+                onClick={() => openTerminalTab(l.label, l.command)}
+              >
+                <LauncherIcon icon={l.icon} iconBg={l.iconBg} />
+              </Button>
+            )
+          )}
         </div>
 
         {/* Dedicated tab strip: sortable (drag-and-drop) + horizontal scroll. */}

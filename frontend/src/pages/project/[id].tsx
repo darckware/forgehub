@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Trans, useTranslation } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   Archive,
@@ -10,7 +10,6 @@ import {
   ClipboardList,
   FolderTree,
   GitPullRequestArrow,
-  Kanban,
   ListTodo,
   Loader2,
   Lock,
@@ -49,7 +48,7 @@ import {
   type StructureNode,
 } from "@/hooks/useProject";
 import { useProductVersion } from "@/hooks/useProduct";
-import { useTasksByChangeRequest, useKanboardCleanup } from "@/hooks/useTask";
+import { useTasksByChangeRequest } from "@/hooks/useTask";
 import { useDeletePlanningItem } from "@/hooks/useBacklog";
 import { EntityDocsCard } from "@/components/EntityDocsCard";
 import { ProjectMcpServerManager } from "@/components/mcp/ProjectMcpServerManager";
@@ -407,12 +406,6 @@ export default function ProjectDetailPage() {
   const [editingCrId, setEditingCrId] = useState<string | null>(null);
   const [pendingDeletePlanningId, setPendingDeletePlanningId] = useState<string | null>(null);
   const [pendingDeleteCrId, setPendingDeleteCrId] = useState<string | null>(null);
-  const kanboardCleanup = useKanboardCleanup();
-  const [cleanupResult, setCleanupResult] = useState<{
-    closed: number;
-    skipped: number;
-    errors: string[];
-  } | null>(null);
 
   const latestPlan = plans?.[0];
 
@@ -996,58 +989,6 @@ export default function ProjectDetailPage() {
                   {((updateChangeRequest.error ?? deleteChangeRequest.error) as Error)?.message}
                 </p>
               )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <Kanban className="h-5 w-5" />
-                {t("detail.kanboardCleanupTitle")}
-              </CardTitle>
-              <CardDescription>{t("detail.kanboardCleanupDescription")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {cleanupResult && (
-                <div className="rounded-md border bg-card p-3 text-sm">
-                  <p>
-                    <Trans
-                      t={t}
-                      i18nKey="detail.kanboardCleanupResult"
-                      count={cleanupResult.closed}
-                      values={{ closed: cleanupResult.closed, skipped: cleanupResult.skipped }}
-                      components={{ b: <span className="font-semibold" /> }}
-                    />
-                  </p>
-                  {cleanupResult.errors.length > 0 && (
-                    <ul className="mt-2 space-y-1 text-destructive">
-                      {cleanupResult.errors.map((e, i) => (
-                        <li key={i}>{e}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-              {kanboardCleanup.isError && (
-                <p className="text-sm text-destructive">
-                  {(kanboardCleanup.error as Error)?.message}
-                </p>
-              )}
-              <Button
-                variant="outline"
-                className="border-amber-400 text-amber-700 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-400"
-                disabled={kanboardCleanup.isPending}
-                onClick={() =>
-                  kanboardCleanup.mutate(project!.id, {
-                    onSuccess: (data) => setCleanupResult(data),
-                  })
-                }
-              >
-                {kanboardCleanup.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                {t("detail.closeKanboardCardsButton")}
-              </Button>
             </CardContent>
           </Card>
 

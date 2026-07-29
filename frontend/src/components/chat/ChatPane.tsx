@@ -38,6 +38,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Markdown } from "@/components/Markdown";
 import { TestApplicationDialog } from "@/components/chat/TestApplicationDialog";
 import { useFsList, type FsEntry } from "@/hooks/useTerminalBrowse";
@@ -212,6 +213,79 @@ function SubagentStatusCard({ number }: { number: number }) {
         {" — "}
         {status ? t(`dispatch.status.${status}`, { ns: "demands" }) : t("dispatch.status.pending", { ns: "demands" })}
       </span>
+    </div>
+  );
+}
+
+/** The tool-call trail for one turn (search/read/write/shell/... steps) --
+ * shared by the live "processing" queue item and, once that turn finishes,
+ * by FinishedStepsTrail below. Extracted so the trail is rendered
+ * identically in both places rather than duplicated (2026-07-29: the
+ * detail must survive past completion instead of being thrown away with
+ * the queue item, see finishedStepsByMessageId). */
+function QueueStepsList({ steps }: { steps: ChatQueueStep[] }) {
+  return (
+    <>
+      {steps.map((step) => {
+        // Telegram-gateway style: terminal/code steps show the tool line
+        // plus the EXACT command in a `shell` block (`detail` is verbatim
+        // from tool_args; the label is an 80-char elision kept only as
+        // fallback). Every other tool is a one-liner with its emoji.
+        const isBlockTool = isTerminalTool(step.name) || step.name.toLowerCase().includes("code");
+        const blockText = isBlockTool
+          ? step.detail ?? (step.label !== step.name ? step.label.replace(/^Running\s+/i, "") : null)
+          : null;
+        return (
+          <div key={step.id} className="space-y-1">
+            <p className="flex items-center gap-2 text-xs text-muted-foreground" title={step.detail ?? step.label}>
+              {step.done ? (
+                <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+              ) : (
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+              )}
+              <span aria-hidden>{toolEmoji(step.name)}</span>
+              {blockText ? step.name : step.label}
+            </p>
+            {blockText && (
+              <div className="ml-5 max-w-lg overflow-hidden rounded-md border border-border/60 bg-muted/50">
+                <p className="border-b border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">shell</p>
+                <code className="block max-h-32 overflow-auto whitespace-pre-wrap break-all px-2 py-1 font-mono text-xs">
+                  {blockText}
+                </code>
+              </div>
+            )}
+            {step.demandNumber != null && (
+              <div className="ml-5 max-w-sm">
+                <SubagentStatusCard number={step.demandNumber} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/** The steps trail kept around after its turn finished -- rendered right
+ * above the persisted assistant reply it belongs to, collapsible so a long
+ * trail doesn't push the actual answer off screen, but never gone: this is
+ * the "process detail and response are separate, don't erase the process
+ * detail" behavior (2026-07-29, Marcelo). */
+function FinishedStepsTrail({ steps }: { steps: ChatQueueStep[] }) {
+  const { t } = useTranslation(["chat"]);
+  const [open, setOpen] = useState(true);
+  if (steps.length === 0) return null;
+  return (
+    <div className="mb-1 max-w-[85%] space-y-1 rounded-lg border border-border/60 bg-muted/20 p-2">
+      <button
+        type="button"
+        className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground hover:text-foreground"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {t("queue.processDetails")}
+      </button>
+      {open && <QueueStepsList steps={steps} />}
     </div>
   );
 }
@@ -1584,6 +1658,56 @@ export function ChatPane({
   const [isRecording, setIsRecording] = useState(false);
   const [queue, setQueue] = useState<ChatQueueItem[]>([]);
   const queueDrainingRef = useRef(false);
+  // Mirrors `queue` synchronously for processQueueItem's completion handler
+  // -- it closes over the `item` argument from when the turn started, whose
+  // `.steps` is always `[]` (steps arrive later via handleStreamEvent's own
+  // setQueue calls), so reading the live array through this ref is the only
+  // way to grab the finished trail before the item is dropped.
+  const queueRef = useRef<ChatQueueItem[]>([]);
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+  // Hidden items (e.g. the priming turn's long "Contexto: ..." text) render
+  // as nothing in the chat screen by design -- clicking one in the summary
+  // strip below reveals that specific item's bubble/details inline, right
+  // where it already sits among the other queue items, instead of a modal
+  // that would cover the rest of the screen. Multiple can be revealed at
+  // once; revealing one never hides another.
+  const [revealedQueueIds, setRevealedQueueIds] = useState<Set<string>>(new Set());
+  const queueItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const pendingScrollToRevealedRef = useRef<string | null>(null);
+  function toggleQueueItemRevealed(id: string) {
+    setRevealedQueueIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+        pendingScrollToRevealedRef.current = id;
+      }
+      return next;
+    });
+  }
+  // Process detail (tool-call steps) for a turn that has already finished,
+  // keyed by the persisted assistant message it belongs to -- captured in
+  // processQueueItem right before that turn's queue item (and its `steps`)
+  // is dropped. The detail must survive the response arriving, not be
+  // erased by it (2026-07-29, Marcelo: "não é preciso apagar o detalhe do
+  // processamento") -- rendered by FinishedStepsTrail above the matching
+  // MessageBubble. Lives only for this mounted session (not persisted by
+  // the backend -- see chatMessageSchema, no steps field).
+  const [finishedStepsByMessageId, setFinishedStepsByMessageId] = useState<Map<string, ChatQueueStep[]>>(
+    new Map()
+  );
+  // Jump straight to the item just revealed -- with several queued items,
+  // scrolling to the bottom of the transcript wouldn't necessarily put an
+  // earlier one (still processing) in view.
+  useEffect(() => {
+    const id = pendingScrollToRevealedRef.current;
+    if (!id) return;
+    pendingScrollToRevealedRef.current = null;
+    queueItemRefs.current.get(id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [revealedQueueIds]);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
@@ -1871,7 +1995,7 @@ export function ChatPane({
     const isInitialForSession = scrolledSessionRef.current !== sessionId;
     messagesEndRef.current?.scrollIntoView({ behavior: isInitialForSession ? "auto" : "smooth" });
     if (isInitialForSession) scrolledSessionRef.current = sessionId;
-  }, [messages, queue, sessionId]);
+  }, [messages, queue, sessionId, revealedQueueIds]);
 
   // Auto-grow the composer with its content -- the single-line height is
   // the floor (never shrinks below it), and it grows up to
@@ -1915,17 +2039,30 @@ export function ChatPane({
   // Bulk "limpeza" (2026-07-28): hard-deletes every session in the given
   // scope -- Project folder, Group folder, or the loose list ("geral", no
   // project/group) -- each cleared independently from its own icon, never
-  // bundled. Confirms once for the whole batch, not per session.
+  // bundled. Confirms once for the whole batch, not per session, via the
+  // shared in-app ConfirmDialog (2026-07-29) rather than window.confirm --
+  // consistent with the rest of the app's destructive-action pattern (see
+  // InboxGroupTree.tsx) and not a native browser popup.
+  const [pendingClearSessions, setPendingClearSessions] = useState<{
+    sessions: ChatSession[];
+    message: string;
+  } | null>(null);
+
   function handleClearSessions(sessionsToClear: ChatSession[], confirmMessage: string) {
     if (sessionsToClear.length === 0) return;
-    if (!window.confirm(confirmMessage)) return;
-    for (const s of sessionsToClear) {
+    setPendingClearSessions({ sessions: sessionsToClear, message: confirmMessage });
+  }
+
+  function confirmClearSessions() {
+    if (!pendingClearSessions) return;
+    for (const s of pendingClearSessions.sessions) {
       deleteSession.mutate(s.id, {
         onSuccess: () => {
           if (s.id === sessionId) setSessionId("");
         },
       });
     }
+    setPendingClearSessions(null);
   }
 
   // "/testar" (LOCAL_SLASH_COMMANDS) opens this dialog instead of sending a
@@ -2127,6 +2264,26 @@ export function ChatPane({
     approveChat.mutate({ streamId, choice });
   }
 
+  // Attaches a finished turn's tool-call trail to the assistant message it
+  // produced, so FinishedStepsTrail can keep showing it after the queue
+  // item itself is dropped -- reads queueRef (not the `item` argument,
+  // whose .steps is always the empty array it started with) and the query
+  // cache directly (not the component's `messages`, which may not have
+  // re-rendered with the just-awaited refetch yet).
+  function preserveFinishedSteps(itemId: string) {
+    const current = queueRef.current.find((it) => it.id === itemId);
+    if (!current || current.steps.length === 0) return;
+    const fresh = queryClient.getQueryData<ChatMessage[]>(chatKeys.messages(sessionId));
+    const lastAssistant = fresh ? [...fresh].reverse().find((m) => m.role === "assistant") : undefined;
+    if (!lastAssistant) return;
+    const steps = current.steps;
+    setFinishedStepsByMessageId((prev) => {
+      const next = new Map(prev);
+      next.set(lastAssistant.id, steps);
+      return next;
+    });
+  }
+
   async function processQueueItem(item: ChatQueueItem) {
     const abortController = item.files.length > 0 || item.isExec ? null : new AbortController();
     setQueue((q) =>
@@ -2153,6 +2310,7 @@ export function ChatPane({
       await queryClient
         .refetchQueries({ queryKey: chatKeys.messages(sessionId) })
         .catch(() => {});
+      preserveFinishedSteps(item.id);
       setQueue((q) => q.filter((it) => it.id !== item.id));
     } catch (err) {
       if ((err as Error).name === "AbortError") {
@@ -2165,6 +2323,7 @@ export function ChatPane({
         await queryClient
           .refetchQueries({ queryKey: chatKeys.messages(sessionId) })
           .catch(() => {});
+        preserveFinishedSteps(item.id);
         setQueue((q) => q.filter((it) => it.id !== item.id));
         return;
       }
@@ -3647,26 +3806,49 @@ export function ChatPane({
             const respondingAgentName = m.responding_agent_id
               ? chatableAgents.find((a) => a.id === m.responding_agent_id)?.name
               : undefined;
+            const finishedSteps = m.role === "assistant" ? finishedStepsByMessageId.get(m.id) : undefined;
             return (
-              <MessageBubble
-                key={m.id}
-                message={m}
-                isCommandReply={isCommandReply}
-                onRegenerate={canRegenerate ? () => handleRegenerate(m) : undefined}
-                regenerateDisabled={deleteMessage.isPending}
-                respondingAgentName={respondingAgentName}
-                onEdit={canEdit ? (newContent) => handleEditMessage(m, newContent) : undefined}
-                editDisabled={deleteMessage.isPending}
-              />
+              <div key={m.id} className="space-y-1">
+                {finishedSteps && <FinishedStepsTrail steps={finishedSteps} />}
+                <MessageBubble
+                  message={m}
+                  isCommandReply={isCommandReply}
+                  onRegenerate={canRegenerate ? () => handleRegenerate(m) : undefined}
+                  regenerateDisabled={deleteMessage.isPending}
+                  respondingAgentName={respondingAgentName}
+                  onEdit={canEdit ? (newContent) => handleEditMessage(m, newContent) : undefined}
+                  editDisabled={deleteMessage.isPending}
+                />
+              </div>
             );
           })}
-          {queue.map((item) =>
+          {queue.map((item) => {
+            const revealed = revealedQueueIds.has(item.id);
             // A hidden priming turn renders as nothing at all while it
             // works (the transcript never shows it either way) -- only an
             // error is surfaced, so a failed priming isn't silently lost.
-            item.hidden && item.status !== "error" ? null : (
-            <div key={item.id} className="space-y-1">
-              {!item.isRegenerate && !item.skipUserMessage && !item.hidden && (
+            // The user can still reveal it by clicking its line in the
+            // summary strip below (see revealedQueueIds), which shows it
+            // right here in the chat screen rather than anywhere else.
+            if (item.hidden && item.status !== "error" && !revealed) return null;
+            return (
+            <div
+              key={item.id}
+              ref={(el) => {
+                if (el) queueItemRefs.current.set(item.id, el);
+                else queueItemRefs.current.delete(item.id);
+              }}
+              className={cn(
+                "space-y-1",
+                item.hidden && revealed && "rounded-lg border border-dashed border-border/60 bg-muted/20 p-2"
+              )}
+            >
+              {item.hidden && revealed && (
+                <p className="pl-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {t("queue.internalContext")}
+                </p>
+              )}
+              {!item.isRegenerate && !item.skipUserMessage && (!item.hidden || revealed) && (
                 <MessageBubble
                   message={{
                     id: `pending-${item.id}`,
@@ -3704,50 +3886,7 @@ export function ChatPane({
                       {item.targetAgentName}
                     </span>
                   )}
-                  {item.steps.map((step) => {
-                    // Telegram-gateway style: terminal/code steps show the
-                    // tool line plus the EXACT command in a `shell` block
-                    // (`detail` is verbatim from tool_args; the label is an
-                    // 80-char elision kept only as fallback). Every other
-                    // tool is a one-liner with its emoji.
-                    const isBlockTool =
-                      isTerminalTool(step.name) || step.name.toLowerCase().includes("code");
-                    const blockText = isBlockTool
-                      ? step.detail ??
-                        (step.label !== step.name ? step.label.replace(/^Running\s+/i, "") : null)
-                      : null;
-                    return (
-                      <div key={step.id} className="space-y-1">
-                        <p
-                          className="flex items-center gap-2 text-xs text-muted-foreground"
-                          title={step.detail ?? step.label}
-                        >
-                          {step.done ? (
-                            <Check className="h-3 w-3 shrink-0 text-emerald-500" />
-                          ) : (
-                            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                          )}
-                          <span aria-hidden>{toolEmoji(step.name)}</span>
-                          {blockText ? step.name : step.label}
-                        </p>
-                        {blockText && (
-                          <div className="ml-5 max-w-lg overflow-hidden rounded-md border border-border/60 bg-muted/50">
-                            <p className="border-b border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-                              shell
-                            </p>
-                            <code className="block max-h-32 overflow-auto whitespace-pre-wrap break-all px-2 py-1 font-mono text-xs">
-                              {blockText}
-                            </code>
-                          </div>
-                        )}
-                        {step.demandNumber != null && (
-                          <div className="ml-5 max-w-sm">
-                            <SubagentStatusCard number={step.demandNumber} />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  <QueueStepsList steps={item.steps} />
                   {item.liveText &&
                     (isPlainTextReply(item.content) ? (
                       <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs">
@@ -3836,7 +3975,8 @@ export function ChatPane({
                 </p>
               )}
             </div>
-          ))}
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
 
@@ -3844,14 +3984,28 @@ export function ChatPane({
           {pendingQueue.length > 1 && (
             <div className="space-y-1 rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 text-xs">
               {pendingQueue.map((item) => (
-                <div key={item.id} className="flex items-center gap-2 text-muted-foreground">
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={revealedQueueIds.has(item.id)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded text-left text-muted-foreground hover:text-foreground",
+                    revealedQueueIds.has(item.id) && "text-foreground"
+                  )}
+                  onClick={() => toggleQueueItemRevealed(item.id)}
+                >
                   {item.status === "processing" ? (
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                   ) : (
                     <span className="h-2 w-2 shrink-0 rounded-full border border-current" />
                   )}
-                  <span className="truncate">{item.content || item.attachmentName}</span>
-                </div>
+                  <span className="flex-1 truncate">{item.content || item.attachmentName}</span>
+                  {revealedQueueIds.has(item.id) ? (
+                    <ChevronDown className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3 shrink-0" />
+                  )}
+                </button>
               ))}
             </div>
           )}
@@ -4168,6 +4322,13 @@ export function ChatPane({
         </aside>
       )}
       <TestApplicationDialog open={testDialogOpen} onClose={() => setTestDialogOpen(false)} />
+      <ConfirmDialog
+        open={pendingClearSessions !== null}
+        description={pendingClearSessions?.message}
+        loading={deleteSession.isPending}
+        onConfirm={confirmClearSessions}
+        onCancel={() => setPendingClearSessions(null)}
+      />
     </div>
   );
 }

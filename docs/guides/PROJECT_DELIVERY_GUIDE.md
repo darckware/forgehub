@@ -22,9 +22,9 @@ Athos (agente Hermes — lê contexto, gera artefatos, define agentes)
 Claude CLI  →  código Python/TypeScript, documentação técnica, refactoring complexo
 Codex       →  testes, endpoints, geração de código repetitivo
 Agy         →  tarefas conforme perfil e contexto do projeto
-    ↓  resultado registrado em
-Kanboard (controle visual de execução por projeto)
-    ↓  status sincronizado de volta para
+    ↓  despacho nativo via
+ForgeHub Messages (canal único de execução, `AgentDemand`)
+    ↓  resultado registrado de volta em
 ForgeHub Execution + Governance (confirmação + auditoria)
 ```
 
@@ -40,7 +40,7 @@ Athos é o orquestrador presente em **todas as telas do Project Delivery**. Ele 
 | **Projects** | Lê contexto + produto e gera o plano inicial do projeto (escopo, áreas, estimativas) |
 | **Pipelines** | Configura os stages com artefatos obrigatórios e gates para o tipo de projeto |
 | **Planning** | Lê os artefatos gerados e quebra em Planning Items por área (frontend/backend/db/design/deploy) |
-| **Execution** | Decide qual agente ou CLI executa cada task; envia para Kanboard; confirma execução |
+| **Execution** | Decide qual agente ou CLI executa cada task; despacha via Messages; confirma execução |
 | **Artifacts** | Gera documentos via Claude CLI e registra os artefatos em cada stage |
 | **Governance** | Verifica se gates podem ser aprovados; sugere aprovação ou aponta o que falta |
 
@@ -182,9 +182,9 @@ Cada item tem descrição, critérios de aceite e área. Você revisa e aprova o
 
 ---
 
-### 5. Execution — As tarefas em execução com Kanboard
+### 5. Execution — As tarefas em execução via Messages
 
-**O que é:** O módulo onde Planning Items viram tasks concretas, são atribuídas a um agente, enviadas ao Kanboard e executadas. É aqui que o trabalho real acontece e é rastreado.
+**O que é:** O módulo onde Planning Items viram tasks concretas, são atribuídas a um agente e despachadas nativamente pelo canal Messages (`AgentDemand`). É aqui que o trabalho real acontece e é rastreado. **(Nota: até 2026-07-28 esse fluxo passava pelo Kanboard, externo; o Kanboard foi descontinuado e removido do ForgeHub — hoje o gerenciamento de tasks e a comunicação entre agentes são feitos inteiramente pelo MCP do ForgeHub, gerenciados pelo componente Messages, ver `CLAUDE.md` §"Every task is executed through the Messages channel".)**
 
 #### 5.1 Ciclo de vida de uma task
 
@@ -195,12 +195,11 @@ Task criada (status: planned)
     ↓
 Athos decide o agente e o CLI  →  Task atribuída (status: assigned)
     ↓
-Task sincronizada para Kanboard  →  card criado na coluna "Ready"
+Task despachada via Messages  →  AgentDemand criada (origin_type="task")
     ↓
-Agente inicia execução  →  Kanboard move para "In Progress"
-    ↓  TaskExecution registrada em ForgeHub
-Agente conclui  →  Kanboard move para "Done"
-    ↓  status sincronizado de volta ao ForgeHub
+Agente inicia execução  →  TaskExecution registrada em ForgeHub
+    ↓
+Agente conclui  →  `dispatch_result` gravado na mensagem
 Você confirma a execução  →  TaskExecution marcada "verified"
     ↓
 AuditEvent criado no Governance
@@ -209,61 +208,20 @@ AuditEvent criado no Governance
 #### 5.2 Confirmação de execução
 
 Cada task exige **confirmação sua** antes de ser marcada como concluída no ForgeHub. O fluxo é:
-1. Kanboard mostra o card como "Done" (agente concluiu)
-2. ForgeHub recebe o status atualizado
-3. Você vê na tela de Execution: task pendente de verificação
-4. Você revisa a evidência (output do agente, pull request, arquivo gerado)
-5. Você confirma → `TaskExecution.status = "verified"` → AuditEvent criado
+1. O agente conclui e o resultado é gravado em `dispatch_result` na mensagem
+2. Você vê na tela de Execution: task pendente de verificação
+3. Você revisa a evidência (output do agente, pull request, arquivo gerado)
+4. Você confirma → `TaskExecution.status = "verified"` → AuditEvent criado
 
 Não há marcação automática de "concluído" sem sua confirmação explícita.
 
-#### 5.3 Mapeamento de status entre ForgeHub e Kanboard
+#### 5.3 Subtasks
 
-| Status ForgeHub | Coluna Kanboard |
-|---|---|
-| `planned` | Backlog |
-| `assigned` | Ready |
-| `in_progress` | In Progress |
-| `blocked` | Blocked |
-| `done` | Done |
-| `deployed` | Close |
-| `cancelled` | Canceled |
-
-#### 5.4 Subtasks
-
-Tasks complexas são divididas em subtasks. Cada subtask tem seu próprio agente, execução e card no Kanboard. A task pai só avança para "done" quando todas as subtasks estão concluídas.
+Tasks complexas são divididas em subtasks. Cada subtask tem seu próprio agente e execução. A task pai só avança para "done" quando todas as subtasks estão concluídas.
 
 ---
 
-### 6. Kanboard — Controle visual de execução
-
-**O que é:** O Kanboard é o quadro visual onde o trabalho em andamento é administrado. Ele não substitui o ForgeHub — complementa: o ForgeHub tem o planejamento e a governança; o Kanboard tem a visão operacional do que está acontecendo agora.
-
-**Como funciona a integração:**
-- ForgeHub cria a task → envia para Kanboard via API JSON-RPC (`POST /api/v1/tasks/{id}/sync-kanboard`)
-- Cada task ForgeHub tem um `kanboard_task_id` armazenado (campo na tabela `project_tasks`)
-- Quando o status muda no ForgeHub, o card no Kanboard é movido de coluna automaticamente
-- Kanboard é a interface que Athos e os agentes usam para ver o que está na fila
-
-**Limpeza do Kanboard por projeto:**
-
-O Kanboard funciona como uma **visão limpa do projeto corrente**. A regra é:
-
-- Ao **encerrar uma fase** do projeto (ex: stage Implementation concluído e aprovado) → tasks desse stage são movidas para "Close" no Kanboard
-- Ao **trocar de versão** (projeto da v1.0.0 encerrado, projeto da v1.1.0 iniciado) → todas as tasks do projeto anterior são fechadas/arquivadas no Kanboard antes do novo projeto começar
-- O novo projeto começa com o Kanboard limpo — apenas as tasks do projeto atual aparecem nas colunas ativas
-
-Isso mantém o board focado e evita que tasks de versões anteriores poluam a visão operacional do que está sendo desenvolvido agora.
-
-**Quem faz a limpeza:**
-Athos executa a limpeza ao final de cada fase (movendo tasks para "Close") e ao iniciar um novo projeto (arquivando tasks antigas). Você confirma antes da limpeza ser executada.
-
-**Kanboard como fonte de auditoria:**
-O histórico de movimentação dos cards no Kanboard (quem moveu, quando, de qual coluna para qual) é capturado e registrado como AuditEvents no módulo de Governance. Isso garante que a trilha de auditoria inclui não apenas o que foi planejado, mas o que foi realmente executado e quando.
-
----
-
-### 7. Artifacts — Os entregáveis formais
+### 6. Artifacts — Os entregáveis formais
 
 **O que é:** Artefatos são os documentos e entregas formais produzidos ao longo do projeto. São a prova de que o trabalho foi feito e está correto.
 
@@ -297,11 +255,11 @@ Cada artefato pode ter múltiplas versões. Revisões geram nova versão — o h
 
 ---
 
-### 8. Governance — Aprovação e auditoria
+### 7. Governance — Aprovação e auditoria
 
 **O que é:** Governance é o módulo que garante que nenhuma entrega acontece sem validação e que tudo fica registrado de forma imutável.
 
-#### 8.1 Approvals (Gates)
+#### 7.1 Approvals (Gates)
 
 Cada stage tem um gate. Antes de avançar, uma aprovação precisa ser registrada:
 
@@ -319,7 +277,7 @@ Stage "SPEC" liberado
 
 Sem aprovação, o pipeline fica bloqueado. Isso impede que implementação comece com especificação incompleta.
 
-#### 8.2 Audit Trail
+#### 7.2 Audit Trail
 
 Cada ação relevante gera um `AuditEvent` imutável. Fontes de auditoria:
 
@@ -328,12 +286,9 @@ Cada ação relevante gera um `AuditEvent` imutável. Fontes de auditoria:
 | Task criada, atribuída, concluída | ForgeHub Execution |
 | Artefato criado ou aprovado | ForgeHub Artifacts |
 | Gate aprovado ou rejeitado | ForgeHub Governance |
-| Card movido no Kanboard | Kanboard (via sync) |
+| Task despachada/concluída via Messages | AgentDemand (dispatch_result) |
 | CLI executou task (com output) | TaskExecution.evidence_ref |
 | Athos tomou decisão de agente | TaskExecution.notes |
-
-**Por que o Kanboard alimenta o Audit Trail:**
-O Kanboard registra *quando* o trabalho aconteceu de fato (não apenas quando foi planejado). Ao sincronizar o histórico de movimentação do Kanboard de volta ao ForgeHub, o Audit Trail tem o registro completo: planejado em X, iniciado em Y, concluído em Z, verificado por você em W.
 
 ---
 
@@ -369,9 +324,8 @@ Você revisa o backlog → aprova
 ETAPA 6 — EXECUTION (Implementation stage)
 Athos quebra Planning Items em Tasks
 Para cada task, Athos decide: Claude CLI / Codex / Agy
-Tasks sincronizadas para Kanboard (coluna "Ready")
-Agentes executam → Kanboard atualizado ("In Progress" → "Done")
-ForgeHub recebe status atualizado
+Tasks despachadas nativamente via Messages (AgentDemand)
+Agentes executam → resultado gravado em dispatch_result
 Você confirma cada execução → TaskExecution "verified"
 AuditEvent criado por task confirmada
 
@@ -388,8 +342,7 @@ Approval record registrado
 Audit Trail completo disponível
 
 ETAPA 9 — PRÓXIMA VERSÃO
-Athos arquiva tasks do projeto encerrado no Kanboard
-Kanboard limpo para o próximo projeto
+Athos encerra as tasks do projeto anterior nativamente no ForgeHub
 Novo projeto criado vinculado à versão 1.1.0
 Ciclo reinicia
 ```
@@ -401,12 +354,11 @@ Ciclo reinicia
 | Quem | O que faz |
 |---|---|
 | **Você** | Define contexto, aprova gates, confirma execuções, toma decisões de produto |
-| **Athos** | Orquestra em cada tela, gera artefatos, divide planning, decide qual CLI usar, gerencia Kanboard |
+| **Athos** | Orquestra em cada tela, gera artefatos, divide planning, decide qual CLI usar |
 | **Claude CLI** | Documenta, implementa código complexo, gera migrations |
 | **Codex** | Gera testes, implementa padrões repetitivos, refactoring |
 | **Agy** | Executa tarefas simples e bem definidas |
-| **Kanboard** | Visão operacional do trabalho em andamento; alimenta auditoria |
-| **ForgeHub** | Registra tudo, controla os gates, mantém o Audit Trail, garante rastreabilidade |
+| **ForgeHub** | Registra tudo, controla os gates, mantém o Audit Trail, despacha via Messages, garante rastreabilidade |
 
 ---
 
@@ -531,21 +483,7 @@ Problemas que não travam o usuário mas causam erros silenciosos ou comportamen
 
 ---
 
-### E. Integração Kanboard — lacunas no ciclo completo (alto impacto operacional)
-
-A integração atual é unidirecional: ForgeHub cria cards no Kanboard, mas o Kanboard não retorna status ao ForgeHub.
-
-| Lacuna | Impacto | Correção necessária |
-|---|---|---|
-| Sincronização reversa Kanboard → ForgeHub | O Execution module não sabe se uma task foi concluída sem intervenção manual | Implementar webhook ou polling: quando card move para "Done" no Kanboard, atualizar `ProjectTask.status` e criar `TaskExecution` no ForgeHub |
-| Limpeza do Kanboard ao encerrar fase | Cards de fases anteriores acumulam no board | Implementar endpoint que archive tasks de um stage/projeto no Kanboard ao aprovar o gate de encerramento |
-| Limpeza ao trocar de versão/projeto | Board fica poluído com histórico de versões anteriores | Ao iniciar novo projeto, arquivar todas as tasks do projeto anterior no Kanboard antes de criar as novas |
-| Kanboard sem VITE_KANBOARD_URL configurado no Docker | Frontend sempre usa fallback `localhost:8081` — não funciona dentro do container | Adicionar `VITE_KANBOARD_URL` no `docker-compose.yml` com valor correto |
-| Iframe sem fallback de erro | Se Kanboard estiver fora do ar, o usuário vê tela em branco sem mensagem | Adicionar detecção de falha no iframe com mensagem de erro |
-
----
-
-### F. Funcionalidades de orquestração com Athos — inexistentes (planejadas)
+### E. Funcionalidades de orquestração com Athos — inexistentes (planejadas)
 
 Funcionalidades previstas no fluxo de uso mas que ainda não foram implementadas.
 
@@ -556,13 +494,12 @@ Funcionalidades previstas no fluxo de uso mas que ainda não foram implementadas
 | Quebra automática de Planning Items | Athos lê artefatos aprovados e gera backlog por área (frontend/backend/db/design/deploy) | Alta |
 | Decisão de agente por task | Athos avalia tipo e contexto da task e registra qual CLI usará com justificativa | Alta |
 | Confirmação de execução com evidência | Tela de revisão onde você vê o output do CLI e aprova ou solicita reexecução | Alta |
-| Limpeza automática do Kanboard | Athos arquiva cards ao final de cada fase/versão, com confirmação sua antes de executar | Média |
 | Sugestão de aprovação de gate | Athos verifica se todos os artefatos obrigatórios existem e sugere aprovação do gate | Média |
 | Histórico de decisões do Athos | Registro de cada decisão de orquestração (qual CLI, por quê, resultado) no Audit Trail | Média |
 
 ---
 
-### G. UX e experiência geral (baixo/médio impacto, mas degradam a usabilidade)
+### F. UX e experiência geral (baixo/médio impacto, mas degradam a usabilidade)
 
 | Problema | Correção necessária |
 |---|---|

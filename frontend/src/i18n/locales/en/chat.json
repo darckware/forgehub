@@ -194,7 +194,9 @@
     "failed": "❌ Failed: {{error}}",
     "dismiss": "Dismiss",
     "subagentLoading": "Loading delegation status…",
-    "subagentDelegatedTo": "Delegated #{{number}} to {{agent}}"
+    "subagentDelegatedTo": "Delegated #{{number}} to {{agent}}",
+    "internalContext": "Internal context",
+    "processDetails": "Processing details"
   },
   "artifactsPanel": {
     "title": "Artifacts",

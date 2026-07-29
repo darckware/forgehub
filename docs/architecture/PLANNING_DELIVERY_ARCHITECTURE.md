@@ -562,7 +562,7 @@ Entidades atuais:
 
 | Entidade | Atributos atuais | Avaliação |
 |---|---|---|
-| `Product` | `name`, `description`, `status`, integração Kanboard | A identidade está correta. `name` é único e `status` tem conjunto fechado. A configuração Kanboard é operacional e poderia futuramente ser separada da entidade de negócio. |
+| `Product` | `name`, `description`, `status` | A identidade está correta. `name` é único e `status` tem conjunto fechado. |
 | `ProductModule` | `product_id`, `name`, `description` | Insuficiente para planejamento modular: faltam `code/slug`, owner, criticidade, estado, dependências e vínculo opcional com nós reais da estrutura. |
 | `ProductVersion` | `product_id`, `version`, `status`, `release_notes` | Boa raiz para o escopo de versão, mas `version` aceita qualquer string, transições não são formalizadas e `release_notes` mistura versão planejada com release efetiva. |
 | `Release` | `product_version_id`, `name`, `status`, `notes` | Muito simples para governar release: não agrega commit/tag, artefatos, aprovações, ambiente, data, rollback ou deployments. |
@@ -716,7 +716,7 @@ Decisão recomendada:
 
 **Responsabilidade:** decompor escopo em tasks, atribuir executor, registrar cada tentativa, revisar e concluir.
 
-O modelo atual separa corretamente `ProjectTask`, `TaskAssignment` e `TaskExecution`. Também suporta subtasks, dependências, skills, custo, múltiplas tentativas, evidência e sync manual com Kanboard.
+O modelo atual separa corretamente `ProjectTask`, `TaskAssignment` e `TaskExecution`. Também suporta subtasks, dependências, skills, custo, múltiplas tentativas e evidência. Toda execução é despachada nativamente via o canal Messages (`AgentDemand`), sem depender de um board externo (Kanboard foi descontinuado e removido do ForgeHub em 2026-07-28).
 
 Lacunas críticas:
 
@@ -731,9 +731,7 @@ Lacunas críticas:
 - `attempt_number = count + 1` pode colidir em concorrência e não possui unique constraint;
 - `started_at`, `finished_at`, `completed_at` e custos não são mantidos de forma consistente pelas transições;
 - `verified` e `completed` na execução têm semântica sobreposta. O ideal é `completed` pelo executor e `verified` pelo revisor, em sequência;
-- audit é gerado novamente em PATCH repetido para o mesmo estado;
-- pull do Kanboard altera status sem aplicar as regras de conclusão e sem criar audit/evidência;
-- `kanboard_cleanup` consulta `ProjectTask.project_id`, coluna inexistente, e falha em runtime.
+- audit é gerado novamente em PATCH repetido para o mesmo estado.
 
 Modelo-alvo mínimo para Task:
 
@@ -1264,11 +1262,10 @@ Se algum dado estiver ausente, o agente deve apontar a lacuna; não deve inventa
 7. Versionar templates e implementar `instantiate template` de forma atômica.
 8. Criar máquinas de estados e constraints para pipeline, stage, gate, assignment e execution.
 9. Fazer `stage completion` calcular cobertura de escopo, tasks, execuções, artefatos e approvals; remover confiança em `is_fulfilled` manual.
-10. Corrigir `kanboard_cleanup` e fazer sync reverso passar pelas mesmas regras de domínio.
-11. Garantir que Task `done` exige execução concluída/verificada, evidência e subtasks/dependências completas.
-12. Validar sempre que referências cruzadas pertencem ao mesmo ProductVersion/Project/Pipeline/System Blueprint.
-13. **Parcialmente concluído:** ProjectMembership, dispatch elegível e validação por Project implementados; tornar membership obrigatório também no CRUD manual legado.
-14. **Concluído no fluxo automatizado:** executor, runtime e TaskExecutionReview independentes; fazer backfill/constraint para execuções antigas em etapa posterior.
+10. Garantir que Task `done` exige execução concluída/verificada, evidência e subtasks/dependências completas.
+11. Validar sempre que referências cruzadas pertencem ao mesmo ProductVersion/Project/Pipeline/System Blueprint.
+12. **Parcialmente concluído:** ProjectMembership, dispatch elegível e validação por Project implementados; tornar membership obrigatório também no CRUD manual legado.
+13. **Concluído no fluxo automatizado:** executor, runtime e TaskExecutionReview independentes; fazer backfill/constraint para execuções antigas em etapa posterior.
 
 ### P1 — versionamento, release e deploy
 
@@ -1304,7 +1301,7 @@ A estrutura estará coerente quando o ForgeHub conseguir responder, somente a pa
 6. Qual conjunto exato de commits, builds, migrations e documentos compõe uma release?
 7. Em quais ambientes essa release está instalada e qual foi o resultado?
 8. Quais policies foram avaliadas e com quais inputs?
-9. É possível reconstruir a linha do tempo sem depender do Kanboard, GitHub ou memória de conversa?
+9. É possível reconstruir a linha do tempo sem depender do GitHub ou memória de conversa?
 10. Quais telas, processos, APIs, regras, entidades, estruturas de dados e unidades de deploy formam cada versão do produto?
 11. Para cada elemento do sistema, em qual marco ele está e qual evidência sustenta esse estado?
 12. Quais partes do mapa ficaram sem especificação, implementação, teste, release ou verificação operacional?

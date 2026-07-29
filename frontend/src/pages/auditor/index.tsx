@@ -149,7 +149,7 @@ function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onCl
               <label className="text-xs font-medium text-muted-foreground">Category</label>
               <Input
                 value={form.category ?? ""}
-                placeholder="infra, cron, kanboard…"
+                placeholder="infra, cron, backup…"
                 onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
               />
             </div>

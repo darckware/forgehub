@@ -5,13 +5,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   AlertCircle,
-  Download,
-  ExternalLink,
   History,
   Loader2,
   Mail,
   Play,
-  RefreshCw,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,8 +30,6 @@ import {
   EXECUTOR_TYPES,
   executionCreateSchema,
   type ExecutionCreateInput,
-  useSyncTaskToKanboard,
-  usePullKanboard,
   useDispatchTask,
   useTask,
   useTasks,
@@ -68,9 +63,6 @@ const HEALTH_VARIANT: Record<
   stalled: "warning",
   failed: "destructive",
 };
-
-const KANBOARD_URL =
-  (import.meta.env.VITE_KANBOARD_URL as string | undefined) ?? "http://localhost:8081";
 
 const EXEC_STATUS_VARIANT: Record<
   string,
@@ -177,8 +169,6 @@ export default function TaskDetailPage() {
   const { t } = useTranslation("task");
   const { id } = useParams<{ id: string }>();
   const { data: task, isLoading, isError, error } = useTask(id);
-  const syncKanboard = useSyncTaskToKanboard(id ?? "");
-  const pullKanboard = usePullKanboard(id ?? "");
   const dispatchTask = useDispatchTask(id ?? "");
   const { data: projects } = useProjects();
   const { data: planningItems } = usePlanningItems();
@@ -301,80 +291,6 @@ export default function TaskDetailPage() {
           <TaskDependenciesCard taskId={task.id} />
 
           <TaskAutomationCard taskId={task.id} projectId={task.project_id ?? undefined} />
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-xl">{t("detail.kanboard.title")}</CardTitle>
-                <CardDescription>{t("detail.kanboard.description")}</CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                {task.kanboard_task_id != null && (
-                  <>
-                    <a
-                      href={`${KANBOARD_URL}/task/${task.kanboard_task_id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={buttonVariants({ variant: "outline", size: "sm" })}
-                    >
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      {t("detail.kanboard.openCard")}
-                    </a>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={pullKanboard.isPending}
-                      onClick={() => pullKanboard.mutate()}
-                      title={t("detail.kanboard.pullTooltip")}
-                    >
-                      {pullKanboard.isPending ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Download className="mr-2 h-4 w-4" />
-                      )}
-                      {t("detail.kanboard.pullStatus")}
-                    </Button>
-                  </>
-                )}
-                <Button
-                  size="sm"
-                  disabled={syncKanboard.isPending}
-                  onClick={() => syncKanboard.mutate()}
-                >
-                  {syncKanboard.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                  )}
-                  {task.kanboard_task_id != null
-                    ? t("detail.kanboard.resync")
-                    : t("detail.kanboard.sync")}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                {task.kanboard_task_id != null
-                  ? t("detail.kanboard.linked", { id: task.kanboard_task_id })
-                  : t("detail.kanboard.notSynced")}
-              </p>
-              {syncKanboard.isError && (
-                <p className="mt-2 text-sm text-destructive">
-                  {(syncKanboard.error as Error)?.message}
-                </p>
-              )}
-              {pullKanboard.isError && (
-                <p className="mt-2 text-sm text-destructive">
-                  {t("detail.kanboard.pullFailed", { message: (pullKanboard.error as Error)?.message })}
-                </p>
-              )}
-              {pullKanboard.isSuccess && (
-                <p className="mt-2 text-sm text-emerald-600">
-                  {t("detail.kanboard.pullSuccess")}
-                </p>
-              )}
-            </CardContent>
-          </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">

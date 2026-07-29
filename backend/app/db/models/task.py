@@ -68,12 +68,8 @@ class ProjectTask(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # Human-readable display number (#1, #2, ...), a real Postgres IDENTITY
     # column -- same convention as AgentDemand.number (db/models/demand.py).
-    # Independent of kanboard_task_id: that one stays NULL until this task
-    # is pushed to Kanboard (and Kanboard resets periodically -- see that
-    # column's docstring), so it was never a reliable "this task has a
-    # number" guarantee. This column always exists, from creation, whether
-    # or not the task ever syncs to Kanboard -- closes the traceability gap
-    # found while reviewing the Inbox's own AgentDemand.number (2026-07-25).
+    # This column always exists, from creation -- closes the traceability
+    # gap found while reviewing the Inbox's own AgentDemand.number (2026-07-25).
     number: Mapped[int] = mapped_column(Integer, Identity(always=False), unique=True, nullable=False)
 
     planning_item_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -111,12 +107,6 @@ class ProjectTask(Base, TimestampMixin):
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    # Set once this task has been pushed to Kanboard (see
-    # app/core/kanboard_client.py) -- an int because Kanboard's own task ids
-    # are plain auto-increment integers, not UUIDs. Lets POST .../sync-kanboard
-    # be idempotent: create on first sync, update/move on subsequent ones.
-    kanboard_task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Governance: optional link to the Policy this task is implementing.
     # Lets a Policy page show all tasks contributing to its compliance.

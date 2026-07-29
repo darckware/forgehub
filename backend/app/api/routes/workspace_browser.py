@@ -33,6 +33,7 @@ from app.api.schemas.workspace_browser import (
     WebAutomationTestRunOut,
     WorkspaceBrowserNavigate,
     WorkspaceBrowserPointer,
+    WorkspaceBrowserResize,
     WorkspaceBrowserScroll,
     WorkspaceBrowserStart,
     WorkspaceBrowserStateOut,
@@ -94,6 +95,11 @@ async def reload_browser() -> WorkspaceBrowserStateOut:
 @router.post("/back", response_model=WorkspaceBrowserStateOut)
 async def back_browser() -> WorkspaceBrowserStateOut:
     return await _bridge("POST", "/back")
+
+
+@router.post("/resize", response_model=WorkspaceBrowserStateOut)
+async def resize_browser(payload: WorkspaceBrowserResize) -> WorkspaceBrowserStateOut:
+    return await _bridge("POST", "/resize", payload.model_dump())
 
 
 @router.post("/pointer", response_model=WorkspaceBrowserStateOut)

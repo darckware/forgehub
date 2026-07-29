@@ -8,7 +8,7 @@ import { useCreateProfile, useUpdateProfile } from "@/hooks/useAuth";
 
 const MODULES = [
   "product", "projects", "pipeline", "backlog", "tasks", "agents",
-  "artifacts", "governance", "forgerouter", "kanboard", "obsidian",
+  "artifacts", "governance", "forgerouter", "obsidian",
   "foundation", "crons", "deploy", "servers", "database", "users", "profiles",
 ];
 
@@ -22,7 +22,6 @@ const MODULE_LABELS: Record<string, string> = {
   artifacts: "Artifacts",
   governance: "Governance",
   forgerouter: "ForgeRouter",
-  kanboard: "Kanboard",
   obsidian: "Knowledge Base",
   foundation: "Foundation",
   crons: "Crons",

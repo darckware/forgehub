@@ -74,20 +74,6 @@ class Settings(BaseSettings):
     FORGEROUTER_URL: str = "http://host.docker.internal:2100"
     FORGEROUTER_SSO_SECRET: str = ""
 
-    # Kanboard JSON-RPC integration (see app/core/kanboard_client.py). URL
-    # must be reachable from inside this container -- the `kanboard`
-    # hostname on the shared foundation_network, not
-    # localhost (that only works from the host/browser, e.g. the iframe in
-    # frontend/src/pages/kanboard/index.tsx).
-    KANBOARD_URL: str = "http://kanboard/jsonrpc.php"
-    KANBOARD_USER: str = ""
-    KANBOARD_TOKEN: str = ""
-    KANBOARD_PROJECT_ID: int = 0
-    # Browser-facing base URL for card links returned to the frontend --
-    # KANBOARD_URL above is the container-internal address and is not
-    # resolvable from a user's browser.
-    KANBOARD_PUBLIC_URL: str = "http://localhost:8081"
-
     # Second PostgreSQL instance (Foundation runtime data).
     # Inside Docker both instances share the foundation_network docker network.
     FOUNDATION_POSTGRES_HOST: str = "foundation_postgres"

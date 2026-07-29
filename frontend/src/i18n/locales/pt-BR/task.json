@@ -61,19 +61,6 @@
       "estimatedCost": "Custo estimado",
       "parentTask": "Tarefa pai"
     },
-    "kanboard": {
-      "title": "Kanboard",
-      "description": "Sincronize esta tarefa com o projeto real no Kanboard como um cartão.",
-      "openCard": "Abrir cartão",
-      "pullStatus": "Puxar status",
-      "pullTooltip": "Ler a coluna atual do Kanboard e atualizar o status desta tarefa",
-      "resync": "Ressincronizar",
-      "sync": "Sincronizar com Kanboard",
-      "linked": "Vinculado ao cartão #{{id}} do Kanboard.",
-      "notSynced": "Ainda não sincronizado — isso criará um cartão no projeto Kanboard do ForgeHub.",
-      "pullFailed": "Falha ao puxar: {{message}}",
-      "pullSuccess": "Status atualizado a partir do Kanboard."
-    },
     "executions": {
       "title": "Execuções da tarefa",
       "description": "Cada tentativa real de execução por um agente, subagente, humano ou sistema. Uma tarefa pode ter várias execuções (falhou, repetida, verificada, concluída).",

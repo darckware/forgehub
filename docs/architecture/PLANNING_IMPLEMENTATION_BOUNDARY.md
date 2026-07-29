@@ -43,7 +43,7 @@ Esses arquivos de infraestrutura não constituem expansão funcional para outro 
 - Assistant global e ChatPane;
 - Athos Control Room/browser assistido;
 - Agents, Tools, Skills, Foundation, ForgeRouter e Crons;
-- Kanboard e Knowledge Base;
+- Knowledge Base;
 - System Control, Hindsight, Auditor, Deploy, Servers e Database;
 - Users e Access Profiles;
 - host bridge, adapters Claude/Codex/Agy e runner durável;

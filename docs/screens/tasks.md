@@ -9,14 +9,14 @@ Routes: `/tasks` (list, labeled "Execution" in the sidebar) and `/tasks/:id` (de
 ```
 Components: `frontend/src/pages/task/index.tsx` (list) and `frontend/src/pages/task/[id].tsx` (detail).
 
-Purpose: manage `ProjectTask` rows — the planned units of work split out from a `PlanningItem` (or a `ChangeRequest`) and tracked through assignment to an Agent/SubAgent and execution attempts (`TaskExecution`). The list view supports create/delete and a flat table of all tasks (filterable by project); the detail view shows the task's linkage (project, planning item, schedule/cost), its dependencies and required skills, the Governed CLI execution card (assignment + dispatch pointer), Kanboard sync, and its full execution history. There is still no in-place status-change control outside of assignment/execution/Kanboard side effects — a task's own `status` field can only be changed by those, not typed directly (by design: `PATCH` rejects `status: "ready"`, that value is set only by `ActivateExecutionWave`).
+Purpose: manage `ProjectTask` rows — the planned units of work split out from a `PlanningItem` (or a `ChangeRequest`) and tracked through assignment to an Agent/SubAgent and execution attempts (`TaskExecution`). The list view supports create/delete and a flat table of all tasks (filterable by project); the detail view shows the task's linkage (project, planning item, schedule/cost), its dependencies and required skills, the Governed CLI execution card (assignment + dispatch pointer), and its full execution history. There is still no in-place status-change control outside of assignment/execution side effects — a task's own `status` field can only be changed by those, not typed directly (by design: `PATCH` rejects `status: "ready"`, that value is set only by `ActivateExecutionWave`). (Kanboard sync — push/pull card and `sync-kanboard`/`pull-kanboard` endpoints — was removed 2026-07-28 when Kanboard was discontinued; task management and agent-to-agent dispatch are now native via ForgeHub's own MCP server, surfaced by the Messages component, see `CLAUDE.md`.)
 
 ## Components
 
 | File | Role |
 |---|---|
 | `frontend/src/pages/task/index.tsx` | List page. "New task" toggle, inline create form (`TaskForm`), a project filter dropdown, loading/error/empty states, and a table of all tasks with status/priority badges, due date, execution count, and per-row View/Delete actions. A fixed "ForgeRouter Anthropic adapter task" card with a copy-to-clipboard prompt sits above the table (unrelated to any specific task — a canned prompt for a specific piece of infra work). |
-| `frontend/src/pages/task/[id].tsx` | Detail page. Task title/description/status/priority, three summary cards (Project, Planning item, Schedule & cost), `TaskDependenciesCard`, `TaskAutomationCard` (assignment + governed dispatch pointer), a Kanboard sync card, and the Task Executions table (executor, outcome, timestamps, actual cost, evidence link). |
+| `frontend/src/pages/task/[id].tsx` | Detail page. Task title/description/status/priority, three summary cards (Project, Planning item, Schedule & cost), `TaskDependenciesCard`, `TaskAutomationCard` (assignment + governed dispatch pointer), and the Task Executions table (executor, outcome, timestamps, actual cost, evidence link). |
 | `frontend/src/pages/task/TaskForm.tsx` | Shared create/edit form (used by the list page and reused inline by the Backlog page's per-planning-item task rows). Fields: title, description, a **Project filter** (local UI state only — narrows the Planning item / Change request pickers below, never submitted; a task has no `project_id` column of its own), planning item picker, change request picker, parent task picker, due date (maps to the backend's `planned_end_date`), status select, priority select, estimated cost, governance policy. |
 | `frontend/src/components/TaskAutomationCard.tsx` | "Governed CLI execution" card: lists eligible project memberships (`GET /orchestration/tasks/{id}/eligible-memberships`, computed from required skills + membership status/validity) with reasons for ineligible ones, lets you create a `TaskAssignment`, and shows automated execution attempts + their loop-policy reviews. The actual dispatch button is permanently disabled — legacy direct dispatch (`POST /orchestration/tasks/{id}/dispatch`) was retired (410 Gone) by ER-RUN-01; the button points users at Planning > Execution Release (ExecutionWave → Work Package → `POST /work-packages/{id}:dispatch`) instead. |
 | `frontend/src/components/TaskDependenciesCard.tsx` | Added 2026-07-16. Lists/creates `TaskDependency` rows (with delete) and `TaskRequiredSkill` rows (create + list only — the backend has no delete endpoint for this sub-resource). Required skills here are what `TaskAutomationCard`'s eligibility check reads. |
@@ -36,7 +36,6 @@ Purpose: manage `ProjectTask` rows — the planned units of work split out from 
 | Create task | `useCreateTask()` | `/api/v1/tasks` | POST |
 | Update task | `useUpdateTask(id)` | `/api/v1/tasks/{id}` | PATCH |
 | Delete task | `useDeleteTask()` | `/api/v1/tasks/{id}` | DELETE |
-| Kanboard sync / pull | `useSyncTaskToKanboard` / `usePullKanboard` | `/api/v1/tasks/{id}/sync-kanboard`, `/api/v1/tasks/{id}/pull-kanboard` | POST |
 
 ## Actions Available
 
@@ -46,7 +45,6 @@ Purpose: manage `ProjectTask` rows — the planned units of work split out from 
 - **View / Delete** (list row) — navigate to `/tasks/:id`, or delete immediately (no confirmation dialog).
 - **Add/remove dependency, add required skill** (`TaskDependenciesCard`) — see Data & API Calls.
 - **Assign an eligible member, review an automated execution** (`TaskAutomationCard`).
-- **Push/pull Kanboard** (detail page Kanboard card).
 - Detail page evidence link — opens `execution.evidence_ref`/`evidence_url` in a new tab when present.
 
 Still missing at this screen: no direct "mark done" control (by design, see Purpose) and no inline task edit UI on the detail page itself (editing happens through the list page's per-row form, or the Backlog page's embedded `TaskForm` for a planning item's tasks).

@@ -5,8 +5,8 @@ import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
 import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
 import antigravityIcon from "@lobehub/icons-static-png/dark/antigravity-color.png";
 import opencodeIcon from "@lobehub/icons-static-png/light/opencode.png";
+import openclawIcon from "@lobehub/icons-static-png/dark/openclaw-color.png";
 import piIcon from "@/assets/icons/pi.svg";
-import kanboardIcon from "@/assets/icons/kanboard.svg";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,20 +20,26 @@ import {
 } from "@/hooks/useToolVersions";
 import { useToolUpdateStore } from "@/store/toolUpdate";
 
-// pi's mark is a plain white glyph with no built-in background, so it needs
-// a dark backing square to read against this card's light background --
-// unlike the other PNGs below, which are already self-contained color icons.
+// pi's mark is a plain white glyph, and hermes/opencode's are plain black
+// glyphs -- none has a built-in background, unlike the other PNGs below,
+// which are already self-contained color icons that read fine on both a
+// light and a dark page theme on their own. Each gets a fixed backing chip
+// (rather than a page-theme-reactive one) so it doesn't wash out into
+// whichever theme is active -- a black glyph directly on this card's dark
+// mode is otherwise invisible.
 const TOOL_META: Record<MonitoredTool, { label: string; icon?: string; iconBg?: string }> = {
-  hermes: { label: "Hermes", icon: hermesIcon },
+  hermes: { label: "Hermes", icon: hermesIcon, iconBg: "bg-white" },
   claude: { label: "Claude Code", icon: claudeIcon },
   codex: { label: "Codex", icon: codexIcon },
   antigravity: { label: "Antigravity", icon: antigravityIcon },
   pi: { label: "PI", icon: piIcon, iconBg: "bg-black" },
-  opencode: { label: "Opencode", icon: opencodeIcon },
-  kanboard: { label: "Kanboard", icon: kanboardIcon },
+  opencode: { label: "Opencode", icon: opencodeIcon, iconBg: "bg-white" },
+  // openclaw-color is a full-color mark (like claude/codex/antigravity
+  // above), so it needs no backing chip.
+  openclaw: { label: "OpenClaw", icon: openclawIcon },
 };
 
-const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode", "kanboard"];
+const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode", "openclaw"];
 
 
 export function ToolVersionsCard() {

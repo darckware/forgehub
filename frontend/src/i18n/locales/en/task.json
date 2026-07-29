@@ -61,19 +61,6 @@
       "estimatedCost": "Estimated cost",
       "parentTask": "Parent task"
     },
-    "kanboard": {
-      "title": "Kanboard",
-      "description": "Sync this task to the real Kanboard project as a card.",
-      "openCard": "Open card",
-      "pullStatus": "Pull status",
-      "pullTooltip": "Read current column from Kanboard and update this task's status",
-      "resync": "Re-sync",
-      "sync": "Sync to Kanboard",
-      "linked": "Linked to Kanboard card #{{id}}.",
-      "notSynced": "Not synced yet — this will create a card in the ForgeHub Kanboard project.",
-      "pullFailed": "Pull failed: {{message}}",
-      "pullSuccess": "Status updated from Kanboard."
-    },
     "executions": {
       "title": "Task executions",
       "description": "Every real execution attempt by an agent, sub-agent, human, or system. A task can have multiple executions (failed, retried, verified, completed).",

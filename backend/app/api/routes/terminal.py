@@ -92,6 +92,30 @@ async def fs_list(path: str | None = Query(default=None), user: User = Depends(g
     return resp.json()
 
 
+@router.get("/openclaw-dashboard-url")
+async def openclaw_dashboard_url(user: User = Depends(get_current_admin)) -> dict:
+    """Proxy to the bridge's OpenClaw gateway-token lookup -- backs the
+    Workspace's OpenClaw launcher menu's "Web" option, which opens the
+    dashboard through the internal Workspace Browser (not a new external
+    browser tab: the dashboard's `127.0.0.1` only resolves to the actual
+    OpenClaw host from a browser running on that same host, which the
+    Workspace Browser is and an operator's own external browser tab isn't)
+    already carrying the one-time auth token in the URL fragment, per
+    host-bridge/app.py's openclaw_dashboard_url docstring. Admin-gated same
+    as every other route in this module: the token this returns grants
+    the same admin-surface access a plain shell already would."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{settings.CHAT_BRIDGE_URL}/v1/openclaw/dashboard-url",
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Chat bridge error: {resp.text[:500]}"
+        )
+    return resp.json()
+
+
 @router.get("/sessions")
 async def list_sessions(user: User = Depends(get_current_admin)) -> dict:
     """Proxy to the bridge's live tmux session listing -- backs the

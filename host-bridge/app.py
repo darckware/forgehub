@@ -121,6 +121,48 @@ _control_at: datetime | None = None
 _last_seen_click_ms: float = 0.0
 CONTROL_RELEASE_SECONDS = 2.5
 
+# A native window.alert/confirm/prompt() called by the page being shown.
+# Confirmed by direct reproduction (2026-07-28) that this headless Chrome
+# build does NOT reliably support CDP's Page.javascriptDialogOpening/
+# handleJavaScriptDialog round-trip: an unhandled dialog freezes the
+# renderer's entire CDP command queue indefinitely (Runtime.evaluate,
+# Page.captureScreenshot, Input.dispatchMouseEvent, even a *second*
+# connection's Page.enable -- everything), and Page.handleJavaScriptDialog
+# itself unreliably reports "No dialog is showing" even from a session that
+# had Page enabled before the dialog opened, with no way found to actually
+# resolve one once stuck (recovery required killing and relaunching the
+# whole process, twice, during investigation). Since this is a single
+# shared browser, one page's confirm() would otherwise take the whole
+# Workspace Browser down for every viewer.
+#
+# Given that, this never lets a real native dialog happen at all:
+# _hold_dialog_override_connection (a persistent background task, kept
+# alive for the browser process's lifetime -- see its own docstring for why
+# a persistent connection specifically is required) injects a
+# Page.addScriptToEvaluateOnNewDocument script that replaces
+# window.alert/confirm/prompt before any page script runs, recording the
+# call and resolving it immediately (confirm() -> true, matching "the
+# operator already clicked the button that asked for this confirmation")
+# instead of ever blocking on a native dialog. The frontend surfaces the
+# most recent one as a transient, already-resolved notice
+# (WorkspaceBrowserState.last_dialog) -- there is nothing to answer.
+_workspace_browser_dialog_override_task: "asyncio.Task | None" = None
+
+DIALOG_OVERRIDE_SCRIPT = """
+(() => {
+  const record = (type, message) => { window.__fhLastDialog = { type, message: String(message ?? ''), at: Date.now() }; };
+  window.alert = (message) => { record('alert', message); };
+  window.confirm = (message) => { record('confirm', message); return true; };
+  window.prompt = (message, defaultValue) => { record('prompt', message); return defaultValue ?? ''; };
+})();
+"""
+
+# Last successful screenshot -- re-served whenever a call is made with
+# include_image=False (e.g. the resize endpoint), so that response's
+# image_base64 doesn't clobber the frontend's currently-displayed frame
+# with None.
+_last_workspace_browser_image: str | None = None
+
 
 def _run_state_path(run_id: str) -> Path:
     return AGENT_RUN_STATE_DIR / f"{run_id}.json"
@@ -219,23 +261,77 @@ def _launch_workspace_browser() -> None:
     """Start the one shared CDP browser without accepting shell arguments."""
     global _workspace_browser_process
     with _workspace_browser_lock:
-        if _workspace_browser_running():
-            return
-        binary = Path(WORKSPACE_BROWSER_BINARY)
-        if not binary.is_file():
-            raise HTTPException(status_code=503, detail=f"Chromium binary not found: {binary}")
-        _workspace_browser_process = subprocess.Popen(
-            [
-                str(binary), "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
-                "--disable-gpu", "--no-first-run", "--no-default-browser-check",
-                "--remote-allow-origins=*", "--remote-debugging-address=127.0.0.1",
-                f"--remote-debugging-port={WORKSPACE_BROWSER_PORT}",
-                f"--user-data-dir={WORKSPACE_BROWSER_PROFILE_DIR}", "--window-size=1440,900",
-                "about:blank",
-            ],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        if not _workspace_browser_running():
+            binary = Path(WORKSPACE_BROWSER_BINARY)
+            if not binary.is_file():
+                raise HTTPException(status_code=503, detail=f"Chromium binary not found: {binary}")
+            _workspace_browser_process = subprocess.Popen(
+                [
+                    str(binary), "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+                    "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+                    "--remote-allow-origins=*", "--remote-debugging-address=127.0.0.1",
+                    f"--remote-debugging-port={WORKSPACE_BROWSER_PORT}",
+                    f"--user-data-dir={WORKSPACE_BROWSER_PROFILE_DIR}", "--window-size=1440,900",
+                    "about:blank",
+                ],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+    _ensure_dialog_override_task()
+
+
+def _ensure_dialog_override_task() -> None:
+    global _workspace_browser_dialog_override_task
+    if _workspace_browser_dialog_override_task is None or _workspace_browser_dialog_override_task.done():
+        _workspace_browser_dialog_override_task = asyncio.create_task(_hold_dialog_override_connection())
+
+
+async def _hold_dialog_override_connection() -> None:
+    """Keeps one CDP connection open for the browser process's entire
+    lifetime, solely to keep DIALOG_OVERRIDE_SCRIPT registered via
+    Page.addScriptToEvaluateOnNewDocument -- confirmed by reproduction that
+    this registration is scoped to the session/connection that made it, not
+    the browser process: it's silently dropped the instant that connection
+    closes, so the connect-register-disconnect every other CDP call in this
+    file does (_workspace_browser_cdp) doesn't survive to the next
+    navigation. Page.enable must be called on this SAME connection *before*
+    addScriptToEvaluateOnNewDocument, or the registration silently has no
+    effect on future navigations either -- also confirmed by reproduction
+    (isolated repro: identical calls without a prior Page.enable left the
+    injected marker undefined after navigating; with it, the marker
+    survived). Also applies the override immediately (via Runtime.evaluate)
+    to whatever page happens to be loaded right when this connection is
+    established, since addScriptToEvaluateOnNewDocument only covers *future*
+    navigations. Retries quietly on disconnect (browser not up yet, process
+    killed/relaunched, transient CDP hiccup)."""
+    while True:
+        try:
+            target = await _workspace_browser_target()
+            async with websockets.connect(
+                target["webSocketDebuggerUrl"], open_timeout=5, close_timeout=2, max_size=16 * 1024 * 1024
+            ) as socket:
+                await socket.send(json.dumps({"id": 1, "method": "Page.enable", "params": {}}))
+                await asyncio.wait_for(socket.recv(), timeout=5)
+                await socket.send(
+                    json.dumps({"id": 2, "method": "Page.addScriptToEvaluateOnNewDocument", "params": {"source": DIALOG_OVERRIDE_SCRIPT}})
+                )
+                await asyncio.wait_for(socket.recv(), timeout=5)
+                await socket.send(json.dumps({"id": 3, "method": "Runtime.evaluate", "params": {"expression": DIALOG_OVERRIDE_SCRIPT}}))
+                await asyncio.wait_for(socket.recv(), timeout=5)
+                # Nothing else is ever sent on this connection -- just block
+                # here until the browser process dies/disconnects it, so the
+                # registration (tied to this connection staying open) lasts
+                # exactly as long as the browser does.
+                await socket.wait_closed()
+        except Exception:
+            # Deliberately broad: this task silently dying (an uncaught
+            # exception on an asyncio.create_task is otherwise only ever
+            # logged to stderr, never restarted) would quietly bring back
+            # the exact freeze this whole mechanism exists to prevent, with
+            # no visible symptom until the next confirm() call hangs the
+            # shared browser again. Retrying past anything unexpected here
+            # is strictly safer than that.
+            await asyncio.sleep(1)
 
 
 async def _workspace_browser_target() -> dict:
@@ -269,7 +365,9 @@ async def _workspace_browser_cdp(method: str, params: dict | None = None) -> dic
             return payload.get("result", {})
 
 
+
 async def _workspace_browser_state(include_image: bool = True) -> dict:
+    global _last_seen_click_ms, _last_workspace_browser_image
     runtime = await _workspace_browser_cdp(
         "Runtime.evaluate",
         {
@@ -277,13 +375,16 @@ async def _workspace_browser_state(include_image: bool = True) -> dict:
             # navigation, so this idempotently reinstalls it every poll) so a
             # click from ANY CDP client -- including Athos's native browser_*
             # toolset, which talks to this same target directly and never
-            # touches the endpoints below -- still surfaces here.
+            # touches the endpoints below -- still surfaces here. Also reads
+            # window.__fhLastDialog, set by DIALOG_OVERRIDE_SCRIPT whenever
+            # the page calls alert/confirm/prompt (already auto-resolved by
+            # then -- see that script's own docstring for why).
             "expression": """(() => {
               if (!window.__fhClickInstalled) {
                 window.__fhClickInstalled = true;
                 window.addEventListener('click', (e) => { window.__fhLastClick = {x: e.clientX, y: e.clientY, at: Date.now()}; }, true);
               }
-              return JSON.stringify({url:location.href,title:document.title,readyState:document.readyState,viewportWidth:innerWidth,viewportHeight:innerHeight,click:window.__fhLastClick||null});
+              return JSON.stringify({url:location.href,title:document.title,readyState:document.readyState,viewportWidth:innerWidth,viewportHeight:innerHeight,click:window.__fhLastClick||null,dialog:window.__fhLastDialog||null});
             })()""",
             "returnByValue": True,
         },
@@ -292,7 +393,6 @@ async def _workspace_browser_state(include_image: bool = True) -> dict:
         metadata = json.loads(runtime.get("result", {}).get("value") or "{}")
     except ValueError:
         metadata = {}
-    global _last_seen_click_ms
     click = metadata.get("click")
     if click and click.get("at", 0) > _last_seen_click_ms:
         _last_seen_click_ms = click["at"]
@@ -308,15 +408,21 @@ async def _workspace_browser_state(include_image: bool = True) -> dict:
             "Page.captureScreenshot", {"format": "jpeg", "quality": 75, "fromSurface": True}
         )
         image_base64 = screenshot.get("data")
+        _last_workspace_browser_image = image_base64
     return {
         "running": _workspace_browser_running(), "cdp_url": WORKSPACE_BROWSER_CDP_URL,
         "url": metadata.get("url", "about:blank"), "title": metadata.get("title", ""),
-        "ready_state": metadata.get("readyState", ""), "image_base64": image_base64,
+        "ready_state": metadata.get("readyState", ""),
+        # Never clobber the last real screenshot with None just because
+        # this particular call was include_image=False (e.g. the resize
+        # endpoint) -- only a genuinely fresh capture replaces it.
+        "image_base64": image_base64 if image_base64 is not None else _last_workspace_browser_image,
         "viewport_width": metadata.get("viewportWidth", 1440),
         "viewport_height": metadata.get("viewportHeight", 900),
         "captured_at": datetime.now().isoformat(),
         "last_pointer": _last_pointer,
         "control_owner": control_owner,
+        "last_dialog": metadata.get("dialog"),
     }
 
 
@@ -356,6 +462,19 @@ class WorkspaceBrowserRoutineRequest(BaseModel):
     steps: list[dict]
 
 
+class WorkspaceBrowserResizeRequest(BaseModel):
+    width: int
+    height: int
+
+
+# Guards against a zero/negative size (a pane measured before its first
+# layout pass) and an absurd one (a stray value from a bad ResizeObserver
+# read) -- Chrome's own headless window is comfortable at any size in
+# between.
+_WORKSPACE_BROWSER_MIN_DIMENSION = 400
+_WORKSPACE_BROWSER_MAX_DIMENSION = 4000
+
+
 def _validated_browser_url(value: str) -> str:
     if value == "about:blank":
         return value
@@ -367,8 +486,8 @@ def _validated_browser_url(value: str) -> str:
 @app.post("/v1/workspace-browser/start")
 async def start_workspace_browser(req: WorkspaceBrowserStartRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)
-    _mark_control("user")
     _launch_workspace_browser()
+    _mark_control("user")
     url = _validated_browser_url(req.url)
     if url != "about:blank":
         await _workspace_browser_cdp("Page.navigate", {"url": url})
@@ -410,6 +529,36 @@ async def back_workspace_browser(x_bridge_token: str | None = Header(default=Non
         await _workspace_browser_cdp("Page.navigateToHistoryEntry", {"entryId": entries[index - 1]["id"]})
         await asyncio.sleep(0.6)
     return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/resize")
+async def resize_workspace_browser(
+    req: WorkspaceBrowserResizeRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Overrides the page's own layout viewport to match the actual on-screen
+    size of whichever WebAppPane is currently showing it (see frontend's
+    ResizeObserver in WebAppPane.tsx) -- without this, the shared headless
+    browser stays at its fixed launch size (_launch_workspace_browser's
+    --window-size=1440,900) regardless of the pane's real aspect ratio,
+    which the frontend's `object-contain` rendering then letterboxes (dead
+    space on two sides) and, more importantly, is exactly the mismatch that
+    made click coordinates in browserCoordinates() land in the wrong place
+    near the letterboxed edges. Uses Emulation.setDeviceMetricsOverride
+    (page-level) rather than Browser.setWindowBounds (the outer OS window)
+    deliberately: the latter's `bounds` is the window's outer rect, which
+    silently loses height to window-chrome overhead the resulting
+    innerHeight/screenshot never gets back -- confirmed requesting height
+    600 landing at innerHeight 457. The device-metrics override instead
+    fixes the *content* viewport at exactly the requested size regardless
+    of any window chrome, which is what actually needs to match the pane."""
+    _check_token(x_bridge_token)
+    width = max(_WORKSPACE_BROWSER_MIN_DIMENSION, min(_WORKSPACE_BROWSER_MAX_DIMENSION, req.width))
+    height = max(_WORKSPACE_BROWSER_MIN_DIMENSION, min(_WORKSPACE_BROWSER_MAX_DIMENSION, req.height))
+    await _workspace_browser_cdp(
+        "Emulation.setDeviceMetricsOverride",
+        {"width": width, "height": height, "deviceScaleFactor": 0, "mobile": False},
+    )
+    return await _workspace_browser_state(include_image=False)
 
 
 @app.post("/v1/workspace-browser/pointer")
@@ -2828,10 +2977,8 @@ async def get_system_stats(x_bridge_token: str | None = Header(default=None)) ->
 # probe, so we diff the installed version against the npm registry; agy has
 # no check-only mode at all -- `agy update` itself checks-and-applies in one
 # step, same as its own background auto-updater which already does this
-# every ~15 min regardless of this endpoint; kanboard isn't a CLI at all but
-# a Docker container whose pinned image tag is diffed against the latest
-# GitHub release) -- so each check is tool-specific rather than a single
-# generic path.
+# every ~15 min regardless of this endpoint) -- so each check is tool-specific
+# rather than a single generic path.
 # ---------------------------------------------------------------------------
 
 
@@ -2909,89 +3056,6 @@ def _check_npm_backed(binary: str, version_pattern: str, npm_package: str) -> To
     )
 
 
-# Same brief-cache reasoning as the npm lookups above, for the GitHub
-# "latest release" lookup the Kanboard check needs (unauthenticated GitHub
-# API is rate-limited to 60 req/h -- the 900s poll alone stays under that,
-# but there is no reason to spend it).
-_GITHUB_RELEASE_CACHE_TTL_SECONDS = 3600
-_github_release_cache: dict[str, tuple[float, str | None]] = {}
-
-
-def _github_latest_release_tag(repo: str) -> str | None:
-    now = time.monotonic()
-    cached = _github_release_cache.get(repo)
-    if cached is not None and now - cached[0] < _GITHUB_RELEASE_CACHE_TTL_SECONDS:
-        return cached[1]
-    tag: str | None = None
-    try:
-        resp = httpx.get(
-            f"https://api.github.com/repos/{repo}/releases/latest",
-            headers={"Accept": "application/vnd.github+json"},
-            timeout=20.0,
-            follow_redirects=True,
-        )
-        if resp.status_code == 200:
-            tag = resp.json().get("tag_name") or None
-    except httpx.HTTPError:
-        tag = None
-    _github_release_cache[repo] = (now, tag)
-    return tag
-
-
-# Kanboard isn't a host CLI like the other monitored tools -- it's the Docker
-# container defined by this compose file, with the image pinned to a release
-# tag (kanboard/kanboard:vX.Y.Z). "Installed" is the running container's
-# image tag; "latest" is the newest GitHub release. Updating rewrites the
-# pinned tag in the compose file and recreates the container (its data lives
-# in named volumes, so recreation is safe).
-KANBOARD_COMPOSE_FILE = Path("/root/.hermes/kanboard/docker-compose.yml")
-
-
-def _kanboard_installed_tag() -> tuple[str | None, str | None]:
-    """(image tag, error) for the kanboard container, e.g. ("v1.2.52", None)."""
-    code, out, err = _run(["docker", "inspect", "kanboard", "--format", "{{.Config.Image}}"])
-    if code != 0:
-        return None, (err.strip() or out.strip())[:500] or "docker inspect kanboard failed"
-    image = out.strip()
-    if ":" not in image:
-        return None, f"kanboard container image has no pinned tag: {image}"
-    return image.rsplit(":", 1)[1], None
-
-
-def _check_kanboard() -> ToolVersionResult:
-    tag, error = _kanboard_installed_tag()
-    if tag is None:
-        return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=error)
-    latest_tag = _github_latest_release_tag("kanboard/kanboard")
-    installed = tag.lstrip("v")
-    latest = latest_tag.lstrip("v") if latest_tag else None
-    return ToolVersionResult(
-        installed_version=installed,
-        latest_version=latest,
-        update_available=bool(latest and installed != latest),
-    )
-
-
-def _update_kanboard() -> tuple[int, str, str]:
-    """Pin the compose file to the latest GitHub release tag and recreate the
-    container -- the kanboard entry's counterpart to TOOL_UPDATE_COMMANDS."""
-    latest_tag = _github_latest_release_tag("kanboard/kanboard")
-    if latest_tag is None:
-        return 1, "", "Could not resolve the latest Kanboard release from the GitHub API"
-    try:
-        text = KANBOARD_COMPOSE_FILE.read_text()
-    except OSError as exc:
-        return 1, "", str(exc)
-    new_text, replaced = re.subn(r"(image:\s*kanboard/kanboard):\S+", rf"\1:{latest_tag}", text)
-    if replaced == 0:
-        return 1, "", f"No 'image: kanboard/kanboard:<tag>' line found in {KANBOARD_COMPOSE_FILE}"
-    KANBOARD_COMPOSE_FILE.write_text(new_text)
-    code, out, err = _run(
-        ["docker", "compose", "-f", str(KANBOARD_COMPOSE_FILE), "up", "-d"], timeout=600
-    )
-    return code, f"Pinned kanboard/kanboard:{latest_tag}\n{out}", err
-
-
 def _check_antigravity(run_update: bool = True) -> ToolVersionResult:
     """agy has no check-only mode -- `agy update` itself checks-and-applies in
     one step (confirmed via `agy update --help` / `agy --version`: there is
@@ -3026,7 +3090,12 @@ TOOL_CHECKS = {
     # claude/codex above, just with a simpler capture pattern.
     "pi": lambda: _check_npm_backed("/root/.npm-global/bin/pi", r"(\d+\.\d+\.\d+)", "@earendil-works/pi-coding-agent"),
     "opencode": lambda: _check_npm_backed("/root/.opencode/bin/opencode", r"(\d+\.\d+\.\d+)", "opencode-ai"),
-    "kanboard": _check_kanboard,
+    # `openclaw --version` prints "OpenClaw 2026.7.1-2 (0790d9f)" -- a label
+    # prefix and a trailing commit hash, unlike pi/opencode's bare version
+    # string -- and is published to npm under its own binary name (unlike
+    # pi/codex above), so the capture group only needs to isolate the
+    # middle token.
+    "openclaw": lambda: _check_npm_backed("/root/.npm-global/bin/openclaw", r"OpenClaw (\S+)", "openclaw"),
 }
 
 TOOL_UPDATE_COMMANDS = {
@@ -3038,6 +3107,7 @@ TOOL_UPDATE_COMMANDS = {
     # 0, no prompt) when already current.
     "pi": ["/root/.npm-global/bin/pi", "update"],
     "opencode": ["/root/.opencode/bin/opencode", "upgrade"],
+    "openclaw": ["/root/.npm-global/bin/openclaw", "update", "--yes"],
 }
 
 
@@ -3091,16 +3161,53 @@ async def update_tool(req: ToolUpdateRequest, x_bridge_token: str | None = Heade
     """Run the tool's real update command -- triggered only by an explicit
     user click on the Dashboard, not by the periodic sync poll above."""
     _check_token(x_bridge_token)
-    if req.tool == "kanboard":
-        runner = _update_kanboard
-    else:
-        cmd = TOOL_UPDATE_COMMANDS.get(req.tool)
-        if cmd is None:
-            raise HTTPException(status_code=400, detail=f"Unknown tool: {req.tool}")
-        runner = lambda: _run(cmd, timeout=600)  # noqa: E731
+    cmd = TOOL_UPDATE_COMMANDS.get(req.tool)
+    if cmd is None:
+        raise HTTPException(status_code=400, detail=f"Unknown tool: {req.tool}")
+    runner = lambda: _run(cmd, timeout=600)  # noqa: E731
     loop = asyncio.get_event_loop()
     code, out, err = await loop.run_in_executor(None, runner)
     return ToolUpdateResponse(success=code == 0, output=out[-4000:], error=(err[-2000:] or None) if code != 0 else None)
+
+
+# ---------------------------------------------------------------------------
+# OpenClaw dashboard -- the "Web" side of the Workspace's OpenClaw launcher
+# menu (the "Terminal" side just types `openclaw` into a tmux pane, see
+# LAUNCHER_COMMANDS below). OpenClaw's own Control UI (dist/control-ui) sends
+# `X-Frame-Options: DENY` and can't be iframed at all, and its gateway auth
+# token is required at the WebSocket handshake before the dashboard can do
+# anything -- per OpenClaw's own docs (docs/web/dashboard.md), the supported
+# one-time bootstrap is a `#token=<value>` URL fragment, which its own JS
+# reads once into sessionStorage and then strips from the URL. `openclaw
+# dashboard` itself refuses to embed this automatically because the token is
+# configured as a SecretRef (`gateway.auth.token.source: "env"`) rather than
+# a literal value, and deliberately avoids printing/copying a tokenized URL
+# for an externally-managed secret -- this endpoint does the same lookup
+# (read `OPENCLAW_GATEWAY_TOKEN` from OpenClaw's own env file) but is fine
+# handing it back over the already bridge-token-authenticated /v1 surface,
+# same trust boundary as every other endpoint below that hands back
+# host-level access (browse-dirs, fs/list, the terminal PTY itself).
+# ---------------------------------------------------------------------------
+
+OPENCLAW_ENV_FILE = Path("/root/.openclaw/.env")
+OPENCLAW_DASHBOARD_URL = "http://127.0.0.1:28340/"
+
+
+def _openclaw_gateway_token() -> str | None:
+    if not OPENCLAW_ENV_FILE.is_file():
+        return None
+    for line in OPENCLAW_ENV_FILE.read_text().splitlines():
+        if line.startswith("OPENCLAW_GATEWAY_TOKEN="):
+            return line.split("=", 1)[1].strip() or None
+    return None
+
+
+@app.get("/v1/openclaw/dashboard-url")
+async def openclaw_dashboard_url(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    token = _openclaw_gateway_token()
+    url = f"{OPENCLAW_DASHBOARD_URL}#token={token}" if token else OPENCLAW_DASHBOARD_URL
+    return {"url": url, "has_token": token is not None}
 
 
 # ---------------------------------------------------------------------------
@@ -3113,7 +3220,7 @@ async def update_tool(req: ToolUpdateRequest, x_bridge_token: str | None = Heade
 # terminal instead of needing special-cased error handling here.
 # ---------------------------------------------------------------------------
 
-LAUNCHER_COMMANDS = {"hermes", "claude", "codex", "agy", "pi", "opencode"}
+LAUNCHER_COMMANDS = {"hermes", "claude", "codex", "agy", "pi", "opencode", "openclaw"}
 
 # The Servers domain's "SSH" launcher (ForgeHub frontend's buildSshCommand)
 # sends a per-server command that can't be a fixed whitelist entry like the

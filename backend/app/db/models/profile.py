@@ -18,7 +18,7 @@ from app.db.base import Base, TimestampMixin
 
 MODULES = [
     "product", "projects", "pipeline", "backlog", "tasks", "agents",
-    "artifacts", "governance", "forgerouter", "kanboard", "obsidian",
+    "artifacts", "governance", "forgerouter", "obsidian",
     "foundation", "crons", "deploy", "database", "users", "profiles",
 ]
 

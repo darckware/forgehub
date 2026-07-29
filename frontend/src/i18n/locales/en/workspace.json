@@ -22,7 +22,9 @@
     "cli": "CLI",
     "runtimeLaunchers": "Agent runtimes/orchestrators",
     "runtimes": "Runtimes",
-    "openLauncher": "Open {{label}}"
+    "openLauncher": "Open {{label}}",
+    "terminal": "Terminal",
+    "web": "Web"
   },
   "tabs": {
     "defaultChatName": "Chat",
@@ -63,6 +65,7 @@
     "sharedBrowserUrl": "Shared browser URL",
     "automations": "Automations",
     "macro": "Macro",
+    "dialogAutoAccepted": "Auto-confirmed dialog:",
     "saveScreenshot": "Save screenshot",
     "openExternally": "Open externally",
     "appNamePlaceholder": "App name",

@@ -140,7 +140,7 @@ export const projectTaskSchema = z.object({
   id: z.string(),
   // Server-assigned display number (#1, #2, ...) -- a real Postgres
   // IDENTITY column (see ProjectTask.number's docstring backend-side),
-  // always set from creation regardless of kanboard_task_id below.
+  // always set from creation.
   number: z.number(),
   planning_item_id: z.string().nullable().optional(),
   change_request_id: z.string().nullable().optional(),
@@ -167,19 +167,12 @@ export const projectTaskSchema = z.object({
   // is no separate due_date column; sending "due_date" was silently
   // dropped, same phantom-field bug as project_id, fixed alongside it).
   planned_end_date: z.string().nullable().optional(),
-  kanboard_task_id: z.number().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
   executions: z.array(taskExecutionSchema).nullable().optional(),
 });
 
 export type ProjectTask = z.infer<typeof projectTaskSchema>;
-
-export const projectTaskKanboardSyncSchema = projectTaskSchema.extend({
-  kanboard_url: z.string().nullable().optional(),
-});
-
-export type ProjectTaskKanboardSync = z.infer<typeof projectTaskKanboardSyncSchema>;
 
 // Base object (no refine) so .partial() can be derived from it. No
 // project_id here on purpose -- it's derived server-side (see
@@ -296,43 +289,6 @@ export function useDeleteTask() {
   });
 }
 
-export function useSyncTaskToKanboard(id: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiClient.post<ProjectTaskKanboardSync>(`/api/v1/tasks/${id}/sync-kanboard`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: taskKeys.all });
-      queryClient.invalidateQueries({ queryKey: taskKeys.detail(id) });
-    },
-  });
-}
-
-export function usePullKanboard(taskId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiClient.post<ProjectTask>(`/api/v1/tasks/${taskId}/pull-kanboard`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: taskKeys.all });
-      queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
-    },
-  });
-}
-
-export function useKanboardCleanup() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (projectId: string) =>
-      apiClient.post<{ closed: number; skipped: number; errors: string[] }>(
-        `/api/v1/tasks/kanboard-cleanup?project_id=${projectId}`,
-        {}
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: taskKeys.all });
-    },
-  });
-}
 
 export function useCreateExecution(taskId: string) {
   const queryClient = useQueryClient();

@@ -24,7 +24,7 @@
 ## Infraestrutura
 
 ## Metodologia de desenvolvimento
-- **Processo Ágil**: Scrum com sprints de 1‑2 semanas + Kanban no Kanboard.
+- **Processo Ágil**: Scrum com sprints de 1‑2 semanas + Kanban nativo no ForgeHub (Kanboard descontinuado).
 - **Planejamento**: Domain‑Driven Design (DDD) + Event‑Storming para definir bounded contexts.
 - **Implementação**: Test‑Driven Development (TDD) – pytest + httpx no backend; Vitest + React Testing Library no frontend.
 - **CI/CD**: GitHub Actions com lint (ruff/flake8, eslint/prettier), type‑check (mypy, tsc), testes automatizados e builds Docker multi‑stage.

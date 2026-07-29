@@ -81,8 +81,8 @@ export const demandSchema = z.object({
   // too (see reply_to_id below).
   origin_type: z.enum(["task", "backlog"]),
   // ProjectTask.id when origin_type="task" and this message tracks/dispatches
-  // that task -- real, resolved row (no more raw Kanboard-number label). The
-  // compose form resolves this id to a display number itself. Always null
+  // that task -- real, resolved row. The compose form resolves this id to a
+  // display number itself. Always null
   // for "backlog", which is a classification, not a link.
   origin_id: z.string().nullable(),
   // Stamped automatically by the backend once the linked task's execution

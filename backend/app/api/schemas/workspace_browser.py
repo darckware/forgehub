@@ -13,6 +13,21 @@ class WorkspaceBrowserPointerState(BaseModel):
     at: str
 
 
+class WorkspaceBrowserLastDialog(BaseModel):
+    """A native window.alert/confirm/prompt() the shared page just called --
+    already auto-resolved by the time this is ever seen (DIALOG_OVERRIDE_SCRIPT
+    in host-bridge/app.py replaces alert/confirm/prompt before any page
+    script runs, since this headless Chrome build does not reliably support
+    CDP's own dialog-handling round-trip -- confirmed by reproduction,
+    2026-07-28, that an unhandled one freezes the shared browser for every
+    viewer with no way found to un-stick it). Purely informational: the
+    frontend shows it as a transient, already-resolved notice."""
+
+    message: str
+    type: str
+    at: float
+
+
 class WorkspaceBrowserStateOut(BaseModel):
     running: bool
     cdp_url: str
@@ -25,6 +40,7 @@ class WorkspaceBrowserStateOut(BaseModel):
     captured_at: str
     last_pointer: WorkspaceBrowserPointerState | None = None
     control_owner: Literal["user", "agent"] | None = None
+    last_dialog: WorkspaceBrowserLastDialog | None = None
 
 
 class WorkspaceBrowserStart(BaseModel):
@@ -50,6 +66,11 @@ class WorkspaceBrowserScroll(BaseModel):
     x: float = Field(ge=0, le=10_000)
     y: float = Field(ge=0, le=10_000)
     delta_y: float = Field(ge=-5_000, le=5_000)
+
+
+class WorkspaceBrowserResize(BaseModel):
+    width: int = Field(ge=1, le=10_000)
+    height: int = Field(ge=1, le=10_000)
 
 
 class WebAutomationStep(BaseModel):

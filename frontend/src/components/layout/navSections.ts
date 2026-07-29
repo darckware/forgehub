@@ -13,7 +13,6 @@ import {
   Gauge,
   Gem,
   GitBranch,
-  Kanban,
   Landmark,
   Layout,
   LayoutDashboard,
@@ -121,21 +120,6 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     labelKey: "nav.section.integrations",
     entries: [
-      // Kanboard saiu do menu por decisão do Marcelo (2026-07-26): o controle
-      // de tarefas passa a ser nativo do ForgeHub. A rota continua registrada
-      // e alcançável pelo Cmd/Ctrl+K enquanto a integração não é desligada de
-      // fato -- o board externo ainda é escrito por outros agentes do
-      // ecossistema (ver CLAUDE.md), então arrancar o cliente/sync e as
-      // colunas kanboard_* é uma remoção à parte, não um efeito colateral
-      // desta reorganização de menu.
-      {
-        type: "link",
-        to: "/kanboard",
-        labelKey: "nav.kanboard",
-        icon: Kanban,
-        module: "kanboard",
-        hiddenInSidebar: true,
-      },
       { type: "link", to: "/obsidian", labelKey: "nav.knowledgeBase", icon: Gem, module: "obsidian" },
     ],
   },

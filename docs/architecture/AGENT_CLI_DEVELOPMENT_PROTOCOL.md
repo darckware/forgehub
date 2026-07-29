@@ -192,7 +192,6 @@ O backend já implementa ProjectMembership, perfis ForgeRouter, classes semânti
 - a ligação Artifact → Project/versão deve ser resolvida pelo stage/execution e conferida manualmente;
 - Approval e gate precisam ser atualizados de forma coordenada;
 - conclusão de Task precisa de revisão manual porque a API atual não garante execução verificada/subtasks completas;
-- o cleanup do Kanboard não deve ser usado até a correção da consulta a `ProjectTask.project_id`.
 - o CRUD manual legado ainda aceita Assignment/TaskExecution sem membership; o runner automatizado não aceita;
 - TaskExecution criada fora do runner deve sempre informar `assignment_id`, mesmo que a coluna permaneça nullable para dados antigos;
 - o relatório deve registrar separadamente Agent/SubAgent responsável e CLI utilizada.

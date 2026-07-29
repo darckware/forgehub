@@ -22,7 +22,9 @@
     "cli": "CLI",
     "runtimeLaunchers": "Runtimes/orquestradores de agentes",
     "runtimes": "Runtimes",
-    "openLauncher": "Abrir {{label}}"
+    "openLauncher": "Abrir {{label}}",
+    "terminal": "Terminal",
+    "web": "Web"
   },
   "tabs": {
     "defaultChatName": "Conversa",
@@ -63,6 +65,7 @@
     "sharedBrowserUrl": "URL do navegador compartilhado",
     "automations": "Automações",
     "macro": "Macro",
+    "dialogAutoAccepted": "Diálogo confirmado automaticamente:",
     "saveScreenshot": "Salvar captura de tela",
     "openExternally": "Abrir externamente",
     "appNamePlaceholder": "Nome do app",

@@ -109,8 +109,6 @@ class ProductOut(BaseModel):
     status: str
     application_url: str | None = None
     application_url_dev: str | None = None
-    kanboard_project_id: int | None = None
-    kanboard_column_ids: dict | None = None
     created_at: datetime
     updated_at: datetime
 

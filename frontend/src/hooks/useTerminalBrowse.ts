@@ -80,3 +80,11 @@ export function useKillTerminalSession() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["terminal-sessions"] }),
   });
 }
+
+/** Fetched imperatively on click (the Workspace's OpenClaw launcher menu's
+ * "Web" option), not a subscribed query -- a fresh lookup every time is
+ * cheap (one env-file read on the host bridge) and avoids caching a
+ * one-time auth token fragment past its usefulness. */
+export function fetchOpenclawDashboardUrl(): Promise<{ url: string; has_token: boolean }> {
+  return apiClient.get("/api/v1/terminal/openclaw-dashboard-url");
+}

@@ -94,7 +94,7 @@ Legenda:
 | Release & Delivery | conceitual/parcial | Release simples, deploy inventory | candidate/manifest, environment, delivery events, rollback e operational verification |
 | Maintenance & Operations | conceitual | audit, crons, deploy inventory, monitoring integrations | Incident/MaintenanceWork, classificação, SLO/checks, feedback loop e templates |
 | Daily Cockpit / Athos Control Room | conceitual | dashboard, AssistantDrawer/ChatPane e listas isoladas | read model, browser/focus, Assistant docked, operator actions, control transfer, coverage/readiness, costs e timeline |
-| Integrations | parcial | Kanboard push, Git/System Control, ForgeRouter, Hindsight | adapters idempotentes, inbound sync governado, health, ownership e reconciliation |
+| Integrations | parcial | Git/System Control, ForgeRouter, Hindsight | adapters idempotentes, inbound sync governado, health, ownership e reconciliation |
 
 ## 4. Mapa dos três macrofluxos para módulos
 

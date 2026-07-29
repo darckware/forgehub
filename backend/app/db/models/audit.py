@@ -26,7 +26,7 @@ class AuditCheck(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(150), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Free-form grouping shown as a badge (e.g. "infra", "cron", "kanboard").
+    # Free-form grouping shown as a badge (e.g. "infra", "cron", "backup").
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Bash command executed on the host through the chat bridge. Exit 0 = ok.
     command: Mapped[str] = mapped_column(Text, nullable=False)

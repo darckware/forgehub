@@ -114,8 +114,7 @@ class ProjectTaskOut(ProjectTaskBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    # Server-assigned display number -- see ProjectTask.number's docstring
-    # for why this exists independent of kanboard_task_id.
+    # Server-assigned display number -- see ProjectTask.number's docstring.
     number: int
     planning_item_id: uuid.UUID | None = None
     change_request_id: uuid.UUID | None = None
@@ -138,17 +137,8 @@ class ProjectTaskOut(ProjectTaskBase):
     actual_cost: float | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    kanboard_task_id: int | None = None
     created_at: datetime
     updated_at: datetime
-
-
-class ProjectTaskKanboardSyncOut(ProjectTaskOut):
-    """Response for POST /tasks/{id}/sync-kanboard -- adds the browser-facing
-    card URL, which is computed (KANBOARD_PUBLIC_URL + id), not a stored
-    column."""
-
-    kanboard_url: str | None = None
 
 
 # --------------------------------------------------------------------------

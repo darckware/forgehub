@@ -30,8 +30,8 @@ foundation convention.
 """
 import uuid
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -65,12 +65,6 @@ class Product(Base, TimestampMixin):
     # callers and any external consumer of ProductOut for no gain.
     application_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     application_url_dev: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-
-    # Kanboard project created when this product is registered.
-    # kanboard_column_ids maps ForgeHub task status → Kanboard column id for
-    # this specific Kanboard project (since each project has its own column IDs).
-    kanboard_project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    kanboard_column_ids: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     modules: Mapped[list["ProductModule"]] = relationship(
         "ProductModule", back_populates="product", cascade="all, delete-orphan"

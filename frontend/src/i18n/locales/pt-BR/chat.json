@@ -194,7 +194,9 @@
     "failed": "❌ Falhou: {{error}}",
     "dismiss": "Descartar",
     "subagentLoading": "Carregando status da delegação…",
-    "subagentDelegatedTo": "Delegou #{{number}} para {{agent}}"
+    "subagentDelegatedTo": "Delegou #{{number}} para {{agent}}",
+    "internalContext": "Contexto interno",
+    "processDetails": "Detalhes do processamento"
   },
   "artifactsPanel": {
     "title": "Artefatos",

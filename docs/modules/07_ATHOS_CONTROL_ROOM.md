@@ -49,7 +49,7 @@ Implementação preferencial:
 - comunicação pai/preview por mensagens tipadas e origin check;
 - alternativa progressiva: renderizar Entity Inspectors diretamente antes do preview genérico.
 
-Não aceitar URL externa arbitrária. Conteúdo de GitHub/Kanboard/ForgeRouter usa adapters/telas específicas e suas Policies.
+Não aceitar URL externa arbitrária. Conteúdo de GitHub/ForgeRouter usa adapters/telas específicas e suas Policies.
 
 ## 4. Entidades
 

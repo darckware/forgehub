@@ -53,7 +53,7 @@ class DemandSubmitIn(BaseModel):
     project_id: uuid.UUID | None = None
     # Links this new item to an existing Task or Demand as its origin,
     # resolved from a human-typed number rather than a UUID (§4.1 of the
-    # dispatch proposal): "task" -> ProjectTask.kanboard_task_id,
+    # dispatch proposal): "task" -> ProjectTask.number,
     # "demand" -> AgentDemand.number. Both origin_type and origin_number
     # must be given together, or neither.
     origin_type: str | None = None

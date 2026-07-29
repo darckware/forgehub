@@ -28,7 +28,6 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from app.core import kanboard_client
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -145,22 +144,6 @@ async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_
             status_code=status.HTTP_409_CONFLICT, detail="A product with this name already exists"
         ) from None
 
-    # Create a Kanboard project for this product, replicating the reference
-    # column structure. Non-fatal: DB product is already committed.
-    try:
-        kb_project_id, col_map = await kanboard_client.create_project_with_columns(
-            name=product.name,
-            description=product.description or "",
-        )
-        product.kanboard_project_id = kb_project_id
-        product.kanboard_column_ids = col_map
-        await db.commit()
-    except Exception:
-        pass  # Kanboard creation failure never blocks product creation
-
-    # Refresh everything: the second commit (Kanboard) expires all scalar
-    # attributes, so attribute_names=["versions","modules"] is not enough.
-    await db.refresh(product)
     await db.refresh(product, attribute_names=["versions", "modules"])
     return product
 

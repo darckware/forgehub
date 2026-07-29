@@ -9,7 +9,7 @@
   - [General](#general) — Dashboard, Workspace, Notifications, Messages, Docs
   - [Planning](#planning) — Conception, System Map, Project Scope, Products, Projects, Pipelines, Templates, Planning, Execution, Artifacts, Governance, Policies
   - [Agents & AI](#agents--ai) — Agents, Agent Tools, Chat Commands, Skills, Crons, Foundation, ForgeRouter
-  - [Integrations](#integrations) — Kanboard, Knowledge Base
+  - [Integrations](#integrations) — Knowledge Base
   - [Operations](#operations) — System Control, Hindsight, Auditor, Deploy Control, Servers, Database
   - [Administration](#administration) — Users, Access Profiles
 - [Documentação técnica por tela](#documentação-técnica-por-tela)
@@ -124,7 +124,6 @@ Em **Access Profiles**, as ações são `planning.progress.view`, `planning.prog
 ### Integrations
 | Tela | Rota | Para que serve |
 |---|---|---|
-| Kanboard | `/kanboard` | Sincronização com o board Kanboard real (projeto id 8). |
 | Knowledge Base | `/obsidian` | Navegador/editor do vault Obsidian (só markdown, espelha o app desktop). |
 
 ### Operations
@@ -175,7 +174,7 @@ O dispatch direto antigo foi desativado. Reinício do bridge preserva estado seg
 
 ## Documentação técnica por tela
 
-`docs/screens/*.md` tem o detalhe técnico (rotas exatas com número de linha, hooks, endpoints, regras de negócio, estados de erro/loading) das telas já documentadas: `dashboard`, `workspace`, `products`, `projects`, `pipelines`, `backlog`, `tasks`, `artifacts`, `governance`, `agents`, `forgerouter`, `foundation`, `crons`, `kanboard`, `knowledge_base`.
+`docs/screens/*.md` tem o detalhe técnico (rotas exatas com número de linha, hooks, endpoints, regras de negócio, estados de erro/loading) das telas já documentadas: `dashboard`, `workspace`, `products`, `projects`, `pipelines`, `backlog`, `tasks`, `artifacts`, `governance`, `agents`, `forgerouter`, `foundation`, `crons`, `knowledge_base`.
 
 **Ainda sem documentação técnica própria** (usar este manual + o código-fonte até serem escritos): Messages (demands), Docs, Notifications, Templates (pipeline-templates), Policies, Agent Tools, Chat Commands, Skills, System Control, Hindsight, Auditor, Deploy Control, Servers, Database, Users, Access Profiles.
 

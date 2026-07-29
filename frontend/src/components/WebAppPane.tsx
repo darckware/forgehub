@@ -27,6 +27,7 @@ import {
   useCreateStandaloneApp,
   useNavigateWorkspaceBrowser,
   useReloadWorkspaceBrowser,
+  useResizeWorkspaceBrowser,
   useStandaloneApps,
   useStartWorkspaceBrowser,
   useWorkspaceBrowserPointer,
@@ -82,6 +83,7 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   const scroll = useWorkspaceBrowserScroll();
   const reload = useReloadWorkspaceBrowser();
   const back = useBackWorkspaceBrowser();
+  const resize = useResizeWorkspaceBrowser();
   const { data: standaloneApps = [] } = useStandaloneApps();
   const createApp = useCreateStandaloneApp();
 
@@ -95,8 +97,43 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   const [newAppUrl, setNewAppUrl] = useState("");
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+  const viewportContainerRef = useRef<HTMLDivElement>(null);
   const [cursorPosition, setCursorPosition] = useState<{ left: number; top: number } | null>(null);
   const lastPointer = state.data?.last_pointer;
+
+  // Keeps the shared headless browser's actual window size matched to
+  // however big this pane is currently rendered, so the screenshot fills it
+  // edge-to-edge (no `object-contain` letterboxing) and clicks stay 1:1 --
+  // see the resize endpoint's own docstring in host-bridge/app.py. Debounced
+  // (a drag-resize fires many times a second) and skips a resize that's
+  // already within a few px of the last one requested, since
+  // ResizeObserver's own rounding means every tick otherwise looks "new".
+  const lastRequestedSize = useRef<{ width: number; height: number } | null>(null);
+  useEffect(() => {
+    const container = viewportContainerRef.current;
+    if (!container) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width < 1 || height < 1) return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const rounded = { width: Math.round(width), height: Math.round(height) };
+        const last = lastRequestedSize.current;
+        if (last && Math.abs(last.width - rounded.width) < 4 && Math.abs(last.height - rounded.height) < 4) return;
+        lastRequestedSize.current = rounded;
+        resize.mutate(rounded);
+      }, 300);
+    });
+    observer.observe(container);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      observer.disconnect();
+    };
+    // resize's identity changes every render (useMutation) -- only the
+    // container's presence should re-arm the observer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [targetMode, setTargetMode] = useState<"product" | "app">(
     () => (localStorage.getItem(TARGET_MODE_KEY) as "product" | "app" | null) ?? "product"
@@ -212,6 +249,20 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   const error = state.error ?? start.error ?? navigate.error ?? pointer.error;
   const currentUrl = state.data?.url ?? url;
 
+  // Shows the most recent auto-resolved alert/confirm/prompt as a transient
+  // toast (there's nothing to answer -- see WorkspaceBrowserLastDialog's
+  // docstring) for a few seconds, keyed off `at` so the same one polled
+  // repeatedly doesn't keep re-showing/re-extending itself.
+  const lastDialog = state.data?.last_dialog;
+  const [dialogToastAt, setDialogToastAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (!lastDialog || lastDialog.at === dialogToastAt) return;
+    setDialogToastAt(lastDialog.at);
+    const timer = setTimeout(() => setDialogToastAt(null), 6_000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastDialog]);
+
   return (
     <div className="absolute inset-0 flex min-h-0 bg-muted/20 p-2">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -312,6 +363,7 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
         )}
 
         <div
+          ref={viewportContainerRef}
           className={`relative min-h-0 flex-1 overscroll-contain overflow-hidden border bg-zinc-950 transition-shadow ${
             state.data?.control_owner === "agent"
               ? "border-amber-400/70 shadow-[inset_0_0_0_2px_rgba(251,191,36,0.35),0_0_18px_rgba(251,191,36,0.35)]"
@@ -394,6 +446,17 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
             >
               <span className="absolute inset-0 -m-2 rounded-full bg-amber-400/40 animate-ping" />
               <MousePointer2 className="relative h-5 w-5 fill-amber-400 text-amber-950 drop-shadow" />
+            </div>
+          )}
+          {dialogToastAt !== null && lastDialog && (
+            // A native window.alert/confirm/prompt() the page just called --
+            // already auto-accepted (see WorkspaceBrowserLastDialog's own
+            // docstring for why: this headless browser can't reliably pause
+            // for a real answer without risking freezing the shared session
+            // for every viewer). Purely informational, self-dismisses.
+            <div className="absolute left-1/2 top-3 z-20 w-full max-w-sm -translate-x-1/2 rounded-md border border-border bg-card px-3 py-2 text-xs shadow-lg">
+              <span className="font-medium text-foreground">{t("webAppPane.dialogAutoAccepted")}</span>{" "}
+              <span className="whitespace-pre-wrap text-muted-foreground">{lastDialog.message}</span>
             </div>
           )}
         </div>

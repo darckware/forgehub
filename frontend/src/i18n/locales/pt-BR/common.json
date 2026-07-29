@@ -9,7 +9,7 @@
     "section": {
       "general": "Geral",
       "factory": "Fábrica de Software",
-      "factory2": "Software Factory AI (AI-SDLC)",
+      "factory2": "Software Factory",
       "agentsAi": "Agentes & IA",
       "integrations": "Integrações",
       "operations": "Operações",
@@ -37,7 +37,6 @@
     "crons": "Agendamentos",
     "foundation": "Fundação",
     "forgerouter": "ForgeRouter",
-    "kanboard": "Kanboard",
     "knowledgeBase": "Base de Conhecimento",
     "systemControl": "Controle do Sistema",
     "hindsight": "Hindsight",

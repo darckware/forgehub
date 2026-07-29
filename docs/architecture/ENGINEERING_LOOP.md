@@ -115,7 +115,7 @@ Planejamento e execução também são separados: criar uma Task com status `pla
 | resultado operacional | Delivery/Deployment + checks |
 | histórico | AuditEvent append-only |
 
-ForgeFlow, Kanboard, GitHub, CLIs e memória semântica são integrações ou projeções. Nenhuma delas pode substituir os registros acima no modo gerenciado.
+ForgeFlow, GitHub, CLIs e memória semântica são integrações ou projeções. Nenhuma delas pode substituir os registros acima no modo gerenciado.
 
 ## 5. Work Package imutável
 

@@ -198,11 +198,11 @@ async def send_agent_message(
         scheduled_at: ISO-8601 datetime to defer dispatch (e.g.
             "2026-07-28T14:00:00-03:00"). Only meaningful with `to_agent`;
             omit to dispatch now.
-        origin_task_number: Kanboard task number this came from (a label,
-            no referential integrity).
+        origin_task_number: ForgeHub task number (ProjectTask.number) this
+            came from.
 
-    Prefer this over a tracked Kanboard task for a direct handoff or request
-    that doesn't need ownership and a lifecycle.
+    Prefer this over a tracked task for a direct handoff or request that
+    doesn't need ownership and a lifecycle.
     """
     try:
         sender = _resolve_agent(from_agent)

@@ -51,7 +51,6 @@ Usuário pode filtrar, simular impacto, aprovar, pausar, assumir controle ou del
 | ForgeRouter | roteamento/model/custo | runtime profile + usage reconciliado |
 | Git/GitHub | source/commit/PR/checks | evidência externa referenciada; estado de domínio no ForgeHub |
 | CI | build/test/security evidence | evidence/build records |
-| Kanboard | projeção visual | ForgeHub; inbound vira command validado |
 | Hermes Foundation | identidade/skills/org source | Foundation canônica; membership local no ForgeHub |
 | Hindsight | memória semântica | auxiliar; decisões no ForgeHub |
 | observabilidade | signals/checks | fonte técnica do sinal; interpretação/estado no ForgeHub |
@@ -89,7 +88,7 @@ Eventos sem mapping ficam em integration inbox para reconciliação; não são d
 2. Outra LLM continua pelo Daily Review/handoff.
 3. Usuário assume ou devolve controle sem perder execução/histórico.
 4. Agente não executa command fora da delegação.
-5. Kanboard/Git/CI repetidos não duplicam transição/evidência.
+5. Git/CI repetidos não duplicam transição/evidência.
 6. Evento externo inválido fica visível e não corrompe domínio.
 7. Custos/readiness/gaps citam fonte/revisão.
 8. Portfolio cobre sistema completo e componente isolado.
