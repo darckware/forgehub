@@ -178,6 +178,47 @@ def parse_agent_registry() -> list[dict[str, Any]]:
     return agents
 
 
+def parse_profile_identity(profile_slug: str) -> dict[str, str | None]:
+    """Read the agent's own IDENTITY.md -- the live "who am I" file every
+    profile carries under /root/.hermes/profiles/<slug>/ -- as the primary
+    source for name/layer/mission during sync, since it reflects the
+    agent's actual current configuration rather than the Foundation docs'
+    registry snapshot, which can go stale (2026-07-29, Marcelo: "a
+    sincronização vem da documentação que pode estar desatualizada. E não
+    da configuração dos agentes" -- ECOSYSTEM_AGENTS.md/<NAME>.md are still
+    consulted as a fallback when a field is missing here, per "você pode
+    até consultar algumas coisas da documentação" -- see sync_hermes_foundation
+    in api/routes/agent.py, which does the actual merge).
+
+    Format observed across every current profile (plain "- Key: Value"
+    lines, not YAML frontmatter):
+        # IDENTITY.md — Athos
+        - Name: Athos
+        - Runtime: Hermes profile `athos`
+        - Layer: Governance
+        - Role: Chief of Staff / Ecosystem Governor
+        - Mission: govern priorities, approvals, orchestration, ...
+    """
+    content = _read_file_safe(PROFILES_DIR / profile_slug / "IDENTITY.md")
+    if content is None:
+        return {}
+    fields: dict[str, str] = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line.startswith("- ") or ":" not in line:
+            continue
+        key, _, value = line[2:].partition(":")
+        value = value.strip()
+        if value:
+            fields[key.strip().lower()] = value
+    return {
+        "name": fields.get("name"),
+        "layer": fields.get("layer"),
+        "role": fields.get("role"),
+        "mission": fields.get("mission"),
+    }
+
+
 def parse_agent_mission(profile_slug: str) -> tuple[str | None, str | None]:
     """Returns (mission_text, canonical_source_path) for an agent's
     contract file, or (None, None) if no contract file exists yet."""

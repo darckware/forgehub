@@ -75,6 +75,9 @@ from app.api.schemas.agent import (
     AgentTelegramStatusListOut,
     AgentTelegramStatusOut,
     AgentUpdate,
+    ForgeRouterKeyImportOut,
+    ForgeRouterKeySyncAgentOut,
+    ForgeRouterKeySyncOut,
     HermesSyncResultOut,
     SkillAgentRef,
     SkillCreate,
@@ -88,11 +91,13 @@ from app.api.schemas.agent import (
     SubAgentUpdate,
     SyncCounts,
 )
-from app.core import agent_mcp, agent_profile_files, agent_runtime_sync, agent_telegram, hermes_sync
+from app.core import agent_mcp, agent_profile_files, agent_runtime_sync, agent_telegram, forgerouter_sync, hermes_sync
 from app.core.mcp_catalog_apply import apply_global_servers_to_agent
 from app.core.config import settings
-from app.core.secrets import encrypt_secret
+from app.core.deps import get_current_admin
+from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
+from app.db.models.user import User
 from app.db.models.agent import (
     Agent,
     AgentCapacity,
@@ -305,6 +310,91 @@ async def sync_agent_runtimes(db: AsyncSession = Depends(get_db)) -> AgentRuntim
     )
 
 
+def _forgerouter_key_unchanged(agent: Agent, api_key: str) -> bool:
+    """True when the agent's stored (encrypted) key already decrypts to this
+    exact plaintext -- ciphertext can't be compared directly, Fernet
+    encryption is nondeterministic (fresh IV/timestamp on every call)."""
+    if not agent.forgerouter_api_key_encrypted:
+        return False
+    try:
+        return decrypt_secret(agent.forgerouter_api_key_encrypted) == api_key
+    except ValueError:
+        return False
+
+
+@router.post("/{agent_id}/forgerouter-key/import", response_model=ForgeRouterKeyImportOut)
+async def import_forgerouter_key(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> ForgeRouterKeyImportOut:
+    """Import this one agent's already-issued ForgeRouter API key straight
+    from ForgeRouter's own registry (ai_router.agents, see
+    core/forgerouter_sync.py) into forgerouter_api_key_encrypted -- the
+    per-agent "Import" button next to the manual paste-and-save field
+    (2026-07-29, Marcelo: "seria melhor criar um botão de importação do
+    api key do agente"). See /sync/forgerouter-keys below for the "all
+    agents at once" counterpart ("adiciona opção de todos e para cada
+    agente") -- both share the matching/overwrite rule documented there."""
+    agent = await db.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    keys_by_name = {k.name.strip().lower(): k.api_key for k in await forgerouter_sync.read_forgerouter_agent_keys()}
+    api_key = keys_by_name.get(agent.name.strip().lower())
+    if api_key is None:
+        return ForgeRouterKeyImportOut(matched=False, updated=False, forgerouter_api_key_configured=agent.forgerouter_api_key_configured)
+
+    updated = not _forgerouter_key_unchanged(agent, api_key)
+    if updated:
+        agent.forgerouter_api_key_encrypted = encrypt_secret(api_key)
+        await db.commit()
+    return ForgeRouterKeyImportOut(matched=True, updated=updated, forgerouter_api_key_configured=True)
+
+
+@router.post("/sync/forgerouter-keys", response_model=ForgeRouterKeySyncOut)
+async def sync_forgerouter_keys(db: AsyncSession = Depends(get_db)) -> ForgeRouterKeySyncOut:
+    """Bulk counterpart of POST /{agent_id}/forgerouter-key/import above:
+    imports every active agent's already-issued ForgeRouter key in one
+    pass, for every agent registered in ForgeRouter -- not just the
+    Hermes-profile ones /sync/hermes-foundation already covers via
+    config.yaml (2026-07-29, Marcelo: "tem que gravar no campo forgerouter
+    api key de todos os agentes cadastrado no forgerouter").
+
+    Matched by exact agent name (case-insensitive) -- ai_router.agents has
+    no FK back to ForgeHub, name is the only shared key. Always overwrites
+    on a match: ai_router.agents is the authoritative, currently-live
+    value (ForgeRouter itself issued it and wrote it into that agent's own
+    config), so a stale ForgeHub copy should lose to it, unlike the
+    fill-only rule /sync/hermes-foundation and /sync/runtimes use for
+    fields a human might have hand-edited."""
+    result = await db.execute(select(Agent).where(Agent.is_active.is_(True)).order_by(Agent.name))
+    agents = list(result.scalars().all())
+    keys_by_name = {k.name.strip().lower(): k.api_key for k in await forgerouter_sync.read_forgerouter_agent_keys()}
+
+    rows: list[ForgeRouterKeySyncAgentOut] = []
+    matched = updated = 0
+    for agent in agents:
+        api_key = keys_by_name.pop(agent.name.strip().lower(), None)
+        if api_key is None:
+            rows.append(ForgeRouterKeySyncAgentOut(agent_id=agent.id, agent_name=agent.name))
+            continue
+        matched += 1
+        changed = not _forgerouter_key_unchanged(agent, api_key)
+        if changed:
+            agent.forgerouter_api_key_encrypted = encrypt_secret(api_key)
+            updated += 1
+        rows.append(
+            ForgeRouterKeySyncAgentOut(agent_id=agent.id, agent_name=agent.name, matched=True, updated=changed)
+        )
+    if updated:
+        await db.commit()
+
+    return ForgeRouterKeySyncOut(
+        checked=len(agents),
+        matched=matched,
+        updated=updated,
+        agents=rows,
+        unmatched_forgerouter_agents=sorted(keys_by_name),
+    )
+
+
 @router.get("/mcp-servers", response_model=AgentMcpOverviewOut)
 async def get_agents_mcp_overview(db: AsyncSession = Depends(get_db)) -> AgentMcpOverviewOut:
     """Every agent's MCP servers in one payload, for the ecosystem-wide MCP
@@ -415,10 +505,17 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
     under /root/.hermes/profiles/ (`hermes_sync.list_provisioned_profiles`)
     -- NOT from the registry docs (ECOSYSTEM_AGENTS.md etc.), which can
     list agents that are only planned/documented and not actually
-    provisioned (e.g. `forgenet`), or go stale. A registry entry is used
-    only to enrich a provisioned profile's metadata (name, layer, role,
-    telegram, runtime tier) when one exists; a profile with no matching
-    entry is still registered, just without that metadata.
+    provisioned (e.g. `forgenet`), or go stale.
+
+    name/layer/mission are read from each profile's own IDENTITY.md first
+    (`hermes_sync.parse_profile_identity` -- the agent's live self-declared
+    configuration) and only fall back to the Foundation docs
+    (ECOSYSTEM_AGENTS.md / <NAME>.md) when IDENTITY.md is missing that
+    field (2026-07-29, Marcelo: "a sincronização vem da documentação que
+    pode estar desatualizada. E não da configuração dos agentes"). Only
+    runtime_tier and telegram_required stay doc-only -- no profile-folder
+    equivalent exists for either. A profile with no matching registry entry
+    and no IDENTITY.md is still registered, just without that metadata.
     """
     warnings: list[str] = []
     agents_created = agents_updated = 0
@@ -444,6 +541,26 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
                 "runtime_tier": None,
             }
         mission, source_path = hermes_sync.parse_agent_mission(slug)
+        # The profile's own IDENTITY.md (live agent configuration) wins over
+        # ECOSYSTEM_AGENTS.md/<NAME>.md (Foundation documentation, which can
+        # go stale) for name/layer/mission -- 2026-07-29, Marcelo: "a
+        # sincronização vem da documentação que pode estar desatualizada. E
+        # não da configuração dos agentes" (docs still consulted as
+        # fallback when IDENTITY.md doesn't have a field, per "você pode
+        # até consultar algumas coisas da documentação"). Crons/scripts
+        # already read live from the profile folder (AgentEcosystemHierarchy.tsx,
+        # useFoundationCrons/useFoundationAllScripts) and sub-agents are
+        # intentionally catalog-only WORKER/ROLE entries with no profile of
+        # their own (SUBAGENTS_CATALOG.md's own text) -- neither needed a
+        # source change here.
+        identity = hermes_sync.parse_profile_identity(slug)
+        if identity.get("name"):
+            entry["name"] = identity["name"]
+        if identity.get("layer"):
+            entry["layer"] = identity["layer"]
+        if identity.get("mission"):
+            mission = identity["mission"]
+            source_path = f"/root/.hermes/profiles/{slug}/IDENTITY.md"
         forge_router_api_key = hermes_sync.read_profile_forgerouter_api_key(slug)
         department, sector, reports_to_profile_slug = hermes_sync.organization_for_profile(slug)
 
@@ -473,12 +590,16 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
             db.add(agent)
             agents_created += 1
         else:
-            # Only refresh the registry-mirrored fields when this run actually
-            # found registry data for the slug -- a transient/empty read of
-            # ECOSYSTEM_AGENTS.md must never wipe an existing agent's real
-            # layer/runtime_tier/telegram_required back to defaults.
-            if has_registry_entry:
+            # Only refresh a field when this run actually found real data
+            # for it -- a transient/empty doc read must never wipe an
+            # existing agent's real value back to defaults. `layer` has two
+            # possible sources now (IDENTITY.md above, or the registry doc),
+            # so it refreshes when either produced something; runtime_tier/
+            # telegram_required have no profile-folder equivalent, so they
+            # stay strictly registry-doc-gated.
+            if identity.get("layer") or has_registry_entry:
                 agent.layer = entry["layer"]
+            if has_registry_entry:
                 agent.runtime_tier = entry["runtime_tier"]
                 agent.telegram_required = entry["telegram_required"]
             agent.has_profile = True
@@ -693,8 +814,22 @@ async def delete_skill(skill_id: uuid.UUID, db: AsyncSession = Depends(get_db)) 
 
 
 @router.get("/{agent_id}", response_model=AgentDetailOut)
-async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Agent:
-    return await _get_agent_detail_or_404(db, agent_id)
+async def get_agent(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_admin)
+) -> AgentDetailOut:
+    """Admin-gated (2026-07-29, was open to any authenticated caller before):
+    this is the one place forgerouter_api_key_encrypted is ever decrypted
+    back out to the response, so it needed the same admin gate the field's
+    own write side (PATCH .../forgerouter_api_key) already implicitly
+    relies on -- see AgentDetailOut.forgerouter_api_key's docstring."""
+    agent = await _get_agent_detail_or_404(db, agent_id)
+    out = AgentDetailOut.model_validate(agent)
+    if agent.forgerouter_api_key_encrypted:
+        try:
+            out.forgerouter_api_key = decrypt_secret(agent.forgerouter_api_key_encrypted)
+        except ValueError:
+            out.forgerouter_api_key = None
+    return out
 
 
 @router.patch("/{agent_id}", response_model=AgentOut)

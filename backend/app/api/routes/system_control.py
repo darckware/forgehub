@@ -21,7 +21,7 @@ from app.core.config import _APP_CONFIG_FILE, CHAT_RESPONSE_LANGUAGE_NOTES, sett
 from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.project import Project
-from app.db.models.user import User
+from app.db.models.user import UI_LANGUAGES, User
 
 router = APIRouter(prefix="/api/v1/system-control", tags=["system-control"])
 
@@ -747,13 +747,16 @@ async def update_app_config(
                 f"{', '.join(CHAT_RESPONSE_LANGUAGE_NOTES)}"
             ),
         )
-    # Matches User.ui_language's own CheckConstraint (ck_users_ui_language)
-    # -- a value outside this pair would let an admin save a system default
-    # that then fails at the DB the moment a new user is actually created.
-    if payload.default_ui_language not in ("en", "pt-BR"):
+    # Matches User.ui_language's own CheckConstraint (ck_users_ui_language,
+    # UI_LANGUAGES) -- a value outside this set would let an admin save a
+    # system default that then fails at the DB the moment a new user is
+    # actually created. Widened to include "es" 2026-07-29 (Marcelo: "na
+    # language adiciona espanhol nos dois campos") -- was previously
+    # narrower than UI_LANGUAGES itself for no documented reason.
+    if payload.default_ui_language not in UI_LANGUAGES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="default_ui_language must be one of en, pt-BR",
+            detail=f"default_ui_language must be one of {', '.join(UI_LANGUAGES)}",
         )
     for runtime_name, runtime_path in payload.agent_runtime_paths.items():
         if not runtime_path.startswith("/"):

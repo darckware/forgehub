@@ -155,6 +155,12 @@ export const agentSchema = z.object({
   sector: z.string().nullable().optional(),
   reports_to_profile_slug: z.string().nullable().optional(),
   forgerouter_api_key_configured: z.boolean().default(false),
+  // Decrypted value -- only ever present on the single-agent GET
+  // (AgentDetailOut), admin-only, absent everywhere else (list, other
+  // domains' Agent references). See backend/app/db/models/agent.py's
+  // forgerouter_api_key_encrypted docstring for why this reverses the
+  // column's original write-only design (2026-07-29).
+  forgerouter_api_key: z.string().nullable().optional(),
   // Host-bridge /v1/agent-runs' runtime_type -- only set for agents that
   // can be dispatched via the Inbox: Porthos/Aramis/Dartan (claude/codex/
   // agy, their own external CLIs), the classic Hermes-profile agents
@@ -275,6 +281,57 @@ export function useSyncHermesAgents() {
       // The MCP screens are keyed by the same roster: a sync that adds or
       // retires an agent must not leave them showing the previous one.
       queryClient.invalidateQueries({ queryKey: agentMcpKeys.overview });
+    },
+  });
+}
+
+/** Bulk "import all" for the ForgeRouter API key -- pulls every active
+ * agent's already-issued key straight from ForgeRouter's own registry
+ * (ai_router.agents), for agents ForgeRouter already knows about, not just
+ * the Hermes-profile ones the sync above already covers (2026-07-29). See
+ * useImportAgentForgeRouterKey below for the per-agent counterpart. */
+export interface ForgeRouterKeySyncAgent {
+  agent_id: string;
+  agent_name: string;
+  matched: boolean;
+  updated: boolean;
+}
+
+export interface ForgeRouterKeySyncResult {
+  checked: number;
+  matched: number;
+  updated: number;
+  agents: ForgeRouterKeySyncAgent[];
+  unmatched_forgerouter_agents: string[];
+}
+
+export function useSyncForgeRouterKeys() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<ForgeRouterKeySyncResult>(`${RESOURCE}/sync/forgerouter-keys`),
+    // agentKeys.all is ["agents"], a prefix of every agentKeys.detail(id) --
+    // TanStack Query's default partial matching means this one invalidation
+    // already covers the list and every open detail query too.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: agentKeys.all }),
+  });
+}
+
+/** Per-agent "Import" button next to the ForgeRouter API key field on the
+ * agent detail page -- same source/matching rule as the bulk sync above,
+ * scoped to one agent. */
+export interface ForgeRouterKeyImportResult {
+  matched: boolean;
+  updated: boolean;
+  forgerouter_api_key_configured: boolean;
+}
+
+export function useImportAgentForgeRouterKey(agentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<ForgeRouterKeyImportResult>(`${RESOURCE}/${agentId}/forgerouter-key/import`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
     },
   });
 }

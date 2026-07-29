@@ -16,7 +16,9 @@
       "cleanupDescription": "\"Executar limpeza\" chama a mesma política limitada do Athos usada pelo cron semanal foundation-clear.",
       "aiChat": "Idioma",
       "aiChatDescription": "Idioma padrão da interface para novos usuários e idioma de resposta do chat de IA (abas Workspace e painel Assistente). O do chat é enviado ao agente como instrução oculta em cada mensagem -- nunca aparece na conversa.",
-      "general": "Geral"
+      "general": "Geral",
+      "openclaw": "OpenClaw",
+      "openclawDescription": "Token do gateway do OpenClaw (Vector), lido/gravado direto em /root/.openclaw/.env no host. Não faz parte de forgehub.config -- salva e recarrega imediatamente, com card e botão próprios."
     },
 
     "gitControl": {
@@ -80,6 +82,14 @@
         { "value": "de", "label": "Alemão" },
         { "value": "it", "label": "Italiano" }
       ]
+    },
+
+    "openclaw": {
+      "gatewayToken": {
+        "label": "Token do gateway",
+        "placeholder": "Nenhum token configurado",
+        "help": "Usado para autenticar o Console Web do OpenClaw (WebSocket do gateway). Alterar aqui só tem efeito depois que o serviço openclaw-gateway for reiniciado no host."
+      }
     },
 
     "general": {

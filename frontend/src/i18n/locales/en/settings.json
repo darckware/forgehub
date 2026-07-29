@@ -16,7 +16,9 @@
       "cleanupDescription": "\"Run Cleanup\" invokes the same bounded Athos policy used by the weekly foundation-clear cron.",
       "aiChat": "Language",
       "aiChatDescription": "Default interface language for new users, and the response language for the AI chat (Workspace tabs and the Assistant panel). The chat one is sent to the agent as a hidden instruction on every message -- it never appears in the conversation.",
-      "general": "General"
+      "general": "General",
+      "openclaw": "OpenClaw",
+      "openclawDescription": "OpenClaw (Vector) gateway token, read/written straight to /root/.openclaw/.env on the host. Not part of forgehub.config -- saves and reloads immediately, with its own card and button."
     },
 
     "gitControl": {
@@ -80,6 +82,14 @@
         { "value": "de", "label": "Deutsch" },
         { "value": "it", "label": "Italiano" }
       ]
+    },
+
+    "openclaw": {
+      "gatewayToken": {
+        "label": "Gateway token",
+        "placeholder": "No token configured",
+        "help": "Used to authenticate the OpenClaw Web Console (gateway WebSocket). Changing it here only takes effect once the openclaw-gateway service is restarted on the host."
+      }
     },
 
     "general": {

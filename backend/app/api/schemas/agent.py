@@ -375,6 +375,14 @@ class AgentDetailOut(AgentOut):
     agent_skills: list[AgentSkillOut] = Field(default_factory=list)
     cost_rates: list[AgentCostRateOut] = Field(default_factory=list)
     capacities: list[AgentCapacityOut] = Field(default_factory=list)
+    # Decrypted ForgeRouter key -- admin-only, detail-endpoint-only (see
+    # GET /{agent_id} in api/routes/agent.py). Reverses the column's
+    # original "never displayed again" design (db/models/agent.py) per
+    # Marcelo's explicit 2026-07-29 request; None for a non-admin caller or
+    # an agent with no key configured, never the raw
+    # forgerouter_api_key_encrypted column itself, and never present on
+    # AgentListItemOut/AgentOut (the roster list keeps the boolean only).
+    forgerouter_api_key: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +497,38 @@ class AgentRuntimeSyncOut(BaseModel):
     agents: list[AgentRuntimeSyncAgentOut] = Field(default_factory=list)
     # Hermes profile directories with no agent registered against them.
     unregistered_profiles: list[str] = Field(default_factory=list)
+
+
+class ForgeRouterKeyImportOut(BaseModel):
+    """Result of importing one agent's key from ai_router.agents."""
+
+    matched: bool = False
+    updated: bool = False
+    forgerouter_api_key_configured: bool = False
+
+
+class ForgeRouterKeySyncAgentOut(BaseModel):
+    """One agent's ForgeRouter-key reconciliation against ai_router.agents."""
+
+    agent_id: uuid.UUID
+    agent_name: str
+    matched: bool = False
+    updated: bool = False
+
+
+class ForgeRouterKeySyncOut(BaseModel):
+    """Result of pulling each agent's already-issued key straight from
+    ForgeRouter's own registry (ai_router.agents), keyed by exact agent
+    name -- the authoritative source ForgeRouter itself hands out and
+    writes into that agent's own config (see core/forgerouter_sync.py)."""
+
+    checked: int = 0
+    matched: int = 0
+    updated: int = 0
+    agents: list[ForgeRouterKeySyncAgentOut] = Field(default_factory=list)
+    # Rows in ai_router.agents (kind='agent') with no matching ForgeHub
+    # agent name -- surfaced so a naming drift is visible, not silent.
+    unmatched_forgerouter_agents: list[str] = Field(default_factory=list)
 
 
 class AgentMcpOverviewItem(AgentMcpServersOut):

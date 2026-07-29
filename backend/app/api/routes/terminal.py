@@ -25,6 +25,7 @@ from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from websockets import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
@@ -96,18 +97,63 @@ async def fs_list(path: str | None = Query(default=None), user: User = Depends(g
 async def openclaw_dashboard_url(user: User = Depends(get_current_admin)) -> dict:
     """Proxy to the bridge's OpenClaw gateway-token lookup -- backs the
     Workspace's OpenClaw launcher menu's "Web" option, which opens the
-    dashboard through the internal Workspace Browser (not a new external
-    browser tab: the dashboard's `127.0.0.1` only resolves to the actual
-    OpenClaw host from a browser running on that same host, which the
-    Workspace Browser is and an operator's own external browser tab isn't)
-    already carrying the one-time auth token in the URL fragment, per
-    host-bridge/app.py's openclaw_dashboard_url docstring. Admin-gated same
-    as every other route in this module: the token this returns grants
-    the same admin-surface access a plain shell already would."""
+    dashboard in a new external browser tab (2026-07-29, Marcelo: the
+    operator's own browser runs on the same host as OpenClaw, so the
+    dashboard's `127.0.0.1` URL resolves fine there -- previously routed
+    through the internal Workspace Browser for hosts where that wasn't
+    true) already carrying the one-time auth token in the URL fragment,
+    per host-bridge/app.py's openclaw_dashboard_url docstring. Admin-gated
+    same as every other route in this module: the token this returns
+    grants the same admin-surface access a plain shell already would."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             f"{settings.CHAT_BRIDGE_URL}/v1/openclaw/dashboard-url",
             headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Chat bridge error: {resp.text[:500]}"
+        )
+    return resp.json()
+
+
+class OpenclawGatewayTokenUpdate(BaseModel):
+    token: str
+
+
+@router.get("/openclaw-gateway-token")
+async def get_openclaw_gateway_token(user: User = Depends(get_current_admin)) -> dict:
+    """Proxy to the bridge's raw OpenClaw gateway-token read -- backs
+    Settings' "OpenClaw" card (2026-07-29, Marcelo: wants the token
+    visible/settable from ForgeHub instead of SSHing in and editing
+    /root/.openclaw/.env by hand). Same trust boundary as
+    /openclaw-dashboard-url above, which already hands this same value
+    back to the browser embedded in a URL fragment."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{settings.CHAT_BRIDGE_URL}/v1/openclaw/gateway-token",
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Chat bridge error: {resp.text[:500]}"
+        )
+    return resp.json()
+
+
+@router.put("/openclaw-gateway-token")
+async def set_openclaw_gateway_token(body: OpenclawGatewayTokenUpdate, user: User = Depends(get_current_admin)) -> dict:
+    """Writes OPENCLAW_GATEWAY_TOKEN back into /root/.openclaw/.env via the
+    bridge (upsert -- every other var in that file, e.g.
+    FORGEROUTER_API_KEY/TELEGRAM_BOT_TOKEN, is left untouched). Does NOT
+    restart openclaw-gateway.service: the daemon only reads this value once
+    at process start (SecretRef, per host-bridge's dashboard-url
+    docstring), so a change here only takes effect on its next restart."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.put(
+            f"{settings.CHAT_BRIDGE_URL}/v1/openclaw/gateway-token",
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+            json={"token": body.token},
         )
     if resp.status_code != 200:
         raise HTTPException(

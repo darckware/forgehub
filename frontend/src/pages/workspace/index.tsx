@@ -29,7 +29,6 @@ import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { apiClient } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useServers, buildSshCommand } from "@/hooks/useServers";
-import { useNavigateWorkspaceBrowser } from "@/hooks/useWorkspaceBrowser";
 import { fetchOpenclawDashboardUrl } from "@/hooks/useTerminalBrowse";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
@@ -92,12 +91,11 @@ const RUNTIME_LAUNCHERS: Launcher[] = [
   // dark-mode-invisibility issue as opencode's above.
   //
   // OpenClaw also runs its own web Control UI (`openclaw dashboard`, same
-  // gateway port as the TUI's websocket) -- `hasWebPanel` below opens it
-  // through the internal Workspace Browser rather than a new external
-  // browser tab: its `127.0.0.1` only resolves to the actual OpenClaw host
-  // from a browser already running there, which the Workspace Browser is
-  // (host-bridge-driven) and an operator's own external browser tab isn't.
-  // Never embedded as an iframe either -- it sends `X-Frame-Options: DENY`.
+  // gateway port as the TUI's websocket) -- `hasWebPanel` below opens it in
+  // a new external browser tab (Marcelo, 2026-07-29: operator's browser
+  // runs on the same host as OpenClaw, so `127.0.0.1` resolves fine there;
+  // no longer routed through the internal Workspace Browser). Never
+  // embedded as an iframe either -- it sends `X-Frame-Options: DENY`.
   // A second entry point alongside the TUI terminal tab every other
   // launcher opens. See LauncherMenu.
   { label: "OpenClaw", command: "openclaw", icon: openclawIcon, hasWebPanel: true },
@@ -171,18 +169,18 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
 
 /** Launcher with two entry points (currently just OpenClaw, via its
  * `hasWebPanel`): a dropdown offering "Terminal" (same openTerminalTab flow
- * as every other launcher button) and "Web" (opens the tool's own web UI
- * through the internal Workspace Browser, fetching a fresh, pre-authed URL
- * from the backend on each click -- see fetchOpenclawDashboardUrl and
- * RUNTIME_LAUNCHERS). */
+ * as every other launcher button) and "Web" (opens the tool's own web UI in
+ * a new external browser tab, fetching a fresh, pre-authed URL from the
+ * backend on each click -- see fetchOpenclawDashboardUrl and
+ * RUNTIME_LAUNCHERS). Menu anchors to the button's *right* edge (`right-0`,
+ * not `left-0`): this launcher sits at the far right of the toolbar, so a
+ * left-anchored menu overflowed past the viewport edge and got clipped. */
 function LauncherMenu({
   launcher,
   onOpenTerminal,
-  onOpenWeb,
 }: {
   launcher: Launcher;
   onOpenTerminal: (label: string, command: string) => void;
-  onOpenWeb: (label: string, url: string) => void;
 }) {
   const { t } = useTranslation("workspace");
   const [open, setOpen] = useState(false);
@@ -195,9 +193,9 @@ function LauncherMenu({
     setLoadingWeb(true);
     try {
       const { url } = await fetchOpenclawDashboardUrl();
-      onOpenWeb(launcher.label, url);
+      window.open(url, "_blank", "noopener,noreferrer");
     } catch {
-      onOpenWeb(launcher.label, OPENCLAW_DASHBOARD_FALLBACK_URL);
+      window.open(OPENCLAW_DASHBOARD_FALLBACK_URL, "_blank", "noopener,noreferrer");
     } finally {
       setLoadingWeb(false);
     }
@@ -217,7 +215,7 @@ function LauncherMenu({
         {loadingWeb ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LauncherIcon icon={launcher.icon} iconBg={launcher.iconBg} />}
       </Button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md">
+        <div className="absolute right-0 top-full z-20 mt-1 mr-1 w-44 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md">
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
@@ -355,33 +353,6 @@ export default function WorkspacePage() {
     const id = crypto.randomUUID();
     setTabs((current) => [...current, { kind: "web", id, label, url }]);
     setActiveTabId(id);
-  }
-
-  const navigateWebBrowser = useNavigateWorkspaceBrowser();
-
-  // Used by the OpenClaw launcher menu's "Web" option (and anything else
-  // that needs to land on a specific URL, as opposed to toggleWebBrowser's
-  // "just show whatever's already there"). openWebTab alone isn't safe here:
-  // every "web" tab renders its own WebAppPane, but all of them share the
-  // exact same backend browser session (one singleton Chromium instance --
-  // see WebAppPane.tsx/useWorkspaceBrowserState's shared query key), and a
-  // freshly mounted WebAppPane only ever auto-navigates on its own if the
-  // shared session has no state yet or is still at "about:blank" -- so
-  // blindly creating a second "web" tab while one already exists (e.g. a
-  // Product's "Web App" tab already open) would NOT navigate anywhere; it'd
-  // just silently show that other tab's stale content under the OpenClaw
-  // label. Reusing/relabeling the single existing tab and explicitly
-  // triggering the navigate mutation keeps this correct regardless of
-  // whatever the shared browser was already showing.
-  function openOrNavigateWebTab(label: string, url: string) {
-    const existing = tabs.find((tab): tab is WorkspaceTab & { kind: "web" } => tab.kind === "web");
-    if (existing) {
-      setTabs((current) => current.map((tab) => (tab.id === existing.id ? { ...tab, label, url } : tab)));
-      setActiveTabId(existing.id);
-    } else {
-      openWebTab(label, url);
-    }
-    navigateWebBrowser.mutate({ url });
   }
 
   function toggleWebBrowser() {
@@ -648,7 +619,7 @@ export default function WorkspacePage() {
           </span>
           {RUNTIME_LAUNCHERS.map((l) =>
             l.hasWebPanel ? (
-              <LauncherMenu key={l.command} launcher={l} onOpenTerminal={openTerminalTab} onOpenWeb={openOrNavigateWebTab} />
+              <LauncherMenu key={l.command} launcher={l} onOpenTerminal={openTerminalTab} />
             ) : (
               <Button
                 key={l.command}

@@ -7,13 +7,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { TokenField } from "@/components/ui/token-field";
 import { type AppConfig, useAppConfig, useUpdateAppConfig } from "@/hooks/useAppConfig";
 import { useForgeRouterVirtualModels } from "@/hooks/useOrchestration";
+import { useOpenclawGatewayToken, useUpdateOpenclawGatewayToken } from "@/hooks/useTerminalBrowse";
 
-// A handful of common IANA zones as <datalist> suggestions -- the field
-// still accepts any valid zone name, typed or picked, validated by the
-// backend (zoneinfo) on save.
-const COMMON_TIMEZONES = [
+// Every IANA zone name as <datalist> suggestions (2026-07-29, Marcelo:
+// "adicione o timezone para todos os países" -- the previous list only had
+// 6 hand-picked entries). Intl.supportedValuesOf("timeZone") returns the
+// full ~400-entry tz database the browser itself ships (all countries,
+// every region), so there's no static list to maintain here. Falls back to
+// a small hand-picked set for the rare pre-2022 browser that doesn't
+// implement it -- the field still accepts any valid zone name typed by
+// hand regardless, validated by the backend (zoneinfo) on save.
+const FALLBACK_TIMEZONES = [
   "America/Sao_Paulo",
   "America/New_York",
   "America/Los_Angeles",
@@ -21,6 +28,13 @@ const COMMON_TIMEZONES = [
   "Europe/London",
   "UTC",
 ];
+// tsconfig's `lib` predates ES2022.Intl, so the ambient `Intl` type has no
+// `supportedValuesOf` member yet even though every real target browser
+// ships it -- narrow, local cast rather than bumping the project-wide lib
+// target for one call site.
+type IntlWithSupportedValuesOf = typeof Intl & { supportedValuesOf?: (key: "timeZone") => string[] };
+const ALL_TIMEZONES: string[] =
+  (Intl as IntlWithSupportedValuesOf).supportedValuesOf?.("timeZone") ?? FALLBACK_TIMEZONES;
 
 // Languages the AI chat (Workspace tabs + Assistant drawer) can answer in
 // -- mirrors the keys of backend core/config.py's
@@ -37,13 +51,17 @@ const CHAT_RESPONSE_LANGUAGES = [
   { value: "it", label: "Italiano" },
 ];
 
-// App shell language new users get on creation -- narrower than
-// CHAT_RESPONSE_LANGUAGES above because it's constrained by
-// User.ui_language's own CheckConstraint (ck_users_ui_language, backend);
-// the PUT validator rejects anything outside this pair.
+// App shell language new users get on creation -- constrained by
+// User.ui_language's own CheckConstraint (ck_users_ui_language, backend
+// UI_LANGUAGES = ("en", "pt-BR", "es")); the PUT validator rejects
+// anything outside that set. Not the full CHAT_RESPONSE_LANGUAGES list
+// above -- the app shell itself (menus, screens, forms) only has en/pt-BR/
+// es locale files (src/i18n/locales/), unlike the chat instruction, which
+// just needs a language name in a hidden prompt note.
 const DEFAULT_UI_LANGUAGES = [
   { value: "pt-BR", label: "Português (Brasil)" },
   { value: "en", label: "English" },
+  { value: "es", label: "Español" },
 ];
 
 function linesToList(value: string): string[] {
@@ -51,6 +69,85 @@ function linesToList(value: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+/** Independent card, own load/save -- the OpenClaw gateway token isn't part
+ * of AppConfig/forgehub.config (useAppConfig.ts: "not secrets -- those stay
+ * in .env"). It lives in /root/.openclaw/.env on the host and is read/
+ * written through its own host-bridge endpoint (2026-07-29), so it gets its
+ * own query/mutation and Save button rather than joining the big form's
+ * batched save below. */
+function OpenclawTokenCard() {
+  const { t } = useTranslation("settings");
+  const { data, isLoading } = useOpenclawGatewayToken();
+  const updateToken = useUpdateOpenclawGatewayToken();
+  const [value, setValue] = useState("");
+  const [seeded, setSeeded] = useState(false);
+
+  useEffect(() => {
+    if (data && !seeded) {
+      setValue(data.token ?? "");
+      setSeeded(true);
+    }
+  }, [data, seeded]);
+
+  const dirty = seeded && value.trim() !== (data?.token ?? "");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-xl">{t("settings.tabs.openclaw")}</CardTitle>
+        <CardDescription>{t("settings.tabs.openclawDescription")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="max-w-md space-y-2">
+          <Label htmlFor="openclaw_gateway_token">{t("settings.openclaw.gatewayToken.label")}</Label>
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> {t("settings.messages.loading")}
+            </div>
+          ) : (
+            <TokenField
+              id="openclaw_gateway_token"
+              value={value}
+              onChange={setValue}
+              placeholder={t("settings.openclaw.gatewayToken.placeholder")}
+            />
+          )}
+          <p className="text-xs text-muted-foreground">{t("settings.openclaw.gatewayToken.help")}</p>
+        </div>
+
+        {updateToken.isError && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {(updateToken.error as Error)?.message ?? t("settings.messages.saveError")}
+          </div>
+        )}
+        {updateToken.isSuccess && !dirty && (
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
+            {t("settings.messages.saved")}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            disabled={!dirty || updateToken.isPending}
+            onClick={() => setValue(data?.token ?? "")}
+          >
+            {t("settings.messages.reset")}
+          </Button>
+          <Button
+            className="gap-2"
+            disabled={!dirty || updateToken.isPending || !value.trim()}
+            onClick={() => updateToken.mutate(value.trim())}
+          >
+            {updateToken.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {t("settings.messages.save")}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function SettingsPage() {
@@ -176,6 +273,8 @@ export default function SettingsPage() {
           ))}
         </CardContent>
       </Card>
+
+      <OpenclawTokenCard />
 
       <Card>
         <CardHeader>
@@ -303,7 +402,7 @@ export default function SettingsPage() {
               placeholder="America/Sao_Paulo"
             />
             <datalist id="timezone-suggestions">
-              {COMMON_TIMEZONES.map((tz) => (
+              {ALL_TIMEZONES.map((tz) => (
                 <option key={tz} value={tz} />
               ))}
             </datalist>

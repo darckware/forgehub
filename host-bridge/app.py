@@ -3210,6 +3210,49 @@ async def openclaw_dashboard_url(x_bridge_token: str | None = Header(default=Non
     return {"url": url, "has_token": token is not None}
 
 
+# Read/write access to the raw token itself -- backs ForgeHub Settings' "OpenClaw"
+# card (2026-07-29, Marcelo: wants the token visible/settable from ForgeHub instead
+# of SSHing in and editing this file by hand). Same trust boundary as the endpoint
+# above, which already hands this exact value back to the browser embedded in a URL
+# fragment. Writing preserves every other line in the file untouched (upsert, not
+# overwrite) -- OPENCLAW_ENV_FILE also carries FORGEROUTER_API_KEY/TELEGRAM_BOT_TOKEN/
+# etc. for this same OpenClaw instance (Vector), not just the gateway token. A write
+# here does NOT restart openclaw-gateway.service: the running daemon only reads this
+# value once at process start (it's wired as a SecretRef, `gateway.auth.token.source:
+# "env"`, per the docstring above), so a change only takes effect on its next restart.
+def _set_openclaw_gateway_token(token: str) -> None:
+    lines = OPENCLAW_ENV_FILE.read_text().splitlines() if OPENCLAW_ENV_FILE.is_file() else []
+    new_line = f"OPENCLAW_GATEWAY_TOKEN={token}"
+    for i, line in enumerate(lines):
+        if line.startswith("OPENCLAW_GATEWAY_TOKEN="):
+            lines[i] = new_line
+            break
+    else:
+        lines.append(new_line)
+    OPENCLAW_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+    OPENCLAW_ENV_FILE.write_text("\n".join(lines) + "\n")
+
+
+class OpenclawGatewayTokenRequest(BaseModel):
+    token: str
+
+
+@app.get("/v1/openclaw/gateway-token")
+async def get_openclaw_gateway_token(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    return {"token": _openclaw_gateway_token()}
+
+
+@app.put("/v1/openclaw/gateway-token")
+async def set_openclaw_gateway_token(req: OpenclawGatewayTokenRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    token = req.token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Token cannot be empty")
+    _set_openclaw_gateway_token(token)
+    return {"token": token}
+
+
 # ---------------------------------------------------------------------------
 # Terminal -- a real PTY on the host, one per WebSocket connection.
 #

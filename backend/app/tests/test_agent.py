@@ -20,7 +20,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.api.routes import agent as agent_routes
 from app.core import agent_telegram
@@ -34,6 +34,7 @@ from app.db.models.agent import (
     SubAgent,
     SubAgentSkill,
 )
+from app.db.models.user import User
 
 _MY_TABLES = [
     Agent.__table__,
@@ -60,6 +61,33 @@ async def _ensure_agent_tables():
             )
         )
     yield
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _ensure_admin_user():
+    """GET /{agent_id} is admin-gated (2026-07-29, decrypts
+    forgerouter_api_key back into the response) -- auth_headers' JWT
+    (conftest.py) is for username "test-suite", so that user needs to
+    actually exist with is_admin=True, or get_current_admin 401s/403s.
+    Same shared-username convention as test_pipeline.py's fixture; only
+    deletes the row afterwards if this fixture is the one that created it,
+    in case another concurrently-running test module owns it instead."""
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.username == "test-suite"))).scalar_one_or_none()
+        created = user is None
+        if created:
+            session.add(User(
+                username="test-suite", hashed_password="test-only-not-a-real-password",
+                is_active=True, is_admin=True,
+            ))
+            await session.commit()
+    yield
+    if created:
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(User).where(User.username == "test-suite"))).scalar_one_or_none()
+            if user:
+                await session.delete(user)
+                await session.commit()
 
 
 @pytest_asyncio.fixture

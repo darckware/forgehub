@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { AlertCircle, Bot, Loader2, RefreshCw, Send, Wrench } from "lucide-react";
+import { AlertCircle, Bot, Download, KeyRound, Loader2, RefreshCw, Send, Wrench } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentEcosystemHierarchy } from "@/components/AgentEcosystemHierarchy";
-import { useAgents, useSyncHermesAgents, useSkills } from "@/hooks/useAgent";
+import { useAgents, useSyncForgeRouterKeys, useSyncHermesAgents, useSkills } from "@/hooks/useAgent";
+import { cn } from "@/lib/utils";
 
 /**
  * The Agents page is the org chart, full stop.
@@ -32,6 +33,7 @@ export default function AgentPage() {
   const { data: agents, isLoading, isError, error } = useAgents();
   const { data: skills = [] } = useSkills();
   const syncHermes = useSyncHermesAgents();
+  const syncForgeRouterKeys = useSyncForgeRouterKeys();
   const [focusedAgentId, setFocusedAgentId] = useState("");
 
   return (
@@ -75,6 +77,19 @@ export default function AgentPage() {
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
             {t("list.syncFromFoundation")}
+          </Button>
+          <Button
+            variant="outline"
+            title={t("list.importForgeRouterKeysTooltip")}
+            onClick={() => syncForgeRouterKeys.mutate()}
+            disabled={syncForgeRouterKeys.isPending}
+          >
+            {syncForgeRouterKeys.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            {t("list.importForgeRouterKeys")}
           </Button>
           {/* Agent Tools moved off the sidebar and in here: the tools registry
               is scoped to this roster, not a peer destination of it. */}
@@ -136,6 +151,63 @@ export default function AgentPage() {
             {syncHermes.data.warnings.length > 0 && (
               <span className="text-destructive">{syncHermes.data.warnings.join("; ")}</span>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {syncForgeRouterKeys.isError && (
+        <Card className="border-destructive/50">
+          <CardContent className="flex items-center gap-3 py-4 text-destructive">
+            <AlertCircle className="h-5 w-5" />
+            <span>{t("list.importForgeRouterKeysError", { message: (syncForgeRouterKeys.error as Error)?.message })}</span>
+          </CardContent>
+        </Card>
+      )}
+
+      {syncForgeRouterKeys.isSuccess && syncForgeRouterKeys.data && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <KeyRound className="h-4 w-4" />
+              {t("list.importForgeRouterKeysResultTitle")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Headline number is `matched` (keys ForgeHub actually pulled
+                and confirmed against ForgeRouter this run), not `updated`
+                (only the subset that needed a fresh DB write) -- `updated`
+                alone reading "0" whenever everything was already in sync
+                looked like the button did nothing, even though 13 keys
+                were in fact checked and confirmed (2026-07-29, Marcelo:
+                "a mensagem precisa conter o número de keys atualizadas ou
+                importadas. Não pode aparecer 0" -- matched is the number
+                that's genuinely never 0 on a working sync; `updated` stays
+                visible below as the finer-grained stat). */}
+            <p className={cn("text-sm font-medium", syncForgeRouterKeys.data.matched > 0 ? "text-emerald-500" : "text-destructive")}>
+              {syncForgeRouterKeys.data.matched > 0
+                ? t("list.importForgeRouterKeysResult.importedCount", { count: syncForgeRouterKeys.data.matched })
+                : t("list.importForgeRouterKeysResult.noneMatched")}
+            </p>
+            <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+              <span>
+                {t("list.importForgeRouterKeysResult.checked")}{" "}
+                <strong className="text-foreground">{syncForgeRouterKeys.data.checked}</strong>
+              </span>
+              <span>
+                {t("list.importForgeRouterKeysResult.matched")}{" "}
+                <strong className="text-foreground">{syncForgeRouterKeys.data.matched}</strong>
+              </span>
+              <span>
+                {t("list.importForgeRouterKeysResult.updated")}{" "}
+                <strong className="text-foreground">{syncForgeRouterKeys.data.updated}</strong>
+              </span>
+              {syncForgeRouterKeys.data.unmatched_forgerouter_agents.length > 0 && (
+                <span className="text-destructive">
+                  {t("list.importForgeRouterKeysResult.unmatched")}{" "}
+                  {syncForgeRouterKeys.data.unmatched_forgerouter_agents.join(", ")}
+                </span>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

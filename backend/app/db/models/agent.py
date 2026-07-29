@@ -111,8 +111,16 @@ class Agent(Base, TimestampMixin):
     department: Mapped[str | None] = mapped_column(String(100), nullable=True)
     sector: Mapped[str | None] = mapped_column(String(120), nullable=True)
     reports_to_profile_slug: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    # Write-only through the API and encrypted before persistence. The raw
-    # ForgeRouter agent key must never appear in response schemas or audit data.
+    # Encrypted at rest (core/secrets.py). The raw ciphertext column itself
+    # must never appear in a response schema or audit data -- but the
+    # *decrypted* value is deliberately returned once, by GET
+    # /api/v1/agents/{id} only, admin-gated (AgentDetailOut.forgerouter_api_key,
+    # 2026-07-29, reversing this column's original hard "never displayed
+    # again" design per Marcelo's explicit request: ForgeRouter's own
+    # dashboard already shows agents their own key, so re-hiding a value
+    # ForgeHub itself just imported from there added confusion, not
+    # security). List endpoints and every other response keep the boolean
+    # `forgerouter_api_key_configured` property below only.
     forgerouter_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     # See AGENT_RUNTIME_TYPES above -- only Aramis/Porthos/Dartan have one today.
     runtime_type: Mapped[str | None] = mapped_column(String(20), nullable=True)

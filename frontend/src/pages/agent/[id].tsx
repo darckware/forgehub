@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   ArrowLeft,
+  Download,
   ExternalLink,
   FolderTree,
   Loader2,
@@ -18,6 +19,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { TokenField } from "@/components/ui/token-field";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -31,6 +35,7 @@ import {
   isExternalRuntime,
   useAgent,
   useAgentsTelegramStatus,
+  useImportAgentForgeRouterKey,
   useRemoveSkillFromAgent,
   useSkills,
   useUpdateAgent,
@@ -61,20 +66,50 @@ const RISK_VARIANT: Record<
 export default function AgentDetailPage() {
   const { t } = useTranslation("agent");
   const { id } = useParams<{ id: string }>();
-  const { data: agent, isLoading, isError, error } = useAgent(id);
+  const { data: agent, isLoading, isError, error, refetch: refetchAgent } = useAgent(id);
   const { data: skillsCatalog } = useSkills();
   const { data: telegramStatus } = useAgentsTelegramStatus();
   const telegram = telegramStatus?.agents.find((entry) => entry.agent_id === id);
 
   const removeSkill = useRemoveSkillFromAgent(id ?? "");
   const updateAgent = useUpdateAgent(id ?? "");
+  const importForgeRouterKey = useImportAgentForgeRouterKey(id ?? "");
 
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [forgeRouterApiKey, setForgeRouterApiKey] = useState("");
+  // Re-syncs to the server's (admin-only, decrypted) value whenever it
+  // actually changes -- covers first load, switching agents, and a refetch
+  // after Import/Save. Keyed on the value itself (not just agent.id) so an
+  // in-progress unsaved paste isn't clobbered by an unrelated refetch that
+  // returns the same value.
+  useEffect(() => {
+    if (agent) setForgeRouterApiKey(agent.forgerouter_api_key ?? "");
+  }, [agent?.id, agent?.forgerouter_api_key]);
+
+  // Explicit force-sync after Import/Save/Remove, instead of trusting the
+  // effect above alone: that effect only re-runs when the *server* value
+  // changes, so if the operator had typed something into the field first
+  // (or it changed some other way) and the real stored key turns out to
+  // already match ForgeRouter (Import's "no-op, already up to date" case),
+  // the value never changes and the effect never fires -- leaving the
+  // typed text stuck in the field looking like the click did nothing
+  // (2026-07-29, Marcelo: "quando clico no botão import dentro do agente
+  // ... não carrega"). Re-fetching and setting directly here always wins,
+  // regardless of whether the value actually changed.
+  async function syncForgeRouterFieldFromServer() {
+    const { data: fresh } = await refetchAgent();
+    setForgeRouterApiKey(fresh?.forgerouter_api_key ?? "");
+  }
   // null = not editing; the field is prefilled with the *effective* path so
   // registering the runtime default is one click rather than retyping it.
   const [homePathDraft, setHomePathDraft] = useState<string | null>(null);
+  // Destructive actions go through the system's standard ConfirmDialog
+  // (2026-07-29, Marcelo: "todo o botão de limpar ou excluir precisa ter o
+  // modal de confirmação padrão do sistema") rather than firing the
+  // mutation straight from the icon button's onClick.
+  const [confirmRemoveKey, setConfirmRemoveKey] = useState(false);
+  const [confirmRemoveSkill, setConfirmRemoveSkill] = useState<{ id: string; name: string } | null>(null);
 
   function handleStartEditDescription() {
     setDescriptionDraft(agent?.description ?? "");
@@ -121,6 +156,29 @@ export default function AgentDetailPage() {
 
       {!isLoading && !isError && agent && (
         <>
+          <ConfirmDialog
+            open={confirmRemoveKey}
+            title={t("detail.confirmRemoveKeyTitle")}
+            description={t("detail.confirmRemoveKeyDescription")}
+            loading={updateAgent.isPending}
+            onConfirm={() =>
+              updateAgent.mutate(
+                { clear_forgerouter_api_key: true },
+                { onSuccess: () => { syncForgeRouterFieldFromServer(); setConfirmRemoveKey(false); } }
+              )
+            }
+            onCancel={() => setConfirmRemoveKey(false)}
+          />
+          <ConfirmDialog
+            open={confirmRemoveSkill !== null}
+            title={t("detail.confirmRemoveSkillTitle", { name: confirmRemoveSkill?.name ?? "" })}
+            description={t("detail.confirmRemoveSkillDescription")}
+            loading={removeSkill.isPending}
+            onConfirm={() => {
+              if (confirmRemoveSkill) removeSkill.mutate(confirmRemoveSkill.id, { onSuccess: () => setConfirmRemoveSkill(null) });
+            }}
+            onCancel={() => setConfirmRemoveSkill(null)}
+          />
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold tracking-tight">{agent.name}</h1>
@@ -177,13 +235,53 @@ export default function AgentDetailPage() {
                 <Badge variant={agent.forgerouter_api_key_configured ? "success" : "destructive"}>
                   {agent.forgerouter_api_key_configured ? t("detail.apiKeyConfigured") : t("detail.apiKeyNotConfigured")}
                 </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={importForgeRouterKey.isPending}
+                  title={t("detail.importKeyHelp")}
+                  onClick={() => importForgeRouterKey.mutate(undefined, { onSuccess: syncForgeRouterFieldFromServer })}
+                >
+                  {importForgeRouterKey.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  {t("detail.importKeyButton")}
+                </Button>
               </div>
+              {importForgeRouterKey.isSuccess && (
+                <p className={cn("text-sm", importForgeRouterKey.data.matched ? "text-emerald-500" : "text-muted-foreground")}>
+                  {importForgeRouterKey.data.matched
+                    ? importForgeRouterKey.data.updated
+                      ? t("detail.importKeyUpdated")
+                      : t("detail.importKeyUnchanged")
+                    : t("detail.importKeyNotFound")}
+                </p>
+              )}
+              {importForgeRouterKey.isError && (
+                <p className="text-sm text-destructive">{(importForgeRouterKey.error as Error)?.message}</p>
+              )}
               <div className="flex gap-2">
-                <Input type="password" autoComplete="new-password" value={forgeRouterApiKey} onChange={(e) => setForgeRouterApiKey(e.target.value)} placeholder={t("detail.apiKeyPlaceholder")} />
-                <Button disabled={!forgeRouterApiKey || updateAgent.isPending} onClick={() => updateAgent.mutate({ forgerouter_api_key: forgeRouterApiKey }, { onSuccess: () => setForgeRouterApiKey("") })}>
+                <div className="flex-1">
+                  <TokenField value={forgeRouterApiKey} onChange={setForgeRouterApiKey} placeholder={t("detail.apiKeyPlaceholder")} />
+                </div>
+                <Button disabled={!forgeRouterApiKey || updateAgent.isPending} onClick={() => updateAgent.mutate({ forgerouter_api_key: forgeRouterApiKey }, { onSuccess: syncForgeRouterFieldFromServer })}>
                   {updateAgent.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />} {t("detail.saveKeyButton")}
                 </Button>
-                {agent.forgerouter_api_key_configured && <Button variant="outline" disabled={updateAgent.isPending} onClick={() => updateAgent.mutate({ clear_forgerouter_api_key: true })}>{t("detail.removeKeyButton")}</Button>}
+                {agent.forgerouter_api_key_configured && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    disabled={updateAgent.isPending}
+                    title={t("detail.removeKeyButton")}
+                    aria-label={t("detail.removeKeyButton")}
+                    onClick={() => setConfirmRemoveKey(true)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
               {updateAgent.isError && <p className="text-sm text-destructive">{(updateAgent.error as Error)?.message}</p>}
             </CardContent>
@@ -414,7 +512,7 @@ export default function AgentDetailPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => removeSkill.mutate(agentSkill.id)}
+                                onClick={() => setConfirmRemoveSkill({ id: agentSkill.id, name: skill?.name ?? agentSkill.skill_id })}
                                 disabled={removeSkill.isPending}
                                 aria-label={t("detail.removeSkillAriaLabel", { name: skill?.name ?? agentSkill.skill_id })}
                               >
