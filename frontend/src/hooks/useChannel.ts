@@ -305,11 +305,13 @@ export function useStreamChannelMessage(channelId: string) {
   return async function streamMessage(
     content: string,
     onMessage: (message: ChatChannelMessage) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    attachmentNames?: string
   ): Promise<void> {
     const token = getToken() ?? "";
     const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
-    const url = `${apiBase}${RESOURCE}/${channelId}/messages/stream?content=${encodeURIComponent(content)}`;
+    let url = `${apiBase}${RESOURCE}/${channelId}/messages/stream?content=${encodeURIComponent(content)}`;
+    if (attachmentNames) url += `&attachment_names=${encodeURIComponent(attachmentNames)}`;
 
     const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
     if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);

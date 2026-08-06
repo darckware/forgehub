@@ -187,23 +187,28 @@ async def test_create_channel_with_project_suggests_but_does_not_force_members(c
     assert agent_members == []
 
 
-async def test_get_update_delete_channel(client: AsyncClient):
-    result = await _create_channel(client)
+async def test_get_update_delete_channel(admin_client: AsyncClient):
+    """Marcelo is admin -- authorize_action's "admin" bypass keeps
+    update/delete working with zero delegation setup, same as before the
+    "channel.manage" gate was added (2026-08-06)."""
+    result = await _create_channel(admin_client)
     channel_id = result["channel"]["id"]
 
-    get_resp = await client.get(f"/api/v1/channels/{channel_id}")
+    get_resp = await admin_client.get(f"/api/v1/channels/{channel_id}")
     assert get_resp.status_code == 200
 
-    patch_resp = await client.patch(f"/api/v1/channels/{channel_id}", json={"name": "Renamed", "archived": True})
+    patch_resp = await admin_client.patch(
+        f"/api/v1/channels/{channel_id}", json={"name": "Renamed", "archived": True}
+    )
     assert patch_resp.status_code == 200
     assert patch_resp.json()["name"] == "Renamed"
     assert patch_resp.json()["archived"] is True
 
-    delete_resp = await client.delete(f"/api/v1/channels/{channel_id}")
+    delete_resp = await admin_client.delete(f"/api/v1/channels/{channel_id}")
     assert delete_resp.status_code == 204
     _created_channel_ids.remove(uuid.UUID(channel_id))
 
-    missing_resp = await client.get(f"/api/v1/channels/{channel_id}")
+    missing_resp = await admin_client.get(f"/api/v1/channels/{channel_id}")
     assert missing_resp.status_code == 404
 
 
@@ -354,6 +359,34 @@ async def test_posting_a_mention_wakes_that_agent_with_shared_context(client: As
     assert messages[1]["author_type"] == "agent"
     assert messages[1]["content"] == "ok, testado"
     assert messages[1]["author_agent_id"] == str(_STUB_AGENT_IDS[0])
+
+
+async def test_mention_all_wakes_every_agent_member(client: AsyncClient, monkeypatch):
+    """2026-08-06, Marcelo: "como enviar a mensagem para todos os agentes,
+    quando envio o comando sem informar o agente não [funciona]" -- #all
+    is a deliberate broadcast, distinct from any real agent name, and
+    wakes every current agent member instead of requiring one #Name per
+    agent."""
+    from app.api.routes import channel as channel_routes
+
+    async def fake_bridge_text(profile, message, hermes_session_id):
+        return {"reply": f"ok from {profile}", "session_id": "fake-session"}
+
+    monkeypatch.setattr(channel_routes, "_call_bridge_text", fake_bridge_text)
+
+    result = await _create_channel(
+        client, member_agent_ids=[str(_STUB_AGENT_IDS[0]), str(_STUB_AGENT_IDS[1])]
+    )
+    channel_id = result["channel"]["id"]
+
+    resp = await client.post(
+        f"/api/v1/channels/{channel_id}/messages", json={"content": "#all bom dia, equipe"}
+    )
+    assert resp.status_code == 200, resp.text
+    messages = resp.json()
+    assert len(messages) == 3  # human + both agents
+    agent_ids_replied = {m["author_agent_id"] for m in messages if m["author_type"] == "agent"}
+    assert agent_ids_replied == {str(_STUB_AGENT_IDS[0]), str(_STUB_AGENT_IDS[1])}
 
 
 async def test_onboarding_note_only_on_first_turn(client: AsyncClient, monkeypatch):

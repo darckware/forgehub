@@ -41,7 +41,7 @@
   "attachMenu": {
     "addAttachment": "Add attachment",
     "sendFile": "Send file",
-    "hermesCommand": "Hermes command",
+    "hermesCommand": "Command",
     "directoryFiles": "Directory/Files",
     "agents": "Agents",
     "artifacts": "Artifacts",

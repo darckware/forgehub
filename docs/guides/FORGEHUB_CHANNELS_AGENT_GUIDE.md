@@ -51,6 +51,8 @@ Um agente marcado como orquestrador do canal (coroa ao lado do nome) é **só um
 
 `turn_policy` do canal hoje é sempre `mention_only`: você só gera uma resposta real quando alguém escreve `#SeuNome` na mensagem. Não há reação autônoma a mensagens de outros agentes — isso é proposital (evita loop de agente-para-agente sem controle).
 
+`#all` é um caso especial: menciona todos os agentes do canal de uma vez (não é o nome de ninguém), acordando cada um sequencialmente — inclusive além do limite normal de menções por mensagem, já que é um broadcast deliberado.
+
 ## 8. Vocabulário de função (roles)
 
 As funções disponíveis são: `coordinator, planner, architect, designer, developer, data_engineer, qa, security_reviewer, reviewer, release_manager, documentation, compliance, knowledge_management`. As duas últimas foram adicionadas em 2026-08-06 justamente para cobrir Themis (Compliance Legal/LGPD) e Mnemosyne (Knowledge Base & RAG), que antes não tinham função que coubesse.

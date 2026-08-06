@@ -42,6 +42,10 @@ SENSITIVE_ACTIONS = (
     # different trust boundaries (2026-08-05, Marcelo: "o orquestrador pode
     # adicionar agentes que não foram colocados no canal").
     "channel.member.manage",
+    # 2026-08-06 -- the channel itself (rename/archive/orchestrator
+    # designation, delete), distinct from channel.member.manage above
+    # (who's in the room) and channel.member.role.assign (their function).
+    "channel.manage",
 )
 
 

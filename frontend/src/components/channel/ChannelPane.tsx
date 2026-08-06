@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Crown, Hash, Info, Loader2, Plus, User, X } from "lucide-react";
+import { Bot, Crown, Hash, Info, Loader2, Pencil, Plus, Trash2, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -10,9 +10,14 @@ import { cn } from "@/lib/utils";
 import { useAgentSkills, useSkills, type Agent } from "@/hooks/useAgent";
 import {
   AgentMentionPicker,
+  ArtifactMentionPicker,
+  AttachMenuButton,
   ChatPane,
+  MentionFilePicker,
   SlashCommandPicker,
   type AgentMentionPickerHandle,
+  type ArtifactMentionPickerHandle,
+  type MentionFilePickerHandle,
   type SlashCommandItem,
   type SlashCommandPickerHandle,
 } from "@/components/chat/ChatPane";
@@ -31,6 +36,7 @@ import {
   useChannels,
   useCreateChannel,
   useCreateChannelTask,
+  useDeleteChannel,
   useDetachChannelProject,
   useDispatchChannelMessage,
   usePromoteChannelTask,
@@ -160,6 +166,7 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
             channelId={activeChannelId}
             agents={agents}
             onOpenAgentSession={setOpenAgentSession}
+            onDeleted={() => setSelectedChannelId(undefined)}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -415,10 +422,12 @@ function ChannelRoom({
   channelId,
   agents,
   onOpenAgentSession,
+  onDeleted,
 }: {
   channelId: string;
   agents: Agent[];
   onOpenAgentSession: (agent: { id: string; name: string }) => void;
+  onDeleted: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const { data: channel } = useChannel(channelId);
@@ -432,21 +441,32 @@ function ChannelRoom({
   const abortRef = useRef<AbortController | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Same "/" and "#" picker components ChatPane (Workspace/Conversas)
-  // uses, wired the same way -- reused, not reimplemented, so a
-  // PromptCommand added anywhere (e.g. /skills-task) shows up here too
-  // (2026-08-06, Marcelo: "a '/' não está aparecendo os comandos que
-  // sugerimos... por esse motivo que queria o mesmo componente do chat de
-  // conversa igual ao do workspace, no chat do canal" -- "seja um
-  // desenvolvedor profissional, não economize código"). "@" file mentions
-  // and "$" artifact mentions are deliberately NOT wired here: both are
-  // scoped to a single ChatSession's own attachments/artifacts, which a
-  // multi-author channel has no equivalent of yet.
+  // Same composer picker components ChatPane (Workspace/Conversas) uses,
+  // wired the same way -- reused, not reimplemented, so a PromptCommand
+  // added anywhere (e.g. /skills-task) shows up here too (2026-08-06,
+  // Marcelo: "a '/' não está aparecendo os comandos que sugerimos... por
+  // esse motivo que queria o mesmo componente do chat de conversa igual
+  // ao do workspace, no chat do canal" -- "seja um desenvolvedor
+  // profissional, não economize código"). MentionFilePicker (@) and
+  // ArtifactMentionPicker ($) turned out to already be
+  // session/channel-agnostic (generic host filesystem browse and a
+  // cross-session artifact search, respectively -- see their own
+  // docstrings in ChatPane.tsx), so both are wired in too. "!" direct
+  // bash command is deliberately left out of AttachMenuButton's menu
+  // below (enabledTriggers) -- it has no single owning agent/session in
+  // a multi-agent room.
   const [slashOpen, setSlashOpen] = useState(false);
   const [agentMentionOpen, setAgentMentionOpen] = useState(false);
   const [agentMentionQuery, setAgentMentionQuery] = useState("");
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [artifactMentionOpen, setArtifactMentionOpen] = useState(false);
+  const [artifactMentionQuery, setArtifactMentionQuery] = useState("");
+  const [attachmentNames, setAttachmentNames] = useState<string | undefined>(undefined);
   const slashPickerRef = useRef<SlashCommandPickerHandle>(null);
   const agentPickerRef = useRef<AgentMentionPickerHandle>(null);
+  const mentionPickerRef = useRef<MentionFilePickerHandle>(null);
+  const artifactPickerRef = useRef<ArtifactMentionPickerHandle>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { data: promptCommands = [] } = usePromptCommands();
 
   const allMessages = useMemo(() => {
@@ -477,14 +497,36 @@ function ChannelRoom({
       agentPickerRef.current?.confirmActive();
       return;
     }
+    if (mentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      mentionPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (mentionOpen && e.key === "Enter") {
+      e.preventDefault();
+      mentionPickerRef.current?.confirmActive();
+      return;
+    }
+    if (artifactMentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      artifactPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (artifactMentionOpen && e.key === "Enter") {
+      e.preventDefault();
+      artifactPickerRef.current?.confirmActive();
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
       return;
     }
-    if (e.key === "Escape" && (slashOpen || agentMentionOpen)) {
+    if (e.key === "Escape" && (slashOpen || agentMentionOpen || mentionOpen || artifactMentionOpen)) {
       setSlashOpen(false);
       setAgentMentionOpen(false);
+      setMentionOpen(false);
+      setArtifactMentionOpen(false);
     }
   }
 
@@ -508,10 +550,51 @@ function ChannelRoom({
     composerTextareaRef.current?.focus();
   }
 
+  function handleMentionSelect(path: string) {
+    setContent((prev) => (prev.endsWith("@") ? prev.slice(0, -1) : prev) + `${path} `);
+    setMentionOpen(false);
+    composerTextareaRef.current?.focus();
+  }
+
+  function handleArtifactMentionSelect(path: string) {
+    setContent((prev) => {
+      const dollarIndex = prev.lastIndexOf("$");
+      const base = dollarIndex === -1 ? prev : prev.slice(0, dollarIndex);
+      return `${base}${path} `;
+    });
+    setArtifactMentionOpen(false);
+    composerTextareaRef.current?.focus();
+  }
+
+  // Text-only for now (2026-08-06, Marcelo confirmed via AskUserQuestion:
+  // "Só arquivo de texto agora") -- reads the file client-side and pastes
+  // its content into the message, same framing ChatPane's server-side
+  // non-image branch already uses, so no new backend upload endpoint is
+  // needed. Image support (would need the channel turn to also call the
+  // bridge's image endpoint) is left for a follow-up.
+  async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setSendError(t("channels.attachmentReadError"));
+      return;
+    }
+    const block = `Conteúdo do arquivo "${file.name}" colado abaixo:\n---\n${text}\n---`;
+    setContent((prev) => (prev.trim() ? `${prev}\n\n${block}` : block));
+    setAttachmentNames((prev) => (prev ? `${prev}, ${file.name}` : file.name));
+    composerTextareaRef.current?.focus();
+  }
+
   async function handleSend() {
     const text = content.trim();
     if (!text || sending) return;
     setContent("");
+    const namesToSend = attachmentNames;
+    setAttachmentNames(undefined);
     setSending(true);
     setSendError(null);
     setLiveMessages([]);
@@ -520,7 +603,8 @@ function ChannelRoom({
       await streamMessage(
         text,
         (message) => setLiveMessages((prev) => [...prev, message]),
-        abortRef.current.signal
+        abortRef.current.signal,
+        namesToSend
       );
     } catch (err) {
       // The backend persists whatever succeeded before the error (e.g.
@@ -550,6 +634,7 @@ function ChannelRoom({
           channel={channel}
           agents={agents}
           onOpenAgentSession={onOpenAgentSession}
+          onDeleted={onDeleted}
           tabs={
             <TabsList>
               <TabsTrigger value="transcript">{t("channels.transcript")}</TabsTrigger>
@@ -614,6 +699,20 @@ function ChannelRoom({
                     setAgentMentionQuery(value.slice(hashIndex + 1));
                   }
                 }
+                if (last === "@" && (beforeLast === "" || /\s/.test(beforeLast))) {
+                  setMentionOpen(true);
+                }
+                if (last === "$" && (beforeLast === "" || /\s/.test(beforeLast))) {
+                  setArtifactMentionOpen(true);
+                  setArtifactMentionQuery("");
+                } else if (artifactMentionOpen) {
+                  const dollarIndex = value.lastIndexOf("$");
+                  if (dollarIndex === -1 || /\s/.test(value.slice(dollarIndex + 1))) {
+                    setArtifactMentionOpen(false);
+                  } else {
+                    setArtifactMentionQuery(value.slice(dollarIndex + 1));
+                  }
+                }
               }}
               onKeyDown={handleComposerKeyDown}
               placeholder={t("channels.composerPlaceholder")}
@@ -638,9 +737,51 @@ function ChannelRoom({
                       onClose={() => setAgentMentionOpen(false)}
                     />
                   )}
+                  {mentionOpen && (
+                    <MentionFilePicker
+                      ref={mentionPickerRef}
+                      rootPath={channel.working_directory_path ?? undefined}
+                      onSelectPath={handleMentionSelect}
+                      onClose={() => setMentionOpen(false)}
+                    />
+                  )}
+                  {artifactMentionOpen && (
+                    <ArtifactMentionPicker
+                      ref={artifactPickerRef}
+                      query={artifactMentionQuery}
+                      onSelectPath={handleArtifactMentionSelect}
+                      onClose={() => setArtifactMentionOpen(false)}
+                    />
+                  )}
+                  <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePick} />
+                  <AttachMenuButton
+                    enabledTriggers={["/", "@", "#", "$"]}
+                    onPickFile={() => fileInputRef.current?.click()}
+                    onInsertTrigger={(char) => {
+                      setContent((prev) => {
+                        const needsSpace = prev.length > 0 && !/\s$/.test(prev);
+                        return prev + (needsSpace ? " " : "") + char;
+                      });
+                      if (char === "@") setMentionOpen(true);
+                      if (char === "#") {
+                        setAgentMentionOpen(true);
+                        setAgentMentionQuery("");
+                      }
+                      if (char === "$") {
+                        setArtifactMentionOpen(true);
+                        setArtifactMentionQuery("");
+                      }
+                      if (char === "/") setSlashOpen(true);
+                      composerTextareaRef.current?.focus();
+                    }}
+                  />
                 </>
               }
-              trailing={sending && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
+              trailing={
+                sending && (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" />
+                )
+              }
             />
           </div>
         </TabsContent>
@@ -657,6 +798,7 @@ function ChannelHeader({
   agents,
   tabs,
   onOpenAgentSession,
+  onDeleted,
 }: {
   channel: ReturnType<typeof useChannel>["data"];
   agents: Agent[];
@@ -671,6 +813,10 @@ function ChannelHeader({
    * same ChatPane the Workspace/Conversas tab uses) in a third column
    * alongside the channel -- "igual ao Buzz" (2026-08-06). */
   onOpenAgentSession: (agent: { id: string; name: string }) => void;
+  /** Fires after a successful delete so the parent can clear its selected
+   * channel id (2026-08-06, Marcelo: "adicione o icone de editar e
+   * excluir o canal"). */
+  onDeleted: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const { data: projects = [] } = useProjects();
@@ -680,20 +826,75 @@ function ChannelHeader({
   const removeMember = useRemoveChannelMember(channel!.id);
   const updateMember = useUpdateChannelMember(channel!.id);
   const updateChannel = useUpdateChannel();
+  const deleteChannel = useDeleteChannel();
   const [pickingProject, setPickingProject] = useState(false);
   const [pickingAgent, setPickingAgent] = useState(false);
   const [detailMemberId, setDetailMemberId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
 
   if (!channel) return null;
   const project = projects.find((p) => p.id === channel.project_id);
   const memberAgentIds = new Set(channel.members.filter((m) => !m.is_human).map((m) => m.agent_id));
   const addableAgents = agents.filter((a) => !memberAgentIds.has(a.id));
 
+  function startEditingName() {
+    setNameDraft(channel!.name);
+    setEditingName(true);
+  }
+
+  function commitNameEdit() {
+    const trimmed = nameDraft.trim();
+    setEditingName(false);
+    if (trimmed && trimmed !== channel!.name) {
+      updateChannel.mutate({ channelId: channel!.id, name: trimmed });
+    }
+  }
+
+  function handleDeleteChannel() {
+    if (!window.confirm(t("channels.confirmDelete", { name: channel!.name }))) return;
+    deleteChannel.mutate(channel!.id, { onSuccess: onDeleted });
+  }
+
   return (
     <div className="border-b border-border px-4 py-2.5">
       <div className="flex flex-wrap items-center gap-2">
-        <Hash className="h-4 w-4 text-muted-foreground" />
-        <span className="font-medium">{channel.name}</span>
+        <Hash className="h-4 w-4 shrink-0 text-muted-foreground" />
+        {editingName ? (
+          <Input
+            autoFocus
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitNameEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitNameEdit();
+              if (e.key === "Escape") setEditingName(false);
+            }}
+            className="h-7 w-48 text-sm font-medium"
+          />
+        ) : (
+          <span className="font-medium">{channel.name}</span>
+        )}
+        {!editingName && (
+          <>
+            <button
+              onClick={startEditingName}
+              aria-label={t("channels.renameChannel")}
+              title={t("channels.renameChannel")}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={handleDeleteChannel}
+              aria-label={t("channels.deleteChannel")}
+              title={t("channels.deleteChannel")}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
         {project ? (
           <Badge variant="secondary" className="gap-1">
             {project.name}

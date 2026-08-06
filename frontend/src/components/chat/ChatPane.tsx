@@ -850,12 +850,19 @@ function AgentMcpInfoButton({ agentId }: { agentId: string }) {
  * user who doesn't know "@"/"/"/"#"/"$" exist find them from the "+" menu
  * instead of stumbling onto them by typing. Each entry inserts its trigger
  * char and opens the same picker typing it would. */
-function AttachMenuButton({
+export function AttachMenuButton({
   onPickFile,
   onInsertTrigger,
+  enabledTriggers,
 }: {
   onPickFile: () => void;
   onInsertTrigger: (char: "/" | "@" | "#" | "$" | "!") => void;
+  /** Restricts which trigger rows render -- defaults to all five
+   * (ChatPane's existing behavior, unchanged). ChannelPane passes a
+   * shorter list: "!" (direct bash) has no single owning agent/session in
+   * a multi-agent room, so it's left out rather than shown and silently
+   * doing nothing special (2026-08-06, see ChannelPane.tsx's own usage). */
+  enabledTriggers?: ("/" | "@" | "#" | "$" | "!")[];
 }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
@@ -863,13 +870,16 @@ function AttachMenuButton({
 
   useClickOutside(containerRef, () => setOpen(false), open);
 
-  const triggers: { char: "/" | "@" | "#" | "$" | "!"; labelKey: string }[] = [
+  const allTriggers: { char: "/" | "@" | "#" | "$" | "!"; labelKey: string }[] = [
     { char: "/", labelKey: "attachMenu.hermesCommand" },
     { char: "@", labelKey: "attachMenu.directoryFiles" },
     { char: "#", labelKey: "attachMenu.agents" },
     { char: "$", labelKey: "attachMenu.artifacts" },
     { char: "!", labelKey: "attachMenu.directBashCommand" },
   ];
+  const triggers = enabledTriggers
+    ? allTriggers.filter((trigger) => enabledTriggers.includes(trigger.char))
+    : allTriggers;
 
   return (
     <div className="relative shrink-0" ref={containerRef}>
@@ -932,7 +942,7 @@ export interface MentionFilePickerHandle {
  * via this imperative handle -- the textarea keeps focus while "@" is open
  * (so the user can keep typing the rest of the message), so the picker can't
  * own its own onKeyDown. */
-const MentionFilePicker = forwardRef<
+export const MentionFilePicker = forwardRef<
   MentionFilePickerHandle,
   { rootPath?: string; onSelectPath: (path: string) => void; onClose: () => void }
 >(function MentionFilePicker({ rootPath, onSelectPath, onClose }, ref) {
@@ -1210,7 +1220,7 @@ export interface ArtifactMentionPickerHandle {
  * db/models/chat.py's ChatArtifact). Selecting one inserts the real
  * absolute path directly, same mechanic as the "@" file mention -- no
  * "$Name" token/resolution step. */
-const ArtifactMentionPicker = forwardRef<
+export const ArtifactMentionPicker = forwardRef<
   ArtifactMentionPickerHandle,
   { query: string; onSelectPath: (path: string) => void; onClose: () => void }
 >(function ArtifactMentionPicker({ query, onSelectPath, onClose }, ref) {

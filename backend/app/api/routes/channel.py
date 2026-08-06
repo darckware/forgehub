@@ -143,10 +143,30 @@ async def _channel_with_members_out(db: AsyncSession, channel: ChatChannel) -> C
     return ChatChannelWithMembersOut(**base, members=[ChatChannelMemberOut.model_validate(m) for m in members])
 
 
+def _mentions_everyone(text: str) -> bool:
+    """"#all" (case-insensitive, same word-boundary rule as an agent name)
+    -- a deliberate broadcast, not something a real agent could ever be
+    named (2026-08-06, Marcelo: "como enviar a mensagem para todos os
+    agentes, quando envio o comando sem informar o agente não [funciona]").
+    Checked separately from _extract_mentions below so callers can also
+    decide to skip MAX_MENTIONS_PER_MESSAGE for an explicit broadcast."""
+    for match in re.finditer("#", text):
+        rest_lower = text[match.end():].lower()
+        if not rest_lower.startswith("all"):
+            continue
+        next_char = rest_lower[3:4]
+        if next_char == "" or re.match(r"[\s.,!?;:]", next_char):
+            return True
+    return False
+
+
 def _extract_mentions(text: str, candidates: list[Agent]) -> list[Agent]:
     """Same algorithm as ChatPane.tsx's extractMentionedAgents (longest-name-
     first match on a "#" prefix, word-boundary aware), ported server-side so
-    the wake logic never trusts the client's own parsing alone."""
+    the wake logic never trusts the client's own parsing alone. "#all"
+    mentions every current agent member -- see _mentions_everyone."""
+    if _mentions_everyone(text):
+        return list(candidates)
     by_length = sorted(candidates, key=lambda a: len(a.name), reverse=True)
     found: list[Agent] = []
     for match in re.finditer("#", text):
@@ -362,9 +382,18 @@ async def get_channel(channel_id: uuid.UUID, db: AsyncSession = Depends(get_db))
 
 @router.patch("/{channel_id}", response_model=ChatChannelOut)
 async def update_channel(
-    channel_id: uuid.UUID, payload: ChatChannelUpdate, db: AsyncSession = Depends(get_db)
+    channel_id: uuid.UUID,
+    payload: ChatChannelUpdate,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
 ) -> ChatChannel:
+    """Renames/archives the channel or (re)designates its orchestrator --
+    same governed-authority gate as the member routes (2026-08-06,
+    Marcelo: "adicione o icone de editar e excluir o canal" -- this route
+    had no authorization dependency at all before, the same gap already
+    fixed for add/remove/role.assign member routes on 2026-08-05)."""
     channel = await _get_channel_or_404(db, channel_id)
+    await authorize_action(db, principal, "channel.manage", project_id=channel.project_id)
     if payload.name is not None:
         channel.name = payload.name.strip()
     if payload.description is not None:
@@ -387,8 +416,17 @@ async def update_channel(
 
 
 @router.delete("/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_channel(channel_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_channel(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> None:
+    """Same "channel.manage" gate as update_channel -- deleting a channel
+    is consequential enough (its whole transcript and tasks go with it)
+    that it should never have been reachable with no authorization check
+    at all."""
     channel = await _get_channel_or_404(db, channel_id)
+    await authorize_action(db, principal, "channel.manage", project_id=channel.project_id)
     await db.delete(channel)
     await db.commit()
 
@@ -571,7 +609,8 @@ async def _process_channel_turn(
     db: AsyncSession, channel: ChatChannel, content: str, attachment_names: str | None
 ) -> list[ChatChannelMessage]:
     """turn_policy="mention_only" enforced here: only #-mentioned members
-    (capped at MAX_MENTIONS_PER_MESSAGE, in text order) get a real turn,
+    (capped at MAX_MENTIONS_PER_MESSAGE, in text order -- except an
+    explicit "#all" broadcast, which is never truncated) get a real turn,
     sequentially -- never in parallel, and never triggered by another
     agent's own reply (no re-scan of agent-authored content for mentions
     in this call chain -- see module docstring on why autonomous
@@ -586,7 +625,9 @@ async def _process_channel_turn(
     agents = [await db.get(Agent, agent_id) for agent_id in agent_members]
     agents = [a for a in agents if a is not None]
 
-    mentioned = _extract_mentions(content, agents)[:MAX_MENTIONS_PER_MESSAGE]
+    mentioned = _extract_mentions(content, agents)
+    if not _mentions_everyone(content):
+        mentioned = mentioned[:MAX_MENTIONS_PER_MESSAGE]
     for agent in mentioned:
         member = agent_members[agent.id]
         reply = await _wake_agent_turn(db, channel, member, agent)
@@ -643,7 +684,9 @@ async def stream_channel_message(
             members = await _list_members(db, channel.id)
             agent_members = {m.agent_id: m for m in members if not m.is_human and not m.muted}
             agents = [a for a in [await db.get(Agent, aid) for aid in agent_members] if a is not None]
-            mentioned = _extract_mentions(content, agents)[:MAX_MENTIONS_PER_MESSAGE]
+            mentioned = _extract_mentions(content, agents)
+            if not _mentions_everyone(content):
+                mentioned = mentioned[:MAX_MENTIONS_PER_MESSAGE]
             for agent in mentioned:
                 member = agent_members[agent.id]
                 # _wake_agent_turn's bridge call is a single non-streaming
