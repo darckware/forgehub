@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Crown, Hash, Info, Loader2, Pencil, Plus, Trash2, User, X } from "lucide-react";
+import {
+  Bot,
+  Crown,
+  Hash,
+  Info,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Plus,
+  Trash2,
+  User,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -61,6 +74,15 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
   const { data: channels = [] } = useChannels();
   const [selectedChannelId, setSelectedChannelId] = useState<string | undefined>(undefined);
   const [creating, setCreating] = useState(false);
+  // 2026-08-06, Marcelo: "preciso de adicionar o icone de ocultar a coluna
+  // de Channels com a função de toggle de ocultar/expandir" -- persisted
+  // like Workspace's own viewMode toggle, so it survives a reload.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("forgehub-channels-sidebar-collapsed") === "1"
+  );
+  useEffect(() => {
+    localStorage.setItem("forgehub-channels-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
   // Clicking an agent's name in the channel header opens their individual
   // 1:1 session (the existing ChatSession concept, Workspace's own
   // Conversas) in a third column alongside the shared channel -- "igual ao
@@ -115,38 +137,78 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex w-64 shrink-0 flex-col border-r border-border">
-        <div className="flex items-center justify-between px-3 py-2">
-          <span className="text-xs font-medium uppercase text-muted-foreground">
-            {t("channels.title")}
-          </span>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCreating(true)} aria-label={t("channels.new")}>
-            <Plus className="h-4 w-4" />
-          </Button>
+      <div
+        className={cn(
+          "flex shrink-0 flex-col border-r border-border transition-[width]",
+          sidebarCollapsed ? "w-11" : "w-64"
+        )}
+      >
+        <div className={cn("flex items-center px-2 py-2", sidebarCollapsed ? "flex-col gap-1" : "justify-between px-3")}>
+          {!sidebarCollapsed && (
+            <span className="text-xs font-medium uppercase text-muted-foreground">
+              {t("channels.title")}
+            </span>
+          )}
+          <div className={cn("flex items-center gap-1", sidebarCollapsed && "flex-col")}>
+            {!sidebarCollapsed && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setCreating(true)}
+                aria-label={t("channels.new")}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              aria-label={sidebarCollapsed ? t("channels.expandSidebar") : t("channels.collapseSidebar")}
+              title={sidebarCollapsed ? t("channels.expandSidebar") : t("channels.collapseSidebar")}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </Button>
+            {sidebarCollapsed && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setCreating(true)}
+                aria-label={t("channels.new")}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          {withProject.length > 0 && (
-            <ChannelGroup
-              label={t("channels.withProject")}
-              items={withProject}
-              activeId={activeChannelId}
-              onSelect={setSelectedChannelId}
-            />
-          )}
-          {withoutProject.length > 0 && (
-            <ChannelGroup
-              label={t("channels.freeform")}
-              items={withoutProject}
-              activeId={activeChannelId}
-              onSelect={setSelectedChannelId}
-            />
-          )}
-          {channels.length === 0 && !creating && (
-            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-              {t("channels.empty")}
-            </p>
-          )}
-        </div>
+        {!sidebarCollapsed && (
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+            {withProject.length > 0 && (
+              <ChannelGroup
+                label={t("channels.withProject")}
+                items={withProject}
+                activeId={activeChannelId}
+                onSelect={setSelectedChannelId}
+              />
+            )}
+            {withoutProject.length > 0 && (
+              <ChannelGroup
+                label={t("channels.freeform")}
+                items={withoutProject}
+                activeId={activeChannelId}
+                onSelect={setSelectedChannelId}
+              />
+            )}
+            {channels.length === 0 && !creating && (
+              <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+                {t("channels.empty")}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">

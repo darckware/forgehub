@@ -117,6 +117,8 @@
   "channels": {
     "title": "Canais",
     "new": "Novo canal",
+    "collapseSidebar": "Ocultar lista de canais",
+    "expandSidebar": "Mostrar lista de canais",
     "withProject": "Vinculados a projeto",
     "freeform": "Ideias livres",
     "empty": "Nenhum canal ainda. Crie um para reunir agentes em torno de um projeto ou de uma ideia.",

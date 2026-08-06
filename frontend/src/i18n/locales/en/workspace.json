@@ -117,6 +117,8 @@
   "channels": {
     "title": "Channels",
     "new": "New channel",
+    "collapseSidebar": "Hide channel list",
+    "expandSidebar": "Show channel list",
     "withProject": "Linked to a project",
     "freeform": "Free-standing ideas",
     "empty": "No channels yet. Create one to bring agents together around a project or an idea.",
