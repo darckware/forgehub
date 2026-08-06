@@ -361,6 +361,60 @@ async def test_posting_a_mention_wakes_that_agent_with_shared_context(client: As
     assert messages[1]["author_agent_id"] == str(_STUB_AGENT_IDS[0])
 
 
+async def test_improve_prompt_requires_orchestrator(client: AsyncClient):
+    """2026-08-06, Marcelo: "preciso que o próprio orquestrador me ajude a
+    criar o texto" -- there's nothing to call if the channel has no
+    orchestrator designated yet."""
+    result = await _create_channel(client, member_agent_ids=[str(_STUB_AGENT_IDS[0])])
+    channel_id = result["channel"]["id"]
+
+    # Raised before StreamingResponse is even constructed -- a plain 400,
+    # not an SSE event: error (that framing only applies once the stream
+    # has actually started, i.e. after the orchestrator precondition).
+    async with client.stream(
+        "GET",
+        f"/api/v1/channels/{channel_id}/improve-prompt/stream",
+        params={"draft": "oi", "instruction": "mais formal"},
+    ) as resp:
+        assert resp.status_code == 400
+        body = "".join([chunk async for chunk in resp.aiter_text()])
+    assert "orchestrator" in body.lower()
+
+
+async def test_improve_prompt_rewrites_via_orchestrator(client: AsyncClient, monkeypatch):
+    """Confirming only replaces the compose draft -- never a real channel
+    turn: no ChatChannelMessage is created, and the bridge call always
+    starts fresh (hermes_session_id=None) so it can't interfere with the
+    orchestrator's own conversational continuity in the room."""
+    from app.api.routes import channel as channel_routes
+
+    async def fake_bridge_text(profile, message, hermes_session_id):
+        assert hermes_session_id is None
+        assert "instrução de melhoria" in message.lower()
+        return {"reply": "Texto melhorado.", "session_id": "unused"}
+
+    monkeypatch.setattr(channel_routes, "_call_bridge_text", fake_bridge_text)
+
+    result = await _create_channel(
+        client,
+        member_agent_ids=[str(_STUB_AGENT_IDS[0])],
+        orchestrator_agent_id=str(_STUB_AGENT_IDS[0]),
+    )
+    channel_id = result["channel"]["id"]
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/channels/{channel_id}/improve-prompt/stream",
+        params={"draft": "oi pessoal", "instruction": "deixar mais formal"},
+    ) as resp:
+        assert resp.status_code == 200
+        body = "".join([chunk async for chunk in resp.aiter_text()])
+    assert '"improved_text": "Texto melhorado."' in body
+
+    list_resp = await client.get(f"/api/v1/channels/{channel_id}/messages")
+    assert list_resp.json() == []  # never became a real channel message
+
+
 async def test_mention_all_wakes_every_agent_member(client: AsyncClient, monkeypatch):
     """2026-08-06, Marcelo: "como enviar a mensagem para todos os agentes,
     quando envio o comando sem informar o agente não [funciona]" -- #all

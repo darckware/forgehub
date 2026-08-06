@@ -26,6 +26,19 @@
     background-color: hsl(var(--background));
   }
 
+  /* The closed <select> box itself (not just its popup) can still be
+     painted with native OS chrome on some browser/OS combinations even
+     with author background-color/color set (observed on WSL2, 2026-08-06:
+     a project picker rendered white-on-white in dark mode). The shared
+     Select component (components/ui/select.tsx) pairs `appearance-none`
+     with this background-image chevron so the box is fully our own CSS,
+     never native rendering, with the arrow restored manually. */
+  .select-chevron {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    background-size: 1em;
+  }
+
   :root {
     --background: 0 0% 100%;
     --foreground: 222 47% 11%;

@@ -356,6 +356,80 @@ export function useStreamChannelMessage(channelId: string) {
   };
 }
 
+/** Asks the channel's orchestrator to rewrite a draft per an improvement
+ * instruction -- a private utility call, never a real channel turn (see
+ * backend channel.py's stream_improve_prompt docstring). Resolves to the
+ * improved text; the caller decides what to do with it (replace the
+ * compose draft, never auto-sent). */
+export function useStreamImprovePrompt(channelId: string) {
+  return async function improvePrompt(
+    draft: string,
+    instruction: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const token = getToken() ?? "";
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
+    const url =
+      `${apiBase}${RESOURCE}/${channelId}/improve-prompt/stream` +
+      `?draft=${encodeURIComponent(draft)}&instruction=${encodeURIComponent(instruction)}`;
+
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
+    if (!resp.ok) {
+      // The orchestrator precondition fails before any streaming starts
+      // (see the backend docstring) -- a plain JSON 400, not SSE framing.
+      let detail = `HTTP ${resp.status}`;
+      try {
+        detail = (await resp.json()).detail ?? detail;
+      } catch {
+        // Body wasn't JSON -- keep the generic HTTP status message.
+      }
+      throw new Error(detail);
+    }
+    if (!resp.body) throw new Error("Empty response body");
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let currentEvent = "message";
+    let improvedText: string | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim();
+            continue;
+          }
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice(5).trim();
+          if (currentEvent === "error") {
+            const parsed = JSON.parse(raw || "{}");
+            throw new Error(parsed.detail ?? "improve-prompt stream error");
+          }
+          if (currentEvent === "done") {
+            currentEvent = "message";
+            continue;
+          }
+          const parsed = JSON.parse(raw || "{}");
+          if (typeof parsed.improved_text === "string") improvedText = parsed.improved_text;
+          currentEvent = "message";
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (improvedText === null) throw new Error("The orchestrator didn't return any text.");
+    return improvedText;
+  };
+}
+
 /** Explicit, never-automatic bridge from "conversation" to "real
  * execution" -- creates/dispatches a real Message-domain AgentDemand
  * through the same pipeline every other task dispatch uses. */

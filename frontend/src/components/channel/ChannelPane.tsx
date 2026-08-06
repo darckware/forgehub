@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Bot,
+  ChevronDown,
+  ChevronUp,
   Crown,
   Hash,
   Info,
@@ -11,13 +13,16 @@ import {
   PanelLeftOpen,
   Pencil,
   Plus,
+  Sparkles,
   Square,
   Trash2,
   User,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -57,6 +62,7 @@ import {
   usePromoteChannelTask,
   useRemoveChannelMember,
   useStreamChannelMessage,
+  useStreamImprovePrompt,
   useUpdateChannel,
   useUpdateChannelMember,
   useUpdateChannelTask,
@@ -497,10 +503,12 @@ function ChannelRoom({
   const { data: channel } = useChannel(channelId);
   const { data: messages = [] } = useChannelMessages(channelId);
   const streamMessage = useStreamChannelMessage(channelId);
+  const improvePrompt = useStreamImprovePrompt(channelId);
   const [liveMessages, setLiveMessages] = useState<ChatChannelMessage[]>([]);
   const [content, setContent] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [improveOpen, setImproveOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"transcript" | "tasks">("transcript");
   const abortRef = useRef<AbortController | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -879,6 +887,28 @@ function ChannelRoom({
               }
               trailing={
                 <>
+                  {/* Orchestrator-assisted prompt rewrite (2026-08-06,
+                      Marcelo: "preciso que adicione ao lado esquerdo do
+                      icone de microfone um icone de melhoria do prompt
+                      escrito... o próprio orquestrador me ajude a criar o
+                      texto"). Requires an orchestrator to be set on this
+                      channel -- see ImprovePromptDialog / the backend
+                      route's docstring for the precondition. */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 self-center rounded-full"
+                    aria-label={t("channels.improvePrompt")}
+                    title={
+                      channel.orchestrator_agent_id
+                        ? t("channels.improvePrompt")
+                        : t("channels.improvePromptNoOrchestrator")
+                    }
+                    onClick={() => setImproveOpen(true)}
+                    disabled={!channel.orchestrator_agent_id}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant={isRecording ? "destructive" : "ghost"}
                     size="icon"
@@ -903,11 +933,135 @@ function ChannelRoom({
               }
             />
           </div>
+          {improveOpen && (
+            <ImprovePromptDialog
+              initialDraft={content}
+              improvePrompt={improvePrompt}
+              onApply={(improved) => {
+                setContent(improved);
+                setImproveOpen(false);
+                composerTextareaRef.current?.focus();
+              }}
+              onClose={() => setImproveOpen(false)}
+            />
+          )}
         </TabsContent>
         <TabsContent value="tasks" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <ChannelTasksPanel channelId={channelId} channel={channel} agents={agents} />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+/** Modal for orchestrator-assisted prompt rewriting -- opened from the
+ * Sparkles icon left of the mic button (2026-08-06). Mirrors ConfirmDialog's
+ * backdrop/card chrome for visual consistency with the rest of the app's
+ * modals, but carries an editable draft + instruction form instead of a
+ * yes/no prompt. Confirming calls the backend's private rewrite-only route
+ * (never a real channel turn, see useStreamImprovePrompt's docstring) and
+ * applies the result straight into the composer -- sending it is still a
+ * separate, explicit Enter in the composer afterward (2026-08-06, Marcelo:
+ * "quando confirma ele altera o prompt e depois com um enter ele envia a
+ * instrução para o agente"). */
+function ImprovePromptDialog({
+  initialDraft,
+  improvePrompt,
+  onApply,
+  onClose,
+}: {
+  initialDraft: string;
+  improvePrompt: (draft: string, instruction: string, signal?: AbortSignal) => Promise<string>;
+  onApply: (improved: string) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const [draft, setDraft] = useState(initialDraft);
+  const [instruction, setInstruction] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  async function handleConfirm() {
+    if (!draft.trim() || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const improved = await improvePrompt(draft, instruction);
+      onApply(improved);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="improve-prompt-title"
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
+        <div className="h-1 w-full rounded-t-xl bg-primary/80" />
+        <div className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
+              <Sparkles className="h-5 w-5 text-primary" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 id="improve-prompt-title" className="text-base font-semibold leading-tight">
+                {t("channels.improvePromptTitle")}
+              </h2>
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    {t("channels.improvePromptDraftLabel")}
+                  </label>
+                  <Textarea
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    rows={4}
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    {t("channels.improvePromptInstructionLabel")}
+                  </label>
+                  <Textarea
+                    value={instruction}
+                    onChange={(e) => setInstruction(e.target.value)}
+                    placeholder={t("channels.improvePromptInstructionPlaceholder")}
+                    rows={2}
+                    className="text-sm"
+                  />
+                </div>
+                {error && <p className="text-xs text-destructive">{error}</p>}
+              </div>
+            </div>
+          </div>
+          <div className="mt-6 flex justify-end gap-3">
+            <Button variant="outline" onClick={onClose} className="min-w-[88px]">
+              {t("common:cancel")}
+            </Button>
+            <Button onClick={handleConfirm} disabled={loading || !draft.trim()} className="min-w-[88px]">
+              {loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {t("channels.improvePromptConfirm")}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -951,6 +1105,16 @@ function ChannelHeader({
   const [detailMemberId, setDetailMemberId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // 2026-08-06, Marcelo: "adicione um icone do lado esquerdo do icone de
+  // editar o nome no canal para ocultar/mostrar os agentes" -- collapses
+  // the member-badges row, which can get tall with a full 9-member team.
+  const [membersCollapsed, setMembersCollapsed] = useState(
+    () => localStorage.getItem("forgehub-channel-members-collapsed") === "1"
+  );
+  useEffect(() => {
+    localStorage.setItem("forgehub-channel-members-collapsed", membersCollapsed ? "1" : "0");
+  }, [membersCollapsed]);
 
   if (!channel) return null;
   const project = projects.find((p) => p.id === channel.project_id);
@@ -971,7 +1135,7 @@ function ChannelHeader({
   }
 
   function handleDeleteChannel() {
-    if (!window.confirm(t("channels.confirmDelete", { name: channel!.name }))) return;
+    setConfirmingDelete(false);
     deleteChannel.mutate(channel!.id, { onSuccess: onDeleted });
   }
 
@@ -997,6 +1161,14 @@ function ChannelHeader({
         {!editingName && (
           <>
             <button
+              onClick={() => setMembersCollapsed((v) => !v)}
+              aria-label={membersCollapsed ? t("channels.showMembers") : t("channels.hideMembers")}
+              title={membersCollapsed ? t("channels.showMembers") : t("channels.hideMembers")}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {membersCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+            </button>
+            <button
               onClick={startEditingName}
               aria-label={t("channels.renameChannel")}
               title={t("channels.renameChannel")}
@@ -1005,7 +1177,7 @@ function ChannelHeader({
               <Pencil className="h-3.5 w-3.5" />
             </button>
             <button
-              onClick={handleDeleteChannel}
+              onClick={() => setConfirmingDelete(true)}
               aria-label={t("channels.deleteChannel")}
               title={t("channels.deleteChannel")}
               className="text-muted-foreground hover:text-destructive"
@@ -1046,6 +1218,7 @@ function ChannelHeader({
         )}
         {tabs && <div className="ml-auto shrink-0">{tabs}</div>}
       </div>
+      {!membersCollapsed && (
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         {channel.members.map((m) =>
           m.is_human ? (
@@ -1159,6 +1332,16 @@ function ChannelHeader({
           </button>
         )}
       </div>
+      )}
+      <ConfirmDialog
+        open={confirmingDelete}
+        title={t("channels.deleteChannel")}
+        description={t("channels.confirmDelete", { name: channel.name })}
+        confirmLabel={t("channels.deleteChannel")}
+        loading={deleteChannel.isPending}
+        onConfirm={handleDeleteChannel}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </div>
   );
 }

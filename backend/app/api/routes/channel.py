@@ -728,6 +728,59 @@ async def stream_channel_message(
     return StreamingResponse(_events(), media_type="text/event-stream")
 
 
+@router.get("/{channel_id}/improve-prompt/stream")
+async def stream_improve_prompt(
+    channel_id: uuid.UUID, draft: str, instruction: str, db: AsyncSession = Depends(get_db)
+) -> StreamingResponse:
+    """Asks the channel's orchestrator agent to rewrite a draft message
+    per an improvement instruction -- a private utility call, never a real
+    channel turn: no ChatChannelMessage is created, nothing is added to
+    the shared transcript, and the call always starts a fresh bridge
+    session (hermes_session_id=None) so it never interferes with the
+    orchestrator's own conversational continuity in this room (2026-08-06,
+    Marcelo: "preciso que o próprio orquestrador me ajude a criar o
+    texto... quando confirma ele altera o prompt" -- confirming only
+    replaces the compose draft, sending is still a separate, deliberate
+    Enter afterwards). Same SSE + ping pattern as stream_channel_message
+    (a single non-streaming bridge call can take up to ~650s -- see that
+    route's own docstring for why a plain request would otherwise die
+    silently on a slow reply)."""
+    channel = await _get_channel_or_404(db, channel_id)
+    if channel.orchestrator_agent_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="This channel has no orchestrator designated yet -- set one first (crown icon on a member).",
+        )
+    orchestrator = await _get_agent_or_404(db, channel.orchestrator_agent_id)
+
+    prompt = (
+        f"Você é o orquestrador do canal \"#{channel.name}\" do ForgeHub. Marcelo está rascunhando uma "
+        f"mensagem para o canal e pediu sua ajuda para melhorá-la.\n\n"
+        f"Rascunho atual:\n---\n{draft}\n---\n\n"
+        f"Instrução de melhoria: {instruction}\n\n"
+        f"Responda APENAS com o texto melhorado da mensagem, pronto para ser enviado -- sem comentários, "
+        f"sem explicações, sem aspas ao redor do texto."
+    )
+
+    async def _events() -> AsyncIterator[str]:
+        try:
+            task = asyncio.ensure_future(_call_bridge_text(orchestrator.profile_slug, prompt, None))
+            while True:
+                done, _pending = await asyncio.wait([task], timeout=15)
+                if done:
+                    break
+                yield ": ping\n\n"
+            bridge_result = await task
+            improved_text = (bridge_result.get("reply") or "").strip()
+            yield f"data: {json.dumps({'improved_text': improved_text})}\n\n"
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            yield f"event: error\ndata: {json.dumps({'detail': str(detail)})}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(_events(), media_type="text/event-stream")
+
+
 # --------------------------------------------------------------------------
 # Real execution bridge -- reuses demand.py's dispatch pipeline verbatim
 # --------------------------------------------------------------------------
