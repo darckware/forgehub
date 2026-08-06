@@ -17,6 +17,7 @@ from app.api.routes.channel import _extract_mentions
 from app.core.security import create_access_token, hash_password
 from app.db.base import AsyncSessionLocal, engine
 from app.db.models.agent import Agent
+from app.db.models.channel import ChatChannelMember
 from app.db.models.orchestration import ProjectAgentMembership
 from app.db.models.product import Product, ProductVersion
 from app.db.models.user import User
@@ -210,6 +211,38 @@ async def test_get_update_delete_channel(admin_client: AsyncClient):
 
     missing_resp = await admin_client.get(f"/api/v1/channels/{channel_id}")
     assert missing_resp.status_code == 404
+
+
+async def test_clear_channel_messages_wipes_transcript_and_agent_sessions(admin_client: AsyncClient):
+    """The lighter "start this room over" action next to full delete
+    (2026-08-06, Marcelo: "adicione um icone de limpeza do chat") -- wipes
+    every message but keeps the channel/membership/tasks, and resets each
+    member's hermes_session_id so a stale bridge session can't keep
+    referencing a transcript the UI no longer shows."""
+    result = await _create_channel(admin_client, member_agent_ids=[str(_STUB_AGENT_IDS[0])])
+    channel_id = result["channel"]["id"]
+    member_id = result["channel"]["members"][0]["id"]
+
+    async with AsyncSessionLocal() as db:
+        member = await db.get(ChatChannelMember, uuid.UUID(member_id))
+        member.hermes_session_id = "fake-bridge-session"
+        await db.commit()
+
+    post_resp = await admin_client.post(f"/api/v1/channels/{channel_id}/messages", json={"content": "hello"})
+    assert post_resp.status_code == 200
+    assert len(post_resp.json()) == 1
+
+    list_resp = await admin_client.get(f"/api/v1/channels/{channel_id}/messages")
+    assert len(list_resp.json()) == 1
+
+    clear_resp = await admin_client.delete(f"/api/v1/channels/{channel_id}/messages")
+    assert clear_resp.status_code == 204
+
+    list_resp = await admin_client.get(f"/api/v1/channels/{channel_id}/messages")
+    assert list_resp.json() == []
+
+    get_resp = await admin_client.get(f"/api/v1/channels/{channel_id}")
+    assert get_resp.json()["members"][0]["hermes_session_id"] is None
 
 
 async def test_attach_and_detach_project_is_mutable_after_creation(client: AsyncClient):

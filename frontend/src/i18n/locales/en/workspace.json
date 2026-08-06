@@ -135,6 +135,8 @@
     "attachmentReadError": "Couldn't read that file -- it may not be a text file.",
     "renameChannel": "Rename channel",
     "deleteChannel": "Delete channel",
+    "clearChat": "Clear chat",
+    "confirmClearChat": "Clear this channel's chat? This deletes every message but keeps the channel, its agents and tasks.",
     "hideMembers": "Hide members",
     "showMembers": "Show members",
     "improvePrompt": "Improve prompt with the orchestrator",

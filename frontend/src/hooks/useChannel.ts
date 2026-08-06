@@ -214,6 +214,21 @@ export function useDeleteChannel() {
   });
 }
 
+/** Lighter than useDeleteChannel -- wipes the transcript (and every
+ * member's hermes_session_id, see the backend route's docstring) but
+ * keeps the channel/membership/tasks (2026-08-06, Marcelo: "adicione um
+ * icone de limpeza do chat"). */
+export function useClearChannelMessages() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (channelId: string) => apiClient.delete<void>(`${RESOURCE}/${channelId}/messages`),
+    onSuccess: (_data, channelId) => {
+      queryClient.invalidateQueries({ queryKey: channelKeys.messages(channelId) });
+      queryClient.invalidateQueries({ queryKey: channelKeys.detail(channelId) });
+    },
+  });
+}
+
 /** The "add a project to the conversation like an MCP" action -- mutable at
  * any point, not just at creation. Never touches membership. */
 export function useAttachChannelProject() {

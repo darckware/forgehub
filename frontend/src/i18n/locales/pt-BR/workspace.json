@@ -135,6 +135,8 @@
     "attachmentReadError": "Não foi possível ler esse arquivo -- pode não ser um arquivo de texto.",
     "renameChannel": "Renomear canal",
     "deleteChannel": "Excluir canal",
+    "clearChat": "Limpar conversa",
+    "confirmClearChat": "Limpar a conversa deste canal? Isso apaga todas as mensagens, mas mantém o canal, os agentes e as tarefas.",
     "hideMembers": "Ocultar agentes",
     "showMembers": "Mostrar agentes",
     "improvePrompt": "Melhorar o prompt com o orquestrador",

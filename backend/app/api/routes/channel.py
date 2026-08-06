@@ -24,7 +24,7 @@ from typing import AsyncIterator
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes.chat import _call_bridge_text, _get_chattable_agent_or_404, _with_language_note
@@ -428,6 +428,33 @@ async def delete_channel(
     channel = await _get_channel_or_404(db, channel_id)
     await authorize_action(db, principal, "channel.manage", project_id=channel.project_id)
     await db.delete(channel)
+    await db.commit()
+
+
+@router.delete("/{channel_id}/messages", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_channel_messages(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> None:
+    """Wipes the transcript without deleting the channel itself or its
+    membership/tasks (2026-08-06, Marcelo: "adicione um icone de limpeza do
+    chat" -- the trash icon next to the channel name already deletes the
+    whole channel; this is the lighter "start this room over" action, same
+    "channel.manage" gate as update_channel/delete_channel). Also resets
+    every member's hermes_session_id: leaving it set would clear the
+    visible transcript while every agent's own bridge session still
+    remembers the old conversation, and it re-arms _onboarding_note for
+    each member's next turn -- the same "fresh start" a brand-new channel
+    gets."""
+    channel = await _get_channel_or_404(db, channel_id)
+    await authorize_action(db, principal, "channel.manage", project_id=channel.project_id)
+    await db.execute(delete(ChatChannelMessage).where(ChatChannelMessage.channel_id == channel_id))
+    await db.execute(
+        update(ChatChannelMember)
+        .where(ChatChannelMember.channel_id == channel_id)
+        .values(hermes_session_id=None)
+    )
     await db.commit()
 
 

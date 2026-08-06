@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   Crown,
+  Eraser,
   Hash,
   Info,
   Loader2,
@@ -56,6 +57,7 @@ import {
   useChannels,
   useCreateChannel,
   useCreateChannelTask,
+  useClearChannelMessages,
   useDeleteChannel,
   useDetachChannelProject,
   useDispatchChannelMessage,
@@ -1100,12 +1102,14 @@ function ChannelHeader({
   const updateMember = useUpdateChannelMember(channel!.id);
   const updateChannel = useUpdateChannel();
   const deleteChannel = useDeleteChannel();
+  const clearMessages = useClearChannelMessages();
   const [pickingProject, setPickingProject] = useState(false);
   const [pickingAgent, setPickingAgent] = useState(false);
   const [detailMemberId, setDetailMemberId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
   // 2026-08-06, Marcelo: "adicione um icone do lado esquerdo do icone de
   // editar o nome no canal para ocultar/mostrar os agentes" -- collapses
   // the member-badges row, which can get tall with a full 9-member team.
@@ -1137,6 +1141,11 @@ function ChannelHeader({
   function handleDeleteChannel() {
     setConfirmingDelete(false);
     deleteChannel.mutate(channel!.id, { onSuccess: onDeleted });
+  }
+
+  function handleClearChat() {
+    setConfirmingClear(false);
+    clearMessages.mutate(channel!.id);
   }
 
   return (
@@ -1210,6 +1219,14 @@ function ChannelHeader({
             {t("channels.attachProject")}
           </Button>
         )}
+        <button
+          onClick={() => setConfirmingClear(true)}
+          aria-label={t("channels.clearChat")}
+          title={t("channels.clearChat")}
+          className="text-muted-foreground hover:text-destructive"
+        >
+          <Eraser className="h-3.5 w-3.5" />
+        </button>
         {tabs && <div className="ml-auto shrink-0">{tabs}</div>}
       </div>
       {!membersCollapsed && (
@@ -1329,6 +1346,15 @@ function ChannelHeader({
         loading={deleteChannel.isPending}
         onConfirm={handleDeleteChannel}
         onCancel={() => setConfirmingDelete(false)}
+      />
+      <ConfirmDialog
+        open={confirmingClear}
+        title={t("channels.clearChat")}
+        description={t("channels.confirmClearChat")}
+        confirmLabel={t("channels.clearChat")}
+        loading={clearMessages.isPending}
+        onConfirm={handleClearChat}
+        onCancel={() => setConfirmingClear(false)}
       />
     </div>
   );
