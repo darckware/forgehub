@@ -6,10 +6,12 @@ import {
   Hash,
   Info,
   Loader2,
+  Mic,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
   Plus,
+  Square,
   Trash2,
   User,
   X,
@@ -35,7 +37,7 @@ import {
   type SlashCommandPickerHandle,
 } from "@/components/chat/ChatPane";
 import { ComposerShell } from "@/components/chat/ComposerShell";
-import { useChatSessions } from "@/hooks/useChat";
+import { useChatSessions, useTranscribeAudio } from "@/hooks/useChat";
 import { usePromptCommands } from "@/hooks/usePromptCommands";
 import { useProjects } from "@/hooks/useProject";
 import { PROJECT_AGENT_ROLES, useProjectMemberships } from "@/hooks/useOrchestration";
@@ -531,6 +533,42 @@ function ChannelRoom({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data: promptCommands = [] } = usePromptCommands();
 
+  // Voice dictation -- same self-contained mechanism ChatPane's mic button
+  // uses (record -> POST /chat/transcribe -> insert text), agent-agnostic
+  // so it's reused as-is, not reimplemented (2026-08-06, Marcelo: "adicione
+  // no campo prompt de comando do canal... icone de voz para ditar o
+  // texto. Igual ao do chat de conversação"). The "voice conversation"
+  // (live back-and-forth) button is deliberately NOT added -- that one is
+  // locked to a single target agent, which doesn't map to a multi-agent
+  // room the same way.
+  const [isRecording, setIsRecording] = useState(false);
+  const transcribe = useTranscribeAudio();
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  async function handleToggleRecording() {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    audioChunksRef.current = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const result = await transcribe.mutateAsync(blob);
+      setContent((prev) => (prev ? `${prev} ${result.text}` : result.text));
+    };
+    mediaRecorderRef.current = recorder;
+    recorder.start();
+    setIsRecording(true);
+  }
+
   const allMessages = useMemo(() => {
     const seen = new Set(messages.map((m) => m.id));
     return [...messages, ...liveMessages.filter((m) => !seen.has(m.id))];
@@ -840,9 +878,28 @@ function ChannelRoom({
                 </>
               }
               trailing={
-                sending && (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" />
-                )
+                <>
+                  <Button
+                    variant={isRecording ? "destructive" : "ghost"}
+                    size="icon"
+                    className="h-8 w-8 shrink-0 self-center rounded-full"
+                    aria-label={isRecording ? t("chat:composer.stopRecording") : t("chat:composer.recordVoiceMessage")}
+                    title={isRecording ? t("chat:composer.stopRecording") : t("chat:composer.recordVoiceMessage")}
+                    onClick={handleToggleRecording}
+                    disabled={transcribe.isPending}
+                  >
+                    {transcribe.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : isRecording ? (
+                      <Square className="h-4 w-4" />
+                    ) : (
+                      <Mic className="h-4 w-4" />
+                    )}
+                  </Button>
+                  {sending && (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" />
+                  )}
+                </>
               }
             />
           </div>
