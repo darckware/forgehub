@@ -1194,22 +1194,16 @@ function ChannelHeader({
             </button>
           </Badge>
         ) : pickingProject ? (
-          <Select
+          <InlineComboBox
             className="h-7 w-48 text-xs"
-            autoFocus
-            onChange={(e) => {
-              if (e.target.value) attachProject.mutate({ channelId: channel.id, projectId: e.target.value });
+            placeholder={t("channels.selectProject")}
+            options={projects.map((p) => ({ value: p.id, label: p.name }))}
+            onSelect={(value) => {
+              attachProject.mutate({ channelId: channel.id, projectId: value });
               setPickingProject(false);
             }}
-            onBlur={() => setPickingProject(false)}
-          >
-            <option value="">{t("channels.selectProject")}</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
+            onClose={() => setPickingProject(false)}
+          />
         ) : (
           <Button variant="outline" size="sm" className="h-6 gap-1 text-xs" onClick={() => setPickingProject(true)}>
             <Plus className="h-3 w-3" />
@@ -1306,22 +1300,16 @@ function ChannelHeader({
           )
         )}
         {pickingAgent ? (
-          <Select
+          <InlineComboBox
             className="h-6 w-40 text-xs"
-            autoFocus
-            onChange={(e) => {
-              if (e.target.value) addMember.mutate(e.target.value);
+            placeholder={t("channels.selectAgent")}
+            options={addableAgents.map((a) => ({ value: a.id, label: a.name }))}
+            onSelect={(value) => {
+              addMember.mutate(value);
               setPickingAgent(false);
             }}
-            onBlur={() => setPickingAgent(false)}
-          >
-            <option value="">{t("channels.selectAgent")}</option>
-            {addableAgents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </Select>
+            onClose={() => setPickingAgent(false)}
+          />
         ) : (
           <button
             onClick={() => setPickingAgent(true)}
@@ -1342,6 +1330,72 @@ function ChannelHeader({
         onConfirm={handleDeleteChannel}
         onCancel={() => setConfirmingDelete(false)}
       />
+    </div>
+  );
+}
+
+/** Hand-rolled dropdown replacing the native <select> for the two inline
+ * pickers above (project attach, add member) -- 2026-08-06, after the
+ * shared Select component's appearance-none + custom-chevron fix (see
+ * ui/select.tsx and index.css's .select-chevron) still left the closed
+ * box illegible on Marcelo's browser ("não consigo ler o texto dentro do
+ * campo dropdown", reported again after that fix shipped). Rather than
+ * keep chasing a native-widget rendering quirk we can't reproduce or
+ * inspect directly, this sidesteps native <select>/<option> painting
+ * entirely: trigger and options are both plain buttons styled with our
+ * own theme classes, so there is no OS/browser chrome left to fight. */
+function InlineComboBox({
+  options,
+  placeholder,
+  onSelect,
+  onClose,
+  className,
+}: {
+  options: { value: string; label: string }[];
+  placeholder: string;
+  onSelect: (value: string) => void;
+  onClose: () => void;
+  className?: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) onClose();
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div ref={containerRef} className={cn("relative", className)}>
+      <div className="flex h-full w-full items-center justify-between rounded-md border border-input bg-background px-2 text-muted-foreground">
+        {placeholder}
+        <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+      </div>
+      <div className="absolute left-0 top-full z-50 mt-1 max-h-56 w-full min-w-[10rem] overflow-y-auto rounded-md border border-border bg-card p-1 shadow-lg">
+        {options.length === 0 ? (
+          <p className="px-2 py-1 text-muted-foreground">{placeholder}</p>
+        ) : (
+          options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className="block w-full truncate rounded-sm px-2 py-1 text-left text-foreground hover:bg-accent"
+              onClick={() => onSelect(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))
+        )}
+      </div>
     </div>
   );
 }
