@@ -198,11 +198,78 @@ async def _build_shared_context(db: AsyncSession, channel: ChatChannel) -> str:
         if member_agent is not None:
             names.append(member_agent.name)
     member_names = ", ".join(names)
-    lines = [f'Você está no canal "#{channel.name}". Membros: {member_names}.', ""]
+    # Hidden tone instruction, every turn (not just onboarding) -- 2026-08-06,
+    # Marcelo: "mande uma instrução oculta para os agentes participante
+    # para soar de forma natural a interação". Kept separate from
+    # _onboarding_note (which explains the mechanics once); this is about
+    # *how* to sound, said on every wake so the tone doesn't only hold for
+    # the first turn.
+    lines = [
+        f'Você está no canal "#{channel.name}". Membros: {member_names}.',
+        "[Instrução interna, não visível aos demais membros] Responda de forma natural e "
+        "conversacional, como um colega de equipe participando de uma discussão em grupo -- "
+        "direto e humano, sem tom de relatório formal nem recapitular tudo que já foi dito.",
+        "",
+    ]
     for row in rows:
         author = row.author_label or {"human": "Marcelo", "system": "Sistema"}.get(row.author_type, "Agente")
         lines.append(f"{author}: {row.content}")
     return "\n".join(lines)
+
+
+async def _onboarding_note(db: AsyncSession, channel: ChatChannel, member: ChatChannelMember) -> str:
+    """Prepended once, only on an agent-member's very first real turn in
+    this channel (member.hermes_session_id still None -- see
+    _wake_agent_turn), so the agent learns how the room works before it
+    ever has to guess (2026-08-06, Marcelo: "cada agente quando iniciar no
+    grupo precisa receber uma mensagem informando que ele está dentro do
+    contexto de um grupo de trabalho... para ele poder saber como
+    interagir no ambiente" -- the concrete gap this closes is the same one
+    Athos hit, asking for a message-based command that doesn't exist).
+    Condensed from docs/guides/FORGEHUB_CHANNELS_AGENT_GUIDE.md -- keep
+    the two in sync if this changes."""
+    role_line = (
+        f'Sua função neste canal é "{member.role}".'
+        if member.role
+        else "Você ainda não tem uma função definida neste canal."
+    )
+    # Project-level role is a separate, formal thing from the channel role
+    # above (see _sync_project_membership_role's docstring) -- surfaced
+    # here too so the agent understands its actual responsibility on the
+    # underlying project, not just its label in this room (2026-08-06,
+    # Marcelo: "cada agente precisa entender a sua função em cada projeto
+    # dentro do canal").
+    project_role_line = ""
+    if channel.project_id is not None and member.agent_id is not None:
+        membership = (await db.execute(select(ProjectAgentMembership).where(
+            ProjectAgentMembership.project_id == channel.project_id,
+            ProjectAgentMembership.agent_id == member.agent_id,
+        ))).scalar_one_or_none()
+        project_role_line = (
+            f' No projeto formal ligado a este canal, sua função é "{membership.role}".'
+            if membership is not None
+            else " Você ainda não é membro formal do time do projeto ligado a este canal."
+        )
+    return (
+        f'[Contexto interno, não visível a Marcelo nem aos demais membros] Você acabou de entrar '
+        f'no canal "#{channel.name}" do ForgeHub -- uma sala compartilhada (Marcelo + agentes), '
+        f'diferente do Messages/Inbox ponto-a-ponto. {role_line}{project_role_line} Você só gera '
+        f'uma resposta real quando alguém escreve #SeuNome na mensagem (turn_policy=mention_only) '
+        f'-- nunca reaja a mensagens de outros agentes por conta própria. Ferramentas MCP '
+        f'disponíveis (servidor forgehub-messages): list_channel_members (quem está aqui e a '
+        f'função de cada um), propose_channel_task (propor tarefa para você mesmo -- livre dentro '
+        f'da sua função -- ou para um colega -- sempre cria uma Approval pendente em Governança), '
+        f'list_agent_skills (conferir skills antes de propor/aceitar uma tarefa). Não existe '
+        f'comando de mensagem para adicionar/remover membro, mudar função de outro membro ou '
+        f'decidir uma aprovação -- essas ações exigem autoridade delegada por Marcelo via '
+        f'Governança > Delegações de Autoridade, mesmo para o orquestrador do canal. Este canal '
+        f'faz parte do módulo Software Factory do ForgeHub (Product -> Project -> Planejamento -> '
+        f'Task, com Cockpit, Pipeline e Governança) -- se precisar entender o pipeline completo '
+        f'além do canal em si, consulte docs/guides/MANUAL.md (seção Software Factory). Guia do '
+        f'canal em si: docs/guides/FORGEHUB_CHANNELS_AGENT_GUIDE.md. Antes de responder à '
+        f'mensagem real abaixo, cumprimente brevemente e de forma natural os demais membros do '
+        f'canal, apresentando-se e sua função em uma frase -- depois continue normalmente.\n\n'
+    )
 
 
 # --------------------------------------------------------------------------
@@ -480,6 +547,12 @@ async def _wake_agent_turn(
     session), persists the reply, and updates this member's own Hermes
     session continuity -- independent of any other member's."""
     context = await _build_shared_context(db, channel)
+    # Onboarding fires exactly once per member: hermes_session_id is only
+    # None before this member's first real turn ever happens (set right
+    # below from the bridge's response and never cleared afterwards), so a
+    # later mention never repeats it.
+    if member.hermes_session_id is None:
+        context = await _onboarding_note(db, channel, member) + context
     bridge_result = await _call_bridge_text(agent.profile_slug, _with_language_note(context), member.hermes_session_id)
     member.hermes_session_id = bridge_result.get("session_id") or member.hermes_session_id
     reply = ChatChannelMessage(

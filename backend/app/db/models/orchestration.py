@@ -47,6 +47,13 @@ PROJECT_AGENT_ROLES = (
     # so the ForgeHub-wide "what does this agent do" vocabulary never
     # drifts into three versions.
     "documentation",
+    # 2026-08-06: closes a real gap hit while staffing the "Projeto
+    # ForgeHub" channel -- Themis (legal/compliance) and Mnemosyne
+    # (knowledge base/RAG) had no function that fit and were left
+    # approximated ("reviewer") or unset. See
+    # docs/guides/FORGEHUB_CHANNELS_AGENT_GUIDE.md §8.
+    "compliance",
+    "knowledge_management",
 )
 LOOP_PHASES = ("documentation", "planning", "implementation", "testing", "review")
 REVIEW_STATUSES = ("pending", "running", "approved", "changes_requested", "rejected", "failed")

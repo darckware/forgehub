@@ -356,6 +356,45 @@ async def test_posting_a_mention_wakes_that_agent_with_shared_context(client: As
     assert messages[1]["author_agent_id"] == str(_STUB_AGENT_IDS[0])
 
 
+async def test_onboarding_note_only_on_first_turn(client: AsyncClient, monkeypatch):
+    """2026-08-06, Marcelo: "cada agente quando iniciar no grupo precisa
+    receber uma mensagem informando que ele está dentro do contexto de um
+    grupo de trabalho... para ele poder saber como interagir no ambiente."
+    Fires once (member.hermes_session_id is the gate -- see
+    _wake_agent_turn): the first mention gets the onboarding note
+    prepended, a second mention of the same agent in the same channel
+    does not repeat it."""
+    from app.api.routes import channel as channel_routes
+
+    seen_messages: list[str] = []
+
+    async def fake_bridge_text(profile, message, hermes_session_id):
+        seen_messages.append(message)
+        return {"reply": "ok", "session_id": "fake-session"}
+
+    monkeypatch.setattr(channel_routes, "_call_bridge_text", fake_bridge_text)
+
+    async with AsyncSessionLocal() as db:
+        agent = await db.get(Agent, _STUB_AGENT_IDS[0])
+        agent_name = agent.name
+
+    result = await _create_channel(client, member_agent_ids=[str(_STUB_AGENT_IDS[0])])
+    channel_id = result["channel"]["id"]
+
+    first = await client.post(
+        f"/api/v1/channels/{channel_id}/messages", json={"content": f"#{agent_name} primeira mensagem"}
+    )
+    assert first.status_code == 200, first.text
+    assert "Contexto interno" in seen_messages[0]
+    assert "cumprimente" in seen_messages[0]
+
+    second = await client.post(
+        f"/api/v1/channels/{channel_id}/messages", json={"content": f"#{agent_name} segunda mensagem"}
+    )
+    assert second.status_code == 200, second.text
+    assert "Contexto interno" not in seen_messages[1]
+
+
 async def test_channel_task_lifecycle_without_project_stays_lightweight(client: AsyncClient):
     result = await _create_channel(client)
     channel_id = result["channel"]["id"]

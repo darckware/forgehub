@@ -145,6 +145,15 @@ export function useChannel(channelId: string | undefined) {
     queryKey: channelKeys.detail(channelId ?? ""),
     queryFn: () => apiClient.get<ChatChannelWithMembers>(`${RESOURCE}/${channelId}`),
     enabled: Boolean(channelId),
+    // A delegated agent can add/remove a member or change a role via its
+    // own agt_ credential, straight against the API -- entirely outside
+    // this tab's own mutation hooks, so their onSuccess invalidation
+    // never fires. Polling is what actually picks that up (2026-08-06,
+    // Marcelo: "quando o agente solicitar as configurações no canal é
+    // preciso dar uma atualização no display... para mostrar os ajustes
+    // nos agentes do canal e suas funções"). Same interval class as
+    // useRemoteAccess/useSystemStats' own polling.
+    refetchInterval: 15_000,
   });
 }
 
