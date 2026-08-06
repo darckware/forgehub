@@ -98,7 +98,14 @@
     "confirmRemoveSkillTitle": "Remove skill \"{{name}}\"?",
     "confirmRemoveSkillDescription": "Removes the grant from this agent. The skill itself stays in the catalog and can be granted again later.",
     "noSkills": "No skills associated with this agent yet.",
-    "backToList": "Back to list"
+    "backToList": "Back to list",
+    "activeProjectsTitle": "Active projects",
+    "activeProjectsDescription": "Projects where this agent has an active membership (see ProjectAgentMembership).",
+    "activeProjectsEmpty": "This agent isn't a member of any project yet.",
+    "openProjectChannel": "Open channel",
+    "defaultRoleTitle": "Default function",
+    "defaultRoleDescription": "This agent's declared specialty -- a channel only ever suggests it when adding this agent as a member, never imposes it.",
+    "defaultRoleNone": "None set"
   },
   "profileFiles": {
     "title": "Profile files",

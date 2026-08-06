@@ -14,12 +14,32 @@ shelling out to `send_agent_message.sh` / `check_agent_inbox.sh`. Same
 channel, same table (`company.agent_demands`), same "Messages" page — this
 is a second front door to the existing mechanism, not a parallel one.
 
-Four tools, two of which are read-only:
+Seven tools, five of which are read-only:
 
-    send_agent_message    file a note, or address (and dispatch) a message
-    list_agent_messages   filter own messages by status; consumes nothing
-    get_agent_message     read one in full by #number; consumes nothing
-    check_agent_inbox     pull new mail -- pulling IS the acknowledgment
+    send_agent_message     file a note, or address (and dispatch) a message
+    list_agent_messages    filter own messages by status; consumes nothing
+    get_agent_message      read one in full by #number; consumes nothing
+    check_agent_inbox      pull new mail -- pulling IS the acknowledgment
+    list_channel_members   who's in a Software Factory channel, and their role
+    propose_channel_task   propose a task for yourself or a channel-mate
+    list_agent_skills      one agent's declared function and granted skills
+
+The middle two wrap the ChatChannel domain (`POST/GET /api/v1/channels/...`,
+see backend/app/db/models/channel.py and
+docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) -- a different
+domain than the letter-model Messages above, added to this same
+already-installed server so no agent needs any new MCP configuration to use
+them (2026-08-05, Marcelo: "Agentes podem propor tarefas para colegas, mas
+ficam pendentes de validação sua"). Deciding a proposed task (approve/reject)
+is deliberately NOT a tool here -- it's the existing Governance domain's own
+decision, either Marcelo through the UI or a delegated orchestrator-agent
+calling POST /api/v1/governance/approvals/{id}/approve directly with its own
+agt_ credential. list_agent_skills (2026-08-06) wraps the Agent domain's own
+skills endpoints (`GET /api/v1/agents/{id}/skills`, `GET
+/api/v1/agents/skills`) the same read-only way -- it does not create,
+install or grant anything; requesting a missing skill still goes through a
+human (or delegated orchestrator) via the channel, same as any other
+proposal.
 
 Auth: the shared `CHAT_BRIDGE_TOKEN` (env `FORGEHUB_BRIDGE_TOKEN`, else read
 from /root/project/forgehub/.env — the same trust boundary the shell scripts
@@ -352,6 +372,186 @@ async def check_agent_inbox(agent: str | None = None) -> str:
     parts = [f"{len(pending)} pending message(s) for {slug!r} (now marked as delivered):"]
     parts.extend(_format_message(item, body="full") for item in pending)
     return "\n\n".join(parts)
+
+
+async def _resolve_channel_id(channel: str) -> str:
+    """`channel` may be a UUID or a name -- most callers will type the name.
+    No name-lookup endpoint exists server-side (channels are few enough
+    that GET /channels + a client-side filter is simpler than adding one),
+    same spirit as _resolve_agent resolving a slug locally."""
+    try:
+        import uuid as _uuid
+        _uuid.UUID(channel)
+        return channel
+    except ValueError:
+        pass
+    channels = await _call("GET", "/api/v1/channels")
+    matches = [c for c in channels if c.get("name", "").strip().lower() == channel.strip().lower()]
+    if not matches:
+        raise ForgeHubError(f"No channel named {channel!r}. Use list_channel_members with the exact name or its id.")
+    if len(matches) > 1:
+        raise ForgeHubError(
+            f"{len(matches)} channels are named {channel!r} -- use one of their ids instead: "
+            + ", ".join(f"{c['id']} ({c.get('project_id') or 'no project'})" for c in matches)
+        )
+    return matches[0]["id"]
+
+
+async def _resolve_agent_id(agent: str) -> tuple[str, dict[str, Any]]:
+    """`agent` may be a UUID, a profile_slug or a display name -- returns
+    (id, roster_row) so callers get the name/default_role back for free
+    instead of a second lookup. Same "list + client-side filter" spirit as
+    _resolve_channel_id (the roster is small enough that a dedicated
+    lookup-by-slug endpoint isn't worth adding server-side)."""
+    agents = await _call("GET", "/api/v1/agents")
+    try:
+        import uuid as _uuid
+        _uuid.UUID(agent)
+        match = next((a for a in agents if a.get("id") == agent), None)
+        if match is None:
+            raise ForgeHubError(f"No agent with id {agent!r}.")
+        return agent, match
+    except ValueError:
+        pass
+    needle = agent.strip().lower()
+    matches = [
+        a for a in agents
+        if (a.get("profile_slug") or "").strip().lower() == needle
+        or (a.get("name") or "").strip().lower() == needle
+    ]
+    if not matches:
+        raise ForgeHubError(f"No agent named or slugged {agent!r}.")
+    if len(matches) > 1:
+        raise ForgeHubError(
+            f"{len(matches)} agents match {agent!r} -- use one of their ids instead: "
+            + ", ".join(f"{a['id']} ({a.get('name')})" for a in matches)
+        )
+    return matches[0]["id"], matches[0]
+
+
+@mcp.tool()
+async def list_agent_skills(agent: str) -> str:
+    """What one agent's declared function and granted skills are -- check
+    this before proposing a task for a channel-mate (see
+    propose_channel_task) so you don't hand work to someone missing the
+    skill it needs. If nothing fits, ask the human orchestrator (Marcelo,
+    or whoever holds "channel.member.role.assign"/"governance.approval.
+    decide" for that channel) to have the skill authored -- this tool only
+    reads, it never installs or creates a skill.
+
+    Args:
+        agent: the agent's name, profile_slug, or id.
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        agent_skills = await _call("GET", f"/api/v1/agents/{agent_id}/skills")
+        catalog = await _call("GET", "/api/v1/agents/skills")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    skills_by_id = {s["id"]: s for s in catalog}
+    name = roster_row.get("name", agent)
+    lines = [
+        f"{name} -- function: {roster_row.get('default_role') or '(none set)'}",
+    ]
+    if roster_row.get("description"):
+        lines.append(f"  {roster_row['description']}")
+    if not agent_skills:
+        lines.append("  No skills granted yet.")
+        return "\n".join(lines)
+    lines.append("  Skills:")
+    for grant in agent_skills:
+        skill = skills_by_id.get(grant.get("skill_id"), {})
+        approved = "approved" if skill.get("is_approved") else "NOT approved"
+        lines.append(
+            f"    - {skill.get('name', '?')} v{skill.get('version', '?')}"
+            f" (risk: {skill.get('risk_level', '?')}, {approved})"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def list_channel_members(channel: str) -> str:
+    """Who's in a Software Factory channel and what their function is there
+    -- check this before proposing a task so you know your own channel role
+    (see propose_channel_task) and who else can take on what.
+
+    Args:
+        channel: the channel's name or id.
+    """
+    try:
+        channel_id = await _resolve_channel_id(channel)
+        detail = await _call("GET", f"/api/v1/channels/{channel_id}")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    members = detail.get("members", [])
+    if not members:
+        return f"Channel {detail.get('name')!r} has no members."
+    lines = [f"Members of {detail.get('name')!r}:"]
+    for member in members:
+        if member.get("is_human"):
+            lines.append("  - (human) Marcelo -- final authority in this channel")
+            continue
+        role = member.get("role") or "(no role set)"
+        lines.append(f"  - agent {member.get('agent_id')}: role={role}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def propose_channel_task(
+    channel: str,
+    title: str,
+    assignee_agent: str,
+    from_agent: str | None = None,
+    role_required: str | None = None,
+) -> str:
+    """Propose a task in a Software Factory channel -- for yourself, or for
+    a channel-mate.
+
+    Two outcomes:
+    - **Claiming your own work** (`assignee_agent` == you, and it matches
+      your own role in that channel, or `role_required` is left unset):
+      the task is created ready to work on immediately, no one needs to
+      confirm it.
+    - **Delegating to someone else** (or claiming work outside your own
+      declared role): the task is created but blocked behind a real
+      Governance Approval, pending until Marcelo (or an agent he has
+      delegated "governance.approval.decide" to) decides it. This is
+      deliberate -- responsibilities in a channel are meant to stay
+      well-defined, so one agent proposing work FOR another always needs
+      sign-off first (see list_channel_members to check roles beforehand).
+
+    Args:
+        channel: the channel's name or id.
+        title: short task title.
+        assignee_agent: profile_slug of who should do this work.
+        from_agent: your own profile_slug; defaults to this runtime's own.
+        role_required: optional -- tag which channel function this task is
+            for (e.g. "documentation", "qa", "designer"). Only matters for
+            the self-claim fast path above; omit if you don't need it.
+    """
+    try:
+        channel_id = await _resolve_channel_id(channel)
+        proposer = _resolve_agent(from_agent)
+        payload: dict[str, Any] = {
+            "acting_agent_slug": proposer,
+            "title": title,
+            "assignee_agent_slug": assignee_agent,
+        }
+        if role_required:
+            payload["role_required"] = role_required
+        task = await _call("POST", f"/api/v1/channels/{channel_id}/tasks/propose", json=payload)
+    except ForgeHubError as exc:
+        return str(exc)
+
+    if task.get("approval_id"):
+        return (
+            f"Proposed task {task['title']!r} for {assignee_agent!r}, pending approval "
+            f"(approval id {task['approval_id']}) -- it will not be worked on until "
+            "Marcelo or a delegated orchestrator decides it."
+        )
+    return f"Task {task['title']!r} created for {assignee_agent!r}, ready to work on now (no approval needed)."
 
 
 if __name__ == "__main__":

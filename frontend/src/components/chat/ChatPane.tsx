@@ -38,6 +38,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ComposerShell } from "@/components/chat/ComposerShell";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Markdown } from "@/components/Markdown";
 import { TestApplicationDialog } from "@/components/chat/TestApplicationDialog";
@@ -1050,7 +1051,7 @@ const LOCAL_SLASH_COMMANDS: { command: string; description: string }[] = [
   { command: "/testar", description: "slashCommands.testar" },
 ];
 
-type SlashCommandItem =
+export type SlashCommandItem =
   | { kind: "local"; command: string; description: string }
   | { kind: "hermes"; command: string; description: string }
   | { kind: "prompt"; command: string; description: string; prompt: string };
@@ -1063,18 +1064,29 @@ export interface SlashCommandPickerHandle {
 /** Keyboard nav (Arrow Up/Down + Enter) is driven from the composer textarea
  * via this imperative handle, same pattern as MentionFilePickerHandle -- the
  * textarea keeps focus while "/" is open. */
-const SlashCommandPicker = forwardRef<
+export const SlashCommandPicker = forwardRef<
   SlashCommandPickerHandle,
-  { promptCommands: PromptCommand[]; onSelect: (item: SlashCommandItem) => void; onClose: () => void }
->(function SlashCommandPicker({ promptCommands, onSelect, onClose }, ref) {
+  {
+    promptCommands: PromptCommand[];
+    onSelect: (item: SlashCommandItem) => void;
+    onClose: () => void;
+    /** ChannelPane opts out of both -- /model, /new etc. forward to (or
+     * act on) a single agent's own Hermes CLI session, which has no
+     * well-defined meaning addressed to a whole multi-agent channel.
+     * Default true/true preserves ChatPane's existing behavior exactly
+     * (2026-08-06, see ChannelPane.tsx's own SlashCommandPicker usage). */
+    includeLocal?: boolean;
+    includeHermes?: boolean;
+  }
+>(function SlashCommandPicker({ promptCommands, onSelect, onClose, includeLocal = true, includeHermes = true }, ref) {
   const { t } = useTranslation("chat");
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, onClose);
   const items = useMemo<SlashCommandItem[]>(
     () => [
-      ...LOCAL_SLASH_COMMANDS.map((cmd) => ({ kind: "local" as const, ...cmd })),
-      ...SAFE_SLASH_COMMANDS.map((cmd) => ({ kind: "hermes" as const, ...cmd })),
+      ...(includeLocal ? LOCAL_SLASH_COMMANDS.map((cmd) => ({ kind: "local" as const, ...cmd })) : []),
+      ...(includeHermes ? SAFE_SLASH_COMMANDS.map((cmd) => ({ kind: "hermes" as const, ...cmd })) : []),
       ...promptCommands.map((cmd) => ({
         kind: "prompt" as const,
         command: `/${cmd.name}`,
@@ -1082,7 +1094,7 @@ const SlashCommandPicker = forwardRef<
         prompt: cmd.prompt,
       })),
     ],
-    [promptCommands]
+    [promptCommands, includeLocal, includeHermes]
   );
 
   useImperativeHandle(ref, () => ({
@@ -1133,7 +1145,7 @@ export interface AgentMentionPickerHandle {
  * the tab's own (see stream_chat_message's target_agent_id), bypassing
  * Athos-style orchestration entirely. Filters live as you type after "#",
  * same keyboard-nav pattern as the other two pickers. */
-const AgentMentionPicker = forwardRef<
+export const AgentMentionPicker = forwardRef<
   AgentMentionPickerHandle,
   { agents: Agent[]; query: string; onSelect: (agent: Agent) => void; onClose: () => void }
 >(function AgentMentionPicker({ agents, query, onSelect, onClose }, ref) {
@@ -1564,6 +1576,7 @@ export function ChatPane({
   emptyStateText,
   primingMessage,
   onAssistantMessage,
+  lockAgent,
 }: {
   tabId: string;
   active: boolean;
@@ -1573,6 +1586,13 @@ export function ChatPane({
   initialComposerText?: string;
   historyCollapsed: boolean;
   artifactsOpen: boolean;
+  /** Hides the composer's agent-selector pill -- the agent is fixed by the
+   * embedding context (e.g. a channel member's own individual session,
+   * opened by clicking their name) rather than user-switchable
+   * (2026-08-06, Marcelo: "quero introduzir o mesmo chat do agente no
+   * canal... [o seletor] será realizado com o agente selecionado", i.e.
+   * no picker needed -- one chat component, reused, not a second one). */
+  lockAgent?: boolean;
   /** Same cwd used by "New Terminal" tabs -- backs the composer's
    * "!command" prefix so it runs in the same project context. */
   workingDir?: string;
@@ -4082,11 +4102,61 @@ export function ChatPane({
               </div>
             </div>
           )}
-          <div
-            className={cn(
-              "relative flex items-end gap-1 rounded-3xl border bg-muted/50 px-2 py-1.5 transition-colors",
-              composerDragActive ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border"
-            )}
+          <ComposerShell
+            ref={composerTextareaRef}
+            value={composerText}
+            onChange={(e) => {
+              const value = e.target.value;
+              setComposerText(value);
+              if (composerWarning) setComposerWarning(null);
+              const last = value.slice(-1);
+              const beforeLast = value.slice(-2, -1);
+              if (last === "@" && (beforeLast === "" || /\s/.test(beforeLast))) {
+                setMentionOpen(true);
+              }
+              if (value === "/") {
+                setSlashOpen(true);
+              } else if (slashOpen && !value.startsWith("/")) {
+                setSlashOpen(false);
+              }
+              if (last === "#" && (beforeLast === "" || /\s/.test(beforeLast))) {
+                setAgentMentionOpen(true);
+                setAgentMentionQuery("");
+              } else if (agentMentionOpen) {
+                const hashIndex = value.lastIndexOf("#");
+                if (hashIndex === -1 || /\s/.test(value.slice(hashIndex + 1))) {
+                  setAgentMentionOpen(false);
+                } else {
+                  setAgentMentionQuery(value.slice(hashIndex + 1));
+                }
+              }
+              if (last === "$" && (beforeLast === "" || /\s/.test(beforeLast))) {
+                setArtifactMentionOpen(true);
+                setArtifactMentionQuery("");
+              } else if (artifactMentionOpen) {
+                const dollarIndex = value.lastIndexOf("$");
+                if (dollarIndex === -1 || /\s/.test(value.slice(dollarIndex + 1))) {
+                  setArtifactMentionOpen(false);
+                } else {
+                  setArtifactMentionQuery(value.slice(dollarIndex + 1));
+                }
+              }
+            }}
+            onKeyDown={handleComposerKeyDown}
+            onPaste={handleComposerPaste}
+            placeholder={
+              suggestedReply
+                ? t("composer.completeHint", { text: suggestedReply })
+                : languageTexts.ask(selectedAgent?.name ?? "agent")
+            }
+            textareaClassName="min-h-0 overflow-y-auto"
+            textareaStyle={{ maxHeight: COMPOSER_MAX_HEIGHT_PX }}
+            dragActive={composerDragActive}
+            dropHint={
+              <>
+                <Paperclip className="mr-2 h-4 w-4" /> {t("composer.dropIntoAssistant")}
+              </>
+            }
             onDragEnter={(e) => {
               e.preventDefault();
               setComposerDragActive(true);
@@ -4100,153 +4170,106 @@ export function ChatPane({
               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setComposerDragActive(false);
             }}
             onDrop={handleComposerDrop}
-          >
-            {composerDragActive && (
-              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-background/90 text-sm font-medium text-primary">
-                <Paperclip className="mr-2 h-4 w-4" /> {t("composer.dropIntoAssistant")}
-              </div>
-            )}
-            {mentionOpen && (
-              <MentionFilePicker
-                ref={mentionPickerRef}
-                onSelectPath={handleMentionSelect}
-                onClose={() => setMentionOpen(false)}
-              />
-            )}
-            {slashOpen && (
-              <SlashCommandPicker
-                ref={slashPickerRef}
-                promptCommands={promptCommands}
-                onSelect={handleSlashSelect}
-                onClose={() => setSlashOpen(false)}
-              />
-            )}
-            {agentMentionOpen && (
-              <AgentMentionPicker
-                ref={agentPickerRef}
-                agents={chatableAgents}
-                query={agentMentionQuery}
-                onSelect={handleAgentMentionSelect}
-                onClose={() => setAgentMentionOpen(false)}
-              />
-            )}
-            {artifactMentionOpen && (
-              <ArtifactMentionPicker
-                ref={artifactPickerRef}
-                query={artifactMentionQuery}
-                onSelectPath={handleArtifactMentionSelect}
-                onClose={() => setArtifactMentionOpen(false)}
-              />
-            )}
-            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFilePick} />
-            <AttachMenuButton
-              onPickFile={() => fileInputRef.current?.click()}
-              onInsertTrigger={(char) => {
-                if (char === "!") {
-                  // Must be the very first character (see handleSend's
-                  // trimmed.startsWith("!") check) -- prefix, don't append.
-                  setComposerText((t) => (t.startsWith("!") ? t : `!${t}`));
-                  composerTextareaRef.current?.focus();
-                  return;
-                }
-                setComposerText((t) => {
-                  const needsSpace = t.length > 0 && !/\s$/.test(t);
-                  return t + (needsSpace ? " " : "") + char;
-                });
-                if (char === "@") setMentionOpen(true);
-                if (char === "/") setSlashOpen(true);
-                if (char === "#") {
-                  setAgentMentionOpen(true);
-                  setAgentMentionQuery("");
-                }
-                if (char === "$") {
-                  setArtifactMentionOpen(true);
-                  setArtifactMentionQuery("");
-                }
-                composerTextareaRef.current?.focus();
-              }}
-            />
-            <Textarea
-              ref={composerTextareaRef}
-              value={composerText}
-              onChange={(e) => {
-                const value = e.target.value;
-                setComposerText(value);
-                if (composerWarning) setComposerWarning(null);
-                const last = value.slice(-1);
-                const beforeLast = value.slice(-2, -1);
-                if (last === "@" && (beforeLast === "" || /\s/.test(beforeLast))) {
-                  setMentionOpen(true);
-                }
-                if (value === "/") {
-                  setSlashOpen(true);
-                } else if (slashOpen && !value.startsWith("/")) {
-                  setSlashOpen(false);
-                }
-                if (last === "#" && (beforeLast === "" || /\s/.test(beforeLast))) {
-                  setAgentMentionOpen(true);
-                  setAgentMentionQuery("");
-                } else if (agentMentionOpen) {
-                  const hashIndex = value.lastIndexOf("#");
-                  if (hashIndex === -1 || /\s/.test(value.slice(hashIndex + 1))) {
-                    setAgentMentionOpen(false);
-                  } else {
-                    setAgentMentionQuery(value.slice(hashIndex + 1));
-                  }
-                }
-                if (last === "$" && (beforeLast === "" || /\s/.test(beforeLast))) {
-                  setArtifactMentionOpen(true);
-                  setArtifactMentionQuery("");
-                } else if (artifactMentionOpen) {
-                  const dollarIndex = value.lastIndexOf("$");
-                  if (dollarIndex === -1 || /\s/.test(value.slice(dollarIndex + 1))) {
-                    setArtifactMentionOpen(false);
-                  } else {
-                    setArtifactMentionQuery(value.slice(dollarIndex + 1));
-                  }
-                }
-              }}
-              onKeyDown={handleComposerKeyDown}
-              onPaste={handleComposerPaste}
-              placeholder={
-                suggestedReply
-                  ? t("composer.completeHint", { text: suggestedReply })
-                  : languageTexts.ask(selectedAgent?.name ?? "agent")
-              }
-              rows={1}
-              style={{ maxHeight: COMPOSER_MAX_HEIGHT_PX }}
-              className="min-h-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-            <AgentSelectorPill agents={chatableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
-            {agentId && <AgentMcpInfoButton agentId={agentId} />}
-            <Button
-              variant={isRecording ? "destructive" : "ghost"}
-              size="icon"
-              className="h-8 w-8 rounded-full shrink-0"
-              aria-label={isRecording ? t("composer.stopRecording") : t("composer.recordVoiceMessage")}
-              onClick={handleToggleRecording}
-              disabled={transcribe.isPending}
-            >
-              {transcribe.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isRecording ? (
-                <Square className="h-4 w-4" />
-              ) : (
-                <Mic className="h-4 w-4" />
-              )}
-            </Button>
-            <Button
-              variant={voiceActive ? "default" : "ghost"}
-              size="icon"
-              className="h-8 w-8 rounded-full shrink-0"
-              aria-label={voiceActive ? t("voice.endConversation") : t("voice.conversationWithAgent", { name: selectedAgent?.name ?? t("agentPicker.agentFallback") })}
-              title={voiceActive ? t("voice.endConversation") : t("voice.conversationWithAgent", { name: selectedAgent?.name ?? t("agentPicker.agentFallback") })}
-              onClick={voiceActive ? stopVoice : startVoice}
-              disabled={isRecording}
-            >
-              <AudioLines className="h-4 w-4" />
-            </Button>
-          </div>
+            leading={
+              <>
+                {mentionOpen && (
+                  <MentionFilePicker
+                    ref={mentionPickerRef}
+                    onSelectPath={handleMentionSelect}
+                    onClose={() => setMentionOpen(false)}
+                  />
+                )}
+                {slashOpen && (
+                  <SlashCommandPicker
+                    ref={slashPickerRef}
+                    promptCommands={promptCommands}
+                    onSelect={handleSlashSelect}
+                    onClose={() => setSlashOpen(false)}
+                  />
+                )}
+                {agentMentionOpen && (
+                  <AgentMentionPicker
+                    ref={agentPickerRef}
+                    agents={chatableAgents}
+                    query={agentMentionQuery}
+                    onSelect={handleAgentMentionSelect}
+                    onClose={() => setAgentMentionOpen(false)}
+                  />
+                )}
+                {artifactMentionOpen && (
+                  <ArtifactMentionPicker
+                    ref={artifactPickerRef}
+                    query={artifactMentionQuery}
+                    onSelectPath={handleArtifactMentionSelect}
+                    onClose={() => setArtifactMentionOpen(false)}
+                  />
+                )}
+                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFilePick} />
+                <AttachMenuButton
+                  onPickFile={() => fileInputRef.current?.click()}
+                  onInsertTrigger={(char) => {
+                    if (char === "!") {
+                      // Must be the very first character (see handleSend's
+                      // trimmed.startsWith("!") check) -- prefix, don't append.
+                      setComposerText((t) => (t.startsWith("!") ? t : `!${t}`));
+                      composerTextareaRef.current?.focus();
+                      return;
+                    }
+                    setComposerText((t) => {
+                      const needsSpace = t.length > 0 && !/\s$/.test(t);
+                      return t + (needsSpace ? " " : "") + char;
+                    });
+                    if (char === "@") setMentionOpen(true);
+                    if (char === "/") setSlashOpen(true);
+                    if (char === "#") {
+                      setAgentMentionOpen(true);
+                      setAgentMentionQuery("");
+                    }
+                    if (char === "$") {
+                      setArtifactMentionOpen(true);
+                      setArtifactMentionQuery("");
+                    }
+                    composerTextareaRef.current?.focus();
+                  }}
+                />
+              </>
+            }
+            trailing={
+              <>
+                {!lockAgent && (
+                  <AgentSelectorPill agents={chatableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
+                )}
+                {agentId && <AgentMcpInfoButton agentId={agentId} />}
+                <Button
+                  variant={isRecording ? "destructive" : "ghost"}
+                  size="icon"
+                  className="h-8 w-8 rounded-full shrink-0"
+                  aria-label={isRecording ? t("composer.stopRecording") : t("composer.recordVoiceMessage")}
+                  onClick={handleToggleRecording}
+                  disabled={transcribe.isPending}
+                >
+                  {transcribe.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isRecording ? (
+                    <Square className="h-4 w-4" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
+                </Button>
+                <Button
+                  variant={voiceActive ? "default" : "ghost"}
+                  size="icon"
+                  className="h-8 w-8 rounded-full shrink-0"
+                  aria-label={voiceActive ? t("voice.endConversation") : t("voice.conversationWithAgent", { name: selectedAgent?.name ?? t("agentPicker.agentFallback") })}
+                  title={voiceActive ? t("voice.endConversation") : t("voice.conversationWithAgent", { name: selectedAgent?.name ?? t("agentPicker.agentFallback") })}
+                  onClick={voiceActive ? stopVoice : startVoice}
+                  disabled={isRecording}
+                >
+                  <AudioLines className="h-4 w-4" />
+                </Button>
+              </>
+            }
+          />
         </div>
       </div>
 

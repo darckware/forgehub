@@ -7,7 +7,7 @@
 - [Política do Assistente](#política-do-assistente--leia-isto-antes-de-operar-qualquer-coisa)
 - [Como o sistema está organizado (sidebar)](#como-o-sistema-está-organizado-sidebar)
   - [General](#general) — Dashboard, Workspace, Notifications, Messages, Docs
-  - [Planning](#planning) — Conception, System Map, Project Scope, Products, Projects, Pipelines, Templates, Planning, Execution, Artifacts, Governance, Policies
+  - [Software Factory](#software-factory) — Multi-Project Cockpit, Conception, Screens & Business Rules, Concept DB Diagram, Project Center, Grupo de Trabalho (Canais), Governance, Version Closure
   - [Agents & AI](#agents--ai) — Agents, Agent Tools, Chat Commands, Skills, Crons, Foundation, ForgeRouter
   - [Integrations](#integrations) — Knowledge Base
   - [Operations](#operations) — System Control, Hindsight, Auditor, Deploy Control, Servers, Database
@@ -68,27 +68,35 @@ Em **Messages**, o sidebar da tela (distinto do sidebar principal do ForgeHub) d
 
 O botão **Login** usa a credencial de desenvolvimento configurada no backend. A senha atravessa somente a chamada interna backend → host bridge e não é retornada à interface nem persistida pelo módulo; cookies/localStorage ficam no perfil operacional protegido `/root/.forgehub/browser/athos`.
 
-### Planning
+### Software Factory
 
-Arquitetura, classificação de projetos e operação detalhadas: [Planning e Delivery](PLANNING_DELIVERY_ARCHITECTURE.md). Protocolo para Codex, Claude CLI e Agy: [Agentes CLI](AGENT_CLI_DEVELOPMENT_PROTOCOL.md). No código atual, Agy ainda aparece pelo identificador legado `antigravity`.
+Renomeada de "Planning" para "Software Factory" em 2026-07-26 — é a seção única do ciclo de desenvolvimento, organizada pela granularidade real do domínio: **Product** é durável (Concepção e Mapa do Sistema ficam no nível de produto, herdados por todo Project); cada evolução do produto vira um **Project**, que percorre as cinco fases; a cadeia completa é **Product → Project → Planejamento (grupos) → Task**. Arquitetura, classificação de projetos e operação detalhadas: [Planning e Delivery](PLANNING_DELIVERY_ARCHITECTURE.md). Funções por agente, orquestração e canais multiagente: [Canais, Funções e Orquestração](../architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md). Protocolo para Codex, Claude CLI e Agy: [Agentes CLI](AGENT_CLI_DEVELOPMENT_PROTOCOL.md). No código atual, Agy ainda aparece pelo identificador legado `antigravity`.
+
 | Tela | Rota | Para que serve |
 |---|---|---|
-| Conception | `/conception` | Registra a ideia, mantém revisões conceituais e submete a revisão exata para aprovação governada. |
-| System Map | `/system-map` | Mantém o grafo versionado do sistema, seus elementos/relações e o hash usado na aprovação. |
-| Project Scope | `/project-scope` | Define o delta de elementos e critérios de aceite de cada Project. |
-| Products | `/product` | Cadastro de produtos e suas versões. |
-| Projects | `/projects` | Projetos ligados a uma versão de produto; cada um tem diretório de trabalho real no host. |
-| Pipelines | `/pipeline` | Estágios de pipeline por projeto, com artefatos obrigatórios e portões de aprovação. |
-| Templates | `/pipeline-templates` | Modelos reutilizáveis de pipeline. |
-| Planning | `/backlog` | Itens de planejamento (feature/bug/hotfix/melhoria/dívida técnica/refactor/segurança/pesquisa/documentação) — o ponto de entrada genérico pro planejamento de uma versão. |
-| Execution | `/tasks` | Tasks desdobradas de um item de planejamento (ou de uma change request), com execuções por agente. |
-| Artifacts | `/artifact` | Entregáveis versionados (docs, código gerado, etc.) — sempre com um arquivo real por trás. |
-| Governance | `/governance` | Approval Inbox governado, decisões, trilha de auditoria e delegação limitada do Athos. |
-| Policies | `/governance/policies` | Políticas de governança configuráveis. |
+| Multi-Project Cockpit | `/cockpit` | Visão geral em árvore Produto → Projeto: ponto de entrada para cadastrar produto/projeto e navegar até cada detalhe. Não é uma fase, é o hub das outras seis. |
+| Conception | `/conception` | Registra a ideia do Product, mantém revisões conceituais e submete a revisão exata para aprovação governada. |
+| Screens & Business Rules | `/screen-inspector` | Telas do sistema, seus elementos/relações e regras de negócio — sucessora do antigo "System Map" no nível de produto. |
+| Concept DB Diagram | `/concept-erd` | Diagrama ER derivado da modelagem de banco feita durante a Concepção. |
+| Project Center | `/projects` | Projetos ligados a uma versão de produto; cada um tem diretório de trabalho real no host. A partir do detalhe de um Project (`/projects/:id`) chega-se a Escopo, Pipeline/Estágios, Planejamento (`/backlog`), Tasks (`/tasks`) e Artefatos (`/artifact`) daquele projeto — essas telas continuam existindo (ver rotas em `App.tsx`) mas não têm mais entrada própria no sidebar nem no Ctrl+K desde a reorganização de 2026-07-26; chegue a elas navegando a partir do Project ou do Cockpit. |
+| Grupo de Trabalho (Canais) | `/workspace?view=channels` | Sala em tempo real onde você e os agentes conversam com contexto compartilhado — ver seção dedicada abaixo. Tecnicamente é a aba "Canais" do Workspace; o link do sidebar já abre direto nela. |
+| Governance | `/governance` | Approval Inbox governado, decisões, trilha de auditoria e delegação limitada do Athos (e de qualquer outro agente-orquestrador). Políticas (`/governance/policies`) e Delegações de Autoridade ficam dentro dessa tela. |
+| Version Closure | `/version-closure` | Fechamento de uma versão de produto: bloqueia se algum Project ainda tiver Task fora de `done/deployed/cancelled`, nunca força conclusão para desbloquear a si mesmo. |
+
+#### Grupo de Trabalho (Canais): como usar
+
+Um canal é uma sala persistente onde você (autenticado) e N agentes conversam com o mesmo histórico visível para todos — diferente do Workspace/Conversas (1 humano + 1 agente, sem contexto compartilhado). Cobre o mesmo papel que o board de tarefas de uma branch faz numa ferramenta como o Buzz: o canal é o ponto único onde se discute, propõe e acompanha o trabalho de um Project (ou de uma ideia sem projeto ainda).
+
+1. **Criar um canal**: clique em "+" ao lado de CHANNELS. Dê um nome; o Project é opcional (uma sala pode ser só uma ideia livre) e pode ser anexado depois, a qualquer momento, como se fosse um MCP — nunca trava o canal num "modo". Os membros (agentes) são sempre uma escolha explícita sua, nunca herdados automaticamente do time do projeto — mesmo quando um Project é anexado, o time dele só aparece como sugestão.
+2. **Função de cada especialista, já na criação**: ao marcar um agente como membro, aparece um resumo (a descrição cadastrada do agente) e um seletor de função — pré-preenchido com a função padrão do cadastro dele (`Agent.default_role`, editável na própria página do agente em "Função padrão"), mas você pode ajustar ali mesmo antes de criar a sala. Depois de criado, a função de cada membro continua editável a qualquer momento pelo seletor ao lado do nome no cabeçalho do canal.
+3. **Orquestrador (opcional)**: ainda na criação (ou depois, clicando no ícone de coroa ao lado de um agente no cabeçalho), você pode designar um agente como orquestrador operacional daquele canal — por exemplo, o Athos coordenando os demais e as funções deles no projeto. Essa marcação é só informativa: ela não concede autoridade nenhuma sozinha. Você continua sendo o chefe (etiqueta "Chefe" ao lado do seu nome) e a autoridade final de qualquer decisão é sempre sua.
+4. **Agentes propõem tarefas, mas ficam pendentes**: um agente-membro pode propor uma tarefa para si mesmo (dentro da própria função no canal) e ela já nasce liberada; propor uma tarefa **para outro agente** sempre cria uma Approval pendente de verdade, no mesmo mecanismo de Governance já usado no resto do sistema (Policy/Approval/trilha de auditoria) — nunca um campo booleano à parte. A tarefa fica visualmente bloqueada na aba Tasks do canal até alguém decidir.
+5. **Decidir a proposta**: por padrão, só você decide — pelo botão Aprovar/Rejeitar que aparece na própria tarefa pendente do canal, ou pela tela Governance como qualquer outra Approval. Para que o agente-orquestrador decida em seu lugar (ex.: Athos aprovando propostas do time sem precisar de você em cada uma), conceda a ele, em Governance → Delegações de Autoridade, a ação `channel.member.role.assign` (para ele poder ajustar a função dos colegas no canal) e/ou `governance.approval.decide` (para ele poder decidir as propostas de tarefa) — a mesma credencial de serviço e o mesmo mandato com prazo que o resto do sistema já usa para delegar ao Athos, não um mecanismo novo exclusivo de canais.
+6. **Rodar de verdade**: uma mensagem do canal vira uma execução real (dispara o CLI do agente) pelo mesmo caminho de despacho que qualquer Task do sistema usa — nunca um segundo executor. O resultado narra de volta no próprio canal como uma mensagem do sistema.
 
 ### Controle de conclusão e retomada
 
-Nos detalhes de **Pipeline**, o cartão **Project progress** informa macrofluxo, última confirmação e primeira ação segura. Cada Stage apresenta:
+Nos detalhes de **Pipeline** (`/pipeline/:id`, acessível a partir do detalhe de um Project em **Project Center**), o cartão **Project progress** informa macrofluxo, última confirmação e primeira ação segura. Cada Stage apresenta:
 
 - requisitos confirmados e pendentes;
 - último checkpoint, ator e horário;
@@ -159,7 +167,7 @@ Delegar `governance.approval.decide` não concede automaticamente `planning.deli
 
 ## Execution Release e CLIs governadas
 
-Na tela **Planning > Execution**:
+Na tela **Tasks** (`/tasks`, acessível a partir do detalhe de um Project em **Project Center**):
 
 1. selecione Project, baseline e Tasks já atribuídas a memberships ativas;
 2. crie a wave em `draft` e execute **Preflight**;
@@ -176,7 +184,7 @@ O dispatch direto antigo foi desativado. Reinício do bridge preserva estado seg
 
 `docs/screens/*.md` tem o detalhe técnico (rotas exatas com número de linha, hooks, endpoints, regras de negócio, estados de erro/loading) das telas já documentadas: `dashboard`, `workspace`, `products`, `projects`, `pipelines`, `backlog`, `tasks`, `artifacts`, `governance`, `agents`, `forgerouter`, `foundation`, `crons`, `knowledge_base`.
 
-**Ainda sem documentação técnica própria** (usar este manual + o código-fonte até serem escritos): Messages (demands), Docs, Notifications, Templates (pipeline-templates), Policies, Agent Tools, Chat Commands, Skills, System Control, Hindsight, Auditor, Deploy Control, Servers, Database, Users, Access Profiles.
+**Ainda sem documentação técnica própria** (usar este manual + o código-fonte até serem escritos): Messages (demands), Docs, Notifications, Templates (pipeline-templates), Policies, Grupo de Trabalho (channels), Agent Tools, Chat Commands, Skills, System Control, Hindsight, Auditor, Deploy Control, Servers, Database, Users, Access Profiles.
 
 ## Regras de negócio centrais
 

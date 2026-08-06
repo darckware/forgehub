@@ -31,6 +31,17 @@ SENSITIVE_ACTIONS = (
     "planning.execution.view", "planning.execution.manage",
     "planning.execution.release", "planning.execution.dispatch", "planning.execution.cancel",
     "governance.approval.decide", "governance.delegation.manage",
+    # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md
+    # -- lets a delegated agent-orchestrator (e.g. Athos) set/edit another
+    # channel member's function, same governed-authority mechanism as the
+    # governance.* actions above (grantable via AuthorityDelegation to an
+    # agent, or via ProfileActionPermission to a non-admin human).
+    "channel.member.role.assign",
+    # Distinct from role.assign above -- deciding who is in the room
+    # (add/remove) vs. adjusting an existing member's function are
+    # different trust boundaries (2026-08-05, Marcelo: "o orquestrador pode
+    # adicionar agentes que não foram colocados no canal").
+    "channel.member.manage",
 )
 
 

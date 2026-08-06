@@ -267,6 +267,22 @@ async def list_project_memberships(
     return list(result.scalars().all())
 
 
+@router.get(
+    "/agents/{agent_id}/memberships", response_model=list[ProjectAgentMembershipOut]
+)
+async def list_agent_memberships(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[ProjectAgentMembership]:
+    """The inverse of list_project_memberships -- which projects is this
+    agent actually on, and with what role (2026-08-05, Software Factory
+    visibility fix: the agent detail page had no view of this at all)."""
+    await _get_or_404(db, Agent, agent_id, "Agent")
+    result = await db.execute(
+        select(ProjectAgentMembership)
+        .where(ProjectAgentMembership.agent_id == agent_id, ProjectAgentMembership.status == "active")
+        .order_by(ProjectAgentMembership.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
 @router.patch("/memberships/{membership_id}", response_model=ProjectAgentMembershipOut)
 async def update_project_membership(
     membership_id: uuid.UUID,

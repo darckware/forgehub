@@ -13,6 +13,7 @@ import {
   Gauge,
   Gem,
   GitBranch,
+  Hash,
   Landmark,
   Layout,
   LayoutDashboard,
@@ -23,7 +24,6 @@ import {
   Mail,
   Newspaper,
   Plug,
-  Route,
   Server,
   Share2,
   ShieldCheck,
@@ -72,19 +72,24 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     labelKey: "nav.section.factory2",
     entries: [
+      // Cockpit first -- it's the overview/entry point across every phase
+      // below, not a phase itself. The rest follows the pipeline order:
+      // 1 Conception, 2 Screens/Business Rules, 2.1 Database Modeling,
+      // 3 Projects/Planning/Tasks, 4 Governance, 5 Version Closure.
+      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
       { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
-      { type: "link", to: "/concept-erd", labelKey: "nav.databaseDiagram", icon: Share2, module: "database" },
+      { type: "link", to: "/concept-erd", labelKey: "nav.conceptDatabaseDiagram", icon: Share2, module: "database" },
       { type: "link", to: "/projects", labelKey: "nav.projectCenter", icon: FolderKanban, module: "projects" },
+      // The channel/work-group hub (2026-08-05, Marcelo: "o objetivo é o
+      // grupo de trabalho trabalhar no sidebar Software Factory") --
+      // reuses Workspace's existing "Canais" view (ChannelPane) rather
+      // than a parallel screen; the ?view=channels query param is read on
+      // mount by pages/workspace/index.tsx to switch straight to it
+      // instead of leaving the operator to find the in-page toggle.
+      { type: "link", to: "/workspace?view=channels", labelKey: "nav.channels", icon: Hash, module: "projects" },
       { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance" },
-      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/version-closure", labelKey: "nav.versionClosure", icon: CheckCircle2, module: "product" },
-      // Deliberately NOT in "Agents & AI" next to /mcp: that page is
-      // per-agent MCP config, this one is scoped to systems (Project/
-      // Product) -- a catalog to assign MCP servers by, per-project MCP
-      // servers, and background app testing (see docs/plans -- "Central de
-      // MCPs por sistema").
-      { type: "link", to: "/systems-hub", labelKey: "nav.systemsHub", icon: Boxes, module: "agents" },
     ],
   },
   {
@@ -112,8 +117,8 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/prompt-commands", labelKey: "nav.chatCommands", icon: Command, module: "agents" },
       { type: "link", to: "/skills", labelKey: "nav.skills", icon: Sparkles, module: "agents" },
       { type: "link", to: "/crons", labelKey: "nav.crons", icon: Clock, module: "crons" },
+      { type: "link", to: "/systems-hub", labelKey: "nav.systemsHub", icon: Boxes, module: "agents" },
       { type: "link", to: "/foundation", labelKey: "nav.foundation", icon: Landmark, module: "foundation" },
-      { type: "link", to: "/forgerouter", labelKey: "nav.forgerouter", icon: Route, module: "forgerouter" },
     ],
   },
   {

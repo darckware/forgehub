@@ -178,6 +178,24 @@ async def test_project_team_runtime_profiles_and_bounded_loop(client, orchestrat
 
 
 @pytest.mark.asyncio
+async def test_list_agent_memberships_is_the_inverse_of_project_team(client, orchestration_context):
+    """See list_agent_memberships (2026-08-05, Software Factory visibility
+    fix) -- the agent detail page's "Projetos ativos" section reads this."""
+    ctx = orchestration_context
+    membership = await _create_membership(client, ctx["project"], ctx["producer"], "developer")
+
+    resp = await client.get(f"/api/v1/orchestration/agents/{ctx['producer']}/memberships")
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()
+    assert {r["id"] for r in rows} == {membership["id"]}
+    assert rows[0]["project_id"] == str(ctx["project"])
+
+    empty_resp = await client.get(f"/api/v1/orchestration/agents/{ctx['reviewer']}/memberships")
+    assert empty_resp.status_code == 200
+    assert empty_resp.json() == []
+
+
+@pytest.mark.asyncio
 async def test_assignment_execution_and_independent_review_are_traceable(
     client, orchestration_context
 ):

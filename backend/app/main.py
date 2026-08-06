@@ -26,6 +26,7 @@ from app.api.routes import (
     audit,
     auth,
     backlog,
+    channel,
     chat,
     cron_scripts,
     database,
@@ -108,6 +109,14 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             "/api/v1/governed/", "/api/v1/executions/", "/api/v1/execution-waves/",
             "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/",
             "/api/v1/workspace-browser/", "/api/v1/products",
+            # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md:
+            # /governance/ lets a delegated agent-orchestrator (e.g. Athos,
+            # once granted an AuthorityDelegation for
+            # "governance.approval.decide") decide an Approval with its own
+            # agt_ credential, same as a human would via JWT; /channels/
+            # lets an agent call POST /channels/{id}/tasks/propose with its
+            # own credential instead of only the shared bridge token.
+            "/api/v1/governance/", "/api/v1/channels/",
         )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
         if token and token.startswith("agt_") and agent_command_path:
             from sqlalchemy import select
@@ -120,6 +129,43 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
                     AgentServiceCredential.revoked_at.is_(None),
                 ))).scalar_one_or_none()
             if credential is not None:
+                return await call_next(request)
+        # Same shared-bridge-token trust boundary as /api/v1/demands/submit
+        # (see that route's own docstring) -- can't just add these paths to
+        # _PUBLIC_API_PATHS since that set only does exact string matches
+        # and these have dynamic {channel_id} segments. Two things a
+        # bridge-token caller (the forgehub-messages MCP's
+        # list_channel_members/propose_channel_task tools) may do: read
+        # anything under /channels/ (listing channels/members is harmless,
+        # same trust level as /demands/pending's read), or propose a task.
+        # Writes beyond proposing a task still need a real JWT or agt_
+        # credential -- this never opens the whole /channels/ prefix to
+        # unauthenticated writes.
+        is_channels_path = path == "/api/v1/channels" or path.startswith("/api/v1/channels/")
+        channels_bridge_path = is_channels_path and (
+            request.method == "GET" or path.endswith("/tasks/propose")
+        )
+        if channels_bridge_path:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
+        # Same trust boundary as channels_bridge_path above -- read-only,
+        # non-secret roster/skills data (2026-08-06, backs the
+        # forgehub-messages MCP's list_agent_skills tool: an
+        # orchestrator-agent checking a colleague's skills before proposing
+        # a task). Scoped narrowly to GET /agents (roster, for slug
+        # resolution) and any GET path ending in /skills under /agents/
+        # (covers both /agents/{id}/skills and the /agents/skills catalog)
+        # -- never the whole /agents/ prefix, so routes like GET
+        # /agents/{id} (decrypts the ForgeRouter key for admins) stay
+        # behind their own JWT-based dependency untouched by this bypass.
+        is_agents_path = path == "/api/v1/agents" or path.startswith("/api/v1/agents/")
+        agents_bridge_path = is_agents_path and request.method == "GET" and (
+            path == "/api/v1/agents" or path.endswith("/skills")
+        )
+        if agents_bridge_path:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
                 return await call_next(request)
         if not token or decode_access_token(token) is None:
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
@@ -174,6 +220,7 @@ app.include_router(foundation.router)
 app.include_router(foundation_docs.router)
 app.include_router(foundation_script.router)
 app.include_router(chat.router)
+app.include_router(channel.router)
 app.include_router(terminal.router)
 app.include_router(toolversions.router)
 app.include_router(systemstats.router)

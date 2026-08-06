@@ -8,6 +8,10 @@ export const FORGEROUTER_ROUTING_GROUPS = [
 export const PROJECT_AGENT_ROLES = [
   "coordinator", "planner", "architect", "designer", "developer",
   "data_engineer", "qa", "security_reviewer", "reviewer", "release_manager",
+  // 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md
+  // -- same shared vocabulary now also used by Agent.default_role and
+  // ChatChannelMember.role.
+  "documentation",
 ] as const;
 export const LOOP_PHASES = ["documentation", "planning", "implementation", "testing", "review"] as const;
 
@@ -139,6 +143,18 @@ export function useCreateProjectMembership(projectId: string) {
     mutationFn: (payload: Record<string, unknown>) =>
       apiClient.post<ProjectAgentMembership>(`${ROOT}/projects/${projectId}/memberships`, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["project-memberships", projectId] }),
+  });
+}
+
+/** Inverse of useProjectMemberships -- which projects is this agent
+ * actually on (2026-08-05, Software Factory visibility fix: backs the
+ * agent detail page's "Projetos ativos" section, which didn't exist
+ * before). */
+export function useAgentMemberships(agentId?: string) {
+  return useQuery({
+    queryKey: ["agent-memberships", agentId ?? ""],
+    queryFn: () => apiClient.get<ProjectAgentMembership[]>(`${ROOT}/agents/${agentId}/memberships`),
+    enabled: Boolean(agentId),
   });
 }
 

@@ -98,7 +98,14 @@
     "confirmRemoveSkillTitle": "Remover a habilidade \"{{name}}\"?",
     "confirmRemoveSkillDescription": "Remove a concessão deste agente. A habilidade continua no catálogo e pode ser concedida novamente depois.",
     "noSkills": "Nenhuma habilidade associada a este agente ainda.",
-    "backToList": "Voltar à lista"
+    "backToList": "Voltar à lista",
+    "activeProjectsTitle": "Projetos ativos",
+    "activeProjectsDescription": "Projetos onde este agente tem uma membership ativa (ProjectAgentMembership).",
+    "activeProjectsEmpty": "Este agente ainda não é membro de nenhum projeto.",
+    "openProjectChannel": "Abrir canal",
+    "defaultRoleTitle": "Função padrão",
+    "defaultRoleDescription": "Especialidade declarada deste agente -- um canal apenas sugere isso ao adicionar o agente como membro, nunca impõe.",
+    "defaultRoleNone": "Nenhuma definida"
   },
   "profileFiles": {
     "title": "Arquivos de perfil",

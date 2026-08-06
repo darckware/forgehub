@@ -14,6 +14,7 @@ import {
   Package,
   SquareTerminal,
   Upload,
+  Users,
   X,
 } from "lucide-react";
 import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
@@ -32,6 +33,7 @@ import { useServers, buildSshCommand } from "@/hooks/useServers";
 import { fetchOpenclawDashboardUrl } from "@/hooks/useTerminalBrowse";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
+import { ChannelPane } from "@/components/channel/ChannelPane";
 import { useAgents } from "@/hooks/useAgent";
 import { WebAppPane } from "@/components/WebAppPane";
 import { useAssistantContext } from "@/hooks/useAssistant";
@@ -48,6 +50,14 @@ const ACTIVE_TAB_STORAGE_KEY = "forgehub-workspace-active-tab";
 const APP_URL_STORAGE_KEY = "forgehub-workspace-app-url";
 const SELECTED_PRODUCT_STORAGE_KEY = "forgehub-workspace-selected-product";
 const DEFAULT_APP_URL = "http://localhost:5174";
+// Top-level Workspace mode: "conversas" is the existing tab system below,
+// completely unchanged; "canais" renders the new multi-agent ChatChannel
+// room instead. Deliberately NOT another WorkspaceTab kind -- ChatChannel
+// has its own participants/sidebar model (N agents + the human, shared
+// context), not a single agentId per tab, so folding it into the existing
+// tab persistence/reorder machinery would force an awkward shape onto both.
+const VIEW_MODE_STORAGE_KEY = "forgehub-workspace-view-mode";
+type WorkspaceViewMode = "conversas" | "canais";
 
 type WorkspaceTab =
   | {
@@ -250,6 +260,13 @@ export default function WorkspacePage() {
     [allAgents]
   );
 
+  const [viewMode, setViewMode] = useState<WorkspaceViewMode>(
+    () => (localStorage.getItem(VIEW_MODE_STORAGE_KEY) as WorkspaceViewMode | null) ?? "conversas"
+  );
+  useEffect(() => {
+    localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+  }, [viewMode]);
+
   const [tabs, setTabs] = useState<WorkspaceTab[]>(() => {
     try {
       const raw = localStorage.getItem(TABS_STORAGE_KEY);
@@ -405,6 +422,39 @@ export default function WorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
+  // Same handoff pattern as openSsh/openTerminal above -- "open this
+  // project's channel" from the Project detail page's "Equipe & Canal"
+  // section (ProjectAutomationCard). Switches to Canais mode and hands
+  // ChannelPane the project so it can preselect (or offer to create) that
+  // project's channel instead of landing on an unrelated one.
+  const openChannelHandledRef = useRef(false);
+  const [channelDefaultProjectId, setChannelDefaultProjectId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const openChannel = (location.state as { openChannel?: { projectId: string } } | null)?.openChannel;
+    if (!openChannel || openChannelHandledRef.current) return;
+    openChannelHandledRef.current = true;
+    setViewMode("canais");
+    setChannelDefaultProjectId(openChannel.projectId);
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
+  // Same handoff idea as openChannel above, but via a bookmarkable query
+  // param instead of router state -- backs the sidebar's "Grupo de
+  // Trabalho" entry (navSections.ts, Software Factory section, 2026-08-05)
+  // so a plain link can jump straight to Canais instead of only landing on
+  // whichever mode localStorage last remembered.
+  const viewModeQueryHandledRef = useRef(false);
+  useEffect(() => {
+    if (viewModeQueryHandledRef.current) return;
+    const requestedView = new URLSearchParams(location.search).get("view");
+    if (requestedView !== "channels") return;
+    viewModeQueryHandledRef.current = true;
+    setViewMode("canais");
+    navigate(location.pathname, { replace: true, state: location.state });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   function closeTab(id: string) {
     const tab = tabs.find((t) => t.id === id);
     const remaining = tabs.filter((t) => t.id !== id);
@@ -488,12 +538,47 @@ export default function WorkspacePage() {
     return activeChatTab?.agentId ?? chatableAgents[0]?.id ?? "";
   }
 
+  const modeToggle = (
+    <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+      <Button
+        variant={viewMode === "conversas" ? "secondary" : "ghost"}
+        size="sm"
+        className="h-7 gap-1.5"
+        onClick={() => setViewMode("conversas")}
+      >
+        <MessageSquare className="h-3.5 w-3.5" />
+        {t("viewMode.conversas")}
+      </Button>
+      <Button
+        variant={viewMode === "canais" ? "secondary" : "ghost"}
+        size="sm"
+        className="h-7 gap-1.5"
+        onClick={() => setViewMode("canais")}
+      >
+        <Users className="h-3.5 w-3.5" />
+        {t("viewMode.canais")}
+      </Button>
+    </div>
+  );
+
+  if (viewMode === "canais") {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col pl-4">
+        {modeToggle}
+        <ChannelPane agents={allAgents ?? []} defaultProjectId={channelDefaultProjectId} />
+      </div>
+    );
+  }
+
   if (chatableAgents.length === 0) {
     return (
-      <div className="flex h-[60vh] items-center justify-center text-center text-muted-foreground">
-        <div>
-          <Bot className="mx-auto mb-3 h-10 w-10" />
-          <p>{t("tabs.noAgentAvailable")}</p>
+      <div className="flex min-h-0 flex-1 flex-col pl-4">
+        {modeToggle}
+        <div className="flex h-[60vh] items-center justify-center text-center text-muted-foreground">
+          <div>
+            <Bot className="mx-auto mb-3 h-10 w-10" />
+            <p>{t("tabs.noAgentAvailable")}</p>
+          </div>
         </div>
       </div>
     );
@@ -501,6 +586,7 @@ export default function WorkspacePage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col pl-4">
+      {modeToggle}
       <div className="flex flex-col border-b border-border">
         {/* Toolbar: static actions on the left, working-dir/launchers on the right. */}
         <div className="flex items-center gap-1 px-2 py-1.5">

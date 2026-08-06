@@ -89,3 +89,10 @@ from app.db.models.execution import (  # noqa: F401
 from app.db.models.web_automation import StandaloneApp, WebAutomationRoutine, MacroInstructionSet  # noqa: F401
 from app.db.models.mcp_catalog import McpCatalogServer, McpCatalogAssignment  # noqa: F401
 from app.db.models.project_mcp import ProjectMcpServer  # noqa: F401
+from app.db.models.channel import (  # noqa: F401
+    ChatChannel,
+    ChatChannelMember,
+    ChatChannelMessage,
+    ChatChannelArtifact,
+    ChatChannelTask,
+)

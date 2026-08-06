@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
@@ -11,6 +11,7 @@ import {
   Pencil,
   ShieldAlert,
   KeyRound,
+  Tag,
   Trash2,
   Users,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { TokenField } from "@/components/ui/token-field";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -40,6 +42,8 @@ import {
   useSkills,
   useUpdateAgent,
 } from "@/hooks/useAgent";
+import { PROJECT_AGENT_ROLES, useAgentMemberships } from "@/hooks/useOrchestration";
+import { useProjects } from "@/hooks/useProject";
 import { AgentProfileFilesCard } from "./AgentProfileFilesCard";
 import { AgentAutomationCard } from "./AgentAutomationCard";
 import { AgentMcpServersCard } from "./AgentMcpServersCard";
@@ -62,6 +66,62 @@ const RISK_VARIANT: Record<
   high: "warning",
   critical: "destructive",
 };
+
+/** The inverse of ProjectAutomationCard's "Project team" section -- which
+ * projects is THIS agent actually on (2026-08-05, Software Factory
+ * visibility fix: this view didn't exist before, so coordinating an
+ * agent's workload across projects meant checking each project page one
+ * by one). Read-only: managing membership stays on the project page. */
+function AgentActiveProjectsCard({ agentId }: { agentId: string }) {
+  const { t } = useTranslation("agent");
+  const navigate = useNavigate();
+  const { data: memberships = [] } = useAgentMemberships(agentId);
+  const { data: projects = [] } = useProjects();
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-xl">
+          <Users className="h-5 w-5" />
+          {t("detail.activeProjectsTitle")}
+        </CardTitle>
+        <CardDescription>{t("detail.activeProjectsDescription")}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {memberships.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t("detail.activeProjectsEmpty")}</p>
+        ) : (
+          <ul className="space-y-2">
+            {memberships.map((m) => {
+              const project = projectById.get(m.project_id);
+              return (
+                <li
+                  key={m.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <Link to={`/projects/${m.project_id}`} className="truncate text-sm font-medium hover:underline">
+                      {project?.name ?? m.project_id}
+                    </Link>
+                    <p className="text-xs capitalize text-muted-foreground">{m.role}</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate("/workspace", { state: { openChannel: { projectId: m.project_id } } })}
+                  >
+                    {t("detail.openProjectChannel")}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function AgentDetailPage() {
   const { t } = useTranslation("agent");
@@ -338,6 +398,35 @@ export default function AgentDetailPage() {
             </CardContent>
           </Card>
 
+          {/* The agent's declared specialty (2026-08-05, see
+              docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) --
+              a channel only ever suggests this when adding the agent as a
+              member, never imposes it; always editable here directly. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Tag className="h-5 w-5" />
+                {t("detail.defaultRoleTitle")}
+              </CardTitle>
+              <CardDescription>{t("detail.defaultRoleDescription")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select
+                className="max-w-xs"
+                value={agent.default_role ?? ""}
+                onChange={(e) => updateAgent.mutate({ default_role: e.target.value || null })}
+                disabled={updateAgent.isPending}
+              >
+                <option value="">{t("detail.defaultRoleNone")}</option>
+                {PROJECT_AGENT_ROLES.map((role) => (
+                  <option key={role} value={role}>
+                    {role.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </Select>
+            </CardContent>
+          </Card>
+
           {/* Where the agent's profile files live. Registerable per agent
               because the runtime convention cannot cover everything: a
               runtime that moves its config dir, or a second agent sharing a
@@ -414,6 +503,8 @@ export default function AgentDetailPage() {
           <AgentMcpServersCard agent={agent} />
 
           <AgentAutomationCard agent={agent} />
+
+          <AgentActiveProjectsCard agentId={agent.id} />
 
           <Card>
             <CardHeader>

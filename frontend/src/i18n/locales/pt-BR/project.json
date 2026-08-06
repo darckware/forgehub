@@ -152,7 +152,8 @@
       "sizeColumn": "Tamanho",
       "deleteArchiveAria": "Excluir {{name}}",
       "noBackupArchives": "Ainda não há arquivos de backup."
-    }
+    },
+    "openChannel": "Abrir canal"
   },
   "form": {
     "nameLabel": "Nome",

@@ -137,6 +137,24 @@ async def get_current_user(
     return user
 
 
+async def get_current_username(token: str = Depends(oauth2_scheme)) -> str:
+    """Just the JWT subject, no `User` row lookup -- unlike get_current_user,
+    safe to use as a display-only "who did this" value (e.g.
+    ChatChannel.created_by) in routes that, like almost every other domain
+    router in this codebase (see main.py's RequireAuthMiddleware docstring:
+    "almost none of the domain routers were wired up with their own auth
+    dependency"), don't otherwise gate on a real Users-domain row."""
+    payload = decode_access_token(token)
+    username = payload.get("sub") if payload else None
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return username
+
+
 async def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
     if not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")

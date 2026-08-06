@@ -22,6 +22,7 @@ Rules and 5.7 Audit and Approval):
   delete is still offered for completeness/test cleanup.
 """
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -39,6 +40,7 @@ from app.api.schemas.governance import (
 )
 from app.db.base import get_db
 from app.db.models.governance import Approval, AuditEvent, Policy
+from app.db.models.notification import Notification
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 
 router = APIRouter(prefix="/api/v1/governance", tags=["governance"])
@@ -167,6 +169,49 @@ async def _decide_approval(
         )
     )
     await db.commit()
+
+    # Pacote 4 (2026-08-01): approving a project_task Approval releases it
+    # for automatic start via Messages -- the same dispatch path
+    # POST /tasks/{id}/dispatch already uses, not a second executor. The
+    # approval decision above is already committed and final; a dispatch
+    # failure here (unfinished dependency, no assignment, host-bridge down)
+    # must not undo it -- it degrades to a Notification for manual dispatch,
+    # same as the rest of the system treats dispatch as best-effort.
+    if new_status == "approved" and approval.entity_type == "project_task":
+        from app.api.routes.task import TaskInboxDispatchIn, _dispatch_task_by_id
+        try:
+            await _dispatch_task_by_id(approval.entity_id, TaskInboxDispatchIn(), db)
+        except HTTPException as exc:
+            db.add(Notification(
+                source="system", severity="warning",
+                title=f"Approval decided but task dispatch failed: {exc.detail}",
+                message=f"Task {approval.entity_id} was approved but could not be auto-dispatched. Dispatch it manually once resolved.",
+                event_key=f"approval-dispatch-failed:{approval.id}",
+                occurred_at=datetime.now(timezone.utc),
+            ))
+            await db.commit()
+
+    # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md:
+    # deciding a ChatChannelTask delegation Approval (see
+    # api/routes/channel.py's propose_channel_task) narrates the outcome
+    # back into the channel that raised it -- a "system" message, same
+    # spirit as demand.py's _finalize_dispatch narration hook. This is
+    # display only; the Approval row above stays the single source of
+    # truth for the decision itself, nothing here duplicates its state.
+    if approval.entity_type == "chat_channel_task":
+        from app.db.models.channel import ChatChannelMessage, ChatChannelTask
+        task = await db.get(ChatChannelTask, approval.entity_id)
+        if task is not None:
+            db.add(ChatChannelMessage(
+                channel_id=task.channel_id,
+                author_type="system",
+                content=(
+                    f"Proposta de tarefa \"{task.title}\" {new_status} por {principal.display_name}"
+                    + (f": {payload.comments}" if payload.comments else ".")
+                ),
+            ))
+            await db.commit()
+
     return approval
 
 

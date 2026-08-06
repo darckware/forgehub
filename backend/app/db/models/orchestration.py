@@ -40,6 +40,13 @@ PROJECT_AGENT_ROLES = (
     "security_reviewer",
     "reviewer",
     "release_manager",
+    # 2026-08-05: added for the channel/agent-function pass -- see
+    # docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md. This same
+    # tuple is now also imported (not duplicated) by db/models/agent.py
+    # (Agent.default_role) and db/models/channel.py (ChatChannelMember.role)
+    # so the ForgeHub-wide "what does this agent do" vocabulary never
+    # drifts into three versions.
+    "documentation",
 )
 LOOP_PHASES = ("documentation", "planning", "implementation", "testing", "review")
 REVIEW_STATUSES = ("pending", "running", "approved", "changes_requested", "rejected", "failed")

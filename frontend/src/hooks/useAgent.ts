@@ -172,6 +172,10 @@ export const agentSchema = z.object({
   // runtime convention (/root/.hermes/profiles/<slug>, /root/.claude, ...).
   home_path: z.string().nullable().optional(),
   effective_home_path: z.string().nullable().optional(),
+  // The agent's declared specialty at registration (2026-08-05, see
+  // docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) -- a
+  // channel only ever suggests this, never imposes it.
+  default_role: z.string().nullable().optional(),
   sub_agents: z.array(subAgentSchema).optional().default([]),
   agent_skills: z.array(agentSkillSchema).optional().default([]),
   cost_rates: z.array(agentCostRateSchema).optional().default([]),
@@ -191,6 +195,9 @@ export const agentInputSchema = z.object({
   clear_forgerouter_api_key: z.boolean().optional(),
   // Absolute host path; "" clears the override and restores the runtime default.
   home_path: z.string().max(1000).optional(),
+  // Declared specialty (2026-08-05, see
+  // docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md).
+  default_role: z.string().nullable().optional(),
 });
 
 export const agentUpdateSchema = agentInputSchema.partial();
@@ -672,6 +679,20 @@ export function useSkills() {
   return useQuery({
     queryKey: skillKeys.all,
     queryFn: () => apiClient.get<Skill[]>(`${RESOURCE}/skills`),
+  });
+}
+
+/** One agent's granted skills (AgentSkill rows, just skill_id -- join
+ * against useSkills()' catalog for name/version/risk). Separate from
+ * useAgent(id)'s embedded agent_skills because callers that only have the
+ * roster list (useAgents(), no agent_skills eager-loaded -- see
+ * AgentListItemOut's own docstring) still need a way to look this up
+ * on demand, e.g. the channel member detail popover (2026-08-06). */
+export function useAgentSkills(agentId: string | undefined) {
+  return useQuery({
+    queryKey: ["agent-skills", agentId ?? ""],
+    queryFn: () => apiClient.get<AgentSkill[]>(`${RESOURCE}/${agentId}/skills`),
+    enabled: Boolean(agentId),
   });
 }
 

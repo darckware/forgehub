@@ -67,6 +67,12 @@ class ProjectCockpitRow(BaseModel):
     planning_count: int = 0
     task_count: int = 0
 
+    # Count of active ProjectAgentMembership rows for this project, and the
+    # id of its (oldest) ChatChannel if one exists -- surfaced here
+    # (2026-08-05) so the Cockpit shows team/room state instead of it being
+    # invisible outside ProjectAutomationCard/the Workspace's Canais mode.
+    team_size: int = 0
+    channel_id: uuid.UUID | None = None
 
 class ProductVersionRow(BaseModel):
     version_id: uuid.UUID

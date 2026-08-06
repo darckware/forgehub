@@ -1059,6 +1059,32 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
     # forgehub").
     locked.dispatch_result = _format_execution_header(locked, agent.name if agent else "agent") + reply_body
 
+    # Channel narration (see db/models/channel.py's module docstring): a
+    # ChatChannel message can trigger a real dispatch via this exact
+    # pipeline (POST /channels/{id}/messages/{message_id}:dispatch-task,
+    # api/routes/channel.py) without ever becoming a second source of
+    # execution truth -- it only points at this AgentDemand via
+    # triggered_demand_id. When one exists for this demand, post the
+    # result back into that channel's transcript as a "system" message.
+    # Cross-domain read only (no write coupling back into demand.py's own
+    # state), same spirit as foundation.py's audit_checks lookup.
+    from app.db.models.channel import ChatChannelMessage
+    triggering_message = (
+        await db.execute(
+            select(ChatChannelMessage).where(ChatChannelMessage.triggered_demand_id == locked.id)
+        )
+    ).scalar_one_or_none()
+    if triggering_message is not None:
+        db.add(ChatChannelMessage(
+            channel_id=triggering_message.channel_id,
+            author_type="system",
+            content=(
+                f"Execução de #{locked.number} concluída ({locked.dispatch_status}) "
+                f"por {agent.name if agent else 'agent'}:\n\n{reply_body}"
+            ),
+            triggered_demand_id=locked.id,
+        ))
+
     if not locked.requires_response or locked.from_agent_id is None:
         return None
 

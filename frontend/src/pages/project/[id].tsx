@@ -13,6 +13,7 @@ import {
   ListTodo,
   Loader2,
   Lock,
+  Hash,
   Pencil,
   Plus,
   SquareTerminal,
@@ -460,8 +461,24 @@ export default function ProjectDetailPage() {
                 <Pencil className="mr-2 h-4 w-4" />
                 {t("shared.edit")}
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("/workspace", { state: { openChannel: { projectId: project.id } } })}
+              >
+                <Hash className="mr-2 h-4 w-4" />
+                {t("detail.openChannel")}
+              </Button>
             </div>
           </div>
+
+          {/* Equipe & Canal -- promoted from the bottom of this page
+              (2026-08-05, "Software Factory" visibility fix): the project
+              team (ProjectAgentMembership, managed below) used to be the
+              very last card on this page, with no entry point anywhere
+              else in the app. It stays the same form/data, just moved
+              next to the header where it's actually discoverable. */}
+          <ProjectAutomationCard projectId={project.id} />
 
           {showEditForm && (
             <Card>
@@ -991,8 +1008,6 @@ export default function ProjectDetailPage() {
               )}
             </CardContent>
           </Card>
-
-          <ProjectAutomationCard projectId={project.id} />
 
           <EntityDocsCard entityType="project" entityId={project.id} />
 

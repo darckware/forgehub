@@ -3,6 +3,29 @@
 @tailwind utilities;
 
 @layer base {
+  /* Native <select> popups don't inherit our CSS custom properties (the
+     browser renders the option list itself), so a select styled with
+     light/transparent text for the dark theme becomes near-invisible
+     against the browser's own light popup background. Two
+     belt-and-suspenders fixes, since `color-scheme` support/behavior for
+     the popup itself is inconsistent across engines:
+     1. `color-scheme` tells the browser which palette to render its own
+        chrome (scrollbars, select popups, ...) in.
+     2. Explicit background-color/color on <option> using the app's own
+        theme variables -- Chromium and Firefox both paint the native
+        popup list with these when set, regardless of color-scheme
+        support, so this is the one that actually guarantees contrast. */
+  select {
+    color-scheme: light;
+  }
+  .dark select {
+    color-scheme: dark;
+  }
+  select option {
+    color: hsl(var(--foreground));
+    background-color: hsl(var(--background));
+  }
+
   :root {
     --background: 0 0% 100%;
     --foreground: 222 47% 11%;

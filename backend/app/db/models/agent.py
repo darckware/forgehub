@@ -34,6 +34,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+# Shared function/role vocabulary (not duplicated) -- see
+# docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md. A plain tuple
+# import across domains, not a model import, so it doesn't create the
+# cross-domain ORM coupling the foundation convention warns against.
+from app.db.models.orchestration import PROJECT_AGENT_ROLES
 
 # ---------------------------------------------------------------------------
 # Allowed value sets (enforced at the application layer via CHECK
@@ -133,6 +138,15 @@ class Agent(Base, TimestampMixin):
     # like source_path -- the container mount translation happens at read time.
     home_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # The agent's declared specialty at registration (2026-08-05, see
+    # docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) --
+    # nullable, never invented for existing agents. A channel only ever
+    # *suggests* this when adding the agent as a member (ChatChannelMember.
+    # role); it's never imposed, matching the same "suggestion, never
+    # forced" philosophy already used for ProjectAgentMembership at channel
+    # creation.
+    default_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
     sub_agents: Mapped[list["SubAgent"]] = relationship(
         back_populates="agent", cascade="all, delete-orphan"
     )
@@ -158,6 +172,10 @@ class Agent(Base, TimestampMixin):
         CheckConstraint(
             f"runtime_type IS NULL OR runtime_type IN {AGENT_RUNTIME_TYPES}",
             name="ck_agents_runtime_type",
+        ),
+        CheckConstraint(
+            f"default_role IS NULL OR default_role IN {PROJECT_AGENT_ROLES}",
+            name="ck_agents_default_role",
         ),
         UniqueConstraint("profile_slug", name="uq_agents_profile_slug"),
     )

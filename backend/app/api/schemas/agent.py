@@ -16,6 +16,7 @@ from app.db.models.agent import (
     SKILL_ORIGINS,
     SKILL_RISK_LEVELS,
 )
+from app.db.models.orchestration import PROJECT_AGENT_ROLES
 
 
 def _validate_choice(value: str, choices: tuple[str, ...], field_name: str) -> str:
@@ -297,6 +298,16 @@ class AgentUpdate(BaseModel):
     # clears the override and falls back to the runtime convention (see
     # core/agent_profile_files.py); that is why it is not min_length=1.
     home_path: str | None = Field(default=None, max_length=1000)
+    # The agent's declared specialty (2026-08-05, see
+    # docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) -- a
+    # channel only ever suggests this when adding the agent as a member,
+    # never imposes it.
+    default_role: str | None = None
+
+    @field_validator("default_role")
+    @classmethod
+    def _check_default_role(cls, v: str | None) -> str | None:
+        return v if v is None else _validate_choice(v, PROJECT_AGENT_ROLES, "default_role")
 
     @field_validator("home_path")
     @classmethod
@@ -357,6 +368,7 @@ class AgentOut(AgentBase):
     # runtime convention otherwise. See core/agent_profile_files.py.
     home_path: str | None = None
     effective_home_path: str | None = None
+    default_role: str | None = None
 
 
 class AgentListItemOut(AgentOut):
