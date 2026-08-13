@@ -186,6 +186,8 @@ async def send_agent_message(
     requires_response: bool = False,
     scheduled_at: str | None = None,
     origin_task_number: int | None = None,
+    channel: str | None = None,
+    channel_ref: str | None = None,
 ) -> str:
     """Send a message through ForgeHub's Agent Message channel (the canonical
     agent-to-agent communication mechanism of the Hermes ecosystem).
@@ -213,6 +215,15 @@ async def send_agent_message(
             hephaestus, mnemosyne, scriba, daedalus, kairos, porthos, aramis,
             dartan, vector). Omit to file a plain note instead.
         from_agent: sender label; defaults to this runtime's own slug.
+        channel: **the medium the request reached you through**, when you are
+            passing on work someone else asked for: "telegram", "workspace",
+            "assistant", "factory" or "agent". Set it whenever a human asked
+            you for something somewhere and you are delegating it — without
+            it the result has no way back to them and dies in ForgeHub.
+        channel_ref: the concrete address to answer at within that medium --
+            for Telegram, the chat_id the request came from. Naming the
+            medium alone is not enough: "telegram" on its own only reaches
+            the configured home channel, never the conversation that asked.
         requires_response: create a real return message once the recipient
             finishes, instead of only recording the result on this message.
         scheduled_at: ISO-8601 datetime to defer dispatch (e.g.
@@ -244,6 +255,8 @@ async def send_agent_message(
             # branch for the no-to_agent case. Tipo is mandatory now (no
             # None/"demand" values left, see FORGEHUB_MESSAGE.md).
             "origin_type": "task",
+        "channel": channel,
+        "channel_ref": channel_ref,
         }
         if to_agent:
             payload["target_agent_slug"] = to_agent
