@@ -281,3 +281,36 @@ async def test_an_agent_without_a_telegram_bot_sends_no_profile(agent, monkeypat
         await session.commit()
 
     assert "profile" not in sent
+
+
+def test_asking_for_telegram_in_the_body_is_recognised():
+    """A request can ask for its answer on Telegram in plain words
+    (2026-08-13, Marcelo: "eu também posso solicitar um retorno também pelo
+    telegram no corpo da tarefa") -- the system reads that instead of relying
+    on the agent to interpret it."""
+    from app.core.feedback import wants_telegram_reply
+
+    for text in (
+        "Liste /root/ e me responda no telegram",
+        "Retorne pelo Telegram quando terminar",
+        "me avise pelo Telegram assim que rodar",
+        "Telegram: manda a resposta lá",
+    ):
+        assert wants_telegram_reply(text), text
+
+
+def test_merely_mentioning_telegram_does_not_hijack_the_reply():
+    """Deliberately narrow: a request *about* Telegram is not a request to be
+    answered *on* Telegram. Being missed is recoverable (the in-app
+    notification still happens); being wrong sends someone's output to a chat
+    that never asked for it."""
+    from app.core.feedback import wants_telegram_reply
+
+    for text in (
+        "Analise o código do bot do telegram",
+        "Corrija o envio de mensagens do gateway",
+        "Responda o mais rápido possível",
+        "",
+        None,
+    ):
+        assert not wants_telegram_reply(text), text

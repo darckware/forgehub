@@ -38,7 +38,7 @@ from app.core import conversions
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
 from app.core.demand_thread import build_thread_prompt
-from app.core.feedback import deliver_feedback
+from app.core.feedback import deliver_feedback, wants_telegram_reply
 from app.core.localtime import format_local
 from app.core.markdown_docs import resolve_doc_path
 from app.db.base import get_db
@@ -252,6 +252,25 @@ def _reconcile_task_origin(
     return origin_type, origin_id
 
 
+def _telegram_home_chat(agent: Agent | None) -> str | None:
+    """O chat que o perfil do agente já trata como "o meu" -- lido do seu
+    próprio .env (TELEGRAM_HOME_CHANNEL).
+
+    Usado só quando o pedido pede resposta no Telegram sem dizer em qual
+    conversa. É o mesmo valor que o gateway daquele agente já usaria para
+    entregar um cron, então não inventa destino: usa o que o perfil declara.
+    Devolve None quando o agente não tem perfil ou Telegram -- aí o feedback
+    fica só no app, que é o comportamento seguro."""
+    if agent is None or not agent.profile_slug:
+        return None
+    from app.core.agent_telegram import read_profile_home_chat
+
+    try:
+        return read_profile_home_chat(agent.home_path)
+    except Exception:  # perfil ausente/ilegível não pode derrubar um envio
+        return None
+
+
 async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) -> AgentDemand:
     """Every new inbox item also surfaces in the system Notifications bell
     (source="system", not "cron") -- so arriving mail doesn't go unnoticed
@@ -290,6 +309,24 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
     if payload.project_id is not None:
         await _get_project_or_404(db, payload.project_id)
 
+    # Meio de comunicação: o que o chamador informou, ou -- quando ninguém
+    # informou -- o que o próprio pedido pede em texto ("me responda no
+    # telegram"). Marcelo, 2026-08-13: "eu também posso solicitar um retorno
+    # também pelo telegram no corpo da tarefa".
+    #
+    # Só preenche quando `channel` veio vazio: um chamador que declarou o meio
+    # sabe mais do que uma frase no corpo, e sobrescrevê-lo mandaria a
+    # resposta para outro lugar que não o pedido.
+    channel = payload.channel
+    channel_ref = payload.channel_ref
+    if channel is None and wants_telegram_reply(f"{payload.subject}\n{payload.body}"):
+        channel = "telegram"
+        if channel_ref is None:
+            # Sem chat declarado, usa o home channel do agente destinatário --
+            # é a conversa que o próprio perfil já considera "a minha".
+            target = await db.get(Agent, target_agent_id) if target_agent_id else None
+            channel_ref = _telegram_home_chat(target)
+
     # The three incubation invariants, applied at the single choke point
     # every insert goes through: an owner, an explicit state, and a
     # deadline to decide. A task carries none of them (all NULL).
@@ -320,8 +357,8 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
         # Meio de comunicação: por onde o pedido entrou e, portanto, por onde
         # o resultado tem de voltar (2026-08-13). Sem isto o resultado fica
         # preso no Messages -- é o que o feedback lê para saber o destino.
-        channel=payload.channel,
-        channel_ref=payload.channel_ref,
+        channel=channel,
+        channel_ref=channel_ref,
         requires_response=payload.requires_response,
         scheduled_at=scheduled_at,
     )

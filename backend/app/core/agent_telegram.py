@@ -130,6 +130,26 @@ def read_profile_telegram_config(
     return installed, values.get(_CHANNEL_NAME_KEY) or None
 
 
+def read_profile_home_chat(home_path: str | None) -> str | None:
+    """The chat id an agent's own profile treats as "mine"
+    (TELEGRAM_HOME_CHANNEL), or None when it has none.
+
+    Distinct from read_profile_telegram_config above, which returns the
+    channel's *display name* for the status UI -- this returns the id you can
+    actually send to. Added 2026-08-13 for replies asked for in the body of a
+    request ("me responda no telegram") that don't name a conversation: rather
+    than inventing a destination, use the one that profile's own gateway
+    already delivers its crons to.
+
+    The token in the same file is never read here (see this module's header:
+    it is reduced to a boolean before leaving).
+    """
+    home_dir = resolve_home_dir(home_path)
+    if home_dir is None:
+        return None
+    return _read_env_values(home_dir / ".env").get(_CHANNEL_KEY) or None
+
+
 def parse_active_services(systemctl_stdout: str) -> set[str]:
     """Unit names reported as ActiveState=active by
     `systemctl show --property=Name,ActiveState`-style output.

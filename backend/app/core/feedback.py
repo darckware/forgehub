@@ -28,6 +28,7 @@ twice, and a NULL stamp on a terminal message is exactly the signal that
 feedback is still owed.
 """
 import logging
+import re
 from datetime import datetime, timezone
 
 import httpx
@@ -47,6 +48,30 @@ logger = logging.getLogger(__name__)
 # The bridge endpoint that forwards to Telegram/Discord/Slack (host-bridge's
 # /v1/messages/send -> send_message.py -> Hermes' send_message_tool).
 _BRIDGE_MESSAGES_URL = f"{settings.CHAT_BRIDGE_URL.rstrip('/')}/v1/messages/send"
+
+
+# Asking for the answer on Telegram, in plain words, inside the request body
+# (2026-08-13, Marcelo: "eu também posso solicitar um retorno também pelo
+# telegram no corpo da tarefa").
+#
+# Deliberately narrow and literal: it only fires on an explicit mention of
+# Telegram next to a word about answering. A looser rule -- "responda" alone,
+# say -- would hijack every request that merely uses the word and start
+# messaging a chat nobody asked to be messaged on. Being missed is recoverable
+# (the in-app notification still happens); being wrong sends someone else's
+# output to a chat.
+_TELEGRAM_REPLY_PATTERNS = (
+    re.compile(r"\b(respond[ae]|retorn[ae]|avis[ae]|notifiqu?e|mand[ae]|envi[ae])\b[^.\n]{0,40}\btelegram\b", re.I),
+    re.compile(r"\btelegram\b[^.\n]{0,40}\b(respost|retorno|notifica)", re.I),
+    re.compile(r"\bretorn[oa]\s+(?:pel[oa]|no|via)\s+telegram\b", re.I),
+)
+
+
+def wants_telegram_reply(text: str | None) -> bool:
+    """True when the request itself asks to be answered on Telegram."""
+    if not text:
+        return False
+    return any(p.search(text) for p in _TELEGRAM_REPLY_PATTERNS)
 
 
 def _outcome_line(demand: AgentDemand) -> str:
