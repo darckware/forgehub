@@ -1071,6 +1071,65 @@ def _assert_dispatchable(demand: AgentDemand) -> None:
         )
 
 
+async def run_incubation_maturation_pass(db: AsyncSession) -> int:
+    """Hands the receive-or-drop decision to each owner whose thought has
+    matured (2026-08-13). Returns how many were handed over.
+
+    This is invariant 3 actually happening: without it `matures_at` is only
+    a column, and an incubation still waits for its owner to remember to
+    look -- which is the failure the whole redesign exists to remove (#8971
+    sat parked four days; nothing noticed).
+
+    **How the decision is delivered:** `agent_processed_at` is cleared, which
+    puts the item back into `GET /demands/pending` -- the queue agents
+    already pull from their own cron loop (42 messages had been taken that
+    way before this). Deliberately *not* a new dispatch and *not* a new
+    message: dispatching would spawn a whole agent run just to ask a
+    question, and a new message would need its own owner and deadline,
+    making a second item to forget. Reusing the pull queue means the
+    decision reaches the agent through the path it already checks.
+
+    Idempotent by state, not by timestamp: only "incubating" rows are picked
+    up, and each becomes "decision_pending" in the same transaction, so a
+    second pass (or an overlapping one) can't hand the same thought over
+    twice. `matures_at` is left as the historical record of when it was due.
+    """
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(AgentDemand).where(
+            AgentDemand.origin_type == "incubation",
+            AgentDemand.incubation_state == "incubating",
+            AgentDemand.matures_at.isnot(None),
+            AgentDemand.matures_at <= now,
+        )
+    )
+    matured = list(result.scalars().all())
+    for demand in matured:
+        demand.incubation_state = "decision_pending"
+        # Back into the pull queue -- see this function's docstring.
+        demand.agent_processed_at = None
+        # Also surface it to the human, once per thought: event_key is
+        # id-scoped so a re-run can never duplicate the row.
+        db.add(
+            Notification(
+                source="system",
+                severity="warning",
+                title=f"Decision due: {demand.subject}",
+                message=(
+                    f"#{demand.number} has been incubating since "
+                    f"{demand.created_at:%Y-%m-%d} and is waiting on its owner to "
+                    f"receive or drop it."
+                ),
+                event_key=f"incubation-due:{demand.id}",
+                occurred_at=now,
+            )
+        )
+    if matured:
+        await db.commit()
+        logger.info("Incubation maturation: handed %d decision(s) to their owners", len(matured))
+    return len(matured)
+
+
 async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     """Polled by main.py's _scheduled_dispatch_poll_loop -- finds every item
     whose scheduled_at has come due and hasn't been dispatched yet (this

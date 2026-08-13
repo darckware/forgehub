@@ -181,7 +181,7 @@ def phase_payload(r: Runner):
             r.submit(origin_type="demand")[0])
     s, b = r.submit(subject="[val] B9 sem tipo")
     if r.check("B9 origin_type omitido", 201, s):
-        r.check_true("B9b default é backlog (campo obrigatório)", b.get("origin_type") == "backlog")
+        r.check_true("B9b default é incubation (campo obrigatório)", b.get("origin_type") == "incubation")
 
 
 def phase_refs(r: Runner, agents: dict[str, dict]):
@@ -198,9 +198,9 @@ def phase_refs(r: Runner, agents: dict[str, dict]):
             r.submit(origin_type="task", origin_number=99999999)[0])
     # Task sempre precisa de agente (2026-07-27) -- sem um, é rebaixada a
     # Backlog em vez de rejeitada (não perde o item, garante que não roda).
-    s, b = r.submit(subject="[val] C8 task sem agente vira backlog", origin_type="task")
+    s, b = r.submit(subject="[val] C8 task sem agente vira incubation", origin_type="task")
     if r.check("C8 origin_type=task sem agente", 201, s):
-        r.check_true("C8b rebaixa para backlog", b.get("origin_type") == "backlog")
+        r.check_true("C8b rebaixa para incubation", b.get("origin_type") == "incubation")
         r.check_true("C8c origin_id fica nulo", b.get("origin_id") is None)
     s, b = r.submit(subject="[val] C8d categoria sem vínculo, com agente",
                      origin_type="task", target_agent_slug="atlas",
@@ -214,7 +214,7 @@ def phase_refs(r: Runner, agents: dict[str, dict]):
     s, b = r.submit(subject="[val] C8g task com To mas sem From registrado",
                      origin_type="task", target_agent_slug="atlas")
     if r.check("C8g origin_type=task com To, sem From registrado", 201, s):
-        r.check_true("C8h rebaixa para backlog", b.get("origin_type") == "backlog")
+        r.check_true("C8h rebaixa para incubation", b.get("origin_type") == "incubation")
         r.check_true("C8i mantém o target_agent_id", b.get("target_agent_id") == agents["Atlas"]["id"])
 
     s, b = r.submit(subject="[val] C9 remetente por slug", from_agent="atlas")

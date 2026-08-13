@@ -259,6 +259,13 @@ SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS = 30
 
 _scheduled_dispatch_poll_task: asyncio.Task | None = None
 
+# How often matured incubations are handed to their owners. The deadline
+# being enforced is measured in days (INCUBATION_DEFAULT_MATURATION_DAYS),
+# so a 5-minute pass is already far finer than the thing it watches.
+INCUBATION_MATURATION_POLL_INTERVAL_SECONDS = 300
+
+_incubation_maturation_poll_task: asyncio.Task | None = None
+
 # How often in-flight dispatches are polled to completion. Same interval as
 # the scheduled-send loop above and for the same reason: this is what turns
 # a finished agent run into a reply item in the Inbox, so latency here is
@@ -311,6 +318,30 @@ async def _scheduled_dispatch_poll_loop() -> None:
         except Exception:
             logger.exception("Scheduled dispatch poll failed")
         await asyncio.sleep(SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS)
+
+
+async def _incubation_maturation_poll_loop() -> None:
+    """Hands matured incubations to their owners (2026-08-13).
+
+    Its own task rather than a branch inside the dispatch loop above, for
+    the same reason _dispatch_completion_poll_loop is separate: the two fail
+    independently. This one only touches ForgeHub's own database, so a
+    host-bridge outage that stalls dispatching must not also stop decisions
+    from being handed over.
+
+    Minutes, not seconds: the deadline it enforces is measured in days, so
+    polling faster would only add load without making anything more timely.
+    """
+    from app.api.routes.demand import run_incubation_maturation_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_incubation_maturation_pass(db)
+        except Exception:
+            logger.exception("Incubation maturation poll failed")
+        await asyncio.sleep(INCUBATION_MATURATION_POLL_INTERVAL_SECONDS)
 
 
 async def _dispatch_completion_poll_loop() -> None:
@@ -446,6 +477,21 @@ async def _stop_scheduled_dispatch_poll() -> None:
     _scheduled_dispatch_poll_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await _scheduled_dispatch_poll_task
+
+
+@app.on_event("startup")
+async def _start_incubation_maturation_poll() -> None:
+    global _incubation_maturation_poll_task
+    _incubation_maturation_poll_task = asyncio.create_task(_incubation_maturation_poll_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_incubation_maturation_poll() -> None:
+    if _incubation_maturation_poll_task is None:
+        return
+    _incubation_maturation_poll_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _incubation_maturation_poll_task
 
 
 @app.on_event("startup")
