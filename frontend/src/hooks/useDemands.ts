@@ -76,14 +76,14 @@ export const demandSchema = z.object({
   // one picks the project a *converted* entity lands in).
   project_id: z.string().nullable(),
   command_text: z.string().nullable(),
-  // Mandatory (2026-07-28) -- always "task" or "backlog", never null.
+  // Mandatory (2026-07-28) -- always "task" or "incubation", never null.
   // "demand" was retired: an auto-generated return message is now Tipo=task
   // too (see reply_to_id below).
-  origin_type: z.enum(["task", "backlog"]),
+  origin_type: z.enum(["task", "incubation"]),
   // ProjectTask.id when origin_type="task" and this message tracks/dispatches
   // that task -- real, resolved row. The compose form resolves this id to a
   // display number itself. Always null
-  // for "backlog", which is a classification, not a link.
+  // for "incubation", which is a classification, not a link.
   origin_id: z.string().nullable(),
   // Stamped automatically by the backend once the linked task's execution
   // is marked "completed" (exact match on origin_id, see
@@ -256,12 +256,12 @@ function useInvalidateDemands() {
 }
 
 export interface DemandOriginInput {
-  /** "Tipo" da mensagem -- mandatory, always "task" or "backlog" (2026-07-28).
+  /** "Tipo" da mensagem -- mandatory, always "task" or "incubation" (2026-07-28).
    * "task" resolves a real vínculo from a display number (never a UUID)
-   * against ProjectTask.number. "backlog" é classificação, não vínculo:
+   * against ProjectTask.number. "incubation" é classificação, não vínculo:
    * marca trabalho estacionado, nunca carrega número e nunca dispara.
    * `originNumber` só faz sentido junto com "task". */
-  originType?: "task" | "backlog";
+  originType?: "task" | "incubation";
   originNumber?: number;
 }
 

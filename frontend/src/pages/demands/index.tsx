@@ -106,12 +106,12 @@ function isOutboxItem(d: Demand): boolean {
  * 2026-07-25 filtrando `dispatch_status === "pending"`, valor que o backend
  * **nunca grava** (ele só produz dispatched/running/completed/failed), o que
  * o deixava estruturalmente vazio. A causa de raiz, porém, era não existir
- * um Tipo "backlog": o grupo tinha sido criado sem o valor correspondente e
+ * um Tipo "incubation": o grupo tinha sido criado sem o valor correspondente e
  * por isso precisou se definir por estado de despacho em vez de pelo que o
  * item é. Com o Tipo criado (2026-07-26), ele passa a filtrar pelo próprio
  * Tipo, que é o que o nome do grupo sempre prometeu. */
-function isBacklogItem(d: Demand): boolean {
-  return d.status !== "archived" && d.origin_type === "backlog";
+function isIncubationItem(d: Demand): boolean {
+  return d.status !== "archived" && d.origin_type === "incubation";
 }
 
 /** Finalizado: o despacho terminou e produziu resposta (2026-07-26). Fecha o
@@ -140,9 +140,9 @@ function isCompletedItem(d: Demand): boolean {
  *   folder). Tipo=Nota used to file straight in here, and went away with
  *   the type itself (2026-07-26); the group was labelled "Anotações"
  *   because of it, and is now honestly named "Arquivadas".
- * - "backlog" / "running" / "failed": flat groups (SimpleDemandGroup, not
+ * - "incubation" / "running" / "failed": flat groups (SimpleDemandGroup, not
  *   AgentDirectionTree -- no per-agent breakdown) added 2026-07-25.
- *   "backlog" = Tipo=Backlog (see isBacklogItem), the one keyed off what
+ *   "incubation" = Tipo=Backlog (see isIncubationItem), the one keyed off what
  *   the item *is* rather than off its dispatch state -- backlog work
  *   hasn't been dispatched because it isn't a task yet, not because it's
  *   queued. The other three are lifecycle, mirroring dispatch_status:
@@ -158,7 +158,7 @@ type SelectedFolder =
   | { kind: "inbox"; agentId: string | null }
   | { kind: "outbox"; agentId: string | null }
   | { kind: "archived"; groupId: string | null; agentId?: string | null }
-  | { kind: "backlog" }
+  | { kind: "incubation" }
   | { kind: "running" }
   | { kind: "failed" }
   | { kind: "completed"; agentId: string | null };
@@ -169,7 +169,7 @@ type SelectedFolder =
  * groups (the sidebar's per-group cleanup icon). */
 type CleanupTarget =
   | { kind: "age"; days: number | null }
-  | { kind: "group"; scope: "inbox" | "outbox" | "backlog" | "running" | "failed" | "completed" | "notes" };
+  | { kind: "group"; scope: "inbox" | "outbox" | "incubation" | "running" | "failed" | "completed" | "notes" };
 
 /** What the group archive icon (2026-07-27) is about to file under
  * Arquivadas -- only offered on groups where "I'm done looking at this" is
@@ -190,7 +190,7 @@ function cleanupTargetIds(target: CleanupTarget, demands: Demand[]): string[] {
   }
   if (target.scope === "inbox") return demands.filter((d) => d.status !== "archived").map((d) => d.id);
   if (target.scope === "outbox") return demands.filter((d) => d.status !== "archived" && isOutboxItem(d)).map((d) => d.id);
-  if (target.scope === "backlog") return demands.filter(isBacklogItem).map((d) => d.id);
+  if (target.scope === "incubation") return demands.filter(isIncubationItem).map((d) => d.id);
   if (target.scope === "running")
     return demands
       .filter((d) => d.status !== "archived" && (d.dispatch_status === "dispatched" || d.dispatch_status === "running"))
@@ -274,10 +274,10 @@ function SendToOutgoingForm({ demand, onDone }: { demand: Demand; onDone: () => 
    *  would have nowhere to route back to. The backend refuses it (400) --
    *  saying so here means the operator learns it before clicking, and learns
    *  what to do about it. */
-  const blockedBacklog = demand.origin_type === "backlog" && !demand.from_agent_id;
+  const blockedIncubation = demand.origin_type === "incubation" && !demand.from_agent_id;
 
   function handleSend() {
-    if (!targetAgentId || blockedBacklog) return;
+    if (!targetAgentId || blockedIncubation) return;
     dispatchDemand.mutate(
       { id: demand.id, payload: { targetAgentId, commandText: instructions.trim() || undefined } },
       { onSuccess: onDone }
@@ -286,7 +286,7 @@ function SendToOutgoingForm({ demand, onDone }: { demand: Demand; onDone: () => 
 
   return (
     <div className="mt-3 space-y-2 rounded-md border border-border bg-muted/20 p-3">
-      {blockedBacklog && (
+      {blockedIncubation && (
         <p className="flex items-start gap-1.5 text-xs text-amber-500">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {t("sendToOutgoing.backlogNeedsSender")}
@@ -296,7 +296,7 @@ function SendToOutgoingForm({ demand, onDone }: { demand: Demand; onDone: () => 
         <Select
           value={targetAgentId}
           className="h-8 w-56 text-xs"
-          disabled={agentsLoading || blockedBacklog}
+          disabled={agentsLoading || blockedIncubation}
           onChange={(e) => setTargetAgentId(e.target.value)}
         >
           <option value="">{agentsLoading ? t("sendToOutgoing.loading") : t("sendToOutgoing.selectAgent")}</option>
@@ -308,7 +308,7 @@ function SendToOutgoingForm({ demand, onDone }: { demand: Demand; onDone: () => 
         </Select>
         <Button
           size="sm"
-          disabled={!targetAgentId || blockedBacklog || dispatchDemand.isPending}
+          disabled={!targetAgentId || blockedIncubation || dispatchDemand.isPending}
           onClick={handleSend}
         >
           {dispatchDemand.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("sendToOutgoing.submit")}
@@ -409,7 +409,7 @@ function ReadingPane({
               operador definir De na edição. O horário de disparo o backend
               agenda sozinho (auto-schedule em update_demand); o formulário
               continua aberto em seguida para revisar antes de rodar. */}
-          {demand.origin_type === "backlog" && (
+          {demand.origin_type === "incubation" && (
             <Button
               size="sm"
               variant="outline"
@@ -593,14 +593,14 @@ export default function DemandsPage() {
   // Tipo é obrigatório e só tem dois valores desde 2026-07-28 (nunca
   // null/"demand") -- "Todos os tipos" continua existindo como o estado
   // sem filtro, não como um terceiro Tipo.
-  const [typeFilter, setTypeFilter] = useState<"all" | "task" | "backlog">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "task" | "incubation">("all");
   // Which top-level sidebar groups are expanded -- lifted out of each
   // group component (2026-07-25) so the toolbar's expand/collapse-all
   // toggle can drive all six at once; missing key = collapsed (matches
   // the previous per-component default). Only top-level rows -- nested
   // Notes subfolders keep their own independent local state.
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  const GROUP_KEYS = ["inbox", "outbox", "backlog", "running", "failed", "completed", "notes"] as const;
+  const GROUP_KEYS = ["inbox", "outbox", "incubation", "running", "failed", "completed", "notes"] as const;
   const allGroupsExpanded = GROUP_KEYS.every((key) => expandedGroups[key]);
   function toggleGroup(key: string) {
     setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -709,7 +709,7 @@ export default function DemandsPage() {
         return all.filter((d) => d.status !== "archived" && isOutboxItem(d) && !d.from_agent_id);
       return all.filter((d) => d.status !== "archived" && isOutboxItem(d) && d.from_agent_id === folder.agentId);
     }
-    if (folder.kind === "backlog") return all.filter(isBacklogItem);
+    if (folder.kind === "incubation") return all.filter(isIncubationItem);
     if (folder.kind === "running")
       return all.filter((d) => d.status !== "archived" && (d.dispatch_status === "dispatched" || d.dispatch_status === "running"));
     if (folder.kind === "failed") return all.filter((d) => d.status !== "archived" && d.dispatch_status === "failed");
@@ -785,7 +785,7 @@ export default function DemandsPage() {
     () => visible.filter((d) => d.status !== "archived" && isOutboxItem(d)).length,
     [visible]
   );
-  const backlogCount = useMemo(() => visible.filter(isBacklogItem).length, [visible]);
+  const incubationCount = useMemo(() => visible.filter(isIncubationItem).length, [visible]);
   const runningCount = useMemo(
     () =>
       visible.filter(
@@ -900,7 +900,7 @@ export default function DemandsPage() {
       ? 'Nothing here yet. Agents submit via /demands/submit, or click "New message".'
       : folder.kind === "archived"
       ? "No archived messages here yet. Drag a message from Incoming into this folder."
-      : folder.kind === "backlog"
+      : folder.kind === "incubation"
       ? t("emptyBacklogMessage")
       : folder.kind === "running"
       ? t("emptyRunningMessage")
@@ -940,7 +940,7 @@ export default function DemandsPage() {
                       ? t("incomingFolder")
                       : cleanupConfirm.scope === "outbox"
                         ? t("outgoingFolder")
-                        : cleanupConfirm.scope === "backlog"
+                        : cleanupConfirm.scope === "incubation"
                           ? t("backlogFolder")
                           : cleanupConfirm.scope === "running"
                             ? t("runningFolder")
@@ -1027,7 +1027,7 @@ export default function DemandsPage() {
           >
             <option value="all">{t("filter.typeAll")}</option>
             <option value="task">{t("filter.typeTask")}</option>
-            <option value="backlog">{t("filter.typeBacklog")}</option>
+            <option value="incubation">{t("filter.typeBacklog")}</option>
           </Select>
           <Tabs
             value={activeTab}
@@ -1185,12 +1185,12 @@ export default function DemandsPage() {
             <SimpleDemandGroup
               icon={Clock}
               label={t("backlogFolder")}
-              count={backlogCount}
-              active={folder.kind === "backlog"}
+              count={incubationCount}
+              active={folder.kind === "incubation"}
               expanded={Boolean(expandedGroups.backlog)}
-              onToggleExpanded={() => toggleGroup("backlog")}
-              onSelect={() => selectFolder({ kind: "backlog" })}
-              onCleanup={() => setCleanupConfirm({ kind: "group", scope: "backlog" })}
+              onToggleExpanded={() => toggleGroup("incubation")}
+              onSelect={() => selectFolder({ kind: "incubation" })}
+              onCleanup={() => setCleanupConfirm({ kind: "group", scope: "incubation" })}
               messages={filtered}
               renderMessage={renderMessage}
               emptyMessage={emptyMessage}

@@ -6,10 +6,10 @@
   "archivedFolder": "Archived",
   "expandAllGroups": "Expand all groups",
   "collapseAllGroups": "Collapse all groups",
-  "backlogFolder": "Backlog",
+  "backlogFolder": "Incubation",
   "runningFolder": "Running",
   "failedFolder": "Failed",
-  "emptyBacklogMessage": "Nothing queued for dispatch right now.",
+  "emptyBacklogMessage": "No thoughts incubating right now.",
   "emptyRunningMessage": "Nothing dispatched/running right now.",
   "emptyFailedMessage": "No dispatch has failed so far.",
   "newNoteButton": "New message",
@@ -52,7 +52,7 @@
     "requiresResponseNo": "No",
     "agentRequiredForTask": "Pick a target agent when linking to a Task",
     "agentRequiredForSchedule": "Pick a target agent to schedule a send",
-    "typeBacklog": "Backlog",
+    "typeBacklog": "Incubation",
     "status": "Status",
     "statusDispatched": "Processed",
     "statusRunning": "Running",
@@ -81,7 +81,7 @@
     "selectAgent": "Select agent...",
     "instructionsPlaceholder": "Instructions for the agent (sent together with this message's content)",
     "submit": "Send",
-    "backlogNeedsSender": "A Backlog item needs a sender (From) before it can be dispatched — set From to an agent, or promote it to Task."
+    "backlogNeedsSender": "An incubating thought needs a sender (From) before it can be dispatched — set From to an agent, or promote it to Task."
   },
   "cleanup": {
     "keep30": "Keep last 30 days",
@@ -163,7 +163,7 @@
     "typeTask": "Task",
     "searchPlaceholder": "Search by #number, subject, body or sender",
     "clearSearch": "Clear search",
-    "typeBacklog": "Backlog"
+    "typeBacklog": "Incubation"
   },
   "promoteToTask": "Promote to Task",
   "completedFolder": "Completed",

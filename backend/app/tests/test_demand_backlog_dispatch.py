@@ -53,15 +53,22 @@ async def scenario():
         await session.flush()
 
         due = datetime.now(timezone.utc) - timedelta(minutes=1)
+        # Both carry the three incubation invariants (owner/state/matures_at)
+        # -- they are DB CheckConstraints since 2026-08-13, so an incubation
+        # row without them can't be inserted at all. The owner here is the
+        # target agent, matching _resolve_incubation_owner's cascade.
+        matures = datetime.now(timezone.utc) + timedelta(days=3)
         orphan = AgentDemand(
             from_agent="marcelo",  # free text, resolves to no agent
             subject=f"backlog sem from {suffix}", body="parked",
-            origin_type="backlog", target_agent_id=target.id, scheduled_at=due,
+            origin_type="incubation", target_agent_id=target.id, scheduled_at=due,
+            incubation_owner_id=target.id, incubation_state="incubating", matures_at=matures,
         )
         owned = AgentDemand(
             from_agent=sender.profile_slug,
             subject=f"backlog com from {suffix}", body="parked but owned",
-            origin_type="backlog", from_agent_id=sender.id, target_agent_id=target.id,
+            origin_type="incubation", from_agent_id=sender.id, target_agent_id=target.id,
+            incubation_owner_id=target.id, incubation_state="incubating", matures_at=matures,
         )
         session.add_all([orphan, owned])
         await session.commit()

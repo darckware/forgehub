@@ -6,10 +6,10 @@
   "archivedFolder": "Arquivadas",
   "expandAllGroups": "Expandir todos os grupos",
   "collapseAllGroups": "Recolher todos os grupos",
-  "backlogFolder": "Backlog",
+  "backlogFolder": "Incubação",
   "runningFolder": "Em execução",
   "failedFolder": "Falhas",
-  "emptyBacklogMessage": "Nada na fila de disparo no momento.",
+  "emptyBacklogMessage": "Nenhum pensamento em incubação no momento.",
   "emptyRunningMessage": "Nenhum disparo em execução no momento.",
   "emptyFailedMessage": "Nenhum disparo falhou até agora.",
   "newNoteButton": "Nova mensagem",
@@ -52,7 +52,7 @@
     "requiresResponseNo": "Não",
     "agentRequiredForTask": "Escolha um agente de destino ao vincular a uma Task",
     "agentRequiredForSchedule": "Escolha um agente de destino para agendar o envio",
-    "typeBacklog": "Backlog",
+    "typeBacklog": "Incubação",
     "status": "Status",
     "statusDispatched": "Processado",
     "statusRunning": "Em execução",
@@ -81,7 +81,7 @@
     "selectAgent": "Selecionar agente...",
     "instructionsPlaceholder": "Instruções para o agente (enviadas junto com o conteúdo desta mensagem)",
     "submit": "Enviar",
-    "backlogNeedsSender": "Um item de Backlog precisa de um remetente (De) para ser despachado — defina De como um agente, ou promova a Task."
+    "backlogNeedsSender": "Um pensamento em incubação precisa de um remetente (De) para ser despachado — defina De como um agente, ou promova a Task."
   },
   "cleanup": {
     "keep30": "Manter últimos 30 dias",
@@ -163,7 +163,7 @@
     "typeTask": "Task",
     "searchPlaceholder": "Buscar por #número, assunto, corpo ou remetente",
     "clearSearch": "Limpar busca",
-    "typeBacklog": "Backlog"
+    "typeBacklog": "Incubação"
   },
   "promoteToTask": "Promover a Task",
   "completedFolder": "Finalizado",

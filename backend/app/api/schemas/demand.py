@@ -39,8 +39,8 @@ class DemandSubmitIn(BaseModel):
     # Lets the compose panel pick a real registered Agent as the sender
     # ("From (agent)") instead of leaving from_agent_id null (the case for
     # every other human-composed item, only ever set server-side on an
-    # auto-generated reply -- see get_dispatch_status). Validated same as
-    # target_agent_id. Needed for the requires_response relay: see
+    # auto-generated reply -- see get_dispatch_status's reply-creation docstring).
+    # Validated same as target_agent_id. Needed for the requires_response relay: see
     # get_dispatch_status's reply-creation docstring. When omitted, the
     # route layer still tries an automatic match: from_agent against
     # Agent.profile_slug (best-effort, no error on a miss -- covers
@@ -51,6 +51,11 @@ class DemandSubmitIn(BaseModel):
     # Which project this message is about -- see AgentDemand.project_id's
     # docstring for how this differs from ConvertIn.project_id below.
     project_id: uuid.UUID | None = None
+    # Working directory path for agent execution -- when dispatching to
+    # external agents (claude, codex, agy, openclaw), this specifies the
+    # cwd where the agent should run. If not provided, falls back to
+    # AGENT_RUNTIME_PATHS or /root.
+    working_path: str | None = None
     # Links this new item to an existing Task or Demand as its origin,
     # resolved from a human-typed number rather than a UUID (§4.1 of the
     # dispatch proposal): "task" -> ProjectTask.number,
@@ -106,6 +111,10 @@ class DemandUpdateIn(BaseModel):
     # docstring for what this feeds (the requires_response relay).
     from_agent_id: uuid.UUID | None = None
     project_id: uuid.UUID | None = None
+    # Working directory path for agent execution -- when dispatching to
+    # external agents (claude, codex, agy, openclaw), this specifies the
+    # cwd where the agent should run.
+    working_path: str | None = None
     # Full edit support ("Alterar" button) -- subject/body plus re-pointing
     # the origin, same resolution as DemandSubmitIn.origin_number above.
     subject: str | None = Field(default=None, min_length=1, max_length=255)
@@ -184,10 +193,24 @@ class DemandOut(BaseModel):
     from_agent_id: uuid.UUID | None
     project_id: uuid.UUID | None
     command_text: str | None
+    # cwd the recipient agent's run starts in; None means fall back to the
+    # runtime default (see AgentDemand.working_path's docstring).
+    working_path: str | None = None
     origin_type: str
     # ProjectTask.id for origin_type="task" -- see AgentDemand.origin_id's
-    # docstring. Always None for origin_type="backlog".
+    # docstring. Always None for origin_type="incubation".
     origin_id: uuid.UUID | None
+    # --- Incubation (2026-08-13) ---
+    # All four are server-owned: set together when an item is created as (or
+    # edited into) an incubation, and all None for a task. Read-only here --
+    # DemandSubmitIn/DemandUpdateIn deliberately don't accept them, since the
+    # three invariants they encode (an owner, an explicit state, a deadline
+    # to decide) are resolved at the route layer and enforced by DB
+    # constraints. See AgentDemand's own docstrings.
+    incubation_owner_id: uuid.UUID | None = None
+    incubation_state: str | None = None
+    matures_at: datetime | None = None
+    drop_reason: str | None = None
     # When this message actually finished running -- stamped server-side by
     # get_dispatch_status (the recipient agent's run reached a terminal
     # state) or by task.py (a linked ProjectTask completed). See

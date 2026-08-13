@@ -6,9 +6,9 @@ Knowledge Base note (see app/core/conversions.py). Notes/annotations
 api/routes/docs.py's /convert, without needing a demand row.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Identity, Integer, String, Text, false
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Identity, Integer, String, Text, event, false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,20 +27,50 @@ DEMAND_DISPATCH_STATUSES = ("pending", "dispatched", "running", "completed", "fa
 # old third value, "demand" (an auto-generated reply, threaded via origin_id
 # to the message it answered) -- there is no more reply message at all; see
 # dispatch_result below for what replaced it.
-#   "task"    -> a polymorphic origin_id, same convention as governance.py
-#                (entity_type, entity_id), no real FK: origin_id is a
-#                ProjectTask.id (this message dispatches/tracks that task).
-#   "backlog" -> a *classification*, not a link. Marks parked work --
-#                addressed or not, not ready to run, never dispatches.
-#                Never carries origin_id. Promoted to "task" when someone
-#                decides to run it (the reading pane's "Promover a Task").
-# Never NULL -- every writer defaults to "backlog" when nothing else applies
-# (see demand.py's _reconcile_task_origin).
-DEMAND_ORIGIN_TYPES = ("task", "backlog")
+#   "task"       -> a polymorphic origin_id, same convention as governance.py
+#                   (entity_type, entity_id), no real FK: origin_id is a
+#                   ProjectTask.id (this message dispatches/tracks that task).
+#   "incubation" -> a *classification*, not a link. A thought parked to
+#                   mature until its owning agent decides to take it on or
+#                   drop it. Never carries origin_id, never dispatches on
+#                   its own.
+# Never NULL -- every writer defaults to "incubation" when nothing else
+# applies (see demand.py's _reconcile_task_origin).
+#
+# Renamed from "backlog" on 2026-08-13 (Marcelo: "Backlog de tarefas de
+# projeto é planejamento futuro e backlog de messages é outro conceito").
+# The product already spends the word "backlog" on version planning -- the
+# `backlog` domain's PlanningItem/FeatureRequest/BugReport -- and one word
+# for two unrelated concepts is guaranteed future confusion: it invites
+# sprint/estimate semantics onto a space that is about maturing a thought.
+# "incubation" names the *state* (maturing toward a decision) rather than
+# the content, and had zero occurrences anywhere in the codebase, unlike
+# every other candidate: `triage` is taken by this very planning domain
+# (triage_decisions), `draft` by the compose draft, `nota` by a Tipo value
+# retired on 2026-07-26.
+DEMAND_ORIGIN_TYPES = ("task", "incubation")
 
 # The only type that resolves a real origin_id (see demand.py's
-# _resolve_origin) -- "backlog" is a classification, never a link.
+# _resolve_origin) -- "incubation" is a classification, never a link.
 DEMAND_LINKED_ORIGIN_TYPES = ("task",)
+
+# Lifecycle of an incubated thought (2026-08-13). Only ever set while
+# origin_type="incubation"; NULL for a task. The two terminal values are
+# both explicit on purpose -- "disappeared from view" is not an outcome:
+#   "incubating"       -> maturing; matures_at has not been reached yet.
+#   "decision_pending" -> matures_at reached and the decision was handed to
+#                         the owning agent. Set by the maturation sweep.
+#   "promoted"         -> the owner took it on; it became a Task.
+#   "dropped"          -> the owner declined it; drop_reason is mandatory
+#                         (see the CheckConstraint below). Never a DELETE:
+#                         without the record there is no way to notice an
+#                         agent systematically discarding what mattered.
+INCUBATION_STATES = ("incubating", "decision_pending", "promoted", "dropped")
+
+# Default maturation window: how long a thought sits before the sweep hands
+# the receive-or-drop decision to its owner. A deadline to *decide*, not to
+# resolve. Deliberately generous to start and tightened with real use.
+INCUBATION_DEFAULT_MATURATION_DAYS = 3
 
 # Kept in sync with core/conversions.py's CONVERT_TARGETS.
 DEMAND_CONVERT_TARGETS = (
@@ -120,6 +150,19 @@ class AgentDemand(Base, TimestampMixin):
     # full prompt (autonomous agent-to-agent handoff, or a reply continuing
     # an existing thread).
     command_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Working directory the recipient agent's run is started in (its cwd),
+    # per message. NULL falls back to settings.AGENT_RUNTIME_PATHS for that
+    # runtime_type, then "/root" -- see _execute_dispatch.
+    #
+    # Exists because the per-runtime default is a *home* directory, not a
+    # workspace: dispatching to Porthos started Claude Code in /root/.claude,
+    # from which the agent could reach no project directory at all, so every
+    # task asking it to touch /root/project/forgehub failed. Athos filed that
+    # as #8971 and again as #9001 four days later. Same idea as
+    # ChatSession.working_directory_path (which sets the cwd for a chat
+    # session's tools), scoped to one dispatched message instead of a
+    # session -- a message is the unit that knows which project it is about.
+    working_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # Mandatory (2026-07-28, Marcelo: "o campo e obrigatorio. Enao tem tem
     # None") -- always one of DEMAND_ORIGIN_TYPES, never NULL. Every writer
     # (create_demand_and_notify/update_demand's _reconcile_task_origin,
@@ -129,9 +172,37 @@ class AgentDemand(Base, TimestampMixin):
     # reason as requires_response below: a raw INSERT that doesn't know
     # about this column (a stale writer, a test fixture) needs the DB
     # itself to supply a value rather than 500 on a NotNullViolationError.
-    origin_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="backlog")
+    origin_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="incubation")
+
+    # --- Incubation (2026-08-13) ---
+    # The agent who decides this thought's fate -- receive it (promote to
+    # Task) or drop it with a reason. Mandatory for origin_type="incubation"
+    # via CheckConstraint below: an item nobody owns is the exact shape of
+    # the failure this redesign exists to remove (two of the three items
+    # parked on 2026-08-13 sat in the System group with no agent at all, so
+    # nobody was ever going to review them).
+    #
+    # Deliberately its own column rather than reusing target_agent_id: that
+    # field means "who this is dispatched to", and an incubated thought is
+    # explicitly not dispatched. Resolved on write by _reconcile_task_origin
+    # (target_agent_id, then from_agent_id) -- the author owns their own
+    # thought when it is addressed to nobody.
+    incubation_owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id", ondelete="SET NULL"), nullable=True
+    )
+    # One of INCUBATION_STATES; NULL for a task. Never has an implicit
+    # terminal state -- see that tuple's docstring.
+    incubation_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # When the receive-or-drop decision is handed to incubation_owner_id.
+    # Defaults to created_at + INCUBATION_DEFAULT_MATURATION_DAYS. This is
+    # what makes "parked forever" unrepresentable: the sweep pushes the
+    # decision instead of waiting for the agent to remember to look.
+    matures_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Why the owner declined. Mandatory when incubation_state="dropped".
+    drop_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # A ProjectTask.id (this message dispatches/tracks that task) --
-    # meaningful only when origin_type="task". Always NULL for "backlog"
+    # meaningful only when origin_type="task". Always NULL for "incubation"
     # (a classification, never a link -- see DEMAND_ORIGIN_TYPES' docstring).
     # No real FK, same convention as governance.py's Approval/AuditEvent
     # (entity_type, entity_id): kept deliberately loose since the target
@@ -242,6 +313,37 @@ class AgentDemand(Base, TimestampMixin):
             f"origin_type IN {DEMAND_ORIGIN_TYPES}",
             name="ck_agent_demands_origin_type",
         ),
+        # --- The three incubation invariants, enforced in the DB rather
+        # than only at the route layer. This is a deliberate exception to
+        # the repo's "business rules live at the API layer" convention
+        # (see db/base.py): those three are what make "item forgotten
+        # forever" unrepresentable, and a rule that only holds when callers
+        # remember it is exactly the failure mode being designed out. All
+        # three are single-row checks, so none needs a second statement.
+        # Invariant 1 -- every incubated thought has an owner.
+        CheckConstraint(
+            "origin_type <> 'incubation' OR incubation_owner_id IS NOT NULL",
+            name="ck_agent_demands_incubation_owner",
+        ),
+        # Invariant 2 -- every incubated thought has an explicit state, and
+        # a dropped one always says why.
+        CheckConstraint(
+            f"incubation_state IS NULL OR incubation_state IN {INCUBATION_STATES}",
+            name="ck_agent_demands_incubation_state",
+        ),
+        CheckConstraint(
+            "origin_type <> 'incubation' OR incubation_state IS NOT NULL",
+            name="ck_agent_demands_incubation_state_required",
+        ),
+        CheckConstraint(
+            "incubation_state <> 'dropped' OR drop_reason IS NOT NULL",
+            name="ck_agent_demands_drop_reason",
+        ),
+        # Invariant 3 -- every incubated thought has a deadline to decide.
+        CheckConstraint(
+            "origin_type <> 'incubation' OR matures_at IS NOT NULL",
+            name="ck_agent_demands_matures_at",
+        ),
     )
 
     # lazy="selectin": DemandOut always includes attachments, and the async
@@ -255,6 +357,50 @@ class AgentDemand(Base, TimestampMixin):
         order_by="DemandAttachment.created_at",
         lazy="selectin",
     )
+
+
+@event.listens_for(AgentDemand, "before_insert")
+@event.listens_for(AgentDemand, "before_update")
+def _fill_incubation_defaults(mapper, connection, target: "AgentDemand") -> None:
+    """Derives the incubation fields any writer can infer, so the invariants
+    are satisfiable without every call site knowing about them.
+
+    The three CheckConstraints above are the guarantee; this is the
+    convenience that keeps them from being a tax. `origin_type` defaults to
+    "incubation" server-side, which means any code doing a bare
+    AgentDemand(from_agent=..., subject=..., body=...) -- a test fixture, a
+    conversion helper, an older writer -- creates an incubation and would
+    otherwise fail a constraint it never heard of.
+
+    Owner uses the same cascade as the route layer's
+    _resolve_incubation_owner (target, then sender). It is deliberately NOT
+    invented when neither exists: that row still violates invariant 1 and
+    must fail, because an unowned thought is precisely what this design
+    removes. The route catches that case first and answers 400 with an
+    explanation; reaching the constraint means something bypassed the API.
+
+    Also clears the fields when a row is not (or no longer) an incubation,
+    so a promoted item doesn't keep a stale owner or deadline.
+
+    `origin_type is None` counts as incubation here: the column's default is
+    server-side, so a writer that omits it still has None on the Python
+    object at flush time while the row that actually lands is an incubation.
+    Reading None as "not an incubation" would clear the very fields that row
+    is about to require."""
+    if target.origin_type in (None, "incubation"):
+        if target.incubation_owner_id is None:
+            target.incubation_owner_id = target.target_agent_id or target.from_agent_id
+        if target.incubation_state is None:
+            target.incubation_state = "incubating"
+        if target.matures_at is None:
+            target.matures_at = datetime.now(timezone.utc) + timedelta(
+                days=INCUBATION_DEFAULT_MATURATION_DAYS
+            )
+    else:
+        target.incubation_owner_id = None
+        target.incubation_state = None
+        target.matures_at = None
+        target.drop_reason = None
 
 
 class DemandAttachment(Base, TimestampMixin):

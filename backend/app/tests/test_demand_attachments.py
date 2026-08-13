@@ -21,6 +21,7 @@ from sqlalchemy import delete, select
 
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
+from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand, DemandAttachment
 
 
@@ -53,22 +54,38 @@ def roots(monkeypatch, tmp_path):
 
 @pytest_asyncio.fixture
 async def demand_id():
+    """A message to hang attachments off. It carries a registered sender
+    because a message with no agent at all defaults to incubation, and an
+    incubation must have an owner (2026-08-13, invariant 1) -- `from_agent`
+    alone is free text and resolves to nobody. The attachment behaviour
+    under test is unaffected by which agent owns the message."""
+    suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as session:
+        sender = Agent(
+            name=f"Attachment Sender {suffix}",
+            agent_type="executor",
+            runtime_type="claude",
+            profile_slug=f"attach-sender-{suffix}",
+        )
+        session.add(sender)
+        await session.flush()
         demand = AgentDemand(
-            from_agent="test-attachments",
-            subject=f"attachment test {uuid.uuid4().hex[:8]}",
+            from_agent=sender.profile_slug,
+            from_agent_id=sender.id,
+            subject=f"attachment test {suffix}",
             body="body",
         )
         session.add(demand)
         await session.commit()
         await session.refresh(demand)
-        did, number = demand.id, demand.number
+        did, number, sender_id = demand.id, demand.number, sender.id
 
     yield did, number
 
     async with AsyncSessionLocal() as session:
         await session.execute(delete(DemandAttachment).where(DemandAttachment.demand_id == did))
         await session.execute(delete(AgentDemand).where(AgentDemand.id == did))
+        await session.execute(delete(Agent).where(Agent.id == sender_id))
         await session.commit()
 
 

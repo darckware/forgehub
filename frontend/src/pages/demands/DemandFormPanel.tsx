@@ -17,10 +17,10 @@ import { useProjects } from "@/hooks/useProject";
 import { useTasks } from "@/hooks/useTask";
 
 /** Mandatory, always one of these two (2026-07-28) -- never "none"/"demand".
- * "backlog" é trabalho estacionado: classificação, não vínculo -- nunca
+ * "incubation" é trabalho estacionado: classificação, não vínculo -- nunca
  * carrega origin_id e nunca dispara (ver DEMAND_ORIGIN_TYPES no backend).
  * Vira "task" pelo botão Promover a Task, no painel de leitura. */
-type OriginChoice = "task" | "backlog";
+type OriginChoice = "task" | "incubation";
 
 /** ISO datetime -> `<input type="datetime-local">` value (local time, no
  * timezone suffix -- that's what the input expects and what `new
@@ -186,12 +186,12 @@ export function DemandFormPanel({
   // reflects the existing demand's actual values.
   const [originChoice, setOriginChoice] = useState<OriginChoice>(() => {
     const atual = demand?.origin_type;
-    if (atual === "task" || atual === "backlog") return atual;
+    if (atual === "task" || atual === "incubation") return atual;
     // Compose never preselects an agent (nothing to default From to), so
     // Tipo can't start as Task -- see hasAgent below, same rule that keeps
     // the option itself off the list until an agent is picked. Mandatory
     // field (2026-07-28): always a real value, backlog is the safe default.
-    return "backlog";
+    return "incubation";
   });
   // Display-only, derived straight from `demand` rather than state -- see
   // this file's docstring. origin_id is a ProjectTask.id for Tipo=Task
@@ -264,7 +264,7 @@ export function DemandFormPanel({
   // operador chegar a montar essa combinação inválida.
   const hasAgent = Boolean(fromAgentId);
   useEffect(() => {
-    if (!hasAgent && originChoice === "task") setOriginChoice("backlog");
+    if (!hasAgent && originChoice === "task") setOriginChoice("incubation");
   }, [hasAgent, originChoice]);
 
   // Trocar De para o agente que já estava em Para (ou vice-versa, via edição
@@ -463,7 +463,7 @@ export function DemandFormPanel({
               {hasAgent && (
                 <option value="task">{t(isIncoming ? "form.typeTaskIncoming" : "form.typeTaskOutgoing")}</option>
               )}
-              <option value="backlog">{t("form.typeBacklog")}</option>
+              <option value="incubation">{t("form.typeBacklog")}</option>
             </Select>
           </div>
           {(originChoice === "task" || Boolean(demand?.dispatch_status)) && (

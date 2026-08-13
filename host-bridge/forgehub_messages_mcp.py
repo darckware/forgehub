@@ -374,6 +374,129 @@ async def check_agent_inbox(agent: str | None = None) -> str:
     return "\n\n".join(parts)
 
 
+@mcp.tool()
+async def list_my_incubation(agent: str | None = None, limit: int = 20) -> str:
+    """List the thoughts parked for THIS agent to decide on — its incubation.
+
+    Incubation is where an idea waits to mature until you either take it on
+    (`receive_incubation`) or decline it (`drop_incubation`). It is not work
+    yet and never runs on its own. Distinct from the project backlog, which
+    is version planning and lives elsewhere in ForgeHub entirely.
+
+    Only what YOU own is listed: a thought addressed to you is yours to
+    decide, even if someone else wrote it. Nothing is consumed by looking.
+
+    Args:
+        agent: whose incubation to list; defaults to this runtime's own slug.
+        limit: max thoughts to return (1-200, default 20).
+    """
+    try:
+        slug = _resolve_agent(agent)
+        items = await _call(
+            "GET",
+            "/api/v1/demands/for-agent",
+            params={
+                "agent": slug,
+                "origin_type": "incubation",
+                "owned_only": True,
+                "limit": limit,
+            },
+        )
+    except ForgeHubError as exc:
+        return str(exc)
+
+    if not items:
+        return f"Nothing incubating for {slug!r}."
+    parts = [
+        f"{len(items)} thought(s) incubating for {slug!r} — "
+        f"receive_incubation(number) to take one on, drop_incubation(number, reason) to decline:"
+    ]
+    for item in items:
+        matures = item.get("matures_at") or "—"
+        parts.append(f"{_format_message(item, body='preview')}\nDecide by: {matures}")
+    return "\n\n".join(parts)
+
+
+async def _own_incubation_id(slug: str, number: int) -> str:
+    """The demand id behind a human-typed #number, restricted to what this
+    agent owns -- the decision routes take an id, people type numbers."""
+    items = await _call(
+        "GET",
+        "/api/v1/demands/for-agent",
+        params={
+            "agent": slug,
+            "number": number,
+            "origin_type": "incubation",
+            "owned_only": True,
+            "limit": 1,
+        },
+    )
+    if not items:
+        raise ForgeHubError(
+            f"No incubating thought #{number} owned by {slug!r}. "
+            f"Use list_my_incubation to see what is yours to decide."
+        )
+    return items[0]["id"]
+
+
+@mcp.tool()
+async def receive_incubation(number: int, agent: str | None = None) -> str:
+    """Take an incubated thought on: it becomes a Task addressed to you.
+
+    One of the two ways a thought leaves incubation — the other is
+    `drop_incubation`. Deciding is the point of incubation: a thought left
+    undecided is exactly what this design exists to prevent.
+
+    Needs both a sender and a target on the message, since the result is a
+    Task; if either is missing you will be told, and the thought stays put
+    rather than becoming work nobody can run.
+
+    Args:
+        number: the thought's #number (see `list_my_incubation`).
+        agent: whose thought to decide; defaults to this runtime's own slug.
+            You can only decide what you own.
+    """
+    try:
+        slug = _resolve_agent(agent)
+        demand_id = await _own_incubation_id(slug, number)
+        result = await _call(
+            "POST", f"/api/v1/demands/{demand_id}/incubation:receive", params={"agent": slug}
+        )
+    except ForgeHubError as exc:
+        return str(exc)
+    return f"Received #{number} — it is a Task now and scheduled to run.\n\n{_format_message(result, body='preview')}"
+
+
+@mcp.tool()
+async def drop_incubation(number: int, reason: str, agent: str | None = None) -> str:
+    """Decline an incubated thought, saying why. The record is kept.
+
+    The reason is required, not a formality: a drop without one is
+    indistinguishable from the thought having been forgotten, and there
+    would be no way to notice a pattern of discarding what mattered. The
+    message is archived, never deleted.
+
+    Args:
+        number: the thought's #number (see `list_my_incubation`).
+        reason: why this isn't worth taking on. Be specific — this is the
+            only trace left of the decision.
+        agent: whose thought to decide; defaults to this runtime's own slug.
+    """
+    try:
+        slug = _resolve_agent(agent)
+        if not reason.strip():
+            raise ForgeHubError("A drop needs a reason — say why this thought isn't worth taking on.")
+        demand_id = await _own_incubation_id(slug, number)
+        await _call(
+            "POST",
+            f"/api/v1/demands/{demand_id}/incubation:drop",
+            params={"agent": slug, "reason": reason},
+        )
+    except ForgeHubError as exc:
+        return str(exc)
+    return f"Dropped #{number} — archived with the reason on record: {reason.strip()}"
+
+
 async def _resolve_channel_id(channel: str) -> str:
     """`channel` may be a UUID or a name -- most callers will type the name.
     No name-lookup endpoint exists server-side (channels are few enough

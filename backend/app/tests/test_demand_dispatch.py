@@ -155,8 +155,22 @@ async def test_dispatch_rejects_both_target_and_reply_flag(client: AsyncClient, 
         await _delete_demand(demand["id"])
 
 
-async def test_dispatch_reply_to_sender_without_origin_fails(client: AsyncClient):
-    demand = await _create_demand(client)
+async def test_dispatch_reply_to_sender_without_origin_fails(
+    client: AsyncClient, dispatchable_agent
+):
+    """No sender to reply *to* -- the message is addressed to an agent but
+    came from no registered one.
+
+    The message needs `target_agent_id` for a reason unrelated to what is
+    under test: since 2026-08-13 every incubation needs an owner, and with
+    no registered sender the target is the only thing left to own it. Using
+    a from_agent that resolves to nobody is the point here -- it is exactly
+    what makes reply_to_sender impossible."""
+    demand = await _create_demand(
+        client,
+        from_agent=f"nao-registrado-{uuid.uuid4().hex[:8]}",
+        target_agent_id=str(dispatchable_agent),
+    )
     try:
         resp = await client.post(
             f"/api/v1/demands/{demand['id']}/dispatch", json={"reply_to_sender": True}

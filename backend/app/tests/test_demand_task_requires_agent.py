@@ -77,18 +77,46 @@ async def sender_agent_id():
         await session.commit()
 
 
-async def test_create_task_without_target_is_downgraded_to_backlog(client: AsyncClient):
-    """Not rejected, not lost -- lands as Backlog, same as filing one directly."""
+async def test_create_task_without_any_agent_is_refused(client: AsyncClient):
+    """Behaviour change, 2026-08-13 (incubation invariant 1). This used to
+    land as an ownerless Backlog row; it is now refused outright.
+
+    A Task with no agent still downgrades to incubation, but incubation
+    requires an owner, and "marcelo" resolves to no Agent -- so there is
+    nobody to ever decide this thought's fate. Storing it anyway is exactly
+    how #8971 sat parked for four days with nobody responsible for it."""
     response = await client.post(
         "/api/v1/demands",
         json={"from_agent": "marcelo", "subject": "task sem agente", "body": "x", "origin_type": "task"},
     )
+    assert response.status_code == 400, response.text
+    assert "owning agent" in response.json()["detail"]
+
+
+async def test_create_task_without_target_is_downgraded_to_incubation(
+    client: AsyncClient, sender_agent_id
+):
+    """Not rejected, not lost -- lands as incubation owned by its sender.
+
+    The downgrade itself is unchanged (2026-07-27/28); what is new is that
+    the sender becomes the owner, so the item has someone to decide it."""
+    response = await client.post(
+        "/api/v1/demands",
+        json={
+            "from_agent": "marcelo", "from_agent_id": str(sender_agent_id),
+            "subject": "task sem target", "body": "x", "origin_type": "task",
+        },
+    )
     assert response.status_code == 201, response.text
     demand = response.json()
-    assert demand["origin_type"] == "backlog"
+    assert demand["origin_type"] == "incubation"
     assert demand["origin_id"] is None
     assert demand["target_agent_id"] is None
-    assert demand["scheduled_at"] is None  # never auto-scheduled once it's Backlog
+    assert demand["scheduled_at"] is None  # never auto-scheduled once incubating
+    # The author owns their own thought when it is addressed to nobody.
+    assert demand["incubation_owner_id"] == str(sender_agent_id)
+    assert demand["incubation_state"] == "incubating"
+    assert demand["matures_at"] is not None
     await client.delete(f"/api/v1/demands/{demand['id']}")
 
 
@@ -126,7 +154,7 @@ async def test_create_task_with_target_but_no_sender_is_downgraded_to_backlog(
     )
     assert response.status_code == 201, response.text
     demand = response.json()
-    assert demand["origin_type"] == "backlog"
+    assert demand["origin_type"] == "incubation"
     # target_agent_id itself is untouched by the downgrade -- only
     # origin_type/origin_id are reconciled; Backlog can carry a target, it
     # just isn't required (see test_create_backlog_without_target_is_unaffected
@@ -136,32 +164,39 @@ async def test_create_task_with_target_but_no_sender_is_downgraded_to_backlog(
     await client.delete(f"/api/v1/demands/{demand['id']}")
 
 
-async def test_create_backlog_without_target_is_unaffected(client: AsyncClient):
-    """The ordinary case, untouched by the reconciliation."""
+async def test_incubation_without_any_agent_is_refused(client: AsyncClient):
+    """Invariant 1 applies to a directly-filed incubation too, not only to
+    one arrived at by downgrade -- there is no back door to an ownerless
+    item."""
     response = await client.post(
         "/api/v1/demands",
-        json={"from_agent": "marcelo", "subject": "backlog sem agente", "body": "x", "origin_type": "backlog"},
+        json={"from_agent": "marcelo", "subject": "sem dono", "body": "x", "origin_type": "incubation"},
     )
-    assert response.status_code == 201, response.text
-    demand = response.json()
-    assert demand["target_agent_id"] is None
-    assert demand["scheduled_at"] is None
-    await client.delete(f"/api/v1/demands/{demand['id']}")
+    assert response.status_code == 400, response.text
+    assert "owning agent" in response.json()["detail"]
 
 
-async def test_promoting_backlog_to_task_without_target_stays_backlog(client: AsyncClient):
+async def test_promoting_incubation_to_task_without_target_stays_incubation(
+    client: AsyncClient, sender_agent_id
+):
     """The reading pane's "Promover a Task" flips origin_type via this same
-    PATCH -- an orphan Backlog item (no To, no From-as-agent) must not slip
-    through as an inert Task, but the PATCH itself still succeeds."""
+    PATCH -- an incubation with a sender but no To must not slip through as
+    an inert Task, and stays incubating with its owner intact."""
     create = await client.post(
         "/api/v1/demands",
-        json={"from_agent": "marcelo", "subject": "orfao", "body": "x", "origin_type": "backlog"},
+        json={
+            "from_agent": "marcelo", "from_agent_id": str(sender_agent_id),
+            "subject": "sem destinatario", "body": "x", "origin_type": "incubation",
+        },
     )
+    assert create.status_code == 201, create.text
     demand_id = create.json()["id"]
     try:
         response = await client.patch(f"/api/v1/demands/{demand_id}", json={"origin_type": "task"})
         assert response.status_code == 200, response.text
-        assert response.json()["origin_type"] == "backlog"
+        body = response.json()
+        assert body["origin_type"] == "incubation"
+        assert body["incubation_owner_id"] == str(sender_agent_id)
     finally:
         await client.delete(f"/api/v1/demands/{demand_id}")
 
@@ -173,7 +208,7 @@ async def test_promoting_backlog_to_task_with_target_schedules_it(
         "/api/v1/demands",
         json={
             "from_agent": "marcelo", "from_agent_id": str(sender_agent_id),
-            "subject": "promovivel", "body": "x", "origin_type": "backlog",
+            "subject": "promovivel", "body": "x", "origin_type": "incubation",
         },
     )
     demand_id = create.json()["id"]
@@ -208,7 +243,7 @@ async def test_clearing_target_on_a_task_downgrades_it_to_backlog(
     try:
         response = await client.patch(f"/api/v1/demands/{demand_id}", json={"target_agent_id": None})
         assert response.status_code == 200, response.text
-        assert response.json()["origin_type"] == "backlog"
+        assert response.json()["origin_type"] == "incubation"
     finally:
         await client.delete(f"/api/v1/demands/{demand_id}")
 
@@ -231,7 +266,7 @@ async def test_clearing_from_agent_on_a_task_downgrades_it_to_backlog(
     try:
         response = await client.patch(f"/api/v1/demands/{demand_id}", json={"from_agent_id": None})
         assert response.status_code == 200, response.text
-        assert response.json()["origin_type"] == "backlog"
+        assert response.json()["origin_type"] == "incubation"
     finally:
         await client.delete(f"/api/v1/demands/{demand_id}")
 
@@ -260,17 +295,22 @@ async def test_editing_an_already_scheduled_task_does_not_reschedule(
         await client.delete(f"/api/v1/demands/{demand_id}")
 
 
-async def test_omitted_type_defaults_to_backlog_and_needs_no_agent(client: AsyncClient):
+async def test_omitted_type_defaults_to_incubation(client: AsyncClient, sender_agent_id):
     """No Tipo given at all -- the mandatory-field default (2026-07-28) is
-    Backlog, same as filing one explicitly."""
+    incubation, same as filing one explicitly. It still needs an owner
+    (2026-08-13), which the sender supplies here."""
     response = await client.post(
         "/api/v1/demands",
-        json={"from_agent": "marcelo", "subject": "sem tipo", "body": "x"},
+        json={
+            "from_agent": "marcelo", "from_agent_id": str(sender_agent_id),
+            "subject": "sem tipo", "body": "x",
+        },
     )
     assert response.status_code == 201, response.text
     demand = response.json()
-    assert demand["origin_type"] == "backlog"
+    assert demand["origin_type"] == "incubation"
     assert demand["target_agent_id"] is None
+    assert demand["incubation_owner_id"] == str(sender_agent_id)
     await client.delete(f"/api/v1/demands/{demand['id']}")
 
 
@@ -297,7 +337,7 @@ def test_reconcile_clears_origin_id_on_downgrade_no_target():
     origin_type, origin_id = _reconcile_task_origin(
         "task", linked_id, target_agent_id=None, from_agent_id=from_id
     )
-    assert origin_type == "backlog"
+    assert origin_type == "incubation"
     assert origin_id is None
 
 
@@ -313,7 +353,7 @@ def test_reconcile_clears_origin_id_on_downgrade_no_sender():
     origin_type, origin_id = _reconcile_task_origin(
         "task", linked_id, target_agent_id=target_id, from_agent_id=None
     )
-    assert origin_type == "backlog"
+    assert origin_type == "incubation"
     assert origin_id is None
 
 
@@ -330,14 +370,31 @@ def test_reconcile_leaves_a_targeted_task_with_sender_untouched():
     assert origin_id == linked_id
 
 
-def test_reconcile_leaves_backlog_untouched():
+def test_reconcile_leaves_incubation_untouched():
     from app.api.routes.demand import _reconcile_task_origin
 
     origin_type, origin_id = _reconcile_task_origin(
-        "backlog", None, target_agent_id=None, from_agent_id=None
+        "incubation", None, target_agent_id=None, from_agent_id=None
     )
-    assert origin_type == "backlog"
+    assert origin_type == "incubation"
     assert origin_id is None
+
+
+def test_resolve_incubation_owner_cascades_target_then_sender():
+    """Invariant 1's cascade: an addressed thought belongs to its recipient,
+    an unaddressed one to whoever thought it, and a thought with neither is
+    refused rather than stored ownerless."""
+    import pytest
+    from fastapi import HTTPException
+
+    from app.api.routes.demand import _resolve_incubation_owner
+
+    target, sender = uuid.uuid4(), uuid.uuid4()
+    assert _resolve_incubation_owner(target, sender) == target
+    assert _resolve_incubation_owner(None, sender) == sender
+    with pytest.raises(HTTPException) as excinfo:
+        _resolve_incubation_owner(None, None)
+    assert excinfo.value.status_code == 400
 
 
 def test_reconcile_defaults_missing_type_to_backlog():
@@ -348,5 +405,5 @@ def test_reconcile_defaults_missing_type_to_backlog():
     origin_type, origin_id = _reconcile_task_origin(
         None, None, target_agent_id=None, from_agent_id=None
     )
-    assert origin_type == "backlog"
+    assert origin_type == "incubation"
     assert origin_id is None

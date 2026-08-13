@@ -11,7 +11,7 @@ needed for those, they already have a body (the file content).
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +45,9 @@ from app.db.models.backlog import PLANNING_ITEM_TYPES
 from app.db.models.demand import (
     DEMAND_DISPATCH_STATUSES,
     DEMAND_LINKED_ORIGIN_TYPES,
+    DEMAND_ORIGIN_TYPES,
     DEMAND_STATUSES,
+    INCUBATION_DEFAULT_MATURATION_DAYS,
     AgentDemand,
     DemandAttachment,
     DemandGroup,
@@ -171,6 +173,33 @@ async def _resolve_origin(
     return origin_type, task
 
 
+def _resolve_incubation_owner(
+    target_agent_id: uuid.UUID | None,
+    from_agent_id: uuid.UUID | None,
+) -> uuid.UUID:
+    """Who decides an incubated thought's fate -- receive it or drop it.
+
+    Cascade, not a single field: an item addressed to an agent is that
+    agent's to decide; one addressed to nobody belongs to whoever thought
+    it. Only when neither exists is there genuinely no owner, and that is
+    refused rather than stored -- invariant 1 (see AgentDemand's
+    incubation_owner_id docstring). Before this, such an item landed in the
+    System group with no agent at all and no one to review it, which is how
+    #8971 sat for four days until Athos re-filed the same problem as #9001.
+
+    Refusing is the deliberate behaviour change here: the old code silently
+    downgraded a Task with no agent into an ownerless Backlog row. The
+    caller now has to name someone, which is the whole point."""
+    owner = target_agent_id or from_agent_id
+    if owner is None:
+        raise HTTPException(
+            400,
+            "Incubation requires an owning agent: set To (target agent) or From "
+            "(a registered sender). A thought nobody owns is never reviewed.",
+        )
+    return owner
+
+
 def _reconcile_task_origin(
     origin_type: str | None,
     origin_id: uuid.UUID | None,
@@ -215,7 +244,7 @@ def _reconcile_task_origin(
     if origin_type is None or (
         origin_type == "task" and (target_agent_id is None or from_agent_id is None)
     ):
-        return "backlog", None
+        return "incubation", None
     return origin_type, origin_id
 
 
@@ -256,6 +285,20 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
         scheduled_at = datetime.now(timezone.utc)
     if payload.project_id is not None:
         await _get_project_or_404(db, payload.project_id)
+
+    # The three incubation invariants, applied at the single choke point
+    # every insert goes through: an owner, an explicit state, and a
+    # deadline to decide. A task carries none of them (all NULL).
+    incubation_owner_id: uuid.UUID | None = None
+    incubation_state: str | None = None
+    matures_at: datetime | None = None
+    if origin_type == "incubation":
+        incubation_owner_id = _resolve_incubation_owner(target_agent_id, from_agent_id)
+        incubation_state = "incubating"
+        matures_at = datetime.now(timezone.utc) + timedelta(
+            days=INCUBATION_DEFAULT_MATURATION_DAYS
+        )
+
     demand = AgentDemand(
         from_agent=payload.from_agent,
         from_agent_id=from_agent_id,
@@ -266,6 +309,10 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
         project_id=payload.project_id,
         origin_type=origin_type,
         origin_id=origin_id,
+        incubation_owner_id=incubation_owner_id,
+        incubation_state=incubation_state,
+        matures_at=matures_at,
+        working_path=payload.working_path,
         requires_response=payload.requires_response,
         scheduled_at=scheduled_at,
     )
@@ -351,6 +398,8 @@ async def list_for_agent(
     status_filter: str | None = None,
     dispatch_status: str | None = None,
     number: int | None = None,
+    origin_type: str | None = None,
+    owned_only: bool = False,
     limit: int = 50,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -411,6 +460,15 @@ async def list_for_agent(
         query = query.where(AgentDemand.dispatch_status == dispatch_status)
     if number is not None:
         query = query.where(AgentDemand.number == number)
+    if origin_type is not None:
+        if origin_type not in DEMAND_ORIGIN_TYPES:
+            raise HTTPException(400, f"origin_type must be one of {DEMAND_ORIGIN_TYPES}")
+        query = query.where(AgentDemand.origin_type == origin_type)
+    if owned_only:
+        # Whose thought it is to decide -- a different question from who sent
+        # or received it, which is what `direction` answers. An incubation
+        # addressed to A by B is owned by A, and only shows up here for A.
+        query = query.where(AgentDemand.incubation_owner_id == resolved.id)
 
     # number breaks the tie: rows written in the same transaction share a
     # created_at, and an unstable order would make paging/limit arbitrary.
@@ -419,6 +477,103 @@ async def list_for_agent(
     )
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+async def _get_owned_incubation_or_error(
+    db: AsyncSession, demand_id: uuid.UUID, agent_slug: str
+) -> AgentDemand:
+    """The item, if it is an incubation this agent actually owns.
+
+    Ownership is checked rather than assumed: these two routes are the
+    agent's own decision surface, and one agent deciding another's thoughts
+    would make "owner" meaningless. A wrong agent gets 403, not 404 -- the
+    item does exist, it just isn't theirs to decide."""
+    demand = await _get_demand_or_404(db, demand_id)
+    if demand.origin_type != "incubation":
+        raise HTTPException(400, "This message is not incubating -- only an incubation can be received or dropped")
+    if demand.incubation_state in ("promoted", "dropped"):
+        raise HTTPException(
+            409, f"Already decided: this thought was {demand.incubation_state}"
+        )
+    owner = await _get_agent_or_404(db, demand.incubation_owner_id) if demand.incubation_owner_id else None
+    if owner is None or owner.profile_slug != agent_slug:
+        raise HTTPException(
+            403,
+            f"Only the owning agent decides this thought "
+            f"(owner: {owner.profile_slug if owner else 'none'})",
+        )
+    return demand
+
+
+@router.post("/{demand_id}/incubation:receive", response_model=DemandOut)
+async def receive_incubation(
+    demand_id: uuid.UUID,
+    agent: str,
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> AgentDemand:
+    """The owning agent takes the thought on: it becomes a Task (2026-08-13).
+
+    One of the two real outcomes of incubation -- the other is
+    /incubation:drop. Together they are what closes the loop the maturation
+    sweep opens, and without them an agent handed a decision has no way to
+    answer it.
+
+    Promotion needs both agents on the record (the 2026-07-28 Task rule), so
+    a thought with no sender stays incubating and says so rather than
+    becoming a Task nobody can run. Deliberately does not dispatch here:
+    scheduling is _reconcile_task_origin's job on the next write, and an
+    agent deciding "yes, this is work" is a separate act from that work
+    starting."""
+    if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid bridge token")
+    demand = await _get_owned_incubation_or_error(db, demand_id, agent)
+
+    if demand.target_agent_id is None or demand.from_agent_id is None:
+        raise HTTPException(
+            400,
+            "A Task needs both a sender (From) and a target (To). Set the missing "
+            "one before receiving this thought, or drop it.",
+        )
+    demand.origin_type = "task"
+    # The listener clears owner/state/matures_at on the type change; the row
+    # is a Task now and its own lifecycle takes over (see the model's
+    # _fill_incubation_defaults).
+    if demand.scheduled_at is None and demand.dispatch_status is None:
+        demand.scheduled_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(demand)
+    return demand
+
+
+@router.post("/{demand_id}/incubation:drop", response_model=DemandOut)
+async def drop_incubation(
+    demand_id: uuid.UUID,
+    agent: str,
+    reason: str,
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> AgentDemand:
+    """The owning agent declines the thought, with a reason (2026-08-13).
+
+    `reason` is required by the route and by a DB constraint, not merely
+    encouraged: a drop without one is indistinguishable from the item having
+    been forgotten, and there would be no way to notice an agent
+    systematically discarding what mattered. Never a DELETE for the same
+    reason -- the row stays, archived, as the record that this was
+    considered and declined."""
+    if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid bridge token")
+    if not reason.strip():
+        raise HTTPException(400, "A drop needs a reason -- say why this thought isn't worth taking on")
+    demand = await _get_owned_incubation_or_error(db, demand_id, agent)
+
+    demand.incubation_state = "dropped"
+    demand.drop_reason = reason.strip()
+    demand.status = "archived"
+    await db.commit()
+    await db.refresh(demand)
+    return demand
 
 
 @router.post("", response_model=DemandOut, status_code=status.HTTP_201_CREATED)
@@ -535,6 +690,11 @@ async def update_demand(
         demand.subject = data["subject"]
     if "body" in data:
         demand.body = data["body"]
+    if "working_path" in data:
+        # Editable after the fact on purpose: the cwd a run should start in
+        # is usually discovered when the message is read, not when it is
+        # filed. Only affects dispatches that haven't happened yet.
+        demand.working_path = data["working_path"]
     if "origin_type" in data or "origin_number" in data:
         origin_type, origin_id = await _resolve_origin(
             db, data.get("origin_type"), data.get("origin_number")
@@ -567,14 +727,37 @@ async def update_demand(
         demand.status = "archived"
 
     # Reconciled against the *final* merged state, not just this request's
-    # fields: promoting Backlog -> Task (the reading pane's "Promover a
+    # fields: promoting Incubation -> Task (the reading pane's "Promover a
     # Task" button) goes through this same PATCH, and clearing To or From
     # on an already-Task message (or any other edit that leaves it missing
-    # either agent) must downgrade it back to Backlog rather than leave a
+    # either agent) must downgrade it back to Incubation rather than leave a
     # Task with nobody to run it or nobody it belongs to.
+    was_incubation = demand.origin_type == "incubation"
     demand.origin_type, demand.origin_id = _reconcile_task_origin(
         demand.origin_type, demand.origin_id, demand.target_agent_id, demand.from_agent_id
     )
+    # Keep the incubation invariants true across a Tipo change in either
+    # direction -- the DB constraints enforce them, so an edit that flips
+    # the type without carrying the fields would fail the insert rather
+    # than silently store a half-state.
+    if demand.origin_type == "incubation":
+        demand.incubation_owner_id = _resolve_incubation_owner(
+            demand.target_agent_id, demand.from_agent_id
+        )
+        if demand.incubation_state is None:
+            demand.incubation_state = "incubating"
+        if demand.matures_at is None:
+            demand.matures_at = datetime.now(timezone.utc) + timedelta(
+                days=INCUBATION_DEFAULT_MATURATION_DAYS
+            )
+    elif was_incubation:
+        # Promoted to Task: the thought was received, which is one of the
+        # two real outcomes. The owner/state/deadline stop applying, but
+        # "promoted" is not recorded here as a lingering state -- the row
+        # is now a Task and its own lifecycle takes over.
+        demand.incubation_owner_id = None
+        demand.incubation_state = None
+        demand.matures_at = None
     if (
         demand.origin_type == "task"
         and demand.target_agent_id is not None
@@ -843,7 +1026,8 @@ async def _execute_dispatch(
             independent = False
 
     prompt = build_thread_prompt(demand, command_text)
-    project_path = settings.AGENT_RUNTIME_PATHS.get(agent.runtime_type, "/root")
+    # Use working_path from demand if provided, otherwise fall back to AGENT_RUNTIME_PATHS
+    project_path = demand.working_path or settings.AGENT_RUNTIME_PATHS.get(agent.runtime_type, "/root")
 
     run_id = str(uuid.uuid4())
     run = await dispatch_agent_run(run_id, agent, prompt, project_path)
@@ -877,7 +1061,7 @@ def _assert_dispatchable(demand: AgentDemand) -> None:
     this check exists for Backlog specifically because that Tipo doesn't
     require an agent by default.
     """
-    if demand.origin_type == "backlog" and demand.from_agent_id is None:
+    if demand.origin_type == "incubation" and demand.from_agent_id is None:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -904,7 +1088,7 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             # Backlog with no registered sender stays parked -- see
             # _assert_dispatchable. Skipped, not failed: nothing was tried.
             or_(
-                AgentDemand.origin_type.is_distinct_from("backlog"),
+                AgentDemand.origin_type.is_distinct_from("incubation"),
                 AgentDemand.from_agent_id.isnot(None),
             ),
         )

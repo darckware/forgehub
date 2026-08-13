@@ -23,11 +23,11 @@
     "typeTask": "Task",
     "searchPlaceholder": "Buscar por #número, asunto, cuerpo o remitente",
     "clearSearch": "Limpiar búsqueda",
-    "typeBacklog": "Backlog"
+    "typeBacklog": "Incubación"
   },
   "promoteToTask": "Promover a Task",
   "form": {
-    "typeBacklog": "Backlog",
+    "typeBacklog": "Incubación",
     "status": "Estado",
     "statusDispatched": "Procesado",
     "statusRunning": "En ejecución",
@@ -40,7 +40,7 @@
   "completedFolder": "Finalizado",
   "emptyCompletedMessage": "Nada ha terminado de ejecutarse todavía.",
   "sendToOutgoing": {
-    "backlogNeedsSender": "Un elemento de Backlog necesita un remitente (De) para poder despacharse — asigna De a un agente o promuévelo a Task."
+    "backlogNeedsSender": "Un pensamiento en incubación necesita un remitente (De) para poder despacharse — asigna De a un agente o promuévelo a Task."
   },
   "promoteToTaskNeedsAgent": "Define un remitente (De) primero — una Task siempre necesita un agente que la ejecute.",
   "archive": {
