@@ -47,6 +47,7 @@ import {
   canReprocess,
   DISPATCH_MAX_ATTEMPTS,
   useArchiveDemands,
+  useCleanupArchived,
   useCleanupDemands,
   useDeleteDemand,
   useDeleteDemandAttachment,
@@ -614,6 +615,7 @@ export default function DemandsPage() {
   const [cleanupConfirm, setCleanupConfirm] = useState<CleanupTarget | null>(null);
   const archiveDemands = useArchiveDemands();
   const reprocessDemands = useReprocessDemands();
+  const cleanupArchived = useCleanupArchived();
   const [archiveConfirm, setArchiveConfirm] = useState<ArchiveTarget | null>(null);
   /** Reprocessar em massa passa por confirmação como toda ação em lote:
    * devolve N mensagens à fila de despacho de uma vez, e o operador precisa
@@ -806,10 +808,16 @@ export default function DemandsPage() {
    * `filtered`'s own composition one edit later. Distinct from
    * `unreadCount`, which counts only status="new" for the header's "X
    * Novo" pill, a different concept entirely. */
-  const inboxTotalCount = useMemo(
-    () => adminInboxCount + Object.values(agentInboxCounts).reduce((sum, n) => sum + n, 0),
-    [adminInboxCount, agentInboxCounts]
-  );
+  // A MESMA função do título e do badge da sidebar (2026-08-13, Marcelo:
+  // "use a mesma função para calcular o total não lido"). Antes esta soma
+  // reimplementava a lógica de computeInboxTotalCount somando as contagens
+  // por agente -- duas fórmulas para o mesmo conceito, que divergiam sozinhas.
+  // Somar por agente também perdia qualquer mensagem cujo target_agent_id não
+  // tivesse linha renderizada na árvore: entrava no total do título e em
+  // nenhuma linha visível. A única diferença que resta é a lista: aqui
+  // `visible` (filtrado, para bater com o que a pasta mostra), no título
+  // `demands` (sem filtro, para uma busca não encolher só o pill).
+  const inboxTotalCount = useMemo(() => computeInboxTotalCount(visible), [visible]);
   const adminOutboxCount = useMemo(
     () => visible.filter((d) => d.status !== "archived" && isOutboxItem(d) && !d.from_agent_id).length,
     [visible]
@@ -987,9 +995,24 @@ export default function DemandsPage() {
                 ? t("cleanup.confirmClearAllDescription")
                 : t("cleanup.confirmKeepDescription", { days: cleanupConfirm.days })
         }
-        loading={cleanupDemands.isPending}
+        loading={cleanupDemands.isPending || cleanupArchived.isPending}
         onConfirm={() => {
           if (!cleanupConfirm) return;
+          // Arquivadas é o único grupo que também mostra pastas, então
+          // limpá-lo tem de levar as pastas junto -- só apagar mensagens
+          // deixava a árvore igual e o clique parecia não funcionar.
+          if (cleanupConfirm.kind === "group" && cleanupConfirm.scope === "notes") {
+            cleanupArchived.mutate(
+              {
+                demandIds: cleanupTargetIds(cleanupConfirm, demands ?? []),
+                // Só as raízes: as subpastas caem por cascade, e pedir a
+                // exclusão de uma já removida daria 404.
+                rootGroupIds: (groups ?? []).filter((g) => !g.parent_id).map((g) => g.id),
+              },
+              { onSuccess: () => setCleanupConfirm(null) }
+            );
+            return;
+          }
           cleanupDemands.mutate(cleanupTargetIds(cleanupConfirm, demands ?? []), {
             onSuccess: () => setCleanupConfirm(null),
           });

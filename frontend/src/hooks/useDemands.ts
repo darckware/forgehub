@@ -627,6 +627,36 @@ export function useUpdateDemandGroup() {
   });
 }
 
+/** Limpa o grupo Arquivadas por inteiro: as mensagens **e** as subpastas.
+ *
+ * O ícone de limpeza do grupo apagava só mensagens, então com a caixa já
+ * vazia ele não fazia nada visível — as pastas continuavam na árvore e o
+ * clique parecia não funcionar (2026-08-13, Marcelo: "o icone de excluir na
+ * pasta de arquivadas não está funcionando. clico e não limpa"). Se o grupo
+ * mostra pastas, limpar o grupo tem de levá-las.
+ *
+ * Mensagens primeiro: apagar uma pasta só desprende as mensagens dela
+ * (ondelete=SET NULL), então a ordem inversa deixaria mensagens órfãs na
+ * raiz de Arquivadas. Só as pastas raiz são pedidas — as filhas caem por
+ * cascade, e pedir a exclusão de uma já removida daria 404. */
+export function useCleanupArchived() {
+  const invalidate = useInvalidateDemands();
+  const invalidateGroups = useInvalidateDemandGroups();
+  return useMutation({
+    mutationFn: async ({ demandIds, rootGroupIds }: { demandIds: string[]; rootGroupIds: string[] }) => {
+      await Promise.all(demandIds.map((id) => apiClient.delete<void>(`${RESOURCE}/${id}`)));
+      for (const id of rootGroupIds) {
+        await apiClient.delete<void>(`${GROUPS_RESOURCE}/${id}`);
+      }
+      return demandIds.length + rootGroupIds.length;
+    },
+    onSuccess: () => {
+      invalidate();
+      invalidateGroups();
+    },
+  });
+}
+
 export function useDeleteDemandGroup() {
   const invalidate = useInvalidateDemandGroups();
   const invalidateDemands = useInvalidateDemands();
