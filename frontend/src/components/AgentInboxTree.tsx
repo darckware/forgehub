@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Inbox as InboxIcon,
+  RotateCw,
   SendHorizontal,
   Trash2,
 } from "lucide-react";
@@ -91,6 +92,7 @@ export function SimpleDemandGroup<T>({
   onSelect,
   onCleanup,
   onArchive,
+  onReprocess,
   messages,
   renderMessage,
   emptyMessage,
@@ -105,6 +107,12 @@ export function SimpleDemandGroup<T>({
   onToggleExpanded: () => void;
   onSelect: () => void;
   onCleanup: () => void;
+  /** Requeues every failed message in this group (2026-08-13). Only the
+   * Failed group passes this -- reprocessing is meaningless anywhere else.
+   * Does not dispatch inline: the backend clears each item's execution
+   * state and the scheduled pass picks them up under the concurrency cap,
+   * so a bulk retry can't start dozens of runs at once. */
+  onReprocess?: () => void;
   /** Archives every message currently in this group in one action
    * (2026-07-27) -- offered next to the destructive cleanup icon for
    * groups where "I'm done looking at this" is the common case (Failed,
@@ -138,6 +146,9 @@ export function SimpleDemandGroup<T>({
           {count > 0 && <span className="text-[10px] text-muted-foreground">{count}</span>}
         </button>
         <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
+          {onReprocess && (
+            <ActionIcon icon={RotateCw} label={`Reprocess all in ${label}`} onClick={onReprocess} />
+          )}
           {onArchive && <ActionIcon icon={Archive} label={`Archive all in ${label}`} onClick={onArchive} />}
           <ActionIcon icon={Trash2} label={`Clean up ${label}`} destructive onClick={onCleanup} />
         </div>

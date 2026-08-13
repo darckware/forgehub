@@ -207,6 +207,14 @@ class DemandOut(BaseModel):
     # three invariants they encode (an owner, an explicit state, a deadline
     # to decide) are resolved at the route layer and enforced by DB
     # constraints. See AgentDemand's own docstrings.
+    # --- Dispatch contingency (2026-08-13) ---
+    # All three server-owned: the deadline a dispatch must report back by
+    # (NULL once terminal), how many times it has been dispatched, and why
+    # the last attempt failed. The UI uses attempts against
+    # DISPATCH_MAX_ATTEMPTS to decide whether to still offer reprocessing.
+    dispatch_deadline_at: datetime | None = None
+    dispatch_attempts: int = 0
+    dispatch_error: str | None = None
     incubation_owner_id: uuid.UUID | None = None
     incubation_state: str | None = None
     matures_at: datetime | None = None

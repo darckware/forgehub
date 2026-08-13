@@ -72,6 +72,21 @@ INCUBATION_STATES = ("incubating", "decision_pending", "promoted", "dropped")
 # resolve. Deliberately generous to start and tightened with real use.
 INCUBATION_DEFAULT_MATURATION_DAYS = 3
 
+# --- Dispatch contingency (2026-08-13, Marcelo: "notificação de todas as
+# falhas ao usuário, e prazo para retorno e adicionar um icone de
+# reprocessamento das falhas") ---
+# How long a dispatch may stay in flight before it is declared failed.
+# Deliberately above the host-bridge's own max_seconds (1800s = 30min) so a
+# run that was still going isn't killed off by ForgeHub's clock; this is the
+# outer limit that applies even when the bridge itself is gone.
+DISPATCH_TIMEOUT_MINUTES = 45
+# Dispatch attempts allowed per message, counting the first. Reprocessing a
+# failure is manual (an icon, never an automatic retry -- a permanent failure
+# such as an agent with no runtime would only burn cycles and hide the
+# problem), so this bounds how often someone can re-run the same thing
+# without fixing its cause.
+DISPATCH_MAX_ATTEMPTS = 3
+
 # Kept in sync with core/conversions.py's CONVERT_TARGETS.
 DEMAND_CONVERT_TARGETS = (
     "task",
@@ -295,6 +310,30 @@ class AgentDemand(Base, TimestampMixin):
     dispatch_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # host-bridge POST /v1/agent-runs' run_id, for polling GET .../{run_id}.
     agent_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # --- Failure contingency (2026-08-13) ---
+    # When this dispatch stops being worth waiting for. Set on every dispatch
+    # (now + DISPATCH_TIMEOUT_MINUTES) and cleared when it reaches a terminal
+    # state. The sweep marks anything past it "failed".
+    #
+    # This exists because a run that hangs is worse than one that errors: it
+    # sits at "running" forever, never reaches a terminal state, and so never
+    # triggers the feedback that only fires on completed/failed -- whoever
+    # asked waits indefinitely. The host-bridge's own max_seconds can't cover
+    # it: if the bridge itself dies, nobody is left to enforce that limit.
+    dispatch_deadline_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # How many times this message has been dispatched, counting the first.
+    # Reprocessing a failure increments it; at DISPATCH_MAX_ATTEMPTS the
+    # message is considered exhausted and the UI stops offering the retry,
+    # so nobody keeps re-running something whose cause was never fixed.
+    dispatch_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # Why the last dispatch failed, in plain text, kept for the reading pane
+    # and for the notification body. NULL when it never failed.
+    dispatch_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Guards against sending the "independent dispatch" Telegram notice more
     # than once if the status poll runs multiple times.
     notice_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

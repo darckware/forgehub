@@ -106,6 +106,13 @@ export const demandSchema = z.object({
   // automatically by the backend's poll loop once this time is reached.
   scheduled_at: z.string().nullable(),
   dispatch_status: z.enum(["pending", "dispatched", "running", "completed", "failed"]).nullable(),
+  // Contingência de despacho (2026-08-13): prazo até o qual a execução
+  // precisa retornar, quantas vezes já foi despachada e por que a última
+  // falhou. `dispatch_attempts` contra DISPATCH_MAX_ATTEMPTS decide se o
+  // reprocessamento ainda é oferecido.
+  dispatch_deadline_at: z.string().nullable().default(null),
+  dispatch_attempts: z.number().default(0),
+  dispatch_error: z.string().nullable().default(null),
   agent_run_id: z.string().nullable(),
 });
 
@@ -164,6 +171,13 @@ export function computeInboxTotalCount(demands: Demand[]): number {
 
 const dispatchStatusResultSchema = z.object({
   dispatch_status: z.enum(["pending", "dispatched", "running", "completed", "failed"]).nullable(),
+  // Contingência de despacho (2026-08-13): prazo até o qual a execução
+  // precisa retornar, quantas vezes já foi despachada e por que a última
+  // falhou. `dispatch_attempts` contra DISPATCH_MAX_ATTEMPTS decide se o
+  // reprocessamento ainda é oferecido.
+  dispatch_deadline_at: z.string().nullable().default(null),
+  dispatch_attempts: z.number().default(0),
+  dispatch_error: z.string().nullable().default(null),
   agent_run_id: z.string().nullable(),
   reply_demand_id: z.string().nullable().optional(),
 });
@@ -424,6 +438,44 @@ export function useArchiveDemands() {
         ids.map((id) => apiClient.patch<Demand>(`${RESOURCE}/${id}`, { status: "archived" }))
       );
       return ids.length;
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** Máximo de tentativas de despacho por mensagem -- espelha
+ * DISPATCH_MAX_ATTEMPTS no backend (db/models/demand.py). Atingido o limite,
+ * a UI deixa de oferecer o reprocessamento: insistir sem corrigir a causa só
+ * repete a mesma falha. */
+export const DISPATCH_MAX_ATTEMPTS = 3;
+
+/** Uma falha pode ser reprocessada? Só falhas, e só enquanto restarem
+ * tentativas. Mesmas condições que o backend valida (400/409) -- aqui apenas
+ * para não oferecer um botão que já se sabe que será recusado. */
+export function canReprocess(demand: Demand): boolean {
+  return (
+    demand.dispatch_status === "failed" &&
+    (demand.dispatch_attempts ?? 0) < DISPATCH_MAX_ATTEMPTS &&
+    Boolean(demand.target_agent_id)
+  );
+}
+
+/** Devolve uma falha à fila de despacho. Não despacha na hora: limpa o
+ * estado de execução e deixa o loop agendado pegá-la, então um reprocesso em
+ * massa continua respeitando o teto de concorrência em vez de subir dezenas
+ * de execuções de uma vez. */
+export function useReprocessDemands() {
+  const invalidate = useInvalidateDemands();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      // Sequencial, não Promise.all: cada chamada altera a fila que a
+      // seguinte lê, e o backend limita por tentativa/estado.
+      const done: string[] = [];
+      for (const id of ids) {
+        await apiClient.post<Demand>(`${RESOURCE}/${id}:reprocess`, {});
+        done.push(id);
+      }
+      return done.length;
     },
     onSuccess: invalidate,
   });

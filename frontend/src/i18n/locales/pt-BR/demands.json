@@ -173,5 +173,12 @@
     "confirmTitle": "Arquivar todas as mensagens?",
     "confirmGroupDescription": "Toda mensagem que estiver em {{group}} será movida para Arquivadas. Nada é apagado -- isso só tira as mensagens deste grupo.",
     "confirmButton": "Arquivar todas"
+  },
+  "reprocess": {
+    "confirmTitle": "Reprocessar falhas?",
+    "confirmDescription": "{{count}} mensagem(ns) com falha voltarão para a fila de despacho. Elas iniciam conforme houver vaga, não todas de uma vez.",
+    "confirmButton": "Reprocessar",
+    "itemButton": "Reprocessar",
+    "itemTitle": "Tentativa {{attempts}} de {{max}} — devolve esta mensagem à fila de despacho"
   }
 }

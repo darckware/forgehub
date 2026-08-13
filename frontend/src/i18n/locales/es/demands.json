@@ -47,5 +47,12 @@
     "confirmTitle": "¿Archivar todos los mensajes?",
     "confirmGroupDescription": "Todo mensaje que esté en {{group}} se moverá a Archivados. Nada se elimina -- esto solo saca los mensajes de este grupo.",
     "confirmButton": "Archivar todos"
+  },
+  "reprocess": {
+    "confirmTitle": "¿Reprocesar fallos?",
+    "confirmDescription": "{{count}} mensaje(s) con fallo volverán a la cola de despacho. Se inician a medida que haya cupo, no todos a la vez.",
+    "confirmButton": "Reprocesar",
+    "itemButton": "Reprocesar",
+    "itemTitle": "Intento {{attempts}} de {{max}} — devuelve este mensaje a la cola de despacho"
   }
 }

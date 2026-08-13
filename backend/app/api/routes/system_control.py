@@ -688,6 +688,12 @@ AGENT_RUNTIME_PATHS={agent_runtime_paths}
 # doesn't require pasting a key by hand every time. Empty = no default,
 # prompt stays blank.
 DEFAULT_FORGEROUTER_SERVICE_NAME={default_forgerouter_service_name}
+
+# Messages -- how many agent runs may be in flight at once across the whole
+# channel. The right number is a property of this machine, not of ForgeHub.
+# Note the effective ceiling is also bounded by one run per agent, so it can
+# never exceed the number of registered agents however high this is set.
+MAX_CONCURRENT_DISPATCHES={max_concurrent_dispatches}
 """
 
 
@@ -705,6 +711,9 @@ def _settings_to_config_out(s) -> dict[str, Any]:
         "default_ui_language": s.DEFAULT_UI_LANGUAGE,
         "agent_runtime_paths": dict(s.AGENT_RUNTIME_PATHS),
         "default_forgerouter_service_name": s.DEFAULT_FORGEROUTER_SERVICE_NAME,
+        "max_concurrent_dispatches": s.MAX_CONCURRENT_DISPATCHES,
+        # Read-only: the hard bound the value above is clamped to.
+        "max_concurrent_dispatches_ceiling": s.MAX_CONCURRENT_DISPATCHES_CEILING,
     }
 
 
@@ -721,6 +730,10 @@ class AppConfigUpdate(BaseModel):
     default_ui_language: str = Field(default="pt-BR", max_length=8)
     agent_runtime_paths: dict[str, str] = Field(default_factory=dict)
     default_forgerouter_service_name: str = Field(default="", max_length=128)
+    # Bounded here as well as when read: rejecting an out-of-range value at
+    # the form is clearer than silently clamping it and showing the operator
+    # a number that isn't what takes effect.
+    max_concurrent_dispatches: int = Field(default=5, ge=1, le=20)
 
 
 @router.get("/config")
@@ -791,6 +804,7 @@ async def update_app_config(
     settings.DEFAULT_UI_LANGUAGE = payload.default_ui_language
     settings.AGENT_RUNTIME_PATHS = payload.agent_runtime_paths
     settings.DEFAULT_FORGEROUTER_SERVICE_NAME = payload.default_forgerouter_service_name
+    settings.MAX_CONCURRENT_DISPATCHES = payload.max_concurrent_dispatches
 
     _APP_CONFIG_FILE.write_text(
         _APP_CONFIG_TEMPLATE.format(
@@ -806,6 +820,7 @@ async def update_app_config(
             default_ui_language=settings.DEFAULT_UI_LANGUAGE,
             agent_runtime_paths=json.dumps(settings.AGENT_RUNTIME_PATHS),
             default_forgerouter_service_name=settings.DEFAULT_FORGEROUTER_SERVICE_NAME,
+            max_concurrent_dispatches=settings.MAX_CONCURRENT_DISPATCHES,
         )
     )
 

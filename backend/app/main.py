@@ -266,6 +266,13 @@ INCUBATION_MATURATION_POLL_INTERVAL_SECONDS = 300
 
 _incubation_maturation_poll_task: asyncio.Task | None = None
 
+# How often stalled dispatches are checked against their deadline. Minutes,
+# not seconds: the deadline itself is DISPATCH_TIMEOUT_MINUTES (45), so a
+# 60s pass is already far finer than what it watches.
+DISPATCH_TIMEOUT_POLL_INTERVAL_SECONDS = 60
+
+_dispatch_timeout_poll_task: asyncio.Task | None = None
+
 # How often in-flight dispatches are polled to completion. Same interval as
 # the scheduled-send loop above and for the same reason: this is what turns
 # a finished agent run into a reply item in the Inbox, so latency here is
@@ -477,6 +484,41 @@ async def _stop_scheduled_dispatch_poll() -> None:
     _scheduled_dispatch_poll_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await _scheduled_dispatch_poll_task
+
+
+async def _dispatch_timeout_poll_loop() -> None:
+    """Fails dispatches that never came back (2026-08-13).
+
+    Own task, like the other passes: this one only touches our database, so
+    it must keep running when the host-bridge (which the dispatch loops
+    depend on) is the very thing that is down -- that outage is precisely
+    when runs get stranded.
+    """
+    from app.api.routes.demand import run_dispatch_timeout_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_dispatch_timeout_pass(db)
+        except Exception:
+            logger.exception("Dispatch timeout poll failed")
+        await asyncio.sleep(DISPATCH_TIMEOUT_POLL_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+async def _start_dispatch_timeout_poll() -> None:
+    global _dispatch_timeout_poll_task
+    _dispatch_timeout_poll_task = asyncio.create_task(_dispatch_timeout_poll_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_dispatch_timeout_poll() -> None:
+    if _dispatch_timeout_poll_task is None:
+        return
+    _dispatch_timeout_poll_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _dispatch_timeout_poll_task
 
 
 @app.on_event("startup")

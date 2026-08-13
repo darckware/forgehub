@@ -18,7 +18,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.demand import (
@@ -47,6 +47,8 @@ from app.db.models.demand import (
     DEMAND_LINKED_ORIGIN_TYPES,
     DEMAND_ORIGIN_TYPES,
     DEMAND_STATUSES,
+    DISPATCH_MAX_ATTEMPTS,
+    DISPATCH_TIMEOUT_MINUTES,
     INCUBATION_DEFAULT_MATURATION_DAYS,
     AgentDemand,
     DemandAttachment,
@@ -502,6 +504,50 @@ async def _get_owned_incubation_or_error(
             f"Only the owning agent decides this thought "
             f"(owner: {owner.profile_slug if owner else 'none'})",
         )
+    return demand
+
+
+@router.post("/{demand_id}:reprocess", response_model=DemandOut)
+async def reprocess_demand(
+    demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> AgentDemand:
+    """Puts a failed dispatch back in the queue (2026-08-13).
+
+    Manual on purpose -- an automatic retry on a permanent failure (an agent
+    with no runtime, a target that no longer exists) would burn cycles every
+    30 seconds and hide the problem instead of surfacing it. Someone looks,
+    fixes the cause, and asks for it again.
+
+    Clears the execution state rather than dispatching inline: with
+    `dispatch_status` back to NULL and `scheduled_at` due, the existing
+    scheduled pass picks it up on its next cycle -- and, importantly, does so
+    under the concurrency cap. Reprocessing a whole group would otherwise be
+    a way to start dozens of runs at once, which is exactly what the cap is
+    there to prevent.
+
+    `dispatch_attempts` is deliberately NOT reset: it is the record of how
+    many times this was tried, and resetting it would turn the limit below
+    into something that can never be reached.
+    """
+    demand = await _get_demand_or_404(db, demand_id)
+    if demand.dispatch_status != "failed":
+        raise HTTPException(400, "Only a failed dispatch can be reprocessed")
+    if (demand.dispatch_attempts or 0) >= DISPATCH_MAX_ATTEMPTS:
+        raise HTTPException(
+            409,
+            f"This message already failed {demand.dispatch_attempts} times "
+            f"(limit {DISPATCH_MAX_ATTEMPTS}). Fix the cause rather than retrying it again.",
+        )
+    if demand.target_agent_id is None:
+        raise HTTPException(400, "This message has no target agent to dispatch to")
+
+    demand.dispatch_status = None
+    demand.agent_run_id = None
+    demand.dispatch_deadline_at = None
+    demand.notice_sent = False
+    demand.scheduled_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(demand)
     return demand
 
 
@@ -1036,6 +1082,14 @@ async def _execute_dispatch(
     demand.command_text = command_text
     demand.agent_run_id = run["run_id"]
     demand.dispatch_status = "dispatched"
+    # Contingency bookkeeping (2026-08-13): every dispatch carries a deadline
+    # and counts as an attempt, so a run that hangs can be failed by the
+    # timeout sweep and a message that keeps failing can stop being retried.
+    demand.dispatch_deadline_at = datetime.now(timezone.utc) + timedelta(
+        minutes=DISPATCH_TIMEOUT_MINUTES
+    )
+    demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
+    demand.dispatch_error = None
 
     if independent and not demand.notice_sent:
         await _send_notice(f"*Disparo para {agent.name}*\n\n{prompt}")
@@ -1069,6 +1123,118 @@ def _assert_dispatchable(demand: AgentDemand) -> None:
                 "Set From to an agent, or promote it to Task first."
             ),
         )
+
+
+async def _dispatch_slots(db: AsyncSession) -> int:
+    """How many more dispatches may start right now.
+
+    Counts what is **already in flight** (dispatched/running), not just what
+    this pass is about to send: a limit applied per pass would let every
+    30-second cycle add another batch on top of the runs still going, which
+    is no limit at all. Each in-flight run is a real agent CLI on the host.
+
+    The configured value is clamped to MAX_CONCURRENT_DISPATCHES_CEILING --
+    forgehub.config is operator-editable and can hold any number, and this
+    is the point where a typo stops being able to swamp the machine.
+    """
+    limit = max(1, min(settings.MAX_CONCURRENT_DISPATCHES, settings.MAX_CONCURRENT_DISPATCHES_CEILING))
+    in_flight = (
+        await db.execute(
+            select(func.count())
+            .select_from(AgentDemand)
+            .where(AgentDemand.dispatch_status.in_(("dispatched", "running")))
+        )
+    ).scalar_one()
+    return max(0, limit - int(in_flight))
+
+
+async def _agents_already_running(db: AsyncSession) -> set[uuid.UUID]:
+    """Agents with a run already in flight, which must not get a second one.
+
+    One run per agent at a time (2026-08-13, Marcelo: "para os processos não
+    misturar"). The global cap alone doesn't give this: five free slots all
+    landing on the same agent would start five sessions of the same CLI
+    against the same profile directory and the same working path, and their
+    contexts would overlap -- the runtime keeps per-session state, so
+    concurrent runs of one agent interfere with each other rather than
+    simply queueing.
+
+    Serialising per agent while staying parallel across agents is what makes
+    the cap safe to raise: the machine bounds the total, and this bounds what
+    any single agent is doing.
+    """
+    rows = (
+        await db.execute(
+            select(AgentDemand.target_agent_id).where(
+                AgentDemand.dispatch_status.in_(("dispatched", "running")),
+                AgentDemand.target_agent_id.isnot(None),
+            )
+        )
+    ).scalars().all()
+    return set(rows)
+
+
+async def _fail_dispatch(
+    db: AsyncSession, demand: AgentDemand, reason: str, *, title: str
+) -> None:
+    """Marks a dispatch failed and tells the user, whatever broke.
+
+    One place for every failure mode (never dispatched, timed out, run
+    errored) so "notificação de todas as falhas" can't be true for one path
+    and quietly false for the others -- before this, only the
+    AgentRunDispatchError path notified anyone at all.
+
+    Deliberately does not commit: callers batch this with their own state
+    changes, matching the rest of this module ("Caller commits").
+    """
+    demand.dispatch_status = "failed"
+    demand.dispatch_error = reason
+    demand.dispatch_deadline_at = None
+    db.add(
+        Notification(
+            source="system",
+            severity="error",
+            title=title,
+            message=f"#{demand.number}: {reason}",
+            # Attempt-scoped, not just demand-scoped: a reprocess that fails
+            # again is a new event the user has to hear about, and a plain
+            # demand-scoped key would silently swallow it.
+            event_key=f"demand-dispatch-failed:{demand.id}:{demand.dispatch_attempts}",
+            occurred_at=datetime.now(timezone.utc),
+        )
+    )
+
+
+async def run_dispatch_timeout_pass(db: AsyncSession) -> int:
+    """Fails dispatches that never came back within the deadline.
+
+    The failure mode this closes is the worst of the five: a run that hangs
+    stays at "running" forever, never reaches a terminal state, and so never
+    fires the feedback that only triggers on completed/failed -- whoever
+    asked waits indefinitely with no error to show. The host-bridge's own
+    max_seconds cannot cover it, since a dead bridge enforces nothing.
+    """
+    now = datetime.now(timezone.utc)
+    stalled = (
+        await db.execute(
+            select(AgentDemand).where(
+                AgentDemand.dispatch_deadline_at.isnot(None),
+                AgentDemand.dispatch_deadline_at <= now,
+                AgentDemand.dispatch_status.in_(("dispatched", "running")),
+            )
+        )
+    ).scalars().all()
+    for demand in stalled:
+        await _fail_dispatch(
+            db,
+            demand,
+            f"No response within {DISPATCH_TIMEOUT_MINUTES} minutes -- the run never reported back.",
+            title=f"Dispatch timed out: {demand.subject}",
+        )
+    if stalled:
+        await db.commit()
+        logger.info("Dispatch timeout: failed %d stalled dispatch(es)", len(stalled))
+    return len(stalled)
 
 
 async def run_incubation_maturation_pass(db: AsyncSession) -> int:
@@ -1151,8 +1317,37 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
                 AgentDemand.from_agent_id.isnot(None),
             ),
         )
+        # Oldest first: with a concurrency cap, what is left out of this pass
+        # waits for the next one, and a due message must not be overtaken by
+        # a newer one just because the cap happened to cut there.
+        .order_by(AgentDemand.scheduled_at)
     )
-    for demand in result.scalars().all():
+    due = list(result.scalars().all())
+    slots = await _dispatch_slots(db)
+    busy = await _agents_already_running(db)
+
+    # Two independent limits, both applied while picking: the global cap
+    # (what the machine can take) and one run per agent (so an agent's
+    # sessions never overlap). An agent that is busy is *skipped*, not
+    # stopped -- the queue keeps moving for everyone else, and the skipped
+    # message is picked up by a later pass once its agent is free.
+    selected: list[AgentDemand] = []
+    deferred = 0
+    for demand in due:
+        if len(selected) >= slots:
+            deferred += len(due) - len(selected) - deferred
+            break
+        if demand.target_agent_id in busy:
+            deferred += 1
+            continue
+        selected.append(demand)
+        busy.add(demand.target_agent_id)
+    if deferred:
+        logger.info(
+            "Dispatch queue: %d due, %d starting, %d deferred (cap %d, one run per agent)",
+            len(due), len(selected), deferred, slots,
+        )
+    for demand in selected:
         # Captured up front: db.rollback() expires every attribute on
         # objects in the session, so demand.id after a rollback needs a
         # fresh lazy-load -- which needs an awaited context this except
@@ -1173,15 +1368,13 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             # processed" gap this marks "failed" to close. A genuinely
             # dispatchable agent can still be retried by hand via the
             # reading pane's Dispatch button once fixed.
-            demand.dispatch_status = "failed"
-            db.add(Notification(
-                source="system",
-                severity="warning",
+            await _fail_dispatch(
+                db,
+                demand,
+                "Target agent can't run this automatically (no CLI runtime_type configured) "
+                "-- needs manual handling.",
                 title=f"Dispatch failed: {demand.subject}",
-                message="Target agent can't run this automatically (no CLI runtime_type configured) -- needs manual handling.",
-                event_key=f"demand-dispatch-failed:{demand_id}",
-                occurred_at=datetime.now(timezone.utc),
-            ))
+            )
             await db.commit()
             logger.exception("Scheduled dispatch permanently failed for demand %s", demand_id)
         except Exception:
@@ -1281,6 +1474,21 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
     run_status = run.get("status")
     # Terminal: completed / failed / timed_out / cancelled / stale.
     locked.dispatch_status = "completed" if run_status == "completed" else "failed"
+    # Reached a terminal state, so the deadline no longer applies -- leaving
+    # it set would let the timeout sweep re-fail an already-finished run.
+    locked.dispatch_deadline_at = None
+    if locked.dispatch_status == "failed":
+        locked.dispatch_error = f"The agent run ended as {run_status!r}."
+        db.add(
+            Notification(
+                source="system",
+                severity="error",
+                title=f"Dispatch failed: {locked.subject}",
+                message=f"#{locked.number}: the agent run ended as {run_status!r}.",
+                event_key=f"demand-dispatch-failed:{locked.id}:{locked.dispatch_attempts}",
+                occurred_at=datetime.now(timezone.utc),
+            )
+        )
     # "Execução" -- when the recipient agent actually finished running this
     # message, stamped on either terminal outcome (a failed run still ran).
     # Deliberately NOT stamped by run_scheduled_dispatch_pass's

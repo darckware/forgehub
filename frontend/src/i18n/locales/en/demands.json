@@ -173,5 +173,12 @@
     "confirmTitle": "Archive all messages?",
     "confirmGroupDescription": "Every message currently in {{group}} will be filed under Arquivadas. Nothing is deleted -- this only moves them out of this group.",
     "confirmButton": "Archive all"
+  },
+  "reprocess": {
+    "confirmTitle": "Reprocess failures?",
+    "confirmDescription": "{{count}} failed message(s) will be put back in the dispatch queue. They start as slots free up, not all at once.",
+    "confirmButton": "Reprocess",
+    "itemButton": "Reprocess",
+    "itemTitle": "Attempt {{attempts}} of {{max}} — puts this back in the dispatch queue"
   }
 }

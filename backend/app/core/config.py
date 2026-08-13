@@ -151,6 +151,21 @@ class Settings(BaseSettings):
     # Empty string = no default set, the prompt stays blank like before.
     DEFAULT_FORGEROUTER_SERVICE_NAME: str = ""
 
+    # How many agent runs may be in flight at once across the whole Messages
+    # channel (2026-08-13, Marcelo: "pode definir a quantidade de processo em
+    # paralelo, no máximo 5. Vai depender no computador... veja o máximo 20").
+    #
+    # Before this there was no limit at all: the scheduled pass dispatched
+    # every due message in one go, so fifty messages coming due together
+    # meant fifty agent CLIs starting on the host at once. Operator-tunable
+    # because the right number is a property of the machine, not of ForgeHub
+    # -- hence the config file rather than a constant.
+    MAX_CONCURRENT_DISPATCHES: int = 5
+    # Hard ceiling for the tunable above, applied when the value is read
+    # (see api/routes/demand.py's _dispatch_slots). A config file edited by
+    # hand can hold anything; this is what actually bounds the host.
+    MAX_CONCURRENT_DISPATCHES_CEILING: int = 20
+
     @property
     def DATABASE_URL(self) -> str:
         """Async SQLAlchemy connection string (postgresql+asyncpg://...)."""

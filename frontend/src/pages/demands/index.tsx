@@ -11,6 +11,7 @@ import {
   Download,
   Inbox as InboxIcon,
   Loader2,
+  RotateCw,
   Paperclip,
   Pencil,
   Plus,
@@ -43,6 +44,8 @@ import {
   computeInboxTotalCount,
   downloadDemandAttachment,
   isIncomingItem,
+  canReprocess,
+  DISPATCH_MAX_ATTEMPTS,
   useArchiveDemands,
   useCleanupDemands,
   useDeleteDemand,
@@ -52,6 +55,7 @@ import {
   useDispatchDemand,
   useDispatchStatus,
   useMoveDemand,
+  useReprocessDemands,
   useUpdateDemand,
   useUpdateDemandStatus,
   type ConvertTarget,
@@ -347,6 +351,7 @@ function ReadingPane({
   const { t } = useTranslation("demands");
   const updateStatus = useUpdateDemandStatus();
   const promoteToTask = useUpdateDemand();
+  const reprocessOne = useReprocessDemands();
   const deleteDemand = useDeleteDemand();
   // agent_run_id, not just dispatch_status, is what the backend requires --
   // a scheduled dispatch that fails before ever starting (e.g. the target
@@ -437,6 +442,29 @@ function ReadingPane({
                 <ArrowUpRight className="h-3.5 w-3.5" />
               )}
               {t("promoteToTask")}
+            </Button>
+          )}
+          {/* Reprocessar esta falha (2026-08-13). Só aparece enquanto restam
+              tentativas: esgotadas, insistir sem corrigir a causa apenas
+              repete a mesma falha, e o backend recusa com 409. */}
+          {canReprocess(demand) && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={reprocessOne.isPending}
+              title={t("reprocess.itemTitle", {
+                attempts: demand.dispatch_attempts,
+                max: DISPATCH_MAX_ATTEMPTS,
+              })}
+              onClick={() => reprocessOne.mutate([demand.id])}
+            >
+              {reprocessOne.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCw className="h-3.5 w-3.5" />
+              )}
+              {t("reprocess.itemButton")}
             </Button>
           )}
           {demand.status !== "archived" && (
@@ -585,7 +613,12 @@ export default function DemandsPage() {
   const cleanupDemands = useCleanupDemands();
   const [cleanupConfirm, setCleanupConfirm] = useState<CleanupTarget | null>(null);
   const archiveDemands = useArchiveDemands();
+  const reprocessDemands = useReprocessDemands();
   const [archiveConfirm, setArchiveConfirm] = useState<ArchiveTarget | null>(null);
+  /** Reprocessar em massa passa por confirmação como toda ação em lote:
+   * devolve N mensagens à fila de despacho de uma vez, e o operador precisa
+   * ver quantas antes de confirmar. */
+  const [reprocessConfirm, setReprocessConfirm] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [folder, setFolder] = useState<SelectedFolder>({ kind: "inbox", agentId: null });
   // Busca e filtro da barra de ferramentas -- ver searchMatches/typeMatches.
@@ -984,6 +1017,26 @@ export default function DemandsPage() {
         }}
         onCancel={() => setArchiveConfirm(null)}
       />
+      <ConfirmDialog
+        open={reprocessConfirm}
+        variant="default"
+        title={t("reprocess.confirmTitle")}
+        description={t("reprocess.confirmDescription", {
+          count: (demands ?? []).filter(canReprocess).length,
+        })}
+        confirmLabel={t("reprocess.confirmButton")}
+        loading={reprocessDemands.isPending}
+        onConfirm={() => {
+          // Só o que ainda pode ser reprocessado: uma falha que já esgotou
+          // as tentativas seria recusada pelo backend (409), e mandá-la
+          // junto só produziria erro no meio do lote.
+          reprocessDemands.mutate(
+            (demands ?? []).filter(canReprocess).map((d) => d.id),
+            { onSuccess: () => setReprocessConfirm(false) }
+          );
+        }}
+        onCancel={() => setReprocessConfirm(false)}
+      />
       {/* Header on the same two columns as the content below it: the title
           column is exactly the folder tree's width (w-80), so the filters
           start where the reading pane starts instead of floating over the
@@ -1218,6 +1271,7 @@ export default function DemandsPage() {
               onSelect={() => selectFolder({ kind: "failed" })}
               onCleanup={() => setCleanupConfirm({ kind: "group", scope: "failed" })}
               onArchive={() => setArchiveConfirm({ scope: "failed" })}
+              onReprocess={() => setReprocessConfirm(true)}
               messages={filtered}
               renderMessage={renderMessage}
               emptyMessage={emptyMessage}
