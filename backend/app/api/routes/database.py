@@ -30,7 +30,7 @@ _INSTANCES: dict[str, dict] = {
         "label": "company_postgres",
         "host": settings.POSTGRES_HOST,   # overridden to "company_postgres" in docker-compose
         "port": int(settings.POSTGRES_PORT),
-        "databases": ["forgehub", "kanboard"],
+        "databases": ["forgehub"],
         "default_db": "forgehub",
     },
     "foundation_postgres": {

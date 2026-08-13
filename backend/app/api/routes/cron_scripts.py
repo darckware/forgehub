@@ -187,8 +187,6 @@ def _infer_category(name: str) -> str:
         return "monitor"
     if n.startswith("pipeline"):
         return "pipeline"
-    if n.startswith("kanboard"):
-        return "kanboard"
     if n.startswith(("db_", "database", "init_agent")):
         return "database"
     if n.startswith("memory"):

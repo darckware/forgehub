@@ -20,7 +20,6 @@ SCRIPT_CATEGORIES = (
     "ecosystem",
     "monitor",
     "pipeline",
-    "kanboard",
     "database",
     "memory",
     "dashboard",
