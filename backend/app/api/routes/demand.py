@@ -38,6 +38,7 @@ from app.core import conversions
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
 from app.core.demand_thread import build_thread_prompt
+from app.core.feedback import deliver_feedback
 from app.core.markdown_docs import resolve_doc_path
 from app.db.base import get_db
 from app.db.models.agent import Agent
@@ -315,6 +316,11 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
         incubation_state=incubation_state,
         matures_at=matures_at,
         working_path=payload.working_path,
+        # Meio de comunicação: por onde o pedido entrou e, portanto, por onde
+        # o resultado tem de voltar (2026-08-13). Sem isto o resultado fica
+        # preso no Messages -- é o que o feedback lê para saber o destino.
+        channel=payload.channel,
+        channel_ref=payload.channel_ref,
         requires_response=payload.requires_response,
         scheduled_at=scheduled_at,
     )
@@ -1231,6 +1237,9 @@ async def run_dispatch_timeout_pass(db: AsyncSession) -> int:
             f"No response within {DISPATCH_TIMEOUT_MINUTES} minutes -- the run never reported back.",
             title=f"Dispatch timed out: {demand.subject}",
         )
+        # Terminal now, so whoever asked has to hear about it -- a timeout is
+        # precisely the case where someone is still waiting.
+        await deliver_feedback(db, demand)
     if stalled:
         await db.commit()
         logger.info("Dispatch timeout: failed %d stalled dispatch(es)", len(stalled))
@@ -1642,6 +1651,14 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
                     await db.commit()
                 continue
             await _finalize_dispatch(db, demand_id, run)
+            # Terminal now: send the outcome back to the channel that asked
+            # (2026-08-13). In the same transaction as the state change, so a
+            # crash between the two can't leave it delivered-but-unrecorded
+            # or recorded-but-undelivered; the feedback sweep picks up
+            # whatever this misses.
+            refreshed = await db.get(AgentDemand, demand_id)
+            if refreshed is not None:
+                await deliver_feedback(db, refreshed)
             await db.commit()
         except Exception:
             await db.rollback()

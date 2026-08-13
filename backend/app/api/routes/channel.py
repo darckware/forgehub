@@ -1148,6 +1148,11 @@ async def dispatch_channel_message(
         project_id=channel.project_id,
         origin_type="task" if payload.project_task_id is not None else "incubation",
         origin_id=payload.project_task_id,
+        # Meio de comunicação = Workspace, com o canal como endereço de
+        # retorno: quem pediu está olhando esta conversa, e é nela que o
+        # resultado tem de aparecer (2026-08-13).
+        channel="workspace",
+        channel_ref=str(channel.id),
     )
     db.add(demand)
     await db.flush()

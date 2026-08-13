@@ -56,6 +56,13 @@ class DemandSubmitIn(BaseModel):
     # cwd where the agent should run. If not provided, falls back to
     # AGENT_RUNTIME_PATHS or /root.
     working_path: str | None = None
+    # Meio de comunicação por onde este pedido chegou, e o endereço concreto
+    # de retorno dentro dele (id da sessão de chat, id do canal, id da task,
+    # chat_id do Telegram). Ver DEMAND_CHANNELS. Sem `channel_ref`, um
+    # retorno para o Telegram só alcança o canal padrão, nunca a conversa
+    # que pediu.
+    channel: str | None = None
+    channel_ref: str | None = None
     # Links this new item to an existing Task or Demand as its origin,
     # resolved from a human-typed number rather than a UUID (§4.1 of the
     # dispatch proposal): "task" -> ProjectTask.number,
@@ -212,6 +219,9 @@ class DemandOut(BaseModel):
     # (NULL once terminal), how many times it has been dispatched, and why
     # the last attempt failed. The UI uses attempts against
     # DISPATCH_MAX_ATTEMPTS to decide whether to still offer reprocessing.
+    channel: str | None = None
+    channel_ref: str | None = None
+    feedback_sent_at: datetime | None = None
     dispatch_deadline_at: datetime | None = None
     dispatch_attempts: int = 0
     dispatch_error: str | None = None

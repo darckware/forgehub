@@ -273,6 +273,13 @@ DISPATCH_TIMEOUT_POLL_INTERVAL_SECONDS = 60
 
 _dispatch_timeout_poll_task: asyncio.Task | None = None
 
+# How often outcomes that still owe their channel a delivery are retried.
+# The happy path delivers inline when the dispatch finishes; this only
+# catches what that missed -- an app restart mid-delivery, Telegram down.
+FEEDBACK_POLL_INTERVAL_SECONDS = 120
+
+_feedback_poll_task: asyncio.Task | None = None
+
 # How often in-flight dispatches are polled to completion. Same interval as
 # the scheduled-send loop above and for the same reason: this is what turns
 # a finished agent run into a reply item in the Inbox, so latency here is
@@ -519,6 +526,41 @@ async def _stop_dispatch_timeout_poll() -> None:
     _dispatch_timeout_poll_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await _dispatch_timeout_poll_task
+
+
+async def _feedback_poll_loop() -> None:
+    """Delivers outcomes whose feedback never went out (2026-08-13).
+
+    The delivery itself happens inline when a dispatch reaches a terminal
+    state; this is the net under it. Driven by state (`feedback_sent_at IS
+    NULL`) rather than by retrying a failed call in memory, so a delivery
+    lost to a restart is still found afterwards.
+    """
+    from app.core.feedback import run_feedback_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_feedback_pass(db)
+        except Exception:
+            logger.exception("Feedback poll failed")
+        await asyncio.sleep(FEEDBACK_POLL_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+async def _start_feedback_poll() -> None:
+    global _feedback_poll_task
+    _feedback_poll_task = asyncio.create_task(_feedback_poll_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_feedback_poll() -> None:
+    if _feedback_poll_task is None:
+        return
+    _feedback_poll_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _feedback_poll_task
 
 
 @app.on_event("startup")

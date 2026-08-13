@@ -87,6 +87,34 @@ DISPATCH_TIMEOUT_MINUTES = 45
 # without fixing its cause.
 DISPATCH_MAX_ATTEMPTS = 3
 
+# --- Meio de comunicação (2026-08-13) ---
+# Where the request came in through, and therefore where its outcome has to
+# go back to. Called "meio de comunicação" rather than "origem" on purpose
+# (Marcelo: "Para não confudir a origem vamos falar meio de comunicação"):
+# `origin_type` above already means something else entirely (the Tipo), and
+# one word for two concepts is the mistake "backlog" made.
+#
+#   "workspace" -> a chat or channel session: the answer belongs in that
+#                  same conversation, where the person is looking.
+#   "assistant" -> the in-app Assistant panel, present on every screen
+#                  outside the Workspace. There is no persistent
+#                  conversation to return to, so the outcome surfaces as a
+#                  system notification.
+#   "factory"   -> Software Factory planning: the outcome is the task's own
+#                  status/evidence, not a message.
+#   "agent"     -> another agent asked. Already works today, via
+#                  requires_response/reply_to_id.
+#   "telegram"  -> the answer goes back to the Telegram chat that asked,
+#                  not to the configured home channel.
+DEMAND_CHANNELS = ("workspace", "assistant", "factory", "agent", "telegram")
+
+# Feedback is only ever sent on a terminal outcome (2026-08-13, Marcelo: "o
+# feedback só é enviado quando for concluido ou erro da task"). Kept as its
+# own tuple rather than reusing DEMAND_DISPATCH_STATUSES: that one lists
+# every state a dispatch can be in, while this is the much narrower
+# question of "is it over?".
+DEMAND_TERMINAL_DISPATCH_STATUSES = ("completed", "failed")
+
 # Kept in sync with core/conversions.py's CONVERT_TARGETS.
 DEMAND_CONVERT_TARGETS = (
     "task",
@@ -311,6 +339,24 @@ class AgentDemand(Base, TimestampMixin):
     # host-bridge POST /v1/agent-runs' run_id, for polling GET .../{run_id}.
     agent_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # --- Meio de comunicação (2026-08-13) ---
+    # Which channel this request arrived through; NULL for anything filed
+    # before this existed, and for messages nobody is waiting on.
+    #
+    # Two columns, not one, because knowing the *kind* of channel isn't
+    # enough to answer: "telegram" alone can only reach the configured home
+    # channel, never the chat that actually asked. `channel_ref` carries the
+    # concrete address -- a chat session id, a channel id, a task id, a
+    # Telegram chat_id.
+    channel: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    channel_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # When the outcome was delivered back to that channel. NULL means the
+    # feedback is still owed -- which is what lets a sweep find deliveries
+    # that never happened, instead of them being lost silently.
+    feedback_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # --- Failure contingency (2026-08-13) ---
     # When this dispatch stops being worth waiting for. Set on every dispatch
     # (now + DISPATCH_TIMEOUT_MINUTES) and cleared when it reaches a terminal
@@ -351,6 +397,10 @@ class AgentDemand(Base, TimestampMixin):
         CheckConstraint(
             f"origin_type IN {DEMAND_ORIGIN_TYPES}",
             name="ck_agent_demands_origin_type",
+        ),
+        CheckConstraint(
+            f"channel IS NULL OR channel IN {DEMAND_CHANNELS}",
+            name="ck_agent_demands_channel",
         ),
         # --- The three incubation invariants, enforced in the DB rather
         # than only at the route layer. This is a deliberate exception to

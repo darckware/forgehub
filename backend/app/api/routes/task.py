@@ -830,6 +830,11 @@ async def _dispatch_task_by_id(
         project_id=project_id,
         origin_type="task",
         origin_id=task.id,
+        # Meio de comunicação = Software Factory, com a própria task como
+        # endereço de retorno: aqui o resultado é o status/evidência da task,
+        # não uma mensagem (2026-08-13).
+        channel="factory",
+        channel_ref=str(task.id),
         requires_response=payload.requires_response,
     )
     db.add(demand)
