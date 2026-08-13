@@ -212,8 +212,11 @@ async def send_agent_message(
             recipient agent executes — write it as an instruction, self
             contained, since the recipient sees no other context.
         to_agent: recipient's profile_slug (athos, atlas, themis, aegis,
-            hephaestus, mnemosyne, scriba, daedalus, kairos, porthos, aramis,
+            hephaestus, mnemosyne, scriba, daedalus, kairos, porthus, aramis,
             dartan, vector). Omit to file a plain note instead.
+            NOTE: the Claude Code agent's slug is "porthus", not "porthos" --
+            the two names differ by one letter and are easy to confuse, but
+            only "porthus" resolves; "porthos" 404s.
         from_agent: sender label; defaults to this runtime's own slug.
         channel: **the medium the request reached you through**, when you are
             passing on work someone else asked for: "telegram", "workspace",
