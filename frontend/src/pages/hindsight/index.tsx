@@ -9,6 +9,7 @@ import {
   RotateCcw,
   RefreshCw,
   Server,
+  ExternalLink,
   Settings2,
   Table2,
   XCircle,
@@ -19,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Table,
@@ -134,6 +136,17 @@ function groupLabel(group: string, t: (key: string) => string): string {
   }
 }
 
+/** O console do Hindsight (control plane), servido pelo próprio daemon numa
+ * porta separada da API (8888 é a API; 9999 é o console). Derivado do host
+ * que serve o ForgeHub em vez de "localhost" fixo: o iframe é carregado pelo
+ * navegador do usuário, então um localhost fixo quebraria todo acesso que não
+ * seja da própria máquina (LAN, túnel) -- o mesmo motivo pelo qual o chat usa
+ * `window.location.origin`. */
+const CONTROL_PLANE_URL =
+  typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:9999/banks/hermes?view=data&subTab=world`
+    : "";
+
 export default function HindsightPage() {
   const { t } = useTranslation("hindsight");
   const { data, isLoading, isError, error, refetch, isFetching } = useHindsightStatus();
@@ -141,6 +154,9 @@ export default function HindsightPage() {
   const clearLogMut = useClearHindsightLog();
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
+  // Aba ativa. Começa em "status" para a tela abrir como sempre abriu -- o
+  // control plane é uma consulta ocasional, não a visão padrão.
+  const [tab, setTab] = useState("status");
   const [clearLogConfirmOpen, setClearLogConfirmOpen] = useState(false);
   const { data: schemaTables, isLoading: schemaLoading } = useDatabaseTables(
     "hindsight",
@@ -213,6 +229,40 @@ export default function HindsightPage() {
         </div>
       </div>
 
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="status">{t("tabs.status")}</TabsTrigger>
+          <TabsTrigger value="controlPlane">{t("tabs.controlPlane")}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="controlPlane" className="mt-4">
+          <Card>
+            <CardContent className="p-0">
+              <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
+                <p className="text-xs text-muted-foreground">{t("controlPlane.hint")}</p>
+                <a
+                  href={CONTROL_PLANE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  {t("controlPlane.openInTab")}
+                </a>
+              </div>
+              {/* Só monta o iframe quando a aba está aberta: o control plane
+                  é uma aplicação inteira, e carregá-la em segundo plano
+                  custaria a cada visita à tela de status. */}
+              <iframe
+                src={CONTROL_PLANE_URL}
+                title={t("tabs.controlPlane")}
+                className="h-[calc(100vh-16rem)] w-full border-0"
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="status" className="mt-4 space-y-6">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Server}
@@ -544,6 +594,8 @@ export default function HindsightPage() {
           </CardContent>
         </Card>
       </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

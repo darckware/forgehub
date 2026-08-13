@@ -1,0 +1,10 @@
+{
+  "tabs": {
+    "status": "Estado",
+    "controlPlane": "Control plane"
+  },
+  "controlPlane": {
+    "hint": "Consola del propio Hindsight, servida por el daemon en el puerto 9999.",
+    "openInTab": "Abrir en una pestaña nueva"
+  }
+}

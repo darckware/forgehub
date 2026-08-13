@@ -134,5 +134,13 @@
     "default": "Padrão",
     "ok": "OK",
     "issue": "Problema"
+  },
+  "tabs": {
+    "status": "Status",
+    "controlPlane": "Control plane"
+  },
+  "controlPlane": {
+    "hint": "Console do próprio Hindsight, servido pelo daemon na porta 9999.",
+    "openInTab": "Abrir em nova aba"
   }
 }

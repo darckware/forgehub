@@ -134,5 +134,13 @@
     "default": "Default",
     "ok": "OK",
     "issue": "Issue"
+  },
+  "tabs": {
+    "status": "Status",
+    "controlPlane": "Control plane"
+  },
+  "controlPlane": {
+    "hint": "Hindsight's own console, served by the daemon on port 9999.",
+    "openInTab": "Open in a new tab"
   }
 }
