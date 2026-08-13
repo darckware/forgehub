@@ -39,6 +39,7 @@ from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_
 from app.core.config import settings
 from app.core.demand_thread import build_thread_prompt
 from app.core.feedback import deliver_feedback
+from app.core.localtime import format_local
 from app.core.markdown_docs import resolve_doc_path
 from app.db.base import get_db
 from app.db.models.agent import Agent
@@ -1292,7 +1293,7 @@ async def run_incubation_maturation_pass(db: AsyncSession) -> int:
                 title=f"Decision due: {demand.subject}",
                 message=(
                     f"#{demand.number} has been incubating since "
-                    f"{demand.created_at:%Y-%m-%d} and is waiting on its owner to "
+                    f"{format_local(demand.created_at, '%Y-%m-%d')} and is waiting on its owner to "
                     f"receive or drop it."
                 ),
                 event_key=f"incubation-due:{demand.id}",
@@ -1445,7 +1446,10 @@ def _format_execution_header(demand: AgentDemand, agent_name: str) -> str:
     written on a terminal transition, so only completed/failed ever appear
     here anyway."""
     return (
-        f"Data: {demand.task_execution_at.isoformat() if demand.task_execution_at else ''}\n"
+        # Wall-clock in settings.TIMEZONE, not UTC: this line is read by a
+        # person, and a header three hours ahead of their own clock can't be
+        # matched against anything else on the machine (2026-08-13).
+        f"Data: {format_local(demand.task_execution_at)}\n"
         f"Agente: {agent_name}\n"
         f"Ticket: #{demand.number}\n"
         f"Assunto: {demand.subject}\n"
