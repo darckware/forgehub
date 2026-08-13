@@ -976,16 +976,33 @@ async def delete_attachment(
 async def notify_telegram(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     """"Encaminhar pro Telegram": proxies the host-bridge's
     /v1/messages/send (see host-bridge/send_message.py), which forwards
-    through Hermes's already-configured cross-channel gateway -- no
-    target/chat_id needed, "telegram" alone resolves to the home channel
-    (the user's own Telegram) via ~/.hermes/config.yaml."""
+    through Hermes's cross-channel gateway.
+
+    Sends through a specific agent's bot (`profile`), which is what makes it
+    work at all: every agent has its own TELEGRAM_BOT_TOKEN in its own
+    profile, and the global Hermes install has none -- calling this without a
+    profile fails with "You must pass the token you received from BotFather"
+    (found 2026-08-13; this route had been doing exactly that since it was
+    written, so it could never have delivered anything).
+
+    Which bot: the message's own agent, sender first (whoever passed the work
+    on) then target, matching "whoever received the request answers it". An
+    external runtime has no Telegram bot, so it falls through to no profile
+    -- which still fails, but visibly, rather than silently answering as
+    somebody else."""
     demand = await _get_demand_or_404(db, demand_id)
     text = f"*{demand.subject}*\n\n{demand.body}"[:4000]
+    payload: dict[str, Any] = {"target": "telegram", "message": text}
+    sender_id = demand.from_agent_id or demand.target_agent_id
+    if sender_id is not None:
+        agent = await db.get(Agent, sender_id)
+        if agent is not None and agent.telegram_account and agent.profile_slug:
+            payload["profile"] = agent.profile_slug
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{settings.CHAT_BRIDGE_URL}/v1/messages/send",
             headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
-            json={"target": "telegram", "message": text},
+            json=payload,
         )
     if resp.status_code != 200:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Host-bridge error: {resp.text[:500]}")

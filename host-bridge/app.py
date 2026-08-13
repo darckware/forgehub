@@ -2075,6 +2075,12 @@ class MessageSendRequest(BaseModel):
     # send_message_tool itself takes.
     target: str
     message: str
+    # Which agent's bot sends it (profile_slug, e.g. "athos"). Every agent
+    # has its own Telegram bot with its own token, so answering a request
+    # that arrived through one agent means sending through that agent's bot
+    # -- otherwise the reply arrives from the wrong sender (2026-08-13).
+    # Omitted, the global install's bot is used, exactly as before.
+    profile: str | None = None
 
 
 @app.post("/v1/messages/send")
@@ -2088,9 +2094,23 @@ async def send_message(
     process directly (see that script's docstring)."""
     _check_token(x_bridge_token)
     helper = str(Path(__file__).parent / "send_message.py")
+    cmd = [HERMES_PYTHON, "-u", helper, "--target", req.target, "--message", req.message]
+    if req.profile:
+        # Resolved here rather than trusting a caller-supplied path: the
+        # request carries a slug, and only slugs under the profiles dir are
+        # reachable, so a caller can't point the send at an arbitrary
+        # directory.
+        # _valid_profile also checks the name against PROFILE_NAME_RE, so a
+        # slug can't traverse out of the profiles dir.
+        if not _is_valid_profile(req.profile):
+            raise HTTPException(
+                status_code=404, detail=f"No Hermes profile named {req.profile!r}"
+            )
+        profile_home = PROFILES_DIR / req.profile
+        cmd += ["--profile-home", str(profile_home)]
     try:
         proc = subprocess.run(
-            [HERMES_PYTHON, "-u", helper, "--target", req.target, "--message", req.message],
+            cmd,
             capture_output=True,
             text=True,
             timeout=30,

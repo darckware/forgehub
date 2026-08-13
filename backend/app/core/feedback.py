@@ -35,6 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.db.models.agent import Agent
 from app.db.models.demand import (
     DEMAND_TERMINAL_DISPATCH_STATUSES,
     AgentDemand,
@@ -93,21 +94,43 @@ async def _deliver_notification(db: AsyncSession, demand: AgentDemand, *, title:
     )
 
 
-async def _deliver_telegram(demand: AgentDemand) -> bool:
-    """Answers the Telegram chat that asked, not the home channel.
+async def _deliver_telegram(db: AsyncSession, demand: AgentDemand) -> bool:
+    """Answers the Telegram chat that asked, through the right agent's bot.
 
-    `channel_ref` holds that chat_id; without it the bridge would fall back
-    to the configured home channel, which is how a reply reaches the wrong
-    conversation. When we don't know the chat, we deliberately do not guess
-    -- the caller records the failure and the notification still happens.
+    Two things have to be right, and each fails differently:
+
+    - **which chat** -- `channel_ref` holds it; without it the bridge falls
+      back to the configured home channel, which is how a reply reaches the
+      wrong conversation. We do not guess.
+    - **which bot** -- every agent has its own (Athos is @HermesAthosbot,
+      Atlas @HermesAtlas2bot, Vector @OpenVectorbot), each with its own
+      token. Sending through the wrong one makes the answer arrive from an
+      agent that never ran the work. The chat id can't disambiguate this:
+      it is the same value across every profile.
+
+    The bot is chosen by the agent that *received* the request, matching the
+    rule that whoever received it answers it: `from_agent_id` (who passed it
+    on) before `target_agent_id` (who ran it).
     """
     if not demand.channel_ref:
         return False
+    sender_id = demand.from_agent_id or demand.target_agent_id
+    profile: str | None = None
+    if sender_id is not None:
+        agent = await db.get(Agent, sender_id)
+        # Only a Hermes profile has a bot the bridge can send through; an
+        # external runtime (Porthus, Aramis, Dartan) has none, and asking for
+        # one would 404. Falling through with profile=None uses the global
+        # install, which is the pre-2026-08-13 behaviour.
+        if agent is not None and agent.telegram_account and agent.profile_slug:
+            profile = agent.profile_slug
     text = _outcome_line(demand)
     body = _body(demand, limit=1200)
     if body:
         text = f"{text}\n\n{body}"
     payload = {"target": f"telegram:{demand.channel_ref}", "message": text}
+    if profile:
+        payload["profile"] = profile
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(_BRIDGE_MESSAGES_URL, json=payload)
         response.raise_for_status()
@@ -136,7 +159,7 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
             # Notify in the app as well: the Telegram send can fail, and this
             # is the record that the run finished either way.
             await _deliver_notification(db, demand, title=title)
-            delivered = await _deliver_telegram(demand)
+            delivered = await _deliver_telegram(db, demand)
             if not delivered:
                 logger.warning(
                     "Feedback for #%s has channel=telegram but no chat to answer -- "

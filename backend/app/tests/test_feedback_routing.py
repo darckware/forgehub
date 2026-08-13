@@ -182,7 +182,9 @@ async def test_telegram_without_a_chat_still_reports_in_app(agent, monkeypatch):
 async def test_telegram_answers_the_chat_that_asked(agent, monkeypatch):
     sent: dict = {}
 
-    async def _fake_deliver(demand):
+    # Takes (db, demand) since 2026-08-13: picking the sending bot needs a
+    # session to look the agent up.
+    async def _fake_deliver(db, demand):
         sent["target"] = demand.channel_ref
         return True
 
@@ -209,3 +211,73 @@ async def test_the_sweep_picks_up_what_inline_delivery_missed(agent):
     async with AsyncSessionLocal() as session:
         d = await session.get(AgentDemand, demand_id)
         assert d.feedback_sent_at is not None
+
+
+async def test_telegram_answers_through_the_receiving_agents_bot(agent, monkeypatch):
+    """Every agent has its own Telegram bot, so the answer has to go out
+    through the bot of the agent that received the request -- otherwise it
+    arrives from an agent that never ran the work. The chat id can't
+    disambiguate: it is the same value across every profile."""
+    sent: dict = {}
+
+    class _FakeResponse:
+        def raise_for_status(self): pass
+
+    class _FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None):
+            sent.update(json or {})
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.core.feedback.httpx.AsyncClient", _FakeClient)
+
+    async with AsyncSessionLocal() as session:
+        a = await session.get(Agent, agent)
+        a.telegram_account = "HermesTestbot"
+        a.profile_slug = f"prof-{uuid.uuid4().hex[:6]}"
+        await session.commit()
+        slug = a.profile_slug
+
+    demand_id = await _finished(agent, channel="telegram", channel_ref="1085550644")
+    async with AsyncSessionLocal() as session:
+        d = await session.get(AgentDemand, demand_id)
+        assert await deliver_feedback(session, d) is True
+        await session.commit()
+
+    assert sent["target"] == "telegram:1085550644", "must answer the asking chat"
+    assert sent["profile"] == slug, "must send through the receiving agent's own bot"
+
+
+async def test_an_agent_without_a_telegram_bot_sends_no_profile(agent, monkeypatch):
+    """Porthus, Aramis and Dartan have no bot. Naming a profile that has none
+    would 404 at the bridge; omitting it fails visibly instead of silently
+    answering as somebody else."""
+    sent: dict = {}
+
+    class _FakeResponse:
+        def raise_for_status(self): pass
+
+    class _FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None):
+            sent.update(json or {})
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.core.feedback.httpx.AsyncClient", _FakeClient)
+
+    async with AsyncSessionLocal() as session:
+        a = await session.get(Agent, agent)
+        a.telegram_account = None
+        await session.commit()
+
+    demand_id = await _finished(agent, channel="telegram", channel_ref="1085550644")
+    async with AsyncSessionLocal() as session:
+        d = await session.get(AgentDemand, demand_id)
+        await deliver_feedback(session, d)
+        await session.commit()
+
+    assert "profile" not in sent
