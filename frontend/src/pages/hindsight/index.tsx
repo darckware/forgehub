@@ -10,12 +10,14 @@ import {
   RefreshCw,
   Server,
   ExternalLink,
+  Maximize2,
+  Minimize2,
   Settings2,
   Table2,
   XCircle,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -157,6 +159,31 @@ export default function HindsightPage() {
   // Aba ativa. Começa em "status" para a tela abrir como sempre abriu -- o
   // control plane é uma consulta ocasional, não a visão padrão.
   const [tab, setTab] = useState("status");
+  const controlPlaneRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // O estado vem do browser, não do clique: sair com Esc (ou por qualquer
+  // outro caminho que o navegador ofereça) não passa pelo nosso handler, e
+  // um booleano próprio ficaria mostrando "sair de tela cheia" numa tela que
+  // já saiu.
+  useEffect(() => {
+    const sync = () => setIsFullscreen(document.fullscreenElement != null);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  const toggleFullscreen = () => {
+    const node = controlPlaneRef.current;
+    if (!node) return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      // Falha silenciosa é aceitável aqui: alguns navegadores recusam a
+      // Fullscreen API por política, e o "abrir em nova aba" ao lado já é a
+      // saída para esse caso.
+      void node.requestFullscreen?.().catch(() => undefined);
+    }
+  };
   const [clearLogConfirmOpen, setClearLogConfirmOpen] = useState(false);
   const { data: schemaTables, isLoading: schemaLoading } = useDatabaseTables(
     "hindsight",
@@ -236,19 +263,34 @@ export default function HindsightPage() {
         </TabsList>
 
         <TabsContent value="controlPlane" className="mt-4">
-          <Card>
+          <Card ref={controlPlaneRef} className="bg-card">
             <CardContent className="p-0">
               <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
                 <p className="text-xs text-muted-foreground">{t("controlPlane.hint")}</p>
-                <a
-                  href={CONTROL_PLANE_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  {t("controlPlane.openInTab")}
-                </a>
+                <div className="flex shrink-0 items-center gap-1">
+                  <a
+                    href={CONTROL_PLANE_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    {t("controlPlane.openInTab")}
+                  </a>
+                  {/* Tela cheia real (Fullscreen API) em vez de só esticar o
+                      iframe: o control plane é denso, e o ganho está em usar
+                      a tela inteira sem a barra do navegador nem a moldura do
+                      ForgeHub. Sai com Esc, que o próprio browser trata. */}
+                  <button
+                    type="button"
+                    title={isFullscreen ? t("controlPlane.exitFullscreen") : t("controlPlane.fullscreen")}
+                    aria-label={isFullscreen ? t("controlPlane.exitFullscreen") : t("controlPlane.fullscreen")}
+                    onClick={toggleFullscreen}
+                    className="inline-flex items-center rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
               </div>
               {/* Só monta o iframe quando a aba está aberta: o control plane
                   é uma aplicação inteira, e carregá-la em segundo plano
@@ -256,7 +298,14 @@ export default function HindsightPage() {
               <iframe
                 src={CONTROL_PLANE_URL}
                 title={t("tabs.controlPlane")}
-                className="h-[calc(100vh-16rem)] w-full border-0"
+                // Em tela cheia não existe o cabeçalho da página para
+                // descontar -- manter os 16rem deixaria uma faixa morta
+                // justamente onde se pediu mais espaço.
+                className={
+                  isFullscreen
+                    ? "h-[calc(100vh-2.5rem)] w-full border-0"
+                    : "h-[calc(100vh-16rem)] w-full border-0"
+                }
               />
             </CardContent>
           </Card>

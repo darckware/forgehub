@@ -141,6 +141,8 @@
   },
   "controlPlane": {
     "hint": "Hindsight's own console, served by the daemon on port 9999.",
-    "openInTab": "Open in a new tab"
+    "openInTab": "Open in a new tab",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit fullscreen"
   }
 }

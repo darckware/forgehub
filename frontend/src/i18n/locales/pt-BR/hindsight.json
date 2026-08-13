@@ -141,6 +141,8 @@
   },
   "controlPlane": {
     "hint": "Console do próprio Hindsight, servido pelo daemon na porta 9999.",
-    "openInTab": "Abrir em nova aba"
+    "openInTab": "Abrir em nova aba",
+    "fullscreen": "Tela cheia",
+    "exitFullscreen": "Sair da tela cheia"
   }
 }

@@ -5,6 +5,8 @@
   },
   "controlPlane": {
     "hint": "Consola del propio Hindsight, servida por el daemon en el puerto 9999.",
-    "openInTab": "Abrir en una pestaña nueva"
+    "openInTab": "Abrir en una pestaña nueva",
+    "fullscreen": "Pantalla completa",
+    "exitFullscreen": "Salir de pantalla completa"
   }
 }
