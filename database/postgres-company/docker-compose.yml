@@ -36,7 +36,8 @@ networks:
 # que já existe e está rodando desde a migração ForgeCompany (2026-06-11), mas cujo
 # docker-compose.yml original (em /root/ForgeCompany/database/postgres-company/) foi
 # perdido no rename ForgeCompany -> Forgehub. Os databases reais hospedados aqui hoje
-# são `forgehub` e `kanboard` (criados manualmente após o container subir) — o valor
+# é `forgehub` (criado manualmente após o container subir; o banco `kanboard` foi
+# descontinuado junto com o container, em 2026-08-13) — o valor
 # de POSTGRES_DB acima só importa na criação inicial do container e não precisa mudar.
 #
 # Antes de rodar `docker compose up -d` aqui, valide com `docker compose config` e
