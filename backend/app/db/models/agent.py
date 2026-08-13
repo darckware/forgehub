@@ -108,6 +108,24 @@ class Agent(Base, TimestampMixin):
     telegram_required: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # The agent's own Telegram bot account, as its @username (e.g.
+    # "HermesAthosbot") -- 2026-08-13, Marcelo: "no caso do athos a conta do
+    # telegram é HermesAthosbot".
+    #
+    # Every agent has a *different* bot, each with its own TELEGRAM_BOT_TOKEN
+    # in its profile .env, so "reply on Telegram" is not one destination but
+    # thirteen: an answer to a request that arrived through Athos' bot has to
+    # go back out through Athos' bot, or it reaches the wrong conversation
+    # from the wrong sender. The chat id alone can't express that -- it is the
+    # same value (Marcelo's own) across every profile.
+    #
+    # Stored here rather than read from the profile .env because the .env
+    # holds the token, not the account name: the username is the human-
+    # readable identity of that bot, and the only way to tell in ForgeHub
+    # which account a given agent speaks through. The token itself is never
+    # copied here (see core/agent_telegram.py, which reduces it to a boolean
+    # before it leaves the module).
+    telegram_account: Mapped[str | None] = mapped_column(String(100), nullable=True)
     has_profile: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )

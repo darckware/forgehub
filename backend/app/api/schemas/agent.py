@@ -294,6 +294,11 @@ class AgentUpdate(BaseModel):
     # (agent_runs.py), which is why the gap stayed invisible: those four
     # dispatch fine by UUID from the UI.
     profile_slug: str | None = Field(default=None, min_length=1, max_length=50)
+    # The agent's own Telegram bot account (@username, e.g. "HermesAthosbot").
+    # Empty string clears it, so no min_length: an agent may legitimately have
+    # no Telegram bot. Editable because every agent speaks through a different
+    # bot, and only this says which one answers for it.
+    telegram_account: str | None = Field(default=None, max_length=100)
     # Absolute host path of the agent's profile-file directory. Empty string
     # clears the override and falls back to the runtime convention (see
     # core/agent_profile_files.py); that is why it is not min_length=1.
@@ -351,6 +356,10 @@ class AgentOut(AgentBase):
     layer: str | None = None
     runtime_tier: str | None = None
     telegram_required: bool = False
+    # The agent's own Telegram bot account (@username). Editable, unlike the
+    # sync-owned fields above: it identifies which bot answers for this agent,
+    # and every agent has a different one.
+    telegram_account: str | None = None
     has_profile: bool = False
     mission: str | None = None
     source_path: str | None = None

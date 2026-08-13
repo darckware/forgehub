@@ -40,6 +40,21 @@ _TOKEN_KEY = "TELEGRAM_BOT_TOKEN"
 _CHANNEL_KEY = "TELEGRAM_HOME_CHANNEL"
 _CHANNEL_NAME_KEY = "TELEGRAM_HOME_CHANNEL_NAME"
 
+# Where each runtime keeps its Telegram bot credentials. Hermes profiles use
+# <profile>/.env; the external runtimes keep their own home instead -- Vector
+# (OpenClaw) at /root/.openclaw/.env (2026-08-13, Marcelo: "o token do Vector
+# fica /root/.openclaw/"). Only Vector has one today: Porthus, Aramis and
+# Dartan have no Telegram bot at all, which is a normal state and not a gap.
+#
+# Recorded here so the *account* behind an agent can be discovered from the
+# token it already has (Telegram's getMe) rather than typed in by hand --
+# hand-typing thirteen usernames would create a second source of truth that
+# drifts the day a bot is replaced. The token itself never leaves this module
+# (see the boolean reduction above).
+EXTERNAL_RUNTIME_ENV_PATHS = {
+    "openclaw": "/root/.openclaw/.env",
+}
+
 _ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*?)\s*$")
 
 STATUS_OK = "ok"
