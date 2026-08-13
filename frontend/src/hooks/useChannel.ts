@@ -311,9 +311,40 @@ export function usePostChannelMessage(channelId: string) {
   });
 }
 
+/** One mentioned/broadcast agent's turn has been launched (backend fires
+ * this for every mentioned agent up front, all at once, right before
+ * kicking off their concurrent bridge calls) -- lets the UI show a live
+ * "N agentes trabalhando em paralelo" strip instead of one generic spinner
+ * (2026-08-06, Marcelo: "precisa ver a quantidade de processos em
+ * paralelo... com o detalhamento de cada agente"). */
+export type ChannelAgentStarted = { agent_id: string; agent_name: string };
+
+/** One tool_start/tool_complete event from a mentioned agent's in-flight
+ * turn, relayed live (2026-08-06, Marcelo: "traz o passo a passo de
+ * ferramentas em tempo real também") -- wire shape from backend
+ * channel.py's _wake_agent_turn_streaming, deliberately mirroring
+ * useChat.ts's ChatStreamEvent tool_start/tool_complete fields (tool_id,
+ * name, context/detail for a start; summary/demand_number for a
+ * complete) so the same mapping-to-ChatQueueStep logic applies in both
+ * places. `done` distinguishes start (false) from complete (true) --
+ * unlike useChat.ts these aren't two separate event shapes since the
+ * channel only has one generic `agent_step` SSE event type. */
+export type ChannelAgentStep = {
+  agent_id: string;
+  agent_name: string;
+  tool_id: string;
+  name: string;
+  context?: string;
+  detail?: string;
+  summary?: string;
+  demand_number?: number;
+  done: boolean;
+};
+
 /** SSE stream: one event per completed message (human echo, then each
- * #-mentioned agent's full reply as its turn finishes) -- see backend
- * channel.py's stream_channel_message docstring for why this is
+ * #-mentioned agent's full reply as its turn finishes, in whatever order
+ * they actually complete -- all mentioned agents run concurrently) -- see
+ * backend channel.py's stream_channel_message docstring for why this is
  * per-message rather than per-token. */
 export function useStreamChannelMessage(channelId: string) {
   const queryClient = useQueryClient();
@@ -321,7 +352,9 @@ export function useStreamChannelMessage(channelId: string) {
     content: string,
     onMessage: (message: ChatChannelMessage) => void,
     signal?: AbortSignal,
-    attachmentNames?: string
+    attachmentNames?: string,
+    onAgentStarted?: (agent: ChannelAgentStarted) => void,
+    onAgentStep?: (step: ChannelAgentStep) => void
   ): Promise<void> {
     const token = getToken() ?? "";
     const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
@@ -356,6 +389,18 @@ export function useStreamChannelMessage(channelId: string) {
             throw new Error(parsed.detail ?? "channel stream error");
           }
           if (currentEvent === "done") {
+            currentEvent = "message";
+            continue;
+          }
+          if (currentEvent === "agent_started") {
+            const parsed = JSON.parse(raw || "{}") as Partial<ChannelAgentStarted>;
+            if (parsed.agent_id && parsed.agent_name) onAgentStarted?.(parsed as ChannelAgentStarted);
+            currentEvent = "message";
+            continue;
+          }
+          if (currentEvent === "agent_step") {
+            const parsed = JSON.parse(raw || "{}") as Partial<ChannelAgentStep>;
+            if (parsed.agent_id && parsed.tool_id) onAgentStep?.(parsed as ChannelAgentStep);
             currentEvent = "message";
             continue;
           }

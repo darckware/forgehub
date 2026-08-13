@@ -343,6 +343,35 @@ export function useImportAgentForgeRouterKey(agentId: string) {
   });
 }
 
+/** Service-kind entries in ForgeRouter's own registry (ai_router.agents,
+ * kind='service' -- e.g. "Hindsight"), distinct from the Agent roster
+ * above -- backs Settings' "Default agent for project API keys" picker
+ * (2026-07-29, Marcelo: "eu adicionei agente do tipo serviço no
+ * forgerouter, filtra somente esses"). */
+export interface ForgeRouterService {
+  name: string;
+}
+
+export function useForgeRouterServices() {
+  return useQuery({
+    queryKey: ["agents", "forgerouter-services"],
+    queryFn: () => apiClient.get<ForgeRouterService[]>(`${RESOURCE}/forgerouter-services`),
+  });
+}
+
+/** One service's plaintext key (straight from ai_router.agents -- that
+ * table is ForgeRouter's own storage, nothing to decrypt) -- backs the
+ * Dashboard's ProjectsForgeRouterCard prompt pre-fill. Pass `undefined`
+ * for `name` to disable (mirrors useAgent's id-gated pattern): only fetch
+ * this admin-only secret while the prompt is actually open. */
+export function useForgeRouterServiceKey(name: string | undefined) {
+  return useQuery({
+    queryKey: ["agents", "forgerouter-services", name ?? ""],
+    queryFn: () => apiClient.get<{ name: string; api_key: string }>(`${RESOURCE}/forgerouter-services/${name}`),
+    enabled: Boolean(name),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Profile Markdown files (SOUL.md, IDENTITY.md, TOOLS.md, ...)
 //

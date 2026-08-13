@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   Bot,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Crown,
   Eraser,
@@ -23,7 +24,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -34,39 +34,29 @@ import {
   ArtifactMentionPicker,
   AttachMenuButton,
   ChatPane,
+  FinishedStepsTrail,
+  formatThinkingDuration,
   MentionFilePicker,
+  QueueStepsList,
   SlashCommandPicker,
-  type AgentMentionPickerHandle,
-  type ArtifactMentionPickerHandle,
-  type MentionFilePickerHandle,
-  type SlashCommandItem,
-  type SlashCommandPickerHandle,
 } from "@/components/chat/ChatPane";
 import { ComposerShell } from "@/components/chat/ComposerShell";
-import { useChatSessions, useTranscribeAudio } from "@/hooks/useChat";
-import { usePromptCommands } from "@/hooks/usePromptCommands";
+import { ImprovePromptDialog } from "@/components/chat/ImprovePromptDialog";
+import { useChatSessions } from "@/hooks/useChat";
+import { useChannelRoomViewModel } from "@/hooks/useChannelRoomViewModel";
+import { useChannelHeaderViewModel } from "@/hooks/useChannelHeaderViewModel";
 import { useProjects } from "@/hooks/useProject";
 import { PROJECT_AGENT_ROLES, useProjectMemberships } from "@/hooks/useOrchestration";
 import { useApproveApproval, useRejectApproval } from "@/hooks/useGovernance";
 import {
-  useAddChannelMember,
-  useAttachChannelProject,
   useChannel,
   useChannelMessages,
   useChannelTasks,
   useChannels,
   useCreateChannel,
   useCreateChannelTask,
-  useClearChannelMessages,
-  useDeleteChannel,
-  useDetachChannelProject,
   useDispatchChannelMessage,
   usePromoteChannelTask,
-  useRemoveChannelMember,
-  useStreamChannelMessage,
-  useStreamImprovePrompt,
-  useUpdateChannel,
-  useUpdateChannelMember,
   useUpdateChannelTask,
   type ChatChannelMember,
   type ChatChannelMessage,
@@ -79,6 +69,12 @@ import {
  * the full design (member choice is always explicit, project attachment is
  * mutable like adding an MCP, turn_policy is "#mention only").
  */
+// Composer auto-grow ceiling -- matches ChatPane.tsx's own constant (kept
+// as a separate copy since ChannelPane.tsx and ChatPane.tsx are two
+// different files, not a shared module -- see the composer auto-grow
+// effect in ChannelRoom below).
+const COMPOSER_MAX_HEIGHT_PX = 240;
+
 export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; defaultProjectId?: string }) {
   const { t } = useTranslation("workspace");
   const { data: channels = [] } = useChannels();
@@ -490,6 +486,25 @@ function CreateChannelForm({
   );
 }
 
+/** Live "mm:ss" ticker for one agent's chip in the "working" strip --
+ * same formatting ChatPane.tsx's own LiveThinkingLabel uses
+ * (formatThinkingDuration, exported from there for this), not reused
+ * as-is since the chip here is a <span> inside a <button> rather than a
+ * standalone <p> (2026-08-06, "detalhamento de cada agente"). */
+function AgentWorkingTicker({ startedAt }: { startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
+  return <span className="text-[10px] text-muted-foreground">{formatThinkingDuration(elapsed)}</span>;
+}
+
+/** View for the channel transcript + composer -- all state and behavior
+ * live in useChannelRoomViewModel (2026-08-07, Wave 1 of
+ * docs/architecture/FRONTEND_VIEWMODEL_MIGRATION_PLAN.md, Marcelo: "faça
+ * o item 1"). This component only renders that ViewModel's fields. */
 function ChannelRoom({
   channelId,
   agents,
@@ -502,232 +517,67 @@ function ChannelRoom({
   onDeleted: () => void;
 }) {
   const { t } = useTranslation("workspace");
-  const { data: channel } = useChannel(channelId);
-  const { data: messages = [] } = useChannelMessages(channelId);
-  const streamMessage = useStreamChannelMessage(channelId);
-  const improvePrompt = useStreamImprovePrompt(channelId);
-  const [liveMessages, setLiveMessages] = useState<ChatChannelMessage[]>([]);
-  const [content, setContent] = useState("");
-  const [sending, setSending] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [improveOpen, setImproveOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"transcript" | "tasks">("transcript");
-  const abortRef = useRef<AbortController | null>(null);
-  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const {
+    channel,
+    allMessages,
+    agentById,
+    finishedStepsByMessageId,
+    activeTab,
+    setActiveTab,
+    content,
+    setContent,
+    sending,
+    sendError,
+    setSendError,
+    runningAgents,
+    expandedAgentId,
+    setExpandedAgentId,
+    slashOpen,
+    setSlashOpen,
+    agentMentionOpen,
+    setAgentMentionOpen,
+    agentMentionQuery,
+    setAgentMentionQuery,
+    mentionOpen,
+    setMentionOpen,
+    artifactMentionOpen,
+    setArtifactMentionOpen,
+    artifactMentionQuery,
+    setArtifactMentionQuery,
+    promptCommands,
+    composerTextareaRef,
+    slashPickerRef,
+    agentPickerRef,
+    mentionPickerRef,
+    artifactPickerRef,
+    fileInputRef,
+    handleComposerKeyDown,
+    handleSlashSelect,
+    handleAgentMentionSelect,
+    handleMentionSelect,
+    handleArtifactMentionSelect,
+    handleFilePick,
+    isRecording,
+    isTranscribing,
+    handleToggleRecording,
+    improveOpen,
+    setImproveOpen,
+    improvePrompt,
+  } = useChannelRoomViewModel(channelId, agents, t("channels.attachmentReadError"));
 
-  // Same composer picker components ChatPane (Workspace/Conversas) uses,
-  // wired the same way -- reused, not reimplemented, so a PromptCommand
-  // added anywhere (e.g. /skills-task) shows up here too (2026-08-06,
-  // Marcelo: "a '/' não está aparecendo os comandos que sugerimos... por
-  // esse motivo que queria o mesmo componente do chat de conversa igual
-  // ao do workspace, no chat do canal" -- "seja um desenvolvedor
-  // profissional, não economize código"). MentionFilePicker (@) and
-  // ArtifactMentionPicker ($) turned out to already be
-  // session/channel-agnostic (generic host filesystem browse and a
-  // cross-session artifact search, respectively -- see their own
-  // docstrings in ChatPane.tsx), so both are wired in too. "!" direct
-  // bash command is deliberately left out of AttachMenuButton's menu
-  // below (enabledTriggers) -- it has no single owning agent/session in
-  // a multi-agent room.
-  const [slashOpen, setSlashOpen] = useState(false);
-  const [agentMentionOpen, setAgentMentionOpen] = useState(false);
-  const [agentMentionQuery, setAgentMentionQuery] = useState("");
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [artifactMentionOpen, setArtifactMentionOpen] = useState(false);
-  const [artifactMentionQuery, setArtifactMentionQuery] = useState("");
-  const [attachmentNames, setAttachmentNames] = useState<string | undefined>(undefined);
-  const slashPickerRef = useRef<SlashCommandPickerHandle>(null);
-  const agentPickerRef = useRef<AgentMentionPickerHandle>(null);
-  const mentionPickerRef = useRef<MentionFilePickerHandle>(null);
-  const artifactPickerRef = useRef<ArtifactMentionPickerHandle>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const { data: promptCommands = [] } = usePromptCommands();
-
-  // Voice dictation -- same self-contained mechanism ChatPane's mic button
-  // uses (record -> POST /chat/transcribe -> insert text), agent-agnostic
-  // so it's reused as-is, not reimplemented (2026-08-06, Marcelo: "adicione
-  // no campo prompt de comando do canal... icone de voz para ditar o
-  // texto. Igual ao do chat de conversação"). The "voice conversation"
-  // (live back-and-forth) button is deliberately NOT added -- that one is
-  // locked to a single target agent, which doesn't map to a multi-agent
-  // room the same way.
-  const [isRecording, setIsRecording] = useState(false);
-  const transcribe = useTranscribeAudio();
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-
-  async function handleToggleRecording() {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      setIsRecording(false);
-      return;
-    }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    audioChunksRef.current = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) audioChunksRef.current.push(e.data);
-    };
-    recorder.onstop = async () => {
-      stream.getTracks().forEach((track) => track.stop());
-      const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-      const result = await transcribe.mutateAsync(blob);
-      setContent((prev) => (prev ? `${prev} ${result.text}` : result.text));
-    };
-    mediaRecorderRef.current = recorder;
-    recorder.start();
-    setIsRecording(true);
-  }
-
-  const allMessages = useMemo(() => {
-    const seen = new Set(messages.map((m) => m.id));
-    return [...messages, ...liveMessages.filter((m) => !seen.has(m.id))];
-  }, [messages, liveMessages]);
-
-  const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
-
-  function handleComposerKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      slashPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (slashOpen && e.key === "Enter") {
-      e.preventDefault();
-      slashPickerRef.current?.confirmActive();
-      return;
-    }
-    if (agentMentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      agentPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (agentMentionOpen && e.key === "Enter") {
-      e.preventDefault();
-      agentPickerRef.current?.confirmActive();
-      return;
-    }
-    if (mentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      mentionPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (mentionOpen && e.key === "Enter") {
-      e.preventDefault();
-      mentionPickerRef.current?.confirmActive();
-      return;
-    }
-    if (artifactMentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      artifactPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (artifactMentionOpen && e.key === "Enter") {
-      e.preventDefault();
-      artifactPickerRef.current?.confirmActive();
-      return;
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-      return;
-    }
-    if (e.key === "Escape" && (slashOpen || agentMentionOpen || mentionOpen || artifactMentionOpen)) {
-      setSlashOpen(false);
-      setAgentMentionOpen(false);
-      setMentionOpen(false);
-      setArtifactMentionOpen(false);
-    }
-  }
-
-  function handleSlashSelect(item: SlashCommandItem) {
-    setSlashOpen(false);
-    // No "local" kind ever reaches here (excluded via includeLocal=false
-    // below) -- always insert text, same as ChatPane's "hermes"/"prompt"
-    // branch.
-    const text = item.kind === "prompt" ? item.prompt : item.command;
-    setContent(text.endsWith(" ") ? text : `${text} `);
-    composerTextareaRef.current?.focus();
-  }
-
-  function handleAgentMentionSelect(agent: Agent) {
-    setContent((prev) => {
-      const hashIndex = prev.lastIndexOf("#");
-      const base = hashIndex === -1 ? prev : prev.slice(0, hashIndex);
-      return `${base}#${agent.name} `;
-    });
-    setAgentMentionOpen(false);
-    composerTextareaRef.current?.focus();
-  }
-
-  function handleMentionSelect(path: string) {
-    setContent((prev) => (prev.endsWith("@") ? prev.slice(0, -1) : prev) + `${path} `);
-    setMentionOpen(false);
-    composerTextareaRef.current?.focus();
-  }
-
-  function handleArtifactMentionSelect(path: string) {
-    setContent((prev) => {
-      const dollarIndex = prev.lastIndexOf("$");
-      const base = dollarIndex === -1 ? prev : prev.slice(0, dollarIndex);
-      return `${base}${path} `;
-    });
-    setArtifactMentionOpen(false);
-    composerTextareaRef.current?.focus();
-  }
-
-  // Text-only for now (2026-08-06, Marcelo confirmed via AskUserQuestion:
-  // "Só arquivo de texto agora") -- reads the file client-side and pastes
-  // its content into the message, same framing ChatPane's server-side
-  // non-image branch already uses, so no new backend upload endpoint is
-  // needed. Image support (would need the channel turn to also call the
-  // bridge's image endpoint) is left for a follow-up.
-  async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    let text: string;
-    try {
-      text = await file.text();
-    } catch {
-      setSendError(t("channels.attachmentReadError"));
-      return;
-    }
-    const block = `Conteúdo do arquivo "${file.name}" colado abaixo:\n---\n${text}\n---`;
-    setContent((prev) => (prev.trim() ? `${prev}\n\n${block}` : block));
-    setAttachmentNames((prev) => (prev ? `${prev}, ${file.name}` : file.name));
-    composerTextareaRef.current?.focus();
-  }
-
-  async function handleSend() {
-    const text = content.trim();
-    if (!text || sending) return;
-    setContent("");
-    const namesToSend = attachmentNames;
-    setAttachmentNames(undefined);
-    setSending(true);
-    setSendError(null);
-    setLiveMessages([]);
-    abortRef.current = new AbortController();
-    try {
-      await streamMessage(
-        text,
-        (message) => setLiveMessages((prev) => [...prev, message]),
-        abortRef.current.signal,
-        namesToSend
-      );
-    } catch (err) {
-      // The backend persists whatever succeeded before the error (e.g.
-      // the human echo); the message list refetch (triggered in the
-      // hook's `finally`) already covers recovering that partial state.
-      // What was missing was surfacing the failure itself -- it used to
-      // vanish here with nothing shown, the exact "enviei a mensagem e
-      // não foi feito nada" symptom (2026-08-06).
-      setSendError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSending(false);
-    }
-  }
+  // Auto-grow the composer with its content, same as ChatPane's own
+  // composer -- the channel's used to stay a fixed single-line box no
+  // matter how long the message got, clipping/scrolling the text inside a
+  // tiny box instead of growing to fit it (2026-08-07, Marcelo: "melhore
+  // pois não consigo ler o texto no prompt"). The single-line height is
+  // the floor (never shrinks below it), growing up to
+  // COMPOSER_MAX_HEIGHT_PX before scrolling internally.
+  useEffect(() => {
+    const el = composerTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
+  }, [content, composerTextareaRef]);
 
   if (!channel) {
     return (
@@ -755,7 +605,12 @@ function ChannelRoom({
         <TabsContent value="transcript" className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             {allMessages.map((m) => (
-              <MessageBubble key={m.id} message={m} agent={m.author_agent_id ? agentById.get(m.author_agent_id) : undefined} channelId={channelId} />
+              <div key={m.id}>
+                {m.author_type === "agent" && (
+                  <FinishedStepsTrail steps={finishedStepsByMessageId.get(m.id) ?? []} />
+                )}
+                <MessageBubble message={m} agent={m.author_agent_id ? agentById.get(m.author_agent_id) : undefined} channelId={channelId} />
+              </div>
             ))}
             {allMessages.length === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">
@@ -763,10 +618,56 @@ function ChannelRoom({
               </p>
             )}
             {sending && (
-              <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {t("channels.working")}
-              </div>
+              runningAgents.size > 0 ? (
+                <div className="flex flex-col gap-1.5 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    {t("channels.workingParallel", { count: runningAgents.size })}
+                  </p>
+                  <div className="flex flex-col gap-1">
+                    {Array.from(runningAgents.entries()).map(([agentId, info]) => (
+                      <div key={agentId} className="max-w-lg">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedAgentId((cur) => (cur === agentId ? null : agentId))}
+                            title={t("channels.agentDetail")}
+                            className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs hover:bg-accent"
+                          >
+                            {info.steps.length > 0 &&
+                              (expandedAgentId === agentId ? (
+                                <ChevronDown className="h-3 w-3 shrink-0" />
+                              ) : (
+                                <ChevronRight className="h-3 w-3 shrink-0" />
+                              ))}
+                            <Bot className="h-3 w-3 shrink-0 animate-pulse text-primary" />
+                            <span className="font-medium">{info.name}</span>
+                            <AgentWorkingTicker startedAt={info.startedAt} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onOpenAgentSession({ id: agentId, name: info.name })}
+                            aria-label={t("channels.openAgentSession", { name: info.name })}
+                            title={t("channels.openAgentSession", { name: info.name })}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <User className="h-3 w-3" />
+                          </button>
+                        </div>
+                        {expandedAgentId === agentId && info.steps.length > 0 && (
+                          <div className="ml-5 mt-1 space-y-1 rounded-lg border border-border/60 bg-muted/20 p-2">
+                            <QueueStepsList steps={info.steps} />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {t("channels.working")}
+                </div>
+              )
             )}
           </div>
           {sendError && (
@@ -826,6 +727,8 @@ function ChannelRoom({
               }}
               onKeyDown={handleComposerKeyDown}
               placeholder={t("channels.composerPlaceholder")}
+              textareaClassName="min-h-0 overflow-y-auto"
+              textareaStyle={{ maxHeight: COMPOSER_MAX_HEIGHT_PX }}
               leading={
                 <>
                   {slashOpen && (
@@ -918,9 +821,9 @@ function ChannelRoom({
                     aria-label={isRecording ? t("chat:composer.stopRecording") : t("chat:composer.recordVoiceMessage")}
                     title={isRecording ? t("chat:composer.stopRecording") : t("chat:composer.recordVoiceMessage")}
                     onClick={handleToggleRecording}
-                    disabled={transcribe.isPending}
+                    disabled={isTranscribing}
                   >
-                    {transcribe.isPending ? (
+                    {isTranscribing ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : isRecording ? (
                       <Square className="h-4 w-4" />
@@ -938,6 +841,10 @@ function ChannelRoom({
           {improveOpen && (
             <ImprovePromptDialog
               initialDraft={content}
+              subject={t("channels.improvePromptSubject")}
+              agents={agents}
+              includeLocalSlashCommands={false}
+              includeHermesSlashCommands={false}
               improvePrompt={improvePrompt}
               onApply={(improved) => {
                 setContent(improved);
@@ -956,117 +863,6 @@ function ChannelRoom({
   );
 }
 
-/** Modal for orchestrator-assisted prompt rewriting -- opened from the
- * Sparkles icon left of the mic button (2026-08-06). Mirrors ConfirmDialog's
- * backdrop/card chrome for visual consistency with the rest of the app's
- * modals, but carries an editable draft + instruction form instead of a
- * yes/no prompt. Confirming calls the backend's private rewrite-only route
- * (never a real channel turn, see useStreamImprovePrompt's docstring) and
- * applies the result straight into the composer -- sending it is still a
- * separate, explicit Enter in the composer afterward (2026-08-06, Marcelo:
- * "quando confirma ele altera o prompt e depois com um enter ele envia a
- * instrução para o agente"). */
-function ImprovePromptDialog({
-  initialDraft,
-  improvePrompt,
-  onApply,
-  onClose,
-}: {
-  initialDraft: string;
-  improvePrompt: (draft: string, instruction: string, signal?: AbortSignal) => Promise<string>;
-  onApply: (improved: string) => void;
-  onClose: () => void;
-}) {
-  const { t } = useTranslation("workspace");
-  const [draft, setDraft] = useState(initialDraft);
-  const [instruction, setInstruction] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  async function handleConfirm() {
-    if (!draft.trim() || loading) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const improved = await improvePrompt(draft, instruction);
-      onApply(improved);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      aria-modal="true"
-      role="dialog"
-      aria-labelledby="improve-prompt-title"
-    >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
-        <div className="h-1 w-full rounded-t-xl bg-primary/80" />
-        <div className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
-              <Sparkles className="h-5 w-5 text-primary" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h2 id="improve-prompt-title" className="text-base font-semibold leading-tight">
-                {t("channels.improvePromptTitle")}
-              </h2>
-              <div className="mt-4 space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    {t("channels.improvePromptDraftLabel")}
-                  </label>
-                  <Textarea
-                    autoFocus
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    rows={4}
-                    className="text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    {t("channels.improvePromptInstructionLabel")}
-                  </label>
-                  <Textarea
-                    value={instruction}
-                    onChange={(e) => setInstruction(e.target.value)}
-                    placeholder={t("channels.improvePromptInstructionPlaceholder")}
-                    rows={2}
-                    className="text-sm"
-                  />
-                </div>
-                {error && <p className="text-xs text-destructive">{error}</p>}
-              </div>
-            </div>
-          </div>
-          <div className="mt-6 flex justify-end gap-3">
-            <Button variant="outline" onClick={onClose} className="min-w-[88px]">
-              {t("common:cancel")}
-            </Button>
-            <Button onClick={handleConfirm} disabled={loading || !draft.trim()} className="min-w-[88px]">
-              {loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              {t("channels.improvePromptConfirm")}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function ChannelHeader({
   channel,
@@ -1094,59 +890,41 @@ function ChannelHeader({
   onDeleted: () => void;
 }) {
   const { t } = useTranslation("workspace");
-  const { data: projects = [] } = useProjects();
-  const attachProject = useAttachChannelProject();
-  const detachProject = useDetachChannelProject();
-  const addMember = useAddChannelMember(channel!.id);
-  const removeMember = useRemoveChannelMember(channel!.id);
-  const updateMember = useUpdateChannelMember(channel!.id);
-  const updateChannel = useUpdateChannel();
-  const deleteChannel = useDeleteChannel();
-  const clearMessages = useClearChannelMessages();
-  const [pickingProject, setPickingProject] = useState(false);
-  const [pickingAgent, setPickingAgent] = useState(false);
-  const [detailMemberId, setDetailMemberId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState("");
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [confirmingClear, setConfirmingClear] = useState(false);
-  // 2026-08-06, Marcelo: "adicione um icone do lado esquerdo do icone de
-  // editar o nome no canal para ocultar/mostrar os agentes" -- collapses
-  // the member-badges row, which can get tall with a full 9-member team.
-  const [membersCollapsed, setMembersCollapsed] = useState(
-    () => localStorage.getItem("forgehub-channel-members-collapsed") === "1"
-  );
-  useEffect(() => {
-    localStorage.setItem("forgehub-channel-members-collapsed", membersCollapsed ? "1" : "0");
-  }, [membersCollapsed]);
+  const {
+    projects,
+    attachProject,
+    detachProject,
+    addMember,
+    removeMember,
+    updateMember,
+    updateChannel,
+    deleteChannel,
+    clearMessages,
+    pickingProject,
+    setPickingProject,
+    pickingAgent,
+    setPickingAgent,
+    detailMemberId,
+    setDetailMemberId,
+    editingName,
+    setEditingName,
+    nameDraft,
+    setNameDraft,
+    confirmingDelete,
+    setConfirmingDelete,
+    confirmingClear,
+    setConfirmingClear,
+    membersCollapsed,
+    setMembersCollapsed,
+    project,
+    addableAgents,
+    startEditingName,
+    commitNameEdit,
+    handleDeleteChannel,
+    handleClearChat,
+  } = useChannelHeaderViewModel(channel, agents);
 
   if (!channel) return null;
-  const project = projects.find((p) => p.id === channel.project_id);
-  const memberAgentIds = new Set(channel.members.filter((m) => !m.is_human).map((m) => m.agent_id));
-  const addableAgents = agents.filter((a) => !memberAgentIds.has(a.id));
-
-  function startEditingName() {
-    setNameDraft(channel!.name);
-    setEditingName(true);
-  }
-
-  function commitNameEdit() {
-    const trimmed = nameDraft.trim();
-    setEditingName(false);
-    if (trimmed && trimmed !== channel!.name) {
-      updateChannel.mutate({ channelId: channel!.id, name: trimmed });
-    }
-  }
-
-  function handleDeleteChannel() {
-    setConfirmingDelete(false);
-    deleteChannel.mutate(channel!.id, { onSuccess: onDeleted });
-  }
-
-  function handleClearChat() {
-    setConfirmingClear(false);
-    clearMessages.mutate(channel!.id);
-  }
 
   return (
     <div className="border-b border-border px-4 py-2.5">
@@ -1344,7 +1122,7 @@ function ChannelHeader({
         description={t("channels.confirmDelete", { name: channel.name })}
         confirmLabel={t("channels.deleteChannel")}
         loading={deleteChannel.isPending}
-        onConfirm={handleDeleteChannel}
+        onConfirm={() => handleDeleteChannel(onDeleted)}
         onCancel={() => setConfirmingDelete(false)}
       />
       <ConfirmDialog

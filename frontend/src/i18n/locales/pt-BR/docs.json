@@ -24,6 +24,7 @@
     "noSearchMatch": "Nenhum item corresponde a esta busca.",
     "mindMap": "Mapa mental",
     "graph": "Grafo",
+    "rawMarkdown": "Visualizar arquivo",
     "selectDocumentFirst": "Selecione um documento primeiro.",
     "buildingGraph": "Construindo grafo…",
     "newDocument": "Novo documento",

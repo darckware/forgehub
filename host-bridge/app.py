@@ -1431,7 +1431,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             "--sandbox",
             "--print-timeout",
             f"{req.max_seconds}s",
-            *model_args,
+
         ],
         {**_antigravity_env(project_dir), **agent_env} if use_forgerouter else agent_env,
     )

@@ -146,12 +146,39 @@ export function useDecideConcept() {
     onSuccess: (data) => { client.invalidateQueries({ queryKey: ["concept", data.concept.product_id] }); client.invalidateQueries({ queryKey: ["blueprint", data.concept.product_id] }); },
   });
 }
+export interface DeliveryPlanningProjectSpec {
+  solution_type: "web_app" | "mobile_app" | "api_service" | "database" | "deploy";
+  project_name: string;
+  project_description?: string;
+  owner?: string;
+  working_directory_path?: string;
+  // When set: auto-creates a ProjectAgentMembership for this agent on the
+  // new Project and assigns it to every task the authorization creates
+  // there (Pacote 3, 2026-08-01).
+  responsible_agent_id?: string;
+}
+export interface DeliveryPlanningProjectResult {
+  project_id: string; project_scope_id: string; solution_type: string;
+  scope_items_created: number; tasks_created: number;
+}
+export interface DeliveryPlanningAuthorizationOut {
+  product_id: string; product_version_id: string; blueprint_revision_id: string;
+  projects: DeliveryPlanningProjectResult[];
+}
 export function useAuthorizeDeliveryPlanning() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ conceptId, ...payload }: { conceptId: string; version: string; project_name: string; project_description?: string; owner?: string; working_directory_path?: string }) =>
-      apiClient.post<{ project_id: string; project_scope_id: string; scope_items_created: number; tasks_created: number }>(`/api/v1/product-concepts/${conceptId}:authorize-delivery-planning`, payload),
+    mutationFn: ({ conceptId, ...payload }: { conceptId: string; version: string; projects: DeliveryPlanningProjectSpec[] }) =>
+      apiClient.post<DeliveryPlanningAuthorizationOut>(`/api/v1/product-concepts/${conceptId}:authorize-delivery-planning`, payload),
     onSuccess: () => { client.invalidateQueries({ queryKey: ["products"] }); client.invalidateQueries({ queryKey: ["projects"] }); },
+  });
+}
+export function useSyncArtifactsToProject() {
+  return useMutation({
+    mutationFn: ({ conceptId, projectId }: { conceptId: string; projectId: string }) =>
+      apiClient.post<{ project_id: string; files_written: string[] }>(
+        `/api/v1/product-concepts/${conceptId}/sync-artifacts-to-project/${projectId}`
+      ),
   });
 }
 export function usePreviewConceptSummary() {

@@ -24,12 +24,12 @@ describe("profileFileNamesFor", () => {
   });
 
   it("adds CLAUDE.md for the claude runtime -- its native always-loaded entrypoint", () => {
-    const files = profileFileNamesFor({ runtime_type: "claude", profile_slug: "porthos" });
+    const files = profileFileNamesFor({ runtime_type: "claude", profile_slug: "porthus" });
     expect(files).toContain("CLAUDE.md");
     expect(files).toContain("AGENTS.md");
     // The runtime extra comes after the canonical set, before SUBAGENTS.
     expect(files.indexOf("CLAUDE.md")).toBeGreaterThan(files.indexOf("CONTINUITY.md"));
-    expect(files.at(-1)).toBe("PORTHOS_SUBAGENTS.md");
+    expect(files.at(-1)).toBe("PORTHUS_SUBAGENTS.md");
   });
 
   it("omits the SUBAGENTS file when the agent has no profile slug", () => {

@@ -519,6 +519,22 @@ class ForgeRouterKeyImportOut(BaseModel):
     forgerouter_api_key_configured: bool = False
 
 
+class ForgeRouterServiceOut(BaseModel):
+    """One service-kind entry in ai_router.agents (e.g. "Hindsight") --
+    name only, never the key (see ForgeRouterServiceKeyOut for that)."""
+
+    name: str
+
+
+class ForgeRouterServiceKeyOut(BaseModel):
+    """Single service's plaintext key, straight from ai_router.agents --
+    that table is ForgeRouter's own storage, not ForgeHub's, so there is
+    nothing to decrypt here (unlike Agent.forgerouter_api_key_encrypted)."""
+
+    name: str
+    api_key: str
+
+
 class ForgeRouterKeySyncAgentOut(BaseModel):
     """One agent's ForgeRouter-key reconciliation against ai_router.agents."""
 

@@ -23,10 +23,12 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 
 from app.db.base import AsyncSessionLocal, Base, engine
+from app.db.models.agent import Agent
 from app.db.models.backlog import PlanningItem
+from app.db.models.governance import AuditEvent
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
 from app.db.models.progress import ProgressCheckpoint
@@ -404,3 +406,111 @@ async def test_assignment_requires_exactly_one_target(
         },
     )
     assert both.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_dispatch_blocked_by_unfinished_dependency(
+    client: AsyncClient, created_ids, planning_item_id
+):
+    """Pacote 3 (2026-08-01): dispatch_task now ports execution.py's
+    dependency preflight -- a task cannot be dispatched via Messages while
+    a predecessor hasn't reached done/deployed. Verified without touching
+    the real dispatch/host-bridge path: the dependency check happens before
+    target-agent resolution, so a blocked dispatch never gets that far, and
+    an unblocked-but-unassigned dispatch fails on the *next* check (400, no
+    active assignment) instead -- proving the dependency gate specifically
+    let it through."""
+    predecessor = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Predecessor task")
+    )
+    assert predecessor.status_code == 201
+    predecessor_id = predecessor.json()["id"]
+    created_ids["project_tasks"].append(predecessor_id)
+
+    dependent = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Dependent task", plan_brief="Faça X depois de Y")
+    )
+    assert dependent.status_code == 201
+    dependent_id = dependent.json()["id"]
+    assert dependent.json()["plan_brief"] == "Faça X depois de Y"
+    created_ids["project_tasks"].append(dependent_id)
+
+    dependency = await client.post(
+        f"/api/v1/tasks/{dependent_id}/dependencies",
+        json={"task_id": dependent_id, "depends_on_task_id": predecessor_id},
+    )
+    assert dependency.status_code == 201, dependency.text
+    created_ids["task_dependencies"].append(dependency.json()["id"])
+
+    blocked = await client.post(f"/api/v1/tasks/{dependent_id}/dispatch", json={})
+    assert blocked.status_code == 409, blocked.text
+    detail = blocked.json()["detail"]
+    assert "unfinished dependencies" in detail["message"]
+    assert detail["blocking"][0]["task_id"] == predecessor_id
+
+    finish_predecessor = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
+    assert finish_predecessor.status_code == 200
+
+    unblocked = await client.post(f"/api/v1/tasks/{dependent_id}/dispatch", json={})
+    # Dependency gate passed -- next gate (no active agent assignment) is
+    # what actually stops it here, a different status/reason than before.
+    assert unblocked.status_code == 400, unblocked.text
+    assert "dependencies" not in unblocked.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_successful_dispatch_commits_and_writes_audit_event(
+    client: AsyncClient, created_ids, planning_item_id, monkeypatch
+):
+    """Pacote 4 (2026-08-01) regression test for a pre-existing bug: a
+    successful dispatch used to construct AuditEvent(description=...), a
+    kwarg the model doesn't have (it has actor/payload) -- this raised
+    *after* the agent run had already been kicked off via dispatch_agent_run
+    (no commit yet, "Caller commits"), so the whole transaction rolled back
+    while the real side effect (starting the run) had already happened.
+    Mocks dispatch_agent_run the same way test_demand_backlog_dispatch.py
+    does, since there's no live host-bridge in this test environment."""
+    from app.api.routes import demand as demand_routes
+
+    async def fake_dispatch(*args, **kwargs):
+        return {"run_id": "fake-run-id"}
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", fake_dispatch)
+
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"Dispatch Test Agent {uuid.uuid4().hex[:8]}", agent_type="executor")
+        db.add(agent)
+        await db.commit()
+        await db.refresh(agent)
+        agent_id = agent.id
+
+    resp = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Dispatchable task")
+    )
+    assert resp.status_code == 201
+    task_id = resp.json()["id"]
+    created_ids["project_tasks"].append(task_id)
+
+    try:
+        dispatched = await client.post(
+            f"/api/v1/tasks/{task_id}/dispatch", json={"target_agent_id": str(agent_id)}
+        )
+        assert dispatched.status_code == 200, dispatched.text
+        assert dispatched.json()["dispatch_status"] == "dispatched"
+        assert dispatched.json()["task_status"] == "in_progress"
+
+        async with AsyncSessionLocal() as db:
+            events = list((await db.execute(select(AuditEvent).where(
+                AuditEvent.entity_type == "project_task", AuditEvent.entity_id == uuid.UUID(task_id),
+                AuditEvent.event_type == "task.dispatched",
+            ))).scalars())
+            assert len(events) == 1
+            assert events[0].actor == "forgehub"
+            assert "dispatched to Dispatch Test Agent" in (events[0].payload or {}).get("description", "")
+            await db.execute(text("DELETE FROM company.audit_events WHERE id = :id"), {"id": events[0].id})
+            await db.commit()
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("DELETE FROM company.agent_demands WHERE origin_id = :id"), {"id": task_id})
+            await db.execute(delete(Agent).where(Agent.id == agent_id))
+            await db.commit()

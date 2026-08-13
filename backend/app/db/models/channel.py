@@ -20,7 +20,18 @@ this domain was built from,
 - turn_policy governs when an agent-member actually generates a real
   response. Today only "mention_only" is a valid value: an agent speaks
   only when explicitly @mentioned (see channel.py's message-posting
-  logic), sequential per mention, never on its own initiative. ForgeHub
+  logic), never on its own initiative. A message that names no agent at
+  all counts as addressed to every member, same as an explicit "#all"
+  (2026-08-06, Marcelo: "quando não especificar o agente a mensagem é para
+  todos e #all seja opcional") -- see channel.py's _resolve_mentions; only
+  an explicit #Name narrows a turn to specific agents. Several woken
+  agents run concurrently, each on its own DB session (2026-08-06, Marcelo:
+  "o chat do canal deve executar vários agentes ao mesmo tempo... veja a
+  execução do chat da conversations" -- see channel.py's
+  _wake_agent_turn_isolated), replying in whichever order their bridge
+  calls actually finish -- concurrent turns are still never *triggered* by
+  another agent's own reply within the same message, which is the
+  "autonomous" risk this bullet is really about. ForgeHub
   has no "agent watches and reacts autonomously" mechanism anywhere else
   in the system, and introducing one here first would add real risk of
   runaway agent-to-agent loops and uncontrolled dispatch cost with no

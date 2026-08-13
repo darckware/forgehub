@@ -88,6 +88,12 @@ class ProjectTask(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # The HOW, distinct from `description` (the WHAT) -- approach, acceptance
+    # criteria, context meant for whichever agent dispatches this task. Never
+    # required (description is already free-form today, kept consistent);
+    # dispatch_task includes it in the message body when set.
+    plan_brief: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # feature | bug | improvement | technical_debt | refactoring |
     # security_fix | research | documentation | other
     task_type: Mapped[str] = mapped_column(String(50), nullable=False, default="feature")

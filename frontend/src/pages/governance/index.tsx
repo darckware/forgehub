@@ -1,282 +1,209 @@
 import { useState } from "react";
-import { ShieldCheck, Sparkles, CheckCircle2, XCircle, Clock, AlertTriangle, UserCheck, Bot, KeyRound, Lock } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Link } from "react-router-dom";
+import { AlertTriangle, CheckCircle2, Clock, Loader2, Plus, ShieldCheck, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  useApprovals,
+  useApproveApproval,
+  useCreateApproval,
+  useDecideGovernedApproval,
+  useGovernedApprovalRequests,
+  useRejectApproval,
+  type Approval,
+  type ApprovalCreateInput,
+  type GovernedApprovalRequest,
+} from "@/hooks/useGovernance";
+import { ApprovalForm } from "./ApprovalForm";
 
-interface ApprovalItem {
-  id: string;
-  type: "revisao_conceito" | "mudanca_schema" | "delegacao_agente" | "liberacao_wave";
-  title: string;
-  requestedBy: string;
-  requestedByType: "user" | "agent";
-  date: string;
-  status: "pending" | "approved" | "rejected";
-  details: string;
-  riskLevel: "low" | "medium" | "high";
-  isSelfRequested?: boolean;
+const STATUS_VARIANT: Record<string, "outline" | "success" | "destructive" | "secondary"> = {
+  pending: "outline",
+  approved: "success",
+  rejected: "destructive",
+  decided: "secondary",
+  expired: "destructive",
+  stale: "destructive",
+};
+
+function ApprovalRow({ approval }: { approval: Approval }) {
+  const approve = useApproveApproval();
+  const reject = useRejectApproval();
+  const isPending = approval.status === "pending";
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <Link to={`/governance/${approval.id}`} className="font-medium hover:underline">
+            {approval.approval_type}
+          </Link>
+          <Badge variant="outline" className="text-xs">{approval.entity_type}</Badge>
+          <Badge variant={STATUS_VARIANT[approval.status] ?? "outline"}>{approval.status}</Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {approval.requested_by} · entidade {approval.entity_id.slice(0, 8)}…
+          {approval.comments && <> · {approval.comments}</>}
+        </p>
+      </div>
+      {isPending && (
+        <div className="flex shrink-0 gap-2">
+          <Button
+            size="sm" variant="outline" disabled={approve.isPending || reject.isPending}
+            onClick={() => approve.mutate({ id: approval.id, decided_by: "operator" })}
+          >
+            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />Aprovar
+          </Button>
+          <Button
+            size="sm" variant="ghost" disabled={approve.isPending || reject.isPending}
+            onClick={() => reject.mutate({ id: approval.id, decided_by: "operator" })}
+          >
+            <XCircle className="mr-1.5 h-3.5 w-3.5 text-destructive" />Rejeitar
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
 
-const MOCK_APPROVALS: ApprovalItem[] = [
-  {
-    id: "app_01",
-    type: "revisao_conceito",
-    title: "Aprovação de Conceito & Documentação PRD (Frontend OAuth)",
-    requestedBy: "Marcelo (Product Owner)",
-    requestedByType: "user",
-    date: "2026-07-27 02:15",
-    status: "pending",
-    details: "Revisão v1 contendo escopo de autenticação social e design system.",
-    riskLevel: "medium",
-    isSelfRequested: true,
-  },
-  {
-    id: "app_02",
-    type: "mudanca_schema",
-    title: "Alembic Migration: Adição de Tabela `user_tokens`",
-    requestedBy: "#Hephaestus (DB Agent)",
-    requestedByType: "agent",
-    date: "2026-07-27 01:40",
-    status: "pending",
-    details: "SQL Migration de schema gerada após aprovação no Diagrama ERD.",
-    riskLevel: "high",
-  },
-  {
-    id: "app_03",
-    type: "liberacao_wave",
-    title: "Autorização de Liberação do Lote 2 (Execution Wave 2)",
-    requestedBy: "#Athos (Supervisor Agent)",
-    requestedByType: "agent",
-    date: "2026-07-26 22:10",
-    status: "approved",
-    details: "Lote de 6 tarefas de frontend liberado para execução autônoma.",
-    riskLevel: "low",
-  },
-];
+function ApprovalsTab() {
+  const approvals = useApprovals();
+  const create = useCreateApproval();
+  const [showForm, setShowForm] = useState(false);
 
-export default function GovernancePage() {
-  const [approvals, setApprovals] = useState<ApprovalItem[]>(MOCK_APPROVALS);
-  const [athosDelegated, setAthosDelegated] = useState(true);
-  const [activeTab, setActiveTab] = useState("pending");
+  const pending = approvals.data?.filter((a) => a.status === "pending") ?? [];
+  const decided = approvals.data?.filter((a) => a.status !== "pending") ?? [];
 
-  const handleDecision = (id: string, decision: "approved" | "rejected") => {
-    setApprovals((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, status: decision } : item))
-    );
+  const submit = async (values: ApprovalCreateInput) => {
+    await create.mutateAsync({
+      ...values,
+      comments: values.comments || undefined,
+      policy_id: values.policy_id || undefined,
+    });
+    setShowForm(false);
   };
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={() => setShowForm((v) => !v)}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          {showForm ? "Cancelar" : "Nova Aprovação"}
+        </Button>
+      </div>
+
+      {showForm && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Nova Aprovação</CardTitle></CardHeader>
+          <CardContent>
+            <ApprovalForm onSubmit={submit} onCancel={() => setShowForm(false)} isSubmitting={create.isPending} />
+            {create.isError && <p className="mt-2 text-sm text-destructive">{(create.error as Error)?.message}</p>}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base"><Clock className="h-4 w-4" />Pendentes</CardTitle>
+          <CardDescription>{pending.length} aguardando decisão</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {approvals.isLoading && <p className="text-sm text-muted-foreground">Carregando...</p>}
+          {!approvals.isLoading && pending.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma aprovação pendente.</p>}
+          {pending.map((a) => <ApprovalRow key={a.id} approval={a} />)}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3"><CardTitle className="text-base">Histórico</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {decided.length === 0 && <p className="text-sm text-muted-foreground">Sem decisões ainda.</p>}
+          {decided.map((a) => <ApprovalRow key={a.id} approval={a} />)}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ConceptApprovalRow({ request }: { request: GovernedApprovalRequest }) {
+  const decide = useDecideGovernedApproval();
+  const [comments, setComments] = useState("");
+  const isPending = request.status === "pending";
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <ShieldCheck className="h-6 w-6 text-primary" />
-            Governança & Aprovações AI-SDLC
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Validação de Políticas, Aprovação de Conceito e Delegação de Autoridade para o Agente Supervisor #Athos.
+          <p className="font-medium">{request.approval_type} — {request.target_type}</p>
+          <p className="text-xs text-muted-foreground">
+            Solicitado por {request.requested_by_name} ({request.requested_by_type}) · alvo {request.target_id.slice(0, 8)}…
           </p>
         </div>
-        <Badge variant="outline" className="flex items-center gap-1 border-primary/30 text-primary">
-          <Sparkles className="h-3.5 w-3.5" />
-          Módulo de Governança
-        </Badge>
+        <Badge variant={STATUS_VARIANT[request.status] ?? "outline"}>{request.status}</Badge>
       </div>
-
-      <div className="grid gap-6 md:grid-cols-[1fr_360px]">
-        {/* Painel Principal de Pendências e Aprovações */}
-        <div className="space-y-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="pending">
-                Pendentes de Decisão ({approvals.filter((a) => a.status === "pending").length})
-              </TabsTrigger>
-              <TabsTrigger value="history">
-                Histórico & Trilha de Auditoria
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="pending" className="mt-4 space-y-4">
-              {approvals.filter((a) => a.status === "pending").length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground space-y-2">
-                    <CheckCircle2 className="h-10 w-10 text-emerald-500/60" />
-                    <p className="font-semibold text-sm">Nenhuma solicitação pendente no momento</p>
-                    <p className="text-xs">Todas as revisões de conceitos e migrações foram avaliadas.</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                approvals
-                  .filter((a) => a.status === "pending")
-                  .map((item) => (
-                    <Card key={item.id} className="border-l-4 border-l-amber-500">
-                      <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between">
-                          <div className="space-y-1">
-                            <CardTitle className="text-sm font-bold flex items-center gap-2">
-                              {item.title}
-                            </CardTitle>
-                            <CardDescription className="text-xs flex items-center gap-2">
-                              {item.requestedByType === "user" ? (
-                                <UserCheck className="h-3.5 w-3.5 text-primary" />
-                              ) : (
-                                <Bot className="h-3.5 w-3.5 text-sky-500" />
-                              )}
-                              <span>Solicitado por: <strong>{item.requestedBy}</strong></span>
-                              <span>•</span>
-                              <span>{item.date}</span>
-                            </CardDescription>
-                          </div>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] ${
-                              item.riskLevel === "high"
-                                ? "border-red-500/50 bg-red-500/10 text-red-600"
-                                : item.riskLevel === "medium"
-                                ? "border-amber-500/50 bg-amber-500/10 text-amber-600"
-                                : "border-emerald-500/50 bg-emerald-500/10 text-emerald-600"
-                            }`}
-                          >
-                            Risco: {item.riskLevel.toUpperCase()}
-                          </Badge>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <p className="text-xs text-muted-foreground bg-muted/40 p-2.5 rounded-md font-mono">
-                          {item.details}
-                        </p>
-
-                        {/* Guardrail: Separation of Duties */}
-                        {item.isSelfRequested && (
-                          <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-700 dark:text-amber-400">
-                            <AlertTriangle className="h-4 w-4 shrink-0" />
-                            <span>
-                              <strong>Separação de Deveres (Separation of Duties):</strong> Você criou esta solicitação e não pode aprová-la diretamente.
-                            </span>
-                          </div>
-                        )}
-
-                        <div className="flex justify-end gap-2 pt-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
-                            onClick={() => handleDecision(item.id, "rejected")}
-                          >
-                            <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                            Rejeitar / Solicitar Ajustes
-                          </Button>
-                          <Button
-                            size="sm"
-                            disabled={item.isSelfRequested}
-                            className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                            onClick={() => handleDecision(item.id, "approved")}
-                          >
-                            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                            Aprovar & Liberar
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))
-              )}
-            </TabsContent>
-
-            <TabsContent value="history" className="mt-4 space-y-3">
-              {approvals
-                .filter((a) => a.status !== "pending")
-                .map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between rounded-lg border p-3 text-xs bg-card"
-                  >
-                    <div className="space-y-1">
-                      <p className="font-bold">{item.title}</p>
-                      <p className="text-[11px] text-muted-foreground">{item.details}</p>
-                    </div>
-                    <Badge
-                      className={
-                        item.status === "approved"
-                          ? "bg-emerald-500 text-white"
-                          : "bg-red-500 text-white"
-                      }
-                    >
-                      {item.status === "approved" ? "Aprovado" : "Rejeitado"}
-                    </Badge>
-                  </div>
-                ))}
-            </TabsContent>
-          </Tabs>
+      {isPending && (
+        <div className="flex items-end gap-2">
+          <Textarea rows={1} placeholder="Comentário (opcional)" value={comments} onChange={(e) => setComments(e.target.value)} className="flex-1" />
+          <Button
+            size="sm" variant="outline" disabled={decide.isPending}
+            onClick={() => decide.mutate({ requestId: request.id, decision: "approved", comments: comments || undefined })}
+          >
+            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />Aprovar
+          </Button>
+          <Button
+            size="sm" variant="ghost" disabled={decide.isPending}
+            onClick={() => decide.mutate({ requestId: request.id, decision: "rejected", comments: comments || undefined })}
+          >
+            <XCircle className="mr-1.5 h-3.5 w-3.5 text-destructive" />Rejeitar
+          </Button>
         </div>
+      )}
+      {decide.isError && <p className="text-xs text-destructive">{(decide.error as Error)?.message}</p>}
+    </div>
+  );
+}
 
-        {/* Painel Lateral de Delegação de Autoridade para o Agente Athos */}
-        <div className="space-y-6">
-          <Card className="border-primary/30">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-primary" />
-                Mandato do Agente Supervisor #Athos
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Delegação de autoridade por 24h para execução e liberação autônoma de lotes.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg border p-3 bg-muted/30 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold flex items-center gap-1.5">
-                    <Bot className="h-4 w-4 text-sky-500" />
-                    #Athos Supervisor
-                  </span>
-                  <Badge variant={athosDelegated ? "default" : "outline"} className={athosDelegated ? "bg-emerald-500" : ""}>
-                    {athosDelegated ? "Mandato Ativo" : "Sem Mandato"}
-                  </Badge>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Escopo: <code className="font-mono">planning.execution.manage</code>, <code className="font-mono">wave.release</code>
-                </p>
-                {athosDelegated && (
-                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    Expira em 23h 45m (Nível de Risco Médio)
-                  </p>
-                )}
-              </div>
+function ConceptApprovalsTab() {
+  const requests = useGovernedApprovalRequests();
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4" />Aprovações de Concepção</CardTitle>
+        <CardDescription>
+          Fluxo governado (policy + separação de deveres) usado para aprovar Concepções antes da autorização de entrega.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {requests.isLoading && <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Carregando...</p>}
+        {!requests.isLoading && (requests.data?.length ?? 0) === 0 && <p className="text-sm text-muted-foreground">Nenhuma solicitação de aprovação de concepção.</p>}
+        {requests.data?.map((r) => <ConceptApprovalRow key={r.id} request={r} />)}
+      </CardContent>
+    </Card>
+  );
+}
 
-              <Button
-                variant={athosDelegated ? "outline" : "default"}
-                size="sm"
-                className="w-full text-xs"
-                onClick={() => setAthosDelegated(!athosDelegated)}
-              >
-                {athosDelegated ? "Revogar Mandato do #Athos" : "Conceder Mandato de 24h"}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Políticas Ativas do AI-SDLC */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Lock className="h-4 w-4 text-primary" />
-                Políticas de Segurança Vigentes
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2.5 text-xs text-muted-foreground">
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                <span>Nenhuma alteração de BD entra em produção sem migração Alembic aprovada.</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                <span>Lotes de tarefas requerem autorização prévia de wave no Cockpit.</span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+export default function GovernancePage() {
+  const [tab, setTab] = useState("approvals");
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold"><ShieldCheck className="h-6 w-6" />Governança</h1>
+        <p className="text-sm text-muted-foreground">
+          Aprovações, trilha de auditoria e políticas. Ver também <Link to="/governance/policies" className="text-primary hover:underline">Políticas</Link>.
+        </p>
       </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="approvals">Aprovações</TabsTrigger>
+          <TabsTrigger value="concept">Aprovações de Concepção</TabsTrigger>
+        </TabsList>
+        <TabsContent value="approvals" className="mt-4">
+          <ApprovalsTab />
+        </TabsContent>
+        <TabsContent value="concept" className="mt-4">
+          <ConceptApprovalsTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

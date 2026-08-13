@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { FoldVertical, Folder, PanelLeftClose, PanelLeftOpen, UnfoldVertical } from "lucide-react";
+import { Code2, FoldVertical, Folder, PanelLeftClose, PanelLeftOpen, UnfoldVertical } from "lucide-react";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { SearchFilterInput } from "@/components/SearchFilterInput";
 import { ViewModeToggle, type DocumentViewMode } from "@/components/ViewModeToggle";
@@ -31,6 +31,11 @@ export function DocumentWorkspace({
   viewMode,
   onViewModeChange,
   mindMapDisabled,
+  showGalaxy,
+  galaxyDisabled,
+  rawView,
+  onRawViewChange,
+  rawViewDisabled,
   actions,
   assistantOpenTitle,
   treeExpand,
@@ -58,6 +63,16 @@ export function DocumentWorkspace({
   viewMode: DocumentViewMode;
   onViewModeChange: (mode: DocumentViewMode) => void;
   mindMapDisabled?: boolean;
+  /** Renders the 3D "memory galaxy" button in the mind map/graph group --
+   * opt-in, omit (or leave false) to not render it (see `ViewModeToggle`). */
+  showGalaxy?: boolean;
+  galaxyDisabled?: boolean;
+  /** Raw-source toggle, rendered to the left of the mind map/graph
+   * buttons -- independent of viewMode (mirrors the Docs page's "view
+   * file" button). Omit to not render it. */
+  rawView?: boolean;
+  onRawViewChange?: (value: boolean) => void;
+  rawViewDisabled?: boolean;
   actions?: ReactNode;
   assistantOpenTitle?: string;
   /** Drives the "expand all / collapse all" toggle rendered right of the
@@ -130,11 +145,24 @@ export function DocumentWorkspace({
             placeholder={searchPlaceholder}
             className="flex-1"
           />
+          {onRawViewChange && (
+            <Button
+              size="icon"
+              variant={rawView ? "secondary" : "outline"}
+              title={t("viewFile")}
+              aria-label={t("viewFile")}
+              disabled={rawViewDisabled}
+              onClick={() => onRawViewChange(!rawView)}
+            >
+              <Code2 className="h-4 w-4" />
+            </Button>
+          )}
           <ViewModeToggle
             viewMode={viewMode}
             onViewModeChange={onViewModeChange}
             mindMapDisabled={mindMapDisabled}
             labels={{ mindMap: t("mindMap"), graph: t("graph") }}
+            galaxy={showGalaxy ? { label: t("galaxy"), disabled: galaxyDisabled } : undefined}
           />
         </div>
       </div>

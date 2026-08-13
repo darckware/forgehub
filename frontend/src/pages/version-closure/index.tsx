@@ -1,224 +1,170 @@
-import { useState } from "react";
-import { CheckCircle2, Sparkles, Package, GitBranch, ShieldCheck, AlertCircle, ArrowRight } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, GitBranch, Loader2, Package, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ApiError } from "@/lib/api";
+import { useProducts, useProductVersions, usePublishProductVersion, useUpdateProductVersion } from "@/hooks/useProduct";
+import { useProjects } from "@/hooks/useProject";
+import { useTasks } from "@/hooks/useTask";
 
-interface CompletedProjectItem {
-  id: string;
-  name: string;
-  applicationName: string;
-  type: "nova_feature" | "manutencao";
-  plansCount: number;
-  tasksCount: number;
-  completedAt: string;
+const TERMINAL_STATUSES = new Set(["done", "deployed", "cancelled"]);
+
+interface BlockingTask { project_id: string; project_name: string; task_id: string; task_number: number; title: string; status: string }
+
+function publishBlockingTasks(error: unknown): BlockingTask[] | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const body = error.body as { detail?: { blocking?: BlockingTask[] } } | undefined;
+  return body?.detail?.blocking ?? null;
 }
 
-const COMPLETED_PROJECTS_MOCK: CompletedProjectItem[] = [
-  {
-    id: "proj_01",
-    name: "Redesign da Tela de Login & Auth OAuth",
-    applicationName: "Frontend Web App",
-    type: "nova_feature",
-    plansCount: 2,
-    tasksCount: 8,
-    completedAt: "2026-07-26",
-  },
-  {
-    id: "proj_02",
-    name: "API de Métricas Financeiras & WebSockets",
-    applicationName: "Backend REST API",
-    type: "nova_feature",
-    plansCount: 1,
-    tasksCount: 5,
-    completedAt: "2026-07-26",
-  },
-  {
-    id: "proj_03",
-    name: "Ajuste na Query de Filtragem por Filial",
-    applicationName: "Backend REST API",
-    type: "manutencao",
-    plansCount: 1,
-    tasksCount: 2,
-    completedAt: "2026-07-27",
-  },
-];
-
 export default function VersionClosurePage() {
-  const [versionTag, setVersionTag] = useState("v2.1.0");
-  const [releaseNotes, setReleaseNotes] = useState(
-    "Lançamento da versão v2.1.0 incluindo novo fluxo de autenticação OAuth, API de métricas financeiras em tempo real e ajustes de performance nas consultas."
+  const products = useProducts();
+  const [productId, setProductId] = useState("");
+  const versions = useProductVersions(productId);
+  const [versionId, setVersionId] = useState("");
+  useEffect(() => setVersionId(versions.data?.[0]?.id || ""), [versions.data]);
+  const version = versions.data?.find((v) => v.id === versionId);
+
+  const projects = useProjects();
+  const tasks = useTasks();
+  const publish = usePublishProductVersion();
+  const updateVersion = useUpdateProductVersion();
+  const [releaseNotes, setReleaseNotes] = useState("");
+  useEffect(() => setReleaseNotes(version?.release_notes ?? ""), [version]);
+
+  const versionProjects = useMemo(
+    () => (projects.data ?? []).filter((p) => p.product_version_id === versionId),
+    [projects.data, versionId]
   );
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(["proj_01", "proj_02", "proj_03"]);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [isPublishedSuccess, setIsPublishedSuccess] = useState(false);
+  const tasksByProject = useMemo(() => {
+    const map = new Map<string, { total: number; done: number }>();
+    for (const project of versionProjects) map.set(project.id, { total: 0, done: 0 });
+    for (const task of tasks.data ?? []) {
+      const bucket = task.project_id ? map.get(task.project_id) : undefined;
+      if (!bucket) continue;
+      bucket.total += 1;
+      if (TERMINAL_STATUSES.has(task.status)) bucket.done += 1;
+    }
+    return map;
+  }, [tasks.data, versionProjects]);
 
-  const toggleProject = (id: string) => {
-    setSelectedProjectIds((prev) =>
-      prev.includes(id) ? prev.filter((pId) => pId !== id) : [...prev, id]
-    );
-  };
+  const blocking = publishBlockingTasks(publish.error);
 
-  const handleCloseVersion = () => {
-    if (!versionTag.trim() || selectedProjectIds.length === 0) return;
-    setIsPublishing(true);
-    setTimeout(() => {
-      setIsPublishing(false);
-      setIsPublishedSuccess(true);
-    }, 1200);
+  const handlePublish = async () => {
+    if (releaseNotes !== (version?.release_notes ?? "")) {
+      await updateVersion.mutateAsync({ id: versionId, release_notes: releaseNotes });
+    }
+    publish.mutate(versionId);
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <CheckCircle2 className="h-6 w-6 text-primary" />
-            Fechamento de Versão (Release Closure)
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Consolidação de múltiplos projetos concluídos em uma Versão Publicável com encerramento automático em cascata.
-          </p>
-        </div>
-        <Badge variant="outline" className="flex items-center gap-1 border-primary/30 text-primary">
-          <Sparkles className="h-3.5 w-3.5" />
-          Fase 5: Publicação & Release
-        </Badge>
+    <div className="space-y-6">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold"><CheckCircle2 className="h-6 w-6" />Fechamento de Versão</h1>
+        <p className="text-sm text-muted-foreground">
+          Publicar trava edição de escopo/telas/planejamento dos Projects desta versão. Não completa
+          trabalho automaticamente -- bloqueia se houver task pendente.
+        </p>
       </div>
 
-      {isPublishedSuccess ? (
+      <Card>
+        <CardContent className="grid gap-4 pt-6 md:grid-cols-2">
+          <div>
+            <Label>Produto</Label>
+            <Select value={productId} onChange={(e) => setProductId(e.target.value)}>
+              <option value="">Selecione um produto...</option>
+              {products.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </Select>
+          </div>
+          <div>
+            <Label>Versão</Label>
+            <Select value={versionId} onChange={(e) => setVersionId(e.target.value)} disabled={!productId}>
+              <option value="">Selecione uma versão...</option>
+              {versions.data?.map((v) => <option key={v.id} value={v.id}>{v.version} · {v.status}</option>)}
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {!version ? (
+        <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">Selecione um produto e uma versão.</CardContent></Card>
+      ) : version.status === "published" ? (
         <Card className="border-emerald-500/30 bg-emerald-500/5">
-          <CardContent className="flex flex-col items-center justify-center p-8 text-center space-y-3">
-            <CheckCircle2 className="h-12 w-12 text-emerald-500" />
-            <h2 className="text-xl font-bold text-emerald-600">Versão {versionTag} Publicada com Sucesso!</h2>
-            <p className="text-xs text-muted-foreground max-w-md">
-              Todos os <strong>{selectedProjectIds.length} projetos vinculados</strong> e seus planejamentos foram encerrados em cascata (status <code className="text-emerald-600">completed</code>) e a versão da aplicação foi alterada para <code className="text-emerald-600">published</code>.
-            </p>
-            <Button size="sm" onClick={() => setIsPublishedSuccess(false)} className="mt-2 text-xs">
-              Realizar Novo Fechamento de Versão
-            </Button>
+          <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
+            <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+            <p className="font-medium text-emerald-600">Versão {version.version} já publicada</p>
+            <p className="text-xs text-muted-foreground">Escopo, telas e planejamento dos Projects desta versão estão travados.</p>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-6 md:grid-cols-[1fr_360px]">
-          {/* Seleção dos Projetos Concluídos */}
           <div className="space-y-6">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Package className="h-4 w-4 text-primary" />
-                  Projetos Elegíveis para esta Versão ({COMPLETED_PROJECTS_MOCK.length})
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Selecione um ou mais projetos finalizados (de diferentes Aplicações) para vincular a esta Release.
-                </CardDescription>
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold"><Package className="h-4 w-4" />Projects desta versão ({versionProjects.length})</CardTitle>
+                <CardDescription className="text-xs">Um por tipo de aplicação (Pacote 2) -- todos precisam ter as tasks terminadas para publicar.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {COMPLETED_PROJECTS_MOCK.map((proj) => (
-                  <div
-                    key={proj.id}
-                    onClick={() => toggleProject(proj.id)}
-                    className={`flex items-start gap-3 rounded-lg border p-3.5 cursor-pointer transition-colors ${
-                      selectedProjectIds.includes(proj.id)
-                        ? "border-primary bg-primary/5"
-                        : "hover:bg-accent/50"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedProjectIds.includes(proj.id)}
-                      onChange={() => toggleProject(proj.id)}
-                      className="mt-1 h-4 w-4 rounded border-primary text-primary focus:ring-primary"
-                    />
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold">{proj.name}</span>
-                        <Badge variant="outline" className="text-[10px]">
-                          {proj.type === "nova_feature" ? "Nova Feature" : "Manutenção"}
-                        </Badge>
+              <CardContent className="space-y-2">
+                {versionProjects.length === 0 && <p className="text-sm text-muted-foreground">Nenhum Project vinculado a esta versão.</p>}
+                {versionProjects.map((project) => {
+                  const summary = tasksByProject.get(project.id) ?? { total: 0, done: 0 };
+                  const complete = summary.total > 0 && summary.done === summary.total;
+                  return (
+                    <div key={project.id} className="flex items-center justify-between rounded-lg border p-3">
+                      <div>
+                        <p className="text-sm font-medium">{project.name}</p>
+                        <p className="text-xs text-muted-foreground">{project.solution_type ?? "sem tipo"}</p>
                       </div>
-                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                        <span>Aplicação: <strong>{proj.applicationName}</strong></span>
-                        <span>•</span>
-                        <span>{proj.plansCount} Planejamentos</span>
-                        <span>•</span>
-                        <span>{proj.tasksCount} Tarefas</span>
-                      </div>
+                      <Badge variant={complete ? "success" : "outline"}>{summary.done}/{summary.total} tasks</Badge>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
 
-            {/* Release Notes */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <GitBranch className="h-4 w-4 text-primary" />
-                  Notas de Lançamento (Release Notes)
-                </CardTitle>
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold"><GitBranch className="h-4 w-4" />Notas de Lançamento</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <Textarea
-                  rows={4}
-                  className="text-xs font-mono"
-                  value={releaseNotes}
-                  onChange={(e) => setReleaseNotes(e.target.value)}
-                />
+              <CardContent>
+                <Textarea rows={4} value={releaseNotes} onChange={(e) => setReleaseNotes(e.target.value)} placeholder="O que mudou nesta versão..." />
               </CardContent>
             </Card>
           </div>
 
-          {/* Painel Lateral de Confirmação & Encerramento Cascata */}
           <div className="space-y-6">
             <Card className="border-primary/30">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
-                  Resumo da Publicação
-                </CardTitle>
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="h-4 w-4" />Resumo</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Tag de Versão:</Label>
-                  <Input
-                    className="h-8 text-xs font-mono font-bold"
-                    value={versionTag}
-                    onChange={(e) => setVersionTag(e.target.value)}
-                  />
-                </div>
-
                 <div className="rounded-md bg-muted p-3 space-y-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Projetos Selecionados:</span>
-                    <span className="font-bold">{selectedProjectIds.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Status Pós-Fechamento:</span>
-                    <Badge variant="secondary" className="text-[10px] text-emerald-600 bg-emerald-500/10">
-                      Completed (Cascata)
-                    </Badge>
-                  </div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Versão:</span><span className="font-bold">{version.version}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Projects:</span><span className="font-bold">{versionProjects.length}</span></div>
                 </div>
-
-                <div className="flex items-start gap-2 text-[11px] text-muted-foreground rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
-                  <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                  <span>
-                    Ao confirmar, o ForgeHub encerrará automaticamente todos os planejamentos associados e publicará a versão.
-                  </span>
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-[11px] text-muted-foreground">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+                  <span>Bloqueia se houver task não terminada -- nunca completa trabalho automaticamente.</span>
                 </div>
-
-                <Button
-                  className="w-full text-xs flex items-center justify-center gap-2"
-                  onClick={handleCloseVersion}
-                  disabled={isPublishing || selectedProjectIds.length === 0}
-                >
-                  {isPublishing ? "Encerrando e Publicando..." : "Confirmar e Publicar Versão"}
-                  <ArrowRight className="h-3.5 w-3.5" />
+                <Button className="w-full" onClick={handlePublish} disabled={publish.isPending || updateVersion.isPending}>
+                  {(publish.isPending || updateVersion.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Publicar Versão
                 </Button>
+                {blocking && (
+                  <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-xs text-destructive">
+                    <p className="font-medium">Tasks pendentes bloqueando a publicação:</p>
+                    <ul className="list-disc pl-4">
+                      {blocking.map((b) => <li key={b.task_id}>{b.project_name} — #{b.task_number} {b.title} ({b.status})</li>)}
+                    </ul>
+                  </div>
+                )}
+                {publish.isError && !blocking && (
+                  <p className="text-xs text-destructive">{(publish.error as Error)?.message}</p>
+                )}
               </CardContent>
             </Card>
           </div>

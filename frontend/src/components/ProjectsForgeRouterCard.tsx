@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FolderOpen, Loader2, RefreshCw, XCircle } from "lucide-react";
 import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
@@ -7,6 +7,8 @@ import antigravityIcon from "@lobehub/icons-static-png/dark/antigravity-color.pn
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useProjects } from "@/hooks/useProject";
+import { useForgeRouterServiceKey } from "@/hooks/useAgent";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import {
   useForgeRouterGlobalAudit,
   useProjectForgeRouterConfig,
@@ -21,6 +23,12 @@ interface ProjectForgeRouterRowProps {
   projectId: string;
   projectName: string;
   projectPath: string | null | undefined;
+  /** Settings -> ForgeRouter virtual models -> "Default agent for project
+   * API keys" -- the name of a service-kind ai_router.agents entry (e.g.
+   * "Hindsight"), empty = none set. Passed down from the card so every
+   * row shares the one useAppConfig() fetch instead of each row
+   * re-requesting it. */
+  defaultServiceName: string;
 }
 
 type ToolKey = "claude" | "codex" | "antigravity";
@@ -71,13 +79,31 @@ function ToolBadge({
   );
 }
 
-function ProjectForgeRouterRow({ projectId, projectName, projectPath }: ProjectForgeRouterRowProps) {
+function ProjectForgeRouterRow({ projectId, projectName, projectPath, defaultServiceName }: ProjectForgeRouterRowProps) {
   const { t } = useTranslation("dashboard");
   const { data: config, isLoading } = useProjectForgeRouterConfig(projectId);
   const toggle = useToggleProjectForgeRouter(projectId);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [pendingTool, setPendingTool] = useState<ToolKey | null>(null);
+  // Fetched only while the prompt is actually open (name is undefined
+  // otherwise, which disables the query) -- this is an admin-only secret
+  // (GET /agents/forgerouter-services/{name}), so it's only pulled when
+  // there's an actual use for it, not proactively for every project row.
+  const { data: defaultService } = useForgeRouterServiceKey(showApiKey ? defaultServiceName || undefined : undefined);
+  // Pre-fills the prompt with the default service's key the moment it
+  // opens and the fetch resolves -- still fully editable/clearable per
+  // project+tool before confirming (2026-07-29, Marcelo: "para não
+  // precisar preencher a api do agente do forgerouter").
+  useEffect(() => {
+    if (showApiKey && defaultService?.api_key) {
+      setApiKeyInput((current) => current || defaultService.api_key);
+    }
+    // pendingTool is in the deps (not just showApiKey) so switching directly
+    // from one tool's prompt to another's (without closing it first) also
+    // re-triggers the prefill, since `showApiKey` itself never flips false->
+    // true in that case.
+  }, [showApiKey, pendingTool, defaultService?.api_key]);
 
   const isEnabled = Boolean(config?.claude_enabled || config?.codex_enabled || config?.antigravity_enabled);
   const hasPath = Boolean(projectPath);
@@ -316,6 +342,8 @@ function GlobalAuditBanner() {
 export function ProjectsForgeRouterCard() {
   const { t } = useTranslation("dashboard");
   const { data: projects, isLoading } = useProjects();
+  const { data: appConfig } = useAppConfig();
+  const defaultServiceName = appConfig?.default_forgerouter_service_name ?? "";
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -363,6 +391,7 @@ export function ProjectsForgeRouterCard() {
                   projectId={project.id}
                   projectName={project.name}
                   projectPath={project.working_directory_path}
+                  defaultServiceName={defaultServiceName}
                 />
               ))}
           </div>

@@ -160,6 +160,20 @@ Assim, manutenção não fica escondida em Tasks avulsas e “nova implementaç�
 
 ## 2.2 Classificação universal do desenvolvimento
 
+> **Decisão registrada (2026-08-01):** esta seção recomenda um único Project por entrega com
+> Tracks internos por frente técnica (ver "Projeto híbrido e tracks" abaixo). O ForgeHub
+> **optou pelo caminho oposto**: um Project por tipo de aplicação (`Project.solution_type`,
+> `backend/app/db/models/project.py`), criados juntos por `:authorize-delivery-planning` a
+> partir da mesma Concepção/versão. Cada Project recebe só os elementos do Blueprint cuja
+> camada (`FAMILY_LAYER_LABELS`) corresponde ao seu tipo. Motivo: manter o modelo mental atual
+> de Project como escopo independente (com seu próprio `working_directory_path`/repositório),
+> em vez de introduzir o conceito de Track agora. Limitação conhecida: `web_app` e
+> `mobile_app` mapeiam para a mesma camada (`Frontend`) — sem um atributo de plataforma por
+> elemento, as mesmas telas entram no escopo dos dois tipos quando ambos são pedidos na mesma
+> autorização. Detalhe completo: `docs/modules/01_CONCEPTION_AND_SYSTEM_SCOPE.md`. O restante
+> desta seção permanece como referência de arquitetura-alvo caso o modelo de Tracks venha a
+> ser adotado depois.
+
 O planejamento deve funcionar para qualquer produto de software: aplicação web, aplicativo mobile, site institucional/e-commerce, API, automação, integração, pipeline de dados, solução de IA, desktop, biblioteca/SDK ou infraestrutura. Para isso, **tipo de projeto e pipeline não podem ser o mesmo conceito**.
 
 Também não se deve confundir **Product** com “aplicação monolítica”. Product é a identidade duradoura daquilo que recebe evolução e versões. Um Project pode entregar o produto inteiro ou somente um recorte do System Blueprint. O menor elemento governável continua rastreável ao Product e à ProductVersion, evitando criar um processo paralelo para telas, componentes ou serviços isolados.

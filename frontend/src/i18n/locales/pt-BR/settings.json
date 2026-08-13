@@ -21,6 +21,14 @@
       "openclawDescription": "Token do gateway do OpenClaw (Vector), lido/gravado direto em /root/.openclaw/.env no host. Não faz parte de forgehub.config -- salva e recarrega imediatamente, com card e botão próprios."
     },
 
+    "forgeRouterModels": {
+      "defaultAgent": {
+        "label": "Agente padrão para chaves de API dos projetos",
+        "none": "Nenhum -- deixar o campo em branco",
+        "help": "Pré-preenche o campo \"Enter the ForgeRouter API key...\" do Dashboard com a chave deste serviço, direto do registro do próprio ForgeRouter (ai_router.agents, entradas do tipo service como \"Hindsight\") -- para não precisar colar a chave manualmente toda vez que habilitar o ForgeRouter num projeto. Ainda é editável por projeto/ferramenta antes de confirmar."
+      }
+    },
+
     "gitControl": {
       "hermesSourcePath": {
         "label": "Caminho do checkout do Hermes",

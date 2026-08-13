@@ -1,18 +1,23 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, FileText, Lightbulb, Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, FileText, Lightbulb, Loader2, Pencil, Plus, Rocket, Trash2, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { useDeleteProduct, useUpdateProduct } from "@/hooks/useProduct";
+import { useAgents } from "@/hooks/useAgent";
+import { PROJECT_SOLUTION_TYPES } from "@/hooks/useProject";
 import {
+  useAuthorizeDeliveryPlanning,
   useConcept,
   useConceptDocument,
   useConceptDocuments,
@@ -21,9 +26,11 @@ import {
   useDevelopmentRequests,
   useReviseConcept,
   useSaveConceptDocument,
+  useSyncArtifactsToProject,
   useUpdateConceptDeliveryMetadata,
   useUpdateDevelopmentRequest,
   useUploadConceptDocument,
+  type DeliveryPlanningProjectSpec,
   type DevelopmentRequest,
   type TechStackDecision,
   type TechStackLayer,
@@ -268,6 +275,124 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
   );
 }
 
+const EMPTY_PROJECT_SPEC: DeliveryPlanningProjectSpec = { solution_type: "web_app", project_name: "" };
+
+/** Sets ProjectSpec.responsible_agent_id -- auto-creates a
+ * ProjectAgentMembership + assigns every task in the new Project to this
+ * agent (Pacote 3, 2026-08-01). Optional: leaving it unset keeps today's
+ * fully-manual assignment flow. */
+function ResponsibleAgentSelect({ value, onChange }: { value: string | undefined; onChange: (agentId: string | undefined) => void }) {
+  const agents = useAgents();
+  return (
+    <Select value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
+      <option value="">Agente responsável (opcional)</option>
+      {agents.data?.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+    </Select>
+  );
+}
+
+/** "Autorizar Entrega" -- turns an approved Concept into one Project per
+ * requested application type (2026-08-01 decision: one Project per type,
+ * not Tracks inside a single Project -- see docs/architecture/
+ * PLANNING_DELIVERY_ARCHITECTURE.md section 2.2's note). Didn't exist as a
+ * UI action before this -- :authorize-delivery-planning was backend-only. */
+function DeliveryPlanningPanel({ conceptId, conceptStatus }: { conceptId: string | undefined; conceptStatus: string | undefined }) {
+  const authorize = useAuthorizeDeliveryPlanning();
+  const sync = useSyncArtifactsToProject();
+  const [version, setVersion] = useState("0.1.0");
+  const [specs, setSpecs] = useState<DeliveryPlanningProjectSpec[]>([{ ...EMPTY_PROJECT_SPEC }]);
+
+  if (!conceptId) {
+    return <p className="text-sm text-muted-foreground">Salve a ideia primeiro para poder autorizar a entrega.</p>;
+  }
+  if (conceptStatus !== "approved") {
+    return <p className="text-sm text-muted-foreground">Disponível depois que a Concepção for aprovada (status atual: {conceptStatus ?? "--"}).</p>;
+  }
+
+  const updateSpec = (index: number, patch: Partial<DeliveryPlanningProjectSpec>) =>
+    setSpecs((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+  const addSpec = () => setSpecs((prev) => [...prev, { ...EMPTY_PROJECT_SPEC }]);
+  const removeSpec = (index: number) => setSpecs((prev) => prev.filter((_, i) => i !== index));
+
+  const submit = () => {
+    const projects = specs.filter((s) => s.project_name.trim());
+    if (!projects.length) return;
+    authorize.mutate({ conceptId, version, projects });
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Cria um Project por tipo de aplicação selecionado, todos ligados à mesma versão do produto.
+        Cada Project recebe só as tarefas da sua camada (telas para web/mobile, APIs para
+        backend, etc.). Repetir a mesma versão + tipo é idempotente -- não duplica.
+      </p>
+      <div className="max-w-xs space-y-2">
+        <Label>Versão</Label>
+        <Input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="0.1.0" />
+      </div>
+      <div className="space-y-2">
+        <Label>Projetos a criar</Label>
+        {specs.map((spec, i) => (
+          <div key={i} className="space-y-2 rounded-md border p-2">
+            <div className="grid grid-cols-[160px_1fr_32px] gap-2 items-center">
+              <Select value={spec.solution_type} onChange={(e) => updateSpec(i, { solution_type: e.target.value as DeliveryPlanningProjectSpec["solution_type"] })}>
+                {PROJECT_SOLUTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </Select>
+              <Input placeholder="Nome do projeto" value={spec.project_name} onChange={(e) => updateSpec(i, { project_name: e.target.value })} />
+              <Button variant="ghost" size="icon" onClick={() => removeSpec(i)} disabled={specs.length === 1}>
+                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center gap-1">
+                <Input placeholder="Working directory" value={spec.working_directory_path ?? ""} onChange={(e) => updateSpec(i, { working_directory_path: e.target.value })} />
+                <WorkingDirPicker workingDir={spec.working_directory_path} onSelect={(path) => updateSpec(i, { working_directory_path: path ?? "" })} />
+              </div>
+              <ResponsibleAgentSelect
+                value={spec.responsible_agent_id}
+                onChange={(agentId) => updateSpec(i, { responsible_agent_id: agentId })}
+              />
+            </div>
+          </div>
+        ))}
+        <Button variant="outline" size="sm" onClick={addSpec}><Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar tipo de aplicação</Button>
+      </div>
+      <Button disabled={authorize.isPending || specs.every((s) => !s.project_name.trim())} onClick={submit}>
+        {authorize.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        <Rocket className="mr-2 h-4 w-4" />Autorizar Entrega
+      </Button>
+      {authorize.isError && <p className="text-sm text-destructive">Falha ao autorizar: {(authorize.error as Error)?.message}</p>}
+      {authorize.isSuccess && (
+        <div className="space-y-2 rounded-md border p-3">
+          <p className="text-sm font-medium">Projetos:</p>
+          {authorize.data.projects.map((p) => (
+            <div key={p.project_id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span>
+                <Badge variant="outline" className="mr-2">{p.solution_type}</Badge>
+                <Link to={`/projects/${p.project_id}`} className="text-primary hover:underline">abrir projeto</Link>
+                {" "}({p.scope_items_created} itens de escopo, {p.tasks_created} tasks)
+              </span>
+              <Button
+                size="sm" variant="outline" disabled={sync.isPending}
+                onClick={() => sync.mutate({ conceptId, projectId: p.project_id })}
+              >
+                {sync.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                Sincronizar docs para o repositório
+              </Button>
+            </div>
+          ))}
+          {sync.isSuccess && (
+            <p className="text-xs text-muted-foreground">
+              Gravado: {sync.data.files_written.join(", ") || "(nenhum documento gerado ainda)"}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ConceptionPage() {
   const { t } = useTranslation("conception");
   const queryClient = useQueryClient();
@@ -282,7 +407,7 @@ export default function ConceptionPage() {
   const concept = useConcept(selectedProduct);
   const [form, setForm] = useState(EMPTY_FORM);
   const [techStack, setTechStack] = useState<TechStackState>(EMPTY_TECH_STACK);
-  const [wizardStep, setWizardStep] = useState<"problem" | "description" | "stack" | "documentation">("problem");
+  const [wizardStep, setWizardStep] = useState<"problem" | "description" | "stack" | "documentation" | "delivery">("problem");
   const [view, setView] = useState<"list" | "form">("list");
   const [pendingDelete, setPendingDelete] = useState<{ productId: string; title: string } | null>(null);
   const [editingRequest, setEditingRequest] = useState<DevelopmentRequest | null>(null);
@@ -396,10 +521,11 @@ export default function ConceptionPage() {
         <form onSubmit={submit}>
         <CardContent className="space-y-4">
           <Tabs value={wizardStep} onValueChange={(value) => setWizardStep(value as typeof wizardStep)}>
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="problem">{t("wizard.steps.problem")}</TabsTrigger>
               <TabsTrigger value="description">{t("wizard.steps.description")}</TabsTrigger>
               <TabsTrigger value="documentation">{t("wizard.steps.documentation")}</TabsTrigger>
+              <TabsTrigger value="delivery">Entrega</TabsTrigger>
             </TabsList>
             <TabsContent value="problem" className="mt-4 space-y-4">
               <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.name")} count={form.name.length} max={NAME_MAX}/><Input maxLength={NAME_MAX} value={form.name} onChange={e => setForm({...form, name:e.target.value})}/></div>
@@ -431,6 +557,9 @@ export default function ConceptionPage() {
             <TabsContent value="documentation" className="mt-4 space-y-4">
               <p className="text-sm text-muted-foreground">{t("wizard.documentation.help")}</p>
               <ConceptDocumentsPanel conceptId={concept.data?.concept.id}/>
+            </TabsContent>
+            <TabsContent value="delivery" className="mt-4 space-y-4">
+              <DeliveryPlanningPanel conceptId={concept.data?.concept.id} conceptStatus={concept.data?.concept.status} />
             </TabsContent>
           </Tabs>
           {editingRequest && !conceptEditable && <p className="text-sm text-muted-foreground">{t("captureIdea.conceptLocked")}</p>}

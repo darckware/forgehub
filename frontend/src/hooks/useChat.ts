@@ -442,6 +442,81 @@ export function useStreamChatMessage(agentId: string | undefined) {
   };
 }
 
+/** Asks this session's own agent to rewrite a draft per an improvement
+ * instruction -- a private utility call, never a real turn (see backend
+ * chat.py's stream_improve_prompt docstring). Ported from useChannel.ts's
+ * useStreamImprovePrompt, which shipped first for the Channels room
+ * (2026-08-06). Resolves to the improved text; the caller decides what to
+ * do with it (replace the compose draft, never auto-sent). */
+export function useStreamImprovePrompt(sessionId: string) {
+  return async function improvePrompt(
+    draft: string,
+    instruction: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const token = getToken() ?? "";
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
+    const url =
+      `${apiBase}${RESOURCE}/sessions/${sessionId}/improve-prompt/stream` +
+      `?draft=${encodeURIComponent(draft)}&instruction=${encodeURIComponent(instruction)}`;
+
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
+    if (!resp.ok) {
+      // The session-agent lookup fails before any streaming starts -- a
+      // plain JSON error, not SSE framing.
+      let detail = `HTTP ${resp.status}`;
+      try {
+        detail = (await resp.json()).detail ?? detail;
+      } catch {
+        // Body wasn't JSON -- keep the generic HTTP status message.
+      }
+      throw new Error(detail);
+    }
+    if (!resp.body) throw new Error("Empty response body");
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let currentEvent = "message";
+    let improvedText: string | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim();
+            continue;
+          }
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice(5).trim();
+          if (currentEvent === "error") {
+            const parsed = JSON.parse(raw || "{}");
+            throw new Error(parsed.detail ?? "improve-prompt stream error");
+          }
+          if (currentEvent === "done") {
+            currentEvent = "message";
+            continue;
+          }
+          const parsed = JSON.parse(raw || "{}");
+          if (typeof parsed.improved_text === "string") improvedText = parsed.improved_text;
+          currentEvent = "message";
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (improvedText === null) throw new Error("The agent didn't return any text.");
+    return improvedText;
+  };
+}
+
 /** choice values match Hermes's own tools/approval.py vocabulary directly
  * (resolve_gateway_approval): "once" allows just this command, "session"
  * also remembers the pattern for the rest of this Hermes session (skips

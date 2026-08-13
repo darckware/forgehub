@@ -741,6 +741,15 @@ async def dispatch_task(
     run já existente (`run_dispatch_completion_pass`) vale para tarefas sem
     nenhum código novo.
     """
+    return await _dispatch_task_by_id(task_id, payload, db)
+
+
+async def _dispatch_task_by_id(
+    task_id: uuid.UUID, payload: TaskInboxDispatchIn, db: AsyncSession
+) -> TaskInboxDispatchOut:
+    """Core of dispatch_task, factored out so other domains (Pacote 4:
+    approving a project_task Approval) can trigger the exact same dispatch
+    path instead of re-implementing it or doing an HTTP self-call."""
     # Import local: demand.py já importa o modelo ProjectTask, e um import
     # route->route no topo deste módulo criaria um ciclo assim que aquele
     # módulo precisar de qualquer coisa daqui.
@@ -754,6 +763,26 @@ async def dispatch_task(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Task is already {task.status} and cannot be dispatched",
         )
+
+    # Same rule as execution.py's _preflight (Execution Wave/Work Package
+    # pipeline), ported here rather than reimplemented differently: a task
+    # cannot dispatch while any of its declared predecessors hasn't reached
+    # a terminal "delivered" state. Messages stays the single executor
+    # (2026-07-26 decision) -- this only adds the gate, not a second path.
+    dependencies = list((await db.execute(
+        select(TaskDependency).where(TaskDependency.task_id == task.id)
+    )).scalars())
+    blocking: list[dict] = []
+    for dependency in dependencies:
+        predecessor = await db.get(ProjectTask, dependency.depends_on_task_id)
+        if predecessor is not None and predecessor.status not in ("done", "deployed"):
+            blocking.append({"task_id": str(predecessor.id), "task_number": predecessor.number,
+                              "title": predecessor.title, "status": predecessor.status})
+    if blocking:
+        raise HTTPException(status_code=409, detail={
+            "message": "Task has unfinished dependencies and cannot be dispatched yet",
+            "blocking": blocking,
+        })
 
     # Alvo: o informado, senão o agente da atribuição ativa da task.
     target_agent_id = payload.target_agent_id
@@ -786,6 +815,8 @@ async def dispatch_task(
     body_parts = [f"Task #{task.number}: {task.title}"]
     if task.description:
         body_parts.append(task.description)
+    if task.plan_brief:
+        body_parts.append(f"Plano/abordagem:\n{task.plan_brief}")
     body_parts.append(
         f"Tipo: {task.task_type} | Prioridade: {task.priority} | Status atual: {task.status}"
     )
@@ -834,7 +865,8 @@ async def dispatch_task(
             entity_type="project_task",
             entity_id=task.id,
             event_type="task.dispatched",
-            description=f"Task #{task.number} dispatched to {agent.name} via Inbox #{demand.number}",
+            actor="forgehub",
+            payload={"description": f"Task #{task.number} dispatched to {agent.name} via Inbox #{demand.number}"},
         )
     )
 

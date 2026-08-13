@@ -40,6 +40,19 @@ import { EntityDocsCard } from "@/components/EntityDocsCard";
 import { usePlanningItems } from "@/hooks/useBacklog";
 import { TaskAutomationCard } from "@/components/TaskAutomationCard";
 import { TaskDependenciesCard } from "@/components/TaskDependenciesCard";
+import { ApiError } from "@/lib/api";
+
+interface BlockingDependency { task_id: string; task_number: number; title: string; status: string }
+
+/** dispatch_task (Pacote 3) returns 409 with `detail: {message, blocking}`
+ * when a predecessor task isn't done/deployed yet -- surfaces that list
+ * instead of a generic error string. Any other dispatch error (missing
+ * assignment, host-bridge failure, ...) falls back to the plain message. */
+function dispatchBlockingDependencies(error: unknown): BlockingDependency[] | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const body = error.body as { detail?: { blocking?: BlockingDependency[] } } | undefined;
+  return body?.detail?.blocking ?? null;
+}
 
 const STATUS_VARIANT: Record<
   string,
@@ -211,6 +224,11 @@ export default function TaskDetailPage() {
               {task.description && (
                 <p className="mt-1 max-w-2xl text-muted-foreground">{task.description}</p>
               )}
+              {task.plan_brief && (
+                <p className="mt-2 max-w-2xl whitespace-pre-line rounded border bg-muted/30 p-2 text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">Plano/abordagem: </span>{task.plan_brief}
+                </p>
+              )}
             </div>
             <div className="flex flex-col items-end gap-2">
               {task.health !== "ok" && (
@@ -331,9 +349,29 @@ export default function TaskDetailPage() {
 
             {dispatchTask.isError && (
               <CardContent className="border-t pt-4">
-                <p className="rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                  {(dispatchTask.error as Error)?.message}
-                </p>
+                {(() => {
+                  const blocking = dispatchBlockingDependencies(dispatchTask.error);
+                  if (blocking) {
+                    return (
+                      <div className="rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                        <p className="font-medium">Task tem dependências não concluídas:</p>
+                        <ul className="mt-1 list-disc pl-5">
+                          {blocking.map((b) => (
+                            <li key={b.task_id}>
+                              <Link to={`/tasks/${b.task_id}`} className="underline">#{b.task_number} {b.title}</Link>
+                              {" "}({b.status})
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  }
+                  return (
+                    <p className="rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                      {(dispatchTask.error as Error)?.message}
+                    </p>
+                  );
+                })()}
               </CardContent>
             )}
 

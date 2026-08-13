@@ -660,6 +660,49 @@ async def update_product_version(
     return version
 
 
+@router.post("/versions/{version_id}:publish", response_model=ProductVersionOut)
+async def publish_product_version(version_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> ProductVersion:
+    """Dedicated publish action (Pacote 4, 2026-08-01) -- clearer than
+    overloading the generic PUT, and it's the one place that gets to check
+    "is everything actually finished" before flipping the switch. Idempotent
+    if already published. Blocks (409 + the blocking list, same UX as
+    dispatch_task's dependency gate) rather than force-completing unfinished
+    work -- Marcelo: publishing should never invent completion that didn't
+    happen.
+    """
+    version = await _get_version_or_404(db, version_id)
+    if version.status == "published":
+        return version
+
+    projects = list((await db.execute(
+        select(Project).where(Project.product_version_id == version_id)
+    )).scalars())
+    blocking: list[dict] = []
+    for project in projects:
+        tasks = list((await db.execute(
+            select(ProjectTask)
+            .join(PlanningItem, PlanningItem.id == ProjectTask.planning_item_id)
+            .where(PlanningItem.project_id == project.id)
+        )).scalars())
+        for task in tasks:
+            if task.status not in ("done", "deployed", "cancelled"):
+                blocking.append({
+                    "project_id": str(project.id), "project_name": project.name,
+                    "task_id": str(task.id), "task_number": task.number,
+                    "title": task.title, "status": task.status,
+                })
+    if blocking:
+        raise HTTPException(status_code=409, detail={
+            "message": "This version has unfinished tasks and cannot be published yet",
+            "blocking": blocking,
+        })
+
+    version.status = "published"
+    await db.commit()
+    await db.refresh(version)
+    return version
+
+
 @router.delete("/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product_version(version_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     version = await _get_version_or_404(db, version_id)

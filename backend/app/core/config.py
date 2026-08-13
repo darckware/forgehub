@@ -94,9 +94,9 @@ class Settings(BaseSettings):
     # own runtime's root since they aren't Hermes profiles.
     AGENT_RUNTIME_PATHS: dict[str, str] = {
         "hermes": "/root/.hermes",
-        "claude": "/root/.claude",
-        "codex": "/root/.codex",
-        "gemini": "/root/.gemini",
+        "claude": "/root",
+        "codex": "/root",
+        "agy": "/root",
         "openclaw": "/root/.openclaw",
     }
     GIT_CONTROL_DEFAULT_REPO: str = "hermes"
@@ -138,6 +138,18 @@ class Settings(BaseSettings):
     # (unqualified datetime.now() calls elsewhere, log timestamps, ...)
     # still follows.
     TIMEZONE: str = "America/Sao_Paulo"
+    # Name of a service-kind row in ForgeRouter's own registry
+    # (ai_router.agents, kind='service' -- e.g. "Hindsight") whose key
+    # ProjectsForgeRouterCard's (Dashboard "Projects" card) per-tool "Enter
+    # the ForgeRouter API key..." prompt pre-fills automatically -- 2026-07-29,
+    # Marcelo: "preciso preencher a API KEY de um agente automaticamente...
+    # o agente padrão para ser utilizado nesse recurso... eu adicionei
+    # agente do tipo serviço no forgerouter, filtra somente esses". A
+    # service has no corresponding ForgeHub Agent row (unlike the
+    # kind='agent' rows /sync/forgerouter-keys imports), so this is looked
+    # up by name straight against ai_router.agents, not an Agent.id.
+    # Empty string = no default set, the prompt stays blank like before.
+    DEFAULT_FORGEROUTER_SERVICE_NAME: str = ""
 
     @property
     def DATABASE_URL(self) -> str:

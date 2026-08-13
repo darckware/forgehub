@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.db.models.project import (
     CHANGE_REQUEST_STATUSES,
     PROJECT_PLAN_STATUSES,
+    PROJECT_SOLUTION_TYPES,
     PROJECT_STATUSES,
     STRUCTURE_NODE_TYPES,
 )
@@ -26,6 +27,7 @@ class ProjectBase(BaseModel):
     description: str | None = None
     product_version_id: uuid.UUID
     owner: str | None = None
+    solution_type: str | None = None
     status: str = "planned"
     start_date: date | None = None
     target_end_date: date | None = None
@@ -38,6 +40,8 @@ class ProjectBase(BaseModel):
     def _validate_status(self) -> "ProjectBase":
         if self.status not in PROJECT_STATUSES:
             raise ValueError(f"status must be one of {PROJECT_STATUSES}")
+        if self.solution_type is not None and self.solution_type not in PROJECT_SOLUTION_TYPES:
+            raise ValueError(f"solution_type must be one of {PROJECT_SOLUTION_TYPES}")
         return self
 
 
@@ -49,6 +53,7 @@ class ProjectUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     owner: str | None = None
+    solution_type: str | None = None
     status: str | None = None
     start_date: date | None = None
     target_end_date: date | None = None
@@ -61,6 +66,8 @@ class ProjectUpdate(BaseModel):
     def _validate_status(self) -> "ProjectUpdate":
         if self.status is not None and self.status not in PROJECT_STATUSES:
             raise ValueError(f"status must be one of {PROJECT_STATUSES}")
+        if self.solution_type is not None and self.solution_type not in PROJECT_SOLUTION_TYPES:
+            raise ValueError(f"solution_type must be one of {PROJECT_SOLUTION_TYPES}")
         return self
 
 

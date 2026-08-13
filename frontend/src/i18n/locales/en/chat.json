@@ -115,6 +115,14 @@
     "working": "⏳ Working — {{duration}}"
   },
   "composer": {
+    "improvePrompt": "Improve prompt with {{agent}}",
+    "improvePromptTitle": "Improve prompt with {{subject}}",
+    "improvePromptDraftLabel": "Prompt",
+    "improvePromptInstructionLabel": "Improvement instruction",
+    "improvePromptInstructionPlaceholder": "e.g. make it more formal, add more context about...",
+    "improvePromptConfirm": "Rewrite",
+    "improvePromptApply": "OK",
+    "improvePromptShortcutHint": "Ctrl+Enter to rewrite · Alt+Enter to use as-is",
     "typeMessageFirst": "Type a message before sending.",
     "selectAgentFirst": "Select an agent before sending.",
     "alreadySent": "You already sent this message.",

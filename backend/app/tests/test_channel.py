@@ -213,12 +213,19 @@ async def test_get_update_delete_channel(admin_client: AsyncClient):
     assert missing_resp.status_code == 404
 
 
-async def test_clear_channel_messages_wipes_transcript_and_agent_sessions(admin_client: AsyncClient):
+async def test_clear_channel_messages_wipes_transcript_and_agent_sessions(admin_client: AsyncClient, monkeypatch):
     """The lighter "start this room over" action next to full delete
     (2026-08-06, Marcelo: "adicione um icone de limpeza do chat") -- wipes
     every message but keeps the channel/membership/tasks, and resets each
     member's hermes_session_id so a stale bridge session can't keep
     referencing a transcript the UI no longer shows."""
+    from app.api.routes import channel as channel_routes
+
+    async def fake_bridge_text(profile, message, hermes_session_id):
+        return {"reply": "ok", "session_id": "fake-session"}
+
+    monkeypatch.setattr(channel_routes, "_call_bridge_text", fake_bridge_text)
+
     result = await _create_channel(admin_client, member_agent_ids=[str(_STUB_AGENT_IDS[0])])
     channel_id = result["channel"]["id"]
     member_id = result["channel"]["members"][0]["id"]
@@ -228,12 +235,14 @@ async def test_clear_channel_messages_wipes_transcript_and_agent_sessions(admin_
         member.hermes_session_id = "fake-bridge-session"
         await db.commit()
 
+    # No mention -- broadcasts to the single agent member (2026-08-06,
+    # "#all seja opcional"), so this also produces a real agent turn/reply.
     post_resp = await admin_client.post(f"/api/v1/channels/{channel_id}/messages", json={"content": "hello"})
     assert post_resp.status_code == 200
-    assert len(post_resp.json()) == 1
+    assert len(post_resp.json()) == 2
 
     list_resp = await admin_client.get(f"/api/v1/channels/{channel_id}/messages")
-    assert len(list_resp.json()) == 1
+    assert len(list_resp.json()) == 2
 
     clear_resp = await admin_client.delete(f"/api/v1/channels/{channel_id}/messages")
     assert clear_resp.status_code == 204
@@ -338,19 +347,35 @@ async def test_delegated_agent_can_add_member(admin_client: AsyncClient):
         await admin_client.post(f"/api/v1/governed/agent-credentials/{credential_id}:revoke")
 
 
-async def test_post_message_without_mention_produces_only_human_message(client: AsyncClient):
-    result = await _create_channel(client, member_agent_ids=[str(_STUB_AGENT_IDS[0])])
+async def test_post_message_without_mention_wakes_every_agent_member(client: AsyncClient, monkeypatch):
+    """2026-08-06, Marcelo: "quando não especificar o agente a mensagem é
+    para todos e #all seja opcional" -- a message that names no agent at
+    all is a broadcast, same as an explicit #all, not a no-op."""
+    from app.api.routes import channel as channel_routes
+
+    async def fake_bridge_text(profile, message, hermes_session_id):
+        return {"reply": f"ok from {profile}", "session_id": "fake-session"}
+
+    monkeypatch.setattr(channel_routes, "_call_bridge_text", fake_bridge_text)
+
+    result = await _create_channel(
+        client, member_agent_ids=[str(_STUB_AGENT_IDS[0]), str(_STUB_AGENT_IDS[1])]
+    )
     channel_id = result["channel"]["id"]
 
-    resp = await client.post(f"/api/v1/channels/{channel_id}/messages", json={"content": "just an idea, no one mentioned"})
+    resp = await client.post(
+        f"/api/v1/channels/{channel_id}/messages", json={"content": "just an idea, no one mentioned"}
+    )
     assert resp.status_code == 200
     messages = resp.json()
-    assert len(messages) == 1
+    assert len(messages) == 3  # human + both agents
     assert messages[0]["author_type"] == "human"
+    agent_ids_replied = {m["author_agent_id"] for m in messages if m["author_type"] == "agent"}
+    assert agent_ids_replied == {str(_STUB_AGENT_IDS[0]), str(_STUB_AGENT_IDS[1])}
 
     list_resp = await client.get(f"/api/v1/channels/{channel_id}/messages")
     assert list_resp.status_code == 200
-    assert len(list_resp.json()) == 1
+    assert len(list_resp.json()) == 3
 
 
 async def test_posting_a_mention_wakes_that_agent_with_shared_context(client: AsyncClient, monkeypatch):
@@ -474,6 +499,129 @@ async def test_mention_all_wakes_every_agent_member(client: AsyncClient, monkeyp
     assert len(messages) == 3  # human + both agents
     agent_ids_replied = {m["author_agent_id"] for m in messages if m["author_type"] == "agent"}
     assert agent_ids_replied == {str(_STUB_AGENT_IDS[0]), str(_STUB_AGENT_IDS[1])}
+
+
+async def test_mentioned_agents_run_concurrently_not_sequentially(client: AsyncClient, monkeypatch):
+    """2026-08-06, Marcelo: "o chat do canal deve executar vários agentes
+    ao mesmo tempo... veja a execução do chat da conversations" -- each
+    mentioned agent's bridge call must run in parallel (own DB session, see
+    _wake_agent_turn_isolated), not one after another. Regression guard:
+    asserts both bridge calls actually *start* close together, rather than
+    asserting on an absolute total-wall-clock threshold -- the latter is
+    flaky under real system load (this environment also runs a live dev
+    stack via dev.sh against the same DB), where even genuinely concurrent
+    calls can take longer in absolute terms without ever being sequential
+    relative to each other."""
+    import asyncio
+    import time
+
+    from app.api.routes import channel as channel_routes
+
+    call_started_at: list[float] = []
+
+    async def slow_bridge_text(profile, message, hermes_session_id):
+        call_started_at.append(time.monotonic())
+        await asyncio.sleep(0.3)
+        return {"reply": f"ok from {profile}", "session_id": "fake-session"}
+
+    monkeypatch.setattr(channel_routes, "_call_bridge_text", slow_bridge_text)
+
+    result = await _create_channel(
+        client, member_agent_ids=[str(_STUB_AGENT_IDS[0]), str(_STUB_AGENT_IDS[1])]
+    )
+    channel_id = result["channel"]["id"]
+
+    resp = await client.post(
+        f"/api/v1/channels/{channel_id}/messages", json={"content": "#all bom dia, equipe"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()) == 3  # human + both agents
+    assert len(call_started_at) == 2
+    gap = max(call_started_at) - min(call_started_at)
+    # A sequential loop would start the second call only after the first's
+    # 0.3s sleep finishes -- a ~0.3s gap. Concurrent calls start together,
+    # so any gap here should be negligible scheduling jitter, not ~0.3s.
+    assert gap < 0.2, f"expected both bridge calls to start together, {gap:.2f}s apart"
+
+
+async def test_stream_channel_message_emits_agent_started_before_replies(client: AsyncClient, monkeypatch):
+    """Exercises the actual SSE endpoint the Channels UI uses
+    (useStreamChannelMessage), not just the plain POST route the other
+    tests above proxy through. 2026-08-06, Marcelo: "precisa ver a
+    quantidade de processos em paralelo... com o detalhamento de cada
+    agente" -- the frontend needs an `agent_started` event per mentioned
+    agent, up front, before their (possibly slow, concurrent) replies
+    arrive, so it can render a live "N agentes trabalhando" strip."""
+    from app.api.routes import channel as channel_routes
+
+    async def fake_bridge_stream(bridge_params):
+        yield {"done": True, "reply": f"ok from {bridge_params['profile']}", "session_id": "fake-session"}
+
+    monkeypatch.setattr(channel_routes, "_iter_bridge_stream", fake_bridge_stream)
+
+    result = await _create_channel(
+        client, member_agent_ids=[str(_STUB_AGENT_IDS[0]), str(_STUB_AGENT_IDS[1])]
+    )
+    channel_id = result["channel"]["id"]
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/channels/{channel_id}/messages/stream",
+        params={"content": "#all bom dia, equipe"},
+    ) as resp:
+        assert resp.status_code == 200
+        body = "".join([chunk async for chunk in resp.aiter_text()])
+
+    assert body.count("event: agent_started") == 2
+    # Both agent_started events precede any agent reply data -- they're
+    # fired up front, all at once, before the concurrent bridge calls even
+    # start (see stream_channel_message).
+    last_started_at = body.rindex("event: agent_started")
+    assert body.index('"ok from') > last_started_at
+    assert body.count('"ok from') == 2  # one reply per agent
+    assert "event: done" in body
+
+
+async def test_stream_channel_message_relays_tool_steps_live(client: AsyncClient, monkeypatch):
+    """2026-08-06, Marcelo: "traz o passo a passo de ferramentas em tempo
+    real também" -- tool_start/tool_complete events from the bridge's
+    /v1/chat/stream must reach the browser as `agent_step` SSE events
+    while the turn is still in flight, not just the final persisted
+    message once it's done."""
+    from app.api.routes import channel as channel_routes
+
+    async def fake_bridge_stream(bridge_params):
+        yield {"tool_start": {"tool_id": "t1", "name": "Read", "context": "Reading file.py"}}
+        yield {"tool_complete": {"tool_id": "t1", "name": "Read", "summary": "Read file.py"}}
+        yield {"done": True, "reply": f"ok from {bridge_params['profile']}", "session_id": "fake-session"}
+
+    monkeypatch.setattr(channel_routes, "_iter_bridge_stream", fake_bridge_stream)
+
+    async with AsyncSessionLocal() as db:
+        agent = await db.get(Agent, _STUB_AGENT_IDS[0])
+        agent_name = agent.name
+
+    result = await _create_channel(client, member_agent_ids=[str(_STUB_AGENT_IDS[0])])
+    channel_id = result["channel"]["id"]
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/channels/{channel_id}/messages/stream",
+        params={"content": f"#{agent_name} oi"},
+    ) as resp:
+        assert resp.status_code == 200
+        body = "".join([chunk async for chunk in resp.aiter_text()])
+
+    assert body.count("event: agent_step") == 2
+    assert '"tool_id": "t1"' in body
+    assert '"name": "Read"' in body
+    assert '"done": false' in body  # tool_start
+    assert '"done": true' in body  # tool_complete
+    assert '"summary": "Read file.py"' in body
+    # The step events precede the final reply -- live, not after the fact.
+    last_step_at = body.rindex("event: agent_step")
+    assert body.index('"ok from') > last_step_at
+    assert "event: done" in body
 
 
 async def test_onboarding_note_only_on_first_turn(client: AsyncClient, monkeypatch):

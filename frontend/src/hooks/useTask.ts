@@ -160,6 +160,9 @@ export const projectTaskSchema = z.object({
   policy_id: z.string().nullable().optional(),
   title: z.string(),
   description: z.string().nullable().optional(),
+  // The HOW (approach/acceptance criteria/context for the dispatched
+  // agent), distinct from description (the WHAT). Never required.
+  plan_brief: z.string().nullable().optional(),
   status: z.enum(TASK_STATUSES).default("planned"),
   priority: z.enum(TASK_PRIORITIES).default("medium"),
   estimated_cost: z.number().nullable().optional(),
@@ -181,6 +184,7 @@ export type ProjectTask = z.infer<typeof projectTaskSchema>;
 const _taskBaseSchema = z.object({
   title: z.string().min(1, "Title is required").max(200, "Title is too long"),
   description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
+  plan_brief: z.string().max(4000, "Plan is too long").optional().or(z.literal("")),
   planning_item_id: z.string().optional().or(z.literal("")),
   change_request_id: z.string().optional().or(z.literal("")),
   parent_task_id: z.string().optional().or(z.literal("")),

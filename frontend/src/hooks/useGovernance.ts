@@ -33,6 +33,9 @@ export const APPROVAL_ENTITY_TYPES = [
   "skill",
   "change_request",
   "artifact",
+  // Approving a project_task Approval auto-dispatches it via Messages --
+  // see governance.py's _decide_approval (Pacote 4, 2026-08-01).
+  "project_task",
 ] as const;
 export type ApprovalEntityType = (typeof APPROVAL_ENTITY_TYPES)[number];
 
@@ -136,6 +139,37 @@ export function useCreateApproval() {
       apiClient.post<Approval>(`${RESOURCE}/approvals`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: governanceKeys.all });
+    },
+  });
+}
+
+export interface ApprovalDecisionInput {
+  decided_by: string;
+  comments?: string;
+}
+
+/** Approving entity_type="project_task" auto-dispatches the task via
+ * Messages server-side (Pacote 4) -- nothing extra to call here. */
+export function useApproveApproval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...payload }: ApprovalDecisionInput & { id: string }) =>
+      apiClient.post<Approval>(`${RESOURCE}/approvals/${id}/approve`, payload),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: governanceKeys.all });
+      queryClient.invalidateQueries({ queryKey: governanceKeys.detail(variables.id) });
+    },
+  });
+}
+
+export function useRejectApproval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...payload }: ApprovalDecisionInput & { id: string }) =>
+      apiClient.post<Approval>(`${RESOURCE}/approvals/${id}/reject`, payload),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: governanceKeys.all });
+      queryClient.invalidateQueries({ queryKey: governanceKeys.detail(variables.id) });
     },
   });
 }

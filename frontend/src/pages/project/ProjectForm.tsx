@@ -1,20 +1,13 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import {
-  PROJECT_STATUSES,
-  projectCreateSchema,
-  type ProjectCreateInput,
-} from "@/hooks/useProject";
-import { useProducts, useProductVersion, useProductVersions } from "@/hooks/useProduct";
+import { PROJECT_STATUSES, type ProjectCreateInput } from "@/hooks/useProject";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
+import { useProjectFormViewModel } from "@/hooks/useProjectFormViewModel";
 
 interface ProjectFormProps {
   defaultValues?: Partial<ProjectCreateInput>;
@@ -33,51 +26,22 @@ export function ProjectForm({
 }: ProjectFormProps) {
   const { t } = useTranslation("project");
   const submitLabel = submitLabelProp ?? t("form.submitLabelDefault");
-  const { data: products, isLoading: isLoadingProducts } = useProducts();
   const {
     register,
     handleSubmit,
     setValue,
     watch,
     formState: { errors },
-  } = useForm<ProjectCreateInput>({
-    resolver: zodResolver(projectCreateSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      product_version_id: "",
-      status: "planned",
-      working_directory_path: "",
-      ...defaultValues,
-    },
-  });
-
-  const productVersionId = watch("product_version_id");
-  const [selectedProductId, setSelectedProductId] = useState("");
-  const backupEnabled = watch("backup_enabled");
-  const nameValue = watch("name");
-  // Mirrors the backend's slug rule (_project_slug in
-  // backend/app/api/routes/system_control.py) so this preview matches what
-  // System Control actually resolves to when backup_location is empty.
-  const slug = (nameValue || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const defaultBackupLocation = `/root/backup/${slug || "project-name"}`;
-
-  // Resolve which product owns the current product_version_id -- needed
-  // when editing an existing project, which only carries the version id,
-  // not which product it belongs to. Fetched directly (GET
-  // /products/versions/{id}) rather than searched for in `products`,
-  // because the plain products LIST endpoint doesn't return nested
-  // versions (only GET /products/{id} does).
-  const { data: currentVersion } = useProductVersion(productVersionId || undefined);
-  useEffect(() => {
-    if (currentVersion && !selectedProductId) {
-      setSelectedProductId(currentVersion.product_id);
-    }
-  }, [currentVersion, selectedProductId]);
-
-  const { data: versions, isLoading: isLoadingVersions } = useProductVersions(
-    selectedProductId || undefined
-  );
+    products,
+    isLoadingProducts,
+    selectedProductId,
+    handleProductChange,
+    versions,
+    isLoadingVersions,
+    productVersionId,
+    backupEnabled,
+    defaultBackupLocation,
+  } = useProjectFormViewModel(defaultValues);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -106,10 +70,7 @@ export function ProjectForm({
             id="product_id"
             value={selectedProductId}
             disabled={isLoadingProducts}
-            onChange={(e) => {
-              setSelectedProductId(e.target.value);
-              setValue("product_version_id", "");
-            }}
+            onChange={(e) => handleProductChange(e.target.value)}
           >
             <option value="">
               {isLoadingProducts ? t("form.loadingProducts") : t("form.selectProduct")}

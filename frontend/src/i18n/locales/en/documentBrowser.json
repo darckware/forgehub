@@ -2,6 +2,8 @@
   "note": "Note",
   "mindMap": "Mind map",
   "graph": "Graph",
+  "galaxy": "Memory galaxy",
+  "viewFile": "View file",
   "workingFolder": "Working folder",
   "useRoot": "use root",
   "hideTree": "Hide directory",

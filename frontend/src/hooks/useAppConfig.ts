@@ -31,6 +31,11 @@ export interface AppConfig {
    * since every Hermes-profile agent shares hermes_source_path's tree.
    * Reference/visibility only, not consumed by Git Control/Backup. */
   agent_runtime_paths: Record<string, string>;
+  /** Name of a service-kind row in ForgeRouter's own registry
+   * (ai_router.agents, kind='service' -- e.g. "Hindsight") whose key
+   * pre-fills the Dashboard's ProjectsForgeRouterCard "Enter the
+   * ForgeRouter API key..." prompt. Empty string = no default set. */
+  default_forgerouter_service_name: string;
 }
 
 export function useAppConfig() {

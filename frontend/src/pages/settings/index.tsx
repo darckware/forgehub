@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, Loader2, Save, Settings2 } from "lucide-react";
+import { AlertCircle, Check, Loader2, Save, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { TokenField } from "@/components/ui/token-field";
 import { type AppConfig, useAppConfig, useUpdateAppConfig } from "@/hooks/useAppConfig";
+import { useForgeRouterServices } from "@/hooks/useAgent";
 import { useForgeRouterVirtualModels } from "@/hooks/useOrchestration";
 import { useOpenclawGatewayToken, useUpdateOpenclawGatewayToken } from "@/hooks/useTerminalBrowse";
 
@@ -35,6 +36,25 @@ const FALLBACK_TIMEZONES = [
 type IntlWithSupportedValuesOf = typeof Intl & { supportedValuesOf?: (key: "timeZone") => string[] };
 const ALL_TIMEZONES: string[] =
   (Intl as IntlWithSupportedValuesOf).supportedValuesOf?.("timeZone") ?? FALLBACK_TIMEZONES;
+
+// UTC offset per zone (e.g. "GMT-3") -- 2026-07-29, Marcelo: "adicione a
+// diferença da hora: America/Sao_Paulo -3h". Computed once at module load,
+// today's offset (DST-observing zones can differ by season, but this is a
+// picker label, not a live clock). The <option>'s text content becomes the
+// datalist suggestion's visible label in Chrome/Firefox while `value`
+// (the bare zone name) stays what actually gets typed into the field.
+function utcOffsetLabel(tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" }).formatToParts(new Date());
+    return parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+  } catch {
+    return "";
+  }
+}
+const TIMEZONE_OPTIONS: { tz: string; label: string }[] = ALL_TIMEZONES.map((tz) => ({
+  tz,
+  label: `${tz} (${utcOffsetLabel(tz)})`,
+}));
 
 // Languages the AI chat (Workspace tabs + Assistant drawer) can answer in
 // -- mirrors the keys of backend core/config.py's
@@ -155,7 +175,10 @@ export default function SettingsPage() {
   const { data, isLoading, isError, error } = useAppConfig();
   const updateConfig = useUpdateAppConfig();
   const { data: forgeRouterModels = [], isLoading: modelsLoading } = useForgeRouterVirtualModels();
+  const { data: forgeRouterServices = [] } = useForgeRouterServices();
   const [form, setForm] = useState<AppConfig | null>(null);
+  const [languageSaveStatus, setLanguageSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [languageSaveError, setLanguageSaveError] = useState<string | null>(null);
 
   // Only seeds `form` once the real config has loaded, and again whenever
   // it's replaced wholesale (e.g. after a save elsewhere) -- never
@@ -183,6 +206,28 @@ export default function SettingsPage() {
   }
 
   const dirty = data ? JSON.stringify(data) !== JSON.stringify(form) : false;
+
+  // Language fields save immediately on change instead of waiting for the
+  // page-level Save button (2026-07-29, Marcelo: "salva automático" --
+  // after moving Save/Reset into this card wasn't enough, since the other
+  // fields here already read as live). Still one full PUT under the hood
+  // (this screen has no per-field endpoint), just fired eagerly with the
+  // rest of the current form instead of batched behind a click.
+  async function saveLanguageField(field: "default_ui_language" | "chat_response_language", value: string) {
+    if (!form) return;
+    const next = { ...form, [field]: value };
+    setForm(next);
+    setLanguageSaveError(null);
+    setLanguageSaveStatus("saving");
+    try {
+      await updateConfig.mutateAsync(next);
+      setLanguageSaveStatus("saved");
+      setTimeout(() => setLanguageSaveStatus((s) => (s === "saved" ? "idle" : s)), 1500);
+    } catch (err) {
+      setLanguageSaveStatus("idle");
+      setLanguageSaveError((err as Error)?.message ?? t("settings.messages.saveError"));
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -219,6 +264,22 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
+          <div className="mt-4 max-w-sm space-y-2 border-t pt-4">
+            <Label htmlFor="default_forgerouter_service_name">{t("settings.forgeRouterModels.defaultAgent.label")}</Label>
+            <Select
+              id="default_forgerouter_service_name"
+              value={form.default_forgerouter_service_name}
+              onChange={(e) => setForm({ ...form, default_forgerouter_service_name: e.target.value })}
+            >
+              <option value="">{t("settings.forgeRouterModels.defaultAgent.none")}</option>
+              {forgeRouterServices.map((service) => (
+                <option key={service.name} value={service.name}>
+                  {service.name}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">{t("settings.forgeRouterModels.defaultAgent.help")}</p>
+          </div>
         </CardContent>
       </Card>
 
@@ -354,11 +415,15 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="max-w-sm space-y-2">
-            <Label htmlFor="default_ui_language">{t("settings.aiChat.defaultUiLanguage.label")}</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="default_ui_language">{t("settings.aiChat.defaultUiLanguage.label")}</Label>
+              {languageSaveStatus === "saving" && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              {languageSaveStatus === "saved" && <Check className="h-3.5 w-3.5 text-emerald-500" />}
+            </div>
             <Select
               id="default_ui_language"
               value={form.default_ui_language}
-              onChange={(e) => setForm({ ...form, default_ui_language: e.target.value })}
+              onChange={(e) => saveLanguageField("default_ui_language", e.target.value)}
             >
               {DEFAULT_UI_LANGUAGES.map((lang) => (
                 <option key={lang.value} value={lang.value}>
@@ -370,11 +435,15 @@ export default function SettingsPage() {
           </div>
 
           <div className="max-w-sm space-y-2">
-            <Label htmlFor="chat_response_language">{t("settings.aiChat.chatResponseLanguage.label")}</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="chat_response_language">{t("settings.aiChat.chatResponseLanguage.label")}</Label>
+              {languageSaveStatus === "saving" && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              {languageSaveStatus === "saved" && <Check className="h-3.5 w-3.5 text-emerald-500" />}
+            </div>
             <Select
               id="chat_response_language"
               value={form.chat_response_language}
-              onChange={(e) => setForm({ ...form, chat_response_language: e.target.value })}
+              onChange={(e) => saveLanguageField("chat_response_language", e.target.value)}
             >
               {CHAT_RESPONSE_LANGUAGES.map((lang) => (
                 <option key={lang.value} value={lang.value}>
@@ -383,6 +452,7 @@ export default function SettingsPage() {
               ))}
             </Select>
           </div>
+          {languageSaveError && <p className="text-sm text-destructive">{languageSaveError}</p>}
         </CardContent>
       </Card>
 
@@ -402,8 +472,10 @@ export default function SettingsPage() {
               placeholder="America/Sao_Paulo"
             />
             <datalist id="timezone-suggestions">
-              {ALL_TIMEZONES.map((tz) => (
-                <option key={tz} value={tz} />
+              {TIMEZONE_OPTIONS.map(({ tz, label }) => (
+                <option key={tz} value={tz}>
+                  {label}
+                </option>
               ))}
             </datalist>
             <p className="text-xs text-muted-foreground">

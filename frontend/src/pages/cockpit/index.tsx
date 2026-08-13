@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Gauge,
   Sparkles,
   Layers,
   Play,
   CheckCircle2,
-  Cpu,
   ArrowRight,
   Filter,
   Lightbulb,
@@ -14,14 +13,113 @@ import {
   FolderKanban,
   ListTodo,
   CheckSquare,
+  TrendingUp,
+  Users,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { AgentTelemetryPanel } from "@/components/AgentTelemetryPanel";
 import { useProducts } from "@/hooks/useProduct";
 import { useProjects } from "@/hooks/useProject";
 import { usePlanningItems } from "@/hooks/useBacklog";
 import { useTasks } from "@/hooks/useTask";
+import { useAgentTelemetry, useCockpit, type Cockpit, type PhaseKey } from "@/hooks/useFactory";
+
+const PHASE_LABEL: Record<PhaseKey, string> = {
+  conception: "Concepção",
+  designer: "UI & ERD",
+  procedures: "Planejamento",
+  execution: "Tarefas",
+  quality: "Qualidade",
+};
+
+const PHASE_BADGE_VARIANT: Record<string, "success" | "warning" | "outline" | "destructive"> = {
+  approved: "success",
+  in_progress: "warning",
+  pending: "outline",
+  blocked: "destructive",
+};
+
+function formatCost(cost: number): string {
+  return cost.toLocaleString("pt-BR", { style: "currency", currency: "USD" });
+}
+
+function TeamBadge({ projectId, teamSize }: { projectId: string; teamSize: number }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      className="shrink-0"
+      onClick={() => navigate("/workspace", { state: { openChannel: { projectId } } })}
+      title="Abrir o canal deste projeto"
+    >
+      <Badge variant={teamSize > 0 ? "secondary" : "outline"} className="gap-1 text-[10px]">
+        <Users className="h-3 w-3" />
+        {teamSize} {teamSize === 1 ? "agente" : "agentes"}
+      </Badge>
+    </button>
+  );
+}
+
+function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
+  if (!cockpit || cockpit.products.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-sm text-muted-foreground">
+          Nenhum produto cadastrado ainda.
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      {cockpit.products.map((product) => (
+        <Card key={product.product_id}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold">{product.product_name}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {product.projects.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhum projeto ainda.</p>
+            ) : (
+              product.projects.map((project) => (
+                <div key={project.project_id} className="space-y-2 rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{project.project_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        v{project.version_number} · {project.version_status}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <TeamBadge projectId={project.project_id} teamSize={project.team_size} />
+                      <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                        {formatCost(project.total_cost)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {project.phases.map((phase) => (
+                      <Badge
+                        key={phase.key}
+                        variant={PHASE_BADGE_VARIANT[phase.state] ?? "outline"}
+                        className="text-[10px]"
+                      >
+                        {PHASE_LABEL[phase.key as PhaseKey] ?? phase.key}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
 
 interface WaveBatch {
   id: string;
@@ -38,11 +136,14 @@ const MOCK_WAVES: WaveBatch[] = [
 ];
 
 export default function CockpitPage() {
+  const [tab, setTab] = useState("pipeline");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const { data: products } = useProducts();
   const { data: projects } = useProjects();
   const { data: planningItems } = usePlanningItems();
   const { data: tasks } = useTasks();
+  const { data: agentTelemetry } = useAgentTelemetry();
+  const { data: cockpit } = useCockpit();
 
   const activeProduct = products?.find((p) => p.id === selectedProductId);
 
@@ -107,6 +208,13 @@ export default function CockpitPage() {
         </div>
       </div>
 
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
+          <TabsTrigger value="telemetria">Telemetria</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="pipeline" className="mt-4 space-y-6">
       {/* Visão Sequencial do Fluxo de Desenvolvimento (5 Fases) */}
       <Card className="border-primary/20 shadow-sm">
         <CardHeader className="pb-3">
@@ -224,9 +332,8 @@ export default function CockpitPage() {
         </CardContent>
       </Card>
 
-      {/* Painel de Lotes de Liberação (Execution Waves) & Agentes IA */}
-      <div className="grid gap-6 md:grid-cols-[1fr_340px]">
-        <Card>
+      {/* Painel de Lotes de Liberação (Execution Waves) */}
+      <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Play className="h-4 w-4 text-primary" />
@@ -280,42 +387,20 @@ export default function CockpitPage() {
             ))}
           </CardContent>
         </Card>
+        </TabsContent>
 
-        {/* Status dos Agentes Programadores em Tempo Real */}
-        <Card className="border-primary/20">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-primary" />
-              Telemetria de Execução dos Agentes
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="rounded-md border p-3 bg-card text-xs space-y-1.5">
-              <div className="flex justify-between font-bold">
-                <span className="text-primary">#Hephaestus (Backend Agent)</span>
-                <span className="text-emerald-500">Ativo</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Sessão Hermes: <code className="text-xs">20260727_auth</code></p>
-              <div className="flex justify-between text-[11px] text-muted-foreground pt-1 border-t">
-                <span>Tempo Médio: 45s</span>
-                <span>Sucesso: 100%</span>
-              </div>
-            </div>
+        <TabsContent value="telemetria" className="mt-4 space-y-6">
+          <AgentTelemetryPanel agents={agentTelemetry?.agents ?? []} />
 
-            <div className="rounded-md border p-3 bg-card text-xs space-y-1.5">
-              <div className="flex justify-between font-bold">
-                <span className="text-primary">#Scriba (Frontend UI Agent)</span>
-                <span className="text-amber-500">Trabalhando</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Construindo Tela Login (Open Design)</p>
-              <div className="flex justify-between text-[11px] text-muted-foreground pt-1 border-t">
-                <span>Tempo Médio: 1m 20s</span>
-                <span>Sucesso: 98%</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          <div>
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+              <TrendingUp className="h-4 w-4 text-primary" />
+              Andamento do Projeto
+            </h2>
+            <ProjectProgressList cockpit={cockpit} />
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

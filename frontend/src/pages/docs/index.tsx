@@ -6,6 +6,7 @@ import {
   ArrowRightCircle,
   BookOpen,
   ChevronDown,
+  Code2,
   Download,
   Eye,
   FileEdit,
@@ -238,6 +239,10 @@ export default function DocsPage() {
   const { expandedPaths, toggle: toggleExpanded, allExpanded, toggleAll: toggleAllExpanded } =
     useExpandedTree(tree as DocTreeNode[] | undefined, areaId);
   const [viewMode, setViewMode] = useState<DocumentViewMode>("note");
+  // Raw-source toggle, independent of viewMode -- shows the file's plain
+  // .md text instead of the rendered preview while still in "note" mode
+  // (mindmap/graph switch away from "note" entirely, this doesn't).
+  const [showRawMarkdown, setShowRawMarkdown] = useState(false);
   const { data: graph, isLoading: graphLoading } = useDocsGraph(areaId);
   const [searchParams] = useSearchParams();
   // Deep-link from EntityDocsCard (/docs?path=...) -- only seeds the
@@ -556,6 +561,19 @@ export default function DocsPage() {
             placeholder={t("page.searchPlaceholder")}
             className="flex-1"
           />
+          <Button
+            size="icon"
+            variant={showRawMarkdown ? "secondary" : "outline"}
+            title={t("page.rawMarkdown")}
+            aria-label={t("page.rawMarkdown")}
+            disabled={!selectedPath}
+            onClick={() => {
+              setShowRawMarkdown((v) => !v);
+              if (viewMode !== "note") setViewMode("note");
+            }}
+          >
+            <Code2 className="h-4 w-4" />
+          </Button>
           <ViewModeToggle
             viewMode={viewMode}
             onViewModeChange={setViewMode}
@@ -844,7 +862,11 @@ export default function DocsPage() {
                   )}
                   {isEditable && file && draft == null && (
                     <div className="h-full overflow-y-auto pr-2">
-                      <Markdown content={file.content} />
+                      {showRawMarkdown ? (
+                        <pre className="whitespace-pre-wrap break-words font-sans text-sm">{file.content}</pre>
+                      ) : (
+                        <Markdown content={file.content} />
+                      )}
                     </div>
                   )}
                   {isEditable && draft != null && (

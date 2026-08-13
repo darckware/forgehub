@@ -40,6 +40,16 @@ from app.db.base import Base, TimestampMixin
 
 PROJECT_STATUSES = ("planned", "active", "on_hold", "completed", "cancelled")
 
+# What kind of application this Project delivers -- deliberately a flat list
+# on Project itself (not a separate M:N classification table) per the
+# 2026-08-01 decision to create one Project per application type instead of
+# tracks inside a single Project (see docs/architecture/
+# PLANNING_DELIVERY_ARCHITECTURE.md section 2.2, which recommends the
+# opposite -- one Project per delivery with internal tracks -- and the note
+# added there explaining why this codebase diverges). Extend this tuple
+# (plus a migration) as new solution types are actually needed.
+PROJECT_SOLUTION_TYPES = ("web_app", "mobile_app", "api_service", "database", "deploy")
+
 FORGEROUTER_TOOLS = ("claude", "codex", "antigravity")
 PROJECT_PLAN_STATUSES = ("draft", "approved", "baselined", "superseded")
 CHANGE_REQUEST_STATUSES = ("pending", "approved", "rejected", "applied")
@@ -67,6 +77,10 @@ class Project(Base, TimestampMixin):
     __tablename__ = "projects"
     __table_args__ = (
         CheckConstraint(f"status IN {PROJECT_STATUSES!r}", name="ck_projects_status"),
+        CheckConstraint(
+            f"solution_type IS NULL OR solution_type IN {PROJECT_SOLUTION_TYPES!r}",
+            name="ck_projects_solution_type",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -84,6 +98,11 @@ class Project(Base, TimestampMixin):
     )
 
     owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # web_app | mobile_app | api_service | database | deploy -- nullable
+    # because pre-existing/manually-created projects may not have one;
+    # projects created via :authorize-delivery-planning always set it.
+    solution_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # planned -> active -> on_hold -> completed -> cancelled
     status: Mapped[str] = mapped_column(

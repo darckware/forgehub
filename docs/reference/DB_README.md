@@ -2,7 +2,7 @@
 
 ## Decisão
 
-O ForgeHub **não roda um PostgreSQL próprio**. Ele conecta na instância compartilhada `company_postgres`, que já existe e já hospeda o Kanboard oficial.
+O ForgeHub **não roda um PostgreSQL próprio**. Ele conecta na instância compartilhada `company_postgres`, que já existe e também hospeda o banco do Kanboard (infraestrutura ainda ativa — a integração do ForgeHub *com* o Kanboard foi descontinuada e removida em 2026-07-28, mas o serviço/banco do Kanboard em si continua rodando nesse container).
 
 | Campo | Valor |
 |---|---|

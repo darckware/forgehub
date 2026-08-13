@@ -31,6 +31,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Sparkles,
   Square,
   Trash2,
   X,
@@ -39,6 +40,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ComposerShell } from "@/components/chat/ComposerShell";
+import { ImprovePromptDialog } from "@/components/chat/ImprovePromptDialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Markdown } from "@/components/Markdown";
 import { TestApplicationDialog } from "@/components/chat/TestApplicationDialog";
@@ -63,19 +65,11 @@ import {
   useDeleteChatArtifact,
   useExecChatCommand,
   useSearchChatArtifacts,
-  useChatSessions,
-  useCreateChatSession,
-  useSearchChatSessions,
   useDeleteChatMessage,
-  useDeleteChatSession,
-  useUpdateChatSession,
-  useChatGroups,
-  useCreateChatGroup,
-  useUpdateChatGroup,
-  useDeleteChatGroup,
   useApproveChat,
   useSendChatMessage,
   useStreamChatMessage,
+  useStreamImprovePrompt,
   useTranscribeAudio,
   downloadChatArtifact,
   type ChatMessage,
@@ -83,6 +77,7 @@ import {
   type ChatGroup,
   type ChatStreamEvent,
 } from "@/hooks/useChat";
+import { useChatSessionViewModel } from "@/hooks/useChatSessionViewModel";
 
 // Tabs/active-tab are persisted (not just in-memory state) so that
 // navigating to another page and back to Workspace recreates the same tabs
@@ -119,7 +114,10 @@ const COMPOSER_MAX_HEIGHT_PX = 240;
 // carry user text after it (the older piggyback format), so internal
 // instructions never render in the transcript.
 const HIDDEN_CONTEXT_RE = /^\[\[forgehub:contexto-interno\]\]\n[\s\S]*?\n\[\[\/forgehub:contexto-interno\]\]\s*/;
-type ChatQueueStep = {
+/** Exported for ChannelPane.tsx's own live tool-step trail (2026-08-06,
+ * Marcelo: "traz o passo a passo de ferramentas em tempo real também") --
+ * same shape QueueStepsList/FinishedStepsTrail below already render. */
+export type ChatQueueStep = {
   id: string;
   name: string;
   label: string;
@@ -224,7 +222,7 @@ function SubagentStatusCard({ number }: { number: number }) {
  * identically in both places rather than duplicated (2026-07-29: the
  * detail must survive past completion instead of being thrown away with
  * the queue item, see finishedStepsByMessageId). */
-function QueueStepsList({ steps }: { steps: ChatQueueStep[] }) {
+export function QueueStepsList({ steps }: { steps: ChatQueueStep[] }) {
   return (
     <>
       {steps.map((step) => {
@@ -272,7 +270,7 @@ function QueueStepsList({ steps }: { steps: ChatQueueStep[] }) {
  * trail doesn't push the actual answer off screen, but never gone: this is
  * the "process detail and response are separate, don't erase the process
  * detail" behavior (2026-07-29, Marcelo). */
-function FinishedStepsTrail({ steps }: { steps: ChatQueueStep[] }) {
+export function FinishedStepsTrail({ steps }: { steps: ChatQueueStep[] }) {
   const { t } = useTranslation(["chat"]);
   const [open, setOpen] = useState(true);
   if (steps.length === 0) return null;
@@ -330,7 +328,13 @@ type ChatQueueItem = {
   startedAt?: number;
 };
 
-function formatThinkingDuration(totalSeconds: number): string {
+/** Exported for ChannelPane.tsx's own per-agent "working" ticker (2026-08-06,
+ * Marcelo: "precisa ver a quantidade de processos em paralelo... com o
+ * detalhamento de cada agente ao clicar as execuções em paralelo. O que
+ * ficou determinado no chat da conversation") -- same mm:ss formatting,
+ * reused rather than re-derived; the ticker component itself isn't reused
+ * as-is since the channel's chip markup needs a different wrapper element. */
+export function formatThinkingDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
@@ -1087,8 +1091,19 @@ export const SlashCommandPicker = forwardRef<
      * (2026-08-06, see ChannelPane.tsx's own SlashCommandPicker usage). */
     includeLocal?: boolean;
     includeHermes?: boolean;
+    /** "up" (default) opens above the field, anchored to its bottom edge --
+     * right for a composer pinned to the bottom of the screen. "down" opens
+     * below instead, for a field near the top of its container where
+     * "up" would render off-screen/behind other UI (2026-08-07, Marcelo:
+     * "não dá para ver. Precisa colocar o menu para baixo" -- the Prompt
+     * field in ImprovePromptDialog, which sits right under the modal's
+     * title). */
+    placement?: "up" | "down";
   }
->(function SlashCommandPicker({ promptCommands, onSelect, onClose, includeLocal = true, includeHermes = true }, ref) {
+>(function SlashCommandPicker(
+  { promptCommands, onSelect, onClose, includeLocal = true, includeHermes = true, placement = "up" },
+  ref
+) {
   const { t } = useTranslation("chat");
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1120,7 +1135,10 @@ export const SlashCommandPicker = forwardRef<
   return (
     <div
       ref={containerRef}
-      className="absolute bottom-full left-0 z-20 mb-2 max-h-80 w-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
+      className={cn(
+        "absolute left-0 z-20 max-h-80 w-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg",
+        placement === "down" ? "top-full mt-2" : "bottom-full mb-2"
+      )}
     >
       {items.map((cmd, index) => (
         <button
@@ -1157,8 +1175,18 @@ export interface AgentMentionPickerHandle {
  * same keyboard-nav pattern as the other two pickers. */
 export const AgentMentionPicker = forwardRef<
   AgentMentionPickerHandle,
-  { agents: Agent[]; query: string; onSelect: (agent: Agent) => void; onClose: () => void }
->(function AgentMentionPicker({ agents, query, onSelect, onClose }, ref) {
+  {
+    agents: Agent[];
+    query: string;
+    onSelect: (agent: Agent) => void;
+    onClose: () => void;
+    /** See SlashCommandPicker's own `placement` docstring -- same "up"
+     * (default, composer pinned to the bottom) vs "down" (field near the
+     * top of its container, e.g. ImprovePromptDialog's Prompt field)
+     * choice. */
+    placement?: "up" | "down";
+  }
+>(function AgentMentionPicker({ agents, query, onSelect, onClose, placement = "up" }, ref) {
   const { t } = useTranslation("chat");
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1186,7 +1214,10 @@ export const AgentMentionPicker = forwardRef<
   return (
     <div
       ref={containerRef}
-      className="absolute bottom-full left-0 z-20 mb-2 max-h-72 w-64 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
+      className={cn(
+        "absolute left-0 z-20 max-h-72 w-64 overflow-y-auto rounded-lg border border-border bg-card shadow-lg",
+        placement === "down" ? "top-full mt-2" : "bottom-full mb-2"
+      )}
     >
       {filtered.map((agent, index) => (
         <button
@@ -1634,7 +1665,58 @@ export function ChatPane({
   onAssistantMessage?: (content: string) => void;
 }) {
   const { t } = useTranslation("chat");
-  const [sessionId, setSessionId] = useState<string>("");
+  const {
+    sessionId,
+    setSessionId,
+    ensureSession,
+    editingSessionId,
+    setEditingSessionId,
+    editingTitle,
+    setEditingTitle,
+    sessions,
+    chatSearchInput,
+    setChatSearchInput,
+    chatSearchTerm,
+    isSearchingChats,
+    displayedSessions,
+    chatGroups,
+    createChatGroup,
+    updateChatGroup,
+    deleteChatGroup,
+    projectsWithPath,
+    sessionsByProjectPath,
+    sessionsByGroupId,
+    looseSessions,
+    projectFoldersWithSessions,
+    projectsRootOpen,
+    setProjectsRootOpen,
+    groupsRootOpen,
+    setGroupsRootOpen,
+    openProjectPaths,
+    setOpenProjectPaths,
+    openGroupIds,
+    setOpenGroupIds,
+    toggleOpenPath,
+    newGroupNameRoot,
+    setNewGroupNameRoot,
+    creatingGroup,
+    setCreatingGroup,
+    createSession,
+    deleteSession,
+    handleStartRename,
+    handleCommitRename,
+    handleTogglePin,
+    activeSession,
+    handleSetSessionWorkingDirectory,
+    handleMoveSessionToProject,
+    handleMoveSessionToGroup,
+    handleCreateGroupAndMoveSession,
+    pendingClearSessions,
+    setPendingClearSessions,
+    handleClearSessions,
+    confirmClearSessions,
+    handleNewChat,
+  } = useChatSessionViewModel(agentId, startNewSession);
   // Chat chrome (composer placeholder, default empty state) follows the
   // configured response language, same one the agent is instructed to
   // answer in (Settings -> AI chat).
@@ -1686,6 +1768,14 @@ export function ChatPane({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [imagePreviewIndex]);
   const [isRecording, setIsRecording] = useState(false);
+  // Agent-assisted prompt rewrite (2026-08-06 for Channels, ported here
+  // 2026-08-07, Marcelo: "no ChatPane (Conversations) o icone de melhoria
+  // do prompt que foi construido no ChatPane (Canais)"). See
+  // useStreamImprovePrompt's docstring: private rewrite-only call, never a
+  // real turn -- applying the result only replaces the compose draft,
+  // sending is still a separate, explicit Enter afterward.
+  const [improveOpen, setImproveOpen] = useState(false);
+  const improvePrompt = useStreamImprovePrompt(sessionId);
   const [queue, setQueue] = useState<ChatQueueItem[]>([]);
   const queueDrainingRef = useRef(false);
   // Mirrors `queue` synchronously for processQueueItem's completion handler
@@ -1738,8 +1828,6 @@ export function ChatPane({
     pendingScrollToRevealedRef.current = null;
     queueItemRefs.current.get(id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [revealedQueueIds]);
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState("");
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
   const [composerDragActive, setComposerDragActive] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -1798,119 +1886,16 @@ export function ChatPane({
   const voiceBargeInRef = useRef(false); // set true when user interrupts agent TTS
   const voiceMsgAbortRef = useRef<AbortController | null>(null); // cancel active SSE fetch
 
-  const { data: sessions } = useChatSessions(agentId || undefined);
-
-  // Debounced search across session titles + message content (see
-  // search_chat_sessions in chat.py) -- 300ms so we're not hitting the DB
-  // on every keystroke.
-  const [chatSearchInput, setChatSearchInput] = useState("");
-  const [chatSearchTerm, setChatSearchTerm] = useState("");
-  useEffect(() => {
-    const t = setTimeout(() => setChatSearchTerm(chatSearchInput), 300);
-    return () => clearTimeout(t);
-  }, [chatSearchInput]);
-  const { data: chatSearchResults, isFetching: isSearchingChats } = useSearchChatSessions(
-    chatSearchTerm,
-    agentId || undefined
-  );
-  const displayedSessions = chatSearchTerm.trim() ? chatSearchResults ?? [] : sessions ?? [];
-
-  // Sidebar tree (2026-07-28): a session's placement is exclusive --
-  // Project (working_directory_path) XOR Group (group_id) XOR neither
-  // (loose list, the only thing the sidebar showed before this). See
-  // ChatSession.group_id's backend docstring for the exclusivity rule.
-  const { data: chatProjects } = useProjects();
-  const { data: chatGroups } = useChatGroups();
-  const createChatGroup = useCreateChatGroup();
-  const updateChatGroup = useUpdateChatGroup();
-  const deleteChatGroup = useDeleteChatGroup();
-
-  const projectsWithPath = useMemo(
-    () =>
-      (chatProjects ?? []).filter(
-        (p): p is typeof p & { working_directory_path: string } => Boolean(p.working_directory_path)
-      ),
-    [chatProjects]
-  );
-  const sessionsByProjectPath = useMemo(() => {
-    const map = new Map<string, ChatSession[]>();
-    for (const s of displayedSessions) {
-      if (!s.working_directory_path) continue;
-      map.set(s.working_directory_path, [...(map.get(s.working_directory_path) ?? []), s]);
-    }
-    return map;
-  }, [displayedSessions]);
-  const sessionsByGroupId = useMemo(() => {
-    const map = new Map<string, ChatSession[]>();
-    for (const s of displayedSessions) {
-      if (!s.group_id) continue;
-      map.set(s.group_id, [...(map.get(s.group_id) ?? []), s]);
-    }
-    return map;
-  }, [displayedSessions]);
-  const looseSessions = useMemo(
-    () => displayedSessions.filter((s) => !s.working_directory_path && !s.group_id),
-    [displayedSessions]
-  );
-  const projectFoldersWithSessions = useMemo(
-    () => projectsWithPath.filter((p) => (sessionsByProjectPath.get(p.working_directory_path) ?? []).length > 0),
-    [projectsWithPath, sessionsByProjectPath]
-  );
-
-  const [projectsRootOpen, setProjectsRootOpen] = useState(true);
-  const [groupsRootOpen, setGroupsRootOpen] = useState(true);
-  const [openProjectPaths, setOpenProjectPaths] = useState<Set<string>>(new Set());
-  const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set());
-  function toggleOpenPath(set: Set<string>, key: string): Set<string> {
-    const next = new Set(set);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    return next;
-  }
-  const [newGroupNameRoot, setNewGroupNameRoot] = useState("");
-  const [creatingGroup, setCreatingGroup] = useState(false);
-
-  // Shared session bootstrap: the priming effect below and handleSend can
-  // both need to create the session, and can genuinely race on a fresh
-  // pane (priming fires on mount; a fast paste+send lands right after) --
-  // sharing one in-flight promise guarantees they land in the SAME session
-  // instead of the context going to one and the user's message to another.
-  const sessionPromiseRef = useRef<Promise<string> | null>(null);
-  async function ensureSession(): Promise<string> {
-    if (sessionId) return sessionId;
-    if (!sessionPromiseRef.current) {
-      sessionPromiseRef.current = createSession
-        .mutateAsync({ agent_id: agentId })
-        .then((created) => {
-          setSessionId(created.id);
-          return created.id;
-        })
-        .catch((err) => {
-          sessionPromiseRef.current = null;
-          throw err;
-        });
-    }
-    return sessionPromiseRef.current;
-  }
-
   // Guards primingMessage against re-sends within the same session -- see
   // the priming effect below.
   const primingSentRef = useRef(false);
 
   useEffect(() => {
-    setSessionId("");
-    sessionPromiseRef.current = null;
     // Switching agents starts a fresh session -- the new agent hasn't seen
-    // the priming context, so allow it to be sent again.
+    // the priming context, so allow it to be sent again. Session reset
+    // itself lives in useChatSessionViewModel's own [agentId] effect.
     primingSentRef.current = false;
   }, [agentId]);
-
-  useEffect(() => {
-    if (startNewSession) return;
-    if (!sessionId && sessions && sessions.length > 0) {
-      setSessionId(sessions[0].id);
-    }
-  }, [sessionId, sessions, startNewSession]);
 
   // Sends primingMessage as the session's own opening turn as soon as the
   // pane is usable -- see the prop's docstring. Runs before the user can
@@ -1986,33 +1971,12 @@ export function ChatPane({
   const { data: artifacts } = useChatArtifacts(sessionId || undefined);
   const deleteArtifact = useDeleteChatArtifact(sessionId || undefined);
   const [artifactSearchQuery, setArtifactSearchQuery] = useState("");
-  const createSession = useCreateChatSession();
-  const deleteSession = useDeleteChatSession(agentId || undefined);
-  const updateSession = useUpdateChatSession(agentId || undefined);
   const sendMessage = useSendChatMessage(agentId || undefined);
   const streamMessage = useStreamChatMessage(agentId || undefined);
   const execCommand = useExecChatCommand(agentId || undefined);
   const deleteMessage = useDeleteChatMessage(sessionId || undefined);
   const approveChat = useApproveChat();
   const transcribe = useTranscribeAudio();
-
-  function handleStartRename(s: ChatSession) {
-    setEditingSessionId(s.id);
-    setEditingTitle(s.title);
-  }
-
-  function handleCommitRename() {
-    if (!editingSessionId) return;
-    const title = editingTitle.trim();
-    if (title) {
-      updateSession.mutate({ sessionId: editingSessionId, title });
-    }
-    setEditingSessionId(null);
-  }
-
-  function handleTogglePin(s: ChatSession) {
-    updateSession.mutate({ sessionId: s.id, pinned: !s.pinned });
-  }
 
   // Jump straight to the bottom (no animation) the first time a session's
   // messages load -- e.g. opening the tab or switching sessions -- so the
@@ -2040,71 +2004,14 @@ export function ChatPane({
   }, [composerText, active]);
 
   const selectedAgent = chatableAgents.find((a) => a.id === agentId);
-  const activeSession = sessions?.find((s) => s.id === sessionId);
   const showSelfRestartWarning =
     isForgeHubRepoPath(activeSession?.working_directory_path) && SELF_RESTART_COMMAND_RE.test(composerText);
-
-  function handleSetSessionWorkingDirectory(path: string | null) {
-    if (!sessionId) return;
-    updateSession.mutate({ sessionId, working_directory_path: path });
-  }
-
-  // Per-row moves from ChatItemMenu -- unlike handleSetSessionWorkingDirectory
-  // above (header picker, active session only), these work on any session
-  // in the tree, not just the one currently open.
-  function handleMoveSessionToProject(targetSessionId: string, path: string | null) {
-    updateSession.mutate({ sessionId: targetSessionId, working_directory_path: path });
-  }
-  function handleMoveSessionToGroup(targetSessionId: string, groupId: string | null) {
-    updateSession.mutate({ sessionId: targetSessionId, group_id: groupId });
-  }
-  function handleCreateGroupAndMoveSession(targetSessionId: string, name: string) {
-    createChatGroup.mutate(name, {
-      onSuccess: (group) => {
-        updateSession.mutate({ sessionId: targetSessionId, group_id: group.id });
-      },
-    });
-  }
-
-  // Bulk "limpeza" (2026-07-28): hard-deletes every session in the given
-  // scope -- Project folder, Group folder, or the loose list ("geral", no
-  // project/group) -- each cleared independently from its own icon, never
-  // bundled. Confirms once for the whole batch, not per session, via the
-  // shared in-app ConfirmDialog (2026-07-29) rather than window.confirm --
-  // consistent with the rest of the app's destructive-action pattern (see
-  // InboxGroupTree.tsx) and not a native browser popup.
-  const [pendingClearSessions, setPendingClearSessions] = useState<{
-    sessions: ChatSession[];
-    message: string;
-  } | null>(null);
-
-  function handleClearSessions(sessionsToClear: ChatSession[], confirmMessage: string) {
-    if (sessionsToClear.length === 0) return;
-    setPendingClearSessions({ sessions: sessionsToClear, message: confirmMessage });
-  }
-
-  function confirmClearSessions() {
-    if (!pendingClearSessions) return;
-    for (const s of pendingClearSessions.sessions) {
-      deleteSession.mutate(s.id, {
-        onSuccess: () => {
-          if (s.id === sessionId) setSessionId("");
-        },
-      });
-    }
-    setPendingClearSessions(null);
-  }
 
   // "/testar" (LOCAL_SLASH_COMMANDS) opens this dialog instead of sending a
   // message -- dispatches straight to the background-test endpoint via
   // apiClient, same reasoning as "/new": never depends on the LLM session
   // or MCP tool discovery being available.
   const [testDialogOpen, setTestDialogOpen] = useState(false);
-
-  function handleNewChat() {
-    if (!agentId) return;
-    createSession.mutate({ agent_id: agentId }, { onSuccess: (session) => setSessionId(session.id) });
-  }
 
   function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -4251,6 +4158,25 @@ export function ChatPane({
                 )}
                 {agentId && <AgentMcpInfoButton agentId={agentId} />}
                 <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-full shrink-0"
+                  aria-label={t("composer.improvePrompt", { agent: selectedAgent?.name ?? t("agentPicker.agentFallback") })}
+                  title={t("composer.improvePrompt", { agent: selectedAgent?.name ?? t("agentPicker.agentFallback") })}
+                  onClick={() => {
+                    // A brand-new conversation has no session yet (only
+                    // created lazily on first send/message) -- lazily
+                    // create one here too instead of disabling the button,
+                    // same ensureSession() the composer's own send path
+                    // already uses (2026-08-07, Marcelo: "o botão continua
+                    // desabilitado" on a fresh conversation).
+                    void ensureSession();
+                    setImproveOpen(true);
+                  }}
+                >
+                  <Sparkles className="h-4 w-4" />
+                </Button>
+                <Button
                   variant={isRecording ? "destructive" : "ghost"}
                   size="icon"
                   className="h-8 w-8 rounded-full shrink-0"
@@ -4281,6 +4207,20 @@ export function ChatPane({
             }
           />
         </div>
+        {improveOpen && (
+          <ImprovePromptDialog
+            initialDraft={composerText}
+            subject={selectedAgent?.name ?? t("agentPicker.agentFallback")}
+            agents={chatableAgents}
+            improvePrompt={improvePrompt}
+            onApply={(improved) => {
+              setComposerText(improved);
+              setImproveOpen(false);
+              composerTextareaRef.current?.focus();
+            }}
+            onClose={() => setImproveOpen(false)}
+          />
+        )}
       </div>
 
       {artifactsOpen && (
@@ -4365,3 +4305,4 @@ export function ChatPane({
     </div>
   );
 }
+

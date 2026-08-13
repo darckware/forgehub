@@ -78,6 +78,8 @@ from app.api.schemas.agent import (
     ForgeRouterKeyImportOut,
     ForgeRouterKeySyncAgentOut,
     ForgeRouterKeySyncOut,
+    ForgeRouterServiceKeyOut,
+    ForgeRouterServiceOut,
     HermesSyncResultOut,
     SkillAgentRef,
     SkillCreate,
@@ -393,6 +395,57 @@ async def sync_forgerouter_keys(db: AsyncSession = Depends(get_db)) -> ForgeRout
         agents=rows,
         unmatched_forgerouter_agents=sorted(keys_by_name),
     )
+
+
+@router.get("/forgerouter-services", response_model=list[ForgeRouterServiceOut])
+async def list_forgerouter_services(_admin: User = Depends(get_current_admin)) -> list[ForgeRouterServiceOut]:
+    """Service-kind entries in ForgeRouter's own registry (ai_router.agents,
+    kind='service' -- e.g. "Hindsight") for Settings' "Default agent for
+    project API keys" picker (2026-07-29, Marcelo: "eu adicionei agente do
+    tipo serviço no forgerouter, filtra somente esses"). Distinct from the
+    Agent roster: a service has no ForgeHub Agent row of its own, so this
+    reads straight from ForgeRouter. Declared before /{agent_id} so this
+    literal path is never parsed as an agent UUID. Name only -- see
+    /forgerouter-services/{name} for the key itself, same
+    never-in-a-list-response pattern as every other secret in this module."""
+    services = await forgerouter_sync.read_forgerouter_service_keys()
+    return [ForgeRouterServiceOut(name=s.name) for s in services]
+
+
+@router.get("/forgerouter-services/{name}", response_model=ForgeRouterServiceKeyOut)
+async def get_forgerouter_service_key(name: str, _admin: User = Depends(get_current_admin)) -> ForgeRouterServiceKeyOut:
+    """One service's plaintext key -- backs the Dashboard's
+    ProjectsForgeRouterCard prompt pre-fill. Declared before /{agent_id} for
+    the same literal-path reason as above."""
+    services = await forgerouter_sync.read_forgerouter_service_keys()
+    match = next((s for s in services if s.name == name), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail=f"Service '{name}' not found in ForgeRouter's registry")
+@router.get("/by-slug/{slug}", response_model=AgentDetailOut)
+async def get_agent_by_slug(
+    slug: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_admin)
+) -> AgentDetailOut:
+    """Retrieve agent details by profile slug."""
+    result = await db.execute(
+        select(Agent)
+        .options(
+            selectinload(Agent.sub_agents),
+            selectinload(Agent.agent_skills),
+            selectinload(Agent.cost_rates),
+            selectinload(Agent.capacities),
+        )
+        .where(Agent.profile_slug == slug.lower())
+    )
+    agent = result.scalar_one_or_none()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Agent with profile_slug '{slug}' not found")
+    out = AgentDetailOut.model_validate(agent)
+    if agent.forgerouter_api_key_encrypted:
+        try:
+            out.forgerouter_api_key = decrypt_secret(agent.forgerouter_api_key_encrypted)
+        except ValueError:
+            out.forgerouter_api_key = None
+    return out
 
 
 @router.get("/mcp-servers", response_model=AgentMcpOverviewOut)

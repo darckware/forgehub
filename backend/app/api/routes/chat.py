@@ -12,6 +12,7 @@ import json
 import os
 import time
 import uuid
+from typing import AsyncIterator
 
 import anyio
 import httpx
@@ -810,6 +811,55 @@ async def stream_chat_message(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/sessions/{session_id}/improve-prompt/stream")
+async def stream_improve_prompt(
+    session_id: uuid.UUID, draft: str, instruction: str, db: AsyncSession = Depends(get_db)
+) -> StreamingResponse:
+    """Asks this session's own agent to rewrite a draft message per an
+    improvement instruction -- ported from channel.py's
+    stream_improve_prompt, which shipped first for the Channels room
+    (2026-08-06, Marcelo: "no ChatPane (Conversations) o icone de melhoria
+    do prompt que foi construido no ChatPane (Canais)"). A channel asks its
+    designated orchestrator; a 1:1 session has no such role, so this asks
+    the session's own agent instead -- there's exactly one agent it could
+    mean. A private utility call, never a real turn: no ChatMessage is
+    created, nothing is added to the session's transcript, and the call
+    always starts a fresh bridge session (hermes_session_id=None) so it
+    never interferes with the session's own conversational continuity.
+    Same SSE + ping pattern as channel.py's version (a single
+    non-streaming bridge call can take up to ~650s -- see
+    _call_bridge_text)."""
+    session = await _get_session_or_404(db, session_id)
+    agent = await _get_chattable_agent_or_404(db, session.agent_id)
+
+    prompt = (
+        f'Você é o agente "{agent.name}" no ForgeHub. O usuário está rascunhando uma mensagem para '
+        f"você e pediu sua ajuda para melhorá-la.\n\n"
+        f"Rascunho atual:\n---\n{draft}\n---\n\n"
+        f"Instrução de melhoria: {instruction}\n\n"
+        f"Responda APENAS com o texto melhorado da mensagem, pronto para ser enviado -- sem comentários, "
+        f"sem explicações, sem aspas ao redor do texto."
+    )
+
+    async def _events() -> AsyncIterator[str]:
+        try:
+            task = asyncio.ensure_future(_call_bridge_text(agent.profile_slug, prompt, None))
+            while True:
+                done, _pending = await asyncio.wait([task], timeout=15)
+                if done:
+                    break
+                yield ": ping\n\n"
+            bridge_result = await task
+            improved_text = (bridge_result.get("reply") or "").strip()
+            yield f"data: {json.dumps({'improved_text': improved_text})}\n\n"
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            yield f"event: error\ndata: {json.dumps({'detail': str(detail)})}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(_events(), media_type="text/event-stream")
 
 
 @router.post("/approve")

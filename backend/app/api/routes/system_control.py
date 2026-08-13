@@ -680,6 +680,14 @@ DEFAULT_UI_LANGUAGE={default_ui_language}
 # not consumed by Git Control/Backup -- see this module's docstring). JSON
 # object -- pydantic-settings parses Dict[str, str] env values as JSON.
 AGENT_RUNTIME_PATHS={agent_runtime_paths}
+
+# ForgeRouter -- default service for per-project API keys
+# Name of a service-kind row in ai_router.agents (e.g. "Hindsight") whose
+# key pre-fills the Dashboard's ProjectsForgeRouterCard "Enter the
+# ForgeRouter API key..." prompt, so enabling ForgeRouter for a project+tool
+# doesn't require pasting a key by hand every time. Empty = no default,
+# prompt stays blank.
+DEFAULT_FORGEROUTER_SERVICE_NAME={default_forgerouter_service_name}
 """
 
 
@@ -696,6 +704,7 @@ def _settings_to_config_out(s) -> dict[str, Any]:
         "chat_response_language": s.CHAT_RESPONSE_LANGUAGE,
         "default_ui_language": s.DEFAULT_UI_LANGUAGE,
         "agent_runtime_paths": dict(s.AGENT_RUNTIME_PATHS),
+        "default_forgerouter_service_name": s.DEFAULT_FORGEROUTER_SERVICE_NAME,
     }
 
 
@@ -711,6 +720,7 @@ class AppConfigUpdate(BaseModel):
     chat_response_language: str = Field(default="pt-BR", max_length=16)
     default_ui_language: str = Field(default="pt-BR", max_length=8)
     agent_runtime_paths: dict[str, str] = Field(default_factory=dict)
+    default_forgerouter_service_name: str = Field(default="", max_length=128)
 
 
 @router.get("/config")
@@ -780,6 +790,7 @@ async def update_app_config(
     settings.CHAT_RESPONSE_LANGUAGE = payload.chat_response_language
     settings.DEFAULT_UI_LANGUAGE = payload.default_ui_language
     settings.AGENT_RUNTIME_PATHS = payload.agent_runtime_paths
+    settings.DEFAULT_FORGEROUTER_SERVICE_NAME = payload.default_forgerouter_service_name
 
     _APP_CONFIG_FILE.write_text(
         _APP_CONFIG_TEMPLATE.format(
@@ -794,6 +805,7 @@ async def update_app_config(
             chat_response_language=settings.CHAT_RESPONSE_LANGUAGE,
             default_ui_language=settings.DEFAULT_UI_LANGUAGE,
             agent_runtime_paths=json.dumps(settings.AGENT_RUNTIME_PATHS),
+            default_forgerouter_service_name=settings.DEFAULT_FORGEROUTER_SERVICE_NAME,
         )
     )
 

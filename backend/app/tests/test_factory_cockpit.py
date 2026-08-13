@@ -9,6 +9,7 @@ returns every project in the database, so filtering by our own ids is what
 keeps the test independent of whatever else lives in the DB.
 """
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -17,11 +18,13 @@ from sqlalchemy import delete, select
 
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
+from app.db.models.agent import Agent
 from app.db.models.backlog import PlanningItem
+from app.db.models.demand import AgentDemand
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
 from app.db.models.system_scope import ProductConcept
-from app.db.models.task import ProjectTask
+from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 
 
 def _auth_headers() -> dict[str, str]:
@@ -103,6 +106,147 @@ async def factory_fixture():
             await db.execute(delete(ProductVersion).where(ProductVersion.id == created["version_id"]))
             await db.execute(delete(Product).where(Product.id == created["product_id"]))
             await db.commit()
+
+
+@pytest_asyncio.fixture
+async def telemetry_fixture(factory_fixture):
+    """One agent with a mix of TaskExecution outcomes + one AgentDemand
+    dispatch, attached to factory_fixture's "done" task -- covers
+    agent-telemetry's join chain (TaskExecution -> TaskAssignment -> Agent)
+    end to end. There is no ORM relationship for this chain (see
+    app/db/models/task.py), so the fixture wires it exactly the way the
+    real dispatch path does: an assignment row, then executions against it.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"telemetry-agent-{suffix}", agent_type="executor")
+        db.add(agent)
+        await db.flush()
+
+        task = (
+            await db.execute(
+                select(ProjectTask).where(
+                    ProjectTask.planning_item_id == factory_fixture["planning_id"],
+                    ProjectTask.status == "done",
+                ).limit(1)
+            )
+        ).scalar_one()
+
+        assignment = TaskAssignment(task_id=task.id, agent_id=agent.id, status="active")
+        db.add(assignment)
+        await db.flush()
+
+        now = datetime.now(timezone.utc)
+        executions = [
+            TaskExecution(
+                task_id=task.id, assignment_id=assignment.id, attempt_number=1,
+                status="completed", started_at=now - timedelta(minutes=5),
+                finished_at=now - timedelta(minutes=4), actual_cost=1.50, evidence_ref="ok",
+            ),
+            TaskExecution(
+                task_id=task.id, assignment_id=assignment.id, attempt_number=2,
+                status="failed", actual_cost=0.75,
+            ),
+            TaskExecution(
+                task_id=task.id, assignment_id=assignment.id, attempt_number=3,
+                status="running", actual_cost=0.25,
+            ),
+        ]
+        db.add_all(executions)
+
+        demand = AgentDemand(
+            from_agent="tester", subject="dispatch", body="dispatch body",
+            target_agent_id=agent.id, origin_type="task", dispatch_status="completed",
+        )
+        db.add(demand)
+        await db.commit()
+
+        created = {
+            "agent_id": agent.id,
+            "assignment_id": assignment.id,
+            "task_id": task.id,
+            "demand_id": demand.id,
+        }
+
+    try:
+        yield created
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(TaskExecution).where(TaskExecution.assignment_id == created["assignment_id"]))
+            await db.execute(delete(TaskAssignment).where(TaskAssignment.id == created["assignment_id"]))
+            await db.execute(delete(AgentDemand).where(AgentDemand.id == created["demand_id"]))
+            await db.execute(delete(Agent).where(Agent.id == created["agent_id"]))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_agent_telemetry_aggregates_executions_and_dispatch(client, factory_fixture, telemetry_fixture):
+    resp = await client.get("/api/v1/factory/agent-telemetry")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    row = next(
+        (a for a in body["agents"] if a["agent_id"] == str(telemetry_fixture["agent_id"])), None
+    )
+    assert row is not None, "o agente criado não apareceu na telemetria"
+
+    assert row["executions_total"] == 3
+    assert row["executions_successful"] == 1
+    assert row["executions_failed"] == 1
+    assert row["executions_other"] == 1
+    assert row["success_rate"] == pytest.approx(0.5)
+    # Só a execução "completed" tem started_at/finished_at -- 60s de duração.
+    assert row["avg_duration_seconds"] == pytest.approx(60.0)
+    assert row["total_cost"] == pytest.approx(2.5)
+
+    assert row["dispatch_total"] == 1
+    assert row["dispatch_completed"] == 1
+    assert row["dispatch_failed"] == 0
+    assert row["dispatch_success_rate"] == pytest.approx(1.0)
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    history_today = next((h for h in row["history"] if h["date"] == today), None)
+    assert history_today is not None, "o dia de hoje não apareceu no histórico"
+    assert history_today["count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_agent_telemetry_omits_agents_with_no_activity():
+    """Um agente sem nenhuma execução/despacho não deve aparecer na lista --
+    não é uma linha zerada fictícia, é ausência real."""
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"idle-agent-{suffix}", agent_type="executor")
+        db.add(agent)
+        await db.commit()
+        agent_id = agent.id
+
+    try:
+        from app.main import app
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=_auth_headers()
+        ) as ac:
+            resp = await ac.get("/api/v1/factory/agent-telemetry")
+        assert resp.status_code == 200, resp.text
+        ids = {a["agent_id"] for a in resp.json()["agents"]}
+        assert str(agent_id) not in ids
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Agent).where(Agent.id == agent_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_cockpit_reports_total_cost_for_a_project(client, factory_fixture, telemetry_fixture):
+    resp = await client.get("/api/v1/factory/cockpit")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    product = next(p for p in body["products"] if p["product_id"] == str(factory_fixture["product_id"]))
+    row = next(r for r in product["projects"] if r["project_id"] == str(factory_fixture["project_id"]))
+    assert row["total_cost"] == pytest.approx(2.5)
 
 
 @pytest.mark.asyncio

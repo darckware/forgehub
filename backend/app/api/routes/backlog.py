@@ -53,6 +53,7 @@ from app.db.models.backlog import (
     TriageDecision,
     VersionScopeItem,
 )
+from app.db.models.product import ProductVersion
 from app.db.models.project import Project, ProjectStructureNode
 from app.db.models.task import ProjectTask
 
@@ -146,6 +147,18 @@ async def update_planning_item(
                 "use a Change Request instead."
             ),
         )
+
+    # Pacote 4 (2026-08-01): locked once the item's Project's ProductVersion
+    # is published -- same rule as Escopo/Telas in system_scope.py.
+    if item.project_id is not None:
+        project = await db.get(Project, item.project_id)
+        if project is not None and project.product_version_id is not None:
+            version = await db.get(ProductVersion, project.product_version_id)
+            if version is not None and version.status == "published":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This project's version is published; planning is locked",
+                )
 
     data = payload.model_dump(exclude_unset=True)
     if "item_type" in data and data["item_type"] not in PLANNING_ITEM_TYPES:

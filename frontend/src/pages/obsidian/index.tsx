@@ -23,6 +23,7 @@ import {
 import { filterDocumentTree } from "@/components/DocumentBrowser";
 import { CopyButton } from "@/components/CopyButton";
 import { DocTree, useExpandedTree } from "@/components/DocTree";
+import { GalaxyView } from "@/components/GalaxyView";
 import { GraphView } from "@/components/GraphView";
 import { Markdown } from "@/components/Markdown";
 import { MindMapView } from "@/components/MindMapView";
@@ -75,6 +76,8 @@ export default function ObsidianPage() {
   const [workingDir, setWorkingDir] = useState("");
 
   const [viewMode, setViewMode] = useState<DocumentViewMode>("note");
+  // Raw-source toggle, independent of viewMode -- same behavior as Docs.
+  const [showRawMarkdown, setShowRawMarkdown] = useState(false);
   const { data: graph, isLoading: graphLoading } = useVaultGraph();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -311,6 +314,13 @@ export default function ObsidianPage() {
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         mindMapDisabled={!selectedPath}
+        showGalaxy
+        rawView={showRawMarkdown}
+        onRawViewChange={(v) => {
+          setShowRawMarkdown(v);
+          if (viewMode !== "note") setViewMode("note");
+        }}
+        rawViewDisabled={!selectedPath}
         treeExpand={{ allExpanded, onToggleAll: toggleAllExpanded }}
         actions={
           <>
@@ -518,7 +528,10 @@ export default function ObsidianPage() {
                 className="h-full min-h-[50vh] resize-none font-mono text-sm"
               />
             )}
-            {note && !isEditing && <Markdown content={note.content} className="text-sm" />}
+            {note && !isEditing && showRawMarkdown && (
+              <pre className="whitespace-pre-wrap break-words font-sans text-sm">{note.content}</pre>
+            )}
+            {note && !isEditing && !showRawMarkdown && <Markdown content={note.content} className="text-sm" />}
           </div>
         )}
 
@@ -531,6 +544,18 @@ export default function ObsidianPage() {
               </div>
             )}
             {graph && <GraphView graph={graph} onSelectNode={handleSelectFromGraph} />}
+          </div>
+        )}
+
+        {viewMode === "galaxy" && (
+          <div className="h-full overflow-hidden">
+            {graphLoading && (
+              <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t("buildingGraph")}
+              </div>
+            )}
+            {graph && <GalaxyView graph={graph} onSelectNode={handleSelectFromGraph} />}
           </div>
         )}
 

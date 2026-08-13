@@ -50,6 +50,12 @@ export const projectCockpitRowSchema = z.object({
   phases: z.array(phaseStatusSchema),
   planning_count: z.number().default(0),
   task_count: z.number().default(0),
+  total_cost: z.number().default(0),
+  // Team/room visibility (2026-08-05, Software Factory fix): active
+  // ProjectAgentMembership count and this project's (oldest) ChatChannel,
+  // if any -- see backend factory.py's team_size_by_project/channel_by_project.
+  team_size: z.number().default(0),
+  channel_id: z.string().nullable().optional(),
 });
 
 export type ProjectCockpitRow = z.infer<typeof projectCockpitRowSchema>;
@@ -88,5 +94,54 @@ export function useCockpit() {
   return useQuery({
     queryKey: cockpitKeys.all,
     queryFn: async () => cockpitSchema.parse(await apiClient.get("/api/v1/factory/cockpit")),
+  });
+}
+
+/**
+ * Agent execution + dispatch telemetry (Pacote 5).
+ *
+ * Backend contract: GET /api/v1/factory/agent-telemetry (app/api/routes/factory.py).
+ * Already aggregated server-side (per-agent counts/rates/avg duration/cost/
+ * 14-day history) -- the frontend never recomputes this from raw executions.
+ */
+export const agentTelemetryHistoryPointSchema = z.object({
+  date: z.string(),
+  count: z.number(),
+});
+
+export const agentTelemetryRowSchema = z.object({
+  agent_id: z.string(),
+  agent_name: z.string(),
+  executions_total: z.number(),
+  executions_successful: z.number(),
+  executions_failed: z.number(),
+  executions_other: z.number(),
+  success_rate: z.number().nullable().optional(),
+  avg_duration_seconds: z.number().nullable().optional(),
+  total_cost: z.number().default(0),
+  dispatch_total: z.number(),
+  dispatch_completed: z.number(),
+  dispatch_failed: z.number(),
+  dispatch_success_rate: z.number().nullable().optional(),
+  history: z.array(agentTelemetryHistoryPointSchema).default([]),
+});
+
+export type AgentTelemetryRow = z.infer<typeof agentTelemetryRowSchema>;
+
+export const agentTelemetrySchema = z.object({
+  agents: z.array(agentTelemetryRowSchema),
+});
+
+export type AgentTelemetry = z.infer<typeof agentTelemetrySchema>;
+
+export const agentTelemetryKeys = {
+  all: ["factory", "agent-telemetry"] as const,
+};
+
+export function useAgentTelemetry() {
+  return useQuery({
+    queryKey: agentTelemetryKeys.all,
+    queryFn: async () =>
+      agentTelemetrySchema.parse(await apiClient.get("/api/v1/factory/agent-telemetry")),
   });
 }

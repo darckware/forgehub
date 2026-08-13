@@ -28,6 +28,19 @@ export const PROJECT_STATUSES = [
 
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
+// What kind of application this Project delivers -- see backend/app/db/
+// models/project.py's PROJECT_SOLUTION_TYPES docstring for the 2026-08-01
+// "one Project per type" decision.
+export const PROJECT_SOLUTION_TYPES = [
+  "web_app",
+  "mobile_app",
+  "api_service",
+  "database",
+  "deploy",
+] as const;
+
+export type ProjectSolutionType = (typeof PROJECT_SOLUTION_TYPES)[number];
+
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------
@@ -178,6 +191,7 @@ export const projectSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().nullable().optional(),
   product_version_id: z.string().nullable().optional(),
+  solution_type: z.enum(PROJECT_SOLUTION_TYPES).nullable().optional(),
   status: z.enum(PROJECT_STATUSES).default("planned"),
   working_directory_path: z.string().nullable().optional(),
   // Both consumed by System Control's Git Control/Backup cards (see
@@ -198,6 +212,7 @@ export const projectCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
   description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
   product_version_id: z.string().min(1, "Product version is required"),
+  solution_type: z.enum(PROJECT_SOLUTION_TYPES).nullable().optional(),
   status: z.enum(PROJECT_STATUSES).default("planned"),
   working_directory_path: z.string().max(1024, "Path is too long").optional().or(z.literal("")),
   github_repo_url: z.string().max(500, "URL is too long").optional().or(z.literal("")),

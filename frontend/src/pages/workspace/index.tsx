@@ -561,32 +561,36 @@ export default function WorkspacePage() {
     </div>
   );
 
-  if (viewMode === "canais") {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col pl-4">
-        {modeToggle}
+  // Channels and Conversations both stay mounted, toggled via CSS
+  // `hidden` instead of a conditional-render/early-return swap -- an
+  // agent turn in flight (a channel dispatch, or a chat stream) used to
+  // die with zero trace the instant you switched away from its tab, since
+  // switching used to unmount the whole pane (2026-08-07, Marcelo: "ao
+  // sair da tela perdi o processamento da conversão com o agente. precisa
+  // se manter igual ao chat da conversation" -- "algumas telas não podem
+  // ser apagadas... precisam ter sessões e continuarem com o serviço").
+  // Mirrors the pattern ChatPane's own tabs already use below (`!active &&
+  // "hidden"`) rather than inventing a new one. This alone doesn't make a
+  // backend turn survive a dropped connection (see channel.py's
+  // _wake_agent_turn_streaming for that fix) -- it only stops the
+  // *frontend* from throwing away an otherwise-healthy in-flight request
+  // by destroying the component watching it.
+  return (
+    <div className="flex min-h-0 flex-1 flex-col pl-4">
+      {modeToggle}
+      <div className={cn("flex min-h-0 flex-1 flex-col", viewMode !== "canais" && "hidden")}>
         <ChannelPane agents={allAgents ?? []} defaultProjectId={channelDefaultProjectId} />
       </div>
-    );
-  }
-
-  if (chatableAgents.length === 0) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col pl-4">
-        {modeToggle}
+      <div className={cn("flex min-h-0 flex-1 flex-col", viewMode !== "conversas" && "hidden")}>
+      {chatableAgents.length === 0 ? (
         <div className="flex h-[60vh] items-center justify-center text-center text-muted-foreground">
           <div>
             <Bot className="mx-auto mb-3 h-10 w-10" />
             <p>{t("tabs.noAgentAvailable")}</p>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col pl-4">
-      {modeToggle}
+      ) : (
+      <>
       <div className="flex flex-col border-b border-border">
         {/* Toolbar: static actions on the left, working-dir/launchers on the right. */}
         <div className="flex items-center gap-1 px-2 py-1.5">
@@ -855,6 +859,9 @@ export default function WorkspacePage() {
             </div>
           </div>
         )}
+      </div>
+      </>
+      )}
       </div>
     </div>
   );

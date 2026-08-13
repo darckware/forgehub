@@ -51,6 +51,7 @@ export function TaskForm({
     defaultValues: {
       title: "",
       description: "",
+      plan_brief: "",
       planning_item_id: "",
       change_request_id: "",
       parent_task_id: "",
@@ -91,6 +92,18 @@ export function TaskForm({
         />
         {errors.description && (
           <p className="text-sm text-destructive">{errors.description.message}</p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="plan_brief">Plano/abordagem (opcional)</Label>
+        <Textarea
+          id="plan_brief"
+          placeholder="Como abordar, critérios de aceite, contexto para o agente que for executar..."
+          {...register("plan_brief")}
+        />
+        {errors.plan_brief && (
+          <p className="text-sm text-destructive">{errors.plan_brief.message}</p>
         )}
       </div>
 

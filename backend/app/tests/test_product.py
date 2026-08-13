@@ -21,7 +21,10 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
 from app.db.base import AsyncSessionLocal
+from app.db.models.backlog import PlanningItem
 from app.db.models.product import Product, ProductVersion
+from app.db.models.project import Project
+from app.db.models.task import ProjectTask
 from app.main import app
 
 
@@ -215,3 +218,59 @@ async def test_product_carries_a_dev_and_a_production_url(client: AsyncClient):
     finally:
         if product_id:
             await client.delete(f"/api/v1/products/{product_id}")
+
+
+@pytest.mark.asyncio
+async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
+    """Pacote 4 (2026-08-01): :publish blocks (409 + blocking list) while any
+    Project under the version has a non-terminal task -- publishing never
+    force-completes work, per Marcelo's explicit choice. Idempotent once
+    actually published."""
+    unique_name = f"Publish Gate Product {uuid.uuid4()}"
+    create_resp = await client.post("/api/v1/products", json={"name": unique_name})
+    assert create_resp.status_code == 201
+    body = create_resp.json()
+    product_id = uuid.UUID(body["id"])
+    version_id = uuid.UUID(body["versions"][0]["id"])
+
+    try:
+        async with AsyncSessionLocal() as db:
+            project = Project(name=f"Publish Gate Project {uuid.uuid4()}", product_version_id=version_id, status="planned")
+            db.add(project)
+            await db.flush()
+            item = PlanningItem(title="Gate item", item_type="feature", project_id=project.id)
+            db.add(item)
+            await db.flush()
+            task = ProjectTask(planning_item_id=item.id, title="Gate task", task_type="feature")
+            db.add(task)
+            await db.commit()
+            project_id, item_id, task_id = project.id, item.id, task.id
+
+        blocked = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+        assert blocked.status_code == 409, blocked.text
+        detail = blocked.json()["detail"]
+        assert "unfinished tasks" in detail["message"]
+        assert detail["blocking"][0]["task_id"] == str(task_id)
+
+        finish = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
+        assert finish.status_code == 200, finish.text
+
+        published = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+        assert published.status_code == 200, published.text
+        assert published.json()["status"] == "published"
+
+        # Idempotent: publishing again returns the current state, not an error.
+        again = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+        assert again.status_code == 200
+        assert again.json()["status"] == "published"
+
+        # And now the version-lock kicks in for planning item edits.
+        locked = await client.put(f"/api/v1/planning-items/{item_id}", json={"title": "Renamed"})
+        assert locked.status_code == 409
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(ProjectTask).where(ProjectTask.id == task_id))
+            await db.execute(delete(PlanningItem).where(PlanningItem.id == item_id))
+            await db.execute(delete(Project).where(Project.id == project_id))
+            await db.commit()
+        await _cleanup_product(product_id)

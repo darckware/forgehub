@@ -67,12 +67,18 @@ class ProjectCockpitRow(BaseModel):
     planning_count: int = 0
     task_count: int = 0
 
+    # Sum of TaskExecution.actual_cost across every execution of every task
+    # under this project (via PlanningItem), Pacote 5. 0 when nothing has
+    # been executed yet, never None -- there is no "unknown cost" state.
+    total_cost: float = 0
+
     # Count of active ProjectAgentMembership rows for this project, and the
     # id of its (oldest) ChatChannel if one exists -- surfaced here
     # (2026-08-05) so the Cockpit shows team/room state instead of it being
     # invisible outside ProjectAutomationCard/the Workspace's Canais mode.
     team_size: int = 0
     channel_id: uuid.UUID | None = None
+
 
 class ProductVersionRow(BaseModel):
     version_id: uuid.UUID
@@ -103,3 +109,43 @@ class ProductCockpitRow(BaseModel):
 
 class CockpitOut(BaseModel):
     products: list[ProductCockpitRow]
+
+
+class AgentTelemetryHistoryPoint(BaseModel):
+    """One day's execution count, for a 14-day sparkline (Pacote 5)."""
+
+    date: str
+    count: int
+
+
+class AgentTelemetryRow(BaseModel):
+    """Execution + dispatch telemetry for one agent (Pacote 5).
+
+    `executions_*` come from TaskExecution (joined to TaskAssignment, since
+    there is no ORM relationship between the two); `dispatch_*` come from
+    AgentDemand.dispatch_status. They are two independent signals -- a task
+    execution and the AgentDemand that carried it are related but not
+    1:1 -- kept separate rather than merged into one ambiguous number.
+    """
+
+    agent_id: uuid.UUID
+    agent_name: str
+
+    executions_total: int
+    executions_successful: int
+    executions_failed: int
+    executions_other: int
+    success_rate: float | None = None
+    avg_duration_seconds: float | None = None
+    total_cost: float = 0
+
+    dispatch_total: int
+    dispatch_completed: int
+    dispatch_failed: int
+    dispatch_success_rate: float | None = None
+
+    history: list[AgentTelemetryHistoryPoint] = []
+
+
+class AgentTelemetryOut(BaseModel):
+    agents: list[AgentTelemetryRow]

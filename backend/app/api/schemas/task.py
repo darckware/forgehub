@@ -39,6 +39,10 @@ class ProjectTaskBase(BaseModel):
     parent_task_id: uuid.UUID | None = None
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    # The HOW (approach/acceptance criteria/context for whichever agent
+    # dispatches this), distinct from description (the WHAT). Never
+    # required; included in the dispatch message body when set.
+    plan_brief: str | None = None
     task_type: str = "feature"
     priority: str = "medium"
     estimated_cost: float | None = None
@@ -87,6 +91,7 @@ class TaskSubmitIn(BaseModel):
 class ProjectTaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    plan_brief: str | None = None
     task_type: str | None = None
     status: str | None = None
     priority: str | None = None

@@ -115,6 +115,14 @@
     "working": "⏳ Trabalhando — {{duration}}"
   },
   "composer": {
+    "improvePrompt": "Melhorar o prompt com {{agent}}",
+    "improvePromptTitle": "Melhorar o prompt com {{subject}}",
+    "improvePromptDraftLabel": "Prompt",
+    "improvePromptInstructionLabel": "Instrução de melhoria",
+    "improvePromptInstructionPlaceholder": "ex.: deixe mais formal, adicione mais contexto sobre...",
+    "improvePromptConfirm": "Reescrever",
+    "improvePromptApply": "OK",
+    "improvePromptShortcutHint": "Ctrl+Enter para reescrever · Alt+Enter para usar como está",
     "typeMessageFirst": "Digite uma mensagem antes de enviar.",
     "selectAgentFirst": "Selecione um agente antes de enviar.",
     "alreadySent": "Você já enviou esta mensagem.",

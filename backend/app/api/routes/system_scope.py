@@ -12,14 +12,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.routes.project import _bridge_request, _get_working_dir_or_400
 from app.api.schemas.artifact import ArtifactWithVersionsOut
 from app.api.schemas.system_scope import (
+    ArtifactSyncOut,
     BlueprintDetailOut,
     BlueprintGraphOut,
     BlueprintRevisionCreate,
     BlueprintRevisionOut,
     BlueprintSummaryOut,
     BlueprintValidationOut,
+    BusinessRuleOut,
+    BusinessRuleWrite,
     ConceptDecision,
     ConceptDeliveryMetadataUpdate,
     ConceptDetailOut,
@@ -28,14 +32,19 @@ from app.api.schemas.system_scope import (
     ConceptDocumentWrite,
     ConceptRevisionCreate,
     DeliveryPlanningAuthorizationOut,
+    DeriveDatabaseOut,
     DevelopmentRequestOut,
     DevelopmentRequestUpdate,
     IdeaCreate,
     IdeaCreatedOut,
+    ProjectAuthorizationResult,
     ProjectScopeCreate,
     ProjectScopeItemCreate,
     ProjectScopeItemOut,
     ProjectScopeOut,
+    ScreenCreate,
+    ScreenOut,
+    ScreenUpdate,
     SystemElementCreate,
     SystemElementRelationCreate,
     SystemElementRelationOut,
@@ -63,7 +72,8 @@ from app.db.models.backlog import PlanningItem
 from app.db.models.governance import AuditEvent
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
-from app.db.models.task import ProjectTask
+from app.db.models.orchestration import ProjectAgentMembership
+from app.db.models.task import ProjectTask, TaskAssignment
 from app.db.models.system_scope import (
     BLUEPRINT_REVISION_STATUSES,
     ELEMENT_FAMILIES,
@@ -669,6 +679,49 @@ async def delete_concept_document(
         target.unlink()
 
 
+@router.post("/product-concepts/{concept_id}/sync-artifacts-to-project/{project_id}", response_model=ArtifactSyncOut)
+async def sync_concept_artifacts_to_project(
+    concept_id: uuid.UUID, project_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    """Materializes a copy of this concept's documents (PRD.md, generated
+    artifacts, anything hand-authored in the Documentation tab) into the
+    given Project's own repository, under <working_directory_path>/docs/.
+
+    Doesn't replace the central /docs/concepts/<slug>/ area -- that stays
+    the source of truth and where :generate-artifacts writes -- this is a
+    one-way, re-runnable (overwrites) copy per Project, using the same
+    host-bridge fs/write path api/routes/project.py's Workspace file browser
+    already uses (the backend container has no direct filesystem access to
+    a project's working_directory_path -- see write_project_file).
+    """
+    concept = await _concept(db, concept_id)
+    await authorize_action(db, principal, "planning.concept.edit", product_id=concept.product_id)
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(404, "Project not found")
+    working_dir = _get_working_dir_or_400(project)
+
+    docs_dir = await _concept_docs_dir(db, concept_id)
+    if not docs_dir.is_dir():
+        return ArtifactSyncOut(project_id=project_id, files_written=[])
+
+    written: list[str] = []
+    for path in sorted(docs_dir.iterdir()):
+        if not path.is_file() or not _DOC_FILENAME_RE.match(path.name):
+            continue
+        content = path.read_text(encoding="utf-8", errors="replace")
+        target = f"{working_dir.rstrip('/')}/docs/{path.name}"
+        await _bridge_request("PUT", "/v1/fs/write", json={"path": target, "content": content})
+        written.append(path.name)
+
+    db.add(_audit("product_concept", concept.id, "artifacts_synced_to_project", principal.display_name, {
+        "project_id": str(project_id), "files_written": written,
+    }))
+    await db.commit()
+    return ArtifactSyncOut(project_id=project_id, files_written=written)
+
+
 @router.get("/products/{product_id}/system-blueprint", response_model=BlueprintDetailOut)
 async def get_system_blueprint(product_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     blueprint = (await db.execute(select(SystemBlueprint).where(SystemBlueprint.product_id == product_id))).scalar_one_or_none()
@@ -902,11 +955,68 @@ async def validate_blueprint(revision_id: uuid.UUID, db: AsyncSession = Depends(
     return await _validate_blueprint(db, await _blueprint_revision(db, revision_id))
 
 
+# Which layer(s) (FAMILY_LAYER_LABELS values) belong to each application
+# type -- filters which blueprint elements become ProjectScopeItem/Task in
+# each type's own Project. web_app and mobile_app deliberately share
+# "Frontend": no element attribute yet distinguishes a web screen from a
+# mobile screen, so requesting both types in one authorization currently
+# scopes the same frontend elements into both Projects (documented
+# limitation, see docs/modules/01_CONCEPTION_AND_SYSTEM_SCOPE.md -- fixing
+# it needs a target_platform tag per element, out of scope here).
+SOLUTION_TYPE_LAYERS = {
+    "web_app": {"Frontend"},
+    "mobile_app": {"Frontend"},
+    "api_service": {"Backend"},
+    "database": {"Banco de Dados"},
+    "deploy": {"Deploy/Infra"},
+}
+
+# Same idea for Conception's tech_stack_decisions, keyed by their raw
+# TECH_STACK_LAYERS value ("frontend"/"backend"/"database"/"deploy_infra")
+# rather than FAMILY_LAYER_LABELS' rendered strings -- the two label sets
+# don't match verbatim ("Banco de Dados" vs "Banco de dados", etc.), so this
+# stays a separate mapping instead of reusing SOLUTION_TYPE_LAYERS's values.
+SOLUTION_TYPE_TECH_STACK_KEYS = {
+    "web_app": {"frontend"},
+    "mobile_app": {"frontend"},
+    "api_service": {"backend"},
+    "database": {"database"},
+    "deploy": {"deploy_infra"},
+}
+
+# Only web_app/mobile_app are ambiguous (both map to the "Frontend" layer --
+# see SOLUTION_TYPE_LAYERS above); this is the platform tag an "experience"
+# element's spec_snapshot.target_platforms can carry to disambiguate which
+# of the two a screen belongs to (Pacote 3, 2026-08-01). Absent/empty tag on
+# an element = applies to both, preserving pre-existing behavior.
+SOLUTION_TYPE_PLATFORM = {"web_app": "web", "mobile_app": "mobile"}
+
+# ProjectAgentMembership.role (orchestration.py) to auto-create for a
+# Project's responsible_agent_id, keyed by solution_type. PROJECT_AGENT_ROLES
+# is PM-lifecycle vocabulary, not per tech layer -- "developer" covers both
+# frontend and backend, a known limitation (see docs/modules/
+# 01_CONCEPTION_AND_SYSTEM_SCOPE.md).
+ROLE_BY_SOLUTION_TYPE = {
+    "web_app": "developer", "mobile_app": "developer", "api_service": "developer",
+    "database": "data_engineer", "deploy": "release_manager",
+}
+
+
 @router.post("/product-concepts/{concept_id}:authorize-delivery-planning", response_model=DeliveryPlanningAuthorizationOut)
 async def authorize_delivery_planning(
     concept_id: uuid.UUID, payload: AuthorizeDeliveryPlanning, db: AsyncSession = Depends(get_db),
     principal: ActorPrincipal = Depends(get_actor_principal),
 ):
+    """Creates one Project per requested solution_type under a single
+    ProductVersion (2026-08-01 decision -- see SOLUTION_TYPE_LAYERS above
+    and docs/architecture/PLANNING_DELIVERY_ARCHITECTURE.md section 2.2's
+    note on why this diverges from that doc's Track-based recommendation).
+
+    Idempotent per (version, solution_type): re-running with the same pair
+    returns the existing Project/Scope; requesting a solution_type not yet
+    present under an existing version adds a new Project + ProjectScope to
+    it instead of erroring or creating a second ProductVersion.
+    """
     concept = await _concept(db, concept_id)
     await authorize_action(db, principal, "planning.delivery.authorize", product_id=concept.product_id)
     if concept.status != "approved":
@@ -922,25 +1032,13 @@ async def authorize_delivery_planning(
     })
     if not await approved_concept_request(db, concept, target_hash):
         raise HTTPException(409, "A current governed approval decision is required")
+
     existing_version = (await db.execute(select(ProductVersion).where(
         ProductVersion.product_id == concept.product_id, ProductVersion.version == payload.version
     ))).scalar_one_or_none()
-    if existing_version:
-        existing_project = (await db.execute(select(Project).where(
-            Project.product_version_id == existing_version.id
-        ).order_by(Project.created_at))).scalars().first()
-        if revision.product_version_id == existing_version.id and existing_project:
-            existing_scope = (await db.execute(select(ProjectScope).where(
-                ProjectScope.project_id == existing_project.id,
-                ProjectScope.blueprint_base_revision_id == revision.id,
-            ).order_by(ProjectScope.revision))).scalars().first()
-            if existing_scope:
-                return DeliveryPlanningAuthorizationOut(
-                    product_id=concept.product_id, product_version_id=existing_version.id,
-                    project_id=existing_project.id, project_scope_id=existing_scope.id,
-                    blueprint_revision_id=revision.id,
-                )
-        raise HTTPException(409, "This product version already exists")
+    if existing_version and revision.product_version_id != existing_version.id:
+        raise HTTPException(409, "This product version already exists under a different System Map revision")
+
     # Snapshot the graph before any further writes touch `revision` --
     # flushing a dirty `revision` below expires its onupdate timestamp
     # attribute, and _graph()'s Pydantic validation reading it back
@@ -949,81 +1047,144 @@ async def authorize_delivery_planning(
     # function, so it's safe to capture early.
     graph = await _graph(db, revision)
 
-    product_version = ProductVersion(product_id=concept.product_id, version=payload.version, status="planned")
-    db.add(product_version)
-    await db.flush()
-    project = Project(
-        name=payload.project_name, description=payload.project_description,
-        product_version_id=product_version.id, owner=payload.owner, status="planned",
-        working_directory_path=payload.working_directory_path,
-    )
-    db.add(project)
-    await db.flush()
-    project_scope = ProjectScope(
-        project_id=project.id, blueprint_base_revision_id=revision.id,
-        revision=1, created_by=principal.display_name,
-    )
-    product = await db.get(Product, concept.product_id)
-    product.status = "active"
-    revision.product_version_id = product_version.id
-    requests = list((await db.execute(select(DevelopmentRequest).where(
-        DevelopmentRequest.product_id == concept.product_id,
-        DevelopmentRequest.status.in_(["received", "triaging", "accepted"]),
-    ))).scalars())
-    for request in requests:
-        request.status = "converted"
-    db.add(project_scope)
-    await db.flush()
+    if existing_version:
+        product_version = existing_version
+        is_new_version = False
+    else:
+        product_version = ProductVersion(product_id=concept.product_id, version=payload.version, status="planned")
+        db.add(product_version)
+        await db.flush()
+        revision.product_version_id = product_version.id
+        is_new_version = True
 
-    # Task breakdown: one ProjectScopeItem + PlanningItem + ProjectTask per
-    # buildable blueprint element, tagged with its delivery layer, plus one
-    # more PlanningItem+ProjectTask per tech-stack decision from Conception
-    # (Docker/deploy setup included via the deploy_infra layer). Draft/planned
-    # by default -- this seeds the Backlog, it doesn't auto-start work.
-    scope_items_created = 0
-    tasks_created = 0
-    for graph_item in graph.elements:
-        layer = FAMILY_LAYER_LABELS.get(graph_item.element.family)
-        if not layer:
-            continue
-        scope_item = ProjectScopeItem(
-            project_scope_id=project_scope.id, system_element_id=graph_item.element.id,
-            base_element_revision_id=graph_item.revision.id, change_type="add", applicability="required",
+    if is_new_version:
+        product = await db.get(Product, concept.product_id)
+        product.status = "active"
+        requests = list((await db.execute(select(DevelopmentRequest).where(
+            DevelopmentRequest.product_id == concept.product_id,
+            DevelopmentRequest.status.in_(["received", "triaging", "accepted"]),
+        ))).scalars())
+        for request in requests:
+            request.status = "converted"
+
+    results: list[ProjectAuthorizationResult] = []
+    for spec in payload.projects:
+        existing_project = (await db.execute(select(Project).where(
+            Project.product_version_id == product_version.id, Project.solution_type == spec.solution_type,
+        ))).scalars().first()
+        if existing_project:
+            existing_scope = (await db.execute(select(ProjectScope).where(
+                ProjectScope.project_id == existing_project.id,
+                ProjectScope.blueprint_base_revision_id == revision.id,
+            ).order_by(ProjectScope.revision))).scalars().first()
+            if existing_scope:
+                results.append(ProjectAuthorizationResult(
+                    project_id=existing_project.id, project_scope_id=existing_scope.id,
+                    solution_type=spec.solution_type,
+                ))
+                continue
+            raise HTTPException(409, f"A project for solution_type={spec.solution_type} already exists under a different System Map revision")
+
+        project = Project(
+            name=spec.project_name, description=spec.project_description,
+            product_version_id=product_version.id, owner=spec.owner, status="planned",
+            solution_type=spec.solution_type, working_directory_path=spec.working_directory_path,
         )
-        db.add(scope_item)
+        db.add(project)
         await db.flush()
-        task_title = f"[{layer}] {graph_item.element.name}"
-        planning_item = PlanningItem(
-            project_id=project.id, title=task_title, description=graph_item.element.description,
-            item_type="feature", project_scope_item_id=scope_item.id,
+        project_scope = ProjectScope(
+            project_id=project.id, blueprint_base_revision_id=revision.id,
+            revision=1, created_by=principal.display_name,
         )
-        db.add(planning_item)
+        db.add(project_scope)
         await db.flush()
-        db.add(ProjectTask(planning_item_id=planning_item.id, title=task_title, task_type="feature"))
-        scope_items_created += 1
-        tasks_created += 1
 
-    for decision in (concept_revision.tech_stack_decisions or []):
-        decision_text = decision.get("decision")
-        if not decision_text:
-            continue
-        layer_label = TECH_STACK_LAYER_LABELS.get(decision.get("layer"), decision.get("layer") or "Stack")
-        task_title = f"[{layer_label}] Configurar stack: {decision_text}"
-        planning_item = PlanningItem(project_id=project.id, title=task_title, item_type="feature")
-        db.add(planning_item)
-        await db.flush()
-        db.add(ProjectTask(planning_item_id=planning_item.id, title=task_title, task_type="feature"))
-        tasks_created += 1
+        # Auto-assignment (Pacote 3, 2026-08-01): a responsible agent gets a
+        # ProjectAgentMembership on the new Project (role by solution_type),
+        # and every task this authorization creates below is assigned to it
+        # via TaskAssignment.membership_id -- the field the model's own
+        # docstring says "automated dispatch requires", finally set here.
+        membership = None
+        if spec.responsible_agent_id is not None:
+            membership = ProjectAgentMembership(
+                project_id=project.id, agent_id=spec.responsible_agent_id,
+                role=ROLE_BY_SOLUTION_TYPE[spec.solution_type], status="active",
+            )
+            db.add(membership)
+            await db.flush()
 
-    db.add(_audit("product_concept", concept.id, "delivery_planning_authorized", principal.display_name, {
-        "project_id": str(project.id), "approval_hash": target_hash,
-        "scope_items_created": scope_items_created, "tasks_created": tasks_created,
-    }))
+        # Task breakdown: one ProjectScopeItem + PlanningItem + ProjectTask
+        # per buildable blueprint element whose layer belongs to this
+        # solution_type, plus one PlanningItem+ProjectTask per matching
+        # tech-stack decision from Conception. Draft/planned by default --
+        # this seeds the Backlog, it doesn't auto-start work.
+        allowed_layers = SOLUTION_TYPE_LAYERS[spec.solution_type]
+        target_platform = SOLUTION_TYPE_PLATFORM.get(spec.solution_type)
+        scope_items_created = 0
+        tasks_created = 0
+        for graph_item in graph.elements:
+            layer = FAMILY_LAYER_LABELS.get(graph_item.element.family)
+            if not layer or layer not in allowed_layers:
+                continue
+            # web_app/mobile_app disambiguation: an element with an explicit
+            # target_platforms tag only enters the scope of a matching
+            # solution_type; untagged elements keep today's behavior
+            # (included in both) -- see docs/modules/
+            # 01_CONCEPTION_AND_SYSTEM_SCOPE.md for the full rationale.
+            element_platforms = graph_item.revision.spec_snapshot.get("target_platforms") or []
+            if target_platform and element_platforms and target_platform not in element_platforms:
+                continue
+            scope_item = ProjectScopeItem(
+                project_scope_id=project_scope.id, system_element_id=graph_item.element.id,
+                base_element_revision_id=graph_item.revision.id, change_type="add", applicability="required",
+            )
+            db.add(scope_item)
+            await db.flush()
+            task_title = f"[{layer}] {graph_item.element.name}"
+            planning_item = PlanningItem(
+                project_id=project.id, title=task_title, description=graph_item.element.description,
+                item_type="feature", project_scope_item_id=scope_item.id,
+            )
+            db.add(planning_item)
+            await db.flush()
+            task = ProjectTask(planning_item_id=planning_item.id, title=task_title, task_type="feature")
+            db.add(task)
+            if membership is not None:
+                await db.flush()
+                db.add(TaskAssignment(task_id=task.id, agent_id=spec.responsible_agent_id, membership_id=membership.id, status="active"))
+            scope_items_created += 1
+            tasks_created += 1
+
+        allowed_tech_stack_keys = SOLUTION_TYPE_TECH_STACK_KEYS[spec.solution_type]
+        for decision in (concept_revision.tech_stack_decisions or []):
+            decision_text = decision.get("decision")
+            if not decision_text or decision.get("layer") not in allowed_tech_stack_keys:
+                continue
+            layer_label = TECH_STACK_LAYER_LABELS.get(decision.get("layer"), decision.get("layer") or "Stack")
+            task_title = f"[{layer_label}] Configurar stack: {decision_text}"
+            planning_item = PlanningItem(project_id=project.id, title=task_title, item_type="feature")
+            db.add(planning_item)
+            await db.flush()
+            stack_task = ProjectTask(planning_item_id=planning_item.id, title=task_title, task_type="feature")
+            db.add(stack_task)
+            if membership is not None:
+                await db.flush()
+                db.add(TaskAssignment(task_id=stack_task.id, agent_id=spec.responsible_agent_id, membership_id=membership.id, status="active"))
+            tasks_created += 1
+
+        db.add(_audit("product_concept", concept.id, "delivery_planning_authorized", principal.display_name, {
+            "project_id": str(project.id), "solution_type": spec.solution_type, "approval_hash": target_hash,
+            "scope_items_created": scope_items_created, "tasks_created": tasks_created,
+        }))
+        results.append(ProjectAuthorizationResult(
+            project_id=project.id, project_scope_id=project_scope.id, solution_type=spec.solution_type,
+            scope_items_created=scope_items_created, tasks_created=tasks_created,
+        ))
+
     await db.commit()
     return DeliveryPlanningAuthorizationOut(
         product_id=concept.product_id, product_version_id=product_version.id,
-        project_id=project.id, project_scope_id=project_scope.id, blueprint_revision_id=revision.id,
-        scope_items_created=scope_items_created, tasks_created=tasks_created,
+        blueprint_revision_id=revision.id, projects=results,
     )
 
 
@@ -1080,6 +1241,7 @@ async def add_project_scope_item(scope_id: uuid.UUID, payload: ProjectScopeItemC
         raise HTTPException(404, "Project Scope not found")
     if scope.status != "draft":
         raise HTTPException(409, "Only a draft Project Scope can be changed")
+    await _assert_version_editable(db, scope.project_id)
     element_revision = (await db.execute(select(SystemElementRevision).where(
         SystemElementRevision.blueprint_revision_id == scope.blueprint_base_revision_id,
         SystemElementRevision.system_element_id == payload.system_element_id,
@@ -1121,3 +1283,401 @@ async def get_scope_execution_status(scope_id: uuid.UUID, db: AsyncSession = Dep
         .where(ProjectScopeItem.project_scope_id == scope_id)
     )).all()
     return {element_id: status for element_id, status in rows}
+
+
+# ---------------------------------------------------------------------------
+# Screen registry -- UI & Screen Inspection / Database ERD Diagram, rebuilt
+# on top of the same SystemElement/SystemElementRevision graph Conception's
+# System Map already uses, instead of the two pages' old frontend-only mock
+# data. A screen is a `screen` element (family "experience"); its attributes,
+# HTML prototype (or template+images) live in spec_snapshot; `derive-database`
+# proposes `table`/`field` elements (family "data") from those attributes,
+# in the exact shape frontend/src/pages/system-map/dataSpec.ts already knows
+# how to render via the existing buildMermaidERD pipeline -- no new renderer,
+# no new ERD endpoint needed.
+#
+# Screens/tables are kept in one shared, permanently-draft blueprint revision
+# per product (the "screens revision"), separate from the concept-governed
+# revision lineage (identified by concept_revision_id IS NULL) so adding a
+# screen never needs to reopen concept/System Map approval. Elements stay
+# product-wide (matches how SystemElement already works everywhere else);
+# a ProjectScopeItem is what records that a given screen is part of *this*
+# project's scope.
+# ---------------------------------------------------------------------------
+
+PROJECT_DOCS_ROOT = CONCEPT_ARTIFACTS_DOCS_ROOT
+
+# Screen attribute type -> proposed SQL column type, used by derive_database.
+# Deterministic, no LLM -- a starting point the operator/agent can still edit
+# by hand afterwards (attributes stay editable, this just re-derives).
+ATTRIBUTE_SQL_TYPES = {
+    "string": "text",
+    "number": "numeric",
+    "boolean": "boolean",
+    "date": "timestamptz",
+    "relation": "uuid",
+}
+
+
+def _project_slug(name: str) -> str:
+    return _product_slug(name)
+
+
+async def _project_scope_or_404(db: AsyncSession, scope_id: uuid.UUID) -> ProjectScope:
+    scope = await db.get(ProjectScope, scope_id)
+    if scope is None:
+        raise HTTPException(404, "Project Scope not found")
+    return scope
+
+
+async def _assert_version_editable(db: AsyncSession, project_id: uuid.UUID) -> None:
+    """Pacote 4 (2026-08-01): once a Project's ProductVersion is published,
+    Escopo/Telas/Planejamento for that Project are locked -- Concept/System
+    Blueprint are deliberately NOT covered here (they're Product-level, not
+    tied to one version; a Product can keep evolving its concept for the
+    *next* version after the current one publishes). Read-only endpoints
+    never call this -- only actual mutation points do."""
+    project = await db.get(Project, project_id)
+    if project is None or project.product_version_id is None:
+        return
+    version = await db.get(ProductVersion, project.product_version_id)
+    if version is not None and version.status == "published":
+        raise HTTPException(409, "This project's version is published; scope/screens/planning are locked")
+
+
+async def _scope_context(db: AsyncSession, scope_id: uuid.UUID) -> tuple[ProjectScope, Project, SystemBlueprint]:
+    scope = await _project_scope_or_404(db, scope_id)
+    project = await db.get(Project, scope.project_id)
+    if project is None:
+        raise HTTPException(404, "Project not found")
+    version = await db.get(ProductVersion, project.product_version_id)
+    if version is None:
+        raise HTTPException(409, "Project has no linked product version")
+    blueprint = (await db.execute(
+        select(SystemBlueprint).where(SystemBlueprint.product_id == version.product_id)
+    )).scalar_one_or_none()
+    if blueprint is None:
+        raise HTTPException(409, "Product has no System Map")
+    return scope, project, blueprint
+
+
+async def _screens_revision(db: AsyncSession, blueprint: SystemBlueprint) -> SystemBlueprintRevision:
+    """Get-or-create the product's shared, always-draft "screens revision" --
+    see the module docstring above for why this is separate from the
+    concept-governed revision lineage."""
+    existing = (await db.execute(
+        select(SystemBlueprintRevision).where(
+            SystemBlueprintRevision.blueprint_id == blueprint.id,
+            SystemBlueprintRevision.status == "draft",
+            SystemBlueprintRevision.concept_revision_id.is_(None),
+        ).order_by(SystemBlueprintRevision.created_at.desc())
+    )).scalars().first()
+    if existing:
+        return existing
+    number = (await db.scalar(select(func.max(SystemBlueprintRevision.revision)).where(
+        SystemBlueprintRevision.blueprint_id == blueprint.id
+    )) or 0) + 1
+    revision = SystemBlueprintRevision(blueprint_id=blueprint.id, revision=number, status="draft")
+    db.add(revision)
+    await db.flush()
+    return revision
+
+
+async def _screen_scope_item(db: AsyncSession, scope_id: uuid.UUID, element_id: uuid.UUID) -> ProjectScopeItem:
+    item = (await db.execute(select(ProjectScopeItem).where(
+        ProjectScopeItem.project_scope_id == scope_id, ProjectScopeItem.system_element_id == element_id,
+    ))).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "Screen is not part of this Project Scope")
+    return item
+
+
+@router.get("/project-scopes/{scope_id}/screens", response_model=list[ScreenOut])
+async def list_screens(scope_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    revision = await _screens_revision(db, blueprint)
+    await db.commit()
+    rows = (await db.execute(
+        select(ProjectScopeItem, SystemElement, SystemElementRevision)
+        .join(SystemElement, SystemElement.id == ProjectScopeItem.system_element_id)
+        .join(SystemElementRevision, (SystemElementRevision.system_element_id == SystemElement.id)
+              & (SystemElementRevision.blueprint_revision_id == revision.id))
+        .where(ProjectScopeItem.project_scope_id == scope_id, SystemElement.element_type == "screen")
+        .order_by(SystemElement.created_at)
+    )).all()
+    return [
+        ScreenOut(scope_item_id=item.id, element=SystemElementOut.model_validate(element),
+                  revision=ElementRevisionOut.model_validate(element_revision))
+        for item, element, element_revision in rows
+    ]
+
+
+@router.post("/project-scopes/{scope_id}/screens", response_model=ScreenOut, status_code=201)
+async def create_screen(
+    scope_id: uuid.UUID, payload: ScreenCreate, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await authorize_action(db, principal, "planning.scope.edit", product_id=blueprint.product_id)
+    await _assert_version_editable(db, project.id)
+    revision = await _screens_revision(db, blueprint)
+    stable_key = payload.stable_key or _product_slug(payload.name)
+    spec_snapshot = payload.spec.model_dump(mode="json")
+    element = SystemElement(
+        product_id=blueprint.product_id, stable_key=stable_key, family="experience",
+        element_type="screen", name=payload.name, description=payload.description,
+    )
+    db.add(element)
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "A screen with this key already exists for this product") from None
+    element_revision = SystemElementRevision(
+        system_element_id=element.id, blueprint_revision_id=revision.id,
+        spec_snapshot=spec_snapshot, content_hash=_hash(spec_snapshot),
+    )
+    db.add(element_revision)
+    await db.flush()
+    scope_item = ProjectScopeItem(
+        project_scope_id=scope_id, system_element_id=element.id,
+        target_element_revision_id=element_revision.id, change_type="add", applicability="required",
+    )
+    db.add(scope_item)
+    db.add(_audit("system_element", element.id, "screen_created", principal.display_name, {"project_scope_id": str(scope_id)}))
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Screen already part of this Project Scope") from None
+    await db.refresh(element)
+    await db.refresh(element_revision)
+    await db.refresh(scope_item)
+    return ScreenOut(scope_item_id=scope_item.id, element=element, revision=element_revision)
+
+
+@router.patch("/project-scopes/{scope_id}/screens/{element_id}", response_model=ScreenOut)
+async def update_screen(
+    scope_id: uuid.UUID, element_id: uuid.UUID, payload: ScreenUpdate, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    """Direct edit -- text, attributes, prototype -- with no agent call, so
+    small changes stay free and instant (Marcelo: "coisas simples pode
+    ajudar na economia de token"). Only a real build/refinement request goes
+    through Messages (see the frontend's "Solicitar ao agente" action)."""
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await authorize_action(db, principal, "planning.scope.edit", product_id=blueprint.product_id)
+    await _assert_version_editable(db, project.id)
+    scope_item = await _screen_scope_item(db, scope_id, element_id)
+    revision = await _screens_revision(db, blueprint)
+    element = await db.get(SystemElement, element_id)
+    if element is None or element.element_type != "screen":
+        raise HTTPException(404, "Screen not found")
+    element_revision = await _element_revision_in(db, revision.id, element_id)
+
+    if payload.name is not None:
+        element.name = payload.name
+    if payload.description is not None:
+        element.description = payload.description
+    if payload.spec is not None:
+        element_revision.spec_snapshot = {**element_revision.spec_snapshot, **payload.spec}
+        element_revision.content_hash = _hash(element_revision.spec_snapshot)
+
+    await db.commit()
+    await db.refresh(element)
+    await db.refresh(element_revision)
+    return ScreenOut(scope_item_id=scope_item.id, element=element, revision=element_revision)
+
+
+@router.delete("/project-scopes/{scope_id}/screens/{element_id}", status_code=204)
+async def remove_screen(
+    scope_id: uuid.UUID, element_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    """Drops the screen from this project's scope only -- the underlying
+    element/revision stays (same reasoning as remove_system_element: shared
+    catalog, other scopes or a future derive-database run may still use it)."""
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await authorize_action(db, principal, "planning.scope.edit", product_id=blueprint.product_id)
+    await _assert_version_editable(db, project.id)
+    scope_item = await _screen_scope_item(db, scope_id, element_id)
+    await db.delete(scope_item)
+    await db.commit()
+
+
+def _screen_business_rule_path(project: Project, element: SystemElement) -> str:
+    return f"projects/{_project_slug(project.name)}/business-rules/{element.stable_key}.md"
+
+
+@router.get("/project-scopes/{scope_id}/screens/{element_id}/business-rule", response_model=BusinessRuleOut)
+async def get_screen_business_rule(scope_id: uuid.UUID, element_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await _screen_scope_item(db, scope_id, element_id)
+    element = await db.get(SystemElement, element_id)
+    if element is None:
+        raise HTTPException(404, "Screen not found")
+    rel_path = _screen_business_rule_path(project, element)
+    target = resolve_doc_path(PROJECT_DOCS_ROOT, rel_path)
+    if target is None:
+        raise HTTPException(500, f"Could not resolve a safe path for {rel_path}")
+    if not target.is_file():
+        return BusinessRuleOut(content="", updated_at=None)
+    stat = target.stat()
+    return BusinessRuleOut(
+        content=target.read_text(encoding="utf-8", errors="replace"),
+        updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+    )
+
+
+@router.put("/project-scopes/{scope_id}/screens/{element_id}/business-rule", response_model=BusinessRuleOut)
+async def write_screen_business_rule(
+    scope_id: uuid.UUID, element_id: uuid.UUID, payload: BusinessRuleWrite, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await authorize_action(db, principal, "planning.scope.edit", product_id=blueprint.product_id)
+    await _assert_version_editable(db, project.id)
+    await _screen_scope_item(db, scope_id, element_id)
+    element = await db.get(SystemElement, element_id)
+    if element is None:
+        raise HTTPException(404, "Screen not found")
+    rel_path = _screen_business_rule_path(project, element)
+    target = resolve_doc_path(PROJECT_DOCS_ROOT, rel_path)
+    if target is None:
+        raise HTTPException(500, f"Could not resolve a safe path for {rel_path}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(payload.content, encoding="utf-8")
+    db.add(_audit("system_element", element.id, "business_rule_written", principal.display_name, {"path": rel_path}))
+    await db.commit()
+    stat = target.stat()
+    return BusinessRuleOut(content=payload.content, updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc))
+
+
+@router.post("/project-scopes/{scope_id}/derive-database", response_model=DeriveDatabaseOut)
+async def derive_database(
+    scope_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    """Deterministic pass (no LLM call, no token cost): for every screen in
+    this project's scope, propose a `table` element (family "data") plus one
+    `field` element per attribute, linked by `contains` (table -> field) and
+    `persists_as` (screen -> table) relations -- the exact convention
+    frontend/src/pages/system-map/dataSpec.ts's buildErdSchemaFromBlueprint
+    already reads to feed the existing Mermaid ERD renderer. Idempotent: a
+    screen's table/fields are looked up by stable_key and updated in place
+    rather than duplicated on re-run."""
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await authorize_action(db, principal, "planning.scope.edit", product_id=blueprint.product_id)
+    await _assert_version_editable(db, project.id)
+    revision = await _screens_revision(db, blueprint)
+
+    rows = (await db.execute(
+        select(SystemElement, SystemElementRevision)
+        .join(SystemElementRevision, (SystemElementRevision.system_element_id == SystemElement.id)
+              & (SystemElementRevision.blueprint_revision_id == revision.id))
+        .join(ProjectScopeItem, ProjectScopeItem.system_element_id == SystemElement.id)
+        .where(ProjectScopeItem.project_scope_id == scope_id, SystemElement.element_type == "screen")
+    )).all()
+
+    tables_created = 0
+    tables_updated = 0
+    fields_written = 0
+    for screen, screen_revision in rows:
+        table_key = f"{screen.stable_key}_table"
+        table = (await db.execute(select(SystemElement).where(
+            SystemElement.product_id == blueprint.product_id, SystemElement.stable_key == table_key,
+        ))).scalar_one_or_none()
+        if table is None:
+            table = SystemElement(
+                product_id=blueprint.product_id, stable_key=table_key, family="data",
+                element_type="table", name=f"{screen.name} — tabela", description=f"Derivado da tela {screen.name}",
+            )
+            db.add(table)
+            await db.flush()
+            tables_created += 1
+        else:
+            tables_updated += 1
+
+        table_revision = (await db.execute(select(SystemElementRevision).where(
+            SystemElementRevision.system_element_id == table.id, SystemElementRevision.blueprint_revision_id == revision.id,
+        ))).scalar_one_or_none()
+        if table_revision is None:
+            table_revision = SystemElementRevision(
+                system_element_id=table.id, blueprint_revision_id=revision.id,
+                spec_snapshot={}, content_hash=_hash({}),
+            )
+            db.add(table_revision)
+            await db.flush()
+
+        # persists_as: screen -> table, so the traceability survives even
+        # though buildErdSchemaFromBlueprint (frontend) only reads
+        # table<->table relations for FKs -- this is the screen-level link.
+        existing_persists = (await db.execute(select(SystemElementRelation).where(
+            SystemElementRelation.blueprint_revision_id == revision.id,
+            SystemElementRelation.from_element_id == screen.id, SystemElementRelation.to_element_id == table.id,
+            SystemElementRelation.relation_type == "persists_as",
+        ))).scalar_one_or_none()
+        if existing_persists is None:
+            db.add(SystemElementRelation(
+                blueprint_revision_id=revision.id, from_element_id=screen.id, to_element_id=table.id,
+                relation_type="persists_as",
+            ))
+
+        attributes = (screen_revision.spec_snapshot or {}).get("attributes") or []
+        proposed_fields = [{"name": "id", "sql_type": "uuid", "is_pk": True, "is_fk": False, "fk_ref_table": ""}]
+        for attribute in attributes:
+            proposed_fields.append({
+                "name": attribute.get("name"),
+                "sql_type": ATTRIBUTE_SQL_TYPES.get(attribute.get("type"), "text"),
+                "is_pk": False,
+                "is_fk": attribute.get("type") == "relation",
+                "fk_ref_table": "",
+            })
+
+        for field_spec in proposed_fields:
+            if not field_spec["name"]:
+                continue
+            field_key = f"{table_key}__{field_spec['name']}"
+            field_element = (await db.execute(select(SystemElement).where(
+                SystemElement.product_id == blueprint.product_id, SystemElement.stable_key == field_key,
+            ))).scalar_one_or_none()
+            if field_element is None:
+                field_element = SystemElement(
+                    product_id=blueprint.product_id, stable_key=field_key, family="data",
+                    element_type="field", name=field_spec["name"],
+                )
+                db.add(field_element)
+                await db.flush()
+            field_revision = (await db.execute(select(SystemElementRevision).where(
+                SystemElementRevision.system_element_id == field_element.id,
+                SystemElementRevision.blueprint_revision_id == revision.id,
+            ))).scalar_one_or_none()
+            snapshot = {"field_spec": field_spec}
+            if field_revision is None:
+                db.add(SystemElementRevision(
+                    system_element_id=field_element.id, blueprint_revision_id=revision.id,
+                    spec_snapshot=snapshot, content_hash=_hash(snapshot),
+                ))
+            else:
+                field_revision.spec_snapshot = snapshot
+                field_revision.content_hash = _hash(snapshot)
+            fields_written += 1
+
+            existing_contains = (await db.execute(select(SystemElementRelation).where(
+                SystemElementRelation.blueprint_revision_id == revision.id,
+                SystemElementRelation.from_element_id == table.id, SystemElementRelation.to_element_id == field_element.id,
+                SystemElementRelation.relation_type == "contains",
+            ))).scalar_one_or_none()
+            if existing_contains is None:
+                db.add(SystemElementRelation(
+                    blueprint_revision_id=revision.id, from_element_id=table.id, to_element_id=field_element.id,
+                    relation_type="contains",
+                ))
+
+    db.add(_audit("project_scope", scope_id, "database_derived", principal.display_name, {
+        "tables_created": tables_created, "tables_updated": tables_updated, "fields_written": fields_written,
+    }))
+    await db.commit()
+    return DeriveDatabaseOut(
+        revision_id=revision.id, tables_created=tables_created, tables_updated=tables_updated, fields_written=fields_written,
+    )

@@ -118,6 +118,7 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "8888:8888"
+      - "9999:9999"
     networks:
       - foundation_network
 

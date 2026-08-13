@@ -6,14 +6,19 @@ lightweight until promoted).
 
 Deliberate scope note on streaming: unlike chat.py's stream_chat_message
 (token-by-token SSE proxy of a single agent), a channel turn can wake
-several agents sequentially. GET .../messages/stream here streams one SSE
-event per completed message (human echo, then each mentioned agent's full
-reply as it finishes) rather than per-token -- real, functional real-time
-updates without re-implementing chat.py's incremental token relay for an
-N-agent fan-out. Token-level streaming per agent is a reasonable future
-enhancement, not required for the room to function.
+several agents at once, each running concurrently on its own DB session
+(see _wake_agent_turn_isolated -- 2026-08-06, Marcelo: "o chat do canal
+deve executar vários agentes ao mesmo tempo... veja a execução do chat da
+conversations"). GET .../messages/stream here streams one SSE event per
+completed message (human echo, then each mentioned agent's full reply as
+it finishes, in whatever order that turns out to be) rather than per-token
+-- real, functional real-time updates without re-implementing chat.py's
+incremental token relay for an N-agent fan-out. Token-level streaming per
+agent is a reasonable future enhancement, not required for the room to
+function.
 """
 import asyncio
+import anyio
 import json
 import re
 import time
@@ -27,7 +32,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes.chat import _call_bridge_text, _get_chattable_agent_or_404, _with_language_note
+from app.api.routes.chat import (
+    _bridge_headers,
+    _call_bridge_text,
+    _get_chattable_agent_or_404,
+    _with_language_note,
+)
 from app.api.schemas.channel import (
     ChatChannelAttachProject,
     ChatChannelCreate,
@@ -47,8 +57,9 @@ from app.api.schemas.channel import (
     ChatChannelWithMembersOut,
 )
 from app.core import conversions
+from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal, get_current_username
-from app.db.base import get_db
+from app.db.base import AsyncSessionLocal, get_db
 from app.db.models.agent import Agent
 from app.db.models.channel import (
     CHANNEL_TASK_STATUSES,
@@ -186,6 +197,23 @@ def _extract_mentions(text: str, candidates: list[Agent]) -> list[Agent]:
     return list(seen.values())
 
 
+def _resolve_mentions(content: str, agents: list[Agent]) -> list[Agent]:
+    """Which agent-members actually wake for this turn. "#all" is an
+    explicit broadcast (see _mentions_everyone); as of 2026-08-06 (Marcelo:
+    "quando não especificar o agente a mensagem é para todos e #all seja
+    opcional"), a message that names no agent at all -- no #Name match, no
+    #all -- broadcasts the same way, since requiring "#all" just to reach
+    everyone was the actual complaint. Only an explicit #Name (or several)
+    narrows the turn to those specific agents, capped at
+    MAX_MENTIONS_PER_MESSAGE; neither broadcast form is ever truncated."""
+    mentioned = _extract_mentions(content, agents)
+    if not mentioned:
+        return list(agents)
+    if _mentions_everyone(content):
+        return mentioned
+    return mentioned[:MAX_MENTIONS_PER_MESSAGE]
+
+
 async def _build_shared_context(db: AsyncSession, channel: ChatChannel) -> str:
     """The concrete mechanism behind "real shared context" (see
     db/models/channel.py's module docstring): every hermes_stream.py call
@@ -274,8 +302,9 @@ async def _onboarding_note(db: AsyncSession, channel: ChatChannel, member: ChatC
         f'[Contexto interno, não visível a Marcelo nem aos demais membros] Você acabou de entrar '
         f'no canal "#{channel.name}" do ForgeHub -- uma sala compartilhada (Marcelo + agentes), '
         f'diferente do Messages/Inbox ponto-a-ponto. {role_line}{project_role_line} Você só gera '
-        f'uma resposta real quando alguém escreve #SeuNome na mensagem (turn_policy=mention_only) '
-        f'-- nunca reaja a mensagens de outros agentes por conta própria. Ferramentas MCP '
+        f'uma resposta real quando alguém escreve #SeuNome na mensagem, escreve #all, ou não '
+        f'menciona nenhum agente (mensagem vai para todo o canal) -- turn_policy=mention_only, '
+        f'nunca reaja a mensagens de outros agentes por conta própria. Ferramentas MCP '
         f'disponíveis (servidor forgehub-messages): list_channel_members (quem está aqui e a '
         f'função de cada um), propose_channel_task (propor tarefa para você mesmo -- livre dentro '
         f'da sua função -- ou para um colega -- sempre cria uma Approval pendente em Governança), '
@@ -604,46 +633,272 @@ async def _post_human_message(db: AsyncSession, channel: ChatChannel, content: s
     return message
 
 
-async def _wake_agent_turn(
-    db: AsyncSession, channel: ChatChannel, member: ChatChannelMember, agent: Agent
-) -> ChatChannelMessage:
-    """One agent-member's real turn: builds the shared-context prompt,
-    calls the bridge (the same call chat.py uses for a single-agent
-    session), persists the reply, and updates this member's own Hermes
-    session continuity -- independent of any other member's."""
+async def _build_agent_turn_context(db: AsyncSession, channel: ChatChannel, member: ChatChannelMember) -> str:
+    """The full prompt sent to the bridge for one member's turn -- the
+    shared-transcript context, the onboarding note prepended exactly once
+    (member.hermes_session_id still None; set right after the bridge call
+    and never cleared afterwards, so a later turn never repeats it), and
+    the response-language note. Shared by both the blocking
+    (_wake_agent_turn) and streaming (_wake_agent_turn_streaming) bridge
+    call paths so the two prompts can't drift apart."""
     context = await _build_shared_context(db, channel)
-    # Onboarding fires exactly once per member: hermes_session_id is only
-    # None before this member's first real turn ever happens (set right
-    # below from the bridge's response and never cleared afterwards), so a
-    # later mention never repeats it.
     if member.hermes_session_id is None:
         context = await _onboarding_note(db, channel, member) + context
-    bridge_result = await _call_bridge_text(agent.profile_slug, _with_language_note(context), member.hermes_session_id)
-    member.hermes_session_id = bridge_result.get("session_id") or member.hermes_session_id
-    reply = ChatChannelMessage(
+    return _with_language_note(context)
+
+
+def _new_agent_reply(channel: ChatChannel, agent: Agent, content: str) -> ChatChannelMessage:
+    """A new, unflushed ChatChannelMessage for one agent's reply -- the
+    caller still owns add/flush-or-commit on whichever session it's
+    building this turn on."""
+    return ChatChannelMessage(
         channel_id=channel.id,
         author_type="agent",
         author_agent_id=agent.id,
         author_label=agent.name,
-        content=bridge_result["reply"],
+        content=content,
     )
+
+
+async def _wake_agent_turn(
+    db: AsyncSession, channel: ChatChannel, member: ChatChannelMember, agent: Agent
+) -> ChatChannelMessage:
+    """One agent-member's real turn via the blocking, non-streaming bridge
+    call (/v1/chat, same call chat.py's non-streaming path uses) -- used by
+    the plain POST /messages route. The SSE route
+    (stream_channel_message) uses _wake_agent_turn_streaming instead,
+    which additionally relays tool_start/tool_complete steps live as they
+    happen -- see its own docstring."""
+    context = await _build_agent_turn_context(db, channel, member)
+    bridge_result = await _call_bridge_text(agent.profile_slug, context, member.hermes_session_id)
+    member.hermes_session_id = bridge_result.get("session_id") or member.hermes_session_id
+    reply = _new_agent_reply(channel, agent, bridge_result["reply"])
     db.add(reply)
     await db.flush()
     return reply
 
 
+async def _wake_agent_turn_isolated(
+    channel_id: uuid.UUID, member_id: uuid.UUID, agent_id: uuid.UUID
+) -> ChatChannelMessageOut:
+    """Runs one mentioned agent's turn end-to-end on its own AsyncSession so
+    several mentioned/broadcast agents can be woken concurrently instead of
+    one after another (2026-08-06, Marcelo: "o chat do canal deve executar
+    vários agentes ao mesmo tempo... veja a execução do chat da
+    conversations" -- each Workspace/Conversas tab already fires its own
+    independent request; the same "independent, concurrent request per
+    target" idea applies here across agents within one channel turn instead
+    of across tabs). A single AsyncSession isn't safe to drive from several
+    concurrent coroutines (SQLAlchemy's async session assumes one logical
+    transaction in flight at a time), so this opens its own, re-fetches the
+    channel/member/agent fresh in it, and commits its own reply + updated
+    hermes_session_id independently -- a slow agent no longer blocks a
+    faster one, and one agent's bridge failure can't corrupt another's
+    already-persisted turn."""
+    async with AsyncSessionLocal() as db:
+        channel = await db.get(ChatChannel, channel_id)
+        member = await db.get(ChatChannelMember, member_id)
+        agent = await db.get(Agent, agent_id)
+        reply = await _wake_agent_turn(db, channel, member, agent)
+        await db.commit()
+        await db.refresh(reply)
+        return ChatChannelMessageOut.model_validate(reply)
+
+
+async def _iter_bridge_stream(bridge_params: dict[str, str]) -> AsyncIterator[dict]:
+    """Yields each parsed JSON payload from the host-bridge's token/tool-
+    event SSE stream (/v1/chat/stream -- the same endpoint chat.py's
+    stream_chat_message proxies for 1:1 sessions). SSE comment lines (the
+    bridge's own keepalive pings) are silently skipped. Raises
+    HTTPException(502) on a non-200 response or an explicit {"error": ...}
+    payload, same convention as _call_bridge_text. Factored out on its own
+    so tests can monkeypatch this one async generator instead of stubbing
+    httpx's streaming client directly."""
+    async with httpx.AsyncClient(timeout=660.0) as client:
+        async with client.stream(
+            "GET",
+            f"{settings.CHAT_BRIDGE_URL}/v1/chat/stream",
+            params=bridge_params,
+            headers=_bridge_headers(),
+        ) as resp:
+            if resp.status_code != 200:
+                body = await resp.aread()
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Chat bridge error: {body.decode()[:500]}",
+                )
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if not raw:
+                    continue
+                data = json.loads(raw)
+                if data.get("error"):
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Chat bridge error: {data['error']}",
+                    )
+                yield data
+
+
+async def _wake_agent_turn_streaming(
+    channel_id: uuid.UUID,
+    member_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    events: asyncio.Queue,
+) -> None:
+    """Same job as _wake_agent_turn_isolated for one mentioned agent, but
+    consumes the host-bridge's token/tool-event SSE stream via
+    _iter_bridge_stream instead of the blocking /v1/chat call, so
+    tool_start/tool_complete steps can be relayed to the channel's own SSE
+    stream live as they happen (2026-08-06, Marcelo: "traz o passo a passo
+    de ferramentas em tempo real também"). Token deltas are read but never
+    forwarded -- the channel stays message-level streaming by design (see
+    module docstring); only the tool trail is live. Runs on its own
+    isolated DB session, same reasoning as _wake_agent_turn_isolated.
+
+    Never raises past this function (both the ordinary-failure and
+    cancellation branches below catch, persist, and stop) -- exactly one
+    terminal event (`("done", ...)` or `("failed", ...)`) reaches `events`
+    per agent when its turn ends, so the caller can track how many turns
+    are still outstanding by counting terminal tuples instead of polling
+    task objects. But `events` is an in-memory queue with no guarantee
+    anyone is still reading it -- this task is scheduled independently of
+    the SSE connection that requested it (`asyncio.ensure_future` in
+    stream_channel_message, the whole point of concurrent per-agent
+    turns), so the browser may have long navigated away by the time a slow
+    agent finishes. Every terminal outcome (success, ordinary failure, or
+    a cancelled/dropped connection) is therefore also durably written to
+    the channel's transcript, same discipline chat.py's stream_chat_message
+    already applies to 1:1 sessions -- a turn must never vanish with zero
+    trace just because nobody was watching live (2026-08-07, Marcelo: "ao
+    sair da tela perdi o processamento da conversão com o agente. precisa
+    se manter igual ao chat da conversation" -- confirmed via
+    chat_channel_messages: the human message existed, but zero agent reply
+    and zero error row for "#Athos, preciso que você crie um usuário...").
+    """
+    steps_run: list[str] = []
+
+    def _interrupted_turn_content() -> str:
+        """Same idea as chat.py's own _interrupted_turn_content: the tool
+        steps the turn ran before it was cut off count as real,
+        user-visible processing activity -- persist them instead of
+        letting them evaporate with the connection."""
+        if not steps_run:
+            return "⚠️ Turno interrompido antes de concluir (nenhuma etapa registrada)."
+        unique_steps = list(dict.fromkeys(steps_run))
+        return "⚠️ Turno interrompido antes de concluir. Etapas executadas:\n" + "\n".join(
+            f"- {s}" for s in unique_steps
+        )
+
+    async with AsyncSessionLocal() as db:
+        channel = await db.get(ChatChannel, channel_id)
+        member = await db.get(ChatChannelMember, member_id)
+        agent = await db.get(Agent, agent_id)
+        try:
+            context = await _build_agent_turn_context(db, channel, member)
+            bridge_params: dict[str, str] = {"profile": agent.profile_slug, "message": context}
+            if member.hermes_session_id:
+                bridge_params["session_id"] = member.hermes_session_id
+            full_reply = ""
+            new_hermes_session_id: str | None = None
+            async for data in _iter_bridge_stream(bridge_params):
+                tool_start = data.get("tool_start")
+                if isinstance(tool_start, dict):
+                    step = tool_start.get("context") or tool_start.get("name")
+                    if step:
+                        steps_run.append(str(step))
+                    await events.put((
+                        "step",
+                        agent.id,
+                        agent.name,
+                        {
+                            "tool_id": tool_start.get("tool_id"),
+                            "name": tool_start.get("name"),
+                            "context": tool_start.get("context"),
+                            "detail": tool_start.get("detail"),
+                            "done": False,
+                        },
+                    ))
+                tool_complete = data.get("tool_complete")
+                if isinstance(tool_complete, dict):
+                    await events.put((
+                        "step",
+                        agent.id,
+                        agent.name,
+                        {
+                            "tool_id": tool_complete.get("tool_id"),
+                            "name": tool_complete.get("name"),
+                            "summary": tool_complete.get("summary"),
+                            "demand_number": tool_complete.get("demand_number"),
+                            "done": True,
+                        },
+                    ))
+                if data.get("done"):
+                    full_reply = data.get("reply") or full_reply
+                    new_hermes_session_id = data.get("session_id")
+                    break
+            member.hermes_session_id = new_hermes_session_id or member.hermes_session_id
+            reply = _new_agent_reply(channel, agent, full_reply)
+            db.add(reply)
+            await db.commit()
+            await db.refresh(reply)
+            await events.put(("done", agent.id, ChatChannelMessageOut.model_validate(reply)))
+        except asyncio.CancelledError:
+            # The SSE connection that requested this turn dropped (client
+            # navigated away, tab closed) -- cancellation reaches this task
+            # too (it's spawned from within that request's own cancel
+            # scope), and an unshielded `await db.commit()` here would
+            # itself get cut off mid-flight and save nothing, same failure
+            # mode chat.py's own proxy_stream already documents fixing.
+            # shield=True is required to let this specific write finish.
+            with anyio.CancelScope(shield=True):
+                try:
+                    failure_reply = _new_agent_reply(channel, agent, _interrupted_turn_content())
+                    db.add(failure_reply)
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+            raise
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            try:
+                failure_reply = _new_agent_reply(
+                    channel, agent, f"⚠️ {detail}" if detail else "⚠️ (falha desconhecida ao processar o turno)"
+                )
+                db.add(failure_reply)
+                await db.commit()
+            except Exception:
+                # Persisting the failure message itself failed (e.g. the DB
+                # session is unusable after the original error) -- don't
+                # let that mask the real failure below.
+                await db.rollback()
+            await events.put(("failed", agent.id, agent.name, str(detail)))
+
+
 async def _process_channel_turn(
     db: AsyncSession, channel: ChatChannel, content: str, attachment_names: str | None
-) -> list[ChatChannelMessage]:
-    """turn_policy="mention_only" enforced here: only #-mentioned members
-    (capped at MAX_MENTIONS_PER_MESSAGE, in text order -- except an
-    explicit "#all" broadcast, which is never truncated) get a real turn,
-    sequentially -- never in parallel, and never triggered by another
-    agent's own reply (no re-scan of agent-authored content for mentions
-    in this call chain -- see module docstring on why autonomous
-    agent-to-agent turns aren't implemented yet)."""
+) -> list[ChatChannelMessageOut]:
+    """turn_policy="mention_only" enforced here: #-mentioned members
+    (capped at MAX_MENTIONS_PER_MESSAGE) get a real turn -- concurrently,
+    each on its own isolated session (see _wake_agent_turn_isolated), never
+    triggered by another agent's own reply (no re-scan of agent-authored
+    content for mentions in this call chain -- see module docstring on why
+    autonomous agent-to-agent turns aren't implemented yet). An explicit
+    "#all", or a message that names no agent at all, wakes every member
+    instead and is never truncated -- see _resolve_mentions. The human
+    message is committed immediately (not held for one all-or-nothing
+    commit at the end) so the concurrent isolated sessions -- separate DB
+    transactions -- can actually see it when they build their shared
+    context; a consequence is that a later agent-turn failure no longer
+    rolls back the human echo or any sibling agent's already-persisted
+    reply, matching stream_channel_message's existing partial-persistence
+    behavior below."""
     human_message = await _post_human_message(db, channel, content, attachment_names)
-    produced = [human_message]
+    await db.commit()
+    await db.refresh(human_message)
+    produced: list[ChatChannelMessageOut] = [ChatChannelMessageOut.model_validate(human_message)]
 
     members = await _list_members(db, channel.id)
     agent_members = {m.agent_id: m for m in members if not m.is_human and not m.muted}
@@ -652,30 +907,31 @@ async def _process_channel_turn(
     agents = [await db.get(Agent, agent_id) for agent_id in agent_members]
     agents = [a for a in agents if a is not None]
 
-    mentioned = _extract_mentions(content, agents)
-    if not _mentions_everyone(content):
-        mentioned = mentioned[:MAX_MENTIONS_PER_MESSAGE]
-    for agent in mentioned:
-        member = agent_members[agent.id]
-        reply = await _wake_agent_turn(db, channel, member, agent)
-        produced.append(reply)
+    mentioned = _resolve_mentions(content, agents)
+    if mentioned:
+        results = await asyncio.gather(
+            *[
+                _wake_agent_turn_isolated(channel.id, agent_members[agent.id].id, agent.id)
+                for agent in mentioned
+            ],
+            return_exceptions=True,
+        )
+        failure = next((r for r in results if isinstance(r, BaseException)), None)
+        produced.extend(r for r in results if not isinstance(r, BaseException))
+        if failure is not None:
+            raise failure
     return produced
 
 
 @router.post("/{channel_id}/messages", response_model=list[ChatChannelMessageOut])
 async def post_channel_message(
     channel_id: uuid.UUID, payload: ChatChannelMessageCreate, db: AsyncSession = Depends(get_db)
-) -> list[ChatChannelMessage]:
+) -> list[ChatChannelMessageOut]:
     channel = await _get_channel_or_404(db, channel_id)
     try:
-        produced = await _process_channel_turn(db, channel, payload.content, payload.attachment_names)
+        return await _process_channel_turn(db, channel, payload.content, payload.attachment_names)
     except httpx.HTTPError as exc:
-        await db.rollback()
         raise HTTPException(status_code=502, detail=f"Chat bridge error: {exc}") from exc
-    await db.commit()
-    for message in produced:
-        await db.refresh(message)
-    return produced
 
 
 @router.get("/{channel_id}/messages", response_model=list[ChatChannelMessageOut])
@@ -698,7 +954,12 @@ async def stream_channel_message(
 ) -> StreamingResponse:
     """One SSE event per completed message (see module docstring for why
     this isn't token-level streaming): the human echo lands first, then
-    each #-mentioned agent's full reply as its bridge call returns."""
+    each #-mentioned agent's full reply as its bridge call returns -- all
+    mentioned agents run concurrently (2026-08-06, Marcelo: "o chat do
+    canal deve executar vários agentes ao mesmo tempo... veja a execução do
+    chat da conversations"), so replies are emitted in whichever order they
+    actually finish, not mention order. See _wake_agent_turn_isolated for
+    why each runs on its own DB session rather than sharing this one."""
     channel = await _get_channel_or_404(db, channel_id)
 
     async def _events() -> AsyncIterator[str]:
@@ -711,34 +972,73 @@ async def stream_channel_message(
             members = await _list_members(db, channel.id)
             agent_members = {m.agent_id: m for m in members if not m.is_human and not m.muted}
             agents = [a for a in [await db.get(Agent, aid) for aid in agent_members] if a is not None]
-            mentioned = _extract_mentions(content, agents)
-            if not _mentions_everyone(content):
-                mentioned = mentioned[:MAX_MENTIONS_PER_MESSAGE]
+            mentioned = _resolve_mentions(content, agents)
+
+            # Each mentioned/broadcast agent's turn runs concurrently, on its
+            # own isolated session (_wake_agent_turn_streaming) -- a slow
+            # agent no longer blocks the others' replies from reaching the
+            # browser, and proxies kill a byte-silent SSE connection around
+            # ~100s (same note as chat.py's own streaming docstring), so
+            # `: ping` is still interleaved every 15s while any turn remains
+            # in flight (2026-08-06, root cause of "enviei a mensagem e não
+            # foi feito nada. Não apareceu ele trabalhando" -- carried over
+            # from the single-agent version of this loop). One agent's
+            # bridge failure is held, not raised immediately, so it can't
+            # cut off replies from agents still in flight -- surfaced as a
+            # single trailing `event: error` only after every turn has
+            # settled.
+            #
+            # `agent_started` fires for every mentioned agent up front, all
+            # at once (they're all launched together right below), and each
+            # agent's own `agent_step` events follow live as its
+            # tool_start/tool_complete events arrive from the bridge --
+            # lets the UI show a live "N agentes trabalhando em paralelo"
+            # strip with a per-agent ticker and tool trail instead of one
+            # generic spinner (2026-08-06, Marcelo: "precisa ver a
+            # quantidade de processos em paralelo... com o detalhamento de
+            # cada agente" -- "traz o passo a passo de ferramentas em tempo
+            # real também"). All events from every concurrent agent funnel
+            # through one asyncio.Queue rather than polling task objects,
+            # since a task object alone can't surface intermediate
+            # tool-step events, only its final return value.
             for agent in mentioned:
-                member = agent_members[agent.id]
-                # _wake_agent_turn's bridge call is a single non-streaming
-                # POST with up to a ~650s timeout (see _call_bridge_text in
-                # chat.py) -- unlike chat.py's own token-level stream_chat_
-                # message, there's no natural keepalive from the bridge
-                # during that single await. Proxies kill a byte-silent SSE
-                # connection around ~100s (same note as chat.py's own
-                # streaming docstring), so a real agent turn that thinks
-                # for longer than that would otherwise die with nothing
-                # ever reaching the browser -- shield the call in a task
-                # and interleave `: ping` every 15s while it's in flight
-                # (2026-08-06, root cause of "enviei a mensagem e não foi
-                # feito nada. Não apareceu ele trabalhando").
-                task = asyncio.ensure_future(_wake_agent_turn(db, channel, member, agent))
-                while True:
-                    done, _pending = await asyncio.wait([task], timeout=15)
-                    if done:
-                        break
+                yield (
+                    "event: agent_started\ndata: "
+                    f"{json.dumps({'agent_id': str(agent.id), 'agent_name': agent.name})}\n\n"
+                )
+            events: asyncio.Queue = asyncio.Queue()
+            tasks = [
+                asyncio.ensure_future(
+                    _wake_agent_turn_streaming(channel.id, agent_members[agent.id].id, agent.id, events)
+                )
+                for agent in mentioned
+            ]
+            remaining = len(tasks)
+            failures: list[str] = []
+            while remaining > 0:
+                try:
+                    item = await asyncio.wait_for(events.get(), timeout=15)
+                except asyncio.TimeoutError:
                     yield ": ping\n\n"
-                reply = await task
-                await db.commit()
-                await db.refresh(reply)
-                yield f"data: {json.dumps(ChatChannelMessageOut.model_validate(reply).model_dump(mode='json'))}\n\n"
-                yield ": ping\n\n"
+                    continue
+                kind = item[0]
+                if kind == "step":
+                    _, agent_id, agent_name, step = item
+                    yield (
+                        "event: agent_step\ndata: "
+                        f"{json.dumps({'agent_id': str(agent_id), 'agent_name': agent_name, **step})}\n\n"
+                    )
+                elif kind == "done":
+                    _, _agent_id, reply_out = item
+                    remaining -= 1
+                    yield f"data: {json.dumps(reply_out.model_dump(mode='json'))}\n\n"
+                else:  # "failed"
+                    _, _agent_id, agent_name, detail = item
+                    remaining -= 1
+                    failures.append(f"{agent_name}: {detail}")
+            await asyncio.gather(*tasks, return_exceptions=True)
+            if failures:
+                yield f"event: error\ndata: {json.dumps({'detail': '; '.join(failures)})}\n\n"
         except Exception as exc:
             # Broad on purpose -- _call_bridge_text raises a plain
             # HTTPException (not httpx.HTTPError) on a non-200 bridge
@@ -846,7 +1146,7 @@ async def dispatch_channel_message(
         status="new",
         target_agent_id=payload.agent_id,
         project_id=channel.project_id,
-        origin_type="task" if payload.project_task_id is not None else "backlog",
+        origin_type="task" if payload.project_task_id is not None else "incubation",
         origin_id=payload.project_task_id,
     )
     db.add(demand)

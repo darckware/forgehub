@@ -383,7 +383,7 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly, statusByElementId
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<{
     family: string; element_type: string; name: string; stable_key: string; description: string;
-    screenSpec: ScreenSpec; fieldSpec: FieldSpec;
+    screenSpec: ScreenSpec; fieldSpec: FieldSpec; targetPlatforms: string[];
   } | null>(null);
   const [newRelation, setNewRelation] = useState<{ targetId: string; relationType: string; direction: "outgoing" | "incoming" }>({
     targetId: "", relationType: RELATION_TYPES[0], direction: "outgoing",
@@ -408,12 +408,14 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly, statusByElementId
     if (!item) { setSelectedElementId(null); return; }
     const savedSpec = item.revision.spec_snapshot?.screen_spec as Partial<ScreenSpec> | undefined;
     const savedFieldSpec = item.revision.spec_snapshot?.field_spec as Partial<FieldSpec> | undefined;
+    const savedPlatforms = item.revision.spec_snapshot?.target_platforms as string[] | undefined;
     setEditDraft({
       family: item.element.family, element_type: item.element.element_type,
       name: item.element.name, stable_key: item.element.stable_key,
       description: item.element.description ?? "",
       screenSpec: { ...EMPTY_SCREEN_SPEC, ...savedSpec },
       fieldSpec: { ...EMPTY_FIELD_SPEC, ...savedFieldSpec },
+      targetPlatforms: savedPlatforms ?? [],
     });
     setNewRelation({ targetId: "", relationType: RELATION_TYPES[0], direction: "outgoing" });
   }, [selectedElementId, graph]);
@@ -460,7 +462,7 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly, statusByElementId
       revisionId, elementId: selectedElementId,
       name: editDraft.name, description: editDraft.description,
       family: editDraft.family, element_type: editDraft.element_type, stable_key: editDraft.stable_key,
-      ...(isScreenElement(editDraft.family, editDraft.element_type) ? { spec_snapshot: { screen_spec: editDraft.screenSpec } } : {}),
+      ...(isScreenElement(editDraft.family, editDraft.element_type) ? { spec_snapshot: { screen_spec: editDraft.screenSpec, target_platforms: editDraft.targetPlatforms } } : {}),
       ...(isFieldElement(editDraft.family, editDraft.element_type) ? { spec_snapshot: { field_spec: editDraft.fieldSpec } } : {}),
     });
   };
@@ -1018,6 +1020,26 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly, statusByElementId
                     />
                   </div>
                 ))}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Plataforma (vazio = web + mobile)</Label>
+                  <div className="flex gap-3">
+                    {(["web", "mobile"] as const).map((platform) => (
+                      <label key={platform} className="flex items-center gap-1.5 text-xs">
+                        <input
+                          type="checkbox" disabled={readOnly}
+                          checked={editDraft.targetPlatforms.includes(platform)}
+                          onChange={(e) => setEditDraft(editDraft && {
+                            ...editDraft,
+                            targetPlatforms: e.target.checked
+                              ? [...editDraft.targetPlatforms, platform]
+                              : editDraft.targetPlatforms.filter((p) => p !== platform),
+                          })}
+                        />
+                        {platform === "web" ? "Web" : "Mobile"}
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 

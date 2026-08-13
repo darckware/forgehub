@@ -24,6 +24,7 @@
     "noSearchMatch": "No items match this search.",
     "mindMap": "Mind map",
     "graph": "Graph",
+    "rawMarkdown": "View file",
     "selectDocumentFirst": "Select a document first.",
     "buildingGraph": "Building graph…",
     "newDocument": "New document",

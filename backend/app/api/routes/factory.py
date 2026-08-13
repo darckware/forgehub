@@ -29,20 +29,29 @@ Endpoints:
   its projects with the five phases' state.
 """
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.factory import (
+    AgentTelemetryHistoryPoint,
+    AgentTelemetryOut,
+    AgentTelemetryRow,
     CockpitOut,
     PhaseStatus,
     ProductCockpitRow,
     ProductVersionRow,
     ProjectCockpitRow,
 )
+from app.api.schemas.task import EXECUTION_TERMINAL_STATUSES
 from app.db.base import get_db
+from app.db.models.agent import Agent
 from app.db.models.backlog import PlanningItem
+from app.db.models.channel import ChatChannel
+from app.db.models.demand import AgentDemand
+from app.db.models.orchestration import ProjectAgentMembership
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
 from app.db.models.system_scope import (
@@ -51,9 +60,13 @@ from app.db.models.system_scope import (
     SystemBlueprint,
     SystemBlueprintRevision,
 )
-from app.db.models.task import ProjectTask
+from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 
 router = APIRouter(prefix="/api/v1/factory", tags=["factory"])
+
+# Telemetry history window (Pacote 5): 14-day sparkline, same span as
+# DemandsStatsPanel.tsx's existing frontend pattern.
+_TELEMETRY_HISTORY_DAYS = 14
 
 
 # Mapping from each source domain's own status vocabulary to the cockpit's
@@ -255,6 +268,67 @@ async def get_cockpit(db: AsyncSession = Depends(get_db)) -> CockpitOut:
             if status in _TASK_BLOCKED:
                 counts["blocked"] += count
 
+    # --- cost: sum of TaskExecution.actual_cost, reached the same way as
+    # phase 4 (task -> planning item -> project), Pacote 5 --------------
+    cost_by_project: dict[uuid.UUID, float] = {}
+    if planning_to_project:
+        for planning_item_id, total_cost in (
+            await db.execute(
+                select(
+                    ProjectTask.planning_item_id,
+                    func.coalesce(func.sum(TaskExecution.actual_cost), 0),
+                )
+                .join(TaskExecution, TaskExecution.task_id == ProjectTask.id)
+                .where(ProjectTask.planning_item_id.in_(planning_to_project.keys()))
+                .group_by(ProjectTask.planning_item_id)
+            )
+        ).all():
+            project_id = planning_to_project[planning_item_id]
+            cost_by_project[project_id] = cost_by_project.get(project_id, 0) + float(total_cost)
+
+    # --- team + channel (2026-08-05, Software Factory visibility fix):
+    # surfaces ProjectAgentMembership/ChatChannel here so the Cockpit --
+    # where Marcelo actually looks first -- can finally show whether a
+    # project has agents/a room, instead of that being invisible outside
+    # ProjectAutomationCard. Same "count per project" shape as the other
+    # phase aggregates above, not a new pattern. -----------------------
+    team_size_by_project: dict[uuid.UUID, int] = {}
+    if project_ids:
+        for project_id, count in (
+            await db.execute(
+                select(ProjectAgentMembership.project_id, func.count(ProjectAgentMembership.id))
+                .where(ProjectAgentMembership.project_id.in_(project_ids), ProjectAgentMembership.status == "active")
+                .group_by(ProjectAgentMembership.project_id)
+            )
+        ).all():
+            team_size_by_project[project_id] = count
+
+    # First (oldest) channel per project -- a project may in principle have
+    # more than one (no UniqueConstraint on ChatChannel.project_id, see its
+    # docstring), but the Cockpit only needs a single discoverable link.
+    # Postgres has no min(uuid) aggregate, so this picks rn=1 per project
+    # ordered by created_at, same row_number()-over-partition pattern the
+    # phase-2 scope lookup above already uses.
+    channel_by_project: dict[uuid.UUID, uuid.UUID] = {}
+    if project_ids:
+        first_channel = (
+            select(
+                ChatChannel.project_id,
+                ChatChannel.id,
+                func.row_number()
+                .over(partition_by=ChatChannel.project_id, order_by=ChatChannel.created_at.asc())
+                .label("rn"),
+            )
+            .where(ChatChannel.project_id.in_(project_ids))
+            .subquery()
+        )
+        for project_id, channel_id in (
+            await db.execute(
+                select(first_channel.c.project_id, first_channel.c.id).where(first_channel.c.rn == 1)
+            )
+        ).all():
+            channel_by_project[project_id] = channel_id
+
     # --- assemble ---------------------------------------------------------
     projects_by_product: dict[uuid.UUID, list[ProjectCockpitRow]] = {}
     for project, version in rows:
@@ -339,6 +413,9 @@ async def get_cockpit(db: AsyncSession = Depends(get_db)) -> CockpitOut:
                 phases=[phase1, phase2, phase3, phase4, phase5],
                 planning_count=planning["total"],
                 task_count=tasks["total"],
+                total_cost=cost_by_project.get(project.id, 0),
+                team_size=team_size_by_project.get(project.id, 0),
+                channel_id=channel_by_project.get(project.id),
             )
         )
 
@@ -365,3 +442,144 @@ async def get_cockpit(db: AsyncSession = Depends(get_db)) -> CockpitOut:
             for product in products
         ]
     )
+
+
+@router.get("/agent-telemetry", response_model=AgentTelemetryOut)
+async def get_agent_telemetry(db: AsyncSession = Depends(get_db)) -> AgentTelemetryOut:
+    """Per-agent execution + dispatch telemetry (Pacote 5).
+
+    Read-only aggregation, same spirit as get_cockpit above. TaskExecution
+    has no ORM relationship to Agent -- only to TaskAssignment
+    (`assignment_id`, nullable), which itself points at Agent (`agent_id`,
+    nullable) -- so every join here is an explicit query, not a
+    relationship traversal. Executions and AgentDemand dispatches are two
+    independent signals kept separate rather than merged into one number.
+    An agent with no execution and no dispatch is simply absent from the
+    response -- no fabricated zero row.
+    """
+    exec_status_rows = (
+        await db.execute(
+            select(
+                TaskAssignment.agent_id,
+                TaskExecution.status,
+                func.count(TaskExecution.id),
+                func.coalesce(func.sum(TaskExecution.actual_cost), 0),
+            )
+            .join(TaskAssignment, TaskAssignment.id == TaskExecution.assignment_id)
+            .where(TaskAssignment.agent_id.is_not(None))
+            .group_by(TaskAssignment.agent_id, TaskExecution.status)
+        )
+    ).all()
+
+    duration_rows = (
+        await db.execute(
+            select(
+                TaskAssignment.agent_id,
+                func.avg(func.extract("epoch", TaskExecution.finished_at - TaskExecution.started_at)),
+            )
+            .join(TaskAssignment, TaskAssignment.id == TaskExecution.assignment_id)
+            .where(
+                TaskAssignment.agent_id.is_not(None),
+                TaskExecution.status.in_(EXECUTION_TERMINAL_STATUSES),
+                TaskExecution.started_at.is_not(None),
+                TaskExecution.finished_at.is_not(None),
+            )
+            .group_by(TaskAssignment.agent_id)
+        )
+    ).all()
+    avg_duration_by_agent = {agent_id: float(avg) for agent_id, avg in duration_rows if avg is not None}
+
+    dispatch_rows = (
+        await db.execute(
+            select(AgentDemand.target_agent_id, AgentDemand.dispatch_status, func.count(AgentDemand.id))
+            .where(AgentDemand.target_agent_id.is_not(None))
+            .group_by(AgentDemand.target_agent_id, AgentDemand.dispatch_status)
+        )
+    ).all()
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_TELEMETRY_HISTORY_DAYS)
+    history_rows = (
+        await db.execute(
+            select(
+                TaskAssignment.agent_id,
+                func.date(TaskExecution.created_at),
+                func.count(TaskExecution.id),
+            )
+            .join(TaskAssignment, TaskAssignment.id == TaskExecution.assignment_id)
+            .where(TaskAssignment.agent_id.is_not(None), TaskExecution.created_at >= cutoff)
+            .group_by(TaskAssignment.agent_id, func.date(TaskExecution.created_at))
+        )
+    ).all()
+    history_by_agent: dict[uuid.UUID, dict[str, int]] = {}
+    for agent_id, day, count in history_rows:
+        day_str = day.isoformat() if hasattr(day, "isoformat") else str(day)
+        history_by_agent.setdefault(agent_id, {})[day_str] = count
+
+    agent_ids = {row[0] for row in exec_status_rows} | {row[0] for row in dispatch_rows}
+    if not agent_ids:
+        return AgentTelemetryOut(agents=[])
+
+    agent_names = {
+        agent.id: agent.name
+        for agent in (await db.execute(select(Agent).where(Agent.id.in_(agent_ids)))).scalars()
+    }
+
+    exec_by_agent: dict[uuid.UUID, dict[str, float]] = {}
+    for agent_id, status, count, cost in exec_status_rows:
+        bucket = exec_by_agent.setdefault(
+            agent_id, {"total": 0, "successful": 0, "failed": 0, "other": 0, "cost": 0.0}
+        )
+        bucket["total"] += count
+        bucket["cost"] += float(cost)
+        if status in EXECUTION_TERMINAL_STATUSES:
+            bucket["successful"] += count
+        elif status == "failed":
+            bucket["failed"] += count
+        else:
+            bucket["other"] += count
+
+    dispatch_by_agent: dict[uuid.UUID, dict[str, int]] = {}
+    for agent_id, dispatch_status, count in dispatch_rows:
+        bucket = dispatch_by_agent.setdefault(agent_id, {"total": 0, "completed": 0, "failed": 0})
+        bucket["total"] += count
+        if dispatch_status == "completed":
+            bucket["completed"] += count
+        elif dispatch_status == "failed":
+            bucket["failed"] += count
+
+    rows: list[AgentTelemetryRow] = []
+    for agent_id in agent_ids:
+        name = agent_names.get(agent_id)
+        if name is None:
+            # Referenced by an execution/dispatch but the Agent row itself
+            # is gone -- skip rather than show a blank/UUID name.
+            continue
+        execs = exec_by_agent.get(agent_id, {"total": 0, "successful": 0, "failed": 0, "other": 0, "cost": 0.0})
+        dispatch = dispatch_by_agent.get(agent_id, {"total": 0, "completed": 0, "failed": 0})
+        success_denominator = execs["successful"] + execs["failed"]
+        dispatch_denominator = dispatch["completed"] + dispatch["failed"]
+        history = [
+            AgentTelemetryHistoryPoint(date=day, count=count)
+            for day, count in sorted(history_by_agent.get(agent_id, {}).items())
+        ]
+        rows.append(
+            AgentTelemetryRow(
+                agent_id=agent_id,
+                agent_name=name,
+                executions_total=int(execs["total"]),
+                executions_successful=int(execs["successful"]),
+                executions_failed=int(execs["failed"]),
+                executions_other=int(execs["other"]),
+                success_rate=execs["successful"] / success_denominator if success_denominator else None,
+                avg_duration_seconds=avg_duration_by_agent.get(agent_id),
+                total_cost=execs["cost"],
+                dispatch_total=dispatch["total"],
+                dispatch_completed=dispatch["completed"],
+                dispatch_failed=dispatch["failed"],
+                dispatch_success_rate=dispatch["completed"] / dispatch_denominator if dispatch_denominator else None,
+                history=history,
+            )
+        )
+
+    rows.sort(key=lambda row: row.agent_name)
+    return AgentTelemetryOut(agents=rows)

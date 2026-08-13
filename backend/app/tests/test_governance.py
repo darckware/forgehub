@@ -23,11 +23,18 @@ import uuid
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.security import create_access_token, hash_password
 from app.db.base import AsyncSessionLocal
+from app.db.models.agent import Agent
+from app.db.models.backlog import PlanningItem
+from app.db.models.demand import AgentDemand
 from app.db.models.governance import Approval, AuditEvent, Policy  # noqa: F401
+from app.db.models.notification import Notification
+from app.db.models.product import Product, ProductVersion
+from app.db.models.project import Project
+from app.db.models.task import ProjectTask, TaskAssignment
 from app.db.models.user import User
 
 # All async tests/fixtures in this module share one event loop so that the
@@ -249,4 +256,85 @@ async def test_create_and_list_audit_event(client: AsyncClient):
         # every pytest run left an actor="agent-7" event in the real table.
         async with AsyncSessionLocal() as db:
             await db.execute(delete(AuditEvent).where(AuditEvent.id == uuid.UUID(body["id"])))
+            await db.commit()
+
+
+async def test_approving_project_task_approval_dispatches_it(client: AsyncClient, monkeypatch):
+    """Pacote 4 (2026-08-01): approving an Approval(entity_type="project_task")
+    releases the task for automatic start via the same Messages dispatch path
+    POST /tasks/{id}/dispatch uses -- not a second executor. Mocks
+    dispatch_agent_run the same way test_demand_backlog_dispatch.py does
+    (no live host-bridge in this test environment)."""
+    from app.api.routes import demand as demand_routes
+
+    async def fake_dispatch(*args, **kwargs):
+        return {"run_id": "fake-run-id"}
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", fake_dispatch)
+
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"Approval Dispatch Agent {suffix}", agent_type="executor")
+        product = Product(name=f"Approval Dispatch Product {suffix}", status="active")
+        db.add_all([agent, product])
+        await db.flush()
+        version = ProductVersion(product_id=product.id, version="0.1.0", status="planned")
+        db.add(version)
+        await db.flush()
+        project = Project(name=f"Approval Dispatch Project {suffix}", product_version_id=version.id, status="planned")
+        db.add(project)
+        await db.flush()
+        item = PlanningItem(title="Approval-gated item", item_type="feature", project_id=project.id)
+        db.add(item)
+        await db.flush()
+        task = ProjectTask(planning_item_id=item.id, title="Approval-gated task", task_type="feature")
+        db.add(task)
+        await db.flush()
+        assignment = TaskAssignment(task_id=task.id, agent_id=agent.id, status="active")
+        db.add(assignment)
+        await db.commit()
+        agent_id, product_id, version_id, project_id, item_id, task_id = (
+            agent.id, product.id, version.id, project.id, item.id, task.id,
+        )
+
+    create_resp = await client.post(
+        "/api/v1/governance/approvals",
+        json={
+            "entity_type": "project_task",
+            "entity_id": str(task_id),
+            "approval_type": "task_release",
+            "requested_by": "marcelo",
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    approval_id = create_resp.json()["id"]
+
+    try:
+        decision = await client.post(
+            f"/api/v1/governance/approvals/{approval_id}/approve",
+            json={"decided_by": "lead"},
+        )
+        assert decision.status_code == 200, decision.text
+        assert decision.json()["status"] == "approved"
+
+        async with AsyncSessionLocal() as db:
+            refreshed = await db.get(ProjectTask, task_id)
+            assert refreshed.status == "in_progress"
+            demand = (await db.execute(select(AgentDemand).where(
+                AgentDemand.origin_type == "task", AgentDemand.origin_id == task_id,
+            ))).scalar_one_or_none()
+            assert demand is not None
+            assert demand.dispatch_status == "dispatched"
+    finally:
+        await _delete_approval_rows(approval_id)
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AgentDemand).where(AgentDemand.origin_id == task_id))
+            await db.execute(delete(Notification).where(Notification.event_key == f"approval-dispatch-failed:{approval_id}"))
+            await db.execute(delete(TaskAssignment).where(TaskAssignment.task_id == task_id))
+            await db.execute(delete(ProjectTask).where(ProjectTask.id == task_id))
+            await db.execute(delete(PlanningItem).where(PlanningItem.id == item_id))
+            await db.execute(delete(Project).where(Project.id == project_id))
+            await db.execute(delete(ProductVersion).where(ProductVersion.id == version_id))
+            await db.execute(delete(Product).where(Product.id == product_id))
+            await db.execute(delete(Agent).where(Agent.id == agent_id))
             await db.commit()

@@ -43,7 +43,7 @@ async def dispatch_agent_run(
     CLI auth logged in on the host (Claude Code subscription, Codex's own
     auth.json, Antigravity's own OAuth token) independent of ForgeRouter.
     When unset, host-bridge's _agent_run_command dispatches on that native
-    auth instead of forcing ForgeRouter with an empty key."""
+    auth instead of forcing ForgeRouter with an empty/invalid key."""
     if not agent.runtime_type:
         raise AgentRunDispatchError(f"Agent '{agent.name}' has no runtime_type for CLI dispatch")
     if agent.runtime_type == "hermes" and not agent.profile_slug:

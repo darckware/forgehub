@@ -261,22 +261,42 @@ class ConceptDecision(BaseModel):
     comments: str | None = None
 
 
-class AuthorizeDeliveryPlanning(BaseModel):
-    version: str = Field(min_length=1, max_length=50)
+class ProjectSpec(BaseModel):
+    """One Project to create/reuse under the authorized ProductVersion --
+    :authorize-delivery-planning accepts a list of these so a single
+    Concept approval can produce one Project per application type (2026-08-01
+    decision, see docs/architecture/PLANNING_DELIVERY_ARCHITECTURE.md section
+    2.2's note and docs/modules/01_CONCEPTION_AND_SYSTEM_SCOPE.md)."""
+    solution_type: Literal["web_app", "mobile_app", "api_service", "database", "deploy"]
     project_name: str = Field(min_length=1, max_length=255)
     project_description: str | None = None
     owner: str | None = Field(default=None, max_length=255)
     working_directory_path: str | None = Field(default=None, max_length=1024)
+    # When set: a ProjectAgentMembership is created for this agent on the new
+    # Project (role derived from solution_type), and every ProjectTask this
+    # authorization creates in that Project's scope gets an automatic
+    # TaskAssignment to the same agent (2026-08-01 Pacote 3 decision).
+    responsible_agent_id: uuid.UUID | None = None
+
+
+class AuthorizeDeliveryPlanning(BaseModel):
+    version: str = Field(min_length=1, max_length=50)
+    projects: list[ProjectSpec] = Field(min_length=1)
+
+
+class ProjectAuthorizationResult(BaseModel):
+    project_id: uuid.UUID
+    project_scope_id: uuid.UUID
+    solution_type: str
+    scope_items_created: int = 0
+    tasks_created: int = 0
 
 
 class DeliveryPlanningAuthorizationOut(BaseModel):
     product_id: uuid.UUID
     product_version_id: uuid.UUID
-    project_id: uuid.UUID
-    project_scope_id: uuid.UUID
     blueprint_revision_id: uuid.UUID
-    scope_items_created: int = 0
-    tasks_created: int = 0
+    projects: list[ProjectAuthorizationResult]
 
 
 class ProjectScopeCreate(BaseModel):
@@ -341,6 +361,74 @@ class ProjectScopeItemOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     acceptance_criteria: list[AcceptanceCriterionOut] = Field(default_factory=list)
+
+
+class ScreenAttribute(BaseModel):
+    """One data field a screen exposes -- the input `derive-database` reads
+    to propose `table`/`field` elements (see api/routes/system_scope.py's
+    `derive_database`). Edited directly by the operator, no agent call."""
+    name: str = Field(min_length=1, max_length=120)
+    type: Literal["string", "number", "boolean", "date", "relation"] = "string"
+    required: bool = False
+    description: str | None = None
+    relation_target_screen_id: uuid.UUID | None = None
+
+
+class ScreenSpec(BaseModel):
+    """Stored verbatim as a screen element's spec_snapshot. Two independent,
+    optional prototype modes (a conceptual mockup, never the final
+    implementation): free-form HTML (`prototype_html`/`css_framework`) for
+    app-style screens, or `template_ref`/`image_refs` for site-style screens
+    that point at a ready template + reference images instead."""
+    attributes: list[ScreenAttribute] = Field(default_factory=list)
+    prototype_html: str | None = None
+    css_framework: str | None = None
+    template_ref: str | None = None
+    image_refs: list[str] = Field(default_factory=list)
+
+
+class ScreenCreate(BaseModel):
+    stable_key: str | None = Field(default=None, max_length=160, pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    spec: ScreenSpec = Field(default_factory=ScreenSpec)
+
+
+class ScreenUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    # Shallow merge onto the existing spec_snapshot (same idiom as
+    # update_system_element's spec_snapshot merge) -- only the top-level
+    # keys present here are replaced, so a client can patch just
+    # `attributes` without resending prototype_html/css_framework/etc.
+    spec: dict[str, Any] | None = None
+
+
+class ScreenOut(BaseModel):
+    scope_item_id: uuid.UUID
+    element: SystemElementOut
+    revision: ElementRevisionOut
+
+
+class BusinessRuleOut(BaseModel):
+    content: str
+    updated_at: datetime | None = None
+
+
+class BusinessRuleWrite(BaseModel):
+    content: str
+
+
+class ArtifactSyncOut(BaseModel):
+    project_id: uuid.UUID
+    files_written: list[str] = Field(default_factory=list)
+
+
+class DeriveDatabaseOut(BaseModel):
+    revision_id: uuid.UUID
+    tables_created: int = 0
+    tables_updated: int = 0
+    fields_written: int = 0
 
 
 class IdeaCreatedOut(BaseModel):
