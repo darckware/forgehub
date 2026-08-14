@@ -35,6 +35,7 @@ from app.api.schemas.chat import (
     ChatSessionOut,
     ChatSessionUpdate,
 )
+from app.core import active_turns
 from app.core.config import CHAT_RESPONSE_LANGUAGE_NOTES, settings
 from app.db.base import get_db
 from app.db.models.agent import Agent

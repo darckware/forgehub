@@ -182,5 +182,9 @@
     "skills": "Skills",
     "noSkills": "No skills granted yet.",
     "notApproved": "not approved"
+  },
+  "activeTurn": {
+    "running": "Running on the server — this view reconnected",
+    "awaitingApproval": "Waiting for an approval to continue"
   }
 }

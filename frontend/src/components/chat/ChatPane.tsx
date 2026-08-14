@@ -52,6 +52,7 @@ import {
 } from "@/lib/assistantFileDrag";
 import { cn } from "@/lib/utils";
 import { type Agent, useAgents, useAgentMcpServers } from "@/hooks/useAgent";
+import { useActiveTurn } from "@/hooks/useActiveTurn";
 import { useChatLanguage } from "@/hooks/useChatLanguage";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { usePromptCommands, type PromptCommand } from "@/hooks/usePromptCommands";
@@ -96,36 +97,19 @@ import { useChatSessionViewModel } from "@/hooks/useChatSessionViewModel";
 const attachmentByTabId = new Map<string, File[]>();
 const composerTextByTabId = new Map<string, string>();
 
-// The in-flight turn queue, for the same remount reason as the two maps
-// above (2026-08-13, Marcelo: "o chat em processo quando você sair e entra o
-// processamento não aparece mais... mais a mensagem enviada fica na tela").
-//
-// The symptom was the worst possible combination: the run itself keeps going
-// (it lives in the backend's SSE subprocess, not here), and the user's own
-// message reappears because the backend persisted it -- but the "processing"
-// bubble, the live text and the tool steps were React state, so they died
-// with the unmount. What came back looked like a message that had been sent
-// and then silently ignored.
-//
-// Keyed by tab so two chats in flight don't overwrite each other's queue.
-const queueByTabId = new Map<string, ChatQueueItem[]>();
+// Streams abertos por esta aba. É o único estado em voo que pertence mesmo
+// ao cliente -- a conexão. O que a execução já produziu (passos, texto,
+// aprovação pendente) pertence ao servidor desde 2026-08-13 e é lido de lá
+// via useActiveTurn, para sobreviver a um F5, a um travamento da aba e a
+// abrir a mesma conversa em outra máquina.
+const abortByTabId = new Map<string, AbortController[]>();
 
-/** Shown on a turn whose live view was cut off by leaving the Workspace.
- * Deliberately says the run continued: the alternative reading -- that the
- * message was dropped -- is what the old behaviour implied, and it was
- * wrong. */
-const STREAM_DETACHED_MESSAGE =
-  "A exibição ao vivo foi interrompida ao sair da conversa. A execução seguiu no servidor; a resposta aparece assim que for gravada.";
-
-/** Drop a closed tab's in-flight queue. Any AbortController in it is fired
- * first: closing the tab is the one moment where abandoning the run is the
- * intent, and leaving it streaming into a queue nobody will read again is a
- * leak. */
+/** Solta o stream que esta aba mantinha aberto. Fechar a aba é o único
+ * momento em que abandonar a execução é a intenção -- e ainda assim isto
+ * encerra só a conexão deste cliente: o turno vive no servidor. */
 export function clearChatTabQueue(tabId: string): void {
-  for (const item of queueByTabId.get(tabId) ?? []) {
-    item.abortController?.abort();
-  }
-  queueByTabId.delete(tabId);
+  abortByTabId.get(tabId)?.forEach((controller) => controller.abort());
+  abortByTabId.delete(tabId);
 }
 
 /** Drop a closed tab's staged draft/attachments (the Workspace calls this
@@ -335,10 +319,6 @@ type ChatQueueItem = {
   error?: string;
   approval: ChatQueueApproval | null;
   abortController: AbortController | null;
-  /** Set when the pane remounted while this turn was in flight: the run
-   * continues server-side, but this client no longer has its stream. Drives
-   * the polling fallback instead of live updates. */
-  detached?: boolean;
   /** True for a "Regenerate" request: reuses the last user message's text
    * without persisting a duplicate user turn, and its synthetic user
    * bubble is suppressed in the queue render (the real one is already in
@@ -1813,27 +1793,11 @@ export function ChatPane({
   // sending is still a separate, explicit Enter afterward.
   const [improveOpen, setImproveOpen] = useState(false);
   const improvePrompt = useStreamImprovePrompt(sessionId);
-  // Seeded from the module-level map so a remount (leaving Workspace and
-  // coming back) resumes showing a turn that is still running, instead of
-  // leaving the user's own message on screen with nothing happening.
-  const [queue, setQueue] = useState<ChatQueueItem[]>(() => {
-    const restored = queueByTabId.get(tabId);
-    if (!restored?.length) return [];
-    // A turn that was mid-flight keeps showing as processing, because it IS
-    // still processing -- in the backend, which owns the run and persists the
-    // reply. What died with the unmount was only this pane's SSE reader.
-    //
-    // It is flagged `detached` rather than re-queued: re-queueing would
-    // dispatch the same turn a second time. The flag turns on a poll for the
-    // persisted messages (see the effect below), so the answer lands on its
-    // own and the bubble is dropped when it does -- no live text or steps
-    // for the rest of that turn, but the turn completes on screen.
-    return restored.map((item) =>
-      item.status === "processing"
-        ? { ...item, detached: true, abortController: null }
-        : item
-    );
-  });
+  // Só o que ESTE cliente está transmitindo agora. O turno em si pertence ao
+  // servidor (core/active_turns.py) e é lido por useActiveTurn abaixo, então
+  // nada aqui precisa sobreviver à desmontagem -- que é justamente o que um
+  // F5 ou um travamento da aba não dariam chance de salvar.
+  const [queue, setQueue] = useState<ChatQueueItem[]>([]);
   const queueDrainingRef = useRef(false);
   // Mirrors `queue` synchronously for processQueueItem's completion handler
   // -- it closes over the `item` argument from when the turn started, whose
@@ -1843,11 +1807,11 @@ export function ChatPane({
   const queueRef = useRef<ChatQueueItem[]>([]);
   useEffect(() => {
     queueRef.current = queue;
-    // Mirrored outside React for the same reason it is mirrored into the ref
-    // -- but surviving unmount rather than surviving a stale closure. Empty
-    // means nothing is in flight, so the entry goes rather than lingering.
-    if (queue.length > 0) queueByTabId.set(tabId, queue);
-    else queueByTabId.delete(tabId);
+    // Só os controllers ficam fora do React: são a conexão desta aba, e é o
+    // que `clearChatTabQueue` precisa abortar quando a aba fecha.
+    const controllers = queue.map((i) => i.abortController).filter(Boolean) as AbortController[];
+    if (controllers.length > 0) abortByTabId.set(tabId, controllers);
+    else abortByTabId.delete(tabId);
   }, [queue, tabId]);
   // Hidden items (e.g. the priming turn's long "Contexto: ..." text) render
   // as nothing in the chat screen by design -- clicking one in the summary
@@ -1996,17 +1960,23 @@ export function ChatPane({
 
   const queryClient = useQueryClient();
 
-  // On remount with a turn that had been cut off, pull the persisted
-  // messages once: the backend keeps streaming and writes the reply, so it
-  // may already be there -- and if it is, the detached bubble sits next to
-  // the real answer instead of standing in for it.
-  const restoredDetachedRef = useRef(false);
+  // O turno em execução vem do servidor, não da memória desta aba -- é o que
+  // sobrevive a um F5, a um travamento e a abrir a conversa em outra máquina,
+  // do mesmo jeito que o TerminalPane já re-anexa ao tmux. `queue.length > 0`
+  // quer dizer que ESTE cliente é quem transmite: aí não vale perguntar, ele
+  // já recebe tudo ao vivo.
+  const { data: activeTurn } = useActiveTurn("chat", sessionId || null, queue.length > 0);
+
+  // Quando o turno observado termina no servidor, a resposta acabou de ser
+  // persistida: puxa as mensagens para ela aparecer sem precisar de reload.
+  const lastActiveTurnIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (restoredDetachedRef.current || !sessionId) return;
-    if (!queue.some((item) => item.error === STREAM_DETACHED_MESSAGE)) return;
-    restoredDetachedRef.current = true;
-    void queryClient.refetchQueries({ queryKey: chatKeys.messages(sessionId) }).catch(() => {});
-  }, [queue, sessionId, queryClient]);
+    const current = activeTurn?.id ?? null;
+    if (lastActiveTurnIdRef.current && !current && sessionId) {
+      void queryClient.refetchQueries({ queryKey: chatKeys.messages(sessionId) }).catch(() => {});
+    }
+    lastActiveTurnIdRef.current = current;
+  }, [activeTurn, sessionId, queryClient]);
 
 
   const { data: messages } = useChatMessages(sessionId || undefined);
@@ -3835,6 +3805,44 @@ export function ChatPane({
               </div>
             );
           })}
+          {/* Turno em execução observado do servidor. Só aparece quando esta
+              aba NÃO é a que transmite -- senão a fila abaixo já o desenha ao
+              vivo e o mesmo turno sairia duas vezes. É o que se vê depois de
+              um F5, de um travamento, ou ao abrir a conversa em outra
+              máquina: a execução continua e a tela acompanha. */}
+          {queue.length === 0 && activeTurn && (
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
+                  {activeTurn.prompt}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t("activeTurn.running")}
+              </div>
+              {activeTurn.steps.length > 0 && (
+                <QueueStepsList
+                  // O backend guarda `status` (texto); a UI usa `done`
+                  // (booleano). A conversão fica aqui, no ponto de leitura,
+                  // em vez de mudar o formato gravado -- que também serve ao
+                  // canal e a quem for depurar a linha.
+                  steps={activeTurn.steps.map((step) => ({
+                    id: step.id,
+                    name: step.name ?? "",
+                    label: step.label ?? step.name ?? "",
+                    done: step.status === "done",
+                  }))}
+                />
+              )}
+              {activeTurn.live_text && (
+                <div className="whitespace-pre-wrap text-sm text-foreground">{activeTurn.live_text}</div>
+              )}
+              {activeTurn.pending_approval && (
+                <p className="text-xs text-amber-500">{t("activeTurn.awaitingApproval")}</p>
+              )}
+            </div>
+          )}
           {queue.map((item) => {
             const revealed = revealedQueueIds.has(item.id);
             // A hidden priming turn renders as nothing at all while it

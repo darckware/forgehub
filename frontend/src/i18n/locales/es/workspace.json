@@ -1,0 +1,6 @@
+{
+  "activeTurn": {
+    "running": "En ejecución en el servidor — esta vista se reconectó",
+    "awaitingApproval": "Esperando una aprobación para continuar"
+  }
+}

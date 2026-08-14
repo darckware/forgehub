@@ -24,7 +24,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -57,6 +57,7 @@ from app.api.schemas.channel import (
     ChatChannelWithMembersOut,
 )
 from app.core import conversions
+from app.core import active_turns
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal, get_current_username
 from app.db.base import AsyncSessionLocal, get_db
@@ -401,6 +402,44 @@ async def list_channels(
         stmt = stmt.where(ChatChannel.archived.is_(False))
     result = await db.execute(stmt.order_by(ChatChannel.updated_at.desc()))
     return list(result.scalars().all())
+
+
+@router.get("/{channel_id}/active-turn")
+async def get_channel_active_turn(
+    channel_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """"Há algo rodando neste canal, e o que já aconteceu?"
+
+    Mesma pergunta que o chat responde em /chat/sessions/{id}/active-turn, e
+    a mesma resposta -- ver core/active_turns.py, o helper que serve as duas
+    superfícies (2026-08-13).
+
+    A diferença do canal aparece no conteúdo, não no formato: vários agentes
+    podem estar rodando no mesmo turno, então cada passo diz de quem é e o
+    texto vem também separado por agente (`live_text_by_agent`). Uma trilha
+    plana misturaria o trabalho de dois agentes sem dono, e um texto único
+    intercalaria as frases deles.
+    """
+    await _get_channel_or_404(db, channel_id)
+    turn = await active_turns.get_active(db, scope="channel", scope_id=channel_id)
+    if turn is None:
+        return {"turn": None}
+    await active_turns.mark_reattached(db, turn.id)
+    await db.commit()
+    return {
+        "turn": {
+            "id": str(turn.id),
+            "stream_id": turn.stream_id,
+            "prompt": turn.prompt,
+            "agent_id": str(turn.agent_id) if turn.agent_id else None,
+            "steps": turn.steps or [],
+            "live_text": turn.live_text or "",
+            "live_text_by_agent": turn.live_text_by_agent or {},
+            "pending_approval": turn.pending_approval,
+            "started_at": turn.created_at.isoformat(),
+            "deadline_at": turn.deadline_at.isoformat() if turn.deadline_at else None,
+        }
+    }
 
 
 @router.get("/{channel_id}", response_model=ChatChannelWithMembersOut)

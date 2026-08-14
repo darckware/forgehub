@@ -182,5 +182,9 @@
     "skills": "Skills",
     "noSkills": "Nenhuma skill concedida ainda.",
     "notApproved": "não aprovada"
+  },
+  "activeTurn": {
+    "running": "Em execução no servidor — esta tela reconectou",
+    "awaitingApproval": "Aguardando uma aprovação para continuar"
   }
 }
