@@ -96,11 +96,44 @@ import { useChatSessionViewModel } from "@/hooks/useChatSessionViewModel";
 const attachmentByTabId = new Map<string, File[]>();
 const composerTextByTabId = new Map<string, string>();
 
+// The in-flight turn queue, for the same remount reason as the two maps
+// above (2026-08-13, Marcelo: "o chat em processo quando você sair e entra o
+// processamento não aparece mais... mais a mensagem enviada fica na tela").
+//
+// The symptom was the worst possible combination: the run itself keeps going
+// (it lives in the backend's SSE subprocess, not here), and the user's own
+// message reappears because the backend persisted it -- but the "processing"
+// bubble, the live text and the tool steps were React state, so they died
+// with the unmount. What came back looked like a message that had been sent
+// and then silently ignored.
+//
+// Keyed by tab so two chats in flight don't overwrite each other's queue.
+const queueByTabId = new Map<string, ChatQueueItem[]>();
+
+/** Shown on a turn whose live view was cut off by leaving the Workspace.
+ * Deliberately says the run continued: the alternative reading -- that the
+ * message was dropped -- is what the old behaviour implied, and it was
+ * wrong. */
+const STREAM_DETACHED_MESSAGE =
+  "A exibição ao vivo foi interrompida ao sair da conversa. A execução seguiu no servidor; a resposta aparece assim que for gravada.";
+
+/** Drop a closed tab's in-flight queue. Any AbortController in it is fired
+ * first: closing the tab is the one moment where abandoning the run is the
+ * intent, and leaving it streaming into a queue nobody will read again is a
+ * leak. */
+export function clearChatTabQueue(tabId: string): void {
+  for (const item of queueByTabId.get(tabId) ?? []) {
+    item.abortController?.abort();
+  }
+  queueByTabId.delete(tabId);
+}
+
 /** Drop a closed tab's staged draft/attachments (the Workspace calls this
  * when the user closes a chat tab -- the maps are module-private here). */
 export function clearChatTabStaging(tabId: string): void {
   attachmentByTabId.delete(tabId);
   composerTextByTabId.delete(tabId);
+  clearChatTabQueue(tabId);
 }
 
 // Composer auto-grow ceiling -- past this it scrolls internally instead
@@ -1776,7 +1809,28 @@ export function ChatPane({
   // sending is still a separate, explicit Enter afterward.
   const [improveOpen, setImproveOpen] = useState(false);
   const improvePrompt = useStreamImprovePrompt(sessionId);
-  const [queue, setQueue] = useState<ChatQueueItem[]>([]);
+  // Seeded from the module-level map so a remount (leaving Workspace and
+  // coming back) resumes showing a turn that is still running, instead of
+  // leaving the user's own message on screen with nothing happening.
+  const [queue, setQueue] = useState<ChatQueueItem[]>(() => {
+    const restored = queueByTabId.get(tabId);
+    if (!restored?.length) return [];
+    // A turn that was mid-flight when the pane unmounted cannot simply be
+    // shown as still processing: its SSE reader died with the component, the
+    // drain loop only ever picks up "queued" items, and nothing would move it
+    // again -- a spinner that never resolves is worse than the bubble
+    // vanishing. Re-queueing is not an option either: the backend is still
+    // running that turn, and a second dispatch would run it twice.
+    //
+    // So it is surfaced for what it is: the *display* was interrupted, while
+    // the run itself continues server-side and persists its reply. The
+    // messages refetch below is what brings that reply in once it lands.
+    return restored.map((item) =>
+      item.status === "processing"
+        ? { ...item, status: "error" as const, error: STREAM_DETACHED_MESSAGE, abortController: null }
+        : item
+    );
+  });
   const queueDrainingRef = useRef(false);
   // Mirrors `queue` synchronously for processQueueItem's completion handler
   // -- it closes over the `item` argument from when the turn started, whose
@@ -1786,7 +1840,12 @@ export function ChatPane({
   const queueRef = useRef<ChatQueueItem[]>([]);
   useEffect(() => {
     queueRef.current = queue;
-  }, [queue]);
+    // Mirrored outside React for the same reason it is mirrored into the ref
+    // -- but surviving unmount rather than surviving a stale closure. Empty
+    // means nothing is in flight, so the entry goes rather than lingering.
+    if (queue.length > 0) queueByTabId.set(tabId, queue);
+    else queueByTabId.delete(tabId);
+  }, [queue, tabId]);
   // Hidden items (e.g. the priming turn's long "Contexto: ..." text) render
   // as nothing in the chat screen by design -- clicking one in the summary
   // strip below reveals that specific item's bubble/details inline, right
@@ -1933,6 +1992,20 @@ export function ChatPane({
   }, [startNewSession, primingMessage, agentId]);
 
   const queryClient = useQueryClient();
+
+  // On remount with a turn that had been cut off, pull the persisted
+  // messages once: the backend keeps streaming and writes the reply, so it
+  // may already be there -- and if it is, the detached bubble sits next to
+  // the real answer instead of standing in for it.
+  const restoredDetachedRef = useRef(false);
+  useEffect(() => {
+    if (restoredDetachedRef.current || !sessionId) return;
+    if (!queue.some((item) => item.error === STREAM_DETACHED_MESSAGE)) return;
+    restoredDetachedRef.current = true;
+    void queryClient.refetchQueries({ queryKey: chatKeys.messages(sessionId) }).catch(() => {});
+  }, [queue, sessionId, queryClient]);
+
+
   const { data: messages } = useChatMessages(sessionId || undefined);
   // Hidden turns are real, stored message content -- there's no
   // hidden/system channel in the send API -- but they're internal
