@@ -34,9 +34,32 @@ class ServerOut(BaseModel):
     ssh_port: int
     ssh_key_path: str | None
     public_key: str | None
+    # Whether an encrypted copy of the identity file is vaulted on the row.
+    # The material itself is never serialized -- see Server.private_key_stored.
+    private_key_stored: bool = False
     description: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ServerKeyStoreRequest(BaseModel):
+    """A pasted private key, for a server whose identity file ForgeHub cannot
+    read from the host (a key that lives on another machine, or one being
+    recovered from a backup by hand)."""
+
+    private_key: str = Field(min_length=1)
+    public_key: str | None = None
+
+
+class ServerKeyVaultResult(BaseModel):
+    """Outcome of a vault action (backup / restore). `key_path` is the host
+    path read from or written to; `written` lists the files a restore
+    actually created."""
+
+    server_id: uuid.UUID
+    private_key_stored: bool
+    key_path: str | None = None
+    written: list[str] = Field(default_factory=list)
 
 
 class ServerInstallKeyRequest(BaseModel):

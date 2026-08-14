@@ -138,7 +138,10 @@ sub-conversion, ticked off independently.
 - [ ] `frontend/src/pages/docs/index.tsx` (904 lines)
 - [ ] `frontend/src/pages/database/SchemaPage.tsx` (807 lines)
 - [ ] `frontend/src/pages/skills/index.tsx` (762 lines)
-- [ ] `frontend/src/pages/servers/index.tsx` (672 lines)
+- [ ] `frontend/src/pages/servers/index.tsx` (672 lines) — *partially*: the key-vault section added
+      on 2026-08-14 is already a ViewModel pair (`useServerKeyVaultViewModel.ts` +
+      `KeyVaultSection`); the rest of the page (form modal, install-key modal, status probes) is
+      still inline state, so the box stays unchecked.
 - [ ] `frontend/src/pages/crons/index.tsx` (633 lines)
 - [ ] `frontend/src/pages/auditor/index.tsx` (628 lines)
 - [ ] `frontend/src/pages/system-control/index.tsx` (604 lines)

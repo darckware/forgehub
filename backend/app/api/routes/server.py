@@ -8,6 +8,10 @@ Endpoints:
   DELETE /api/v1/servers/{id}       – delete
   POST   /api/v1/servers/import     – bulk CSV import (upsert by name)
   POST   /api/v1/servers/{id}/check – on-demand SSH reachability probe
+  POST   /api/v1/servers/{id}/key:backup   – vault the host's identity file
+  PUT    /api/v1/servers/{id}/key          – vault a pasted private key
+  POST   /api/v1/servers/{id}/key:restore  – write the vaulted key to the host
+  DELETE /api/v1/servers/{id}/key          – drop the vaulted copy
 """
 import asyncio
 import csv
@@ -35,11 +39,14 @@ from app.api.schemas.server import (
     ServerImportResult,
     ServerInstallKeyRequest,
     ServerInstallKeyResult,
+    ServerKeyStoreRequest,
+    ServerKeyVaultResult,
     ServerOut,
     ServerUpdate,
 )
 from app.core.config import settings
 from app.core.deps import get_current_admin
+from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
 from app.db.models.server import Server
 from app.db.models.user import User
@@ -308,6 +315,150 @@ async def read_and_store_public_key(
     await db.commit()
     await db.refresh(server)
     return server
+
+
+# ---------------------------------------------------------------------------
+# Key vault -- an encrypted copy of the identity file on the row itself.
+#
+# The inventory always knew *where* a key was, never *what* it was, and a path
+# is not a backup: recreating the Aegis profile directory on 2026-07-07 left
+# the 172.15.2.4/172.15.2.5 keys behind in a backup dir and the terminal lost
+# those servers outright (2026-08-14, Marcelo: "seria melhor criptografar a
+# chave no banco de dados para não perder"). These three routes are the round
+# trip -- read from host, keep encrypted, pour back when the file is gone --
+# and are admin-only, since each one handles private key material.
+#
+# Deliberately not automatic: nothing backs a key up on save, and nothing
+# restores one when a connection fails. A key silently reappearing on disk
+# from a stale DB copy is a worse surprise than a connection that reports it
+# is missing.
+# ---------------------------------------------------------------------------
+
+
+async def _bridge_post(path: str, payload: dict, timeout: float = 20.0) -> httpx.Response:
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            return await client.post(
+                f"{settings.CHAT_BRIDGE_URL}{path}",
+                json=payload,
+                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Host bridge unreachable: {exc}") from exc
+
+
+def _bridge_detail(resp: httpx.Response) -> str:
+    try:
+        return str(resp.json().get("detail", resp.text[:300]))
+    except ValueError:
+        return resp.text[:300]
+
+
+@router.post("/{server_id}/key:backup", response_model=ServerKeyVaultResult)
+async def backup_server_key(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """Reads the row's identity file from the host and stores it encrypted on
+    the row. Overwrites any previous vaulted copy — the file on the host is
+    the one ssh actually uses, so it is the authority when both exist."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.ssh_key_path:
+        raise HTTPException(status_code=400, detail="No SSH key path configured for this server")
+
+    resp = await _bridge_post("/v1/servers/read-private-key", {"key_path": server.ssh_key_path})
+    if resp.status_code in (400, 404):
+        raise HTTPException(status_code=resp.status_code, detail=_bridge_detail(resp))
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host bridge error: {resp.text[:300]}")
+    data = resp.json()
+
+    server.private_key_encrypted = encrypt_secret(data["private_key"])
+    if data.get("public_key") and not server.public_key:
+        server.public_key = data["public_key"]
+    await db.commit()
+    return ServerKeyVaultResult(
+        server_id=server.id, private_key_stored=True, key_path=data.get("key_path")
+    )
+
+
+@router.put("/{server_id}/key", response_model=ServerKeyVaultResult)
+async def store_server_key(
+    server_id: uuid.UUID,
+    payload: ServerKeyStoreRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """Vaults a pasted private key, for a server whose file ForgeHub cannot
+    read from this host. Validated only by shape here — whether it is the key
+    the server accepts is answered by the status probe, not by this route."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    material = payload.private_key.strip()
+    if "PRIVATE KEY" not in material:
+        raise HTTPException(status_code=422, detail="Payload does not look like an SSH private key")
+
+    server.private_key_encrypted = encrypt_secret(material)
+    if payload.public_key:
+        server.public_key = payload.public_key.strip()
+    await db.commit()
+    return ServerKeyVaultResult(server_id=server.id, private_key_stored=True)
+
+
+@router.post("/{server_id}/key:restore", response_model=ServerKeyVaultResult)
+async def restore_server_key(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """Writes the vaulted key back to the host at the row's ssh_key_path
+    (0600). The bridge refuses when a file is already there, which surfaces as
+    409 rather than replacing a working identity."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.private_key_encrypted:
+        raise HTTPException(status_code=400, detail="No key is vaulted for this server")
+    if not server.ssh_key_path:
+        raise HTTPException(status_code=400, detail="No SSH key path configured for this server")
+
+    resp = await _bridge_post(
+        "/v1/servers/write-private-key",
+        {
+            "key_path": server.ssh_key_path,
+            "private_key": decrypt_secret(server.private_key_encrypted),
+            "public_key": server.public_key,
+        },
+    )
+    if resp.status_code in (400, 409):
+        raise HTTPException(status_code=resp.status_code, detail=_bridge_detail(resp))
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host bridge error: {resp.text[:300]}")
+    return ServerKeyVaultResult(
+        server_id=server.id,
+        private_key_stored=True,
+        key_path=server.ssh_key_path,
+        written=resp.json().get("written", []),
+    )
+
+
+@router.delete("/{server_id}/key", response_model=ServerKeyVaultResult)
+async def clear_server_key(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """Drops the vaulted copy. Never touches the file on the host."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    server.private_key_encrypted = None
+    await db.commit()
+    return ServerKeyVaultResult(server_id=server.id, private_key_stored=False)
 
 
 @router.post("/import", response_model=ServerImportResult)

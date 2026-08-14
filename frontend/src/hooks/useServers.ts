@@ -9,6 +9,10 @@ export interface Server {
   ssh_port: number;
   ssh_key_path: string | null;
   public_key: string | null;
+  /** An encrypted copy of the identity file is vaulted on the row. The key
+   * material itself is never sent to the browser -- see the backend's
+   * Server.private_key_encrypted note for why the copy exists at all. */
+  private_key_stored: boolean;
   description: string | null;
   created_at: string;
   updated_at: string;
@@ -27,12 +31,22 @@ export interface ServerCreate {
  * form from whether a key is on file -- the two modes the inventory supports:
  *
  *  - Key on file  -> `ssh -i <key> ...`: key authentication, no password.
- *  - No key       -> force an interactive password login. The host's
- *    HermesOps-managed ~/.ssh/config hardens 172.15.* to key-only
- *    (`BatchMode yes` + `PasswordAuthentication no`), which would make a bare
- *    `ssh user@ip` fail instantly without ever prompting. We override just
- *    that on the command line -- per connection, never globally -- so the
- *    terminal actually asks for the password.
+ *  - No key on file -> let the host's own ~/.ssh/config decide, and allow a
+ *    password prompt as the fallback. The host's HermesOps-managed config
+ *    hardens 172.15.* to key-only (`BatchMode yes` + `PasswordAuthentication
+ *    no`), which would make a bare `ssh user@ip` fail instantly without ever
+ *    prompting, so those two are overridden here -- per connection, never
+ *    globally.
+ *
+ *    `PubkeyAuthentication=no` used to be in that override set, and was the
+ *    bug (2026-08-14): "no key *in ForgeHub's row*" is not "no key on the
+ *    host". Every row in the inventory has a NULL ssh_key_path (the keys were
+ *    installed by HermesOps' own sync, which writes ~/.ssh/config and never
+ *    touches this table), so disabling pubkey auth turned a connection that
+ *    works from any shell into a password prompt for a password nobody has --
+ *    the account is key-only by design. Dropping it costs nothing in the
+ *    genuinely keyless case: ssh simply finds no identity and moves on to the
+ *    password prompt.
  */
 export function buildSshCommand(server: Server): string {
   const parts = ["ssh"];
@@ -40,7 +54,6 @@ export function buildSshCommand(server: Server): string {
     parts.push("-i", server.ssh_key_path);
   } else {
     parts.push(
-      "-o", "PubkeyAuthentication=no",
       "-o", "PasswordAuthentication=yes",
       "-o", "BatchMode=no",
     );
@@ -142,6 +155,54 @@ export function useReadServerPublicKey() {
   const qc = useQueryClient();
   return useMutation<Server, Error, string>({
     mutationFn: (id) => apiClient.post(`/api/v1/servers/${id}/public-key`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
+  });
+}
+
+export interface ServerKeyVaultResult {
+  server_id: string;
+  private_key_stored: boolean;
+  key_path: string | null;
+  written: string[];
+}
+
+/** Reads the identity file from the host and keeps an encrypted copy on the
+ * row, so losing the file on disk no longer means losing access to the
+ * server (which is exactly what happened to 172.15.2.5 on 2026-07-07). */
+export function useBackupServerKey() {
+  const qc = useQueryClient();
+  return useMutation<ServerKeyVaultResult, Error, string>({
+    mutationFn: (id) => apiClient.post(`/api/v1/servers/${id}/key:backup`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
+  });
+}
+
+/** Writes the vaulted key back to the host at the row's ssh_key_path. Fails
+ * with 409 when a file is already there -- restoring never overwrites a
+ * working identity. */
+export function useRestoreServerKey() {
+  const qc = useQueryClient();
+  return useMutation<ServerKeyVaultResult, Error, string>({
+    mutationFn: (id) => apiClient.post(`/api/v1/servers/${id}/key:restore`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
+  });
+}
+
+/** Vaults a pasted private key, for a server whose file this host does not
+ * have (recovered from a backup by hand, or living on another machine). */
+export function useStoreServerKey() {
+  const qc = useQueryClient();
+  return useMutation<ServerKeyVaultResult, Error, { id: string; private_key: string }>({
+    mutationFn: ({ id, private_key }) => apiClient.put(`/api/v1/servers/${id}/key`, { private_key }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
+  });
+}
+
+/** Drops the vaulted copy. Never touches the file on the host. */
+export function useClearServerKey() {
+  const qc = useQueryClient();
+  return useMutation<ServerKeyVaultResult, Error, string>({
+    mutationFn: (id) => apiClient.delete(`/api/v1/servers/${id}/key`),
     onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
   });
 }

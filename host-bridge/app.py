@@ -1345,7 +1345,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
     if req.routing_group not in routing_groups:
         raise HTTPException(status_code=400, detail="unsupported ForgeRouter routing_group")
     # req.api_key is only set when the Agent row in ForgeHub has a
-    # ForgeRouter credential configured. Porthos/Aramis/Dartan each have
+    # ForgeRouter credential configured. Porthus/Aramis/Dartan each have
     # their own native CLI auth already logged in on this host (Claude
     # Code subscription, Codex's own auth.json, Antigravity's own OAuth
     # token under ~/.gemini/antigravity-cli/) -- with no ForgeRouter key
@@ -2739,6 +2739,102 @@ async def _run_step(
             proc.kill()
         return 124, "timed out"
     return proc.returncode or 0, out.decode(errors="replace")[-800:]
+
+
+# Identity files may only be read from / written to these roots. The vault
+# endpoints below move private key material, so the path -- which arrives in a
+# request body -- is never trusted on its own: without this, any caller
+# holding the bridge token could name an arbitrary file and have its contents
+# returned. Covers where SSH keys actually live on this host: the shell's own
+# ~/.ssh, the Aegis profile's forgenet/server-management key directories, and
+# whatever SSH_KEYS_DIR is set to.
+PRIVATE_KEY_ROOTS = (
+    "/root/.ssh",
+    "/root/agents",
+    "/root/.hermes/profiles",
+    SSH_KEYS_DIR,
+)
+
+
+def _resolve_key_path(raw: str) -> str:
+    """Validates a private-key path against PRIVATE_KEY_ROOTS. Resolves
+    symlinks first (/root/agents/aegis is one), so `..` or a symlink pointing
+    outside can't smuggle a path past the prefix check."""
+    path = (raw or "").strip()
+    if not path:
+        raise HTTPException(status_code=400, detail="key_path is required")
+    if path.endswith(".pub"):
+        raise HTTPException(status_code=400, detail="key_path must be the private key, not the .pub")
+    resolved = os.path.realpath(path)
+    roots = [os.path.realpath(root) for root in PRIVATE_KEY_ROOTS]
+    if not any(resolved == root or resolved.startswith(root + os.sep) for root in roots):
+        raise HTTPException(status_code=400, detail="key_path is outside the allowed SSH key directories")
+    return resolved
+
+
+class PrivateKeyRequest(BaseModel):
+    key_path: str
+
+
+class WritePrivateKeyRequest(BaseModel):
+    key_path: str
+    private_key: str
+    public_key: str | None = None
+
+
+@app.post("/v1/servers/read-private-key")
+async def read_private_key(
+    req: PrivateKeyRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Reads an identity file so ForgeHub can keep an encrypted copy of it
+    (see servers.private_key_encrypted). The material crosses the wire on
+    localhost, token-checked, and is encrypted before it is stored -- the
+    alternative, leaving the only copy on disk, is what lost the 172.15.2.5
+    key when the Aegis profile directory was recreated."""
+    _check_token(x_bridge_token)
+    path = _resolve_key_path(req.key_path)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail=f"No identity file at {path}")
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        private_key = fh.read()
+    if "PRIVATE KEY" not in private_key:
+        raise HTTPException(status_code=400, detail="File does not look like an SSH private key")
+    public_key = None
+    if os.path.isfile(path + ".pub"):
+        with open(path + ".pub", encoding="utf-8", errors="replace") as fh:
+            public_key = fh.read().strip()
+    return {"private_key": private_key, "public_key": public_key, "key_path": path}
+
+
+@app.post("/v1/servers/write-private-key")
+async def write_private_key(
+    req: WritePrivateKeyRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Pours a vaulted identity file back onto the host at key_path (0600,
+    parent directory created if needed), so a lost key can be restored without
+    touching the server's authorized_keys. Refuses to overwrite an existing
+    file: restoring is for a key that is *missing*, and silently replacing a
+    working identity would be a much worse failure than reporting the
+    conflict."""
+    _check_token(x_bridge_token)
+    path = _resolve_key_path(req.key_path)
+    if "PRIVATE KEY" not in req.private_key:
+        raise HTTPException(status_code=400, detail="Payload does not look like an SSH private key")
+    if os.path.exists(path):
+        raise HTTPException(status_code=409, detail=f"An identity file already exists at {path}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # Create with 0600 from the start -- writing then chmod'ing would leave a
+    # window where the private key is world-readable.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(req.private_key if req.private_key.endswith("\n") else req.private_key + "\n")
+    written = [path]
+    if req.public_key and not os.path.exists(path + ".pub"):
+        with open(path + ".pub", "w", encoding="utf-8") as fh:
+            fh.write(req.public_key.strip() + "\n")
+        os.chmod(path + ".pub", 0o644)
+        written.append(path + ".pub")
+    return {"ok": True, "written": written}
 
 
 class ReadPubKeyRequest(BaseModel):

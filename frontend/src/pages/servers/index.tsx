@@ -8,6 +8,7 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
+  Lock,
   Pencil,
   Plus,
   RefreshCw,
@@ -41,6 +42,7 @@ import {
   type ServerCreate,
   type ServerCheckResult,
 } from "@/hooks/useServers";
+import { useServerKeyVaultViewModel } from "@/hooks/useServerKeyVaultViewModel";
 
 const EMPTY_FORM: ServerCreate = {
   name: "",
@@ -64,6 +66,105 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
         </div>
         {children}
       </div>
+    </div>
+  );
+}
+
+/** Key vault section of the edit dialog: keeps an encrypted copy of the
+ * identity file on the row and pours it back when the file on the host is
+ * gone. Pure render of `useServerKeyVaultViewModel` — no state of its own.
+ *
+ * Why it exists at all: the row only ever recorded the key's *path*, and a
+ * path survives things a key does not. Recreating the Aegis profile directory
+ * on 2026-07-07 left the 172.15.2.4/172.15.2.5 identity files behind in a
+ * backup directory, and the Workspace terminal simply lost those servers.
+ */
+function KeyVaultSection({ server }: { server: Server }) {
+  const vm = useServerKeyVaultViewModel(server);
+
+  return (
+    <div className="space-y-2 rounded-md border border-border/60 p-3">
+      <div className="flex items-center justify-between">
+        <Label className="flex items-center gap-1.5">
+          <Lock className="h-3.5 w-3.5" />
+          Key vault
+        </Label>
+        <Badge variant={vm.vaulted ? "default" : "outline"} className="text-[10px]">
+          {vm.vaulted ? "Encrypted copy stored" : "No copy stored"}
+        </Badge>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Keeps the private key encrypted in ForgeHub's database, so losing the file on the host no
+        longer means losing access to the server. The key is never sent back to the browser —
+        restoring writes it straight to the host at the path above.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!vm.hasKeyPath || vm.isBusy}
+          title={vm.hasKeyPath ? "Read the identity file from the host and store it encrypted" : "Set an SSH key path first"}
+          onClick={vm.backup}
+        >
+          {vm.status === "backing_up" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+          {vm.vaulted ? "Update copy from host" : "Store key from host"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!vm.vaulted || !vm.hasKeyPath || vm.isBusy}
+          title="Write the stored key back to the host (never overwrites an existing file)"
+          onClick={vm.restore}
+        >
+          {vm.status === "restoring" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+          Restore to host
+        </Button>
+        {vm.vaulted && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-destructive"
+            disabled={vm.isBusy}
+            onClick={vm.requestClear}
+          >
+            {vm.status === "clearing" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            Remove copy
+          </Button>
+        )}
+      </div>
+      <div className="space-y-1">
+        <Textarea
+          value={vm.pastedKey}
+          onChange={(e) => vm.setPastedKey(e.target.value)}
+          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…paste a key this host doesn't have…"
+          className="min-h-[56px] font-mono text-[10px]"
+          disabled={vm.isBusy}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!vm.pastedKey.trim() || vm.isBusy}
+          onClick={vm.storePasted}
+        >
+          {vm.status === "storing" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+          Store pasted key
+        </Button>
+      </div>
+      {vm.message && <p className="text-[11px] text-emerald-600">{vm.message}</p>}
+      {vm.error && <p className="text-[11px] text-destructive">{vm.error}</p>}
+      <ConfirmDialog
+        open={vm.status === "confirming_clear"}
+        title="Remove the stored key?"
+        description={`ForgeHub's encrypted copy of ${server.name}'s key is deleted. The file on the host is left untouched — but if it is ever lost, there will be no copy to restore from.`}
+        confirmLabel="Remove copy"
+        loading={vm.status === "clearing"}
+        onConfirm={vm.confirmClear}
+        onCancel={vm.cancelClear}
+      />
     </div>
   );
 }
@@ -181,6 +282,7 @@ function ServerFormModal({ initial, onClose }: { initial: Server | null; onClose
             <p className="text-[11px] text-destructive">{readPublicKey.error.message}</p>
           )}
         </div>
+        {initial && <KeyVaultSection server={initial} />}
         <div className="space-y-1">
           <Label>Description</Label>
           <Textarea
