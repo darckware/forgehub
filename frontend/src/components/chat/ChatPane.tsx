@@ -335,6 +335,10 @@ type ChatQueueItem = {
   error?: string;
   approval: ChatQueueApproval | null;
   abortController: AbortController | null;
+  /** Set when the pane remounted while this turn was in flight: the run
+   * continues server-side, but this client no longer has its stream. Drives
+   * the polling fallback instead of live updates. */
+  detached?: boolean;
   /** True for a "Regenerate" request: reuses the last user message's text
    * without persisting a duplicate user turn, and its synthetic user
    * bubble is suppressed in the queue render (the real one is already in
@@ -1815,19 +1819,18 @@ export function ChatPane({
   const [queue, setQueue] = useState<ChatQueueItem[]>(() => {
     const restored = queueByTabId.get(tabId);
     if (!restored?.length) return [];
-    // A turn that was mid-flight when the pane unmounted cannot simply be
-    // shown as still processing: its SSE reader died with the component, the
-    // drain loop only ever picks up "queued" items, and nothing would move it
-    // again -- a spinner that never resolves is worse than the bubble
-    // vanishing. Re-queueing is not an option either: the backend is still
-    // running that turn, and a second dispatch would run it twice.
+    // A turn that was mid-flight keeps showing as processing, because it IS
+    // still processing -- in the backend, which owns the run and persists the
+    // reply. What died with the unmount was only this pane's SSE reader.
     //
-    // So it is surfaced for what it is: the *display* was interrupted, while
-    // the run itself continues server-side and persists its reply. The
-    // messages refetch below is what brings that reply in once it lands.
+    // It is flagged `detached` rather than re-queued: re-queueing would
+    // dispatch the same turn a second time. The flag turns on a poll for the
+    // persisted messages (see the effect below), so the answer lands on its
+    // own and the bubble is dropped when it does -- no live text or steps
+    // for the rest of that turn, but the turn completes on screen.
     return restored.map((item) =>
       item.status === "processing"
-        ? { ...item, status: "error" as const, error: STREAM_DETACHED_MESSAGE, abortController: null }
+        ? { ...item, detached: true, abortController: null }
         : item
     );
   });

@@ -280,6 +280,14 @@ FEEDBACK_POLL_INTERVAL_SECONDS = 120
 
 _feedback_poll_task: asyncio.Task | None = None
 
+# Com que frequência turnos que passaram do prazo são fechados. O caso real é
+# um restart do host-bridge: ele guarda os subprocessos em memória, então
+# reiniciar perde o processo enquanto a linha ainda diz "rodando" -- e cada
+# reconecte ficaria esperando um stream sem produtor.
+ACTIVE_TURN_SWEEP_INTERVAL_SECONDS = 120
+
+_active_turn_sweep_task: asyncio.Task | None = None
+
 # How often in-flight dispatches are polled to completion. Same interval as
 # the scheduled-send loop above and for the same reason: this is what turns
 # a finished agent run into a reply item in the Inbox, so latency here is
@@ -546,6 +554,35 @@ async def _feedback_poll_loop() -> None:
         except Exception:
             logger.exception("Feedback poll failed")
         await asyncio.sleep(FEEDBACK_POLL_INTERVAL_SECONDS)
+
+
+async def _active_turn_sweep_loop() -> None:
+    """Fecha turnos que passaram do prazo sem reportar (2026-08-13)."""
+    from app.core.active_turns import sweep_stale
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await sweep_stale(db)
+        except Exception:
+            logger.exception("Active turn sweep failed")
+        await asyncio.sleep(ACTIVE_TURN_SWEEP_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+async def _start_active_turn_sweep() -> None:
+    global _active_turn_sweep_task
+    _active_turn_sweep_task = asyncio.create_task(_active_turn_sweep_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_active_turn_sweep() -> None:
+    if _active_turn_sweep_task is None:
+        return
+    _active_turn_sweep_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _active_turn_sweep_task
 
 
 @app.on_event("startup")

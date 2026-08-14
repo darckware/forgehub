@@ -12,7 +12,7 @@ import json
 import os
 import time
 import uuid
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import anyio
 import httpx
@@ -394,6 +394,42 @@ async def download_chat_artifact(
 # --------------------------------------------------------------------------
 
 
+@router.get("/sessions/{session_id}/active-turn")
+async def get_session_active_turn(
+    session_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """"Há algo rodando nesta sessão, e o que já aconteceu?"
+
+    O `tmux has-session` do chat (2026-08-13). O cliente pergunta isto ao
+    montar: se a resposta traz um turno, ele redesenha o balão em execução com
+    a trilha e o texto já gravados, em vez de mostrar a tela como se nada
+    estivesse acontecendo -- que era o caso depois de um F5, um crash ou de
+    fechar o navegador, mesmo com o agente ainda trabalhando.
+
+    Devolve `{"turn": null}` quando não há nada em curso, e não 404: "nada
+    rodando" é a resposta normal e mais comum, não um erro.
+    """
+    await _get_session_or_404(db, session_id)
+    turn = await active_turns.get_active(db, scope="chat", scope_id=session_id)
+    if turn is None:
+        return {"turn": None}
+    await active_turns.mark_reattached(db, turn.id)
+    await db.commit()
+    return {
+        "turn": {
+            "id": str(turn.id),
+            "stream_id": turn.stream_id,
+            "prompt": turn.prompt,
+            "agent_id": str(turn.agent_id) if turn.agent_id else None,
+            "steps": turn.steps or [],
+            "live_text": turn.live_text or "",
+            "pending_approval": turn.pending_approval,
+            "started_at": turn.created_at.isoformat(),
+            "deadline_at": turn.deadline_at.isoformat() if turn.deadline_at else None,
+        }
+    }
+
+
 @router.get("/sessions/{session_id}/messages", response_model=list[ChatMessageOut])
 async def list_chat_messages(
     session_id: uuid.UUID, db: AsyncSession = Depends(get_db)
@@ -660,6 +696,9 @@ async def stream_chat_message(
         bridge_params["cwd"] = session.working_directory_path
 
     accumulated: list[str] = []
+    # Id do registro deste turno (core/active_turns). Só existe depois que o
+    # bridge informa o stream_id: antes disso não há execução para re-anexar.
+    turn_id: uuid.UUID | None = None
     created_paths: list[str] = []
     # Tool steps the agent ran this turn ("Running sleep 45", ...). If the
     # stream breaks before `done`, this processing activity IS the response
@@ -742,15 +781,55 @@ async def stream_chat_message(
                                     participant.hermes_session_id = new_hsid
                                 else:
                                     session.hermes_session_id = new_hsid
+                            if turn_id is not None:
+                                await active_turns.close_turn(db, turn_id, status="completed")
                             await db.commit()
                             yield f'data: {json.dumps({"done": True})}\n\n'
                             return
+
+                        # O primeiro evento com stream_id é o que torna este
+                        # turno encontrável por quem reconectar -- o
+                        # equivalente ao `tmux new-session` do terminal. Antes
+                        # disso não há o que re-anexar.
+                        if turn_id is None and data.get("stream_id"):
+                            turn = await active_turns.open_turn(
+                                db,
+                                scope="chat",
+                                scope_id=session.id,
+                                stream_id=str(data["stream_id"]),
+                                prompt=message,
+                                agent_id=target_agent_id,
+                            )
+                            turn_id = turn.id
+                            await db.commit()
 
                         tool_start = data.get("tool_start")
                         if isinstance(tool_start, dict):
                             step = tool_start.get("context") or tool_start.get("name")
                             if step:
                                 steps_run.append(str(step))
+                            if turn_id is not None:
+                                await active_turns.record_step(
+                                    db,
+                                    turn_id,
+                                    {
+                                        "id": tool_start.get("id") or str(uuid.uuid4()),
+                                        "name": tool_start.get("name"),
+                                        "label": tool_start.get("context") or tool_start.get("name"),
+                                        "status": "running",
+                                    },
+                                    agent_id=target_agent_id,
+                                )
+                                await db.commit()
+
+                        # Uma aprovação no meio do turno é particularidade do
+                        # chat: sem gravá-la, quem reconecta não vê o pedido e
+                        # o turno espera para sempre por uma resposta que a
+                        # tela nunca pede.
+                        approval_request = data.get("approval_request")
+                        if isinstance(approval_request, dict) and turn_id is not None:
+                            await active_turns.set_pending_approval(db, turn_id, approval_request)
+                            await db.commit()
 
                         tool_complete = data.get("tool_complete")
                         if isinstance(tool_complete, dict) and tool_complete.get("path"):
@@ -758,6 +837,9 @@ async def stream_chat_message(
 
                         delta = data.get("delta", "")
                         accumulated.append(delta)
+                        if delta and turn_id is not None:
+                            await active_turns.record_text(db, turn_id, delta)
+                            await db.commit()
                         yield f"data: {raw}\n\n"
 
                     # Bridge stream closed without a done/error event (the
@@ -766,6 +848,15 @@ async def stream_chat_message(
                     # steps) counts as the response -- persist it instead of
                     # dropping it, and tell the client explicitly; a silent
                     # close makes the in-flight turn vanish with no trace.
+                    # O turno acabou sem `done`: fecha o registro como falho
+                    # para não ficar "rodando" para sempre e fazer todo
+                    # reconecte esperar por um stream sem produtor.
+                    if turn_id is not None:
+                        await active_turns.close_turn(
+                            db, turn_id, status="failed",
+                            error="O stream terminou sem concluir (o processo do agente caiu ou a ponte fechou).",
+                        )
+                        await db.commit()
                     content = _interrupted_turn_content()
                     if content:
                         asst_msg = ChatMessage(
@@ -790,6 +881,9 @@ async def stream_chat_message(
             # (confirmed: an unshielded `await db.commit()` here gets cut
             # off mid-flight and nothing is saved) -- shield=True is
             # required to let this specific write actually complete.
+            if turn_id is not None:
+                await active_turns.close_turn(db, turn_id, status="cancelled")
+                await db.commit()
             cancelled_content = _interrupted_turn_content()
             if cancelled_content:
                 with anyio.CancelScope(shield=True):

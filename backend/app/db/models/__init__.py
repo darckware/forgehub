@@ -47,6 +47,7 @@ from app.db.models.governance import (  # noqa: F401
     Policy, Approval, AuditEvent, PolicyVersion, PolicyBinding, PolicyEvaluation,
     ApprovalRequest, ApprovalDecisionRecord, AuthorityDelegation,
 )
+from app.db.models.active_turn import ActiveTurn  # noqa: F401
 from app.db.models.chat import ChatSession, ChatMessage, ChatArtifact, ChatSessionParticipant, ChatGroup  # noqa: F401
 from app.db.models.toolversions import ToolVersionStatus, ToolSyncSetting  # noqa: F401
 from app.db.models.cron_script import CronScript  # noqa: F401
