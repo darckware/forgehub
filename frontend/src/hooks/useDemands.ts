@@ -128,25 +128,40 @@ export const demandSchema = z.object({
 
 export type Demand = z.infer<typeof demandSchema>;
 
-/** Incoming is the letter surface, not the execution surface. A generated
- * return (`reply_to_id`) is delivered here even though it retains the
- * completed provenance of the run that produced it. Executable originals
- * move through Outgoing -> Running -> Completed/Failed instead. A legacy
- * queue row with the reserved `pending` dispatch state is also incoming.
- * Self-addressed items never count as incoming.
+/** Entrada (2026-07-27, Marcelo: "a message é como se fosse uma carta, ela
+ * anda em cada casa (grupo)"): a message only counts as having *arrived* at
+ * an agent's Incoming once dispatch has actually started -- addressed but
+ * still `dispatch_status IS NULL` (not yet promoted/scheduled, or scheduled
+ * for later) means it hasn't left the sender's house yet, so it belongs in
+ * Outgoing/Backlog only, not Incoming too. A self-addressed item (To left
+ * blank, target_agent_id === from_agent_id -- "para você mesmo") never
+ * counts as Incoming either.
+ *
+ * Excludes Running/Completed/Failed too (2026-07-28, Marcelo: "as message
+ * no Incoming em processamento tem que serem movidas para Running, fim do
+ * processamento, deu erro vai para Failed, senão vai para Completed") --
+ * each message counts in exactly one of Incoming/Running/Failed/Completed
+ * at a time, never two at once. A generated return (`reply_to_id` set) is
+ * created already-terminal (`dispatch_status="completed"`, see
+ * demand.py's `_finalize_dispatch`), so it goes straight to Completed like
+ * any other terminal row -- it never passes through Incoming (reverted
+ * 2026-08-15 after a same-day rule change made every reply pile up in
+ * Incoming permanently with no further event to move it out; see
+ * isCompletedItem's own reply_to_id note below).
  *
  * Shared between pages/demands/index.tsx (the tree's own per-folder
  * counts) and Sidebar.tsx (the global nav badge) -- both must agree, see
  * computeInboxTotalCount below (2026-07-28, Marcelo: "tudo tem que
  * obedecer o total do grupo de entrada... tem que haver sync"). */
 export function isIncomingItem(d: Demand, agentId: string): boolean {
-  // A generated return is a letter delivered to the original sender. Its
-  // completed status describes the work that produced it, not a second
-  // execution of the return row. Reserved queue rows may use `pending`.
   return (
     d.status !== "archived" &&
     d.target_agent_id === agentId &&
-    (d.reply_to_id != null || d.dispatch_status === "pending") &&
+    d.dispatch_status != null &&
+    d.dispatch_status !== "dispatched" &&
+    d.dispatch_status !== "running" &&
+    d.dispatch_status !== "completed" &&
+    d.dispatch_status !== "failed" &&
     d.target_agent_id !== d.from_agent_id
   );
 }

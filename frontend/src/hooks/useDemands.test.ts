@@ -13,17 +13,22 @@ function row(overrides: Partial<Demand>): Demand {
 }
 
 describe("isIncomingItem", () => {
-  it("treats a generated return as delivered mail", () => {
-    expect(isIncomingItem(row({ reply_to_id: "original", dispatch_status: "completed" }), "agent-b")).toBe(true);
+  it("counts a pending addressed message as Incoming", () => {
+    expect(isIncomingItem(row({ dispatch_status: "pending" }), "agent-b")).toBe(true);
   });
 
-  it("keeps original executions in their lifecycle folders", () => {
+  it("keeps every dispatch lifecycle stage out of Incoming, generated returns included", () => {
+    expect(isIncomingItem(row({ dispatch_status: "dispatched" }), "agent-b")).toBe(false);
     expect(isIncomingItem(row({ dispatch_status: "running" }), "agent-b")).toBe(false);
+    expect(isIncomingItem(row({ dispatch_status: "failed" }), "agent-b")).toBe(false);
     expect(isIncomingItem(row({ dispatch_status: "completed" }), "agent-b")).toBe(false);
+    // A generated return is created already-terminal (dispatch_status="completed")
+    // and belongs in Completed like any other terminal row, not Incoming.
+    expect(isIncomingItem(row({ reply_to_id: "original", dispatch_status: "completed" }), "agent-b")).toBe(false);
   });
 
   it("does not put self-addressed or archived mail in Incoming", () => {
-    expect(isIncomingItem(row({ reply_to_id: "original", from_agent_id: "agent-b" }), "agent-b")).toBe(false);
-    expect(isIncomingItem(row({ reply_to_id: "original", status: "archived" }), "agent-b")).toBe(false);
+    expect(isIncomingItem(row({ dispatch_status: "pending", from_agent_id: "agent-b" }), "agent-b")).toBe(false);
+    expect(isIncomingItem(row({ dispatch_status: "pending", status: "archived" }), "agent-b")).toBe(false);
   });
 });
