@@ -81,7 +81,7 @@ def gateway_service_name(profile_slug: str | None, runtime_type: str | None) -> 
     Only Hermes profiles have one. The external CLI runtimes have a
     profile_slug too (it is their inbox addressing key, not a directory under
     /root/.hermes/profiles), so keying off the slug alone wrongly attributed
-    a `hermes-gateway-porthos.service` to Porthos and reported that
+    a `hermes-gateway-porthus.service` to Porthus and reported that
     non-existent unit as down."""
     if not profile_slug or runtime_type != "hermes":
         return None

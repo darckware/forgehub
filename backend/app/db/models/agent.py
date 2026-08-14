@@ -59,7 +59,7 @@ AGENT_TYPES = ("coordinator", "executor", "hybrid")
 # 2026-07-25), it does not replace it. Every classic Hermes-profile agent
 # (Athos, Aegis, Atlas, Mnemosyne, Scriba, Themis, Daedalus, Hephaestus)
 # uses this. "claude"/"codex"/"agy" remain the three external runtime
-# programmers (Porthos/Aramis/Dartan) with their own non-Hermes CLI.
+# programmers (Porthus/Aramis/Dartan) with their own non-Hermes CLI.
 # "openclaw" dispatches `openclaw agent --agent main --message <prompt>
 # --json` against Vector's already-running openclaw-gateway.service -- like
 # hermes/claude/codex/agy, Vector's own config already has its own
@@ -145,7 +145,7 @@ class Agent(Base, TimestampMixin):
     # security). List endpoints and every other response keep the boolean
     # `forgerouter_api_key_configured` property below only.
     forgerouter_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # See AGENT_RUNTIME_TYPES above -- only Aramis/Porthos/Dartan have one today.
+    # See AGENT_RUNTIME_TYPES above -- only Aramis/Porthus/Dartan have one today.
     runtime_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Host path of the directory holding this agent's profile Markdown files
     # (SOUL.md, IDENTITY.md, TOOLS.md, ...). Nullable because it is an

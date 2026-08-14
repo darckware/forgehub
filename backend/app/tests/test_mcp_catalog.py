@@ -3,7 +3,7 @@
 **Deliberately does NOT exercise `apply_to_all_agents=True` end-to-end.**
 `apply_global_server_to_all_agents` (core/mcp_catalog_apply.py) queries
 every active `Agent` row in the shared `company_postgres` database -- which
-in this environment includes the real, in-use Athos/Porthos/Atlas/etc.
+in this environment includes the real, in-use Athos/Porthus/Atlas/etc.
 agents, each with a real config file on the real host. A test that sets
 `apply_to_all_agents=True` would write a throwaway test server into every
 one of those real files on every test run (confirmed by hand while building

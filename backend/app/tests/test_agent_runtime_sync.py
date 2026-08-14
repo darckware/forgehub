@@ -48,7 +48,7 @@ def test_detects_hermes_from_the_profile_directory(fake_host):
 
 def test_detects_external_runtime_from_its_home(fake_host):
     plan = agent_runtime_sync.plan_for_agent(
-        agent_id="2", agent_name="Porthos", profile_slug="porthos",
+        agent_id="2", agent_name="Porthus", profile_slug="porthus",
         runtime_type="claude", home_path=None,
     )
     assert plan.detected.runtime_type == "claude"

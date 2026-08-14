@@ -42,7 +42,7 @@ import { useFoundationAllScripts, type FoundationScript } from "@/hooks/useFound
  * scrollbar, so the chart stays readable at any grant count.
  *
  * Second, the chart only understood the Hermes layer/tier hierarchy, which
- * left the four external CLI runtimes (Porthos/claude, Aramis/codex,
+ * left the four external CLI runtimes (Porthus/claude, Aramis/codex,
  * Dartan/agy, Vector/openclaw) either invisible or dumped into "specialists
  * without department" — they have no Hermes layer because they are not Hermes
  * profiles. The top-level split is now by runtime family, and each card shows

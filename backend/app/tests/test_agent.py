@@ -414,13 +414,13 @@ def test_telegram_gateway_service_only_for_hermes_profiles():
     """The external CLI runtimes carry a profile_slug too -- it is their
     Inbox addressing key, not a directory under /root/.hermes/profiles -- so
     keying the systemd unit off the slug alone invented a
-    `hermes-gateway-porthos.service` and reported that non-existent unit as
+    `hermes-gateway-porthus.service` and reported that non-existent unit as
     down."""
     assert (
         agent_telegram.gateway_service_name("athos", "hermes")
         == "hermes-gateway-athos.service"
     )
-    assert agent_telegram.gateway_service_name("porthos", "claude") is None
+    assert agent_telegram.gateway_service_name("porthus", "claude") is None
     assert agent_telegram.gateway_service_name(None, "hermes") is None
 
 
@@ -507,7 +507,7 @@ def test_telegram_status_states(tmp_path):
 
     # An external runtime Telegram was never part of.
     external = agent_telegram.build_status(
-        profile_slug="porthos",
+        profile_slug="porthus",
         required=False,
         home_path=str(empty),
         runtime_type="claude",

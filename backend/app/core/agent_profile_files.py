@@ -7,7 +7,7 @@ in its own home directory. What differs is *where* that directory is:
     runtime_type   home directory
     -----------    --------------------------------------
     hermes         /root/.hermes/profiles/<profile_slug>
-    claude         /root/.claude                  (Porthos)
+    claude         /root/.claude                  (Porthus)
     codex          /root/.codex                   (Aramis)
     agy            /root/.gemini/config           (Dartan)
     openclaw       /root/.openclaw/workspace      (Vector)
@@ -66,7 +66,7 @@ CORE_PROFILE_FILES: tuple[str, ...] = (
 
 # Files that only exist for a given runtime, appended after CORE_PROFILE_FILES.
 # Claude Code reads /root/.claude/CLAUDE.md as its native always-loaded
-# entrypoint -- the same role AGENTS.md plays for Codex -- so Porthos' home
+# entrypoint -- the same role AGENTS.md plays for Codex -- so Porthus' home
 # has both and the UI must expose it.
 RUNTIME_EXTRA_FILES: dict[str, tuple[str, ...]] = {
     "claude": ("CLAUDE.md",),

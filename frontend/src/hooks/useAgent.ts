@@ -35,7 +35,7 @@ export type RuntimeTier = (typeof RUNTIME_TIERS)[number];
  * Host-bridge /v1/agent-runs' runtime_type -- how an agent is actually
  * executed, and the axis the Agents page groups by: "hermes" is the eight
  * in-house Hermes profile agents, the other four are external CLI runtimes
- * with their own binary and their own config home (Porthos/claude,
+ * with their own binary and their own config home (Porthus/claude,
  * Aramis/codex, Dartan/agy, Vector/openclaw). Null for agents registered by
  * hand that have no dispatchable runtime at all.
  */
@@ -162,7 +162,7 @@ export const agentSchema = z.object({
   // column's original write-only design (2026-07-29).
   forgerouter_api_key: z.string().nullable().optional(),
   // Host-bridge /v1/agent-runs' runtime_type -- only set for agents that
-  // can be dispatched via the Inbox: Porthos/Aramis/Dartan (claude/codex/
+  // can be dispatched via the Inbox: Porthus/Aramis/Dartan (claude/codex/
   // agy, their own external CLIs), the classic Hermes-profile agents
   // (hermes), and Vector (openclaw). Null for everyone else.
   runtime_type: z.enum(AGENT_RUNTIME_TYPES).nullable().optional(),
@@ -377,7 +377,7 @@ export function useForgeRouterServiceKey(name: string | undefined) {
 //
 // Per-agent, not per-Hermes-profile: these endpoints resolve the directory
 // from the agent's own runtime, so the four external CLI runtimes
-// (Porthos/claude, Aramis/codex, Dartan/agy, Vector/openclaw) show their
+// (Porthus/claude, Aramis/codex, Dartan/agy, Vector/openclaw) show their
 // files exactly like the eight Hermes profiles do. The older
 // /api/v1/foundation/profiles/{slug}/files/... route only ever saw the
 // latter — see useFoundation.ts.

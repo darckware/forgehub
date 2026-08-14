@@ -198,7 +198,7 @@ class AgentDemand(Base, TimestampMixin):
     # runtime_type, then "/root" -- see _execute_dispatch.
     #
     # Exists because the per-runtime default is a *home* directory, not a
-    # workspace: dispatching to Porthos started Claude Code in /root/.claude,
+    # workspace: dispatching to Porthus started Claude Code in /root/.claude,
     # from which the agent could reach no project directory at all, so every
     # task asking it to touch /root/project/forgehub failed. Athos filed that
     # as #8971 and again as #9001 four days later. Same idea as

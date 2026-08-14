@@ -497,7 +497,7 @@ def phase_dispatch_failure(r: Runner, agents: dict[str, dict]):
 def phase_live(r: Runner, agents: dict[str, dict]):
     r.banner("J. Dispatch real e relay de Retorno (um agente por runtime)")
     alvos, vistos = [], set()
-    for nome in ("Atlas", "Aramis", "Dartan", "Vector", "Porthos"):
+    for nome in ("Atlas", "Aramis", "Dartan", "Vector", "Porthus"):
         a = agents.get(nome)
         if a and a.get("runtime_type") and a["runtime_type"] not in vistos:
             vistos.add(a["runtime_type"])

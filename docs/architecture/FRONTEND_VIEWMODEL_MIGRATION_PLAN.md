@@ -1,7 +1,7 @@
 # Frontend ViewModel Hook migration — tracking plan
 
 > Status: living checklist. **Whoever converts a screen updates its checkbox in the same
-> change** (Claude/Porthos does this automatically whenever a conversion lands — 2026-08-07,
+> change** (Claude/Porthus does this automatically whenever a conversion lands — 2026-08-07,
 > Marcelo: "nesse controle você tem que ir baixando automaticamente quando formos fazendo as
 > correções nas telas"). Don't batch-update after the fact from memory — flip the box in the
 > same commit/session that does the work, so this file never drifts from reality.

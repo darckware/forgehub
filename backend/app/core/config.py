@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     # system_control.py's module docstring for why). Keyed by runtime name,
     # not by individual agent -- every Hermes-profile agent (Athos, Aegis,
     # ...) shares HERMES_SOURCE_PATH's tree via /profiles/<slug>, so one
-    # entry covers all of them; Aramis/Porthos/Dartan/Vector each get their
+    # entry covers all of them; Aramis/Porthus/Dartan/Vector each get their
     # own runtime's root since they aren't Hermes profiles.
     AGENT_RUNTIME_PATHS: dict[str, str] = {
         "hermes": "/root/.hermes",

@@ -10,7 +10,7 @@ TOOLS.md, ...) actually live on the host.
 Nullable on purpose: it is an override, not a requirement. When NULL,
 core/agent_profile_files.py derives the directory from the runtime
 convention, so the eight Hermes profiles and the four external CLI runtimes
-(Porthos/claude, Aramis/codex, Dartan/agy, Vector/openclaw) all resolve
+(Porthus/claude, Aramis/codex, Dartan/agy, Vector/openclaw) all resolve
 without any backfill. The column exists for the cases the convention cannot
 cover -- a runtime that moves its config directory, or a second agent
 sharing one runtime.

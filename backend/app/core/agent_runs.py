@@ -39,7 +39,7 @@ async def dispatch_agent_run(
     httpx.HTTPError if the host-bridge call itself fails.
 
     A ForgeRouter credential (forgerouter_api_key_encrypted) is optional,
-    not required: Porthos/Aramis/Dartan each already have their own native
+    not required: Porthus/Aramis/Dartan each already have their own native
     CLI auth logged in on the host (Claude Code subscription, Codex's own
     auth.json, Antigravity's own OAuth token) independent of ForgeRouter.
     When unset, host-bridge's _agent_run_command dispatches on that native

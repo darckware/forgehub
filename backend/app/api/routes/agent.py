@@ -937,7 +937,7 @@ async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) 
 # Keyed by agent, not by Hermes profile: foundation.py's
 # /profiles/{profile}/files/{filename} can only ever reach the eight agents
 # that have a directory under /root/.hermes/profiles, which left the four
-# external CLI runtimes (Porthos/claude, Aramis/codex, Dartan/agy,
+# external CLI runtimes (Porthus/claude, Aramis/codex, Dartan/agy,
 # Vector/openclaw) with no way to show their own identity files. Directory
 # resolution and the filename allow-list live in core/agent_profile_files.py.
 # ---------------------------------------------------------------------------

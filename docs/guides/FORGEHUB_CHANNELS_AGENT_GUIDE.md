@@ -2,7 +2,7 @@
 
 **Implementação:** Canais multiagente + Funções e Orquestração (Software Factory Rooms)
 **Data:** 2026-08-06
-**Autor:** Porthos (Claude Code), a pedido de Marcelo
+**Autor:** Porthus (Claude Code), a pedido de Marcelo
 **Status:** Implementado
 
 ## 1. Para quem é este guia

@@ -2,7 +2,7 @@
 
 **Implementação:** Canais multiagente + Funções e Orquestração (Software Factory Rooms)
 **Data:** 2026-08-05
-**Autor:** Porthos (Claude Code), a pedido de Marcelo
+**Autor:** Porthus (Claude Code), a pedido de Marcelo
 **Status:** Implementado — canais (`ChatChannel`/`ChatChannelMember`/`ChatChannelMessage`/`ChatChannelTask`) e a camada de funções/orquestração descrita aqui (modelo, migrações, rotas, MCP e frontend) foram concluídos e verificados (283 testes de backend, build de frontend limpo, smoke test ponta a ponta) em 2026-08-05.
 
 ## 1. Objetivo e status deste documento

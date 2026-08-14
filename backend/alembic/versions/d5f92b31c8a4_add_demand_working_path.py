@@ -9,7 +9,7 @@ every dispatch raised AttributeError: 'AgentDemand' object has no attribute
 put it.
 
 What it is for: the per-runtime default in AGENT_RUNTIME_PATHS is a *home*
-directory, not a workspace. Dispatching to Porthos started Claude Code in
+directory, not a workspace. Dispatching to Porthus started Claude Code in
 /root/.claude, where no project directory is reachable -- the exact failure
 Athos filed as #8971 and re-filed as #9001. This column lets a message carry
 the cwd its run should start in.
