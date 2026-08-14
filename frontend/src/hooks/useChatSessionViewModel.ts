@@ -28,8 +28,13 @@ import {
  * `sessionId`/`setSessionId`/`createSession`, all already owned by this
  * hook) so the still-unextracted priming effect and voice/queue code can
  * call it without duplicating session-bootstrap logic. */
-export function useChatSessionViewModel(agentId: string, startNewSession: boolean | undefined) {
-  const [sessionId, setSessionId] = useState<string>("");
+export function useChatSessionViewModel(
+  agentId: string,
+  startNewSession: boolean | undefined,
+  initialSessionId?: string,
+  onSessionChange?: (sessionId: string) => void,
+) {
+  const [sessionId, setSessionId] = useState<string>(initialSessionId ?? "");
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
 
@@ -132,16 +137,27 @@ export function useChatSessionViewModel(agentId: string, startNewSession: boolea
     return sessionPromiseRef.current;
   }
 
+  const previousAgentIdRef = useRef(agentId);
   useEffect(() => {
+    if (previousAgentIdRef.current === agentId) return;
+    previousAgentIdRef.current = agentId;
     setSessionId("");
     sessionPromiseRef.current = null;
   }, [agentId]);
 
+  const onSessionChangeRef = useRef(onSessionChange);
+  useEffect(() => {
+    onSessionChangeRef.current = onSessionChange;
+  }, [onSessionChange]);
+  useEffect(() => {
+    onSessionChangeRef.current?.(sessionId);
+  }, [sessionId]);
+
   useEffect(() => {
     if (startNewSession) return;
-    if (!sessionId && sessions && sessions.length > 0) {
-      setSessionId(sessions[0].id);
-    }
+    if (!sessions) return;
+    if (sessionId && sessions.some((session) => session.id === sessionId)) return;
+    setSessionId(sessions[0]?.id ?? "");
   }, [sessionId, sessions, startNewSession]);
 
   function handleStartRename(s: ChatSession) {

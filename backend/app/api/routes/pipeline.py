@@ -347,7 +347,7 @@ async def create_pipeline(payload: ProjectPipelineCreate, db: AsyncSession = Dep
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
         if payload.stages:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Provide either template_id or explicit stages, not both",
             )
 
@@ -503,7 +503,7 @@ async def create_stage(
         dep_stage = await db.get(PipelineStage, dep_id)
         if dep_stage is None or dep_stage.pipeline_id != pipeline_id:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"depends_on_stage_id {dep_id} does not belong to this pipeline",
             )
 
@@ -655,12 +655,12 @@ async def create_stage_dependency(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stage not found")
     if payload.depends_on_stage_id == stage_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A stage cannot depend on itself"
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="A stage cannot depend on itself"
         )
     dep_stage = await db.get(PipelineStage, payload.depends_on_stage_id)
     if dep_stage is None or dep_stage.pipeline_id != stage.pipeline_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="depends_on_stage_id must belong to the same pipeline",
         )
     dependency = PipelineStageDependency(stage_id=stage_id, depends_on_stage_id=payload.depends_on_stage_id)
@@ -792,7 +792,7 @@ async def update_stage_gate(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gate not found")
     if payload.status not in {"pending", "approved", "rejected"}:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="status must be one of: pending, approved, rejected",
         )
     gate.status = payload.status

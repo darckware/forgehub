@@ -37,6 +37,8 @@ const activeTurnSchema = z.object({
   agent_id: z.string().nullable(),
   steps: z.array(activeTurnStepSchema).default([]),
   live_text: z.string().default(""),
+  /** Channel replies are concurrent; keep each agent's partial text apart. */
+  live_text_by_agent: z.record(z.string()).default({}),
   /** Só o chat pausa no meio esperando um sim/não. Sem isto, quem reconecta
    * durante a pausa não vê o pedido e o turno espera para sempre. */
   pending_approval: z.record(z.unknown()).nullable().default(null),
@@ -46,7 +48,10 @@ const activeTurnSchema = z.object({
 
 export type ActiveTurn = z.infer<typeof activeTurnSchema>;
 
-const responseSchema = z.object({ turn: activeTurnSchema.nullable() });
+const responseSchema = z.object({
+  turn: activeTurnSchema.nullable(),
+  turns: z.array(activeTurnSchema).optional(),
+});
 
 export type ActiveTurnScope = "chat" | "channel";
 
@@ -83,6 +88,24 @@ export function useActiveTurn(
     // sozinha até o turno terminar. Parado, não pergunta.
     refetchInterval: (query) => (!isBusy && query.state.data ? 3_000 : false),
     // Voltar para a aba é exatamente quando vale reconferir.
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+}
+
+/** Multi-agent Conversation variant: one independently stoppable turn per
+ * agent, all sharing the same ForgeHub conversation transcript. */
+export function useActiveTurns(scopeId: string | null, isBusy = false) {
+  return useQuery({
+    queryKey: activeTurnKeys.detail("chat", scopeId ?? ""),
+    queryFn: async () => {
+      const response = responseSchema.parse(
+        await apiClient.get<unknown>(resourceFor("chat", scopeId!))
+      );
+      return response.turns ?? (response.turn ? [response.turn] : []);
+    },
+    enabled: Boolean(scopeId),
+    refetchInterval: (query) => (!isBusy && query.state.data?.length ? 3_000 : false),
     refetchOnWindowFocus: true,
     staleTime: 0,
   });

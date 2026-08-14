@@ -20,6 +20,7 @@ import ToolsPage from "@/pages/tools";
 import McpPage from "@/pages/mcp";
 import SystemsHubPage from "@/pages/systems-hub";
 import PromptCommandsPage from "@/pages/prompt-commands";
+import PromptTechniquesPage from "@/pages/prompt-techniques";
 import SkillsPage from "@/pages/skills";
 import AuditorPage from "@/pages/auditor";
 import DemandsPage from "@/pages/demands";
@@ -100,6 +101,7 @@ export default function App() {
         <Route path="mcp" element={<McpPage />} />
         <Route path="systems-hub" element={<SystemsHubPage />} />
         <Route path="prompt-commands" element={<PromptCommandsPage />} />
+        <Route path="prompt-techniques" element={<PromptTechniquesPage />} />
         <Route path="skills" element={<SkillsPage />} />
         <Route path="artifact" element={<ArtifactPage />} />
         <Route path="artifact/:id" element={<ArtifactDetailPage />} />

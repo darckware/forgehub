@@ -12,11 +12,8 @@ per this repo's no-mocking test convention -- so they only pass with
 `./dev.sh` (or an equivalent host-bridge) actually running and reachable at
 settings.CHAT_BRIDGE_URL.
 """
-import tempfile
 import uuid
-from datetime import date
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text

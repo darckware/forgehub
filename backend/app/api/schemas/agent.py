@@ -633,6 +633,36 @@ class AgentTelegramStatusListOut(BaseModel):
     check_error: str | None = None
 
 
+class AgentTelegramMessageOut(BaseModel):
+    id: int
+    role: str
+    content: str
+    timestamp: float
+    platform_message_id: str | None = None
+
+
+class AgentTelegramConversationOut(BaseModel):
+    agent_id: uuid.UUID
+    agent_name: str
+    profile_slug: str
+    session_id: str | None = None
+    chat_id: str | None = None
+    messages: list[AgentTelegramMessageOut] = Field(default_factory=list)
+    delivery_error: str | None = None
+
+
+class AgentTelegramSendIn(BaseModel):
+    message: str = Field(min_length=1, max_length=50_000)
+
+    @field_validator("message")
+    @classmethod
+    def _strip_message(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("message must not be blank")
+        return value
+
+
 # ---------------------------------------------------------------------------
 # Hermes Foundation sync result
 # ---------------------------------------------------------------------------

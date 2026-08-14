@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { Agent } from "@/hooks/useAgent";
 import { usePromptCommands, type PromptCommand } from "@/hooks/usePromptCommands";
+import {
+  usePromptTechniques,
+  useRecommendPromptTechnique,
+  type PromptTechnique,
+} from "@/hooks/usePromptTechniques";
 import type {
   AgentMentionPickerHandle,
   SlashCommandItem,
@@ -41,8 +46,15 @@ export interface ImprovePromptViewModel {
   status: ImprovePromptStatus;
   draft: string;
   instruction: string;
+  techniqueCode: string;
+  techniques: PromptTechnique[];
+  techniquesLoading: boolean;
+  recommendedTechniqueCode?: string;
+  recommendingTechnique: boolean;
   errorMessage?: string;
   setInstruction: (value: string) => void;
+  setTechniqueCode: (value: string) => void;
+  recommendTechnique(): Promise<void>;
   /** Rewrites `draft` via `improvePrompt` and writes the result back into
    * `draft` -- the dialog stays open so the result can be reviewed (and
    * re-rewritten, or hand-edited) before it ever reaches the composer;
@@ -90,12 +102,15 @@ export interface ImprovePromptViewModel {
 
 export function useImprovePromptViewModel(
   initialDraft: string,
-  improvePrompt: (draft: string, instruction: string, signal?: AbortSignal) => Promise<string>,
+  improvePrompt: (draft: string, instruction: string, techniqueCode: string, signal?: AbortSignal) => Promise<string>,
   onApply: (improved: string) => void,
   onClose: () => void
 ): ImprovePromptViewModel {
   const [draft, setDraft] = useState(initialDraft);
   const [instruction, setInstruction] = useState("");
+  const [techniqueCode, setTechniqueCodeState] = useState(
+    () => localStorage.getItem("forgehub-improve-prompt-technique") || "automatic"
+  );
   const [status, setStatus] = useState<ImprovePromptStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
 
@@ -103,6 +118,10 @@ export function useImprovePromptViewModel(
   const [agentMentionOpen, setAgentMentionOpen] = useState(false);
   const [agentMentionQuery, setAgentMentionQuery] = useState("");
   const { data: promptCommands = [] } = usePromptCommands();
+  const { data: techniques = [], isLoading: techniquesLoading } = usePromptTechniques();
+  const recommendTechniqueMutation = useRecommendPromptTechnique();
+  const [recommendedTechniqueCode, setRecommendedTechniqueCode] = useState<string | undefined>();
+  const abortRef = useRef<AbortController | null>(null);
   const slashPickerRef = useRef<SlashCommandPickerHandle>(null);
   const agentPickerRef = useRef<AgentMentionPickerHandle>(null);
 
@@ -113,6 +132,34 @@ export function useImprovePromptViewModel(
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (techniquesLoading || techniques.length === 0) return;
+    if (!techniques.some((item) => item.code === techniqueCode)) setTechniqueCode("automatic");
+  }, [techniqueCode, techniques, techniquesLoading]);
+
+  function setTechniqueCode(value: string) {
+    setTechniqueCodeState(value);
+    localStorage.setItem("forgehub-improve-prompt-technique", value);
+  }
+
+  async function recommendTechnique() {
+    if (!draft.trim() || recommendTechniqueMutation.isPending) return;
+    setErrorMessage(undefined);
+    try {
+      const recommendations = await recommendTechniqueMutation.mutateAsync(draft);
+      const recommendation = recommendations[0]?.technique_code;
+      if (recommendation) {
+        setRecommendedTechniqueCode(recommendation);
+        setTechniqueCode(recommendation);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+      setStatus("error");
+    }
+  }
 
   // Rewrites `draft` in place and keeps the dialog open for review --
   // it used to call onApply()+close immediately, shipping the
@@ -126,8 +173,11 @@ export function useImprovePromptViewModel(
     if (!draft.trim() || status === "submitting") return;
     setStatus("submitting");
     setErrorMessage(undefined);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const improved = await improvePrompt(draft, instruction);
+      const improved = await improvePrompt(draft, instruction, techniqueCode, controller.signal);
       setDraft(improved);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -163,6 +213,7 @@ export function useImprovePromptViewModel(
   // agent-mention picker and starts filtering by whatever's typed after it.
   function handleDraftChange(value: string) {
     setDraft(value);
+    setRecommendedTechniqueCode(undefined);
     if (value === "/") {
       setSlashOpen(true);
     } else if (slashOpen && !value.startsWith("/")) {
@@ -239,8 +290,15 @@ export function useImprovePromptViewModel(
     status,
     draft,
     instruction,
+    techniqueCode,
+    techniques,
+    techniquesLoading,
+    recommendedTechniqueCode,
+    recommendingTechnique: recommendTechniqueMutation.isPending,
     errorMessage,
     setInstruction,
+    setTechniqueCode,
+    recommendTechnique,
     submit,
     applyDraft,
     handleFieldKeyDown,

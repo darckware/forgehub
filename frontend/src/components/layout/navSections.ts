@@ -115,6 +115,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       // the roster-wide view belongs next to Agents rather than under Tools.
       { type: "link", to: "/mcp", labelKey: "nav.mcp", icon: Plug, module: "agents" },
       { type: "link", to: "/prompt-commands", labelKey: "nav.chatCommands", icon: Command, module: "agents" },
+      { type: "link", to: "/prompt-techniques", labelKey: "nav.promptTechniques", icon: Sparkles, module: "agents" },
       { type: "link", to: "/skills", labelKey: "nav.skills", icon: Sparkles, module: "agents" },
       { type: "link", to: "/crons", labelKey: "nav.crons", icon: Clock, module: "crons" },
       { type: "link", to: "/systems-hub", labelKey: "nav.systemsHub", icon: Boxes, module: "agents" },

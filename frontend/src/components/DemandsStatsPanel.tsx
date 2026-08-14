@@ -71,7 +71,9 @@ export function DemandsStatsPanel({ demands }: { demands: Demand[] }) {
     return ids;
   }, [demands]);
 
-  const dispatched = demands.filter((d) => d.dispatch_status === "completed" || d.dispatch_status === "failed");
+  const dispatched = demands.filter((d) =>
+    d.reply_to_id == null && (d.dispatch_status === "completed" || d.dispatch_status === "failed")
+  );
   const completed = dispatched.filter((d) => d.dispatch_status === "completed").length;
   const successRate = dispatched.length > 0 ? Math.round((completed / dispatched.length) * 100) : null;
 
@@ -93,6 +95,7 @@ export function DemandsStatsPanel({ demands }: { demands: Demand[] }) {
     let inFlight = 0;
     let failed = 0;
     for (const d of demands) {
+      if (d.reply_to_id != null) continue;
       if (d.dispatch_status === "completed") ok += 1;
       else if (d.dispatch_status === "failed") failed += 1;
       else if (d.dispatch_status && IN_FLIGHT_STATUSES.has(d.dispatch_status)) inFlight += 1;

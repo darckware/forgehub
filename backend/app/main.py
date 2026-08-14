@@ -49,6 +49,7 @@ from app.api.routes import (
     pipeline,
     progress,
     prompt_commands,
+    prompt_techniques,
     product,
     profiles,
     project,
@@ -66,7 +67,24 @@ from app.api.routes import (
     workspace_browser,
 )
 
-app = FastAPI(title="ForgeHub (ForgeHub) API", version="0.1.0")
+
+@contextlib.asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Initialize application state and own every background worker.
+
+    FastAPI deprecated ``on_event`` in favor of lifespan handlers. Keeping
+    startup and shutdown in one context also guarantees that every worker
+    started here is cancelled when the application exits.
+    """
+    await _bootstrap_admin()
+    await _start_background_tasks()
+    try:
+        yield
+    finally:
+        await _stop_background_tasks()
+
+
+app = FastAPI(title="ForgeHub (ForgeHub) API", version="0.1.0", lifespan=_lifespan)
 
 # Routes not covered by their own Depends(get_current_user)/get_current_admin
 # -- just the login endpoint itself, which is how a client gets a token in
@@ -231,6 +249,7 @@ app.include_router(demand.router)
 app.include_router(cron_scripts.router)
 app.include_router(notifications.router)
 app.include_router(prompt_commands.router)
+app.include_router(prompt_techniques.router)
 app.include_router(deploy.router)
 app.include_router(database.router)
 app.include_router(users.router)
@@ -250,35 +269,25 @@ logger = logging.getLogger(__name__)
 # re-checks itself roughly every 15 min regardless of this loop).
 TOOL_VERSION_POLL_INTERVAL_SECONDS = 900
 
-_tool_version_poll_task: asyncio.Task | None = None
-
 # How often the scheduled-send loop checks for demands whose scheduled_at
 # has come due. Short interval -- unlike tool version sync, a message
 # sitting in the queue past its scheduled time is directly user-visible.
 SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS = 30
-
-_scheduled_dispatch_poll_task: asyncio.Task | None = None
 
 # How often matured incubations are handed to their owners. The deadline
 # being enforced is measured in days (INCUBATION_DEFAULT_MATURATION_DAYS),
 # so a 5-minute pass is already far finer than the thing it watches.
 INCUBATION_MATURATION_POLL_INTERVAL_SECONDS = 300
 
-_incubation_maturation_poll_task: asyncio.Task | None = None
-
 # How often stalled dispatches are checked against their deadline. Minutes,
 # not seconds: the deadline itself is DISPATCH_TIMEOUT_MINUTES (45), so a
 # 60s pass is already far finer than what it watches.
 DISPATCH_TIMEOUT_POLL_INTERVAL_SECONDS = 60
 
-_dispatch_timeout_poll_task: asyncio.Task | None = None
-
 # How often outcomes that still owe their channel a delivery are retried.
 # The happy path delivers inline when the dispatch finishes; this only
 # catches what that missed -- an app restart mid-delivery, Telegram down.
 FEEDBACK_POLL_INTERVAL_SECONDS = 120
-
-_feedback_poll_task: asyncio.Task | None = None
 
 # Com que frequência turnos que passaram do prazo são fechados. O caso real é
 # um restart do host-bridge: ele guarda os subprocessos em memória, então
@@ -286,15 +295,11 @@ _feedback_poll_task: asyncio.Task | None = None
 # reconecte ficaria esperando um stream sem produtor.
 ACTIVE_TURN_SWEEP_INTERVAL_SECONDS = 120
 
-_active_turn_sweep_task: asyncio.Task | None = None
-
 # How often in-flight dispatches are polled to completion. Same interval as
 # the scheduled-send loop above and for the same reason: this is what turns
 # a finished agent run into a reply item in the Inbox, so latency here is
 # latency in an agent-to-agent conversation.
 DISPATCH_COMPLETION_POLL_INTERVAL_SECONDS = 30
-
-_dispatch_completion_poll_task: asyncio.Task | None = None
 
 # How often the task-health pass scans for overdue/stalled tasks (see
 # core/task_health.py). Much longer than the dispatch poll -- a missed
@@ -302,14 +307,12 @@ _dispatch_completion_poll_task: asyncio.Task | None = None
 # message, and this pass walks every non-terminal task in the system.
 TASK_FAILURE_POLL_INTERVAL_SECONDS = 900
 
-_task_failure_poll_task: asyncio.Task | None = None
-
 # How often in-flight background app-test runs (mode="background") are
 # polled to completion -- same role as DISPATCH_COMPLETION_POLL_INTERVAL_
 # SECONDS above, for the "Background tests" tab / /testar's results.
 BACKGROUND_TEST_COMPLETION_POLL_INTERVAL_SECONDS = 15
 
-_background_test_completion_poll_task: asyncio.Task | None = None
+_background_tasks: list[asyncio.Task[None]] = []
 
 
 async def _tool_version_poll_loop() -> None:
@@ -415,7 +418,6 @@ async def _task_failure_poll_loop() -> None:
         await asyncio.sleep(TASK_FAILURE_POLL_INTERVAL_SECONDS)
 
 
-@app.on_event("startup")
 async def _bootstrap_admin() -> None:
     """Ensure default profiles exist and admin user is seeded."""
     from sqlalchemy import select
@@ -471,36 +473,6 @@ async def _bootstrap_admin() -> None:
             logger.exception("Bootstrap failed (tables may not exist yet)")
 
 
-@app.on_event("startup")
-async def _start_tool_version_poll() -> None:
-    global _tool_version_poll_task
-    _tool_version_poll_task = asyncio.create_task(_tool_version_poll_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_tool_version_poll() -> None:
-    if _tool_version_poll_task is None:
-        return
-    _tool_version_poll_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _tool_version_poll_task
-
-
-@app.on_event("startup")
-async def _start_scheduled_dispatch_poll() -> None:
-    global _scheduled_dispatch_poll_task
-    _scheduled_dispatch_poll_task = asyncio.create_task(_scheduled_dispatch_poll_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_scheduled_dispatch_poll() -> None:
-    if _scheduled_dispatch_poll_task is None:
-        return
-    _scheduled_dispatch_poll_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _scheduled_dispatch_poll_task
-
-
 async def _dispatch_timeout_poll_loop() -> None:
     """Fails dispatches that never came back (2026-08-13).
 
@@ -519,21 +491,6 @@ async def _dispatch_timeout_poll_loop() -> None:
         except Exception:
             logger.exception("Dispatch timeout poll failed")
         await asyncio.sleep(DISPATCH_TIMEOUT_POLL_INTERVAL_SECONDS)
-
-
-@app.on_event("startup")
-async def _start_dispatch_timeout_poll() -> None:
-    global _dispatch_timeout_poll_task
-    _dispatch_timeout_poll_task = asyncio.create_task(_dispatch_timeout_poll_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_dispatch_timeout_poll() -> None:
-    if _dispatch_timeout_poll_task is None:
-        return
-    _dispatch_timeout_poll_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _dispatch_timeout_poll_task
 
 
 async def _feedback_poll_loop() -> None:
@@ -570,91 +527,30 @@ async def _active_turn_sweep_loop() -> None:
         await asyncio.sleep(ACTIVE_TURN_SWEEP_INTERVAL_SECONDS)
 
 
-@app.on_event("startup")
-async def _start_active_turn_sweep() -> None:
-    global _active_turn_sweep_task
-    _active_turn_sweep_task = asyncio.create_task(_active_turn_sweep_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_active_turn_sweep() -> None:
-    if _active_turn_sweep_task is None:
+async def _start_background_tasks() -> None:
+    """Start each independent maintenance loop exactly once."""
+    global _background_tasks
+    if _background_tasks:
         return
-    _active_turn_sweep_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _active_turn_sweep_task
+    workers = (
+        ("tool-version-poll", _tool_version_poll_loop),
+        ("scheduled-dispatch-poll", _scheduled_dispatch_poll_loop),
+        ("dispatch-timeout-poll", _dispatch_timeout_poll_loop),
+        ("active-turn-sweep", _active_turn_sweep_loop),
+        ("feedback-poll", _feedback_poll_loop),
+        ("incubation-maturation-poll", _incubation_maturation_poll_loop),
+        ("dispatch-completion-poll", _dispatch_completion_poll_loop),
+        ("background-test-completion-poll", _background_test_completion_poll_loop),
+        ("task-failure-poll", _task_failure_poll_loop),
+    )
+    _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]
 
 
-@app.on_event("startup")
-async def _start_feedback_poll() -> None:
-    global _feedback_poll_task
-    _feedback_poll_task = asyncio.create_task(_feedback_poll_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_feedback_poll() -> None:
-    if _feedback_poll_task is None:
-        return
-    _feedback_poll_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _feedback_poll_task
-
-
-@app.on_event("startup")
-async def _start_incubation_maturation_poll() -> None:
-    global _incubation_maturation_poll_task
-    _incubation_maturation_poll_task = asyncio.create_task(_incubation_maturation_poll_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_incubation_maturation_poll() -> None:
-    if _incubation_maturation_poll_task is None:
-        return
-    _incubation_maturation_poll_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _incubation_maturation_poll_task
-
-
-@app.on_event("startup")
-async def _start_dispatch_completion_poll() -> None:
-    global _dispatch_completion_poll_task
-    _dispatch_completion_poll_task = asyncio.create_task(_dispatch_completion_poll_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_dispatch_completion_poll() -> None:
-    if _dispatch_completion_poll_task is None:
-        return
-    _dispatch_completion_poll_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _dispatch_completion_poll_task
-
-
-@app.on_event("startup")
-async def _start_background_test_completion_poll() -> None:
-    global _background_test_completion_poll_task
-    _background_test_completion_poll_task = asyncio.create_task(_background_test_completion_poll_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_background_test_completion_poll() -> None:
-    if _background_test_completion_poll_task is None:
-        return
-    _background_test_completion_poll_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _background_test_completion_poll_task
-
-
-@app.on_event("startup")
-async def _start_task_failure_poll() -> None:
-    global _task_failure_poll_task
-    _task_failure_poll_task = asyncio.create_task(_task_failure_poll_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_task_failure_poll() -> None:
-    if _task_failure_poll_task is None:
-        return
-    _task_failure_poll_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _task_failure_poll_task
+async def _stop_background_tasks() -> None:
+    """Cancel all workers and wait until their cleanup has completed."""
+    global _background_tasks
+    tasks, _background_tasks = _background_tasks, []
+    for background_task in tasks:
+        background_task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)

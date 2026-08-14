@@ -74,11 +74,14 @@ import {
 // different files, not a shared module -- see the composer auto-grow
 // effect in ChannelRoom below).
 const COMPOSER_MAX_HEIGHT_PX = 240;
+const SELECTED_CHANNEL_STORAGE_KEY = "forgehub-workspace-selected-channel";
 
 export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; defaultProjectId?: string }) {
   const { t } = useTranslation("workspace");
   const { data: channels = [] } = useChannels();
-  const [selectedChannelId, setSelectedChannelId] = useState<string | undefined>(undefined);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | undefined>(
+    () => localStorage.getItem(SELECTED_CHANNEL_STORAGE_KEY) || undefined
+  );
   const [creating, setCreating] = useState(false);
   // 2026-08-06, Marcelo: "preciso de adicionar o icone de ocultar a coluna
   // de Channels com a função de toggle de ocultar/expandir" -- persisted
@@ -89,6 +92,10 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
   useEffect(() => {
     localStorage.setItem("forgehub-channels-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
   }, [sidebarCollapsed]);
+  useEffect(() => {
+    if (selectedChannelId) localStorage.setItem(SELECTED_CHANNEL_STORAGE_KEY, selectedChannelId);
+    else localStorage.removeItem(SELECTED_CHANNEL_STORAGE_KEY);
+  }, [selectedChannelId]);
   // Clicking an agent's name in the channel header opens their individual
   // 1:1 session (the existing ChatSession concept, Workspace's own
   // Conversas) in a third column alongside the shared channel -- "igual ao
@@ -101,8 +108,18 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
   // Arriving from a Project's "Abrir canal" handoff (see WorkspacePage's
   // openChannel state) prefers that project's existing channel over
   // whatever would otherwise be first in the list.
-  const activeChannelId =
-    selectedChannelId ?? channels.find((c) => c.project_id === defaultProjectId)?.id ?? channels[0]?.id;
+  const projectChannelId = channels.find((channel) => channel.project_id === defaultProjectId)?.id;
+  const validSelectedChannelId = channels.some((channel) => channel.id === selectedChannelId) ? selectedChannelId : undefined;
+  const activeChannelId = projectChannelId ?? validSelectedChannelId ?? channels[0]?.id;
+
+  useEffect(() => {
+    if (!channels.length) return;
+    if (projectChannelId && projectChannelId !== selectedChannelId) {
+      setSelectedChannelId(projectChannelId);
+    } else if (!validSelectedChannelId && channels[0]?.id) {
+      setSelectedChannelId(channels[0].id);
+    }
+  }, [channels, projectChannelId, selectedChannelId, validSelectedChannelId]);
 
   // Shares the query cache with ChannelRoom's own useChannelMessages call
   // (same channelId, same key) -- no extra request, just reused here to
@@ -527,6 +544,9 @@ function ChannelRoom({
     content,
     setContent,
     sending,
+    canStop,
+    stopping,
+    stopRunningTurns,
     sendError,
     setSendError,
     runningAgents,
@@ -610,7 +630,12 @@ function ChannelRoom({
                 {m.author_type === "agent" && (
                   <FinishedStepsTrail steps={finishedStepsByMessageId.get(m.id) ?? []} />
                 )}
-                <MessageBubble message={m} agent={m.author_agent_id ? agentById.get(m.author_agent_id) : undefined} channelId={channelId} />
+                <MessageBubble
+                  message={m}
+                  agent={m.author_agent_id ? agentById.get(m.author_agent_id) : undefined}
+                  channelId={channelId}
+                  dispatchAgents={agents.filter((candidate) => channel.members.some((member) => member.agent_id === candidate.id && !member.muted))}
+                />
               </div>
             ))}
             {allMessages.length === 0 && (
@@ -649,9 +674,14 @@ function ChannelRoom({
                     </ul>
                   </div>
                 ))}
-                {activeTurn.live_text && (
-                  <p className="whitespace-pre-wrap text-sm text-foreground">{activeTurn.live_text}</p>
-                )}
+                {Object.entries(activeTurn.live_text_by_agent).map(([agentId, text]) => (
+                  <div key={agentId} className="max-w-lg rounded-lg border border-border/60 bg-muted/20 p-2">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">
+                      {agents.find((a) => a.id === agentId)?.name ?? t("channels.agent")}
+                    </p>
+                    <p className="whitespace-pre-wrap text-sm text-foreground">{text}</p>
+                  </div>
+                ))}
               </div>
             )}
             {sending && (
@@ -871,6 +901,19 @@ function ChannelRoom({
                   {sending && (
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" />
                   )}
+                  {canStop && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 self-center rounded-full text-destructive hover:text-destructive"
+                      aria-label={t("channels.stopTurn")}
+                      title={t("channels.stopTurn")}
+                      onClick={() => void stopRunningTurns()}
+                      disabled={stopping}
+                    >
+                      {stopping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                    </Button>
+                  )}
                 </>
               }
             />
@@ -992,6 +1035,15 @@ function ChannelHeader({
             >
               {membersCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
             </button>
+            {membersCollapsed && (
+              <button
+                type="button"
+                onClick={() => setMembersCollapsed(false)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                {t("channels.memberCount", { count: channel.members.length })}
+              </button>
+            )}
             <button
               onClick={startEditingName}
               aria-label={t("channels.renameChannel")}
@@ -1320,10 +1372,12 @@ function AgentDetailPopover({
   );
 }
 
-function MessageBubble({ message, agent, channelId }: { message: ChatChannelMessage; agent?: Agent; channelId: string }) {
+function MessageBubble({ message, agent, channelId, dispatchAgents }: { message: ChatChannelMessage; agent?: Agent; channelId: string; dispatchAgents: Agent[] }) {
   const { t } = useTranslation("workspace");
   const dispatch = useDispatchChannelMessage(channelId);
   const [dispatching, setDispatching] = useState(false);
+  const [dispatchOpen, setDispatchOpen] = useState(false);
+  const [dispatchTargetId, setDispatchTargetId] = useState(agent?.id ?? "");
 
   const label =
     message.author_type === "human"
@@ -1353,20 +1407,29 @@ function MessageBubble({ message, agent, channelId }: { message: ChatChannelMess
         </div>
         <p className="whitespace-pre-wrap text-sm">{message.content}</p>
         {message.author_type === "agent" && !message.triggered_demand_id && agent && (
-          <button
-            className="mt-1 text-[11px] text-muted-foreground underline hover:text-foreground disabled:opacity-50"
-            disabled={dispatching}
-            onClick={async () => {
-              setDispatching(true);
-              try {
-                await dispatch.mutateAsync({ messageId: message.id, agentId: agent.id });
-              } finally {
-                setDispatching(false);
-              }
-            }}
-          >
-            {dispatching ? t("channels.dispatching") : t("channels.dispatchTask")}
-          </button>
+          <div className="mt-1">
+            {!dispatchOpen ? (
+              <button className="text-[11px] text-muted-foreground underline hover:text-foreground" onClick={() => setDispatchOpen(true)}>
+                {t("channels.dispatchTask")}
+              </button>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Select className="h-7 w-40 text-xs" aria-label={t("channels.dispatchTarget")} value={dispatchTargetId} onChange={(event) => setDispatchTargetId(event.target.value)}>
+                  {dispatchAgents.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+                </Select>
+                <Button size="sm" className="h-7 text-xs" disabled={dispatching || !dispatchTargetId} onClick={async () => {
+                  setDispatching(true);
+                  try {
+                    await dispatch.mutateAsync({ messageId: message.id, agentId: dispatchTargetId });
+                    setDispatchOpen(false);
+                  } finally {
+                    setDispatching(false);
+                  }
+                }}>{dispatching ? t("channels.dispatching") : t("channels.confirmDispatch")}</Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs" disabled={dispatching} onClick={() => setDispatchOpen(false)}>{t("channels.cancel")}</Button>
+              </div>
+            )}
+          </div>
         )}
         {message.triggered_demand_id && (
           <span className="mt-1 inline-block text-[11px] text-muted-foreground">
@@ -1395,10 +1458,11 @@ function ChannelTasksPanel({
   const approveApproval = useApproveApproval();
   const rejectApproval = useRejectApproval();
   const [title, setTitle] = useState("");
+  const [assigneeAgentId, setAssigneeAgentId] = useState("");
 
   async function handleAdd() {
     if (!title.trim()) return;
-    await createTask.mutateAsync({ title: title.trim() });
+    await createTask.mutateAsync({ title: title.trim(), assignee_agent_id: assigneeAgentId || undefined });
     setTitle("");
   }
 
@@ -1411,6 +1475,13 @@ function ChannelTasksPanel({
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
         />
+        <Select className="w-44" aria-label={t("channels.taskAssignee")} value={assigneeAgentId} onChange={(event) => setAssigneeAgentId(event.target.value)}>
+          <option value="">{t("channels.unassigned")}</option>
+          {channel.members.filter((member) => member.agent_id && !member.muted).map((member) => {
+            const candidate = agents.find((agent) => agent.id === member.agent_id);
+            return candidate ? <option key={candidate.id} value={candidate.id}>{candidate.name}</option> : null;
+          })}
+        </Select>
         <Button size="sm" onClick={handleAdd} disabled={!title.trim() || createTask.isPending}>
           {t("channels.addTask")}
         </Button>

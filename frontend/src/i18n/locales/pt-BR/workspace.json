@@ -22,14 +22,27 @@
     "cli": "CLI",
     "runtimeLaunchers": "Runtimes/orquestradores de agentes",
     "runtimes": "Runtimes",
+    "launchers": "Inicializadores",
     "openLauncher": "Abrir {{label}}",
+    "openLauncherWeb": "Abrir interface web de {{label}}",
     "terminal": "Terminal",
-    "web": "Web"
+    "web": "Web",
+    "sshOnline": "Online",
+    "sshOffline": "Offline",
+    "sshKeyProblem": "Problema na chave",
+    "sshCheckFailed": "Falha na verificação",
+    "sshOff": "Desligado",
+    "sshAccessOff": "Acesso desligado no ForgeHub — a chave continua guardada"
   },
   "tabs": {
+    "workspaceTabs": "Abas do Workspace",
     "defaultChatName": "Conversa",
     "closeChatTab": "Fechar aba de conversa",
     "closeTab": "Fechar {{label}}",
+    "detachTerminal": "Desanexar {{label}} sem interromper o processo",
+    "terminateTerminal": "Encerrar {{label}} e fechar sua aba",
+    "confirmTerminateTerminal": "Encerrar a sessão de terminal {{label}} e o processo em execução?",
+    "terminateTerminalFailed": "Falha ao encerrar a sessão do terminal.",
     "noAgentAvailable": "Nenhum agente com perfil Hermes disponível para conversar ainda.",
     "noTabsOpen": "Nenhuma aba aberta",
     "noTabsOpenHelp": "Inicie uma conversa ou abra um terminal usando os botões acima."
@@ -49,7 +62,8 @@
   },
   "terminal": {
     "authFailed": "Falha ao autenticar a sessão do terminal.",
-    "reconnecting": "Conexão perdida -- reconectando em {{seconds}}s…"
+    "reconnecting": "Conexão perdida -- reconectando em {{seconds}}s…",
+    "imageUploadFailed": "Falha ao enviar a imagem. Tente novamente."
   },
   "webAppPane": {
     "back": "Voltar",
@@ -142,6 +156,7 @@
     "confirmClearChat": "Limpar a conversa deste canal? Isso apaga todas as mensagens, mas mantém o canal, os agentes e as tarefas.",
     "hideMembers": "Ocultar agentes",
     "showMembers": "Mostrar agentes",
+    "memberCount": "{{count}} participantes",
     "improvePrompt": "Melhorar o prompt com o orquestrador",
     "improvePromptNoOrchestrator": "Defina um orquestrador para este canal para usar a melhoria de prompt",
     "improvePromptSubject": "o orquestrador",
@@ -157,9 +172,14 @@
     "agent": "Agente",
     "dispatching": "Executando...",
     "dispatchTask": "Executar como tarefa real",
+    "dispatchTarget": "Agente que executará a tarefa",
+    "confirmDispatch": "Encaminhar",
+    "cancel": "Cancelar",
     "dispatched": "Despachado via Mensagens",
     "newTaskPlaceholder": "Nova tarefa...",
     "addTask": "Adicionar",
+    "taskAssignee": "Responsável pela tarefa",
+    "unassigned": "Sem responsável",
     "noTasks": "Nenhuma tarefa neste canal ainda.",
     "taskTodo": "A fazer",
     "taskDoing": "Fazendo",
@@ -182,7 +202,8 @@
     "skills": "Skills",
     "noSkills": "Nenhuma skill concedida ainda.",
     "notApproved": "não aprovada",
-    "reattachedTurn": "Em execução no servidor — esta tela reconectou"
+    "reattachedTurn": "Em execução no servidor — esta tela reconectou",
+    "stopTurn": "Parar processamento do canal"
   },
   "activeTurn": {
     "running": "Em execução no servidor — esta tela reconectou",

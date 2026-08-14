@@ -62,6 +62,7 @@ from app.db.models.doc_link import DocLink  # noqa: F401
 from app.db.models.demand import AgentDemand, DemandAttachment, DemandGroup  # noqa: F401
 from app.db.models.docs_area import DocsArea  # noqa: F401
 from app.db.models.prompt_command import PromptCommand  # noqa: F401
+from app.db.models.prompt_technique import PromptTechnique  # noqa: F401
 from app.db.models.foundation_script import FoundationScript  # noqa: F401
 from app.db.models.orchestration import (  # noqa: F401
     AgentRuntimeProfile,

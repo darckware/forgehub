@@ -114,38 +114,39 @@ export const demandSchema = z.object({
   dispatch_attempts: z.number().default(0),
   dispatch_error: z.string().nullable().default(null),
   agent_run_id: z.string().nullable(),
+  // Return routing and incubation are first-class server state. Keeping
+  // them in the parsed client model prevents Zod from silently discarding
+  // the fields the operator needs to audit ownership and owed feedback.
+  channel: z.enum(["workspace", "assistant", "factory", "agent", "telegram"]).nullable().default(null),
+  channel_ref: z.string().nullable().default(null),
+  feedback_sent_at: z.string().nullable().default(null),
+  incubation_owner_id: z.string().nullable().default(null),
+  incubation_state: z.enum(["incubating", "decision_pending", "promoted", "dropped"]).nullable().default(null),
+  matures_at: z.string().nullable().default(null),
+  drop_reason: z.string().nullable().default(null),
 });
 
 export type Demand = z.infer<typeof demandSchema>;
 
-/** Entrada (2026-07-27, Marcelo: "a message é como se fosse uma carta, ela
- * anda em cada casa (grupo)"): a message only counts as having *arrived* at
- * an agent's Incoming once dispatch has actually started -- addressed but
- * still `dispatch_status IS NULL` (not yet promoted/scheduled, or scheduled
- * for later) means it hasn't left the sender's house yet, so it belongs in
- * Outgoing/Backlog only, not Incoming too. A self-addressed item (To left
- * blank, target_agent_id === from_agent_id -- "para você mesmo") never
- * counts as Incoming either.
- *
- * Excludes Running/Completed/Failed too (2026-07-28, Marcelo: "as message
- * no Incoming em processamento tem que serem movidas para Running, fim do
- * processamento, deu erro vai para Failed, senão vai para Completed") --
- * each message counts in exactly one of Incoming/Running/Failed/Completed
- * at a time, never two at once.
+/** Incoming is the letter surface, not the execution surface. A generated
+ * return (`reply_to_id`) is delivered here even though it retains the
+ * completed provenance of the run that produced it. Executable originals
+ * move through Outgoing -> Running -> Completed/Failed instead. A legacy
+ * queue row with the reserved `pending` dispatch state is also incoming.
+ * Self-addressed items never count as incoming.
  *
  * Shared between pages/demands/index.tsx (the tree's own per-folder
  * counts) and Sidebar.tsx (the global nav badge) -- both must agree, see
  * computeInboxTotalCount below (2026-07-28, Marcelo: "tudo tem que
  * obedecer o total do grupo de entrada... tem que haver sync"). */
 export function isIncomingItem(d: Demand, agentId: string): boolean {
+  // A generated return is a letter delivered to the original sender. Its
+  // completed status describes the work that produced it, not a second
+  // execution of the return row. Reserved queue rows may use `pending`.
   return (
     d.status !== "archived" &&
     d.target_agent_id === agentId &&
-    d.dispatch_status != null &&
-    d.dispatch_status !== "dispatched" &&
-    d.dispatch_status !== "running" &&
-    d.dispatch_status !== "completed" &&
-    d.dispatch_status !== "failed" &&
+    (d.reply_to_id != null || d.dispatch_status === "pending") &&
     d.target_agent_id !== d.from_agent_id
   );
 }

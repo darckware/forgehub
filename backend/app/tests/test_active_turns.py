@@ -15,11 +15,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from app.core.active_turns import (
     close_turn,
     get_active,
+    get_active_all,
     mark_reattached,
     open_turn,
     record_step,
@@ -146,6 +147,35 @@ async def test_a_new_turn_closes_an_abandoned_one(scope_id):
         found = await get_active(session, scope="chat", scope_id=scope_id)
     assert old.status == "failed"
     assert found.id == second
+
+
+async def test_conversation_can_expose_parallel_agent_turns(scope_id):
+    """Different agents in one Conversation are independent live lanes."""
+    first_agent, second_agent = uuid.uuid4(), uuid.uuid4()
+    async with AsyncSessionLocal() as session:
+        first = await open_turn(
+            session,
+            scope="chat",
+            scope_id=scope_id,
+            stream_id="parallel-first",
+            prompt="primeiro",
+            agent_id=first_agent,
+            supersede_existing=False,
+        )
+        second = await open_turn(
+            session,
+            scope="chat",
+            scope_id=scope_id,
+            stream_id="parallel-second",
+            prompt="segundo",
+            agent_id=second_agent,
+            supersede_existing=False,
+        )
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        found = await get_active_all(session, scope="chat", scope_id=scope_id)
+    assert [turn.id for turn in found] == [first.id, second.id]
 
 
 # --- particularidades de cada superfície ---------------------------------

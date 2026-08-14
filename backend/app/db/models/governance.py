@@ -31,7 +31,7 @@ cross-cutting by design.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -186,6 +186,17 @@ class PolicyEvaluation(Base, TimestampMixin):
 
 class ApprovalRequest(Base, TimestampMixin):
     __tablename__ = "approval_requests"
+    __table_args__ = (
+        Index(
+            "uq_approval_requests_pending_target",
+            "target_type",
+            "target_id",
+            "target_revision_id",
+            "approval_type",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     target_type: Mapped[str] = mapped_column(String(100), nullable=False)
     target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)

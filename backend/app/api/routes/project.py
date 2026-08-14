@@ -223,7 +223,7 @@ async def update_project_plan(
         )
         if existing_baseline.scalars().first() is not None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "This plan has already been baselined; register a "
                     "ChangeRequest instead of editing it directly."
@@ -274,7 +274,7 @@ async def create_plan_baseline(
 
     if plan.project_id != project_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="project_plan_id does not belong to this project",
         )
 
@@ -282,7 +282,7 @@ async def create_plan_baseline(
     # must be approved before it can be frozen into a baseline.
     if plan.status != "approved":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Only an approved plan can be baselined (current status: "
             f"'{plan.status}')",
         )
@@ -343,7 +343,7 @@ async def create_change_request(
         baseline = await db.get(PlanBaseline, payload.plan_baseline_id)
         if baseline is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="plan_baseline_id does not reference an existing baseline",
             )
 
@@ -364,7 +364,7 @@ async def create_change_request(
     )
     if not any(impact_flags):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "A ChangeRequest must declare at least one impact flag "
                 "(scope, schedule, cost, features, bug fix, agents, "
@@ -433,7 +433,7 @@ async def update_change_request(
     # allowed (that's how a decision gets made in the first place).
     if update_data and cr.status != "pending":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"This change request has already been '{cr.status}'; its "
                 "content can no longer be edited. Only a pending change "
@@ -445,7 +445,7 @@ async def update_change_request(
         baseline = await db.get(PlanBaseline, update_data["plan_baseline_id"])
         if baseline is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="plan_baseline_id does not reference an existing baseline",
             )
 
@@ -456,7 +456,7 @@ async def update_change_request(
         merged_flags = {field: update_data.get(field, getattr(cr, field)) for field in _CHANGE_REQUEST_IMPACT_FIELDS}
         if not any(merged_flags.values()):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "A ChangeRequest must declare at least one impact flag "
                     "(scope, schedule, cost, features, bug fix, agents, "
@@ -861,7 +861,7 @@ async def toggle_project_forgerouter(
     project = await _get_project_or_404(db, project_id)
     if not project.working_directory_path:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Project has no working_directory_path — set it before configuring ForgeRouter.",
         )
 
@@ -939,7 +939,7 @@ async def get_project_forgerouter_live(
     project = await _get_project_or_404(db, project_id)
     if not project.working_directory_path:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Project has no working_directory_path.",
         )
     data = await _bridge_request(
@@ -1004,7 +1004,7 @@ async def upsert_project_mcp_server(
     working_dir = project.working_directory_path
     if not working_dir:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Project has no working_directory_path — set it before configuring MCP servers.",
         )
     _require_project_mcp_runtime(payload.runtime_type)
@@ -1076,7 +1076,7 @@ async def delete_project_mcp_server(
     working_dir = project.working_directory_path
     if not working_dir:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Project has no working_directory_path.",
         )
     _require_project_mcp_runtime(runtime_type)
@@ -1107,7 +1107,7 @@ async def get_project_mcp_servers_live(
     project = await _get_project_or_404(db, project_id)
     if not project.working_directory_path:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Project has no working_directory_path.",
         )
     _require_project_mcp_runtime(runtime_type)

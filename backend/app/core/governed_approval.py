@@ -1,7 +1,6 @@
 """Deterministic governed-approval commands shared by Planning and Governance routes."""
 import hashlib
 import json
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException

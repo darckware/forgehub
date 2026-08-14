@@ -52,7 +52,7 @@ import {
 } from "@/lib/assistantFileDrag";
 import { cn } from "@/lib/utils";
 import { type Agent, useAgents, useAgentMcpServers } from "@/hooks/useAgent";
-import { useActiveTurn } from "@/hooks/useActiveTurn";
+import { useActiveTurns } from "@/hooks/useActiveTurn";
 import { useChatLanguage } from "@/hooks/useChatLanguage";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { usePromptCommands, type PromptCommand } from "@/hooks/usePromptCommands";
@@ -68,6 +68,7 @@ import {
   useSearchChatArtifacts,
   useDeleteChatMessage,
   useApproveChat,
+  useStopChatTurn,
   useSendChatMessage,
   useStreamChatMessage,
   useStreamImprovePrompt,
@@ -319,6 +320,12 @@ type ChatQueueItem = {
   error?: string;
   approval: ChatQueueApproval | null;
   abortController: AbortController | null;
+  /** Backend ActiveTurn id, from the `turn_started` stream event (2026-08-14).
+   * Null until the bridge reports a stream_id -- there is no turn to stop
+   * before that. What the Stop button now calls the backend with, since
+   * aborting the fetch alone no longer ends anything server-side (the turn
+   * runs detached from this connection -- see chat.py's `_run_chat_turn`). */
+  turnId: string | null;
   /** True for a "Regenerate" request: reuses the last user message's text
    * without persisting a duplicate user turn, and its synthetic user
    * bubble is suppressed in the queue render (the real one is already in
@@ -1624,8 +1631,10 @@ export function ChatPane({
   tabId,
   active,
   agentId,
+  initialSessionId,
   chatableAgents,
   onAgentChange,
+  onSessionChange,
   initialComposerText,
   historyCollapsed,
   artifactsOpen,
@@ -1639,8 +1648,10 @@ export function ChatPane({
   tabId: string;
   active: boolean;
   agentId: string;
+  initialSessionId?: string;
   chatableAgents: Agent[];
   onAgentChange: (agentId: string) => void;
+  onSessionChange?: (sessionId: string) => void;
   initialComposerText?: string;
   historyCollapsed: boolean;
   artifactsOpen: boolean;
@@ -1733,7 +1744,7 @@ export function ChatPane({
     handleClearSessions,
     confirmClearSessions,
     handleNewChat,
-  } = useChatSessionViewModel(agentId, startNewSession);
+  } = useChatSessionViewModel(agentId, startNewSession, initialSessionId, onSessionChange);
   // Chat chrome (composer placeholder, default empty state) follows the
   // configured response language, same one the agent is instructed to
   // answer in (Settings -> AI chat).
@@ -1798,7 +1809,7 @@ export function ChatPane({
   // nada aqui precisa sobreviver à desmontagem -- que é justamente o que um
   // F5 ou um travamento da aba não dariam chance de salvar.
   const [queue, setQueue] = useState<ChatQueueItem[]>([]);
-  const queueDrainingRef = useRef(false);
+  const processingQueueIdsRef = useRef<Set<string>>(new Set());
   // Mirrors `queue` synchronously for processQueueItem's completion handler
   // -- it closes over the `item` argument from when the turn started, whose
   // `.steps` is always `[]` (steps arrive later via handleStreamEvent's own
@@ -1951,6 +1962,7 @@ export function ChatPane({
           status: "queued",
           approval: null,
           abortController: null,
+          turnId: null,
           hidden: true,
         },
       ]);
@@ -1965,18 +1977,19 @@ export function ChatPane({
   // do mesmo jeito que o TerminalPane já re-anexa ao tmux. `queue.length > 0`
   // quer dizer que ESTE cliente é quem transmite: aí não vale perguntar, ele
   // já recebe tudo ao vivo.
-  const { data: activeTurn } = useActiveTurn("chat", sessionId || null, queue.length > 0);
+  const { data: activeTurns = [] } = useActiveTurns(sessionId || null, queue.some((item) => item.status === "processing"));
 
   // Quando o turno observado termina no servidor, a resposta acabou de ser
   // persistida: puxa as mensagens para ela aparecer sem precisar de reload.
-  const lastActiveTurnIdRef = useRef<string | null>(null);
+  const lastActiveTurnIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const current = activeTurn?.id ?? null;
-    if (lastActiveTurnIdRef.current && !current && sessionId) {
+    const current = new Set(activeTurns.map((turn) => turn.id));
+    const completed = [...lastActiveTurnIdsRef.current].some((id) => !current.has(id));
+    if (completed && sessionId) {
       void queryClient.refetchQueries({ queryKey: chatKeys.messages(sessionId) }).catch(() => {});
     }
-    lastActiveTurnIdRef.current = current;
-  }, [activeTurn, sessionId, queryClient]);
+    lastActiveTurnIdsRef.current = current;
+  }, [activeTurns, sessionId, queryClient]);
 
 
   const { data: messages } = useChatMessages(sessionId || undefined);
@@ -2022,6 +2035,7 @@ export function ChatPane({
   const execCommand = useExecChatCommand(agentId || undefined);
   const deleteMessage = useDeleteChatMessage(sessionId || undefined);
   const approveChat = useApproveChat();
+  const stopChatTurn = useStopChatTurn();
   const transcribe = useTranscribeAudio();
 
   // Jump straight to the bottom (no animation) the first time a session's
@@ -2132,6 +2146,7 @@ export function ChatPane({
           status: "queued",
           approval: null,
           abortController: null,
+          turnId: null,
           isExec: true,
         },
       ]);
@@ -2142,8 +2157,7 @@ export function ChatPane({
     // entirely (v1: no broadcast-plus-mentions, no shared context -- see
     // ChatSessionParticipant's docstring). Excludes a self-mention (the
     // tab's own agent), which just behaves as a normal send.
-    const mentionedAgents =
-      files.length > 0 ? [] : extractMentionedAgents(message, chatableAgents).filter((a) => a.id !== agentId);
+    const mentionedAgents = files.length > 0 ? [] : extractMentionedAgents(message, chatableAgents);
 
     if (mentionedAgents.length === 0) {
       setQueue((q) => [
@@ -2158,6 +2172,7 @@ export function ChatPane({
           status: "queued",
           approval: null,
           abortController: null,
+          turnId: null,
         },
       ]);
     } else {
@@ -2173,7 +2188,12 @@ export function ChatPane({
           status: "queued" as const,
           approval: null,
           abortController: null,
-          targetAgentId: agent.id,
+          turnId: null,
+          // The tab's primary agent owns ChatSession.hermes_session_id;
+          // secondary agents own ChatSessionParticipant rows. Mentioning
+          // the primary explicitly must still include it in a multi-agent
+          // fan-out, but routing it as a secondary would fork its context.
+          targetAgentId: agent.id === agentId ? undefined : agent.id,
           targetAgentName: agent.name,
           skipUserMessage: index > 0,
         })),
@@ -2181,18 +2201,20 @@ export function ChatPane({
     }
   }
 
-  // Drains the queue one request at a time -- a Hermes session is a single
-  // ongoing conversation, so requests for the same session must stay in
-  // order rather than racing each other.
+  // Submit every queued item immediately. The backend detaches each turn and
+  // serializes only bridge access for the same (session, agent), so repeated
+  // messages are durable before this component can unmount while different
+  // agents genuinely work in parallel.
   useEffect(() => {
-    if (queueDrainingRef.current) return;
-    const next = queue.find((item) => item.status === "queued");
-    if (!next || !sessionId) return;
-
-    queueDrainingRef.current = true;
-    processQueueItem(next).finally(() => {
-      queueDrainingRef.current = false;
-    });
+    if (!sessionId) return;
+    for (const item of queue) {
+      if (item.status !== "queued") continue;
+      if (processingQueueIdsRef.current.has(item.id)) continue;
+      processingQueueIdsRef.current.add(item.id);
+      void processQueueItem(item).finally(() => {
+        processingQueueIdsRef.current.delete(item.id);
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queue, sessionId]);
 
@@ -2225,6 +2247,9 @@ export function ChatPane({
                 : s
             ),
           };
+        }
+        if (event.type === "turn_started") {
+          return { ...item, turnId: event.turnId };
         }
         if (event.type === "approval_request") {
           return {
@@ -2315,7 +2340,15 @@ export function ChatPane({
   }
 
   function handleStopGenerating(item: ChatQueueItem) {
+    // Aborting the fetch only stops *this tab* from reading the stream --
+    // the turn itself now runs detached from the connection (2026-08-14, see
+    // chat.py's `_run_chat_turn`), specifically so it survives navigating
+    // away. Stop has to say so explicitly, or clicking it would do nothing
+    // but hide the output while the agent kept running unattended.
     item.abortController?.abort();
+    if (sessionId && item.turnId) {
+      stopChatTurn.mutate({ sessionId, turnId: item.turnId });
+    }
   }
 
   /** Deletes the last assistant reply and re-asks the preceding user
@@ -2348,6 +2381,7 @@ export function ChatPane({
         status: "queued",
         approval: null,
         abortController: null,
+        turnId: null,
         isRegenerate: true,
         targetAgentId,
         targetAgentName,
@@ -3810,8 +3844,8 @@ export function ChatPane({
               vivo e o mesmo turno sairia duas vezes. É o que se vê depois de
               um F5, de um travamento, ou ao abrir a conversa em outra
               máquina: a execução continua e a tela acompanha. */}
-          {queue.length === 0 && activeTurn && (
-            <div className="space-y-2">
+          {queue.length === 0 && activeTurns.map((activeTurn) => (
+            <div key={activeTurn.id} className="space-y-2">
               <div className="flex justify-end">
                 <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
                   {activeTurn.prompt}
@@ -3819,7 +3853,9 @@ export function ChatPane({
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {t("activeTurn.running")}
+                {activeTurn.agent_id
+                  ? t("queue.agentIsTyping", { name: chatableAgents.find((agent) => agent.id === activeTurn.agent_id)?.name ?? t("queue.agentFallback") })
+                  : t("activeTurn.running")}
               </div>
               {activeTurn.steps.length > 0 && (
                 <QueueStepsList
@@ -3842,7 +3878,7 @@ export function ChatPane({
                 <p className="text-xs text-amber-500">{t("activeTurn.awaitingApproval")}</p>
               )}
             </div>
-          )}
+          ))}
           {queue.map((item) => {
             const revealed = revealedQueueIds.has(item.id);
             // A hidden priming turn renders as nothing at all while it
@@ -4389,4 +4425,3 @@ export function ChatPane({
     </div>
   );
 }
-

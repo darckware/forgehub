@@ -125,7 +125,9 @@ function isIncubationItem(d: Demand): boolean {
  * para Entrada/Saída sem lugar próprio, então "o que já terminou" era a única
  * pergunta do ciclo de vida sem resposta na árvore. */
 function isCompletedItem(d: Demand): boolean {
-  return d.status !== "archived" && d.dispatch_status === "completed";
+  // A generated return letter is Incoming. Its completed marker is
+  // provenance from the original run, not a second completed job.
+  return d.status !== "archived" && d.dispatch_status === "completed" && d.reply_to_id == null;
 }
 
 /** Which folder the message list/reading pane are scoped to. Three

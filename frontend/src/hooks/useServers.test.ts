@@ -11,6 +11,8 @@ function server(overrides: Partial<Server> = {}): Server {
     ssh_key_path: null,
     public_key: null,
     private_key_stored: false,
+    key_passphrase_stored: false,
+    access_enabled: true,
     description: null,
     created_at: "",
     updated_at: "",

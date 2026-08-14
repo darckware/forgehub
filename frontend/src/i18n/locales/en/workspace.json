@@ -22,14 +22,27 @@
     "cli": "CLI",
     "runtimeLaunchers": "Agent runtimes/orchestrators",
     "runtimes": "Runtimes",
+    "launchers": "Launchers",
     "openLauncher": "Open {{label}}",
+    "openLauncherWeb": "Open {{label}} web interface",
     "terminal": "Terminal",
-    "web": "Web"
+    "web": "Web",
+    "sshOnline": "Online",
+    "sshOffline": "Offline",
+    "sshKeyProblem": "Key issue",
+    "sshCheckFailed": "Check failed",
+    "sshOff": "Off",
+    "sshAccessOff": "Access turned off in ForgeHub — the key is kept"
   },
   "tabs": {
+    "workspaceTabs": "Workspace tabs",
     "defaultChatName": "Chat",
     "closeChatTab": "Close chat tab",
     "closeTab": "Close {{label}}",
+    "detachTerminal": "Detach {{label}} without stopping its process",
+    "terminateTerminal": "Terminate {{label}} and close its tab",
+    "confirmTerminateTerminal": "Terminate the {{label}} terminal session and its running process?",
+    "terminateTerminalFailed": "Failed to terminate the terminal session.",
     "noAgentAvailable": "No agent with a Hermes profile available to chat with yet.",
     "noTabsOpen": "No tabs open",
     "noTabsOpenHelp": "Start a conversation or open a terminal using the buttons above."
@@ -49,7 +62,8 @@
   },
   "terminal": {
     "authFailed": "Failed to authenticate terminal session.",
-    "reconnecting": "Connection lost -- reconnecting in {{seconds}}s…"
+    "reconnecting": "Connection lost -- reconnecting in {{seconds}}s…",
+    "imageUploadFailed": "Image upload failed. Try again."
   },
   "webAppPane": {
     "back": "Back",
@@ -142,6 +156,7 @@
     "confirmClearChat": "Clear this channel's chat? This deletes every message but keeps the channel, its agents and tasks.",
     "hideMembers": "Hide members",
     "showMembers": "Show members",
+    "memberCount": "{{count}} members",
     "improvePrompt": "Improve prompt with the orchestrator",
     "improvePromptNoOrchestrator": "Set an orchestrator for this channel to use prompt improvement",
     "improvePromptSubject": "the orchestrator",
@@ -157,9 +172,14 @@
     "agent": "Agent",
     "dispatching": "Running...",
     "dispatchTask": "Run as a real task",
+    "dispatchTarget": "Agent that will execute the task",
+    "confirmDispatch": "Dispatch",
+    "cancel": "Cancel",
     "dispatched": "Dispatched via Messages",
     "newTaskPlaceholder": "New task...",
     "addTask": "Add",
+    "taskAssignee": "Task assignee",
+    "unassigned": "Unassigned",
     "noTasks": "No tasks in this channel yet.",
     "taskTodo": "To do",
     "taskDoing": "Doing",
@@ -182,7 +202,8 @@
     "skills": "Skills",
     "noSkills": "No skills granted yet.",
     "notApproved": "not approved",
-    "reattachedTurn": "Running on the server — this view reconnected"
+    "reattachedTurn": "Running on the server — this view reconnected",
+    "stopTurn": "Stop channel processing"
   },
   "activeTurn": {
     "running": "Running on the server — this view reconnected",

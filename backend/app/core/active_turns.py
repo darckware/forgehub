@@ -50,23 +50,27 @@ async def open_turn(
     stream_id: str,
     prompt: str,
     agent_id: uuid.UUID | None = None,
+    hidden: bool = False,
+    supersede_existing: bool = True,
 ) -> ActiveTurn:
     """Registers a turn as running. Caller commits.
 
-    Any turn already running for the same owner is closed as failed first:
-    a session streams one turn at a time (the chat queue drains serially),
-    so a second open means the previous one died without ever reporting --
-    typically a bridge restart. Leaving it would make `get_active` ambiguous
-    exactly when a client is trying to work out what to re-attach to.
+    By default, any turn already running for the same owner is closed as
+    failed first: a chat session streams one turn at a time, so a second open
+    means the previous one died without reporting. Channels explicitly pass
+    ``supersede_existing=False`` because their composer supports several
+    independent sends in flight at once.
     """
-    await _close_running(db, scope=scope, scope_id=scope_id, status="failed",
-                         error="Superseded by a newer turn (the previous run never reported back).")
+    if supersede_existing:
+        await _close_running(db, scope=scope, scope_id=scope_id, status="failed",
+                             error="Superseded by a newer turn (the previous run never reported back).")
     turn = ActiveTurn(
         scope=scope,
         scope_id=scope_id,
         stream_id=stream_id,
         prompt=prompt,
         agent_id=agent_id,
+        hidden=hidden,
         status="running",
         deadline_at=datetime.now(timezone.utc) + timedelta(minutes=ACTIVE_TURN_TIMEOUT_MINUTES),
     )
@@ -100,6 +104,25 @@ async def get_active(db: AsyncSession, *, scope: str, scope_id: uuid.UUID) -> Ac
     if turn.deadline_at is not None and turn.deadline_at <= datetime.now(timezone.utc):
         return None
     return turn
+
+
+async def get_active_all(db: AsyncSession, *, scope: str, scope_id: uuid.UUID) -> list[ActiveTurn]:
+    """Return every live turn for a multi-agent Conversation.
+
+    Channels coordinate several agents inside one row. Conversations keep
+    one row per agent so each independent stream can be observed and stopped.
+    """
+    now = datetime.now(timezone.utc)
+    turns = list((await db.execute(
+        select(ActiveTurn)
+        .where(
+            ActiveTurn.scope == scope,
+            ActiveTurn.scope_id == scope_id,
+            ActiveTurn.status == "running",
+        )
+        .order_by(ActiveTurn.created_at.asc())
+    )).scalars().all())
+    return [turn for turn in turns if turn.deadline_at is None or turn.deadline_at > now]
 
 
 async def record_step(
@@ -189,20 +212,27 @@ async def close_turn(
     *,
     status: str = "completed",
     error: str | None = None,
-) -> None:
-    """Marks a turn finished. Caller commits.
+) -> bool:
+    """Marks a turn finished. Caller commits. Returns whether this call is
+    the one that actually made the transition.
 
     Idempotent by status: a turn that already reached a terminal state is
     left alone, so the completion path and a late sweep can both run without
-    the second one overwriting the real outcome with a timeout.
+    the second one overwriting the real outcome with a timeout. The return
+    value is what lets a caller tell "I closed it" from "someone already had"
+    -- chat.py's stop route and its detached turn task both race to close the
+    same turn (an explicit Stop vs. the bridge stream ending on its own), and
+    only the winner should persist the interrupted-turn message; the loser
+    would otherwise write a duplicate one.
     """
     turn = await db.get(ActiveTurn, turn_id)
     if turn is None or turn.status != "running":
-        return
+        return False
     turn.status = status
     turn.error = error
     turn.finished_at = datetime.now(timezone.utc)
     turn.deadline_at = None
+    return True
 
 
 async def mark_reattached(db: AsyncSession, turn_id: uuid.UUID) -> None:

@@ -61,10 +61,12 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text as sa_text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -157,6 +159,12 @@ class ChatChannelMember(Base, TimestampMixin):
             name="ck_chat_channel_members_role",
         ),
         UniqueConstraint("channel_id", "agent_id", name="uq_chat_channel_members_channel_agent"),
+        Index(
+            "uq_chat_channel_members_one_human_per_channel",
+            "channel_id",
+            unique=True,
+            postgresql_where=sa_text("is_human"),
+        ),
         # A partial unique index enforcing "at most one is_human=True row per
         # channel" is added in the migration via op.execute -- SQLAlchemy's
         # UniqueConstraint can't express a WHERE clause, and agent_id being
@@ -203,6 +211,7 @@ class ChatChannelMessage(Base, TimestampMixin):
             "(author_type = 'agent') = (author_agent_id IS NOT NULL)",
             name="ck_chat_channel_messages_agent_author_id",
         ),
+        Index("ix_chat_channel_messages_channel_id", "channel_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

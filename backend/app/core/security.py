@@ -7,20 +7,23 @@ using these helpers rather than reinventing them.
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(plain_password: str) -> str:
-    return _pwd_context.hash(plain_password)
+    """Create a bcrypt password hash."""
+    return bcrypt.hashpw(plain_password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return _pwd_context.verify(plain_password, hashed_password)
+    """Verify existing and newly generated bcrypt hashes."""
+    try:
+        return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+    except (TypeError, ValueError):
+        return False
 
 
 def create_access_token(

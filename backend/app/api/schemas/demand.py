@@ -2,10 +2,10 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.conversions import CONVERT_TARGETS
-from app.db.models.demand import DEMAND_ORIGIN_TYPES, DEMAND_STATUSES
+from app.db.models.demand import DEMAND_CHANNELS, DEMAND_ORIGIN_TYPES, DEMAND_STATUSES
 
 
 def _check_origin_type(v: str | None) -> str | None:
@@ -17,6 +17,12 @@ def _check_origin_type(v: str | None) -> str | None:
 def _check_status_value(v: str | None) -> str | None:
     if v is not None and v not in DEMAND_STATUSES:
         raise ValueError(f"status must be one of {DEMAND_STATUSES}")
+    return v
+
+
+def _check_channel_value(v: str | None) -> str | None:
+    if v is not None and v not in DEMAND_CHANNELS:
+        raise ValueError(f"channel must be one of {DEMAND_CHANNELS}")
     return v
 
 
@@ -95,6 +101,11 @@ class DemandSubmitIn(BaseModel):
     def _check_status(cls, v: str | None) -> str | None:
         return _check_status_value(v)
 
+    @field_validator("channel")
+    @classmethod
+    def _check_channel(cls, v: str | None) -> str | None:
+        return _check_channel_value(v)
+
 
 class DemandUpdateIn(BaseModel):
     """Partial update -- only fields actually sent by the client are
@@ -157,8 +168,7 @@ class DemandGroupUpdateIn(BaseModel):
 
 
 class DemandGroupOut(BaseModel):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     name: str
@@ -168,8 +178,7 @@ class DemandGroupOut(BaseModel):
 
 
 class DemandAttachmentOut(BaseModel):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     filename: str
@@ -181,8 +190,7 @@ class DemandAttachmentOut(BaseModel):
 
 
 class DemandOut(BaseModel):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     number: int

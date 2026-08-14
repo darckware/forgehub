@@ -131,9 +131,9 @@ class ChatChannelMessageOut(BaseModel):
 
 class ChatChannelDispatchTaskRequest(BaseModel):
     agent_id: uuid.UUID
-    # Optional -- if omitted, a standalone AgentDemand is created
-    # (origin_type="backlog", promotable later), same behavior as
-    # demand.py's own dispatch when no task is linked.
+    # Optional -- if omitted, the explicit dispatch creates a standalone
+    # executable Message task; if supplied, origin_id links that execution
+    # back to the canonical ProjectTask.
     project_task_id: uuid.UUID | None = None
 
 

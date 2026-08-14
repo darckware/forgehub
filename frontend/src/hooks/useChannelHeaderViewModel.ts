@@ -46,7 +46,7 @@ export function useChannelHeaderViewModel(channel: ReturnType<typeof useChannel>
   // editar o nome no canal para ocultar/mostrar os agentes" -- collapses
   // the member-badges row, which can get tall with a full 9-member team.
   const [membersCollapsed, setMembersCollapsed] = useState(
-    () => localStorage.getItem("forgehub-channel-members-collapsed") === "1"
+    () => localStorage.getItem("forgehub-channel-members-collapsed") !== "0"
   );
   useEffect(() => {
     localStorage.setItem("forgehub-channel-members-collapsed", membersCollapsed ? "1" : "0");

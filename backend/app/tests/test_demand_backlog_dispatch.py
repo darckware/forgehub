@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal

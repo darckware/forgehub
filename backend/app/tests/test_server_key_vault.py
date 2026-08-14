@@ -169,6 +169,100 @@ async def test_store_pasted_key_rejects_something_that_is_not_a_key(client, serv
 
 
 @pytest.mark.asyncio
+async def test_public_key_is_encrypted_at_rest_but_still_returned(client, server_row):
+    """A public key is not secret material, but it is encrypted in the column
+    anyway (2026-08-14, Marcelo). The screen exists to show and copy it, so it
+    must still come back in plain text on a read."""
+    public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 test@forgehub"
+    with patch.object(
+        server_routes, "_bridge_post",
+        AsyncMock(return_value=_bridge_response(200, {
+            "private_key": FAKE_KEY, "public_key": public_key, "key_path": "/root/.ssh/test_vault_key",
+        })),
+    ):
+        assert (await client.post(f"/api/v1/servers/{server_row.id}/key:backup")).status_code == 200
+
+    read = await client.get(f"/api/v1/servers/{server_row.id}")
+    assert read.json()["public_key"] == public_key
+
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(Server, server_row.id)
+        assert stored.public_key_encrypted != public_key
+        assert decrypt_secret(stored.public_key_encrypted) == public_key
+
+
+@pytest.mark.asyncio
+async def test_passphrase_is_encrypted_at_rest_and_only_the_detail_route_returns_it(client, server_row):
+    """Same contract as the agent's ForgeRouter API key: encrypted in the
+    column, absent from the list and from a write's response, and handed back
+    only by the admin-only single-server read -- which is what lets the form
+    show the current value behind an eye toggle."""
+    resp = await client.put(
+        f"/api/v1/servers/{server_row.id}",
+        json={"key_passphrase": "correct-horse-battery-staple"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["key_passphrase_stored"] is True
+    assert "correct-horse" not in resp.text
+
+    listing = await client.get("/api/v1/servers")
+    assert "correct-horse" not in listing.text
+
+    detail = await client.get(f"/api/v1/servers/{server_row.id}")
+    assert detail.json()["key_passphrase"] == "correct-horse-battery-staple"
+
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(Server, server_row.id)
+        assert stored.key_passphrase_encrypted != "correct-horse-battery-staple"
+        assert decrypt_secret(stored.key_passphrase_encrypted) == "correct-horse-battery-staple"
+
+
+@pytest.mark.asyncio
+async def test_an_unrelated_edit_keeps_the_passphrase_but_an_empty_one_clears_it(client, server_row):
+    """The form never receives the stored passphrase, so a save that does not
+    mention the field must not wipe it -- while an explicitly empty value is
+    how the field is cleared."""
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, server_row.id)
+        row.key_passphrase_encrypted = encrypt_secret("keep-me")
+        await db.commit()
+
+    kept = await client.put(f"/api/v1/servers/{server_row.id}", json={"description": "touched"})
+    assert kept.json()["key_passphrase_stored"] is True
+
+    cleared = await client.put(f"/api/v1/servers/{server_row.id}", json={"key_passphrase": ""})
+    assert cleared.json()["key_passphrase_stored"] is False
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Server, server_row.id)).key_passphrase_encrypted is None
+
+
+@pytest.mark.asyncio
+async def test_toggling_access_off_parks_the_server_without_touching_the_key(client, server_row):
+    """The whole point of the switch: no probe runs, and the vaulted key --
+    the way back in -- is still there afterwards."""
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, server_row.id)
+        row.private_key_encrypted = encrypt_secret(FAKE_KEY)
+        await db.commit()
+
+    off = await client.post(f"/api/v1/servers/{server_row.id}/access:toggle")
+    assert off.status_code == 200
+    assert off.json()["access_enabled"] is False
+    assert off.json()["private_key_stored"] is True
+
+    # No bridge call and no paramiko probe -- patched to blow up if reached.
+    with patch.object(server_routes, "_check_via_bridge", AsyncMock(side_effect=AssertionError("probed a disabled server"))):
+        check = await client.post(f"/api/v1/servers/{server_row.id}/check")
+    assert check.status_code == 200
+    assert check.json()["status"] == "disabled"
+
+    on = await client.post(f"/api/v1/servers/{server_row.id}/access:toggle")
+    assert on.json()["access_enabled"] is True
+    async with AsyncSessionLocal() as db:
+        assert decrypt_secret((await db.get(Server, server_row.id)).private_key_encrypted) == FAKE_KEY
+
+
+@pytest.mark.asyncio
 async def test_clear_drops_the_copy(client, server_row):
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, server_row.id)

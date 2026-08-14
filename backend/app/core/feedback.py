@@ -29,6 +29,7 @@ feedback is still owed.
 """
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 
 import httpx
@@ -157,8 +158,60 @@ async def _deliver_telegram(db: AsyncSession, demand: AgentDemand) -> bool:
     if profile:
         payload["profile"] = profile
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(_BRIDGE_MESSAGES_URL, json=payload)
+        response = await client.post(
+            _BRIDGE_MESSAGES_URL,
+            json=payload,
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+        )
         response.raise_for_status()
+    return True
+
+
+async def _deliver_workspace(db: AsyncSession, demand: AgentDemand) -> bool:
+    """Persist the outcome in the Conversation or Channel that requested it."""
+    if not demand.channel_ref:
+        return False
+    try:
+        scope_id = uuid.UUID(demand.channel_ref)
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+    from app.db.models.channel import ChatChannel, ChatChannelMessage
+    from app.db.models.chat import ChatMessage, ChatSession
+
+    text = _outcome_line(demand)
+    body = _body(demand)
+    if body:
+        text = f"{text}\n\n{body}"
+
+    session = await db.get(ChatSession, scope_id)
+    if session is not None:
+        db.add(ChatMessage(
+            session_id=session.id,
+            role="assistant",
+            content=text,
+            responding_agent_id=demand.target_agent_id,
+        ))
+        return True
+
+    channel = await db.get(ChatChannel, scope_id)
+    if channel is None:
+        return False
+    already_narrated = (
+        await db.execute(
+            select(ChatChannelMessage.id).where(
+                ChatChannelMessage.triggered_demand_id == demand.id,
+                ChatChannelMessage.author_type == "system",
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    if already_narrated is None:
+        db.add(ChatChannelMessage(
+            channel_id=channel.id,
+            author_type="system",
+            content=text,
+            triggered_demand_id=demand.id,
+        ))
     return True
 
 
@@ -190,12 +243,14 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
                     "Feedback for #%s has channel=telegram but no chat to answer -- "
                     "notified in-app only", demand.number,
                 )
-        elif demand.channel in ("workspace", "assistant", "factory"):
-            # All three surface in-app. Workspace and Factory additionally
-            # show the outcome in their own screens, which read the message
-            # (and, for Factory, the linked task) directly -- so the
-            # notification is what tells the person to go look, not the only
-            # place the result exists.
+        elif demand.channel == "workspace":
+            await _deliver_notification(db, demand, title=title)
+            if not await _deliver_workspace(db, demand):
+                logger.warning(
+                    "Feedback for #%s has no valid Workspace address; notified in-app only",
+                    demand.number,
+                )
+        elif demand.channel in ("assistant", "factory"):
             await _deliver_notification(db, demand, title=title)
         elif demand.channel == "agent":
             # An agent asked: the existing requires_response/reply_to_id path

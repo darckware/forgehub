@@ -8,6 +8,7 @@ import {
   channelKeys,
   useChannel,
   useChannelMessages,
+  useStopChannelTurn,
   useStreamChannelMessage,
   useStreamImprovePrompt,
   type ChannelAgentStarted,
@@ -51,6 +52,9 @@ export interface ChannelRoomViewModel {
   content: string;
   setContent: (value: string | ((prev: string) => string)) => void;
   sending: boolean;
+  canStop: boolean;
+  stopping: boolean;
+  stopRunningTurns: () => Promise<void>;
   /** Turno em execução observado do servidor -- só preenchido quando este
    * cliente NÃO é quem transmite. É o que a tela mostra depois de um F5, de
    * um travamento da aba, ou ao abrir o canal em outra máquina, enquanto os
@@ -96,7 +100,12 @@ export interface ChannelRoomViewModel {
 
   improveOpen: boolean;
   setImproveOpen: (value: boolean) => void;
-  improvePrompt: (draft: string, instruction: string, signal?: AbortSignal) => Promise<string>;
+  improvePrompt: (
+    draft: string,
+    instruction: string,
+    techniqueCode: string,
+    signal?: AbortSignal
+  ) => Promise<string>;
 }
 
 export function useChannelRoomViewModel(
@@ -126,6 +135,8 @@ export function useChannelRoomViewModel(
   // strip, etc.) doesn't need to change.
   const [sendingCount, setSendingCount] = useState(0);
   const sending = sendingCount > 0;
+  const [localTurnIds, setLocalTurnIds] = useState<Set<string>>(new Set());
+  const stopChannelTurn = useStopChannelTurn();
   const [sendError, setSendError] = useState<string | null>(null);
   // Which mentioned/broadcast agents are currently mid-turn, keyed by agent
   // id -- populated from the stream's `agent_started` events (all fired up
@@ -459,6 +470,7 @@ export function useChannelRoomViewModel(
     // Tracks only the agents *this* turn started, so this turn's cleanup
     // never clears a chip that belongs to a different, still-running turn.
     const startedAgentIds = new Set<string>();
+    let turnId: string | null = null;
     try {
       await streamMessage(
         text,
@@ -469,7 +481,11 @@ export function useChannelRoomViewModel(
           startedAgentIds.add(agent.agent_id);
           handleAgentStarted(agent);
         },
-        handleAgentStep
+        handleAgentStep,
+        (turn) => {
+          turnId = turn.turn_id;
+          setLocalTurnIds((prev) => new Set(prev).add(turn.turn_id));
+        }
       );
     } catch (err) {
       // The backend persists whatever succeeded before the error (e.g.
@@ -481,6 +497,13 @@ export function useChannelRoomViewModel(
       setSendError(err instanceof Error ? err.message : String(err));
     } finally {
       setSendingCount((c) => Math.max(0, c - 1));
+      if (turnId) {
+        setLocalTurnIds((prev) => {
+          const next = new Set(prev);
+          next.delete(turnId!);
+          return next;
+        });
+      }
       // A failure (or an abort) can leave a straggler that never got its
       // own `data:` message -- don't let its chip linger forever. Only
       // drop chips this turn itself started; a concurrent turn's agents
@@ -495,6 +518,18 @@ export function useChannelRoomViewModel(
     }
   }
 
+  async function stopRunningTurns() {
+    const ids = new Set(localTurnIds);
+    if (activeTurn?.id) ids.add(activeTurn.id);
+    try {
+      await Promise.all(
+        Array.from(ids, (turnId) => stopChannelTurn.mutateAsync({ channelId, turnId }))
+      );
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return {
     channel,
     allMessages,
@@ -505,6 +540,9 @@ export function useChannelRoomViewModel(
     content,
     setContent,
     sending,
+    canStop: localTurnIds.size > 0 || Boolean(activeTurn?.id),
+    stopping: stopChannelTurn.isPending,
+    stopRunningTurns,
     /** Turno em execução observado do servidor -- preenchido só quando este
      * cliente não é quem transmite. É o que a tela mostra depois de um F5 ou
      * de um travamento, enquanto os agentes seguem trabalhando. */

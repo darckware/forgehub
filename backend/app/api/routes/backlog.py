@@ -83,7 +83,7 @@ async def create_planning_item(
 ) -> PlanningItem:
     if payload.item_type not in PLANNING_ITEM_TYPES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"item_type must be one of {PLANNING_ITEM_TYPES}",
         )
     if await db.get(Project, payload.project_id) is None:
@@ -163,7 +163,7 @@ async def update_planning_item(
     data = payload.model_dump(exclude_unset=True)
     if "item_type" in data and data["item_type"] not in PLANNING_ITEM_TYPES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"item_type must be one of {PLANNING_ITEM_TYPES}",
         )
     if "project_id" in data:
@@ -324,7 +324,7 @@ async def create_bug_report(
 
     if payload.severity not in BUG_SEVERITIES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"severity must be one of {BUG_SEVERITIES}",
         )
     bug = BugReport(**payload.model_dump())
@@ -359,7 +359,7 @@ async def update_bug_report(
 
     if "severity" in data and data["severity"] not in BUG_SEVERITIES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"severity must be one of {BUG_SEVERITIES}",
         )
     for field, value in data.items():

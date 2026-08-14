@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Loader2, Sparkles } from "lucide-react";
+import { Info, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useImprovePromptViewModel } from "@/hooks/useImprovePromptViewModel";
@@ -59,7 +59,7 @@ export function ImprovePromptDialog({
    * default (`true`/`true`) matches ChatPane's own composer. */
   includeLocalSlashCommands?: boolean;
   includeHermesSlashCommands?: boolean;
-  improvePrompt: (draft: string, instruction: string, signal?: AbortSignal) => Promise<string>;
+  improvePrompt: (draft: string, instruction: string, techniqueCode: string, signal?: AbortSignal) => Promise<string>;
   onApply: (improved: string) => void;
   onClose: () => void;
 }) {
@@ -68,8 +68,15 @@ export function ImprovePromptDialog({
     status,
     draft,
     instruction,
+    techniqueCode,
+    techniques,
+    techniquesLoading,
+    recommendedTechniqueCode,
+    recommendingTechnique,
     errorMessage,
     setInstruction,
+    setTechniqueCode,
+    recommendTechnique,
     submit,
     applyDraft,
     handleFieldKeyDown,
@@ -87,6 +94,8 @@ export function ImprovePromptDialog({
     handleDraftKeyDown,
   } = useImprovePromptViewModel(initialDraft, improvePrompt, onApply, onClose);
   const submitting = status === "submitting";
+  const selectedTechnique = techniques.find((item) => item.code === techniqueCode);
+  const categories = Array.from(new Set(techniques.map((item) => item.category)));
 
   return (
     <div
@@ -176,14 +185,69 @@ export function ImprovePromptDialog({
                     className="text-sm"
                   />
                 </div>
+                {selectedTechnique && (
+                  <div className="rounded-lg border border-border/80 bg-muted/35 px-3 py-2.5 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Info className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span className="font-semibold">{selectedTechnique.name}</span>
+                      <span className="ml-auto rounded-full bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+                        {t(`composer.promptTechniqueEffort.${selectedTechnique.effort}`)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-muted-foreground">{selectedTechnique.summary}</p>
+                    <p className="mt-1"><span className="font-medium">{t("composer.promptTechniqueWhen")}: </span>{selectedTechnique.when_to_use}</p>
+                    {selectedTechnique.when_to_avoid && (
+                      <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">{t("composer.promptTechniqueAvoid")}: </span>{selectedTechnique.when_to_avoid}</p>
+                    )}
+                  </div>
+                )}
                 {status === "error" && errorMessage && <p className="text-xs text-destructive">{errorMessage}</p>}
               </div>
             </div>
           </div>
-          <div className="mt-6 flex items-center justify-end gap-3">
-            <span className="mr-auto text-[10px] text-muted-foreground">
-              {t("composer.improvePromptShortcutHint")}
-            </span>
+          <div className="mt-4 flex items-end justify-end gap-3">
+            <div className="mr-auto min-w-0 max-w-sm flex-1">
+              <label htmlFor="prompt-technique" className="mb-1 block text-xs font-medium text-muted-foreground">
+                {t("composer.promptTechniqueLabel")}
+              </label>
+              <div className="flex gap-2">
+                <select
+                  id="prompt-technique"
+                  value={techniqueCode}
+                  onChange={(event) => setTechniqueCode(event.target.value)}
+                  disabled={submitting || techniquesLoading}
+                  className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {categories.map((category) => (
+                    <optgroup key={category} label={t(`composer.promptTechniqueCategories.${category}`)}>
+                      {techniques.filter((item) => item.category === category).map((item) => (
+                        <option key={item.code} value={item.code}>{item.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-10 w-10 shrink-0"
+                  disabled={submitting || recommendingTechnique || !draft.trim()}
+                  onClick={() => void recommendTechnique()}
+                  title={t("composer.promptTechniqueRecommend")}
+                  aria-label={t("composer.promptTechniqueRecommend")}
+                >
+                  {recommendingTechnique ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                </Button>
+              </div>
+              {recommendedTechniqueCode && (
+                <span className="mt-1 block text-[10px] text-primary">
+                  {t("composer.promptTechniqueRecommended")}
+                </span>
+              )}
+              <span className="mt-1 block text-[10px] text-muted-foreground">
+                {t("composer.improvePromptShortcutHint")}
+              </span>
+            </div>
             <Button variant="outline" onClick={onClose} className="min-w-[88px]">
               {t("common:cancel")}
             </Button>

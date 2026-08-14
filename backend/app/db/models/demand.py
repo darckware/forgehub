@@ -8,7 +8,7 @@ api/routes/docs.py's /convert, without needing a demand row.
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Identity, Integer, String, Text, event, false
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Identity, Index, Integer, String, Text, event, false, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -270,8 +270,8 @@ class AgentDemand(Base, TimestampMixin):
     # agente... e o padrão é não" -- reverting 2026-07-27's "every reply
     # routes back regardless of requires_response" back to conditional,
     # now gating creation itself, not just routing). The return message's
-    # own origin_type is "backlog" (informational, not further dispatchable
-    # work) since "demand" no longer exists as a Tipo value.
+    # own origin_type is "task", already terminal and never redispatched;
+    # reply_to_id distinguishes that delivered letter from completed work.
     reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="SET NULL"), nullable=True
     )
@@ -432,6 +432,16 @@ class AgentDemand(Base, TimestampMixin):
         CheckConstraint(
             "origin_type <> 'incubation' OR matures_at IS NOT NULL",
             name="ck_agent_demands_matures_at",
+        ),
+        Index(
+            "ix_agent_demands_dispatch_deadline",
+            "dispatch_deadline_at",
+            postgresql_where=text("dispatch_deadline_at IS NOT NULL"),
+        ),
+        Index(
+            "ix_agent_demands_feedback_owed",
+            "dispatch_status",
+            postgresql_where=text("feedback_sent_at IS NULL"),
         ),
     )
 

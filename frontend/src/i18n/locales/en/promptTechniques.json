@@ -1,0 +1,17 @@
+{
+  "title": "Prompt Technique Catalog",
+  "description": "Browse, search and understand when to use each improvement strategy.",
+  "search": "Search by technique, purpose or context...",
+  "allCategories": "All classifications",
+  "loading": "Loading catalog...",
+  "error": "Could not load the catalog.",
+  "empty": "No techniques found.",
+  "resultCount": "{{count}} technique(s)",
+  "whenToUse": "When to use",
+  "whenToAvoid": "When to avoid",
+  "selectionMode": "Selector use",
+  "version": "Template v{{version}}",
+  "categories": { "text": "Text", "structure": "Structure", "reasoning": "Reasoning", "software": "Software", "agentic": "Agentic", "research": "Research", "content": "Content", "marketing": "Marketing", "social_media": "Social Media", "soft_skills": "Interpersonal Skills", "agent_skills": "Agent Skills", "design": "Product Design", "automation": "Automation", "image": "Image", "video": "Video" },
+  "effort": { "low": "Low effort", "medium": "Medium effort", "high": "High effort", "very_high": "Very high effort" },
+  "selection": { "primary": "Primary", "addon": "Add-on", "both": "Primary or add-on" }
+}

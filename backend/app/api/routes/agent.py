@@ -74,6 +74,8 @@ from app.api.schemas.agent import (
     AgentSkillOut,
     AgentTelegramStatusListOut,
     AgentTelegramStatusOut,
+    AgentTelegramConversationOut,
+    AgentTelegramSendIn,
     AgentUpdate,
     ForgeRouterKeyImportOut,
     ForgeRouterKeySyncAgentOut,
@@ -535,6 +537,97 @@ async def get_agents_telegram_status(
         ],
         check_error=check_error,
     )
+
+
+async def _telegram_conversation(agent: Agent) -> AgentTelegramConversationOut:
+    if not agent.profile_slug:
+        raise HTTPException(status_code=400, detail="This agent has no Hermes profile")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.get(
+            f"{settings.CHAT_BRIDGE_URL}/v1/telegram/{agent.profile_slug}/messages",
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+        )
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Telegram bridge error: {response.text[:500]}",
+        )
+    payload = response.json()
+    return AgentTelegramConversationOut(
+        agent_id=agent.id,
+        agent_name=agent.name,
+        profile_slug=agent.profile_slug,
+        session_id=payload.get("session_id"),
+        chat_id=payload.get("chat_id"),
+        messages=payload.get("messages") or [],
+    )
+
+
+@router.get("/{agent_id}/telegram/messages", response_model=AgentTelegramConversationOut)
+async def get_agent_telegram_messages(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> AgentTelegramConversationOut:
+    """Visible transcript from the agent's latest real Telegram session."""
+    return await _telegram_conversation(await _get_agent_or_404(db, agent_id))
+
+
+@router.post("/{agent_id}/telegram/messages", response_model=AgentTelegramConversationOut)
+async def send_agent_telegram_message(
+    agent_id: uuid.UUID,
+    payload: AgentTelegramSendIn,
+    db: AsyncSession = Depends(get_db),
+) -> AgentTelegramConversationOut:
+    """Continue the agent's Telegram context from ForgeHub and relay its reply.
+
+    Telegram does not let a bot impersonate an inbound human message. The
+    operator prompt is therefore appended by resuming Hermes' actual Telegram
+    session, and the agent's answer is delivered to that same Telegram chat
+    through the agent's own bot.
+    """
+    agent = await _get_agent_or_404(db, agent_id)
+    conversation = await _telegram_conversation(agent)
+    if not conversation.session_id or not conversation.chat_id:
+        raise HTTPException(
+            status_code=409,
+            detail="No Telegram conversation exists yet. Send the agent's bot a message first.",
+        )
+    bridge_headers = {"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
+    async with httpx.AsyncClient(timeout=660.0) as client:
+        response = await client.post(
+            f"{settings.CHAT_BRIDGE_URL}/v1/chat",
+            json={
+                "profile": conversation.profile_slug,
+                "message": payload.message,
+                "session_id": conversation.session_id,
+            },
+            headers=bridge_headers,
+        )
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Agent bridge error: {response.text[:500]}",
+            )
+        reply = response.json().get("reply", "").strip()
+        if not reply:
+            raise HTTPException(status_code=502, detail="Agent returned an empty Telegram reply")
+        sent = await client.post(
+            f"{settings.CHAT_BRIDGE_URL}/v1/messages/send",
+            json={
+                "target": f"telegram:{conversation.chat_id}",
+                "message": reply,
+                "profile": conversation.profile_slug,
+            },
+            headers=bridge_headers,
+        )
+        if sent.status_code != 200:
+            # The Hermes turn has already been committed to the real session.
+            # Returning a normal transcript with a delivery warning prevents
+            # the UI from retrying the whole prompt and generating a duplicate
+            # answer merely because Telegram delivery failed afterward.
+            refreshed = await _telegram_conversation(agent)
+            refreshed.delivery_error = f"Telegram delivery error: {sent.text[:500]}"
+            return refreshed
+    return await _telegram_conversation(agent)
 
 
 # ---------------------------------------------------------------------------

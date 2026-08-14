@@ -760,7 +760,7 @@ async def _dispatch_task_by_id(
 
     if task.status in ("done", "deployed", "cancelled"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Task is already {task.status} and cannot be dispatched",
         )
 

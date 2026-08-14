@@ -8,6 +8,12 @@ Endpoints:
   DELETE /api/v1/servers/{id}       – delete
   POST   /api/v1/servers/import     – bulk CSV import (upsert by name)
   POST   /api/v1/servers/{id}/check – on-demand SSH reachability probe
+  POST   /api/v1/servers/{id}/access:toggle – park/unpark (never deletes a key)
+  GET    /api/v1/servers/{id}/services      – web services registered on it
+  POST   /api/v1/servers/{id}/services      – register one
+  PUT    /api/v1/servers/{id}/services/{sid} – edit one
+  DELETE /api/v1/servers/{id}/services/{sid} – remove one
+  POST   /api/v1/servers/{id}/services:scan – probe common ports (never writes)
   POST   /api/v1/servers/{id}/key:backup   – vault the host's identity file
   PUT    /api/v1/servers/{id}/key          – vault a pasted private key
   POST   /api/v1/servers/{id}/key:restore  – write the vaulted key to the host
@@ -24,6 +30,7 @@ import httpx
 import paramiko
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 # paramiko's Transport runs its handshake in a background thread and logs
 # protocol errors (e.g. probing a non-SSH port) at ERROR level by default --
@@ -34,7 +41,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.server import (
     ServerCheckResult,
+    ServerPortScanEntry,
+    ServerPortScanResult,
+    ServerServiceCreate,
+    ServerServiceOut,
+    ServerServiceUpdate,
     ServerCreate,
+    ServerDetailOut,
     ServerImportRequest,
     ServerImportResult,
     ServerInstallKeyRequest,
@@ -48,7 +61,7 @@ from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
-from app.db.models.server import Server
+from app.db.models.server import Server, ServerService
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/servers", tags=["servers"])
@@ -68,9 +81,9 @@ CHECK_TIMEOUT_SECONDS = 4
 # degraded fallback for when the bridge is down.
 BRIDGE_STATUS_MAP: dict[str, tuple[str, str]] = {
     "active": ("online", "SSH authentication succeeded from the host — ready to use"),
-    "off": ("offline", "Host is unreachable on the SSH port"),
+    "off": ("unreachable", "Host is unreachable on the SSH port"),
     "not_installed": (
-        "no_key",
+        "auth_failed",
         "Host is reachable but SSH key authentication failed (no working key on the host)",
     ),
 }
@@ -108,12 +121,23 @@ async def _check_via_bridge(server: Server) -> tuple[str, str] | None:
     return BRIDGE_STATUS_MAP.get(bridge_status)
 
 
-def _probe_ssh(ip_address: str, port: int, remote_user: str, ssh_key_path: str | None) -> tuple[str, str]:
+def _probe_ssh(
+    ip_address: str,
+    port: int,
+    remote_user: str,
+    ssh_key_path: str | None,
+    passphrase: str | None = None,
+) -> tuple[str, str]:
     """Blocking SSH reachability probe -- run via asyncio.to_thread, never
     directly on the event loop. Returns (status, detail).
 
     Fallback path only: runs inside the backend container, so it cannot see
     the host's default keys -- see _check_via_bridge above.
+
+    `passphrase` is the only place a stored key passphrase is actually used:
+    paramiko takes it as an argument, while the bridge probe and the Workspace
+    terminal both shell out to `ssh`, which cannot be given one without an
+    agent.
     """
     if not ssh_key_path:
         try:
@@ -121,7 +145,7 @@ def _probe_ssh(ip_address: str, port: int, remote_user: str, ssh_key_path: str |
                 pass
             return "no_key", "Port is reachable but no SSH key is configured for this server"
         except OSError as exc:
-            return "offline", f"No SSH key configured, and host is unreachable: {exc}"
+            return "unreachable", f"No SSH key configured, and host is unreachable: {exc}"
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -131,6 +155,7 @@ def _probe_ssh(ip_address: str, port: int, remote_user: str, ssh_key_path: str |
             port=port,
             username=remote_user,
             key_filename=ssh_key_path,
+            passphrase=passphrase,
             timeout=CHECK_TIMEOUT_SECONDS,
             banner_timeout=CHECK_TIMEOUT_SECONDS,
             auth_timeout=CHECK_TIMEOUT_SECONDS,
@@ -138,10 +163,12 @@ def _probe_ssh(ip_address: str, port: int, remote_user: str, ssh_key_path: str |
             allow_agent=False,
         )
         return "online", "SSH connection and key authentication succeeded"
+    except paramiko.PasswordRequiredException:
+        return "auth_failed", "The SSH key is passphrase-protected and no passphrase is on file"
     except paramiko.AuthenticationException:
-        return "offline", "Host is reachable but the configured SSH key was rejected"
+        return "auth_failed", "Host is reachable but the configured SSH key was rejected"
     except FileNotFoundError:
-        return "offline", f"SSH key file not found at {ssh_key_path}"
+        return "key_missing", f"SSH key file not found at {ssh_key_path}"
     except (paramiko.SSHException, socket.error, OSError) as exc:
         return "offline", f"Could not connect: {exc}"
     finally:
@@ -159,19 +186,42 @@ async def create_server(payload: ServerCreate, db: AsyncSession = Depends(get_db
     existing = await db.execute(select(Server).where(Server.name == payload.name))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Server '{payload.name}' already exists")
-    server = Server(**payload.model_dump())
+    fields = payload.model_dump()
+    # Write-only on the schema, encrypted column on the model -- the names
+    # deliberately differ so a plain **fields splat can never persist it raw.
+    passphrase = fields.pop("key_passphrase", None)
+    server = Server(**fields)
+    if passphrase:
+        server.key_passphrase_encrypted = encrypt_secret(passphrase)
     db.add(server)
     await db.commit()
     await db.refresh(server)
     return server
 
 
-@router.get("/{server_id}", response_model=ServerOut)
-async def get_server(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.get("/{server_id}", response_model=ServerDetailOut)
+async def get_server(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """Single-server read, admin-only because it decrypts the key passphrase
+    back out (the list endpoint never does -- it carries the
+    key_passphrase_stored boolean and nothing more). Mirrors how the agent
+    detail route returns forgerouter_api_key."""
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    return server
+    out = ServerDetailOut.model_validate(server)
+    if server.key_passphrase_encrypted:
+        try:
+            out.key_passphrase = decrypt_secret(server.key_passphrase_encrypted)
+        except ValueError:
+            # A rotated JWT_SECRET makes it unreadable; reporting "none" would
+            # be a lie the form would then happily overwrite, so leave it null
+            # and let the stored-flag disagree visibly.
+            out.key_passphrase = None
+    return out
 
 
 @router.put("/{server_id}", response_model=ServerOut)
@@ -179,7 +229,15 @@ async def update_server(server_id: uuid.UUID, payload: ServerUpdate, db: AsyncSe
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    fields = payload.model_dump(exclude_unset=True)
+    if "key_passphrase" in fields:
+        # Present but empty means "clear it"; absent means "leave it alone",
+        # which is the case that matters -- the form never receives the stored
+        # passphrase, so every save that doesn't touch the field must not wipe
+        # it.
+        passphrase = fields.pop("key_passphrase")
+        server.key_passphrase_encrypted = encrypt_secret(passphrase) if passphrase else None
+    for field, value in fields.items():
         setattr(server, field, value)
     await db.commit()
     await db.refresh(server)
@@ -208,15 +266,53 @@ async def check_server_status(server_id: uuid.UUID, db: AsyncSession = Depends(g
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
+    if not server.access_enabled:
+        # Answered without probing anything: a parked server should not cost an
+        # SSH round trip, and reporting it as "offline" would claim something
+        # about the machine that was never checked.
+        return ServerCheckResult(
+            server_id=server.id,
+            status="disabled",
+            detail="Access is turned off in ForgeHub — the key is untouched, turn it back on to use this server",
+        )
 
     bridge_result = await _check_via_bridge(server)
     if bridge_result is not None:
         check_status, detail = bridge_result
     else:
+        passphrase = (
+            decrypt_secret(server.key_passphrase_encrypted)
+            if server.key_passphrase_encrypted
+            else None
+        )
         check_status, detail = await asyncio.to_thread(
-            _probe_ssh, server.ip_address, server.ssh_port, server.remote_user, server.ssh_key_path
+            _probe_ssh,
+            server.ip_address,
+            server.ssh_port,
+            server.remote_user,
+            server.ssh_key_path,
+            passphrase,
         )
     return ServerCheckResult(server_id=server.id, status=check_status, detail=detail)
+
+
+@router.post("/{server_id}/access:toggle", response_model=ServerOut)
+async def toggle_server_access(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Flips access_enabled. A dedicated route rather than a PUT because the
+    row-level icon has no form state to send: a PUT of the whole record from a
+    list row would have to invent values for every other field.
+
+    Nothing is revoked on the server and no key is deleted -- see the column's
+    own note. The point of the switch is to park a machine without dismantling
+    the way back in.
+    """
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    server.access_enabled = not server.access_enabled
+    await db.commit()
+    await db.refresh(server)
+    return server
 
 
 @router.post("/{server_id}/install-key", response_model=ServerInstallKeyResult)
@@ -516,3 +612,205 @@ async def import_servers(payload: ServerImportRequest, db: AsyncSession = Depend
         await db.commit()
 
     return ServerImportResult(created=created, updated=updated, errors=errors)
+
+
+# ---------------------------------------------------------------------------
+# Services -- what runs on a server, and where to open it (2026-08-14).
+#
+# The inventory answered "how do I get a shell" and nothing else, so the ports
+# people actually use every day (a Moodle on :8000, an Adminer on :8080) lived
+# in someone's memory. These routes make that list part of the record, and the
+# scan below makes registering it less blind -- without ever writing a row on
+# its own, since an open port is not a claim about what is behind it.
+# ---------------------------------------------------------------------------
+
+# Ports worth trying when nobody has said what to look for. Deliberately short:
+# a scan is a convenience, and sweeping tens of thousands of ports across a
+# LAN from a web request is a different thing entirely, in both cost and
+# intent.
+COMMON_SERVICE_PORTS: tuple[int, ...] = (
+    80, 443, 3000, 3306, 5000, 5432, 5601, 8000, 8006, 8008, 8080, 8081, 8088,
+    8443, 8888, 9000, 9090, 9443, 15672, 27017,
+)
+# Ports whose traffic is TLS often enough that http:// would just fail. Only a
+# default for the suggested entry -- editable before it is saved.
+HTTPS_PORTS = frozenset({443, 8443, 9443, 8006})
+# Answer TCP but speak their own protocol. Worth reporting (knowing a database
+# is listening is useful), never worth offering as a link.
+NON_WEB_PORTS = frozenset({3306, 5432, 27017})
+PORT_SCAN_TIMEOUT_SECONDS = 1.5
+PORT_SCAN_CONCURRENCY = 20
+
+
+def _service_out(server: Server, service: ServerService) -> ServerServiceOut:
+    """Builds the response, including the `url` the row does not store.
+
+    Constructed field by field rather than model_validate()d from the ORM
+    object: `url` is derived from the *parent* server, so it has no attribute
+    to read off the service, and model_validate would reject the row for a
+    missing required field.
+    """
+    path = service.path or ""
+    return ServerServiceOut(
+        id=service.id,
+        server_id=service.server_id,
+        name=service.name,
+        port=service.port,
+        scheme=service.scheme,
+        path=service.path,
+        description=service.description,
+        url=f"{service.scheme}://{server.ip_address}:{service.port}{path}",
+        created_at=service.created_at,
+        updated_at=service.updated_at,
+    )
+
+
+def _normalise_path(path: str | None) -> str | None:
+    """"admin", "/admin" and "" all mean the same thing to a person typing
+    them; the column stores one of them."""
+    cleaned = (path or "").strip()
+    if not cleaned or cleaned == "/":
+        return None
+    return cleaned if cleaned.startswith("/") else f"/{cleaned}"
+
+
+async def _get_server_or_404(db: AsyncSession, server_id: uuid.UUID) -> Server:
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return server
+
+
+@router.get("/{server_id}/services", response_model=list[ServerServiceOut])
+async def list_server_services(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    server = await _get_server_or_404(db, server_id)
+    result = await db.execute(
+        select(ServerService).where(ServerService.server_id == server_id).order_by(ServerService.port)
+    )
+    return [_service_out(server, s) for s in result.scalars().all()]
+
+
+@router.post("/{server_id}/services", response_model=ServerServiceOut, status_code=status.HTTP_201_CREATED)
+async def create_server_service(
+    server_id: uuid.UUID, payload: ServerServiceCreate, db: AsyncSession = Depends(get_db)
+):
+    server = await _get_server_or_404(db, server_id)
+    service = ServerService(
+        server_id=server_id,
+        name=payload.name.strip(),
+        port=payload.port,
+        scheme=payload.scheme,
+        path=_normalise_path(payload.path),
+        description=(payload.description or "").strip() or None,
+    )
+    db.add(service)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"A service is already registered on port {payload.port} for this path",
+        ) from None
+    await db.refresh(service)
+    return _service_out(server, service)
+
+
+# Nested under the server rather than a flat /services/{id}: the flat form
+# would be matched by PUT /{server_id} first (declared above, and FastAPI takes
+# the first match), so "services" would arrive as a would-be server UUID and
+# 422 before this handler was ever reached.
+@router.put("/{server_id}/services/{service_id}", response_model=ServerServiceOut)
+async def update_server_service(
+    server_id: uuid.UUID,
+    service_id: uuid.UUID,
+    payload: ServerServiceUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    service = await db.get(ServerService, service_id)
+    if not service or service.server_id != server_id:
+        raise HTTPException(status_code=404, detail="Service not found")
+    fields = payload.model_dump(exclude_unset=True)
+    if "path" in fields:
+        fields["path"] = _normalise_path(fields["path"])
+    if "name" in fields and fields["name"]:
+        fields["name"] = fields["name"].strip()
+    for field, value in fields.items():
+        setattr(service, field, value)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Another service already uses that port and path",
+        ) from None
+    await db.refresh(service)
+    server = await _get_server_or_404(db, service.server_id)
+    return _service_out(server, service)
+
+
+@router.delete("/{server_id}/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_server_service(
+    server_id: uuid.UUID, service_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+):
+    service = await db.get(ServerService, service_id)
+    if not service or service.server_id != server_id:
+        raise HTTPException(status_code=404, detail="Service not found")
+    await db.delete(service)
+    await db.commit()
+
+
+async def _port_is_open(ip_address: str, port: int, semaphore: asyncio.Semaphore) -> bool:
+    async with semaphore:
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip_address, port), timeout=PORT_SCAN_TIMEOUT_SECONDS
+            )
+        except (OSError, asyncio.TimeoutError):
+            return False
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except OSError:
+            pass
+        return True
+
+
+@router.post("/{server_id}/services:scan", response_model=ServerPortScanResult)
+async def scan_server_ports(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """TCP-connect scan of a short list of common service ports, plus every
+    port already registered on this server (so an existing entry can be
+    confirmed as still answering).
+
+    Never writes: findings come back flagged with whether they are already
+    registered, and adding one is a separate, deliberate act.
+    """
+    server = await _get_server_or_404(db, server_id)
+    if not server.access_enabled:
+        raise HTTPException(status_code=409, detail="Access to this server is turned off in ForgeHub")
+
+    registered = (
+        await db.execute(select(ServerService.port).where(ServerService.server_id == server_id))
+    ).scalars().all()
+    registered_ports = set(registered)
+    ports = sorted(set(COMMON_SERVICE_PORTS) | registered_ports)
+
+    semaphore = asyncio.Semaphore(PORT_SCAN_CONCURRENCY)
+    results = await asyncio.gather(
+        *(_port_is_open(server.ip_address, port, semaphore) for port in ports)
+    )
+    return ServerPortScanResult(
+        server_id=server.id,
+        scanned=len(ports),
+        open_ports=[
+            ServerPortScanEntry(
+                port=port,
+                scheme="https" if port in HTTPS_PORTS else "http",
+                registered=port in registered_ports,
+                likely_web=port not in NON_WEB_PORTS,
+            )
+            for port, is_open in zip(ports, results)
+            if is_open
+        ],
+    )

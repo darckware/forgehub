@@ -6,6 +6,7 @@ environment) -- _extract_mentions is covered directly as a pure function
 instead, and the rest of this file covers everything reachable without the
 bridge: CRUD, project attach/detach (mutable, not creation-locked), explicit
 member choice, and lightweight channel tasks."""
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -17,7 +18,8 @@ from app.api.routes.channel import _extract_mentions
 from app.core.security import create_access_token, hash_password
 from app.db.base import AsyncSessionLocal, engine
 from app.db.models.agent import Agent
-from app.db.models.channel import ChatChannelMember
+from app.db.models.active_turn import ActiveTurn
+from app.db.models.channel import ChatChannelMember, ChatChannelMessage
 from app.db.models.orchestration import ProjectAgentMembership
 from app.db.models.product import Product, ProductVersion
 from app.db.models.user import User
@@ -176,6 +178,59 @@ async def test_create_channel_with_explicit_members(client: AsyncClient):
     channel = result["channel"]
     agent_ids_in_channel = {m["agent_id"] for m in channel["members"] if not m["is_human"]}
     assert agent_ids_in_channel == {str(_STUB_AGENT_IDS[0]), str(_STUB_AGENT_IDS[1])}
+
+
+async def test_ad_hoc_channel_dispatch_is_executable_without_project_task(
+    client: AsyncClient, monkeypatch
+):
+    """Clicking dispatch is already the promotion to executable work."""
+    from app.api.routes import demand as demand_routes
+    from app.db.models.demand import AgentDemand
+
+    async def fake_dispatch(run_id, agent, prompt, project_path):
+        return {"run_id": run_id, "status": "queued"}
+
+    async def fake_notice(_message):
+        return None
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", fake_dispatch)
+    monkeypatch.setattr(demand_routes, "_send_notice", fake_notice)
+    result = await _create_channel(
+        client,
+        member_agent_ids=[str(_STUB_AGENT_IDS[0])],
+        orchestrator_agent_id=str(_STUB_AGENT_IDS[0]),
+    )
+    channel_id = uuid.UUID(result["channel"]["id"])
+    async with AsyncSessionLocal() as session:
+        message = ChatChannelMessage(
+            channel_id=channel_id,
+            author_type="human",
+            author_label="Marcelo",
+            content="Execute esta tarefa avulsa",
+        )
+        session.add(message)
+        await session.commit()
+        message_id = message.id
+
+    response = await client.post(
+        f"/api/v1/channels/{channel_id}/messages/{message_id}:dispatch-task",
+        json={"agent_id": str(_STUB_AGENT_IDS[0])},
+    )
+    assert response.status_code == 200, response.text
+    demand_id = uuid.UUID(response.json()["triggered_demand_id"])
+    try:
+        async with AsyncSessionLocal() as session:
+            demand = await session.get(AgentDemand, demand_id)
+            assert demand.origin_type == "task"
+            assert demand.origin_id is None
+            assert demand.from_agent_id == _STUB_AGENT_IDS[0]
+            assert demand.dispatch_status == "dispatched"
+    finally:
+        async with AsyncSessionLocal() as session:
+            demand = await session.get(AgentDemand, demand_id)
+            if demand is not None:
+                await session.delete(demand)
+                await session.commit()
 
 
 async def test_create_channel_with_project_suggests_but_does_not_force_members(client: AsyncClient):
@@ -430,9 +485,9 @@ async def test_improve_prompt_requires_orchestrator(client: AsyncClient):
     # not an SSE event: error (that framing only applies once the stream
     # has actually started, i.e. after the orchestrator precondition).
     async with client.stream(
-        "GET",
+        "POST",
         f"/api/v1/channels/{channel_id}/improve-prompt/stream",
-        params={"draft": "oi", "instruction": "mais formal"},
+        json={"draft": "oi", "instruction": "mais formal", "technique_code": "clarity_objectivity"},
     ) as resp:
         assert resp.status_code == 400
         body = "".join([chunk async for chunk in resp.aiter_text()])
@@ -448,7 +503,8 @@ async def test_improve_prompt_rewrites_via_orchestrator(client: AsyncClient, mon
 
     async def fake_bridge_text(profile, message, hermes_session_id):
         assert hermes_session_id is None
-        assert "instrução de melhoria" in message.lower()
+        assert "instrução adicional" in message.lower()
+        assert "clareza e objetividade" in message.lower()
         return {"reply": "Texto melhorado.", "session_id": "unused"}
 
     monkeypatch.setattr(channel_routes, "_call_bridge_text", fake_bridge_text)
@@ -461,9 +517,9 @@ async def test_improve_prompt_rewrites_via_orchestrator(client: AsyncClient, mon
     channel_id = result["channel"]["id"]
 
     async with client.stream(
-        "GET",
+        "POST",
         f"/api/v1/channels/{channel_id}/improve-prompt/stream",
-        params={"draft": "oi pessoal", "instruction": "deixar mais formal"},
+        json={"draft": "oi pessoal", "instruction": "deixar mais formal", "technique_code": "clarity_objectivity"},
     ) as resp:
         assert resp.status_code == 200
         body = "".join([chunk async for chunk in resp.aiter_text()])
@@ -622,6 +678,97 @@ async def test_stream_channel_message_relays_tool_steps_live(client: AsyncClient
     last_step_at = body.rindex("event: agent_step")
     assert body.index('"ok from') > last_step_at
     assert "event: done" in body
+
+
+async def test_channel_turn_finishes_after_its_sse_client_is_gone(client: AsyncClient, monkeypatch):
+    """The detached task, not the response iterator, owns the actual work."""
+    from app.api.routes import channel as channel_routes
+    from app.core import active_turns
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fake_bridge_stream(_bridge_params):
+        yield {"stream_id": "detached-channel-stream"}
+        yield {"delta": "resposta parcial"}
+        started.set()
+        await release.wait()
+        yield {"done": True, "reply": "resposta concluída", "session_id": "fake-session"}
+
+    monkeypatch.setattr(channel_routes, "_iter_bridge_stream", fake_bridge_stream)
+    result = await _create_channel(client, member_agent_ids=[str(_STUB_AGENT_IDS[0])])
+    channel_id = uuid.UUID(result["channel"]["id"])
+
+    # Invoke the route but deliberately never consume response.body_iterator:
+    # this is the server-side equivalent of the browser navigating away.
+    async with AsyncSessionLocal() as db:
+        await channel_routes.stream_channel_message(channel_id, "continue mesmo sem cliente", db=db)
+    await asyncio.wait_for(started.wait(), timeout=2)
+
+    turn = None
+    for _ in range(20):
+        async with AsyncSessionLocal() as db:
+            turn = await active_turns.get_active(db, scope="channel", scope_id=channel_id)
+            recorded = (turn.live_text_by_agent or {}).get(str(_STUB_AGENT_IDS[0])) if turn else None
+        if recorded == "resposta parcial":
+            break
+        await asyncio.sleep(0.05)
+    assert turn is not None
+    assert recorded == "resposta parcial"
+
+    release.set()
+    task = channel_routes._CHANNEL_TASKS_BY_TURN[turn.id]
+    await asyncio.wait_for(asyncio.shield(task), timeout=2)
+
+    async with AsyncSessionLocal() as db:
+        saved = (await db.execute(
+            select(ChatChannelMessage).where(
+                ChatChannelMessage.channel_id == channel_id,
+                ChatChannelMessage.author_agent_id == _STUB_AGENT_IDS[0],
+            )
+        )).scalars().all()
+        finished = await db.get(ActiveTurn, turn.id)
+    assert any(message.content == "resposta concluída" for message in saved)
+    assert finished.status == "completed"
+
+
+async def test_channel_turn_stop_cancels_detached_work_and_keeps_partial_reply(
+    client: AsyncClient, monkeypatch
+):
+    from app.api.routes import channel as channel_routes
+    from app.core import active_turns
+
+    started = asyncio.Event()
+
+    async def fake_bridge_stream(_bridge_params):
+        yield {"stream_id": "stoppable-channel-stream"}
+        yield {"delta": "parte que não pode sumir"}
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(channel_routes, "_iter_bridge_stream", fake_bridge_stream)
+    result = await _create_channel(client, member_agent_ids=[str(_STUB_AGENT_IDS[0])])
+    channel_id = uuid.UUID(result["channel"]["id"])
+    async with AsyncSessionLocal() as db:
+        await channel_routes.stream_channel_message(channel_id, "pare quando eu pedir", db=db)
+    await asyncio.wait_for(started.wait(), timeout=2)
+
+    async with AsyncSessionLocal() as db:
+        turn = await active_turns.get_active(db, scope="channel", scope_id=channel_id)
+    async with AsyncSessionLocal() as db:
+        result = await channel_routes.stop_channel_turn(channel_id, turn.id, db=db)
+    assert result == {"status": "cancelled"}
+
+    async with AsyncSessionLocal() as db:
+        saved = (await db.execute(
+            select(ChatChannelMessage).where(
+                ChatChannelMessage.channel_id == channel_id,
+                ChatChannelMessage.author_agent_id == _STUB_AGENT_IDS[0],
+            )
+        )).scalars().all()
+        stopped = await db.get(ActiveTurn, turn.id)
+    assert stopped.status == "cancelled"
+    assert any("parte que não pode sumir" in message.content for message in saved)
 
 
 async def test_onboarding_note_only_on_first_turn(client: AsyncClient, monkeypatch):

@@ -9,9 +9,11 @@ Hermes CLI itself.
 """
 import asyncio
 import json
+import logging
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 import anyio
@@ -35,14 +37,18 @@ from app.api.schemas.chat import (
     ChatSessionOut,
     ChatSessionUpdate,
 )
+from app.api.schemas.prompt_technique import ImprovePromptRequest
 from app.core import active_turns
 from app.core.config import CHAT_RESPONSE_LANGUAGE_NOTES, settings
-from app.db.base import get_db
+from app.core.prompt_improvement import build_prompt_improvement_request, get_prompt_technique
+from app.db.base import AsyncSessionLocal, get_db
+from app.db.models.active_turn import ActiveTurn
 from app.db.models.agent import Agent
 from app.db.models.chat import ChatArtifact, ChatGroup, ChatMessage, ChatSession, ChatSessionParticipant
 from app.db.models.project import Project
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 TITLE_PREVIEW_LENGTH = 60
 
@@ -75,7 +81,7 @@ async def _get_chattable_agent_or_404(db: AsyncSession, agent_id: uuid.UUID) -> 
     if not agent.profile_slug:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This agent has no Hermes profile and cannot be chatted with",
+            detail="This agent has no profile/runtime configured and cannot be chatted with",
         )
     return agent
 
@@ -107,6 +113,63 @@ _HIDDEN_TURN_CLOSE = "[[/forgehub:contexto-interno]]"
 
 def _wrap_hidden(content: str) -> str:
     return f"{_HIDDEN_TURN_OPEN}\n{content}\n{_HIDDEN_TURN_CLOSE}"
+
+
+async def _conversation_shared_context(
+    db: AsyncSession, session: ChatSession, current_message: str
+) -> str | None:
+    """Build the shared transcript seen by every agent in a Conversation.
+
+    Each participant keeps its own Hermes session. Reinjection is what lets a
+    participant see contributions made by peers since its previous turn while
+    preserving that participant's independent continuity.
+    """
+    participant_count = len((await db.execute(
+        select(ChatSessionParticipant.id).where(ChatSessionParticipant.session_id == session.id)
+    )).scalars().all())
+    if participant_count == 0:
+        return None
+
+    rows = list((await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session.id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(30)
+    )).scalars().all())
+    skipped_current = False
+    visible: list[ChatMessage] = []
+    for row in rows:
+        if row.content.startswith(_HIDDEN_TURN_OPEN):
+            continue
+        if not skipped_current and row.role == "user" and row.content == current_message:
+            skipped_current = True
+            continue
+        visible.append(row)
+    visible.reverse()
+    if not visible:
+        return None
+
+    agent_ids = {row.responding_agent_id for row in visible if row.responding_agent_id}
+    agent_ids.add(session.agent_id)
+    names: dict[uuid.UUID, str] = {}
+    for agent_id in agent_ids:
+        if agent_id is None:
+            continue
+        agent = await db.get(Agent, agent_id)
+        if agent is not None:
+            names[agent_id] = agent.name
+    lines = [
+        "[Contexto interno da conversa multiagente; não repita este bloco na resposta]",
+        "O transcript é compartilhado. Considere as contribuições dos outros agentes e mantenha sua própria continuidade.",
+    ]
+    for row in visible:
+        if row.role == "user":
+            author = "Marcelo"
+        else:
+            author_id = row.responding_agent_id or session.agent_id
+            author = names.get(author_id, "Agente")
+        lines.append(f"{author}: {row.content}")
+    return "\n".join(lines)
 
 
 @router.get("/language")
@@ -411,13 +474,14 @@ async def get_session_active_turn(
     rodando" é a resposta normal e mais comum, não um erro.
     """
     await _get_session_or_404(db, session_id)
-    turn = await active_turns.get_active(db, scope="chat", scope_id=session_id)
-    if turn is None:
-        return {"turn": None}
-    await active_turns.mark_reattached(db, turn.id)
+    turns = await active_turns.get_active_all(db, scope="chat", scope_id=session_id)
+    if not turns:
+        return {"turn": None, "turns": []}
+    for turn in turns:
+        await active_turns.mark_reattached(db, turn.id)
     await db.commit()
-    return {
-        "turn": {
+    serialized = [
+        {
             "id": str(turn.id),
             "stream_id": turn.stream_id,
             "prompt": turn.prompt,
@@ -428,7 +492,9 @@ async def get_session_active_turn(
             "started_at": turn.created_at.isoformat(),
             "deadline_at": turn.deadline_at.isoformat() if turn.deadline_at else None,
         }
-    }
+        for turn in turns
+    ]
+    return {"turn": serialized[0], "turns": serialized}
 
 
 @router.get("/sessions/{session_id}/messages", response_model=list[ChatMessageOut])
@@ -596,6 +662,359 @@ async def exec_chat_command(
 # --------------------------------------------------------------------------
 
 
+# Turns detached from the request that started them (2026-08-14, see
+# `_run_chat_turn`'s docstring for why) still need a strong reference kept
+# somewhere, or asyncio is free to garbage-collect a Task nothing is holding
+# onto -- silently ending the turn mid-run with no error anywhere. Discarded
+# by the task's own done-callback once it finishes either way.
+_LIVE_CHAT_TASKS: set[asyncio.Task] = set()
+_CHAT_AGENT_LOCKS: dict[tuple[uuid.UUID, uuid.UUID], asyncio.Lock] = {}
+_CHAT_PARTICIPANT_LOCKS: dict[tuple[uuid.UUID, uuid.UUID], asyncio.Lock] = {}
+
+
+def _chat_agent_lock(session_id: uuid.UUID, agent_id: uuid.UUID) -> asyncio.Lock:
+    return _CHAT_AGENT_LOCKS.setdefault((session_id, agent_id), asyncio.Lock())
+
+
+def _content_from_turn(turn: "ActiveTurn") -> str | None:
+    """Same shape as `_run_chat_turn`'s in-memory `_interrupted_turn_content`,
+    read from the ActiveTurn row instead of local variables -- what the Stop
+    route uses, since it never had those variables in the first place (the
+    turn it is stopping runs inside a different coroutine entirely)."""
+    parts: list[str] = []
+    if turn.steps:
+        labels = [s.get("label") or s.get("name") for s in turn.steps if s.get("label") or s.get("name")]
+        unique_labels = list(dict.fromkeys(labels))
+        if unique_labels:
+            parts.append(
+                "⚠️ Turno interrompido antes de concluir. Etapas executadas:\n"
+                + "\n".join(f"- {s}" for s in unique_labels)
+            )
+    partial = (turn.live_text or "").strip()
+    if partial:
+        parts.append(partial)
+    return "\n\n".join(parts) or None
+
+
+async def _run_chat_turn(
+    *,
+    session_id: uuid.UUID,
+    participant_id: uuid.UUID | None,
+    target_agent_id: uuid.UUID,
+    message: str,
+    bridge_params: dict,
+    hidden: bool,
+    stream_started_at: float,
+    out_queue: "asyncio.Queue[str | None]",
+) -> None:
+    """Drives one chat turn against the host-bridge to completion, entirely
+    independent of the browser connection that asked for it.
+
+    Runs as a free-standing asyncio.Task (see the route below), with its own
+    DB session -- never the request's -- because the request's session is
+    torn down once the HTTP response it belongs to finishes, and this task
+    must keep running well past that point.
+
+    Why it has to: a browser tab navigating to another screen, being
+    reloaded, or simply losing its connection ends the HTTP response, and
+    Starlette cancels whatever async generator was feeding it. When this
+    logic used to run *inside* that generator, the cancellation reached all
+    the way down through the httpx stream to the host-bridge and killed the
+    agent's subprocess (2026-08-14, Marcelo: "ao sair do chat para abrir uma
+    outra tela... ao retornar não apareceu nenhum processo" -- the very
+    machinery built to survive a reload or a crash, `ActiveTurn`/reattach,
+    was undone by the one thing it exists to survive). Since this function is
+    never awaited by the route -- only queued as a task and left alone -- a
+    disconnect cannot reach it. It is the chat's tmux: it keeps going, and a
+    reconnect finds it exactly as the Terminal finds a detached session.
+
+    Every event is also pushed onto `out_queue` for whichever browser
+    connection happens to be listening right now; `None` is the sentinel
+    that tells that connection's generator the turn is over (successfully or
+    not) so it can end its own response instead of hanging forever.
+    """
+    accumulated: list[str] = []
+    turn_id: uuid.UUID | None = None
+    created_paths: list[str] = []
+    steps_run: list[str] = []
+
+    def _interrupted_turn_content() -> str | None:
+        parts: list[str] = []
+        if steps_run:
+            unique_steps = list(dict.fromkeys(steps_run))
+            parts.append(
+                "⚠️ Turno interrompido antes de concluir. Etapas executadas:\n"
+                + "\n".join(f"- {s}" for s in unique_steps)
+            )
+        partial = "".join(accumulated).strip()
+        if partial:
+            parts.append(partial)
+        return "\n\n".join(parts) or None
+
+    async def _persist_reply(db: AsyncSession, content: str) -> None:
+        db.add(ChatMessage(
+            session_id=session_id,
+            role="assistant",
+            content=_wrap_hidden(content) if hidden else content,
+            responding_agent_id=target_agent_id,
+            thinking_seconds=round(time.monotonic() - stream_started_at),
+        ))
+
+    lane_lock = _chat_agent_lock(session_id, target_agent_id)
+    lane_acquired = False
+    try:
+        # One Hermes session is a linear conversation. Messages addressed to
+        # different agents use different lanes and therefore execute in
+        # parallel; several messages for this same agent wait here and resume
+        # the session produced by the previous turn instead of forking it.
+        await lane_lock.acquire()
+        lane_acquired = True
+        async with AsyncSessionLocal() as db:
+            effective_bridge_params = dict(bridge_params)
+            effective_bridge_params.pop("session_id", None)
+            if participant_id is not None:
+                participant = await db.get(ChatSessionParticipant, participant_id)
+                if participant is not None and participant.hermes_session_id:
+                    effective_bridge_params["session_id"] = participant.hermes_session_id
+            else:
+                fresh_session = await db.get(ChatSession, session_id)
+                if fresh_session is not None and fresh_session.hermes_session_id:
+                    effective_bridge_params["session_id"] = fresh_session.hermes_session_id
+            try:
+                async with httpx.AsyncClient(timeout=660.0) as client:
+                    async with client.stream(
+                        "GET",
+                        f"{settings.CHAT_BRIDGE_URL}/v1/chat/stream",
+                        params=effective_bridge_params,
+                        headers=_bridge_headers(),
+                    ) as resp:
+                        if resp.status_code != 200:
+                            body = await resp.aread()
+                            await out_queue.put(f'data: {json.dumps({"error": body.decode()[:200]})}\n\n')
+                            return
+
+                        async for line in resp.aiter_lines():
+                            if not line.startswith("data:"):
+                                # SSE comment = keepalive ping from the bridge
+                                # (agent thinking silently). Forward it so the
+                                # browser<->backend hops don't idle out either;
+                                # the frontend ignores non-"data:" lines.
+                                if line.startswith(":"):
+                                    await out_queue.put(": ping\n\n")
+                                continue
+                            raw = line[5:].strip()
+                            data = json.loads(raw)
+
+                            if data.get("error"):
+                                await out_queue.put(f"data: {raw}\n\n")
+                                # The bridge itself reported failure mid-stream --
+                                # previously left the ActiveTurn row "running"
+                                # forever (only the 20-minute sweep would ever
+                                # close it). Close it now, same as every other
+                                # non-`done` ending.
+                                if turn_id is not None:
+                                    closed = await active_turns.close_turn(
+                                        db, turn_id, status="failed", error=str(data["error"])[:2000],
+                                    )
+                                    if closed:
+                                        content = _interrupted_turn_content()
+                                        if content:
+                                            await _persist_reply(db, content)
+                                    await db.commit()
+                                return
+
+                            if data.get("done"):
+                                full_reply = data.get("reply") or "".join(accumulated)
+                                new_hsid = data.get("session_id")
+                                await _persist_reply(db, full_reply)
+                                for path in dict.fromkeys(created_paths):  # de-dupe, keep order
+                                    db.add(
+                                        ChatArtifact(
+                                            session_id=session_id,
+                                            path=path,
+                                            name=os.path.basename(path.rstrip("/")) or path,
+                                        )
+                                    )
+                                if new_hsid:
+                                    if participant_id is not None:
+                                        participant = await db.get(ChatSessionParticipant, participant_id)
+                                        if participant is not None:
+                                            participant.hermes_session_id = new_hsid
+                                    else:
+                                        session = await db.get(ChatSession, session_id)
+                                        if session is not None:
+                                            session.hermes_session_id = new_hsid
+                                if turn_id is not None:
+                                    await active_turns.close_turn(db, turn_id, status="completed")
+                                await db.commit()
+                                await out_queue.put(f'data: {json.dumps({"done": True})}\n\n')
+                                return
+
+                            # O primeiro evento com stream_id é o que torna este
+                            # turno encontrável por quem reconectar -- o
+                            # equivalente ao `tmux new-session` do terminal. Antes
+                            # disso não há o que re-anexar.
+                            if turn_id is None and data.get("stream_id"):
+                                turn = await active_turns.open_turn(
+                                    db,
+                                    scope="chat",
+                                    scope_id=session_id,
+                                    stream_id=str(data["stream_id"]),
+                                    prompt=message,
+                                    agent_id=target_agent_id,
+                                    hidden=hidden,
+                                    supersede_existing=False,
+                                )
+                                turn_id = turn.id
+                                await db.commit()
+                                # Only thing the browser needs from this line --
+                                # it is what lets a live tab's Stop button target
+                                # this specific turn (see stop_chat_turn below).
+                                await out_queue.put(f'data: {json.dumps({"turn_id": str(turn_id)})}\n\n')
+
+                            tool_start = data.get("tool_start")
+                            if isinstance(tool_start, dict):
+                                step = tool_start.get("context") or tool_start.get("name")
+                                if step:
+                                    steps_run.append(str(step))
+                                if turn_id is not None:
+                                    await active_turns.record_step(
+                                        db,
+                                        turn_id,
+                                        {
+                                            "id": tool_start.get("id") or str(uuid.uuid4()),
+                                            "name": tool_start.get("name"),
+                                            "label": tool_start.get("context") or tool_start.get("name"),
+                                            "status": "running",
+                                        },
+                                        agent_id=target_agent_id,
+                                    )
+                                    await db.commit()
+
+                            # Uma aprovação no meio do turno é particularidade do
+                            # chat: sem gravá-la, quem reconecta não vê o pedido e
+                            # o turno espera para sempre por uma resposta que a
+                            # tela nunca pede.
+                            approval_request = data.get("approval_request")
+                            if isinstance(approval_request, dict) and turn_id is not None:
+                                await active_turns.set_pending_approval(db, turn_id, approval_request)
+                                await db.commit()
+
+                            tool_complete = data.get("tool_complete")
+                            if isinstance(tool_complete, dict) and tool_complete.get("path"):
+                                created_paths.append(tool_complete["path"])
+
+                            delta = data.get("delta", "")
+                            accumulated.append(delta)
+                            if delta and turn_id is not None:
+                                await active_turns.record_text(db, turn_id, delta)
+                                await db.commit()
+                            await out_queue.put(f"data: {raw}\n\n")
+
+                        # Bridge stream closed without a done/error event (the
+                        # agent subprocess died, the bridge connection broke, or
+                        # this is the natural end of an explicit Stop: killing
+                        # the subprocess closes the bridge's own stream the same
+                        # way). The processing the user watched (partial text,
+                        # tool steps) counts as the response -- persist it
+                        # instead of dropping it, and tell the client explicitly;
+                        # a silent close makes the in-flight turn vanish with no
+                        # trace.
+                        closed = True
+                        if turn_id is not None:
+                            closed = await active_turns.close_turn(
+                                db, turn_id, status="failed",
+                                error="O stream terminou sem concluir (o processo do agente caiu ou a ponte fechou).",
+                            )
+                        # Only the caller that actually transitioned the row
+                        # persists a message -- stop_chat_turn may have already
+                        # closed it (and written its own partial message) a
+                        # moment before this loop noticed the stream end.
+                        if closed:
+                            content = _interrupted_turn_content()
+                            if content:
+                                await _persist_reply(db, content)
+                        await db.commit()
+                        await out_queue.put(f'data: {json.dumps({"error": "agent stream ended unexpectedly"})}\n\n')
+
+            except asyncio.CancelledError:
+                # Reachable only if this task is cancelled directly (e.g. a
+                # server shutdown) -- a browser disconnecting no longer does
+                # this, see the route below. Persist whatever was generated so
+                # far instead of silently losing it, same as every other
+                # non-`done` ending. shield=True: an unshielded commit here
+                # would itself be cut off mid-flight by the same cancellation.
+                with anyio.CancelScope(shield=True):
+                    closed = True
+                    if turn_id is not None:
+                        closed = await active_turns.close_turn(db, turn_id, status="cancelled")
+                    if closed:
+                        content = _interrupted_turn_content()
+                        if content:
+                            await _persist_reply(db, content)
+                    await db.commit()
+                raise
+            except Exception as exc:
+                await out_queue.put(f'data: {json.dumps({"error": str(exc)})}\n\n')
+    finally:
+        if lane_acquired:
+            lane_lock.release()
+        # Sentinel: guaranteed even on an exception above, so a live tap never
+        # waits forever on a turn that has, one way or another, ended.
+        await out_queue.put(None)
+
+
+@router.post("/sessions/{session_id}/turns/{turn_id}/stop")
+async def stop_chat_turn(
+    session_id: uuid.UUID, turn_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Ends a running turn on purpose -- the Stop button's actual mechanism
+    now that a turn no longer dies when the browser disconnects (see
+    `_run_chat_turn`'s docstring). Before that change, "Stop" and "navigated
+    away" were the same event from the backend's point of view: whichever one
+    happened, the connection dropped and everything downstream died with it.
+    Now the two have to be told apart on purpose, and this route is the
+    "on purpose" one.
+
+    Kills the underlying CLI process via the bridge (best-effort: if the
+    bridge is unreachable or the process already finished, the row is still
+    closed below, since the caller's actual goal -- stop waiting on this
+    turn -- is satisfied either way) and persists whatever the agent had
+    produced so far, from the ActiveTurn row itself rather than from any
+    in-flight request's local state.
+    """
+    turn = await db.get(ActiveTurn, turn_id)
+    if turn is None or turn.scope != "chat" or turn.scope_id != session_id:
+        raise HTTPException(status_code=404, detail="No such turn")
+    if turn.status != "running":
+        return {"status": turn.status}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                f"{settings.CHAT_BRIDGE_URL}/v1/chat/stop",
+                json={"stream_id": turn.stream_id},
+                headers=_bridge_headers(),
+            )
+    except httpx.HTTPError:
+        pass
+
+    content = _content_from_turn(turn)
+    hidden = turn.hidden
+    target_agent_id = turn.agent_id
+    closed = await active_turns.close_turn(db, turn_id, status="cancelled")
+    if closed and content:
+        db.add(ChatMessage(
+            session_id=session_id,
+            role="assistant",
+            content=_wrap_hidden(content) if hidden else content,
+            responding_agent_id=target_agent_id,
+            thinking_seconds=round((datetime.now(timezone.utc) - turn.created_at).total_seconds()),
+        ))
+    await db.commit()
+    return {"status": "cancelled"}
+
+
 @router.get("/sessions/{session_id}/messages/stream")
 async def stream_chat_message(
     session_id: uuid.UUID,
@@ -633,18 +1052,26 @@ async def stream_chat_message(
 
     participant: ChatSessionParticipant | None = None
     if target_agent_id is not None:
-        result = await db.execute(
-            select(ChatSessionParticipant).where(
-                ChatSessionParticipant.session_id == session.id,
-                ChatSessionParticipant.agent_id == target_agent_id,
-            )
+        # Two simultaneous first messages to the same secondary agent must
+        # converge on one participant row. The database uniqueness constraint
+        # remains the last line of defence; this lock avoids turning that
+        # normal UI gesture into an IntegrityError.
+        participant_lock = _CHAT_PARTICIPANT_LOCKS.setdefault(
+            (session.id, target_agent_id), asyncio.Lock()
         )
-        participant = result.scalar_one_or_none()
-        if participant is None:
-            participant = ChatSessionParticipant(session_id=session.id, agent_id=target_agent_id)
-            db.add(participant)
-            await db.commit()
-            await db.refresh(participant)
+        async with participant_lock:
+            result = await db.execute(
+                select(ChatSessionParticipant).where(
+                    ChatSessionParticipant.session_id == session.id,
+                    ChatSessionParticipant.agent_id == target_agent_id,
+                )
+            )
+            participant = result.scalar_one_or_none()
+            if participant is None:
+                participant = ChatSessionParticipant(session_id=session.id, agent_id=target_agent_id)
+                db.add(participant)
+                await db.commit()
+                await db.refresh(participant)
 
     user_msg: ChatMessage | None = None
     if not regenerate and not skip_user_message:
@@ -670,12 +1097,24 @@ async def stream_chat_message(
     # Response-language note rides along the same hidden way (agent call
     # only, never persisted with the user's message).
     bridge_message = _with_language_note(bridge_message)
+    bridge_message = (
+        f"{bridge_message}\n\n"
+        "[Roteamento interno ForgeHub: ao delegar com send_agent_message, "
+        "use channel='workspace' e "
+        f"channel_ref='{session.id}' para o resultado voltar a esta conversa.]"
+    )
+
+    shared_context = await _conversation_shared_context(db, session, message)
+    if shared_context:
+        bridge_message = f"{shared_context}\n\nMensagem atual para você:\n{bridge_message}"
 
     # Voice mode takes the fast ForgeRouter direct path (raw history, no tools,
     # ~2s first token) -- text mode takes the subprocess path (real hermes chat
     # session, full tool-calling) by omitting `history` and resuming via
     # `session_id`, same as the non-streaming /messages endpoint above.
-    bridge_params = {"profile": agent.profile_slug, "message": bridge_message}
+    bridge_params: dict[str, str] = {"profile": agent.profile_slug, "message": bridge_message}
+    if agent.runtime_type and agent.runtime_type != "hermes":
+        bridge_params["runtime"] = agent.runtime_type
     if voice:
         history_result = await db.execute(
             select(ChatMessage)
@@ -696,221 +1135,64 @@ async def stream_chat_message(
     if not voice and session.working_directory_path:
         bridge_params["cwd"] = session.working_directory_path
 
-    accumulated: list[str] = []
-    # Id do registro deste turno (core/active_turns). Só existe depois que o
-    # bridge informa o stream_id: antes disso não há execução para re-anexar.
-    turn_id: uuid.UUID | None = None
-    created_paths: list[str] = []
-    # Tool steps the agent ran this turn ("Running sleep 45", ...). If the
-    # stream breaks before `done`, this processing activity IS the response
-    # the user watched -- it gets persisted (see the interrupted-turn
-    # handling below) instead of vanishing with the connection.
-    steps_run: list[str] = []
-    # Powers the "Pensou por mm:ss" label -- wall-clock from opening the
-    # bridge stream to the agent's "done" (or a Stop-button cancellation).
-    stream_started_at = time.monotonic()
+    # From here on the actual work is detached (see _run_chat_turn): a
+    # background task drives the bridge call and persistence to completion no
+    # matter what this specific HTTP connection does. This route's only job
+    # left is to launch it and tap its output for as long as a browser is
+    # actually listening.
+    queue: "asyncio.Queue[str | None]" = asyncio.Queue()
+    task = asyncio.create_task(
+        _run_chat_turn(
+            session_id=session.id,
+            participant_id=participant.id if participant is not None else None,
+            target_agent_id=agent.id,
+            message=message,
+            bridge_params=bridge_params,
+            hidden=hidden,
+            stream_started_at=time.monotonic(),
+            out_queue=queue,
+        )
+    )
+    _LIVE_CHAT_TASKS.add(task)
 
-    def _interrupted_turn_content() -> str | None:
-        """Assistant-message content for a turn that ended before `done`:
-        the partial text plus the tool steps the user watched run -- that
-        processing activity counts as the response. None when the turn
-        produced nothing at all."""
-        parts: list[str] = []
-        if steps_run:
-            unique_steps = list(dict.fromkeys(steps_run))
-            parts.append(
-                "⚠️ Turno interrompido antes de concluir. Etapas executadas:\n"
-                + "\n".join(f"- {s}" for s in unique_steps)
-            )
-        partial = "".join(accumulated).strip()
-        if partial:
-            parts.append(partial)
-        return "\n\n".join(parts) or None
+    def _log_turn_failure(finished: asyncio.Task) -> None:
+        _LIVE_CHAT_TASKS.discard(finished)
+        if finished.cancelled():
+            return
+        exc = finished.exception()
+        if exc is not None:
+            logger.exception("Chat turn task for session %s failed", session_id, exc_info=exc)
 
-    async def proxy_stream():
+    task.add_done_callback(_log_turn_failure)
+
+    async def _tap():
         try:
-            async with httpx.AsyncClient(timeout=660.0) as client:
-                async with client.stream(
-                    "GET",
-                    f"{settings.CHAT_BRIDGE_URL}/v1/chat/stream",
-                    params=bridge_params,
-                    headers=_bridge_headers(),
-                ) as resp:
-                    if resp.status_code != 200:
-                        body = await resp.aread()
-                        yield f'data: {json.dumps({"error": body.decode()[:200]})}\n\n'
-                        return
-
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data:"):
-                            # SSE comment = keepalive ping from the bridge
-                            # (agent thinking silently). Forward it so the
-                            # browser<->backend hops don't idle out either;
-                            # the frontend ignores non-"data:" lines.
-                            if line.startswith(":"):
-                                yield ": ping\n\n"
-                            continue
-                        raw = line[5:].strip()
-                        data = json.loads(raw)
-
-                        if data.get("error"):
-                            yield f"data: {raw}\n\n"
-                            return
-
-                        if data.get("done"):
-                            # Persist assistant message and update hermes session id
-                            full_reply = data.get("reply") or "".join(accumulated)
-                            new_hsid = data.get("session_id")
-                            asst_msg = ChatMessage(
-                                session_id=session.id,
-                                role="assistant",
-                                content=_wrap_hidden(full_reply) if hidden else full_reply,
-                                responding_agent_id=target_agent_id,
-                                thinking_seconds=round(time.monotonic() - stream_started_at),
-                            )
-                            db.add(asst_msg)
-                            for path in dict.fromkeys(created_paths):  # de-dupe, keep order
-                                db.add(
-                                    ChatArtifact(
-                                        session_id=session.id,
-                                        path=path,
-                                        name=os.path.basename(path.rstrip("/")) or path,
-                                    )
-                                )
-                            if new_hsid:
-                                if participant is not None:
-                                    participant.hermes_session_id = new_hsid
-                                else:
-                                    session.hermes_session_id = new_hsid
-                            if turn_id is not None:
-                                await active_turns.close_turn(db, turn_id, status="completed")
-                            await db.commit()
-                            yield f'data: {json.dumps({"done": True})}\n\n'
-                            return
-
-                        # O primeiro evento com stream_id é o que torna este
-                        # turno encontrável por quem reconectar -- o
-                        # equivalente ao `tmux new-session` do terminal. Antes
-                        # disso não há o que re-anexar.
-                        if turn_id is None and data.get("stream_id"):
-                            turn = await active_turns.open_turn(
-                                db,
-                                scope="chat",
-                                scope_id=session.id,
-                                stream_id=str(data["stream_id"]),
-                                prompt=message,
-                                agent_id=target_agent_id,
-                            )
-                            turn_id = turn.id
-                            await db.commit()
-
-                        tool_start = data.get("tool_start")
-                        if isinstance(tool_start, dict):
-                            step = tool_start.get("context") or tool_start.get("name")
-                            if step:
-                                steps_run.append(str(step))
-                            if turn_id is not None:
-                                await active_turns.record_step(
-                                    db,
-                                    turn_id,
-                                    {
-                                        "id": tool_start.get("id") or str(uuid.uuid4()),
-                                        "name": tool_start.get("name"),
-                                        "label": tool_start.get("context") or tool_start.get("name"),
-                                        "status": "running",
-                                    },
-                                    agent_id=target_agent_id,
-                                )
-                                await db.commit()
-
-                        # Uma aprovação no meio do turno é particularidade do
-                        # chat: sem gravá-la, quem reconecta não vê o pedido e
-                        # o turno espera para sempre por uma resposta que a
-                        # tela nunca pede.
-                        approval_request = data.get("approval_request")
-                        if isinstance(approval_request, dict) and turn_id is not None:
-                            await active_turns.set_pending_approval(db, turn_id, approval_request)
-                            await db.commit()
-
-                        tool_complete = data.get("tool_complete")
-                        if isinstance(tool_complete, dict) and tool_complete.get("path"):
-                            created_paths.append(tool_complete["path"])
-
-                        delta = data.get("delta", "")
-                        accumulated.append(delta)
-                        if delta and turn_id is not None:
-                            await active_turns.record_text(db, turn_id, delta)
-                            await db.commit()
-                        yield f"data: {raw}\n\n"
-
-                    # Bridge stream closed without a done/error event (the
-                    # agent subprocess died or the bridge connection broke).
-                    # The processing the user watched (partial text, tool
-                    # steps) counts as the response -- persist it instead of
-                    # dropping it, and tell the client explicitly; a silent
-                    # close makes the in-flight turn vanish with no trace.
-                    # O turno acabou sem `done`: fecha o registro como falho
-                    # para não ficar "rodando" para sempre e fazer todo
-                    # reconecte esperar por um stream sem produtor.
-                    if turn_id is not None:
-                        await active_turns.close_turn(
-                            db, turn_id, status="failed",
-                            error="O stream terminou sem concluir (o processo do agente caiu ou a ponte fechou).",
-                        )
-                        await db.commit()
-                    content = _interrupted_turn_content()
-                    if content:
-                        asst_msg = ChatMessage(
-                            session_id=session.id,
-                            role="assistant",
-                            content=_wrap_hidden(content) if hidden else content,
-                            responding_agent_id=target_agent_id,
-                            thinking_seconds=round(time.monotonic() - stream_started_at),
-                        )
-                        db.add(asst_msg)
-                        await db.commit()
-                    yield f'data: {json.dumps({"error": "agent stream ended unexpectedly"})}\n\n'
-
+            while True:
+                item = await queue.get()
+                if item is None:
+                    return
+                yield item
         except asyncio.CancelledError:
-            # Client aborted (Stop button / tab closed) -- the httpx stream
-            # to the bridge is torn down as this propagates, which closes
-            # the bridge's connection and lets its own finally block kill
-            # the underlying hermes_stream.py subprocess. Persist whatever
-            # was generated so far instead of silently losing it, same as a
-            # normal turn's assistant message. The enclosing cancel scope
-            # keeps injecting CancelledError at every await checkpoint
-            # (confirmed: an unshielded `await db.commit()` here gets cut
-            # off mid-flight and nothing is saved) -- shield=True is
-            # required to let this specific write actually complete.
-            if turn_id is not None:
-                await active_turns.close_turn(db, turn_id, status="cancelled")
-                await db.commit()
-            cancelled_content = _interrupted_turn_content()
-            if cancelled_content:
-                with anyio.CancelScope(shield=True):
-                    asst_msg = ChatMessage(
-                        session_id=session.id,
-                        role="assistant",
-                        content=_wrap_hidden(cancelled_content) if hidden else cancelled_content,
-                        responding_agent_id=target_agent_id,
-                        thinking_seconds=round(time.monotonic() - stream_started_at),
-                    )
-                    db.add(asst_msg)
-                    await db.commit()
+            # The browser disconnected -- navigated away, closed the tab, or
+            # aborted the fetch. `task` above was never awaited from inside
+            # this generator (only queued), so this cancellation has no way
+            # to reach it: it keeps running on its own and finishes normally,
+            # exactly like a detached tmux session. Re-raise so Starlette can
+            # tear down this one HTTP response; there is nothing left to
+            # persist here, that is entirely `_run_chat_turn`'s job now.
             raise
-        except Exception as exc:
-            yield f'data: {json.dumps({"error": str(exc)})}\n\n'
 
     return StreamingResponse(
-        proxy_stream(),
+        _tap(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
-@router.get("/sessions/{session_id}/improve-prompt/stream")
+
+@router.post("/sessions/{session_id}/improve-prompt/stream")
 async def stream_improve_prompt(
-    session_id: uuid.UUID, draft: str, instruction: str, db: AsyncSession = Depends(get_db)
+    session_id: uuid.UUID, payload: ImprovePromptRequest, db: AsyncSession = Depends(get_db)
 ) -> StreamingResponse:
     """Asks this session's own agent to rewrite a draft message per an
     improvement instruction -- ported from channel.py's
@@ -928,14 +1210,16 @@ async def stream_improve_prompt(
     _call_bridge_text)."""
     session = await _get_session_or_404(db, session_id)
     agent = await _get_chattable_agent_or_404(db, session.agent_id)
+    technique = await get_prompt_technique(db, payload.technique_code)
 
-    prompt = (
-        f'Você é o agente "{agent.name}" no ForgeHub. O usuário está rascunhando uma mensagem para '
-        f"você e pediu sua ajuda para melhorá-la.\n\n"
-        f"Rascunho atual:\n---\n{draft}\n---\n\n"
-        f"Instrução de melhoria: {instruction}\n\n"
-        f"Responda APENAS com o texto melhorado da mensagem, pronto para ser enviado -- sem comentários, "
-        f"sem explicações, sem aspas ao redor do texto."
+    prompt = build_prompt_improvement_request(
+        actor_context=(
+            f'Você é o agente "{agent.name}" no ForgeHub. O usuário está rascunhando uma mensagem '
+            "e pediu sua ajuda para melhorá-la."
+        ),
+        draft=payload.draft,
+        instruction=payload.instruction,
+        technique=technique,
     )
 
     async def _events() -> AsyncIterator[str]:

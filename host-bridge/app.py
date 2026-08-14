@@ -37,6 +37,7 @@ import shlex
 import shutil
 import signal
 import socket
+import sqlite3
 import struct
 import subprocess
 import tarfile
@@ -2083,6 +2084,65 @@ class MessageSendRequest(BaseModel):
     profile: str | None = None
 
 
+@app.get("/v1/telegram/{profile}/messages")
+async def telegram_messages(
+    profile: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Read the visible transcript of a profile's latest Telegram chat.
+
+    Hermes' own state database remains authoritative. Only active user and
+    assistant text is exposed; tool calls, reasoning and configuration never
+    cross this boundary.
+    """
+    _check_token(x_bridge_token)
+    if not _is_valid_profile(profile):
+        raise HTTPException(status_code=404, detail=f"No Hermes profile named {profile!r}")
+    state_db = PROFILES_DIR / profile / "state.db"
+    if not state_db.is_file():
+        return {"profile": profile, "session_id": None, "chat_id": None, "messages": []}
+
+    try:
+        with sqlite3.connect(f"file:{state_db}?mode=ro", uri=True, timeout=5) as conn:
+            conn.row_factory = sqlite3.Row
+            session = conn.execute(
+                """
+                SELECT id, chat_id
+                FROM sessions
+                WHERE source = 'telegram' AND chat_id IS NOT NULL
+                ORDER BY COALESCE(last_activity_at, started_at) DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if session is None:
+                return {"profile": profile, "session_id": None, "chat_id": None, "messages": []}
+            rows = conn.execute(
+                """
+                SELECT id, role, content, timestamp, platform_message_id
+                FROM messages
+                WHERE session_id = ?
+                  AND active = 1
+                  AND role IN ('user', 'assistant')
+                  AND content IS NOT NULL
+                  AND trim(content) != ''
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ?
+                """,
+                (session["id"], limit),
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read Telegram history: {exc}") from exc
+
+    messages = [dict(row) for row in reversed(rows)]
+    return {
+        "profile": profile,
+        "session_id": session["id"],
+        "chat_id": session["chat_id"],
+        "messages": messages,
+    }
+
+
 @app.post("/v1/messages/send")
 async def send_message(
     req: MessageSendRequest, x_bridge_token: str | None = Header(default=None)
@@ -2188,6 +2248,269 @@ async def _direct_stream(profile: str, message: str, history: list) -> Streaming
     )
 
 
+# ---------------------------------------------------------------------------
+# Chat for the external CLI runtimes (2026-08-14).
+#
+# /v1/chat/stream only ever spoke Hermes: it validated `profile` against
+# /root/.hermes/profiles and ran hermes_cli. Aramis (codex), Dartan (agy),
+# Vector (openclaw) and Porthus (claude) are not Hermes profiles, so every
+# chat turn addressed to them died on "Unknown profile" -- the Workspace
+# offered a conversation that could never happen.
+#
+# Each CLI already has a one-shot mode with machine-readable output (the same
+# ones /v1/agent-runs dispatches), so the work here is translation, not a new
+# execution path: run it, and map its native events onto the SSE contract
+# hermes_stream.py defines ({stream_id} / {delta} / {tool_start} / {done}).
+# Formats verified by hand against the installed binaries on 2026-08-14:
+#
+#   claude   --output-format stream-json: JSONL, system/init carries
+#            session_id, assistant messages carry content[].text and
+#            tool_use blocks, final {"type":"result","result":...}.
+#   codex    exec --json: JSONL, thread.started carries thread_id,
+#            item.completed/agent_message carries text.
+#   agy      --print: plain text on stdout, no structure at all.
+#   openclaw agent --json: a single JSON document at the end,
+#            result.payloads[].text.
+#
+# Approval prompts have no equivalent here -- these CLIs decide permissions
+# from their own flags, so a turn either runs or does not. The `stream_id`
+# is still emitted and registered, so the Stop button and the reattach-turn
+# machinery work exactly as they do for Hermes.
+# ---------------------------------------------------------------------------
+
+EXTERNAL_CHAT_RUNTIMES = ("claude", "codex", "agy", "openclaw")
+
+# A chat turn is a conversation, not a work package: read-only sandboxes and
+# plan modes would make the agent unable to do what it is being asked in the
+# very screen built to ask it. Matches what /v1/agent-runs uses for
+# mode="execute".
+def _external_chat_command(runtime: str, message: str, cwd: str, session_id: str | None) -> list[str]:
+    if runtime == "claude":
+        cmd = [
+            "/root/.local/bin/claude",
+            "--print",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "acceptEdits",
+        ]
+        # Claude Code is the only one of the four whose one-shot mode can
+        # resume a previous conversation by id, which is what makes a chat
+        # tab keep its context across turns.
+        if session_id:
+            cmd += ["--resume", session_id]
+        cmd.append(message)
+        return cmd
+    if runtime == "codex":
+        return [
+            "/root/.npm-global/bin/codex",
+            "exec",
+            "--json",
+            "--sandbox",
+            "workspace-write",
+            "--skip-git-repo-check",
+            "-C",
+            cwd,
+            message,
+        ]
+    if runtime == "agy":
+        return [
+            "/root/.local/bin/agy",
+            "--print",
+            message,
+            "--mode",
+            "accept-edits",
+            "--sandbox",
+            "--print-timeout",
+            "1800s",
+        ]
+    # openclaw: Vector runs as a persistent daemon with its own session
+    # store, so continuity is the daemon's business, not ours -- there is no
+    # session id to pass and none to give back.
+    return [
+        "/root/.npm-global/bin/openclaw",
+        "agent",
+        "--agent",
+        "main",
+        "--message",
+        message,
+        "--json",
+    ]
+
+
+def _claude_events(data: dict) -> tuple[list[dict], str | None, str | None]:
+    """(events, session_id, final_reply) for one Claude Code stream-json line."""
+    events: list[dict] = []
+    kind = data.get("type")
+    if kind == "system":
+        # init also carries the tool list, hooks fire their own system lines --
+        # only the session id matters to us, and none of it is worth relaying.
+        return events, data.get("session_id"), None
+    if kind == "assistant":
+        for block in (data.get("message") or {}).get("content") or []:
+            if block.get("type") == "text" and block.get("text"):
+                events.append({"delta": block["text"]})
+            elif block.get("type") == "tool_use":
+                events.append({
+                    "tool_start": {
+                        "tool_id": block.get("id"),
+                        "name": block.get("name"),
+                        "context": _tool_context(block.get("input")),
+                    }
+                })
+        return events, data.get("session_id"), None
+    if kind == "result":
+        return events, data.get("session_id"), data.get("result") or ""
+    return events, None, None
+
+
+def _codex_events(data: dict) -> tuple[list[dict], str | None, str | None]:
+    """(events, session_id, final_reply) for one `codex exec --json` line."""
+    kind = data.get("type")
+    if kind == "thread.started":
+        return [], data.get("thread_id"), None
+    if kind == "item.completed":
+        item = data.get("item") or {}
+        if item.get("type") == "agent_message":
+            text = item.get("text") or ""
+            # Codex emits the whole message at once rather than token by
+            # token: one delta, then the same text closes the turn.
+            return ([{"delta": text}] if text else []), None, text
+        if item.get("type") == "command_execution":
+            return [{
+                "tool_start": {
+                    "tool_id": item.get("id"),
+                    "name": "shell",
+                    "context": (item.get("command") or "")[:80],
+                }
+            }], None, None
+    return [], None, None
+
+
+def _tool_context(tool_input) -> str:
+    """80-char label for a tool call, matching what hermes_stream.py sends."""
+    if isinstance(tool_input, dict):
+        for key in ("command", "file_path", "path", "pattern", "query", "url"):
+            if tool_input.get(key):
+                return str(tool_input[key])[:80]
+    return ""
+
+
+async def _external_chat_stream(
+    runtime: str, message: str, cwd: str | None, session_id: str | None
+) -> StreamingResponse:
+    work_dir = cwd if cwd and Path(cwd).is_dir() else "/root"
+    command = _external_chat_command(runtime, message, work_dir, session_id)
+
+    async def event_stream():
+        stream_id = str(uuid.uuid4())
+        yield f'data: {json.dumps({"stream_id": stream_id})}\n\n'
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=work_dir,
+            env=os.environ.copy(),
+        )
+        _active_streams[stream_id] = proc
+        new_session_id: str | None = None
+        final_reply: str | None = None
+        collected: list[str] = []
+        # openclaw prints one JSON document at the end instead of a stream, so
+        # its output is buffered whole and parsed after the process exits.
+        buffer_whole = runtime == "openclaw"
+        raw_buffer: list[str] = []
+        idle_ping = 20
+        idle_budget = 1800
+        idle = 0
+        try:
+            while True:
+                try:
+                    line_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=idle_ping)
+                except asyncio.TimeoutError:
+                    idle += idle_ping
+                    if idle >= idle_budget:
+                        yield f'data: {json.dumps({"error": f"agent timeout: no output for {idle_budget}s, turn aborted"})}\n\n'
+                        break
+                    yield ": ping\n\n"
+                    continue
+                idle = 0
+                if not line_bytes:
+                    break
+                line = line_bytes.decode(errors="replace").rstrip("\n")
+                if not line.strip():
+                    continue
+                if buffer_whole:
+                    raw_buffer.append(line)
+                    continue
+                if runtime == "agy":
+                    # No structure to parse: every line the CLI prints is the
+                    # answer itself.
+                    collected.append(line)
+                    yield f'data: {json.dumps({"delta": line + chr(10)})}\n\n'
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                events, sid, reply = (
+                    _claude_events(data) if runtime == "claude" else _codex_events(data)
+                )
+                if sid:
+                    new_session_id = sid
+                for event in events:
+                    if "delta" in event:
+                        collected.append(event["delta"])
+                    yield f"data: {json.dumps(event)}\n\n"
+                if reply is not None:
+                    final_reply = reply
+
+            stderr_bytes = await proc.stderr.read()
+            await proc.wait()
+
+            if buffer_whole:
+                try:
+                    payload = json.loads("\n".join(raw_buffer))
+                    texts = [
+                        p.get("text") or ""
+                        for p in (payload.get("result") or {}).get("payloads") or []
+                    ]
+                    final_reply = "\n".join(t for t in texts if t)
+                    if final_reply:
+                        yield f'data: {json.dumps({"delta": final_reply})}\n\n'
+                except (json.JSONDecodeError, AttributeError):
+                    final_reply = "\n".join(raw_buffer)
+                    if final_reply:
+                        yield f'data: {json.dumps({"delta": final_reply})}\n\n'
+
+            reply = final_reply if final_reply is not None else "".join(collected).strip()
+            if not reply and proc.returncode not in (0, None):
+                # An empty answer plus a non-zero exit is a failure, not a
+                # silent turn -- surface the CLI's own stderr instead of
+                # persisting an empty assistant message.
+                detail = stderr_bytes.decode(errors="replace").strip()[:400] or f"exit code {proc.returncode}"
+                yield f'data: {json.dumps({"error": f"{runtime}: {detail}"})}\n\n'
+                return
+            done: dict = {"done": True, "reply": reply}
+            if new_session_id:
+                done["session_id"] = new_session_id
+            yield f"data: {json.dumps(done)}\n\n"
+        finally:
+            _active_streams.pop(stream_id, None)
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/v1/chat/stream")
 async def chat_stream(
     profile: str,
@@ -2195,6 +2518,7 @@ async def chat_stream(
     session_id: str | None = None,
     history: str | None = None,  # JSON array of {role,content} — enables direct ForgeRouter path
     cwd: str | None = None,  # ChatSession.working_directory_path, see chat.py's /stream
+    runtime: str = "hermes",  # Agent.runtime_type; non-hermes takes the external-CLI path
     x_bridge_token: str | None = Header(default=None),
 ) -> StreamingResponse:
     """SSE endpoint — streams token deltas from the agent.
@@ -2203,11 +2527,21 @@ async def chat_stream(
     Slow path (text): hermes_stream.py subprocess with full agent capabilities (~16s first token).
     """
     _check_token(x_bridge_token)
-    if not _is_valid_profile(profile):
-        raise HTTPException(status_code=400, detail=f"Unknown profile: {profile}")
 
+    # Voice's direct-ForgeRouter fast path is runtime-agnostic (it never
+    # touches a CLI at all), so it takes precedence over the external-runtime
+    # branch below regardless of which runtime the agent is.
     if history is not None:
         return await _direct_stream(profile, message, json.loads(history))
+
+    if runtime in EXTERNAL_CHAT_RUNTIMES:
+        # `profile` is the agent's profile_slug, not a Hermes profile
+        # directory -- meaningless to _is_valid_profile, which is exactly
+        # the check that used to 400 every external-runtime chat turn.
+        return await _external_chat_stream(runtime, message, cwd, session_id)
+
+    if not _is_valid_profile(profile):
+        raise HTTPException(status_code=400, detail=f"Unknown profile: {profile}")
 
     # Subprocess path (full Hermes agent with tools, memory, etc.)
     profile_home = str(PROFILES_DIR / profile)
@@ -2283,7 +2617,21 @@ async def chat_stream(
                 if data.get("stream_id") and stream_id is None:
                     stream_id = data["stream_id"]
                     _active_streams[stream_id] = proc
-                    continue  # internal bookkeeping line, not relayed to the frontend
+                    # Also relayed below, not just bookkept (2026-08-14): this
+                    # line used to `continue` here, silently swallowed. The
+                    # bridge registering the process for /v1/chat/approve was
+                    # always enough for approvals, but chat.py's ActiveTurn
+                    # (added 2026-08-13, after this) opens a turn keyed off
+                    # exactly this event -- without it reaching the caller,
+                    # `open_turn` never ran for a single Hermes agent turn,
+                    # and a reconnecting client had nothing to find (Marcelo:
+                    # "ao sair do chat... ao retornar não apareceu nenhum
+                    # processo"). The reply still landed once the turn
+                    # finished (persistence never depended on turn_id), which
+                    # is exactly why this went unnoticed -- only the *live*
+                    # reattach view was silently empty the whole time.
+                    yield f"data: {line}\n\n"
+                    continue
                 yield f"data: {line}\n\n"
                 if data.get("done") or data.get("error"):
                     break
@@ -2327,6 +2675,36 @@ async def chat_approve(req: ChatApproveRequest, x_bridge_token: str | None = Hea
     proc.stdin.write(line.encode())
     await proc.stdin.drain()
     return {"status": "ok"}
+
+
+class ChatStopRequest(BaseModel):
+    stream_id: str
+
+
+@app.post("/v1/chat/stop")
+async def chat_stop(req: ChatStopRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Kills the subprocess for a running chat turn (2026-08-14) -- the
+    explicit counterpart to the browser simply disconnecting.
+
+    Backend turns no longer die when a browser tab navigates away or closes
+    (see chat.py's `_run_chat_turn`, detached from the request lifecycle),
+    so the Stop button needs its own way to actually end a turn instead of
+    relying on connection-drop-kills-the-process, which used to kill every
+    turn on any disconnect -- Stop and "left the page" were indistinguishable.
+
+    Not finding the process is not an error: it may have already finished, or
+    this bridge may have restarted and lost its in-memory registry -- either
+    way, the caller's goal (nothing runs) is already true.
+    """
+    _check_token(x_bridge_token)
+    proc = _active_streams.get(req.stream_id)
+    if proc is None:
+        return {"status": "not_running"}
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+    return {"status": "stopping"}
 
 
 class ExecRequest(BaseModel):

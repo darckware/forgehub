@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -12,7 +12,12 @@ import {
   History,
   KeyRound,
   Package,
+  Power,
+  PowerOff,
+  Send,
   SquareTerminal,
+  Trash2,
+  Unplug,
   Upload,
   Users,
   X,
@@ -29,26 +34,38 @@ import { TerminalPane } from "@/components/TerminalPane";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { apiClient } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useServers, buildSshCommand } from "@/hooks/useServers";
+import {
+  useServers,
+  useServerStatusProbe,
+  buildSshCommand,
+  type Server,
+  type ServerCheckStatus,
+} from "@/hooks/useServers";
 import { fetchOpenclawDashboardUrl } from "@/hooks/useTerminalBrowse";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { ChannelPane } from "@/components/channel/ChannelPane";
+import { TelegramPane } from "@/components/TelegramPane";
 import { useAgents } from "@/hooks/useAgent";
 import { WebAppPane } from "@/components/WebAppPane";
 import { useAssistantContext } from "@/hooks/useAssistant";
 import { useAssistantStore } from "@/store/assistantStore";
 import { useProducts } from "@/hooks/useProduct";
+import {
+  WORKSPACE_STORAGE_KEYS,
+  WORKSPACE_STORAGE_VERSION,
+  repairActiveTabId,
+  restoreWorkspaceState,
+  type WebAppTarget,
+  type WorkspaceTab,
+  type WorkspaceViewMode,
+} from "./workspaceState";
 
 // Tabs/active-tab are persisted (not just in-memory state) so that
 // navigating to another page and back to Workspace recreates the same tabs
 // with the same ids -- TerminalPane then reconnects using those ids as its
 // tmux session name, re-attaching to the still-running session instead of
 // losing it. See TerminalPane.tsx and host-bridge/app.py's terminal_ws.
-const TABS_STORAGE_KEY = "forgehub-workspace-tabs";
-const ACTIVE_TAB_STORAGE_KEY = "forgehub-workspace-active-tab";
-const APP_URL_STORAGE_KEY = "forgehub-workspace-app-url";
-const SELECTED_PRODUCT_STORAGE_KEY = "forgehub-workspace-selected-product";
 const DEFAULT_APP_URL = "http://localhost:5174";
 // Top-level Workspace mode: "conversas" is the existing tab system below,
 // completely unchanged; "canais" renders the new multi-agent ChatChannel
@@ -56,21 +73,6 @@ const DEFAULT_APP_URL = "http://localhost:5174";
 // has its own participants/sidebar model (N agents + the human, shared
 // context), not a single agentId per tab, so folding it into the existing
 // tab persistence/reorder machinery would force an awkward shape onto both.
-const VIEW_MODE_STORAGE_KEY = "forgehub-workspace-view-mode";
-type WorkspaceViewMode = "conversas" | "canais";
-
-type WorkspaceTab =
-  | {
-      kind: "chat";
-      id: string;
-      agentId: string;
-      historyCollapsed?: boolean;
-      artifactsOpen?: boolean;
-      composerText?: string;
-    }
-  | { kind: "terminal"; id: string; label: string; command?: string; cwd?: string }
-  | { kind: "web"; id: string; label: string; url: string };
-
 type Launcher = { label: string; command: string; icon?: string; iconBg?: string; hasWebPanel?: boolean };
 
 // Used only if fetchOpenclawDashboardUrl fails (bridge unreachable) -- same
@@ -122,6 +124,141 @@ function LauncherIcon({ icon, iconBg }: { icon?: string; iconBg?: string }) {
   );
 }
 
+function WorkspaceTabItem({
+  tab,
+  label,
+  icon,
+  active,
+  onSelect,
+  onClose,
+  onTerminate,
+  onKeyDown,
+  onDragStart,
+  onDrop,
+  closeLabel,
+  terminateLabel,
+}: {
+  tab: WorkspaceTab;
+  label: string;
+  icon: ReactNode;
+  active: boolean;
+  onSelect: () => void;
+  onClose: () => void;
+  onTerminate?: () => void;
+  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+  onDragStart: () => void;
+  onDrop: () => void;
+  closeLabel: string;
+  terminateLabel?: string;
+}) {
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={onDrop}
+      className={cn(
+        "group flex shrink-0 items-center rounded-md text-sm",
+        active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+      )}
+    >
+      <button
+        type="button"
+        role="tab"
+        id={`workspace-tab-${tab.id}`}
+        aria-controls={`workspace-panel-${tab.id}`}
+        aria-selected={active}
+        tabIndex={active ? 0 : -1}
+        className="flex cursor-grab items-center gap-1.5 py-1 pl-3 active:cursor-grabbing"
+        onClick={onSelect}
+        onKeyDown={onKeyDown}
+      >
+        {icon}
+        <span>{label}</span>
+      </button>
+      {onTerminate && (
+        <button
+          type="button"
+          aria-label={terminateLabel}
+          title={terminateLabel}
+          className="ml-1 opacity-60 hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+          onClick={onTerminate}
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      )}
+      <button
+        type="button"
+        aria-label={closeLabel}
+        title={closeLabel}
+        className="ml-1 py-1 pr-2 opacity-60 hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+        onClick={onClose}
+      >
+        {tab.kind === "terminal" ? <Unplug className="h-3 w-3" /> : <X className="h-3 w-3" />}
+      </button>
+    </div>
+  );
+}
+
+/** The three answers the SSH menu has to keep apart, each with its own icon
+ * (2026-08-14, Marcelo: "no dropdown eu preciso saber o status da chave, foi
+ * instalado sim ou não... desligado... e online"):
+ *
+ *   key    -- is there a working key? green when the probe authenticated with
+ *             one, or (before any probe) when the row has an identity on file;
+ *             red when the probe reached the host and key auth failed.
+ *   power  -- is ForgeHub allowed to use this server at all? Green/red, the
+ *             access switch, independent of whether the machine is up.
+ *   dot    -- does it answer right now? Green online, red offline.
+ *
+ * They stay separate because they fail separately: a parked server may be
+ * perfectly healthy, and an online one may have no key. Anything not yet
+ * probed renders hollow rather than in a colour claiming a state nobody
+ * checked.
+ */
+function SshRowSignals({
+  server,
+  checking,
+  status,
+}: {
+  server: Server;
+  checking: boolean;
+  status?: ServerCheckStatus;
+}) {
+  // The probe is the authority when it has spoken; before that, a configured
+  // identity file (or a recorded public key) is the best available answer.
+  const keyRejected = status === "no_key" || status === "auth_failed" || status === "key_missing";
+  const keyOk = status === "online" ? true : keyRejected ? false : Boolean(server.ssh_key_path || server.public_key);
+  const keyKnown = status === "online" || keyRejected || (!status && Boolean(server.ssh_key_path || server.public_key));
+  const reachable = status === "online" || status === "auth_failed" || status === "no_key";
+  const unreachable = status === "offline" || status === "unreachable";
+
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      <KeyRound
+        className={cn(
+          "h-3 w-3",
+          !keyKnown ? "text-muted-foreground/40" : keyOk ? "text-emerald-500" : "text-red-500",
+        )}
+      />
+      {server.access_enabled ? (
+        <Power className="h-3 w-3 text-emerald-500" />
+      ) : (
+        <PowerOff className="h-3 w-3 text-red-500" />
+      )}
+      {checking ? (
+        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+      ) : !status || status === "disabled" || status === "probe_error" || status === "key_missing" ? (
+        <span className="h-2 w-2 rounded-full border border-muted-foreground/50" />
+      ) : (
+        <span
+          className={cn("h-2 w-2 rounded-full", reachable ? "bg-emerald-500" : unreachable ? "bg-red-500" : "border border-muted-foreground/50")}
+        />
+      )}
+    </span>
+  );
+}
+
 /** "SSH" launcher: icon+label button that drops down the registered server
  * inventory (name + IP, from the Servers page/domain) -- picking one opens
  * a new terminal tab pre-filled with `ssh [-i key] [-p port] user@ip`
@@ -133,6 +270,22 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
   const { data: servers } = useServers();
+  const probe = useServerStatusProbe();
+  const lastProbeRef = useRef<{ at: number; signature: string } | null>(null);
+
+  // Probe on first open, not on mount: this menu sits in the toolbar of every
+  // Workspace visit, and each probe is a real SSH round trip on the host --
+  // paying for twelve of them before anyone asks to connect would be rude to
+  // both the browser and the servers. Parked rows are skipped by checkAll.
+  useEffect(() => {
+    if (!open || !servers || servers.length === 0) return;
+    const signature = servers.map((server) => `${server.id}:${server.access_enabled}`).join("|");
+    const last = lastProbeRef.current;
+    if (last && last.signature === signature && Date.now() - last.at < 30_000) return;
+    lastProbeRef.current = { at: Date.now(), signature };
+    probe.checkAll(servers);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, servers]);
 
   return (
     <div className="relative" ref={containerRef}>
@@ -155,22 +308,50 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
               {t("toolbar.noServersRegistered")}
             </p>
           )}
-          {(servers ?? []).map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                onLaunch(s.name, buildSshCommand(s));
-                setOpen(false);
-              }}
-            >
-              <span className="text-sm font-medium">{s.name}</span>
-              <span className="font-mono text-[11px] text-muted-foreground">
-                {s.remote_user}@{s.ip_address}
-              </span>
-            </button>
-          ))}
+          {(servers ?? []).map((s) => {
+            const result = probe.statuses[s.id];
+            const checking = probe.checkingIds.has(s.id);
+            // A parked server is not offered at all: the row is still listed,
+            // so it is clear the server exists and is simply switched off,
+            // rather than silently missing from the menu.
+            const parked = !s.access_enabled;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                disabled={parked}
+                className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                title={parked ? t("toolbar.sshAccessOff") : result?.detail}
+                onClick={() => {
+                  onLaunch(s.name, buildSshCommand(s));
+                  setOpen(false);
+                }}
+              >
+                <span className="flex w-full items-center gap-1.5">
+                  <SshRowSignals server={s} checking={checking} status={result?.status} />
+                  <span className="text-sm font-medium">{s.name}</span>
+                  <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {parked
+                      ? t("toolbar.sshOff")
+                      : checking
+                        ? "…"
+                        : result?.status === "online"
+                          ? t("toolbar.sshOnline")
+                          : result?.status === "auth_failed" || result?.status === "no_key" || result?.status === "key_missing"
+                            ? t("toolbar.sshKeyProblem")
+                            : result?.status === "probe_error"
+                              ? t("toolbar.sshCheckFailed")
+                          : result
+                            ? t("toolbar.sshOffline")
+                            : ""}
+                  </span>
+                </span>
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {s.remote_user}@{s.ip_address}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -251,6 +432,58 @@ function LauncherMenu({
   );
 }
 
+function LaunchersMenu({ onLaunch }: { onLaunch: (label: string, command: string) => void }) {
+  const { t } = useTranslation("workspace");
+  const [open, setOpen] = useState(false);
+  const [loadingWeb, setLoadingWeb] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, () => setOpen(false), open);
+
+  async function openOpenClawWeb() {
+    setOpen(false);
+    setLoadingWeb(true);
+    try {
+      const { url } = await fetchOpenclawDashboardUrl();
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      window.open(OPENCLAW_DASHBOARD_FALLBACK_URL, "_blank", "noopener,noreferrer");
+    } finally {
+      setLoadingWeb(false);
+    }
+  }
+
+  return (
+    <div className="relative 2xl:hidden" ref={containerRef}>
+      <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2" onClick={() => setOpen((value) => !value)} disabled={loadingWeb}>
+        {loadingWeb ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Feather className="h-3.5 w-3.5" />}
+        <span className="hidden lg:inline">{t("toolbar.launchers")}</span>
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </Button>
+      {open && (
+        <div className="absolute right-0 top-full z-30 mt-1 max-h-80 w-60 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md">
+          <p className="px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">{t("toolbar.cli")}</p>
+          {CLI_LAUNCHERS.map((launcher) => (
+            <button key={launcher.command} type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent" onClick={() => { onLaunch(launcher.label, launcher.command); setOpen(false); }}>
+              <LauncherIcon icon={launcher.icon} iconBg={launcher.iconBg} /> {launcher.label}
+            </button>
+          ))}
+          <p className="mt-1 border-t border-border px-3 py-1 pt-2 text-[10px] font-medium uppercase text-muted-foreground">{t("toolbar.runtimes")}</p>
+          {RUNTIME_LAUNCHERS.map((launcher) => (
+            <div key={launcher.command} className="flex items-center hover:bg-accent">
+              <button type="button" className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-sm" onClick={() => { onLaunch(launcher.label, launcher.command); setOpen(false); }}>
+                <LauncherIcon icon={launcher.icon} iconBg={launcher.iconBg} /> {launcher.label}
+              </button>
+              {launcher.hasWebPanel && (
+                <button type="button" className="px-3 py-1.5" aria-label={t("toolbar.openLauncherWeb", { label: launcher.label })} onClick={() => void openOpenClawWeb()}><Globe2 className="h-3.5 w-3.5" /></button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function WorkspacePage() {
   const { t } = useTranslation("workspace");
   const { data: allAgents } = useAgents();
@@ -260,33 +493,23 @@ export default function WorkspacePage() {
     [allAgents]
   );
 
-  const [viewMode, setViewMode] = useState<WorkspaceViewMode>(
-    () => (localStorage.getItem(VIEW_MODE_STORAGE_KEY) as WorkspaceViewMode | null) ?? "conversas"
-  );
+  const restoredStateRef = useRef<ReturnType<typeof restoreWorkspaceState> | null>(null);
+  if (!restoredStateRef.current) restoredStateRef.current = restoreWorkspaceState(localStorage);
+  const restoredState = restoredStateRef.current;
+
+  const [viewMode, setViewMode] = useState<WorkspaceViewMode>(restoredState.viewMode);
   useEffect(() => {
-    localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+    localStorage.setItem(WORKSPACE_STORAGE_KEYS.viewMode, viewMode);
   }, [viewMode]);
 
-  const [tabs, setTabs] = useState<WorkspaceTab[]>(() => {
-    try {
-      const raw = localStorage.getItem(TABS_STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as WorkspaceTab[]) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [activeTabId, setActiveTabId] = useState<string>(
-    () => localStorage.getItem(ACTIVE_TAB_STORAGE_KEY) ?? ""
-  );
-  const [workingDir, setWorkingDir] = useState<string | undefined>(undefined);
-  const appUrl = localStorage.getItem(APP_URL_STORAGE_KEY) ?? DEFAULT_APP_URL;
-  const [selectedProductId, setSelectedProductId] = useState(
-    () => localStorage.getItem(SELECTED_PRODUCT_STORAGE_KEY) ?? ""
-  );
+  const [tabs, setTabs] = useState<WorkspaceTab[]>(restoredState.tabs);
+  const [activeTabId, setActiveTabId] = useState<string>(restoredState.activeTabId);
+  const [workingDir, setWorkingDir] = useState<string | undefined>(restoredState.workingDir);
   const workspaceUploadInputRef = useRef<HTMLInputElement>(null);
   const [workspaceUploadStatus, setWorkspaceUploadStatus] = useState<"idle" | "uploading" | "success" | "error">(
     "idle"
   );
+  const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
 
   async function handleWorkspaceFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -332,23 +555,18 @@ export default function WorkspacePage() {
   }
 
   useEffect(() => {
-    localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(tabs));
+    localStorage.setItem(WORKSPACE_STORAGE_KEYS.version, String(WORKSPACE_STORAGE_VERSION));
+    localStorage.setItem(WORKSPACE_STORAGE_KEYS.tabs, JSON.stringify(tabs));
   }, [tabs]);
 
   useEffect(() => {
-    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTabId);
+    localStorage.setItem(WORKSPACE_STORAGE_KEYS.activeTab, activeTabId);
   }, [activeTabId]);
 
   useEffect(() => {
-    if (products.length === 0) return;
-    if (products.some((product) => product.id === selectedProductId)) return;
-    const fallback = products.find((product) => product.name.trim().toLowerCase() === "forgehub") ?? products[0];
-    setSelectedProductId(fallback.id);
-  }, [products, selectedProductId]);
-
-  useEffect(() => {
-    if (selectedProductId) localStorage.setItem(SELECTED_PRODUCT_STORAGE_KEY, selectedProductId);
-  }, [selectedProductId]);
+    if (workingDir) localStorage.setItem(WORKSPACE_STORAGE_KEYS.workingDir, workingDir);
+    else localStorage.removeItem(WORKSPACE_STORAGE_KEYS.workingDir);
+  }, [workingDir]);
 
 
   function openChatTab(agentId: string) {
@@ -360,15 +578,33 @@ export default function WorkspacePage() {
     setActiveTabId(id);
   }
 
+  function openTelegramTab(agentId: string) {
+    const existing = tabs.find((tab) => tab.kind === "telegram" && tab.agentId === agentId);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const id = crypto.randomUUID();
+    setTabs((current) => [...current, { kind: "telegram", id, agentId }]);
+    setActiveTabId(id);
+  }
+
   function openTerminalTab(label: string, command?: string, cwdOverride?: string) {
     const id = crypto.randomUUID();
     setTabs((t) => [...t, { kind: "terminal", id, label, command, cwd: cwdOverride ?? workingDir }]);
     setActiveTabId(id);
   }
 
-  function openWebTab(label = "Web App", url = products.find((product) => product.id === selectedProductId)?.application_url ?? appUrl) {
+  function defaultWebTarget(): { url: string; target: WebAppTarget } {
+    const product = products.find((item) => item.name.trim().toLowerCase() === "forgehub") ?? products[0];
+    const url = product?.application_url || product?.application_url_dev;
+    return product && url ? { url, target: { mode: "product", id: product.id } } : { url: DEFAULT_APP_URL, target: { mode: "url" } };
+  }
+
+  function openWebTab(label = "Web App", initial?: { url: string; target: WebAppTarget }) {
+    const web = initial ?? defaultWebTarget();
     const id = crypto.randomUUID();
-    setTabs((current) => [...current, { kind: "web", id, label, url }]);
+    setTabs((current) => [...current, { kind: "web", id, label, ...web }]);
     setActiveTabId(id);
   }
 
@@ -379,16 +615,21 @@ export default function WorkspacePage() {
       return;
     }
     const existing = tabs.find((tab): tab is WorkspaceTab & { kind: "web" } => tab.kind === "web");
-    const targetUrl = existing?.url ?? appUrl;
     if (existing) setActiveTabId(existing.id);
-    else openWebTab("Web App", targetUrl);
+    else openWebTab();
   }
 
-  function updateWebTabUrl(tabId: string, url: string) {
+  const updateWebTabUrl = useCallback((tabId: string, url: string) => {
     setTabs((current) =>
       current.map((tab) => (tab.id === tabId && tab.kind === "web" ? { ...tab, url } : tab))
     );
-  }
+  }, []);
+
+  const updateWebTabTarget = useCallback((tabId: string, target: WebAppTarget) => {
+    setTabs((current) =>
+      current.map((tab) => (tab.id === tabId && tab.kind === "web" ? { ...tab, target } : tab))
+    );
+  }, []);
 
   // Handoff from the Servers page's "open SSH" action: arrive with an
   // openSsh router state → open a terminal tab running the ssh command,
@@ -456,21 +697,51 @@ export default function WorkspacePage() {
   }, [location.search]);
 
   function closeTab(id: string) {
-    const tab = tabs.find((t) => t.id === id);
     const remaining = tabs.filter((t) => t.id !== id);
     setTabs(remaining);
     setActiveTabId((current) => (current === id ? remaining[remaining.length - 1]?.id ?? "" : current));
     clearChatTabStaging(id);
-    if (tab?.kind === "terminal") {
-      // Fire-and-forget: this is the one place a tab's session should
-      // actually end, as opposed to every other disconnect (tab switch,
-      // navigating away), which only detaches and leaves it running.
-      apiClient.post(`/api/v1/terminal/sessions/${id}/kill`).catch(() => {});
+  }
+
+  async function terminateTerminalTab(id: string, label: string) {
+    if (!window.confirm(t("tabs.confirmTerminateTerminal", { label }))) return;
+    setWorkspaceActionError(null);
+    try {
+      await apiClient.post(`/api/v1/terminal/sessions/${id}/kill`);
+      closeTab(id);
+    } catch (error) {
+      setWorkspaceActionError(error instanceof Error ? error.message : t("tabs.terminateTerminalFailed"));
     }
   }
 
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowLeft") nextIndex = index === 0 ? tabs.length - 1 : index - 1;
+    if (event.key === "ArrowRight") nextIndex = index === tabs.length - 1 ? 0 : index + 1;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = tabs.length - 1;
+    if (nextIndex === undefined) return;
+    event.preventDefault();
+    const nextTab = tabs[nextIndex];
+    if (!nextTab) return;
+    setActiveTabId(nextTab.id);
+    requestAnimationFrame(() => document.getElementById(`workspace-tab-${nextTab.id}`)?.focus());
+  }
+
   function handleAgentChangeForTab(tabId: string, agentId: string) {
-    setTabs((t) => t.map((x) => (x.id === tabId && x.kind === "chat" ? { ...x, agentId } : x)));
+    setTabs((t) => t.map((x) => (x.id === tabId && x.kind === "chat" ? { ...x, agentId, sessionId: undefined } : x)));
+  }
+
+  function handleTelegramAgentChange(tabId: string, agentId: string) {
+    setTabs((current) => current.map((tab) =>
+      tab.id === tabId && tab.kind === "telegram" ? { ...tab, agentId } : tab
+    ));
+  }
+
+  function handleSessionChangeForTab(tabId: string, sessionId: string) {
+    setTabs((current) =>
+      current.map((tab) => tab.id === tabId && tab.kind === "chat" ? { ...tab, sessionId: sessionId || undefined } : tab)
+    );
   }
 
   function toggleHistoryCollapsed(tabId: string) {
@@ -492,7 +763,18 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (initRef.current || chatableAgents.length === 0) return;
     initRef.current = true;
-    if (tabs.length === 0) openChatTab(chatableAgents[0].id);
+    const validAgentIds = new Set(chatableAgents.map((agent) => agent.id));
+    const repairedTabs = tabs.map((tab) =>
+      (tab.kind === "chat" || tab.kind === "telegram") && !validAgentIds.has(tab.agentId)
+        ? { ...tab, agentId: chatableAgents[0].id }
+        : tab
+    );
+    if (repairedTabs.length === 0) {
+      openChatTab(chatableAgents[0].id);
+      return;
+    }
+    if (repairedTabs.some((tab, index) => tab !== tabs[index])) setTabs(repairedTabs);
+    setActiveTabId((current) => repairActiveTabId(repairedTabs, current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatableAgents]);
 
@@ -593,7 +875,7 @@ export default function WorkspacePage() {
       <>
       <div className="flex flex-col border-b border-border">
         {/* Toolbar: static actions on the left, working-dir/launchers on the right. */}
-        <div className="flex items-center gap-1 px-2 py-1.5">
+        <div className="flex min-w-0 items-center gap-1 px-2 py-1.5">
           <Button
             variant={activeChatTab && !activeChatTab.historyCollapsed ? "secondary" : "outline"}
             size="icon"
@@ -630,6 +912,17 @@ export default function WorkspacePage() {
             variant="outline"
             size="icon"
             className="h-8 w-8 shrink-0"
+            title="Abrir Telegram do agente"
+            aria-label="Abrir Telegram do agente"
+            disabled={!activeChatTab}
+            onClick={() => activeChatTab && openTelegramTab(activeChatTab.agentId)}
+          >
+            <Send className="h-4 w-4 text-sky-500" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 shrink-0"
             title={t("toolbar.newTerminal")}
             aria-label={t("toolbar.newTerminal")}
             onClick={() => openTerminalTab("bash")}
@@ -658,6 +951,7 @@ export default function WorkspacePage() {
             <Bot className="h-4 w-4" />
           </Button>
           <SshLauncherMenu onLaunch={openTerminalTab} />
+          <LaunchersMenu onLaunch={openTerminalTab} />
           <div className="flex-1" />
           <WorkingDirPicker workingDir={workingDir} onSelect={setWorkingDir} />
           <input
@@ -686,6 +980,7 @@ export default function WorkspacePage() {
               <Upload className="h-3.5 w-3.5" />
             )}
           </Button>
+          <div className="hidden items-center gap-1 2xl:flex">
           <div className="mx-1 h-5 w-px bg-border" />
           <span className="text-[10px] font-medium uppercase text-muted-foreground" title={t("toolbar.cliLaunchers")}>
             {t("toolbar.cli")}
@@ -724,127 +1019,82 @@ export default function WorkspacePage() {
               </Button>
             )
           )}
+          </div>
         </div>
 
         {/* Dedicated tab strip: sortable (drag-and-drop) + horizontal scroll. */}
-        <div className="flex items-center gap-1 overflow-x-auto border-t border-border/60 px-2 py-1">
-          {tabs.map((tab) =>
-            tab.kind === "chat" ? (
-              <div
+        <div role="tablist" aria-label={t("tabs.workspaceTabs")} className="flex items-center gap-1 overflow-x-auto border-t border-border/60 px-2 py-1">
+          {tabs.map((tab, index) => {
+            const label = tab.kind === "chat"
+              ? chatableAgents.find((agent) => agent.id === tab.agentId)?.name ?? t("tabs.defaultChatName")
+              : tab.kind === "telegram"
+                ? `Telegram · ${chatableAgents.find((agent) => agent.id === tab.agentId)?.name ?? t("tabs.defaultChatName")}`
+              : tab.label;
+            return (
+              <WorkspaceTabItem
                 key={tab.id}
-                draggable
+                tab={tab}
+                label={label}
+                icon={tab.kind === "chat" ? <MessageSquare className="h-3.5 w-3.5" /> : tab.kind === "terminal" ? <SquareTerminal className="h-3.5 w-3.5" /> : tab.kind === "telegram" ? <Send className="h-3.5 w-3.5 text-sky-500" /> : <Globe2 className="h-3.5 w-3.5" />}
+                active={tab.id === activeTabId}
+                onSelect={() => setActiveTabId(tab.id)}
+                onClose={() => closeTab(tab.id)}
+                onTerminate={tab.kind === "terminal" ? () => void terminateTerminalTab(tab.id, tab.label) : undefined}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
                 onDragStart={() => (dragTabIdRef.current = tab.id)}
-                onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleTabDrop(tab.id)}
-                onClick={() => setActiveTabId(tab.id)}
-                className={cn(
-                  "group flex shrink-0 cursor-grab items-center gap-1.5 rounded-md px-3 py-1 text-sm active:cursor-grabbing",
-                  tab.id === activeTabId
-                    ? "bg-accent text-accent-foreground"
-                    : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                {chatableAgents.find((a) => a.id === tab.agentId)?.name ?? t("tabs.defaultChatName")}
-                <button
-                  type="button"
-                  aria-label={t("tabs.closeChatTab")}
-                  className="opacity-0 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeTab(tab.id);
-                  }}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ) : tab.kind === "terminal" ? (
-              <div
-                key={tab.id}
-                draggable
-                onDragStart={() => (dragTabIdRef.current = tab.id)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleTabDrop(tab.id)}
-                onClick={() => setActiveTabId(tab.id)}
-                className={cn(
-                  "group flex shrink-0 cursor-grab items-center gap-1.5 rounded-md px-3 py-1 text-sm active:cursor-grabbing",
-                  tab.id === activeTabId
-                    ? "bg-accent text-accent-foreground"
-                    : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-              >
-                <SquareTerminal className="h-3.5 w-3.5" />
-                {tab.label}
-                <button
-                  type="button"
-                  aria-label={t("tabs.closeTab", { label: tab.label })}
-                  className="opacity-0 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeTab(tab.id);
-                  }}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ) : (
-              <div
-                key={tab.id}
-                draggable
-                onDragStart={() => (dragTabIdRef.current = tab.id)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleTabDrop(tab.id)}
-                onClick={() => setActiveTabId(tab.id)}
-                className={cn(
-                  "group flex shrink-0 cursor-grab items-center gap-1.5 rounded-md px-3 py-1 text-sm active:cursor-grabbing",
-                  tab.id === activeTabId
-                    ? "bg-accent text-accent-foreground"
-                    : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-              >
-                <Globe2 className="h-3.5 w-3.5" />
-                {tab.label}
-                <button
-                  type="button"
-                  aria-label={t("tabs.closeTab", { label: tab.label })}
-                  className="opacity-0 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeTab(tab.id);
-                  }}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            )
-          )}
+                closeLabel={tab.kind === "terminal" ? t("tabs.detachTerminal", { label }) : t("tabs.closeTab", { label })}
+                terminateLabel={tab.kind === "terminal" ? t("tabs.terminateTerminal", { label }) : undefined}
+              />
+            );
+          })}
         </div>
+        {workspaceActionError && (
+          <div className="flex items-center justify-between gap-2 border-t border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+            <span>{workspaceActionError}</span>
+            <button type="button" aria-label={t("common:close")} onClick={() => setWorkspaceActionError(null)}><X className="h-3.5 w-3.5" /></button>
+          </div>
+        )}
       </div>
 
       <div className="relative flex-1">
         {tabs.map((tab) =>
           tab.kind === "chat" ? (
-            <ChatPane
-              key={tab.id}
-              tabId={tab.id}
-              active={tab.id === activeTabId}
-              agentId={tab.agentId}
-              chatableAgents={chatableAgents}
-              onAgentChange={(agentId) => handleAgentChangeForTab(tab.id, agentId)}
-              historyCollapsed={Boolean(tab.historyCollapsed)}
-              artifactsOpen={Boolean(tab.artifactsOpen)}
-              workingDir={workingDir}
-            />
+            <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
+              <ChatPane
+                tabId={tab.id}
+                active={tab.id === activeTabId}
+                agentId={tab.agentId}
+                initialSessionId={tab.sessionId}
+                chatableAgents={chatableAgents}
+                onAgentChange={(agentId) => handleAgentChangeForTab(tab.id, agentId)}
+                onSessionChange={(sessionId) => handleSessionChangeForTab(tab.id, sessionId)}
+                historyCollapsed={Boolean(tab.historyCollapsed)}
+                artifactsOpen={Boolean(tab.artifactsOpen)}
+                workingDir={workingDir}
+              />
+            </div>
           ) : tab.kind === "terminal" ? (
-            <div key={tab.id} className={cn("absolute inset-0 p-2", tab.id !== activeTabId && "hidden")}>
+            <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0 p-2", tab.id !== activeTabId && "hidden")}>
               <TerminalPane sessionId={tab.id} command={tab.command} cwd={tab.cwd} active={tab.id === activeTabId} />
             </div>
+          ) : tab.kind === "telegram" ? (
+            <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
+              <TelegramPane
+                agentId={tab.agentId}
+                agents={chatableAgents}
+                active={tab.id === activeTabId}
+                onAgentChange={(agentId) => handleTelegramAgentChange(tab.id, agentId)}
+              />
+            </div>
           ) : (
-            <div key={tab.id} className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
+            <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
               <WebAppPane
                 url={tab.url}
+                target={tab.target}
                 products={products}
                 onUrlChange={(url) => updateWebTabUrl(tab.id, url)}
+                onTargetChange={(target) => updateWebTabTarget(tab.id, target)}
               />
             </div>
           )

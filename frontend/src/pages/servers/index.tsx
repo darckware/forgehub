@@ -1,16 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Check,
   CheckCircle2,
-  Copy,
   Eye,
   EyeOff,
   KeyRound,
   Loader2,
-  Lock,
   Pencil,
   Plus,
+  Power,
+  PowerOff,
   RefreshCw,
   Server as ServerIcon,
   SquareTerminal,
@@ -30,29 +29,17 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import {
   useServers,
-  useCreateServer,
-  useUpdateServer,
   useDeleteServer,
   useImportServers,
-  useCheckServer,
+  useServerStatusProbe,
   useInstallServerKey,
-  useReadServerPublicKey,
+  useToggleServerAccess,
   buildSshCommand,
-  resolveLiveServer,
   type Server,
-  type ServerCreate,
   type ServerCheckResult,
 } from "@/hooks/useServers";
-import { useServerKeyVaultViewModel } from "@/hooks/useServerKeyVaultViewModel";
-
-const EMPTY_FORM: ServerCreate = {
-  name: "",
-  ip_address: "",
-  remote_user: "",
-  ssh_port: 22,
-  ssh_key_path: "",
-  description: "",
-};
+import { ServerForm } from "./ServerForm";
+import { ServerServicesPanel } from "./ServerServicesPanel";
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -68,267 +55,6 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
         {children}
       </div>
     </div>
-  );
-}
-
-/** Key vault section of the edit dialog: keeps an encrypted copy of the
- * identity file on the row and pours it back when the file on the host is
- * gone. Pure render of `useServerKeyVaultViewModel` — no state of its own.
- *
- * Why it exists at all: the row only ever recorded the key's *path*, and a
- * path survives things a key does not. Recreating the Aegis profile directory
- * on 2026-07-07 left the 172.15.2.4/172.15.2.5 identity files behind in a
- * backup directory, and the Workspace terminal simply lost those servers.
- */
-function KeyVaultSection({ server }: { server: Server }) {
-  const vm = useServerKeyVaultViewModel(server);
-
-  return (
-    <div className="space-y-2 rounded-md border border-border/60 p-3">
-      <div className="flex items-center justify-between">
-        <Label className="flex items-center gap-1.5">
-          <Lock className="h-3.5 w-3.5" />
-          Key vault
-        </Label>
-        <Badge variant={vm.vaulted ? "default" : "outline"} className="text-[10px]">
-          {vm.vaulted ? "Encrypted copy stored" : "No copy stored"}
-        </Badge>
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        Keeps the private key encrypted in ForgeHub's database, so losing the file on the host no
-        longer means losing access to the server. The key is never sent back to the browser —
-        restoring writes it straight to the host at the path above.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!vm.hasKeyPath || vm.isBusy}
-          title={vm.hasKeyPath ? "Read the identity file from the host and store it encrypted" : "Set an SSH key path first"}
-          onClick={vm.backup}
-        >
-          {vm.status === "backing_up" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          {vm.vaulted ? "Update copy from host" : "Store key from host"}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!vm.vaulted || !vm.hasKeyPath || vm.isBusy}
-          title="Write the stored key back to the host (never overwrites an existing file)"
-          onClick={vm.restore}
-        >
-          {vm.status === "restoring" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          Restore to host
-        </Button>
-        {vm.vaulted && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-destructive"
-            disabled={vm.isBusy}
-            onClick={vm.requestClear}
-          >
-            {vm.status === "clearing" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            Remove copy
-          </Button>
-        )}
-      </div>
-      <div className="space-y-1">
-        <Textarea
-          value={vm.pastedKey}
-          onChange={(e) => vm.setPastedKey(e.target.value)}
-          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…paste a key this host doesn't have…"
-          className="min-h-[56px] font-mono text-[10px]"
-          disabled={vm.isBusy}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!vm.pastedKey.trim() || vm.isBusy}
-          onClick={vm.storePasted}
-        >
-          {vm.status === "storing" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          Store pasted key
-        </Button>
-      </div>
-      {vm.message && <p className="text-[11px] text-emerald-600">{vm.message}</p>}
-      {vm.error && <p className="text-[11px] text-destructive">{vm.error}</p>}
-      <ConfirmDialog
-        open={vm.status === "confirming_clear"}
-        title="Remove the stored key?"
-        description={`ForgeHub's encrypted copy of ${server.name}'s key is deleted. The file on the host is left untouched — but if it is ever lost, there will be no copy to restore from.`}
-        confirmLabel="Remove copy"
-        loading={vm.status === "clearing"}
-        onConfirm={vm.confirmClear}
-        onCancel={vm.cancelClear}
-      />
-    </div>
-  );
-}
-
-function ServerFormModal({ initial, onClose }: { initial: Server | null; onClose: () => void }) {
-  const [form, setForm] = useState<ServerCreate>(
-    initial
-      ? {
-          name: initial.name,
-          ip_address: initial.ip_address,
-          remote_user: initial.remote_user,
-          ssh_port: initial.ssh_port,
-          ssh_key_path: initial.ssh_key_path ?? "",
-          description: initial.description ?? "",
-        }
-      : EMPTY_FORM
-  );
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [pubKeyCopied, setPubKeyCopied] = useState(false);
-  const createServer = useCreateServer();
-  const updateServer = useUpdateServer();
-  const readPublicKey = useReadServerPublicKey();
-  const pending = createServer.isPending || updateServer.isPending;
-  // `initial` is the row as it was when the dialog opened. The read-only
-  // blocks below (key vault, stored public key) must show what the row *is*
-  // now, or an action taken inside this dialog appears not to have happened --
-  // see resolveLiveServer. The editable fields deliberately keep reading from
-  // `form`, which is seeded once, so a refetch never overwrites typing.
-  const { data: servers } = useServers();
-  const live = initial ? resolveLiveServer(servers, initial) : null;
-
-  function handleSave() {
-    setError(null);
-    if (!form.name.trim() || !form.ip_address.trim() || !form.remote_user.trim()) {
-      setError("Name, IP and remote user are required.");
-      return;
-    }
-    const payload: ServerCreate = {
-      name: form.name.trim(),
-      ip_address: form.ip_address.trim(),
-      remote_user: form.remote_user.trim(),
-      ssh_port: form.ssh_port || 22,
-      ssh_key_path: form.ssh_key_path?.trim() || null,
-      description: form.description?.trim() || null,
-    };
-    if (initial) {
-      updateServer.mutate({ id: initial.id, data: payload }, { onSuccess: onClose, onError: () => setError("Could not save.") });
-    } else {
-      createServer.mutate(payload, { onSuccess: onClose, onError: () => setError("Could not save. The name may already exist.") });
-    }
-  }
-
-  return (
-    <ModalShell title={initial ? "Edit server" : "New server"} onClose={onClose}>
-      <div className="space-y-4">
-        <div className="space-y-1">
-          <Label>Server name</Label>
-          <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="srv-app01" />
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="col-span-2 space-y-1">
-            <Label>IP address</Label>
-            <Input value={form.ip_address} onChange={(e) => setForm((f) => ({ ...f, ip_address: e.target.value }))} placeholder="172.15.2.2" />
-          </div>
-          <div className="space-y-1">
-            <Label>SSH port</Label>
-            <Input
-              type="number"
-              value={form.ssh_port ?? 22}
-              onChange={(e) => setForm((f) => ({ ...f, ssh_port: Number(e.target.value) || 22 }))}
-            />
-          </div>
-        </div>
-        <div className="space-y-1">
-          <Label>Remote user</Label>
-          <Input value={form.remote_user} onChange={(e) => setForm((f) => ({ ...f, remote_user: e.target.value }))} placeholder="aegis" />
-        </div>
-        <div className="space-y-1">
-          <Label>SSH key path (identity file)</Label>
-          <div className="flex items-start gap-2">
-            <Input
-              value={form.ssh_key_path ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, ssh_key_path: e.target.value }))}
-              placeholder="/root/.ssh/id_ed25519_aegis"
-              className="flex-1 font-mono text-xs"
-            />
-            {live?.ssh_key_path && (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                title="Copy the public key of this path"
-                disabled={readPublicKey.isPending}
-                onClick={() => {
-                  readPublicKey.mutate(live.id, {
-                    onSuccess: (srv) => {
-                      if (srv.public_key) {
-                        void navigator.clipboard.writeText(srv.public_key);
-                        setPubKeyCopied(true);
-                        setTimeout(() => setPubKeyCopied(false), 1500);
-                      }
-                    },
-                  });
-                }}
-              >
-                {readPublicKey.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : pubKeyCopied ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-600" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            )}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Used as <code className="font-mono">ssh -i &lt;path&gt;</code> when opening the SSH terminal. Leave blank to use the shell's default key/agent.
-            {live?.ssh_key_path && " The copy button reads the public key (<path>.pub) and saves it to this record."}
-          </p>
-          {readPublicKey.isError && (
-            <p className="text-[11px] text-destructive">{readPublicKey.error.message}</p>
-          )}
-        </div>
-        {live && <KeyVaultSection server={live} />}
-        <div className="space-y-1">
-          <Label>Description</Label>
-          <Textarea
-            value={form.description ?? ""}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            placeholder="Main application server"
-          />
-        </div>
-        {live?.public_key && (
-          <div className="space-y-1">
-            <Label>Public key (installed on the server)</Label>
-            <div className="flex items-start gap-2">
-              <Textarea readOnly value={live.public_key} className="min-h-[56px] flex-1 font-mono text-[10px]" />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                title="Copy public key"
-                onClick={() => { void navigator.clipboard.writeText(live.public_key ?? ""); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-              >
-                {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-              </Button>
-            </div>
-            <p className="text-[11px] text-muted-foreground">Filled automatically by the "Install SSH key" action.</p>
-          </div>
-        )}
-        {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={pending}>
-            {pending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            Save
-          </Button>
-        </div>
-      </div>
-    </ModalShell>
   );
 }
 
@@ -491,6 +217,13 @@ function StatusBadge({ result, checking }: { result: ServerCheckResult | undefin
   if (!result) {
     return <span className="text-xs italic text-muted-foreground/60">not checked</span>;
   }
+  if (result.status === "disabled") {
+    return (
+      <Badge variant="outline" className="gap-1 text-muted-foreground" title={result.detail}>
+        <PowerOff className="h-3 w-3" /> Off
+      </Badge>
+    );
+  }
   if (result.status === "online") {
     return (
       <Badge variant="outline" className="gap-1 text-emerald-600 border-emerald-500/30" title={result.detail}>
@@ -587,43 +320,41 @@ export default function ServersPage() {
   const navigate = useNavigate();
   const { data: servers, isLoading } = useServers();
   const deleteServer = useDeleteServer();
-  const checkServer = useCheckServer();
+  const toggleAccess = useToggleServerAccess();
+  // Probe state lives in a shared hook so the Workspace SSH menu shows the
+  // same live status this table does, without a second copy of the
+  // bookkeeping (see useServerStatusProbe).
+  const probe = useServerStatusProbe();
   const [formTarget, setFormTarget] = useState<Server | null | "new">(null);
   const [importOpen, setImportOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Server | null>(null);
   const [installTarget, setInstallTarget] = useState<Server | null>(null);
-  const [statuses, setStatuses] = useState<Record<string, ServerCheckResult>>({});
-  const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
+  // Which row has its services panel open. One at a time: the panel is a
+  // detail view of the row above it, and several open at once turns the
+  // inventory into a wall of forms.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const autoCheckedRef = useRef(false);
 
-  function checkOne(id: string) {
-    setCheckingIds((prev) => new Set(prev).add(id));
-    // mutateAsync's returned promise is bound to this specific call, unlike
-    // mutate()'s { onSuccess, onSettled } options -- those are stored on the
-    // single shared mutation observer, so firing many mutate() calls back to
-    // back (checkAll below) would leave only the *last* call's callbacks
-    // installed, silently dropping updates for every earlier server.
-    checkServer
-      .mutateAsync(id)
-      .then((result) => setStatuses((prev) => ({ ...prev, [id]: result })))
-      .catch(() => {})
-      .finally(() =>
-        setCheckingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        })
-      );
-  }
-
-  function checkAll() {
-    (servers ?? []).forEach((s) => checkOne(s.id));
+  function handleToggleAccess(server: Server) {
+    toggleAccess.mutate(server.id, {
+      onSuccess: (updated) => {
+        // A stale reading would outlive the switch it contradicts: show "Off"
+        // immediately, and on the way back drop the old result and re-probe,
+        // so the row never claims a state nobody checked.
+        if (updated.access_enabled) {
+          probe.clearStatus(server.id);
+          probe.checkOne(server.id);
+        } else {
+          probe.markDisabled(server.id);
+        }
+      },
+    });
   }
 
   useEffect(() => {
     if (servers && servers.length > 0 && !autoCheckedRef.current) {
       autoCheckedRef.current = true;
-      checkAll();
+      probe.checkAll(servers);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [servers]);
@@ -639,8 +370,8 @@ export default function ServersPage() {
           <p className="text-sm text-muted-foreground">Inventory of servers with SSH access.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={checkAll} disabled={checkingIds.size > 0}>
-            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${checkingIds.size > 0 ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" onClick={() => probe.checkAll(servers ?? [])} disabled={probe.isChecking}>
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${probe.isChecking ? "animate-spin" : ""}`} />
             Check status
           </Button>
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
@@ -684,7 +415,14 @@ export default function ServersPage() {
               </tr>
             )}
             {(servers ?? []).map((s) => (
-              <tr key={s.id} className="hover:bg-accent/30">
+              <Fragment key={s.id}>
+              <tr
+                className={`cursor-pointer hover:bg-accent/30 ${s.access_enabled ? "" : "opacity-50"} ${
+                  expandedId === s.id ? "bg-accent/20" : ""
+                }`}
+                onClick={() => setExpandedId((prev) => (prev === s.id ? null : s.id))}
+                title="Show the services published by this server"
+              >
                 <td className="px-4 py-2 font-mono font-medium">{s.name}</td>
                 <td className="px-4 py-2 font-mono">{s.ip_address}</td>
                 <td className="px-4 py-2 font-mono">{s.remote_user}</td>
@@ -693,11 +431,28 @@ export default function ServersPage() {
                   {s.description ?? "—"}
                 </td>
                 <td className="px-4 py-2">
-                  <StatusBadge result={statuses[s.id]} checking={checkingIds.has(s.id)} />
+                  <StatusBadge result={probe.statuses[s.id]} checking={probe.checkingIds.has(s.id)} />
                 </td>
-                <td className="px-4 py-2 text-right">
+                {/* Actions are buttons inside a clickable row: without
+                    stopPropagation, every one of them would also toggle the
+                    services panel. */}
+                <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-end gap-1">
-                    {statuses[s.id]?.status === "online" ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-7 w-7 ${s.access_enabled ? "text-emerald-600 hover:text-emerald-500" : "text-muted-foreground"}`}
+                      onClick={() => handleToggleAccess(s)}
+                      disabled={toggleAccess.isPending}
+                      title={
+                        s.access_enabled
+                          ? `Turn off ForgeHub's access to ${s.name} (the key is kept)`
+                          : `Turn ForgeHub's access to ${s.name} back on`
+                      }
+                    >
+                      {s.access_enabled ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
+                    </Button>
+                    {!s.access_enabled ? null : probe.statuses[s.id]?.status === "online" ? (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -729,11 +484,11 @@ export default function ServersPage() {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7"
-                      onClick={() => checkOne(s.id)}
-                      disabled={checkingIds.has(s.id)}
-                      title="Check status"
+                      onClick={() => probe.checkOne(s.id)}
+                      disabled={probe.checkingIds.has(s.id) || !s.access_enabled}
+                      title={s.access_enabled ? "Check status" : "Access is turned off"}
                     >
-                      <RefreshCw className={`h-3.5 w-3.5 ${checkingIds.has(s.id) ? "animate-spin" : ""}`} />
+                      <RefreshCw className={`h-3.5 w-3.5 ${probe.checkingIds.has(s.id) ? "animate-spin" : ""}`} />
                     </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setFormTarget(s)} title="Edit">
                       <Pencil className="h-3.5 w-3.5" />
@@ -750,20 +505,28 @@ export default function ServersPage() {
                   </div>
                 </td>
               </tr>
+              {expandedId === s.id && (
+                <tr>
+                  <td colSpan={7} className="p-0">
+                    <ServerServicesPanel server={s} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>
       </div>
 
       {formTarget !== null && (
-        <ServerFormModal initial={formTarget === "new" ? null : formTarget} onClose={() => setFormTarget(null)} />
+        <ServerForm initial={formTarget === "new" ? null : formTarget} onClose={() => setFormTarget(null)} />
       )}
       {importOpen && <ImportCsvModal onClose={() => setImportOpen(false)} />}
       {installTarget && (
         <InstallKeyModal
           server={installTarget}
           onClose={() => setInstallTarget(null)}
-          onInstalled={() => checkOne(installTarget.id)}
+          onInstalled={() => probe.checkOne(installTarget.id)}
         />
       )}
       <ConfirmDialog

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { MacroInstructionsPanel } from "@/components/MacroInstructionsPanel";
 import { WebAutomationPanel } from "@/components/WebAutomationPanel";
 import type { Product } from "@/hooks/useProduct";
+import type { WebAppTarget } from "@/pages/workspace/workspaceState";
 import {
   type AutomationTarget,
   useBackWorkspaceBrowser,
@@ -37,13 +38,11 @@ import {
 
 interface WebAppPaneProps {
   url: string;
+  target?: WebAppTarget;
   products: Product[];
   onUrlChange: (url: string) => void;
+  onTargetChange: (target: WebAppTarget) => void;
 }
-
-const TARGET_MODE_KEY = "forgehub-webapp-target-mode";
-const TARGET_PRODUCT_KEY = "forgehub-webapp-target-product";
-const TARGET_APP_KEY = "forgehub-webapp-target-app";
 
 function normalizeUrl(value: string): string | null {
   const trimmed = value.trim();
@@ -74,7 +73,7 @@ function browserCoordinates(
 }
 
 /** Live view of the shared Chromium CDP session used by agent browser tools. */
-export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
+export function WebAppPane({ url, target: selectedTarget, products, onUrlChange, onTargetChange }: WebAppPaneProps) {
   const { t } = useTranslation("workspace");
   const state = useWorkspaceBrowserState(true);
   const start = useStartWorkspaceBrowser();
@@ -136,10 +135,10 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   }, []);
 
   const [targetMode, setTargetMode] = useState<"product" | "app">(
-    () => (localStorage.getItem(TARGET_MODE_KEY) as "product" | "app" | null) ?? "product"
+    selectedTarget?.mode === "app" ? "app" : "product"
   );
-  const [targetProductId, setTargetProductId] = useState(() => localStorage.getItem(TARGET_PRODUCT_KEY) ?? "");
-  const [targetAppId, setTargetAppId] = useState(() => localStorage.getItem(TARGET_APP_KEY) ?? "");
+  const targetProductId = selectedTarget?.mode === "product" ? selectedTarget.id : "";
+  const targetAppId = selectedTarget?.mode === "app" ? selectedTarget.id : "";
 
   useLayoutEffect(() => {
     const image = imageRef.current;
@@ -170,14 +169,10 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   }, [onUrlChange, state.data?.url, url]);
 
   useEffect(() => {
-    if (products.length === 0 || targetProductId) return;
+    if (products.length === 0 || selectedTarget?.mode === "product" || selectedTarget?.mode === "app") return;
     const fallback = products.find((product) => product.name.trim().toLowerCase() === "forgehub") ?? products[0];
-    setTargetProductId(fallback.id);
-  }, [products, targetProductId]);
-
-  useEffect(() => { localStorage.setItem(TARGET_MODE_KEY, targetMode); }, [targetMode]);
-  useEffect(() => { if (targetProductId) localStorage.setItem(TARGET_PRODUCT_KEY, targetProductId); }, [targetProductId]);
-  useEffect(() => { if (targetAppId) localStorage.setItem(TARGET_APP_KEY, targetAppId); }, [targetAppId]);
+    onTargetChange({ mode: "product", id: fallback.id });
+  }, [onTargetChange, products, selectedTarget?.mode]);
 
   function downloadScreenshot() {
     if (!state.data?.image_base64) return;
@@ -208,7 +203,7 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   const targetName = targetMode === "product" ? selectedProduct?.name : selectedApp?.name;
 
   function selectProduct(productId: string) {
-    setTargetProductId(productId);
+    onTargetChange({ mode: "product", id: productId });
     const product = products.find((item) => item.id === productId);
     // Produção primeiro, dev como reserva: desde que a URL virou uma por
     // ambiente (2026-07-26) um produto pode ter só o ambiente de dev no ar --
@@ -223,7 +218,7 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   }
 
   function selectApp(appId: string) {
-    setTargetAppId(appId);
+    onTargetChange({ mode: "app", id: appId });
     const app = standaloneApps.find((item) => item.id === appId);
     if (!app) return;
     setMissingTargetUrl(false);
@@ -246,7 +241,7 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
   }
 
   const busy = start.isPending || navigate.isPending || pointer.isPending || reload.isPending || back.isPending;
-  const error = state.error ?? start.error ?? navigate.error ?? pointer.error;
+  const error = state.error ?? start.error ?? navigate.error ?? pointer.error ?? scroll.error ?? reload.error ?? back.error ?? resize.error ?? createApp.error;
   const currentUrl = state.data?.url ?? url;
 
   // Shows the most recent auto-resolved alert/confirm/prompt as a transient
@@ -268,10 +263,10 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-1.5 rounded-t-md border border-b-0 border-border bg-background p-1.5">
           <div className="flex items-center gap-1">
-            <Button size="icon" variant="outline" className="h-8 w-8" title={t("webAppPane.back")} onClick={() => back.mutate({})}>
+            <Button size="icon" variant="outline" className="h-8 w-8" title={t("webAppPane.back")} disabled={busy} onClick={() => back.mutate({})}>
               <ArrowLeft className="h-3.5 w-3.5" />
             </Button>
-            <Button size="icon" variant="outline" className="h-8 w-8" title={t("webAppPane.reload")} onClick={() => reload.mutate({})}>
+            <Button size="icon" variant="outline" className="h-8 w-8" title={t("webAppPane.reload")} disabled={busy} onClick={() => reload.mutate({})}>
               <RefreshCw className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -279,13 +274,20 @@ export function WebAppPane({ url, products, onUrlChange }: WebAppPaneProps) {
           <div className="flex items-center rounded-md border border-input p-0.5">
             <Button
               size="icon" variant={targetMode === "product" ? "default" : "ghost"} className="h-7 w-7"
-              title={t("webAppPane.product")} onClick={() => setTargetMode("product")}
+              title={t("webAppPane.product")} onClick={() => {
+                setTargetMode("product");
+                const fallback = products.find((product) => product.name.trim().toLowerCase() === "forgehub") ?? products[0];
+                if (fallback) selectProduct(fallback.id);
+              }}
             >
               <Package className="h-3.5 w-3.5" />
             </Button>
             <Button
               size="icon" variant={targetMode === "app" ? "default" : "ghost"} className="h-7 w-7"
-              title={t("webAppPane.standaloneApp")} onClick={() => setTargetMode("app")}
+              title={t("webAppPane.standaloneApp")} onClick={() => {
+                setTargetMode("app");
+                if (standaloneApps[0]) selectApp(standaloneApps[0].id);
+              }}
             >
               <Globe className="h-3.5 w-3.5" />
             </Button>

@@ -69,7 +69,14 @@ class ProductConcept(Base, TimestampMixin):
     )
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft")
     current_revision_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.product_concept_revisions.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey(
+            "company.product_concept_revisions.id",
+            name="fk_product_concepts_current_revision",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
     )
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     __table_args__ = (
@@ -121,7 +128,14 @@ class SystemBlueprint(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     current_revision_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.system_blueprint_revisions.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey(
+            "company.system_blueprint_revisions.id",
+            name="fk_system_blueprints_current_revision",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
     )
 
 

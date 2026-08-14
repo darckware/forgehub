@@ -165,23 +165,27 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     // Instead, upload it and type its host file path, the same way dragging
     // a file onto a real terminal does; CLI agents (claude/codex/agy) that
     // support image input read it by path from there.
-    const uploadImageFile = (file: File) => {
+    const uploadImageFile = async (file: File) => {
       if (ws?.readyState !== WebSocket.OPEN) return;
       const formData = new FormData();
       formData.append("file", file, file.name || "pasted-image.png");
       const token = getToken();
-      fetch(`${API_BASE}/api/v1/terminal/upload-image`, {
-        method: "POST",
-        body: formData,
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      })
-        .then((res) => res.json())
-        .then((body: { path: string }) => {
-          if (ws?.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "input", data: `'${body.path}' ` }));
-          }
-        })
-        .catch(() => {});
+      try {
+        const response = await fetch(`${API_BASE}/api/v1/terminal/upload-image`, {
+          method: "POST",
+          body: formData,
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const body = (await response.json()) as { path?: unknown };
+        if (typeof body.path !== "string" || !body.path.trim()) throw new Error("Missing upload path");
+        if (ws?.readyState === WebSocket.OPEN) {
+          const shellSafePath = body.path.replace(/'/g, "'\\''");
+          ws.send(JSON.stringify({ type: "input", data: `'${shellSafePath}' ` }));
+        }
+      } catch {
+        term.write(`\r\n\x1b[31m${t("terminal.imageUploadFailed")}\x1b[0m\r\n`);
+      }
     };
 
     const handlePaste = (event: ClipboardEvent) => {
@@ -198,7 +202,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       // the way down, before xterm's bubble-phase handler runs.
       event.stopPropagation();
       const file = imageItem.getAsFile();
-      if (file) uploadImageFile(file);
+      if (file) void uploadImageFile(file);
     };
     container.addEventListener("paste", handlePaste, true);
 
@@ -214,7 +218,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       );
       if (!file) return;
       event.preventDefault();
-      uploadImageFile(file);
+      void uploadImageFile(file);
     };
     container.addEventListener("dragover", handleDragOver);
     container.addEventListener("drop", handleDrop);

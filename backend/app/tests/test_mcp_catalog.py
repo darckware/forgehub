@@ -26,8 +26,6 @@ from app.db.base import AsyncSessionLocal, Base, engine
 from app.db.models.agent import Agent
 from app.db.models.mcp_catalog import McpCatalogAssignment, McpCatalogServer
 from app.db.models.product import Product, ProductVersion
-from app.db.models.project import Project
-from app.db.models.project_mcp import ProjectMcpServer
 from app.main import app
 
 _MY_TABLES = [McpCatalogServer.__table__, McpCatalogAssignment.__table__]

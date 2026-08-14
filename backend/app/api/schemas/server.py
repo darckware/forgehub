@@ -12,6 +12,10 @@ class ServerCreate(BaseModel):
     remote_user: str = Field(min_length=1, max_length=100)
     ssh_port: int = Field(default=22, ge=1, le=65535)
     ssh_key_path: str | None = Field(default=None, max_length=500)
+    # Write-only: encrypted on arrival and never echoed back (ServerOut carries
+    # the key_passphrase_stored boolean instead).
+    key_passphrase: str | None = None
+    access_enabled: bool = True
     description: str | None = None
 
 
@@ -21,6 +25,13 @@ class ServerUpdate(BaseModel):
     remote_user: str | None = Field(default=None, min_length=1, max_length=100)
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
     ssh_key_path: str | None = Field(default=None, max_length=500)
+    # Three distinct intents, which is why the field is write-only and
+    # tri-state: omitted -> keep whatever is stored (the form cannot re-send a
+    # passphrase it never received); "" or null -> clear it; a value -> replace
+    # it. update_server reads it through model_dump(exclude_unset=True), so
+    # "omitted" and "explicitly null" stay distinguishable.
+    key_passphrase: str | None = None
+    access_enabled: bool | None = None
     description: str | None = None
 
 
@@ -37,9 +48,25 @@ class ServerOut(BaseModel):
     # Whether an encrypted copy of the identity file is vaulted on the row.
     # The material itself is never serialized -- see Server.private_key_stored.
     private_key_stored: bool = False
+    # Whether a passphrase for that key is on file. Also never serialized.
+    key_passphrase_stored: bool = False
+    # ForgeHub-side access switch: false parks the server (no probe, no
+    # terminal) without touching any key -- see Server.access_enabled.
+    access_enabled: bool = True
     description: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ServerDetailOut(ServerOut):
+    """Single-server read. Carries the decrypted key passphrase, which the list
+    never does -- same shape as AgentDetailOut's forgerouter_api_key, and for
+    the same reason: the field is edited in a card that shows the current value
+    behind an eye toggle, so the form has to receive it. The route is
+    admin-only.
+    """
+
+    key_passphrase: str | None = None
 
 
 class ServerKeyStoreRequest(BaseModel):
@@ -116,9 +143,84 @@ class ServerCheckResult(BaseModel):
                    missing key is reported first since it's the actionable
                    fix).
       "online"  -- TCP connect + SSH handshake + key auth all succeeded.
-      "offline" -- unreachable, connection refused, or the key was rejected.
+      "unreachable" -- the host did not answer on the SSH path.
+      "auth_failed" -- the host answered but rejected/unlocked no usable key.
+      "key_missing" -- the configured identity file does not exist.
+      "offline" -- another SSH transport failure that could not be classified.
+      "disabled" -- access_enabled is false, so nothing was probed at all.
+                   Distinct from "offline" on purpose: the server may well be
+                   up, ForgeHub is simply not using it.
     """
 
     server_id: uuid.UUID
-    status: Literal["online", "offline", "no_key"]
+    status: Literal[
+        "online",
+        "offline",
+        "unreachable",
+        "auth_failed",
+        "key_missing",
+        "no_key",
+        "disabled",
+    ]
     detail: str
+
+
+class ServerServiceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    port: int = Field(ge=1, le=65535)
+    scheme: Literal["http", "https"] = "http"
+    # Normalised to a leading slash (or None) by the route -- "admin" and
+    # "/admin" mean the same thing to whoever types it.
+    path: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+
+
+class ServerServiceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    scheme: Literal["http", "https"] | None = None
+    path: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+
+
+class ServerServiceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    server_id: uuid.UUID
+    name: str
+    port: int
+    scheme: str
+    path: str | None
+    description: str | None
+    # Built by the route from the parent server's current address, never
+    # stored: a server that changes IP must not leave a set of URLs pointing
+    # at the old one.
+    url: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ServerPortScanEntry(BaseModel):
+    port: int
+    scheme: Literal["http", "https"]
+    # Whether this port is already registered as a service on the row.
+    registered: bool
+    # False for ports that answer TCP but are not a web endpoint (a database,
+    # a message broker). Reported rather than hidden -- knowing Postgres is
+    # listening is useful -- but the UI must not offer it as a link, since
+    # http://host:5432 opens nothing.
+    likely_web: bool = True
+
+
+class ServerPortScanResult(BaseModel):
+    """Ports that answered a TCP connect, in the order scanned.
+
+    A finding is a suggestion, never a row: nothing is persisted by a scan.
+    An open port says something is listening, not what it is, so naming it is
+    left to whoever registers it.
+    """
+
+    server_id: uuid.UUID
+    scanned: int
+    open_ports: list[ServerPortScanEntry]

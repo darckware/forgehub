@@ -318,6 +318,7 @@ export function usePostChannelMessage(channelId: string) {
  * (2026-08-06, Marcelo: "precisa ver a quantidade de processos em
  * paralelo... com o detalhamento de cada agente"). */
 export type ChannelAgentStarted = { agent_id: string; agent_name: string };
+export type ChannelTurnStarted = { turn_id: string };
 
 /** One tool_start/tool_complete event from a mentioned agent's in-flight
  * turn, relayed live (2026-08-06, Marcelo: "traz o passo a passo de
@@ -354,7 +355,8 @@ export function useStreamChannelMessage(channelId: string) {
     signal?: AbortSignal,
     attachmentNames?: string,
     onAgentStarted?: (agent: ChannelAgentStarted) => void,
-    onAgentStep?: (step: ChannelAgentStep) => void
+    onAgentStep?: (step: ChannelAgentStep) => void,
+    onTurnStarted?: (turn: ChannelTurnStarted) => void
   ): Promise<void> {
     const token = getToken() ?? "";
     const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
@@ -398,6 +400,12 @@ export function useStreamChannelMessage(channelId: string) {
             currentEvent = "message";
             continue;
           }
+          if (currentEvent === "turn_started") {
+            const parsed = JSON.parse(raw || "{}") as Partial<ChannelTurnStarted>;
+            if (parsed.turn_id) onTurnStarted?.(parsed as ChannelTurnStarted);
+            currentEvent = "message";
+            continue;
+          }
           if (currentEvent === "agent_step") {
             const parsed = JSON.parse(raw || "{}") as Partial<ChannelAgentStep>;
             if (parsed.agent_id && parsed.tool_id) onAgentStep?.(parsed as ChannelAgentStep);
@@ -416,6 +424,13 @@ export function useStreamChannelMessage(channelId: string) {
   };
 }
 
+export function useStopChannelTurn() {
+  return useMutation({
+    mutationFn: ({ channelId, turnId }: { channelId: string; turnId: string }) =>
+      apiClient.post<{ status: string }>(`${RESOURCE}/${channelId}/turns/${turnId}/stop`),
+  });
+}
+
 /** Asks the channel's orchestrator to rewrite a draft per an improvement
  * instruction -- a private utility call, never a real channel turn (see
  * backend channel.py's stream_improve_prompt docstring). Resolves to the
@@ -425,15 +440,19 @@ export function useStreamImprovePrompt(channelId: string) {
   return async function improvePrompt(
     draft: string,
     instruction: string,
+    techniqueCode: string,
     signal?: AbortSignal
   ): Promise<string> {
     const token = getToken() ?? "";
     const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
-    const url =
-      `${apiBase}${RESOURCE}/${channelId}/improve-prompt/stream` +
-      `?draft=${encodeURIComponent(draft)}&instruction=${encodeURIComponent(instruction)}`;
+    const url = `${apiBase}${RESOURCE}/${channelId}/improve-prompt/stream`;
 
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ draft, instruction, technique_code: techniqueCode }),
+      signal,
+    });
     if (!resp.ok) {
       // The orchestrator precondition fails before any streaming starts
       // (see the backend docstring) -- a plain JSON 400, not SSE framing.

@@ -28,7 +28,7 @@ for the same reason.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -80,6 +80,15 @@ class ActiveTurn(Base, TimestampMixin):
     # replies; NULL for a channel turn, where several run at once (see
     # `steps` below) and singling one out would be a lie.
     agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Mirrors the chat route's own `hidden` (an Assistant-panel priming turn,
+    # never shown in the transcript). Needed so a turn ended by /turns/{id}/
+    # stop -- which persists the partial reply itself, from this row, not
+    # from the request that started the turn -- wraps it in the same
+    # _HIDDEN_TURN markers the normal completion path would have used.
+    # Without it, stopping a hidden turn mid-flight would leak its content
+    # into the visible transcript.
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     # --- Particularidades de cada superfície ---
     # Chat only: a privileged-action approval the run is blocked on. A chat

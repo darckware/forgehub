@@ -105,7 +105,7 @@ async def _get_version_or_404(db: AsyncSession, version_id: uuid.UUID) -> Produc
 async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_db)) -> Product:
     if payload.status not in VALID_PRODUCT_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid product status '{payload.status}'",
         )
     product = Product(
@@ -121,7 +121,7 @@ async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_
     )
     if initial_version_payload.status not in VALID_PRODUCT_VERSION_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid version status '{initial_version_payload.status}'",
         )
 
@@ -577,7 +577,7 @@ async def create_product_version(
 
     if payload.status not in VALID_PRODUCT_VERSION_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid version status '{payload.status}'",
         )
 
@@ -634,14 +634,14 @@ async def update_product_version(
     # Business rule 6.1.4: published versions cannot be mutated directly.
     if version.status == "published":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Published versions cannot be mutated directly. Create a patch/hotfix flow instead.",
         )
 
     update_data = payload.model_dump(exclude_unset=True)
     if "status" in update_data and update_data["status"] not in VALID_PRODUCT_VERSION_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid version status '{update_data['status']}'",
         )
 
@@ -709,7 +709,7 @@ async def delete_product_version(version_id: uuid.UUID, db: AsyncSession = Depen
 
     if version.status == "published":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Published versions cannot be mutated directly.",
         )
 
@@ -720,7 +720,7 @@ async def delete_product_version(version_id: uuid.UUID, db: AsyncSession = Depen
     remaining_ids = result.scalars().all()
     if len(remaining_ids) <= 1:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Cannot delete the only remaining version of a product",
         )
 
@@ -739,7 +739,7 @@ async def create_release(payload: ReleaseCreate, db: AsyncSession = Depends(get_
 
     if payload.status not in VALID_RELEASE_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid release status '{payload.status}'",
         )
 
@@ -780,7 +780,7 @@ async def update_release(
     update_data = payload.model_dump(exclude_unset=True)
     if "status" in update_data and update_data["status"] not in VALID_RELEASE_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid release status '{update_data['status']}'",
         )
 

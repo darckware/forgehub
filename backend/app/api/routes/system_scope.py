@@ -75,7 +75,6 @@ from app.db.models.project import Project
 from app.db.models.orchestration import ProjectAgentMembership
 from app.db.models.task import ProjectTask, TaskAssignment
 from app.db.models.system_scope import (
-    BLUEPRINT_REVISION_STATUSES,
     ELEMENT_FAMILIES,
     ELEMENT_TYPES,
     RELATION_TYPES,

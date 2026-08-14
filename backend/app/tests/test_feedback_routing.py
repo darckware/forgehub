@@ -16,14 +16,15 @@ The rules these protect (all agreed with Marcelo):
     instead of being lost.
 """
 import uuid
-from datetime import datetime, timedelta, timezone
 
 import pytest_asyncio
 from sqlalchemy import delete, select
 
+from app.core.config import settings
 from app.core.feedback import deliver_feedback, run_feedback_pass
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent
+from app.db.models.chat import ChatMessage, ChatSession
 from app.db.models.demand import AgentDemand
 from app.db.models.notification import Notification
 
@@ -53,6 +54,12 @@ async def agent():
                 delete(Notification).where(Notification.event_key.like(f"demand-feedback:{did}%"))
             )
         await session.execute(delete(AgentDemand).where(AgentDemand.target_agent_id == agent_id))
+        chat_ids = (
+            await session.execute(select(ChatSession.id).where(ChatSession.agent_id == agent_id))
+        ).scalars().all()
+        if chat_ids:
+            await session.execute(delete(ChatMessage).where(ChatMessage.session_id.in_(chat_ids)))
+            await session.execute(delete(ChatSession).where(ChatSession.id.in_(chat_ids)))
         await session.execute(delete(Agent).where(Agent.id == agent_id))
         await session.commit()
 
@@ -106,6 +113,28 @@ async def test_assistant_gets_a_system_notification(agent):
     assert len(notes) == 1
     assert notes[0].severity == "success"
     assert "concluída" in notes[0].message
+
+
+async def test_workspace_feedback_returns_to_the_conversation(agent):
+    async with AsyncSessionLocal() as session:
+        chat = ChatSession(agent_id=agent, title="Feedback return test")
+        session.add(chat)
+        await session.commit()
+        chat_id = chat.id
+
+    demand_id = await _finished(agent, channel="workspace", channel_ref=str(chat_id))
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        assert await deliver_feedback(session, demand) is True
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        replies = list((await session.execute(
+            select(ChatMessage).where(ChatMessage.session_id == chat_id)
+        )).scalars().all())
+        assert len(replies) == 1
+        assert replies[0].responding_agent_id == agent
+        assert "concluída" in replies[0].content
 
 
 async def test_a_failure_is_told_apart_from_a_success(agent):
@@ -227,7 +256,8 @@ async def test_telegram_answers_through_the_receiving_agents_bot(agent, monkeypa
         def __init__(self, *a, **k): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
-        async def post(self, url, json=None):
+        async def post(self, url, json=None, headers=None):
+            assert headers == {"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
             sent.update(json or {})
             return _FakeResponse()
 
@@ -263,7 +293,8 @@ async def test_an_agent_without_a_telegram_bot_sends_no_profile(agent, monkeypat
         def __init__(self, *a, **k): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
-        async def post(self, url, json=None):
+        async def post(self, url, json=None, headers=None):
+            assert headers == {"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
             sent.update(json or {})
             return _FakeResponse()
 

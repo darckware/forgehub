@@ -310,6 +310,11 @@ export type ChatStreamEvent =
       demandNumber?: number;
     }
   | { type: "approval_request"; streamId: string; command?: string; description?: string; patternKeys?: string[] }
+  /** The backend's ActiveTurn id for this turn (2026-08-14) -- the one thing
+   * a live tab needs from the stream to target Stop at this specific turn,
+   * since the turn itself now runs detached from this connection (see
+   * chat.py's `_run_chat_turn`). Previously unparsed/dropped entirely. */
+  | { type: "turn_started"; turnId: string }
   | { type: "done"; reply: string }
   | { type: "error"; message: string };
 
@@ -322,6 +327,7 @@ function parseChatStreamLine(raw: string): ChatStreamEvent | null {
   }
   if (data.error) return { type: "error", message: String(data.error) };
   if (data.done) return { type: "done", reply: data.reply ?? "" };
+  if (typeof data.turn_id === "string") return { type: "turn_started", turnId: data.turn_id };
   if (data.tool_start) {
     return {
       type: "tool_start",
@@ -452,15 +458,19 @@ export function useStreamImprovePrompt(sessionId: string) {
   return async function improvePrompt(
     draft: string,
     instruction: string,
+    techniqueCode: string,
     signal?: AbortSignal
   ): Promise<string> {
     const token = getToken() ?? "";
     const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
-    const url =
-      `${apiBase}${RESOURCE}/sessions/${sessionId}/improve-prompt/stream` +
-      `?draft=${encodeURIComponent(draft)}&instruction=${encodeURIComponent(instruction)}`;
+    const url = `${apiBase}${RESOURCE}/sessions/${sessionId}/improve-prompt/stream`;
 
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ draft, instruction, technique_code: techniqueCode }),
+      signal,
+    });
     if (!resp.ok) {
       // The session-agent lookup fails before any streaming starts -- a
       // plain JSON error, not SSE framing.
@@ -528,6 +538,19 @@ export function useApproveChat() {
   return useMutation({
     mutationFn: ({ streamId, choice }: { streamId: string; choice: "once" | "session" | "deny" }) =>
       apiClient.post<{ status: string }>(`${RESOURCE}/approve`, { stream_id: streamId, choice }),
+  });
+}
+
+/** Ends a running turn on purpose (2026-08-14) -- the Stop button's actual
+ * mechanism now that a turn survives the browser disconnecting on its own
+ * (see the backend's `_run_chat_turn`). Aborting the fetch alone no longer
+ * stops anything server-side; this is what does. Needs the ActiveTurn id,
+ * which arrives as a `turn_started` stream event once the turn has one --
+ * before that point there is nothing running yet to stop. */
+export function useStopChatTurn() {
+  return useMutation({
+    mutationFn: ({ sessionId, turnId }: { sessionId: string; turnId: string }) =>
+      apiClient.post<{ status: string }>(`${RESOURCE}/sessions/${sessionId}/turns/${turnId}/stop`),
   });
 }
 

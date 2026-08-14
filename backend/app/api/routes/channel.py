@@ -19,11 +19,11 @@ function.
 """
 import asyncio
 import anyio
+import contextlib
 import json
+import logging
 import re
-import time
 import uuid
-from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 import httpx
@@ -35,7 +35,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.routes.chat import (
     _bridge_headers,
     _call_bridge_text,
-    _get_chattable_agent_or_404,
     _with_language_note,
 )
 from app.api.schemas.channel import (
@@ -56,6 +55,8 @@ from app.api.schemas.channel import (
     ChatChannelUpdate,
     ChatChannelWithMembersOut,
 )
+from app.api.schemas.prompt_technique import ImprovePromptRequest
+from app.core.prompt_improvement import build_prompt_improvement_request, get_prompt_technique
 from app.core import conversions
 from app.core import active_turns
 from app.core.config import settings
@@ -70,10 +71,12 @@ from app.db.models.channel import (
     ChatChannelTask,
 )
 from app.db.models.governance import Approval
+from app.db.models.active_turn import ActiveTurn
 from app.db.models.orchestration import PROJECT_AGENT_ROLES, ProjectAgentMembership
 from app.db.models.project import Project
 
 router = APIRouter(prefix="/api/v1/channels", tags=["channels"])
+logger = logging.getLogger(__name__)
 
 # Safety cap referenced in the plan's risk section -- a message with more
 # mentions than this only wakes the first N (in text order); the rest are
@@ -83,6 +86,19 @@ MAX_MENTIONS_PER_MESSAGE = 5
 # same "bounded window, not full history" trade-off chat.py's voice mode
 # already accepts (chat.py:642-650) generalized to N authors.
 CONTEXT_WINDOW_MESSAGES = 30
+
+# Channel turns must outlive the browser request that launched them, just as
+# chat turns do. Strong references prevent asyncio from collecting detached
+# tasks, while the id map gives the explicit Stop endpoint a precise target.
+_LIVE_CHANNEL_TASKS: set[asyncio.Task] = set()
+_CHANNEL_TASKS_BY_TURN: dict[uuid.UUID, asyncio.Task] = {}
+_CHANNEL_STREAM_IDS_BY_TURN: dict[uuid.UUID, set[str]] = {}
+_CHANNEL_AGENT_LOCKS: dict[tuple[uuid.UUID, uuid.UUID], asyncio.Lock] = {}
+
+
+def _channel_agent_lock(channel_id: uuid.UUID, agent_id: uuid.UUID) -> asyncio.Lock:
+    """One linear Hermes context per agent inside one channel."""
+    return _CHANNEL_AGENT_LOCKS.setdefault((channel_id, agent_id), asyncio.Lock())
 
 
 # --------------------------------------------------------------------------
@@ -142,6 +158,22 @@ async def _list_members(db: AsyncSession, channel_id: uuid.UUID) -> list[ChatCha
     return list((
         await db.execute(select(ChatChannelMember).where(ChatChannelMember.channel_id == channel_id))
     ).scalars().all())
+
+
+async def _get_agent_member_or_404(
+    db: AsyncSession, channel_id: uuid.UUID, agent_id: uuid.UUID
+) -> ChatChannelMember:
+    member = (
+        await db.execute(
+            select(ChatChannelMember).where(
+                ChatChannelMember.channel_id == channel_id,
+                ChatChannelMember.agent_id == agent_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None or member.muted:
+        raise HTTPException(status_code=400, detail="Target agent must be an active member of this channel")
+    return member
 
 
 async def _channel_with_members_out(db: AsyncSession, channel: ChatChannel) -> ChatChannelWithMembersOut:
@@ -255,6 +287,10 @@ async def _build_shared_context(db: AsyncSession, channel: ChatChannel) -> str:
     # the first turn.
     lines = [
         f'Você está no canal "#{channel.name}". Membros: {member_names}.',
+        (
+            "[Roteamento interno ForgeHub] Ao delegar com send_agent_message, "
+            f"use channel='workspace' e channel_ref='{channel.id}' para o resultado voltar a este canal."
+        ),
         "[Instrução interna, não visível aos demais membros] Responda de forma natural e "
         "conversacional, como um colega de equipe participando de uma discussão em grupo -- "
         "direto e humano, sem tom de relatório formal nem recapitular tudo que já foi dito.",
@@ -734,14 +770,15 @@ async def _wake_agent_turn_isolated(
     hermes_session_id independently -- a slow agent no longer blocks a
     faster one, and one agent's bridge failure can't corrupt another's
     already-persisted turn."""
-    async with AsyncSessionLocal() as db:
-        channel = await db.get(ChatChannel, channel_id)
-        member = await db.get(ChatChannelMember, member_id)
-        agent = await db.get(Agent, agent_id)
-        reply = await _wake_agent_turn(db, channel, member, agent)
-        await db.commit()
-        await db.refresh(reply)
-        return ChatChannelMessageOut.model_validate(reply)
+    async with _channel_agent_lock(channel_id, agent_id):
+        async with AsyncSessionLocal() as db:
+            channel = await db.get(ChatChannel, channel_id)
+            member = await db.get(ChatChannelMember, member_id)
+            agent = await db.get(Agent, agent_id)
+            reply = await _wake_agent_turn(db, channel, member, agent)
+            await db.commit()
+            await db.refresh(reply)
+            return ChatChannelMessageOut.model_validate(reply)
 
 
 async def _iter_bridge_stream(bridge_params: dict[str, str]) -> AsyncIterator[dict]:
@@ -818,6 +855,7 @@ async def _wake_agent_turn_streaming(
     and zero error row for "#Athos, preciso que você crie um usuário...").
     """
     steps_run: list[str] = []
+    accumulated: list[str] = []
 
     def _interrupted_turn_content() -> str:
         """Same idea as chat.py's own _interrupted_turn_content: the tool
@@ -825,24 +863,37 @@ async def _wake_agent_turn_streaming(
         user-visible processing activity -- persist them instead of
         letting them evaporate with the connection."""
         if not steps_run:
-            return "⚠️ Turno interrompido antes de concluir (nenhuma etapa registrada)."
-        unique_steps = list(dict.fromkeys(steps_run))
-        return "⚠️ Turno interrompido antes de concluir. Etapas executadas:\n" + "\n".join(
-            f"- {s}" for s in unique_steps
-        )
+            warning = "⚠️ Turno interrompido antes de concluir (nenhuma etapa registrada)."
+        else:
+            unique_steps = list(dict.fromkeys(steps_run))
+            warning = "⚠️ Turno interrompido antes de concluir. Etapas executadas:\n" + "\n".join(
+                f"- {s}" for s in unique_steps
+            )
+        partial = "".join(accumulated).strip()
+        return f"{warning}\n\n{partial}" if partial else warning
 
+    lane_lock = _channel_agent_lock(channel_id, agent_id)
     async with AsyncSessionLocal() as db:
         channel = await db.get(ChatChannel, channel_id)
         member = await db.get(ChatChannelMember, member_id)
         agent = await db.get(Agent, agent_id)
+        await lane_lock.acquire()
         try:
+            # Another message to this agent may have completed while this
+            # worker waited. Reload the continuation id it just wrote before
+            # opening the next bridge stream.
+            await db.refresh(member)
             context = await _build_agent_turn_context(db, channel, member)
             bridge_params: dict[str, str] = {"profile": agent.profile_slug, "message": context}
+            if agent.runtime_type and agent.runtime_type != "hermes":
+                bridge_params["runtime"] = agent.runtime_type
             if member.hermes_session_id:
                 bridge_params["session_id"] = member.hermes_session_id
             full_reply = ""
             new_hermes_session_id: str | None = None
             async for data in _iter_bridge_stream(bridge_params):
+                if data.get("stream_id"):
+                    await events.put(("stream_id", agent.id, str(data["stream_id"])))
                 tool_start = data.get("tool_start")
                 if isinstance(tool_start, dict):
                     step = tool_start.get("context") or tool_start.get("name")
@@ -874,8 +925,12 @@ async def _wake_agent_turn_streaming(
                             "done": True,
                         },
                     ))
+                delta = data.get("delta", "")
+                if delta:
+                    accumulated.append(delta)
+                    await events.put(("text", agent.id, delta))
                 if data.get("done"):
-                    full_reply = data.get("reply") or full_reply
+                    full_reply = data.get("reply") or "".join(accumulated) or full_reply
                     new_hermes_session_id = data.get("session_id")
                     break
             member.hermes_session_id = new_hermes_session_id or member.hermes_session_id
@@ -914,6 +969,8 @@ async def _wake_agent_turn_streaming(
                 # let that mask the real failure below.
                 await db.rollback()
             await events.put(("failed", agent.id, agent.name, str(detail)))
+        finally:
+            lane_lock.release()
 
 
 async def _process_channel_turn(
@@ -987,6 +1044,165 @@ async def list_channel_messages(
     return list(result.scalars().all())
 
 
+async def _run_channel_turn(
+    *,
+    channel_id: uuid.UUID,
+    turn_id: uuid.UUID,
+    agents: list[tuple[uuid.UUID, uuid.UUID, str]],
+    out_queue: "asyncio.Queue[str | None]",
+) -> None:
+    """Runs every agent in one channel turn independently of its SSE client.
+
+    ``agents`` contains (agent_id, member_id, display_name). The workers keep
+    their existing isolated DB sessions for reply persistence; this
+    coordinator owns the ActiveTurn row and the live client tap. Consequently
+    a browser disconnect only abandons ``out_queue`` -- it cannot cancel the
+    work, its database writes, or the underlying bridge processes.
+    """
+    events: asyncio.Queue = asyncio.Queue()
+    workers: list[asyncio.Task] = []
+    failures: list[str] = []
+    try:
+        for agent_id, _member_id, agent_name in agents:
+            await out_queue.put(
+                "event: agent_started\ndata: "
+                f"{json.dumps({'agent_id': str(agent_id), 'agent_name': agent_name})}\n\n"
+            )
+        workers = [
+            asyncio.create_task(_wake_agent_turn_streaming(channel_id, member_id, agent_id, events))
+            for agent_id, member_id, _agent_name in agents
+        ]
+        remaining = len(workers)
+        async with AsyncSessionLocal() as db:
+            while remaining > 0:
+                try:
+                    item = await asyncio.wait_for(events.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    await out_queue.put(": ping\n\n")
+                    continue
+                kind = item[0]
+                if kind == "stream_id":
+                    _, _agent_id, stream_id = item
+                    _CHANNEL_STREAM_IDS_BY_TURN.setdefault(turn_id, set()).add(stream_id)
+                elif kind == "text":
+                    _, agent_id, delta = item
+                    await active_turns.record_text(db, turn_id, delta, agent_id=agent_id)
+                    await db.commit()
+                elif kind == "step":
+                    _, agent_id, agent_name, step = item
+                    step_id = step.get("tool_id") or str(uuid.uuid4())
+                    if step.get("done"):
+                        await active_turns.update_step(
+                            db,
+                            turn_id,
+                            step_id,
+                            {"status": "done", "label": step.get("summary") or step.get("name")},
+                        )
+                    else:
+                        await active_turns.record_step(
+                            db,
+                            turn_id,
+                            {
+                                "id": step_id,
+                                "name": step.get("name"),
+                                "label": step.get("context") or step.get("name"),
+                                "status": "running",
+                            },
+                            agent_id=agent_id,
+                        )
+                    await db.commit()
+                    await out_queue.put(
+                        "event: agent_step\ndata: "
+                        f"{json.dumps({'agent_id': str(agent_id), 'agent_name': agent_name, **step})}\n\n"
+                    )
+                elif kind == "done":
+                    _, _agent_id, reply_out = item
+                    remaining -= 1
+                    await out_queue.put(
+                        f"data: {json.dumps(reply_out.model_dump(mode='json'))}\n\n"
+                    )
+                else:  # failed
+                    _, _agent_id, agent_name, detail = item
+                    remaining -= 1
+                    failures.append(f"{agent_name}: {detail}")
+
+            await asyncio.gather(*workers, return_exceptions=True)
+            await active_turns.close_turn(
+                db,
+                turn_id,
+                status="failed" if failures else "completed",
+                error="; ".join(failures)[:2000] if failures else None,
+            )
+            await db.commit()
+        if failures:
+            await out_queue.put(
+                f"event: error\ndata: {json.dumps({'detail': '; '.join(failures)})}\n\n"
+            )
+        await out_queue.put("event: done\ndata: {}\n\n")
+    except asyncio.CancelledError:
+        for worker in workers:
+            worker.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+        with anyio.CancelScope(shield=True):
+            async with AsyncSessionLocal() as db:
+                await active_turns.close_turn(db, turn_id, status="cancelled")
+                await db.commit()
+        raise
+    except Exception as exc:
+        for worker in workers:
+            worker.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+        detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        async with AsyncSessionLocal() as db:
+            await active_turns.close_turn(db, turn_id, status="failed", error=str(detail)[:2000])
+            await db.commit()
+        await out_queue.put(f"event: error\ndata: {json.dumps({'detail': str(detail)})}\n\n")
+    finally:
+        await out_queue.put(None)
+
+
+@router.post("/{channel_id}/turns/{turn_id}/stop")
+async def stop_channel_turn(
+    channel_id: uuid.UUID, turn_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Stops a channel turn deliberately; navigation never calls this."""
+    turn = await db.get(ActiveTurn, turn_id)
+    if turn is None or turn.scope != "channel" or turn.scope_id != channel_id:
+        raise HTTPException(status_code=404, detail="No such turn")
+    if turn.status != "running":
+        return {"status": turn.status}
+
+    stream_ids = tuple(_CHANNEL_STREAM_IDS_BY_TURN.get(turn_id, ()))
+    task = _CHANNEL_TASKS_BY_TURN.get(turn_id)
+    if task is not None and not task.done():
+        # Cancellation first makes Stop immediate and gives every worker a
+        # chance to persist its partial reply. The bridge calls below are an
+        # additional best-effort cleanup, not something the UI must wait on
+        # before the backend stops its own work.
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    if stream_ids:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await asyncio.gather(*[
+                    client.post(
+                        f"{settings.CHAT_BRIDGE_URL}/v1/chat/stop",
+                        json={"stream_id": stream_id},
+                        headers=_bridge_headers(),
+                    )
+                    for stream_id in stream_ids
+                ], return_exceptions=True)
+        except httpx.HTTPError:
+            pass
+
+    await active_turns.close_turn(db, turn_id, status="cancelled")
+    await db.commit()
+    return {"status": "cancelled"}
+
+
 @router.get("/{channel_id}/messages/stream")
 async def stream_channel_message(
     channel_id: uuid.UUID, content: str, attachment_names: str | None = None, db: AsyncSession = Depends(get_db)
@@ -1000,103 +1216,71 @@ async def stream_channel_message(
     actually finish, not mention order. See _wake_agent_turn_isolated for
     why each runs on its own DB session rather than sharing this one."""
     channel = await _get_channel_or_404(db, channel_id)
+    human_message = await _post_human_message(db, channel, content, attachment_names)
+    await db.commit()
+    await db.refresh(human_message)
+    human_event = f"data: {json.dumps(ChatChannelMessageOut.model_validate(human_message).model_dump(mode='json'))}\n\n"
 
-    async def _events() -> AsyncIterator[str]:
-        try:
-            human_message = await _post_human_message(db, channel, content, attachment_names)
-            await db.commit()
-            await db.refresh(human_message)
-            yield f"data: {json.dumps(ChatChannelMessageOut.model_validate(human_message).model_dump(mode='json'))}\n\n"
+    members = await _list_members(db, channel.id)
+    agent_members = {m.agent_id: m for m in members if not m.is_human and not m.muted}
+    available_agents = [a for a in [await db.get(Agent, aid) for aid in agent_members] if a is not None]
+    mentioned = _resolve_mentions(content, available_agents)
+    if not mentioned:
+        async def _empty_tap() -> AsyncIterator[str]:
+            yield human_event
+            yield "event: done\ndata: {}\n\n"
+        return StreamingResponse(_empty_tap(), media_type="text/event-stream")
 
-            members = await _list_members(db, channel.id)
-            agent_members = {m.agent_id: m for m in members if not m.is_human and not m.muted}
-            agents = [a for a in [await db.get(Agent, aid) for aid in agent_members] if a is not None]
-            mentioned = _resolve_mentions(content, agents)
+    turn = await active_turns.open_turn(
+        db,
+        scope="channel",
+        scope_id=channel.id,
+        stream_id=f"channel:{uuid.uuid4().hex}",
+        prompt=content,
+        supersede_existing=False,
+    )
+    await db.commit()
+    turn_id = turn.id
+    queue: "asyncio.Queue[str | None]" = asyncio.Queue()
+    await queue.put(human_event)
+    await queue.put(f"event: turn_started\ndata: {json.dumps({'turn_id': str(turn_id)})}\n\n")
+    task = asyncio.create_task(
+        _run_channel_turn(
+            channel_id=channel.id,
+            turn_id=turn_id,
+            agents=[(agent.id, agent_members[agent.id].id, agent.name) for agent in mentioned],
+            out_queue=queue,
+        )
+    )
+    _LIVE_CHANNEL_TASKS.add(task)
+    _CHANNEL_TASKS_BY_TURN[turn_id] = task
 
-            # Each mentioned/broadcast agent's turn runs concurrently, on its
-            # own isolated session (_wake_agent_turn_streaming) -- a slow
-            # agent no longer blocks the others' replies from reaching the
-            # browser, and proxies kill a byte-silent SSE connection around
-            # ~100s (same note as chat.py's own streaming docstring), so
-            # `: ping` is still interleaved every 15s while any turn remains
-            # in flight (2026-08-06, root cause of "enviei a mensagem e não
-            # foi feito nada. Não apareceu ele trabalhando" -- carried over
-            # from the single-agent version of this loop). One agent's
-            # bridge failure is held, not raised immediately, so it can't
-            # cut off replies from agents still in flight -- surfaced as a
-            # single trailing `event: error` only after every turn has
-            # settled.
-            #
-            # `agent_started` fires for every mentioned agent up front, all
-            # at once (they're all launched together right below), and each
-            # agent's own `agent_step` events follow live as its
-            # tool_start/tool_complete events arrive from the bridge --
-            # lets the UI show a live "N agentes trabalhando em paralelo"
-            # strip with a per-agent ticker and tool trail instead of one
-            # generic spinner (2026-08-06, Marcelo: "precisa ver a
-            # quantidade de processos em paralelo... com o detalhamento de
-            # cada agente" -- "traz o passo a passo de ferramentas em tempo
-            # real também"). All events from every concurrent agent funnel
-            # through one asyncio.Queue rather than polling task objects,
-            # since a task object alone can't surface intermediate
-            # tool-step events, only its final return value.
-            for agent in mentioned:
-                yield (
-                    "event: agent_started\ndata: "
-                    f"{json.dumps({'agent_id': str(agent.id), 'agent_name': agent.name})}\n\n"
-                )
-            events: asyncio.Queue = asyncio.Queue()
-            tasks = [
-                asyncio.ensure_future(
-                    _wake_agent_turn_streaming(channel.id, agent_members[agent.id].id, agent.id, events)
-                )
-                for agent in mentioned
-            ]
-            remaining = len(tasks)
-            failures: list[str] = []
-            while remaining > 0:
-                try:
-                    item = await asyncio.wait_for(events.get(), timeout=15)
-                except asyncio.TimeoutError:
-                    yield ": ping\n\n"
-                    continue
-                kind = item[0]
-                if kind == "step":
-                    _, agent_id, agent_name, step = item
-                    yield (
-                        "event: agent_step\ndata: "
-                        f"{json.dumps({'agent_id': str(agent_id), 'agent_name': agent_name, **step})}\n\n"
-                    )
-                elif kind == "done":
-                    _, _agent_id, reply_out = item
-                    remaining -= 1
-                    yield f"data: {json.dumps(reply_out.model_dump(mode='json'))}\n\n"
-                else:  # "failed"
-                    _, _agent_id, agent_name, detail = item
-                    remaining -= 1
-                    failures.append(f"{agent_name}: {detail}")
-            await asyncio.gather(*tasks, return_exceptions=True)
-            if failures:
-                yield f"event: error\ndata: {json.dumps({'detail': '; '.join(failures)})}\n\n"
-        except Exception as exc:
-            # Broad on purpose -- _call_bridge_text raises a plain
-            # HTTPException (not httpx.HTTPError) on a non-200 bridge
-            # response, which an `except httpx.HTTPError` alone silently
-            # let escape this generator (StreamingResponse then just ends
-            # the connection with nothing sent, the exact silent-failure
-            # symptom this fixes). Every failure now reaches the browser
-            # as a real `event: error`, never a dead connection.
-            await db.rollback()
-            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
-            yield f"event: error\ndata: {json.dumps({'detail': str(detail)})}\n\n"
-        yield "event: done\ndata: {}\n\n"
+    def _turn_finished(finished: asyncio.Task) -> None:
+        _LIVE_CHANNEL_TASKS.discard(finished)
+        _CHANNEL_TASKS_BY_TURN.pop(turn_id, None)
+        _CHANNEL_STREAM_IDS_BY_TURN.pop(turn_id, None)
+        if not finished.cancelled() and (exc := finished.exception()) is not None:
+            logger.exception("Channel turn task for channel %s failed", channel_id, exc_info=exc)
 
-    return StreamingResponse(_events(), media_type="text/event-stream")
+    task.add_done_callback(_turn_finished)
+
+    async def _tap() -> AsyncIterator[str]:
+        while True:
+            item = await queue.get()
+            if item is None:
+                return
+            yield item
+
+    return StreamingResponse(
+        _tap(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
-@router.get("/{channel_id}/improve-prompt/stream")
+@router.post("/{channel_id}/improve-prompt/stream")
 async def stream_improve_prompt(
-    channel_id: uuid.UUID, draft: str, instruction: str, db: AsyncSession = Depends(get_db)
+    channel_id: uuid.UUID, payload: ImprovePromptRequest, db: AsyncSession = Depends(get_db)
 ) -> StreamingResponse:
     """Asks the channel's orchestrator agent to rewrite a draft message
     per an improvement instruction -- a private utility call, never a real
@@ -1118,14 +1302,16 @@ async def stream_improve_prompt(
             detail="This channel has no orchestrator designated yet -- set one first (crown icon on a member).",
         )
     orchestrator = await _get_agent_or_404(db, channel.orchestrator_agent_id)
+    technique = await get_prompt_technique(db, payload.technique_code)
 
-    prompt = (
-        f"Você é o orquestrador do canal \"#{channel.name}\" do ForgeHub. Marcelo está rascunhando uma "
-        f"mensagem para o canal e pediu sua ajuda para melhorá-la.\n\n"
-        f"Rascunho atual:\n---\n{draft}\n---\n\n"
-        f"Instrução de melhoria: {instruction}\n\n"
-        f"Responda APENAS com o texto melhorado da mensagem, pronto para ser enviado -- sem comentários, "
-        f"sem explicações, sem aspas ao redor do texto."
+    prompt = build_prompt_improvement_request(
+        actor_context=(
+            f'Você é o orquestrador do canal "#{channel.name}" do ForgeHub. O usuário está '
+            "rascunhando uma mensagem para o canal e pediu sua ajuda para melhorá-la."
+        ),
+        draft=payload.draft,
+        instruction=payload.instruction,
+        technique=technique,
     )
 
     async def _events() -> AsyncIterator[str]:
@@ -1177,15 +1363,24 @@ async def dispatch_channel_message(
     if message.triggered_demand_id is not None:
         raise HTTPException(status_code=400, detail="This message already triggered a dispatch")
     agent = await _get_agent_or_404(db, payload.agent_id)
+    await _get_agent_member_or_404(db, channel_id, agent.id)
 
+    sender_id = message.author_agent_id or channel.orchestrator_agent_id or agent.id
+    sender = await db.get(Agent, sender_id)
     demand = AgentDemand(
-        from_agent="forgehub",
+        # AgentDemand.from_agent is a compact display snapshot (VARCHAR(50));
+        # agent names themselves may legitimately be longer.
+        from_agent=(sender.name if sender is not None else "forgehub")[:50],
+        from_agent_id=sender_id,
         subject=f"#{channel.name}: {message.content}"[:255],
         body=message.content,
         status="new",
         target_agent_id=payload.agent_id,
         project_id=channel.project_id,
-        origin_type="task" if payload.project_task_id is not None else "incubation",
+        # This explicit action creates executable work even when it is not
+        # linked to a pre-existing ProjectTask. `origin_id` is optional;
+        # classifying an ad-hoc handoff as incubation made dispatch reject it.
+        origin_type="task",
         origin_id=payload.project_task_id,
         # Meio de comunicação = Workspace, com o canal como endereço de
         # retorno: quem pediu está olhando esta conversa, e é nela que o
@@ -1243,6 +1438,7 @@ async def create_channel_task(
     channel = await _get_channel_or_404(db, channel_id)
     if payload.assignee_agent_id is not None:
         await _get_agent_or_404(db, payload.assignee_agent_id)
+        await _get_agent_member_or_404(db, channel_id, payload.assignee_agent_id)
     task = ChatChannelTask(
         channel_id=channel_id,
         title=payload.title.strip(),
@@ -1298,6 +1494,7 @@ async def update_channel_task(
         # both in sync bidirectionally is out of scope for this pass.
     if payload.assignee_agent_id is not None:
         await _get_agent_or_404(db, payload.assignee_agent_id)
+        await _get_agent_member_or_404(db, channel_id, payload.assignee_agent_id)
         task.assignee_agent_id = payload.assignee_agent_id
     await db.commit()
     await db.refresh(task)
@@ -1350,7 +1547,7 @@ async def propose_channel_task(
     """
     from app.api.routes.demand import _get_agent_by_slug_or_404
 
-    channel = await _get_channel_or_404(db, channel_id)
+    await _get_channel_or_404(db, channel_id)
     acting_agent = await _get_agent_by_slug_or_404(db, payload.acting_agent_slug)
     assignee_agent = await _get_agent_by_slug_or_404(db, payload.assignee_agent_slug)
 
@@ -1363,6 +1560,7 @@ async def propose_channel_task(
     ).scalar_one_or_none()
     if acting_member is None:
         raise HTTPException(status_code=403, detail=f"{acting_agent.name} is not a member of this channel")
+    await _get_agent_member_or_404(db, channel_id, assignee_agent.id)
 
     if payload.role_required is not None and payload.role_required not in PROJECT_AGENT_ROLES:
         raise HTTPException(status_code=400, detail=f"role_required must be one of {PROJECT_AGENT_ROLES}")

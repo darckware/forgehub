@@ -548,6 +548,48 @@ export function useAgentsTelegramStatus() {
   });
 }
 
+export const agentTelegramMessageSchema = z.object({
+  id: z.number(),
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  timestamp: z.number(),
+  platform_message_id: z.string().nullable().optional(),
+});
+
+export const agentTelegramConversationSchema = z.object({
+  agent_id: z.string(),
+  agent_name: z.string(),
+  profile_slug: z.string(),
+  session_id: z.string().nullable().optional(),
+  chat_id: z.string().nullable().optional(),
+  messages: z.array(agentTelegramMessageSchema).default([]),
+  delivery_error: z.string().nullable().optional(),
+});
+
+export type AgentTelegramConversation = z.infer<typeof agentTelegramConversationSchema>;
+
+export function useAgentTelegramConversation(agentId: string | undefined, active = true) {
+  return useQuery({
+    queryKey: [...agentTelegramKeys.all, "conversation", agentId ?? ""],
+    queryFn: async () => agentTelegramConversationSchema.parse(
+      await apiClient.get<AgentTelegramConversation>(`${RESOURCE}/${agentId}/telegram/messages`)
+    ),
+    enabled: Boolean(agentId),
+    refetchInterval: active ? 5_000 : false,
+  });
+}
+
+export function useSendAgentTelegramMessage(agentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (message: string) =>
+      apiClient.post<AgentTelegramConversation>(`${RESOURCE}/${agentId}/telegram/messages`, { message }),
+    onSuccess: (data) => {
+      queryClient.setQueryData([...agentTelegramKeys.all, "conversation", agentId], data);
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // MCP servers
 //
