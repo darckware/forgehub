@@ -141,7 +141,7 @@ Em **Access Profiles**, as ações são `planning.progress.view`, `planning.prog
 | Hindsight | `/hindsight` | Status do daemon de memória contínua dos agentes (Hindsight): saúde, config de LLM, inventário de schema, logs. Ações admin: restart do container, limpar log. |
 | Auditor | `/auditor` | 38 controles do ecossistema, incluindo auditoria individual dos oito profiles. Permite filtrar por profile, ver contexto/evidência/histórico e, quando houver correção determinística, aplicá-la com confirmação administrativa e reverificação automática. |
 | Deploy Control | `/deploy` | Controle de grupos de deploy e sincronização. |
-| Servers | `/servers` | Inventário de servidores remotos (SSH), com checagem de status e instalação de chave pública. |
+| Servers | `/servers` | Inventário de servidores remotos (SSH), com checagem de status, instalação de chave pública e **cofre de chaves**: uma cópia criptografada da chave privada guardada na linha do servidor, para que perder o arquivo no host não signifique perder o acesso. Guardar, restaurar e remover a cópia são ações administrativas e sempre explícitas — nada é feito automaticamente. |
 | Database | `/database/*` | Schema, diagrama ER e console de query (somente leitura) do Postgres. |
 
 ### Administration
@@ -182,9 +182,9 @@ O dispatch direto antigo foi desativado. Reinício do bridge preserva estado seg
 
 ## Documentação técnica por tela
 
-`docs/screens/*.md` tem o detalhe técnico (rotas exatas com número de linha, hooks, endpoints, regras de negócio, estados de erro/loading) das telas já documentadas: `dashboard`, `workspace`, `products`, `projects`, `pipelines`, `backlog`, `tasks`, `artifacts`, `governance`, `agents`, `forgerouter`, `foundation`, `crons`, `knowledge_base`.
+`docs/screens/*.md` tem o detalhe técnico (rotas exatas com número de linha, hooks, endpoints, regras de negócio, estados de erro/loading) das telas já documentadas: `dashboard`, `workspace`, `products`, `projects`, `pipelines`, `backlog`, `tasks`, `artifacts`, `governance`, `agents`, `forgerouter`, `foundation`, `crons`, `knowledge_base`, `servers`.
 
-**Ainda sem documentação técnica própria** (usar este manual + o código-fonte até serem escritos): Messages (demands), Docs, Notifications, Templates (pipeline-templates), Policies, Grupo de Trabalho (channels), Agent Tools, Chat Commands, Skills, System Control, Hindsight, Auditor, Deploy Control, Servers, Database, Users, Access Profiles.
+**Ainda sem documentação técnica própria** (usar este manual + o código-fonte até serem escritos): Messages (demands), Docs, Notifications, Templates (pipeline-templates), Policies, Grupo de Trabalho (channels), Agent Tools, Chat Commands, Skills, System Control, Hindsight, Auditor, Deploy Control, Database, Users, Access Profiles.
 
 ## Regras de negócio centrais
 
