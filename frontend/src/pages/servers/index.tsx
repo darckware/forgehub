@@ -38,6 +38,7 @@ import {
   useInstallServerKey,
   useReadServerPublicKey,
   buildSshCommand,
+  resolveLiveServer,
   type Server,
   type ServerCreate,
   type ServerCheckResult,
@@ -189,6 +190,13 @@ function ServerFormModal({ initial, onClose }: { initial: Server | null; onClose
   const updateServer = useUpdateServer();
   const readPublicKey = useReadServerPublicKey();
   const pending = createServer.isPending || updateServer.isPending;
+  // `initial` is the row as it was when the dialog opened. The read-only
+  // blocks below (key vault, stored public key) must show what the row *is*
+  // now, or an action taken inside this dialog appears not to have happened --
+  // see resolveLiveServer. The editable fields deliberately keep reading from
+  // `form`, which is seeded once, so a refetch never overwrites typing.
+  const { data: servers } = useServers();
+  const live = initial ? resolveLiveServer(servers, initial) : null;
 
   function handleSave() {
     setError(null);
@@ -245,7 +253,7 @@ function ServerFormModal({ initial, onClose }: { initial: Server | null; onClose
               placeholder="/root/.ssh/id_ed25519_aegis"
               className="flex-1 font-mono text-xs"
             />
-            {initial?.ssh_key_path && (
+            {live?.ssh_key_path && (
               <Button
                 type="button"
                 variant="outline"
@@ -253,7 +261,7 @@ function ServerFormModal({ initial, onClose }: { initial: Server | null; onClose
                 title="Copy the public key of this path"
                 disabled={readPublicKey.isPending}
                 onClick={() => {
-                  readPublicKey.mutate(initial.id, {
+                  readPublicKey.mutate(live.id, {
                     onSuccess: (srv) => {
                       if (srv.public_key) {
                         void navigator.clipboard.writeText(srv.public_key);
@@ -276,13 +284,13 @@ function ServerFormModal({ initial, onClose }: { initial: Server | null; onClose
           </div>
           <p className="text-[11px] text-muted-foreground">
             Used as <code className="font-mono">ssh -i &lt;path&gt;</code> when opening the SSH terminal. Leave blank to use the shell's default key/agent.
-            {initial?.ssh_key_path && " The copy button reads the public key (<path>.pub) and saves it to this record."}
+            {live?.ssh_key_path && " The copy button reads the public key (<path>.pub) and saves it to this record."}
           </p>
           {readPublicKey.isError && (
             <p className="text-[11px] text-destructive">{readPublicKey.error.message}</p>
           )}
         </div>
-        {initial && <KeyVaultSection server={initial} />}
+        {live && <KeyVaultSection server={live} />}
         <div className="space-y-1">
           <Label>Description</Label>
           <Textarea
@@ -291,17 +299,17 @@ function ServerFormModal({ initial, onClose }: { initial: Server | null; onClose
             placeholder="Main application server"
           />
         </div>
-        {initial?.public_key && (
+        {live?.public_key && (
           <div className="space-y-1">
             <Label>Public key (installed on the server)</Label>
             <div className="flex items-start gap-2">
-              <Textarea readOnly value={initial.public_key} className="min-h-[56px] flex-1 font-mono text-[10px]" />
+              <Textarea readOnly value={live.public_key} className="min-h-[56px] flex-1 font-mono text-[10px]" />
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 title="Copy public key"
-                onClick={() => { void navigator.clipboard.writeText(initial.public_key ?? ""); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                onClick={() => { void navigator.clipboard.writeText(live.public_key ?? ""); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
               >
                 {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>

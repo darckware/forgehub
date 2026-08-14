@@ -13,7 +13,7 @@
 |---|---|
 | `frontend/src/pages/servers/index.tsx` (`ServersPage`) | Page shell: header with "Check status"/"Import CSV"/"New server"/assistant toggle, the inventory table, and the four modals/dialogs. Owns `formTarget`/`importOpen`/`deleteTarget`/`installTarget`/`statuses`/`checkingIds` local state. |
 | `frontend/src/pages/servers/index.tsx` (`ModalShell`, local) | Shared modal chrome (backdrop + card + close button) used by the three modals below. |
-| `frontend/src/pages/servers/index.tsx` (`ServerFormModal`, local) | Create/edit form: name, IP, port, remote user, SSH key path (+ copy-public-key button), description, the read-only installed public key, and — when editing — the key vault section. |
+| `frontend/src/pages/servers/index.tsx` (`ServerFormModal`, local) | Create/edit form: name, IP, port, remote user, SSH key path (+ copy-public-key button), description, the read-only installed public key, and — when editing — the key vault section. Editable fields read from `form` (seeded once, so a refetch never overwrites typing); the read-only blocks read from `live` (`resolveLiveServer`), so an action taken *inside* the dialog is visible without reopening it. |
 | `frontend/src/pages/servers/index.tsx` (`KeyVaultSection`, local, `:82`) | The key vault UI. A pure render of `useServerKeyVaultViewModel` with no state of its own — the §21 ViewModel pair described in `docs/architecture/FRONTEND_VIEWMODEL_MIGRATION_PLAN.md`. |
 | `frontend/src/hooks/useServerKeyVaultViewModel.ts` (`useServerKeyVaultViewModel`) | ViewModel for that section: `status` state machine (`idle`/`backing_up`/`restoring`/`storing`/`confirming_clear`/`clearing`/`error`), the paste field, the confirmation step, and the four actions. |
 | `frontend/src/pages/servers/index.tsx` (`InstallKeyModal`, local, `:331`) | One-shot dedicated-key installation: admin/registered-user choice, password field, step-by-step result list. Mirrors `/root/.hermes/scripts/configure_ssh.sh`, parameterized. |
@@ -38,7 +38,7 @@
 | Write the vaulted key back | `useRestoreServerKey()` | `/api/v1/servers/{id}/key:restore` | POST |
 | Drop the vaulted copy | `useClearServerKey()` | `/api/v1/servers/{id}/key` | DELETE |
 
-Every mutation except the probe invalidates the `["servers"]` query key on success. `useCheckServer` deliberately does not: each result is an ephemeral snapshot, so `ServersPage` keeps them in local `statuses` state instead of the query cache.
+Every mutation except the probe invalidates the `["servers"]` query key on success — which is what `resolveLiveServer` (`useServers.ts`) turns into a visible update inside an already-open dialog, by re-reading the captured row from that same list instead of trusting the object the dialog was opened with. `useCheckServer` deliberately does not: each result is an ephemeral snapshot, so `ServersPage` keeps them in local `statuses` state instead of the query cache.
 
 Backend (`backend/app/api/routes/server.py`):
 
@@ -112,7 +112,6 @@ Two more rules live in the frontend:
 
 ## Notes / Improvement Opportunities
 
-- **The vault badge goes stale while the dialog is open.** `ServerFormModal` receives `initial` from `formTarget`, a `Server` object captured when Edit was clicked. `useBackupServerKey` invalidates `["servers"]`, but the captured object is never replaced, so after storing a key the section keeps showing "No copy stored" (and "Restore to host" stays disabled) until the dialog is closed and reopened. The success message is the only feedback that the action worked. Fixing it means re-reading the row from the query cache by id instead of holding the object in state.
 - **A failed inventory load looks like an empty inventory.** `useServers()`'s `isError`/`error` are never read (`:580`); if the request fails, the table renders "No servers registered." — the §48 error state the coding standard asks for is missing.
 - **Delete failures are silent.** `deleteServer.mutate` (`:768`) has an `onSuccess` only; on error the `ConfirmDialog` stays open with no message and the row remains.
 - **The page is not full-bleed.** `/servers` is absent from `AppLayout.tsx`'s `isFullBleed` list, so the table grows with the page instead of scrolling inside its own container — fine at today's row count, awkward at a few dozen.

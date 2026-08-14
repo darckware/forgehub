@@ -63,6 +63,25 @@ export function buildSshCommand(server: Server): string {
   return parts.join(" ");
 }
 
+/** Re-reads a row that was captured earlier -- typically the `Server` a dialog
+ * was opened with -- from the live list.
+ *
+ * A dialog that holds the object it was opened with never sees the result of
+ * its own mutations (2026-08-14): the key-vault actions invalidate
+ * `["servers"]` and the table below updates, but the captured object does not,
+ * so the vault section kept reading "No copy stored" (and "Restore to host"
+ * stayed disabled) after a key had just been stored, until the dialog was
+ * closed and reopened. Same for the public key the "copy public key" button
+ * persists.
+ *
+ * Falls back to the captured row while the list is still loading, and if the
+ * row is gone -- an open dialog should keep rendering what it had rather than
+ * blank out because the row was deleted in another tab.
+ */
+export function resolveLiveServer(servers: Server[] | undefined, captured: Server): Server {
+  return servers?.find((s) => s.id === captured.id) ?? captured;
+}
+
 export type ServerUpdate = Partial<ServerCreate>;
 
 export interface ServerImportResult {

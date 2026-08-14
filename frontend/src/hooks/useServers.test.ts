@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSshCommand, type Server } from "./useServers";
+import { buildSshCommand, resolveLiveServer, type Server } from "./useServers";
 
 function server(overrides: Partial<Server> = {}): Server {
   return {
@@ -39,5 +39,26 @@ describe("buildSshCommand", () => {
 
   it("carries a non-default port", () => {
     expect(buildSshCommand(server({ ssh_port: 2222 }))).toContain("-p 2222");
+  });
+});
+
+describe("resolveLiveServer", () => {
+  it("prefers the refetched row over the one the dialog captured", () => {
+    // Regression (2026-08-14): the edit dialog held the Server object it was
+    // opened with, so storing a key updated the cache while the vault section
+    // kept rendering "No copy stored" until the dialog was reopened.
+    const captured = server({ private_key_stored: false });
+    const refetched = server({ private_key_stored: true });
+    expect(resolveLiveServer([refetched], captured).private_key_stored).toBe(true);
+  });
+
+  it("keeps the captured row while the list is still loading", () => {
+    const captured = server({ public_key: "ssh-ed25519 AAAA…" });
+    expect(resolveLiveServer(undefined, captured)).toBe(captured);
+  });
+
+  it("keeps the captured row when it is no longer in the list", () => {
+    const captured = server({ id: "gone" });
+    expect(resolveLiveServer([server({ id: "other" })], captured)).toBe(captured);
   });
 });
