@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Agent } from "@/hooks/useAgent";
 import { usePromptCommands, type PromptCommand } from "@/hooks/usePromptCommands";
 import { useTranscribeAudio } from "@/hooks/useChat";
+import { useQueryClient } from "@tanstack/react-query";
+import { useActiveTurn, type ActiveTurn } from "@/hooks/useActiveTurn";
 import {
+  channelKeys,
   useChannel,
   useChannelMessages,
   useStreamChannelMessage,
@@ -48,6 +51,11 @@ export interface ChannelRoomViewModel {
   content: string;
   setContent: (value: string | ((prev: string) => string)) => void;
   sending: boolean;
+  /** Turno em execução observado do servidor -- só preenchido quando este
+   * cliente NÃO é quem transmite. É o que a tela mostra depois de um F5, de
+   * um travamento da aba, ou ao abrir o canal em outra máquina, enquanto os
+   * agentes seguem trabalhando (2026-08-13). */
+  activeTurn: ActiveTurn | null;
   sendError: string | null;
   setSendError: (value: string | null) => void;
   runningAgents: Map<string, { name: string; startedAt: number; steps: ChatQueueStep[] }>;
@@ -91,33 +99,6 @@ export interface ChannelRoomViewModel {
   improvePrompt: (draft: string, instruction: string, signal?: AbortSignal) => Promise<string>;
 }
 
-/** Turno em voo preservado fora do React, por canal (2026-08-13).
- *
- * Alternar Conversas <-> Canais já era seguro desde 2026-08-07 (o painel fica
- * `hidden`, não desmonta). Sair do Workspace inteiro e voltar é outra coisa:
- * aí o componente desmonta de verdade e estes quatro estados morriam juntos,
- * enquanto o turno seguia rodando no backend. O usuário voltava e via a
- * conversa parada, sem indicação de que algo ainda estava em curso.
- *
- * Guardado por canal para dois canais em execução não sobrescreverem um ao
- * outro. `runningAgents` vira array na travessia porque um Map não sobrevive
- * a nada além de referência direta -- aqui é referência, mas manter o formato
- * serializável evita uma armadilha se algum dia isso for para storage. */
-type ChannelInFlight = {
-  liveMessages: ChatChannelMessage[];
-  runningAgents: [string, { name: string; startedAt: number; steps: ChatQueueStep[] }][];
-  finishedSteps: [string, ChatQueueStep[]][];
-  sendingCount: number;
-};
-
-const inFlightByChannelId = new Map<string, ChannelInFlight>();
-
-/** Descarta o turno preservado de um canal -- usado quando o próprio usuário
- * encerra o assunto (troca de canal deliberada não conta: aí ele volta). */
-export function clearChannelInFlight(channelId: string): void {
-  inFlightByChannelId.delete(channelId);
-}
-
 export function useChannelRoomViewModel(
   channelId: string,
   agents: Agent[],
@@ -126,15 +107,14 @@ export function useChannelRoomViewModel(
   const { data: channel } = useChannel(channelId);
   const { data: messages = [] } = useChannelMessages(channelId);
   const streamMessage = useStreamChannelMessage(channelId);
+  const queryClient = useQueryClient();
   const improvePrompt = useStreamImprovePrompt(channelId);
-  // Os quatro estados abaixo são semeados juntos, do mesmo snapshot: eles se
-  // referenciam (uma liveMessage tem um agente rodando, que tem um rastro de
-  // passos), e restaurar só parte deixaria a tela em um estado que nunca
-  // existiu -- pior que não restaurar nada.
-  const restored = inFlightByChannelId.get(channelId);
-  const [liveMessages, setLiveMessages] = useState<ChatChannelMessage[]>(
-    () => restored?.liveMessages ?? []
-  );
+  // Estado apenas do turno que ESTE cliente está transmitindo. O turno em si
+  // pertence ao servidor (core/active_turns.py) e é lido por useActiveTurn
+  // abaixo -- é o que sobrevive a um F5, a um travamento da aba e a abrir o
+  // canal em outra máquina, do mesmo jeito que o TerminalPane re-anexa ao
+  // tmux (2026-08-13).
+  const [liveMessages, setLiveMessages] = useState<ChatChannelMessage[]>([]);
   const [content, setContent] = useState("");
   // Count of turns currently in flight, not a single boolean -- multiple
   // messages can be sent back to back without waiting for a previous one
@@ -144,7 +124,7 @@ export function useChannelRoomViewModel(
   // queue: each Enter starts its own independent stream immediately).
   // `sending` stays a derived boolean so the rest of the render (working
   // strip, etc.) doesn't need to change.
-  const [sendingCount, setSendingCount] = useState(() => restored?.sendingCount ?? 0);
+  const [sendingCount, setSendingCount] = useState(0);
   const sending = sendingCount > 0;
   const [sendError, setSendError] = useState<string | null>(null);
   // Which mentioned/broadcast agents are currently mid-turn, keyed by agent
@@ -161,7 +141,7 @@ export function useChannelRoomViewModel(
   // reused here rather than reimplemented.
   const [runningAgents, setRunningAgents] = useState<
     Map<string, { name: string; startedAt: number; steps: ChatQueueStep[] }>
-  >(() => new Map(restored?.runningAgents ?? []));
+  >(new Map());
   // Which running agent's step trail is expanded (click to toggle) --
   // at most one at a time, mirroring FinishedStepsTrail's own
   // single-thread collapse pattern.
@@ -172,25 +152,26 @@ export function useChannelRoomViewModel(
   // separate, don't erase the process detail" (2026-07-29, Marcelo,
   // ChatPane's own finishedStepsByMessageId precedent).
   const [finishedStepsByMessageId, setFinishedStepsByMessageId] = useState<Map<string, ChatQueueStep[]>>(
-    () => new Map(restored?.finishedSteps ?? [])
+    new Map()
   );
-  // Espelha o turno em voo fora do React a cada mudança -- é o que estará
-  // disponível se o componente desmontar no meio. Só grava enquanto há algo
-  // acontecendo: um canal ocioso não deve deixar entrada para trás, senão o
-  // mapa cresce com o histórico de todo canal já aberto.
+  // O turno em execução, lido do servidor. `sendingCount > 0` significa que
+  // ESTE cliente é quem transmite -- aí não vale perguntar, ele já recebe
+  // tudo ao vivo. Mesmo hook do chat: as superfícies só diferem no escopo.
+  const { data: activeTurn } = useActiveTurn("channel", channelId, sendingCount > 0);
+
+  // Quando o turno observado termina no servidor, as respostas acabaram de
+  // ser persistidas: recarrega para elas aparecerem sem reload manual. O
+  // canal já faz poll de 15s, mas isso o traz na hora.
+  const lastActiveTurnIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const busy = sendingCount > 0 || runningAgents.size > 0 || liveMessages.length > 0;
-    if (busy) {
-      inFlightByChannelId.set(channelId, {
-        liveMessages,
-        runningAgents: [...runningAgents.entries()],
-        finishedSteps: [...finishedStepsByMessageId.entries()],
-        sendingCount,
-      });
-    } else {
-      inFlightByChannelId.delete(channelId);
+    const current = activeTurn?.id ?? null;
+    if (lastActiveTurnIdRef.current && !current) {
+      void queryClient
+        .refetchQueries({ queryKey: channelKeys.messages(channelId) })
+        .catch(() => {});
     }
-  }, [channelId, liveMessages, runningAgents, finishedStepsByMessageId, sendingCount]);
+    lastActiveTurnIdRef.current = current;
+  }, [activeTurn, channelId, queryClient]);
 
   const [improveOpen, setImproveOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"transcript" | "tasks">("transcript");
@@ -524,6 +505,10 @@ export function useChannelRoomViewModel(
     content,
     setContent,
     sending,
+    /** Turno em execução observado do servidor -- preenchido só quando este
+     * cliente não é quem transmite. É o que a tela mostra depois de um F5 ou
+     * de um travamento, enquanto os agentes seguem trabalhando. */
+    activeTurn: sendingCount > 0 ? null : (activeTurn ?? null),
     sendError,
     setSendError,
     runningAgents,

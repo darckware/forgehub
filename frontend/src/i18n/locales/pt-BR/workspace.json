@@ -181,7 +181,8 @@
     "description": "Descrição",
     "skills": "Skills",
     "noSkills": "Nenhuma skill concedida ainda.",
-    "notApproved": "não aprovada"
+    "notApproved": "não aprovada",
+    "reattachedTurn": "Em execução no servidor — esta tela reconectou"
   },
   "activeTurn": {
     "running": "Em execução no servidor — esta tela reconectou",

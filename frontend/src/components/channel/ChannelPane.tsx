@@ -530,6 +530,7 @@ function ChannelRoom({
     sendError,
     setSendError,
     runningAgents,
+    activeTurn,
     expandedAgentId,
     setExpandedAgentId,
     slashOpen,
@@ -616,6 +617,42 @@ function ChannelRoom({
               <p className="py-8 text-center text-sm text-muted-foreground">
                 {t("channels.noMessages")}
               </p>
+            )}
+            {/* Turno observado do servidor: aparece só quando este cliente NÃO
+                é quem transmite (o bloco `sending` abaixo cobre esse caso).
+                É o que se vê depois de um F5 ou de um travamento -- os
+                agentes seguem trabalhando e a tela volta a acompanhar. */}
+            {!sending && activeTurn && (
+              <div className="flex flex-col gap-1.5 py-2">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Bot className="h-3 w-3 shrink-0 animate-pulse text-primary" />
+                  {t("channels.reattachedTurn")}
+                </div>
+                {/* Um turno de canal roda vários agentes ao mesmo tempo, e
+                    cada passo diz de quem é -- agrupar por agente é o que
+                    impede os rastros de se misturarem numa lista só. */}
+                {Object.entries(
+                  activeTurn.steps.reduce<Record<string, typeof activeTurn.steps>>((acc, step) => {
+                    const key = step.agent_id ?? "—";
+                    (acc[key] ??= []).push(step);
+                    return acc;
+                  }, {})
+                ).map(([agentId, steps]) => (
+                  <div key={agentId} className="max-w-lg text-xs text-muted-foreground">
+                    <span className="font-medium">
+                      {agents.find((a) => a.id === agentId)?.name ?? t("channels.agent")}
+                    </span>
+                    <ul className="ml-4 list-disc">
+                      {steps.map((step) => (
+                        <li key={step.id}>{step.label ?? step.name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                {activeTurn.live_text && (
+                  <p className="whitespace-pre-wrap text-sm text-foreground">{activeTurn.live_text}</p>
+                )}
+              </div>
             )}
             {sending && (
               runningAgents.size > 0 ? (

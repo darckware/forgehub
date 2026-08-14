@@ -181,7 +181,8 @@
     "description": "Description",
     "skills": "Skills",
     "noSkills": "No skills granted yet.",
-    "notApproved": "not approved"
+    "notApproved": "not approved",
+    "reattachedTurn": "Running on the server — this view reconnected"
   },
   "activeTurn": {
     "running": "Running on the server — this view reconnected",
