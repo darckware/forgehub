@@ -52,6 +52,17 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
       (item.runtime_type === "hermes" || item.runtime_type === "openclaw") &&
       statuses?.agents.some((s) => s.agent_id === item.id && s.installed)
   );
+  // The tab's own agent must always be a selectable option, even when it
+  // has no Telegram channel of its own (2026-08-15 bugfix) -- a <select>
+  // whose value doesn't match any of its <option>s silently renders as
+  // whichever option happens to be first, which showed "Scriba" for a tab
+  // actually open on Aramis (not Telegram-configured) and made it look
+  // like the selector had switched agents on its own. The status badge
+  // next to it already communicates "não configurado"; hiding the option
+  // entirely instead misrepresents which agent this tab is even about.
+  const selectableAgents = agent && !telegramAgents.some((item) => item.id === agent.id)
+    ? [agent, ...telegramAgents]
+    : telegramAgents;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -224,7 +235,7 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
               onChange={(event) => onAgentChange(event.target.value)}
               aria-label="Agente do canal Telegram"
             >
-              {telegramAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              {selectableAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePick} />
             <Button
