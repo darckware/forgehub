@@ -88,8 +88,8 @@
     "keep15": "Manter últimos 15 dias",
     "clearAll": "Limpar tudo",
     "confirmTitle": "Limpar mensagens",
-    "confirmKeepDescription": "Apaga permanentemente toda mensagem com mais de {{days}} dias. Isso não pode ser desfeito.",
-    "confirmClearAllDescription": "Apaga permanentemente todas as mensagens. Isso não pode ser desfeito.",
+    "confirmKeepDescription": "Apaga permanentemente toda mensagem concluída, com falha ou já arquivada com mais de {{days}} dias. Mensagens ativas (Entrada, Saída, Em execução, Incubação) nunca são afetadas. Isso não pode ser desfeito.",
+    "confirmClearAllDescription": "Apaga permanentemente todas as mensagens concluídas, com falha ou já arquivadas. Mensagens ativas (Entrada, Saída, Em execução, Incubação) nunca são afetadas. Isso não pode ser desfeito.",
     "confirmGroupDescription": "Apaga permanentemente todas as mensagens em {{group}}. Isso não pode ser desfeito.",
     "cleanupGroupLabel": "Limpar {{group}}"
   },

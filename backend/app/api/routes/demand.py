@@ -22,6 +22,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.demand import (
+    AgentDemandUpdateIn,
     ConvertIn,
     ConvertOut,
     DemandAttachmentOut,
@@ -48,6 +49,7 @@ from app.db.models.demand import (
     DEMAND_DISPATCH_STATUSES,
     DEMAND_LINKED_ORIGIN_TYPES,
     DEMAND_ORIGIN_TYPES,
+    DEMAND_RETENTION_DAYS,
     DEMAND_STATUSES,
     DISPATCH_MAX_ATTEMPTS,
     DISPATCH_TIMEOUT_MINUTES,
@@ -865,6 +867,72 @@ async def update_demand(
     return demand
 
 
+def _require_bridge_token(x_bridge_token: str | None) -> None:
+    if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid bridge token")
+
+
+@router.patch("/{demand_id}/agent", response_model=DemandOut)
+async def update_demand_as_agent(
+    demand_id: uuid.UUID,
+    payload: AgentDemandUpdateIn,
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> AgentDemand:
+    """Bridge-token counterpart to PATCH /{demand_id} (2026-08-15) -- closes
+    the MCP's CRUD gap: `list_agent_messages`/`get_agent_message`/
+    `check_agent_inbox` were already agent-parameterized for any agent, but
+    nothing let an agent write back through the same bridge-token boundary
+    without a human JWT. Scoped to the message's own sender -- an agent
+    edits mail it sent, not anyone else's, same ownership line
+    `receive_incubation`/`drop_incubation` already draw (403, not a silent
+    no-op, so a caller can tell "not mine" from "nothing changed")."""
+    _require_bridge_token(x_bridge_token)
+    demand = await _get_demand_or_404(db, demand_id)
+    caller = await _get_agent_by_slug_or_404(db, payload.agent)
+    if demand.from_agent_id != caller.id:
+        raise HTTPException(status_code=403, detail="Only the sender can edit this message")
+
+    data = payload.model_dump(exclude_unset=True, exclude={"agent"})
+    if "subject" in data:
+        demand.subject = data["subject"]
+    if "body" in data:
+        demand.body = data["body"]
+    if "requires_response" in data:
+        demand.requires_response = data["requires_response"]
+    if "target_agent" in data:
+        target = await _get_agent_by_slug_or_404(db, data["target_agent"]) if data["target_agent"] else None
+        demand.target_agent_id = target.id if target else None
+        demand.origin_type, demand.origin_id = _reconcile_task_origin(
+            demand.origin_type, demand.origin_id, demand.target_agent_id, demand.from_agent_id
+        )
+
+    await db.commit()
+    await db.refresh(demand)
+    return demand
+
+
+@router.post("/{demand_id}/agent-archive", response_model=DemandOut)
+async def archive_demand_as_agent(
+    demand_id: uuid.UUID,
+    agent: str,
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> AgentDemand:
+    """Bridge-token archive (2026-08-15), same ownership boundary as
+    update_demand_as_agent -- the other half of the MCP's CRUD gap."""
+    _require_bridge_token(x_bridge_token)
+    demand = await _get_demand_or_404(db, demand_id)
+    caller = await _get_agent_by_slug_or_404(db, agent)
+    if demand.from_agent_id != caller.id:
+        raise HTTPException(status_code=403, detail="Only the sender can archive this message")
+
+    demand.status = "archived"
+    await db.commit()
+    await db.refresh(demand)
+    return demand
+
+
 @router.delete("/{demand_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     """Delete a message and the files attached to it.
@@ -1299,6 +1367,37 @@ async def run_dispatch_timeout_pass(db: AsyncSession) -> int:
         await db.commit()
         logger.info("Dispatch timeout: failed %d stalled dispatch(es)", len(stalled))
     return len(stalled)
+
+
+async def run_demand_retention_sweep(db: AsyncSession) -> int:
+    """Auto-archives terminal mail past its retention window (2026-08-15,
+    Marcelo: "as messages precisam ter um plano de limpeza podendo ficar
+    até 60 dias" -- see DEMAND_RETENTION_DAYS's own docstring for the
+    scope this deliberately keeps: archive, never delete, terminal only).
+
+    `updated_at` stands in for "became terminal" -- there is no dedicated
+    timestamp for that transition, and _finalize_dispatch/_fail_dispatch's
+    write to dispatch_status is, barring the near-simultaneous feedback
+    delivery right after, the last write these rows get. Close enough for
+    a 60-day window; a few minutes of slack from a delayed feedback
+    delivery doesn't move the needle.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=DEMAND_RETENTION_DAYS)
+    stale = (
+        await db.execute(
+            select(AgentDemand).where(
+                AgentDemand.status != "archived",
+                AgentDemand.dispatch_status.in_(("completed", "failed")),
+                AgentDemand.updated_at < cutoff,
+            )
+        )
+    ).scalars().all()
+    for demand in stale:
+        demand.status = "archived"
+    if stale:
+        await db.commit()
+        logger.info("Demand retention: archived %d message(s) past %d days", len(stale), DEMAND_RETENTION_DAYS)
+    return len(stale)
 
 
 async def run_incubation_maturation_pass(db: AsyncSession) -> int:

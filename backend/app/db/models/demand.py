@@ -19,7 +19,15 @@ DEMAND_STATUSES = ("new", "read", "converted", "archived")
 # Independent of DEMAND_STATUSES (the item's own inbox lifecycle) -- a demand
 # can be status="read" and dispatch_status="running" at the same time. NULL
 # until target_agent_id is set and a dispatch is actually triggered.
-DEMAND_DISPATCH_STATUSES = ("pending", "dispatched", "running", "completed", "failed")
+#
+# "pending" formally retired 2026-08-15 (migration 60bb40510cb4):
+# every real dispatch path goes straight from NULL to "dispatched"
+# (run_scheduled_dispatch_pass -> _execute_dispatch), so the value never had
+# a writer -- it only ever described a window nothing produced. Kept the
+# frontend's "Incoming" folder alive by redefining it around self-addressed
+# work instead (see useDemands.ts's isIncomingItem) rather than leaving a
+# dead enum value as a stand-in for a state that never occurred.
+DEMAND_DISPATCH_STATUSES = ("dispatched", "running", "completed", "failed")
 
 # "Tipo" da mensagem -- mandatory, exactly two values (2026-07-28, Marcelo:
 # "no type só sistem dois tipo task ou backlog e o campo é obrigatório...
@@ -86,6 +94,17 @@ DISPATCH_TIMEOUT_MINUTES = 45
 # problem), so this bounds how often someone can re-run the same thing
 # without fixing its cause.
 DISPATCH_MAX_ATTEMPTS = 3
+
+# --- Plano de retenção (2026-08-15, Marcelo: "as messages precisam ter um
+# plano de limpeza podendo ficar até 60 dias") ---
+# Terminal mail (Completed/Failed) is auto-archived once it has sat that
+# long since its last write -- see demand.py's run_demand_retention_sweep.
+# Archives, never deletes: the record survives, it just leaves the active
+# folders for Arquivadas, same reversibility as the manual archive icon.
+# Never touches Incoming/Outgoing/Running/Incubation regardless of age --
+# an open thread or an in-flight dispatch is never a cleanup target, only
+# how it ended is.
+DEMAND_RETENTION_DAYS = 60
 
 # --- Meio de comunicação (2026-08-13) ---
 # Where the request came in through, and therefore where its outcome has to

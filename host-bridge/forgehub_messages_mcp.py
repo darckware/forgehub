@@ -311,8 +311,8 @@ async def list_agent_messages(
     Args:
         status: the read/convert lifecycle — "new", "read", "converted" or
             "archived". Omit for any.
-        dispatch_status: the execution lifecycle — "pending", "dispatched",
-            "running", "completed", "failed", or "none" for messages that
+        dispatch_status: the execution lifecycle — "dispatched", "running",
+            "completed", "failed", or "none" for messages that
             were never dispatched at all (a plain note, or one still waiting
             on a target). Omit for any.
         direction: "outgoing" (sent by this agent), "incoming" (addressed to
@@ -388,6 +388,87 @@ async def check_agent_inbox(agent: str | None = None) -> str:
     parts = [f"{len(pending)} pending message(s) for {slug!r} (now marked as delivered):"]
     parts.extend(_format_message(item, body="full") for item in pending)
     return "\n\n".join(parts)
+
+
+async def _own_message_id(slug: str, number: int) -> str:
+    """The demand id behind a human-typed #number, restricted to what this
+    agent actually sent -- write routes take an id, people type numbers.
+    Mirrors _own_incubation_id below, for ordinary (non-incubation) mail."""
+    items = await _call(
+        "GET",
+        "/api/v1/demands/for-agent",
+        params={"agent": slug, "number": number, "direction": "outgoing", "limit": 1},
+    )
+    if not items:
+        raise ForgeHubError(
+            f"No message #{number} sent by {slug!r}. You can only edit/archive mail you sent."
+        )
+    return items[0]["id"]
+
+
+@mcp.tool()
+async def update_agent_message(
+    number: int,
+    subject: str | None = None,
+    body: str | None = None,
+    to_agent: str | None = None,
+    requires_response: bool | None = None,
+    agent: str | None = None,
+) -> str:
+    """Edit a message you sent, by its number (#N).
+
+    Closes the write half of the channel: the read tools above
+    (`list_agent_messages`/`get_agent_message`/`check_agent_inbox`) already
+    let you look at any agent's mail by passing its slug, but there was no
+    way to change one at all except the human-only ForgeHub web UI. Writing
+    stays scoped to your own outgoing mail -- editing something another
+    agent sent is out of scope, same ownership line `receive_incubation`/
+    `drop_incubation` already draw for incubation.
+
+    Args:
+        number: the message's #number (see list_agent_messages/check_agent_inbox).
+        subject: new subject, if changing it.
+        body: new body, if changing it.
+        to_agent: re-address it to a different agent's profile_slug, or ""
+            to clear the target entirely. Leave unset to keep the current one.
+        requires_response: change whether a reply comes back once dispatched.
+        agent: your own profile_slug; defaults to this runtime's own.
+    """
+    try:
+        slug = _resolve_agent(agent)
+        demand_id = await _own_message_id(slug, number)
+        payload: dict[str, Any] = {"agent": slug}
+        if subject is not None:
+            payload["subject"] = subject
+        if body is not None:
+            payload["body"] = body
+        if to_agent is not None:
+            payload["target_agent"] = to_agent or None
+        if requires_response is not None:
+            payload["requires_response"] = requires_response
+        result = await _call("PATCH", f"/api/v1/demands/{demand_id}/agent", json=payload)
+    except ForgeHubError as exc:
+        return str(exc)
+    return f"Updated #{number}.\n\n{_format_message(result, body='full')}"
+
+
+@mcp.tool()
+async def archive_agent_message(number: int, agent: str | None = None) -> str:
+    """Archive a message you sent, by its number (#N) -- files it under
+    Arquivadas without deleting it. Only the sender can archive it; a
+    message someone else sent you is not yours to file away.
+
+    Args:
+        number: the message's #number.
+        agent: your own profile_slug; defaults to this runtime's own.
+    """
+    try:
+        slug = _resolve_agent(agent)
+        demand_id = await _own_message_id(slug, number)
+        result = await _call("POST", f"/api/v1/demands/{demand_id}/agent-archive", params={"agent": slug})
+    except ForgeHubError as exc:
+        return str(exc)
+    return f"Archived #{number}.\n\n{_format_message(result, body='preview')}"
 
 
 @mcp.tool()

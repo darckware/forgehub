@@ -94,10 +94,15 @@ const CONVERT_TARGET_LABELS: Record<ConvertTarget, string> = {
  * completed, não fica tendo da Outgoing") -- Outgoing is "still moving",
  * not a permanent sent-log; once resolved it lives only in
  * Completed/Failed, symmetric with how those two already work as their
- * own lifecycle-stage groups. */
+ * own lifecycle-stage groups. Also excludes self-addressed items
+ * (2026-08-15, Marcelo: "se o próprio agente que vai executar então ele
+ * não tem saída e sim uma entrada") -- work a sender addressed to itself
+ * is Incoming for that agent (isIncomingItem), never Outgoing. */
 function isOutboxItem(d: Demand): boolean {
+  const selfDirected = Boolean(d.target_agent_id) && d.target_agent_id === d.from_agent_id;
   return (
     (Boolean(d.from_agent_id && d.target_agent_id) || d.origin_type === "task") &&
+    !selfDirected &&
     d.dispatch_status !== "completed" &&
     d.dispatch_status !== "failed"
   );
@@ -189,9 +194,20 @@ function archiveTargetIds(target: ArchiveTarget, demands: Demand[]): string[] {
 
 function cleanupTargetIds(target: CleanupTarget, demands: Demand[]): string[] {
   if (target.kind === "age") {
-    if (target.days === null) return demands.map((d) => d.id);
+    // Scoped to terminal/archived mail only (2026-08-15, Marcelo: "as
+    // messages precisam ter um plano de limpeza" -- same boundary as the
+    // automatic 60-day retention sweep, DEMAND_RETENTION_DAYS). An open
+    // thread (Incoming/Outgoing/Incubation) or an in-flight dispatch
+    // (Running) is never swept here no matter how old it is -- only how
+    // it ended is. Before this, "Clear all" deleted literally every
+    // demand in the table regardless of state, which is what wiped an
+    // in-progress Incubation decision the one time it was used unscoped.
+    const eligible = demands.filter(
+      (d) => d.status === "archived" || d.dispatch_status === "completed" || d.dispatch_status === "failed"
+    );
+    if (target.days === null) return eligible.map((d) => d.id);
     const cutoffMs = Date.now() - target.days * 24 * 60 * 60 * 1000;
-    return demands.filter((d) => new Date(d.created_at).getTime() < cutoffMs).map((d) => d.id);
+    return eligible.filter((d) => new Date(d.updated_at).getTime() < cutoffMs).map((d) => d.id);
   }
   if (target.scope === "inbox") return demands.filter((d) => d.status !== "archived").map((d) => d.id);
   if (target.scope === "outbox") return demands.filter((d) => d.status !== "archived" && isOutboxItem(d)).map((d) => d.id);
@@ -732,10 +748,18 @@ export default function DemandsPage() {
       // item addressed to nobody never enters dispatch at all
       // (dispatch_status stays NULL forever, target_agent_id required to
       // fire), so gating it the same way would make System permanently
-      // empty instead of the human-note catch-all it actually is.
+      // empty instead of the human-note catch-all it actually is. Requires
+      // no from_agent_id too (2026-08-15, Marcelo: "não existe anônima")
+      // -- a no-target row with a sender is an Incubation item someone
+      // already owns (incubation_owner_id falls back to from_agent_id),
+      // not a System note; counting it here too would double it into a
+      // badge it doesn't belong to.
       if (folder.agentId === null)
-        return all.filter((d) => d.status !== "archived" && (!d.target_agent_id || isIncomingItem(d, d.target_agent_id)));
-      if (folder.agentId === NO_AGENT_ID) return all.filter((d) => d.status !== "archived" && !d.target_agent_id);
+        return all.filter(
+          (d) => d.status !== "archived" && ((!d.target_agent_id && !d.from_agent_id) || isIncomingItem(d, d.target_agent_id ?? ""))
+        );
+      if (folder.agentId === NO_AGENT_ID)
+        return all.filter((d) => d.status !== "archived" && !d.target_agent_id && !d.from_agent_id);
       return all.filter((d) => isIncomingItem(d, folder.agentId!));
     }
     if (folder.kind === "outbox") {
@@ -796,7 +820,7 @@ export default function DemandsPage() {
     return counts;
   }, [visible]);
   const adminInboxCount = useMemo(
-    () => visible.filter((d) => d.status !== "archived" && !d.target_agent_id).length,
+    () => visible.filter((d) => d.status !== "archived" && !d.target_agent_id && !d.from_agent_id).length,
     [visible]
   );
   /** Root badge for the Incoming tree -- must match exactly what selecting

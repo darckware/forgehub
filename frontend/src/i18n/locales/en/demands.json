@@ -88,8 +88,8 @@
     "keep15": "Keep last 15 days",
     "clearAll": "Clear all",
     "confirmTitle": "Clean up messages",
-    "confirmKeepDescription": "Permanently deletes every message older than {{days}} days. This cannot be undone.",
-    "confirmClearAllDescription": "Permanently deletes every message. This cannot be undone.",
+    "confirmKeepDescription": "Permanently deletes every completed, failed, or already-archived message older than {{days}} days. Active mail (Incoming, Outgoing, Running, Incubation) is never affected. This cannot be undone.",
+    "confirmClearAllDescription": "Permanently deletes every completed, failed, or already-archived message. Active mail (Incoming, Outgoing, Running, Incubation) is never affected. This cannot be undone.",
     "confirmGroupDescription": "Permanently deletes every message in {{group}}. This cannot be undone.",
     "cleanupGroupLabel": "Clean up {{group}}"
   },

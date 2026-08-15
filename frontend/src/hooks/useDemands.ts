@@ -105,7 +105,7 @@ export const demandSchema = z.object({
   // Scheduled send -- set together with target_agent_id, dispatched
   // automatically by the backend's poll loop once this time is reached.
   scheduled_at: z.string().nullable(),
-  dispatch_status: z.enum(["pending", "dispatched", "running", "completed", "failed"]).nullable(),
+  dispatch_status: z.enum(["dispatched", "running", "completed", "failed"]).nullable(),
   // Contingência de despacho (2026-08-13): prazo até o qual a execução
   // precisa retornar, quantas vezes já foi despachada e por que a última
   // falhou. `dispatch_attempts` contra DISPATCH_MAX_ATTEMPTS decide se o
@@ -129,16 +129,22 @@ export const demandSchema = z.object({
 export type Demand = z.infer<typeof demandSchema>;
 
 /** Entrada (2026-07-27, Marcelo: "a message é como se fosse uma carta, ela
- * anda em cada casa (grupo)"): a message only counts as having *arrived* at
- * an agent's Incoming once dispatch has actually started -- addressed but
- * still `dispatch_status IS NULL` (not yet promoted/scheduled, or scheduled
- * for later) means it hasn't left the sender's house yet, so it belongs in
- * Outgoing/Backlog only, not Incoming too. A self-addressed item (To left
- * blank, target_agent_id === from_agent_id -- "para você mesmo") never
- * counts as Incoming either.
+ * anda em cada casa (grupo)", refined 2026-08-15): Incoming is work that
+ * *arrived for this agent to run*, which is exactly the self-addressed
+ * case -- To left blank resolves to From on submit
+ * (DemandFormPanel.tsx's `effectiveTargetAgentId`), and Marcelo's own
+ * framing settles which house that lands in: "se o próprio agente que vai
+ * executar então ele não tem saída e sim uma entrada". A cross-agent
+ * message never visits Incoming at all -- `"pending"` (the only
+ * `dispatch_status` value that could have put a cross-agent arrival here)
+ * was formally retired 2026-08-15: the backend never wrote it, dispatch
+ * goes straight from `NULL` to `"dispatched"` (see
+ * `run_scheduled_dispatch_pass`), so the value only ever described a
+ * window nothing produced. A cross-agent message instead lives in Outgoing
+ * until it starts running, exactly as before.
  *
- * Excludes Running/Completed/Failed too (2026-07-28, Marcelo: "as message
- * no Incoming em processamento tem que serem movidas para Running, fim do
+ * Excludes Running/Completed/Failed (2026-07-28, Marcelo: "as message no
+ * Incoming em processamento tem que serem movidas para Running, fim do
  * processamento, deu erro vai para Failed, senão vai para Completed") --
  * each message counts in exactly one of Incoming/Running/Failed/Completed
  * at a time, never two at once. A generated return (`reply_to_id` set) is
@@ -157,19 +163,24 @@ export function isIncomingItem(d: Demand, agentId: string): boolean {
   return (
     d.status !== "archived" &&
     d.target_agent_id === agentId &&
-    d.dispatch_status != null &&
+    d.target_agent_id === d.from_agent_id &&
     d.dispatch_status !== "dispatched" &&
     d.dispatch_status !== "running" &&
     d.dispatch_status !== "completed" &&
-    d.dispatch_status !== "failed" &&
-    d.target_agent_id !== d.from_agent_id
+    d.dispatch_status !== "failed"
   );
 }
 
-/** Total for the Incoming tree's root badge: System's count (unaddressed,
- * ungated -- never enters dispatch, so isIncomingItem would wrongly erase
- * it) plus every agent's *arrived* count. The single source of truth every
- * "how many incoming" badge in the app must read from -- see
+/** Total for the Incoming tree's root badge: System's count (genuinely
+ * nobody's -- no target *and* no sender, e.g. a human-composed note with
+ * neither field set) plus every agent's *arrived* count. Deliberately not
+ * every no-target row: an Incubation item with no target yet still has an
+ * owner (`incubation_owner_id`, resolved from `from_agent_id` when target
+ * is unset -- see the DB's own `ck_agent_demands_incubation_owner`), so
+ * counting it here too would double it into a badge it doesn't belong to
+ * (Marcelo, 2026-08-15: "não existe anônima" -- every row has an owner,
+ * this badge just wasn't checking for it). The single source of truth
+ * every "how many incoming" badge in the app must read from -- see
  * isIncomingItem's docstring for why this stopped being safe to
  * approximate with a broader "status=new" count (2026-07-28). */
 export function computeInboxTotalCount(demands: Demand[]): number {
@@ -177,7 +188,7 @@ export function computeInboxTotalCount(demands: Demand[]): number {
   for (const d of demands) {
     if (d.status === "archived") continue;
     if (!d.target_agent_id) {
-      total += 1;
+      if (!d.from_agent_id) total += 1;
     } else if (isIncomingItem(d, d.target_agent_id)) {
       total += 1;
     }
@@ -186,7 +197,7 @@ export function computeInboxTotalCount(demands: Demand[]): number {
 }
 
 const dispatchStatusResultSchema = z.object({
-  dispatch_status: z.enum(["pending", "dispatched", "running", "completed", "failed"]).nullable(),
+  dispatch_status: z.enum(["dispatched", "running", "completed", "failed"]).nullable(),
   // Contingência de despacho (2026-08-13): prazo até o qual a execução
   // precisa retornar, quantas vezes já foi despachada e por que a última
   // falhou. `dispatch_attempts` contra DISPATCH_MAX_ATTEMPTS decide se o
@@ -245,7 +256,7 @@ export const demandKeys = {
   all: ["demands"] as const,
 };
 
-const IN_FLIGHT_DISPATCH_STATUSES = new Set(["pending", "dispatched", "running"]);
+const IN_FLIGHT_DISPATCH_STATUSES = new Set(["dispatched", "running"]);
 
 export function useDemands(statusFilter?: DemandStatus) {
   return useQuery({

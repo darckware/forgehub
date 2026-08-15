@@ -46,8 +46,8 @@ function formatExecutionAt(iso: string | null | undefined): string {
  * campo Status. Não é coluna nova: o backend já grava exatamente estes
  * quatro valores (ver DEMAND_DISPATCH_STATUSES) -- até 2026-07-26 eles só
  * apareciam como faixa colorida no painel de leitura, nunca como um campo
- * legível do formulário. "pending" está na tupla do modelo mas nenhum
- * caminho do backend o escreve, por isso não tem rótulo aqui. */
+ * legível do formulário. "pending" foi aposentado da tupla do modelo em
+ * 2026-08-15 -- nenhum caminho do backend jamais o escreveu. */
 const DISPATCH_STATUS_LABEL: Record<string, string> = {
   dispatched: "form.statusDispatched",
   running: "form.statusRunning",

@@ -185,6 +185,27 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
                 return await call_next(request)
+        # Same trust boundary again (2026-08-15) -- these five dynamic-segment
+        # demand actions each already do their own x-bridge-token check *and*
+        # an ownership check against a caller-supplied agent slug
+        # (receive_incubation/drop_incubation/reprocess_demand pre-date this
+        # carve-out and were silently unreachable by a bridge-token-only
+        # caller until now, 401'd here before ever reaching the route's own
+        # check -- found while wiring update_demand_as_agent/
+        # archive_demand_as_agent for the MCP's CRUD gap). _PUBLIC_API_PATHS
+        # can't cover these, same reason as channels_bridge_path: dynamic
+        # {demand_id} segment, exact-match set only.
+        demands_bridge_action = path.startswith("/api/v1/demands/") and (
+            path.endswith("/incubation:receive")
+            or path.endswith("/incubation:drop")
+            or path.endswith("/reprocess")
+            or path.endswith("/agent")
+            or path.endswith("/agent-archive")
+        )
+        if demands_bridge_action:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
         if not token or decode_access_token(token) is None:
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         return await call_next(request)
@@ -311,6 +332,12 @@ TASK_FAILURE_POLL_INTERVAL_SECONDS = 900
 # polled to completion -- same role as DISPATCH_COMPLETION_POLL_INTERVAL_
 # SECONDS above, for the "Background tests" tab / /testar's results.
 BACKGROUND_TEST_COMPLETION_POLL_INTERVAL_SECONDS = 15
+
+# How often terminal mail is checked against its 60-day retention window
+# (DEMAND_RETENTION_DAYS). A day-granularity policy doesn't need a fast
+# pass -- 6h matches the ecosystem's existing cadence for this kind of
+# periodic, non-urgent maintenance sweep (e.g. the Auditor's own checks).
+DEMAND_RETENTION_POLL_INTERVAL_SECONDS = 21600
 
 _background_tasks: list[asyncio.Task[None]] = []
 
@@ -513,6 +540,25 @@ async def _feedback_poll_loop() -> None:
         await asyncio.sleep(FEEDBACK_POLL_INTERVAL_SECONDS)
 
 
+async def _demand_retention_poll_loop() -> None:
+    """Auto-archives terminal mail past its 60-day retention window
+    (2026-08-15). Own task, same reasoning as the other passes: it must
+    keep running independent of whatever else is happening to the
+    dispatch/host-bridge machinery, since it only ever touches our own
+    database.
+    """
+    from app.api.routes.demand import run_demand_retention_sweep
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_demand_retention_sweep(db)
+        except Exception:
+            logger.exception("Demand retention sweep failed")
+        await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)
+
+
 async def _active_turn_sweep_loop() -> None:
     """Fecha turnos que passaram do prazo sem reportar (2026-08-13)."""
     from app.core.active_turns import sweep_stale
@@ -542,6 +588,7 @@ async def _start_background_tasks() -> None:
         ("dispatch-completion-poll", _dispatch_completion_poll_loop),
         ("background-test-completion-poll", _background_test_completion_poll_loop),
         ("task-failure-poll", _task_failure_poll_loop),
+        ("demand-retention-poll", _demand_retention_poll_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]
 

@@ -153,6 +153,23 @@ class DemandUpdateIn(BaseModel):
         return _check_origin_type(v)
 
 
+class AgentDemandUpdateIn(BaseModel):
+    """Bridge-token counterpart to DemandUpdateIn, deliberately narrower --
+    only the fields an agent should reasonably touch on mail it sent
+    (2026-08-15, closing the MCP's CRUD gap: the read tools were already
+    agent-parameterized for any agent, but there was no write path at all
+    outside the JWT-only human API). No status/group_id/origin_type here --
+    archiving is its own dedicated action (agent-archive) with its own
+    ownership check, and reclassifying origin is a human/reading-pane
+    concern, not something a script should do to itself mid-flight."""
+
+    agent: str = Field(min_length=1)
+    subject: str | None = Field(default=None, min_length=1, max_length=255)
+    body: str | None = Field(default=None, min_length=1)
+    target_agent: str | None = None
+    requires_response: bool | None = None
+
+
 class DemandGroupCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     parent_id: uuid.UUID | None = None
