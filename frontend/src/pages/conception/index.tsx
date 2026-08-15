@@ -111,15 +111,17 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
   const [newFilename, setNewFilename] = useState("");
   const [creating, setCreating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (document.data) setEditedContent(document.data.content);
-  }, [document.data]);
-
-  if (!conceptId) {
-    return <p className="text-sm text-muted-foreground">{t("wizard.documentation.saveFirst")}</p>;
-  }
-
+  // Every hook this component calls must run on every render, in the same
+  // order, regardless of `conceptId` -- this and the paste-handler effect
+  // below used to sit after an early `if (!conceptId) return`, which is a
+  // Rules-of-Hooks violation (React error #310, "rendered more hooks than
+  // during the previous render") the moment a render where conceptId is
+  // still undefined is followed by one where it's loaded. That never
+  // surfaced while this panel only mounted once its Documentation *tab* was
+  // clicked (by then the concept had usually already loaded); folding it
+  // into the single continuous form (2026-08-15) mounts it immediately,
+  // exposing the pre-existing bug on every "New idea" / freshly-loading
+  // "Edit idea" render.
   const [fileDescriptions, setFileDescriptions] = useState<Record<string, string>>({
     "PRD.md": "Documento de Requisitos do Produto (PRD)",
     "SPEC.md": "Especificação Técnica e Arquitetura do Sistema",
@@ -128,19 +130,9 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
     "DATABASE_SPEC.md": "Modelagem e Tabelas do Banco de Dados",
   });
 
-  const createDocument = async () => {
-    const trimmed = newFilename.trim();
-    if (!trimmed) return;
-    const filename = /\.(md|markdown|txt)$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
-    const result = await saveDocument.mutateAsync({ conceptId, filename, content: "" });
-    setNewFilename("");
-    setCreating(false);
-    setSelectedFilename(result.filename);
-  };
-
-  const updateDescription = (filename: string, desc: string) => {
-    setFileDescriptions((prev) => ({ ...prev, [filename]: desc }));
-  };
+  useEffect(() => {
+    if (document.data) setEditedContent(document.data.content);
+  }, [document.data]);
 
   useEffect(() => {
     const handleGlobalPaste = async (e: ClipboardEvent) => {
@@ -180,6 +172,24 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
     window.addEventListener("paste", handleGlobalPaste);
     return () => window.removeEventListener("paste", handleGlobalPaste);
   }, [conceptId, uploadDocument]);
+
+  if (!conceptId) {
+    return <p className="text-sm text-muted-foreground">{t("wizard.documentation.saveFirst")}</p>;
+  }
+
+  const createDocument = async () => {
+    const trimmed = newFilename.trim();
+    if (!trimmed) return;
+    const filename = /\.(md|markdown|txt)$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
+    const result = await saveDocument.mutateAsync({ conceptId, filename, content: "" });
+    setNewFilename("");
+    setCreating(false);
+    setSelectedFilename(result.filename);
+  };
+
+  const updateDescription = (filename: string, desc: string) => {
+    setFileDescriptions((prev) => ({ ...prev, [filename]: desc }));
+  };
 
   return (
     <div className="grid gap-4 md:grid-cols-[320px_1fr] focus:outline-none" tabIndex={0}>
