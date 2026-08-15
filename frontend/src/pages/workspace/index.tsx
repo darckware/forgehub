@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   Bot,
@@ -12,6 +13,7 @@ import {
   History,
   KeyRound,
   Package,
+  Plus,
   Power,
   PowerOff,
   Send,
@@ -30,6 +32,7 @@ import hermesIcon from "@lobehub/icons-static-png/light/hermesagent.png";
 import openclawIcon from "@lobehub/icons-static-png/dark/openclaw-color.png";
 import piIcon from "@/assets/icons/pi.svg";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TerminalPane } from "@/components/TerminalPane";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { apiClient } from "@/lib/api";
@@ -41,7 +44,7 @@ import {
   type Server,
   type ServerCheckStatus,
 } from "@/hooks/useServers";
-import { fetchOpenclawDashboardUrl } from "@/hooks/useTerminalBrowse";
+import { fetchOpenclawDashboardUrl, useTerminalSessions } from "@/hooks/useTerminalBrowse";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { ChannelPane } from "@/components/channel/ChannelPane";
@@ -111,7 +114,7 @@ const RUNTIME_LAUNCHERS: Launcher[] = [
   // A second entry point alongside the TUI terminal tab every other
   // launcher opens. See LauncherMenu.
   { label: "OpenClaw", command: "openclaw", icon: openclawIcon, hasWebPanel: true },
-  { label: "Hermes", command: "hermes", icon: hermesIcon, iconBg: "bg-white" },
+  { label: "Hermes", command: "hermes --tui", icon: hermesIcon, iconBg: "bg-white" },
 ];
 
 function LauncherIcon({ icon, iconBg }: { icon?: string; iconBg?: string }) {
@@ -432,6 +435,132 @@ function LauncherMenu({
   );
 }
 
+/** Toolbar's plain terminal button (2026-08-15, Marcelo: "no botão do
+ * terminal, pode aparecer um menu com novo e com as conexões abertas, com
+ * o nome sequencial bash01, bash02...") -- a dropdown instead of a button
+ * that always spawns a fresh tab. "Novo" always gets the next unused
+ * `bashNN` label (see nextBashLabel in the parent) rather than a fixed
+ * "bash", so several plain terminals stay distinguishable at a glance.
+ *
+ * The "open connections" list reads `useTerminalSessions()` -- the same
+ * live-tmux-on-the-host query System Control's Terminal Sessions card uses
+ * -- rather than this browser's own `tabs` state. A session survives a
+ * crashed/reloaded tab (see that card's own description), so a list
+ * sourced from local tabs alone would show nothing for exactly the
+ * "already have sessions open, menu shows none" case: every session is
+ * real but none of them has a Workspace tab in *this* browser anymore.
+ * `localTabs` is only consulted for its label (a session this browser
+ * already has open keeps the label the user gave/it was launched with)
+ * -- id equality is exact since a tab's id *is* the session's suffix. */
+function TerminalTabsMenu({
+  localTabs,
+  activeTabId,
+  newLabel,
+  onNew,
+  onSelect,
+  onDelete,
+}: {
+  localTabs: Array<{ id: string; label: string }>;
+  activeTabId: string;
+  newLabel: string;
+  onNew: () => void;
+  onSelect: (sessionId: string, label: string) => void;
+  onDelete: (sessionId: string, label: string) => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, () => setOpen(false), open);
+  // Only queried while the menu is open -- a live host read isn't worth
+  // paying for on every Workspace visit just to keep a closed dropdown warm.
+  const { data: sessions, isLoading } = useTerminalSessions(open);
+
+  const rows = (sessions?.sessions ?? []).map((session) => {
+    const local = localTabs.find((tab) => tab.id === session.session_id);
+    return { id: session.session_id, label: local?.label ?? session.session_id.slice(0, 8), isOrphaned: !local };
+  });
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8 shrink-0"
+        title={t("toolbar.newTerminal")}
+        aria-label={t("toolbar.newTerminal")}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <SquareTerminal className="h-4 w-4" />
+      </Button>
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 w-60 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              onNew();
+              setOpen(false);
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t("toolbar.newTerminal")}
+            <span className="ml-auto text-xs text-muted-foreground">{newLabel}</span>
+          </button>
+          {isLoading && (
+            <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> {t("toolbar.loadingTerminals")}
+            </div>
+          )}
+          {rows.length > 0 && (
+            <>
+              <div className="my-1 border-t border-border" />
+              <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t("toolbar.openTerminals")}
+              </div>
+              {rows.map((row) => (
+                <div
+                  key={row.id}
+                  className={cn(
+                    "group flex items-center hover:bg-accent hover:text-accent-foreground",
+                    row.id === activeTabId && "bg-accent text-accent-foreground",
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-sm"
+                    onClick={() => {
+                      onSelect(row.id, row.label);
+                      setOpen(false);
+                    }}
+                  >
+                    <SquareTerminal className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                    <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                    {row.isOrphaned && (
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{t("toolbar.orphanedSession")}</span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t("toolbar.deleteTerminal", { label: row.label })}
+                    title={t("toolbar.deleteTerminal", { label: row.label })}
+                    className="mr-2 shrink-0 opacity-60 hover:text-destructive"
+                    onClick={() => {
+                      setOpen(false);
+                      onDelete(row.id, row.label);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LaunchersMenu({ onLaunch }: { onLaunch: (label: string, command: string) => void }) {
   const { t } = useTranslation("workspace");
   const [open, setOpen] = useState(false);
@@ -510,6 +639,9 @@ export default function WorkspacePage() {
     "idle"
   );
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
+  const [terminateTarget, setTerminateTarget] = useState<{ id: string; label: string } | null>(null);
+  const [terminatingTab, setTerminatingTab] = useState(false);
+  const queryClient = useQueryClient();
 
   async function handleWorkspaceFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -589,10 +721,42 @@ export default function WorkspacePage() {
     setActiveTabId(id);
   }
 
+  // Next unused "bashNN" label for a plain (no launcher/SSH) terminal --
+  // scans current tabs rather than a running counter so it survives reload
+  // (tabs persist to localStorage) and never collides after one is closed
+  // and another reopened.
+  function nextBashLabel(): string {
+    const used = tabs
+      .filter((tab): tab is WorkspaceTab & { kind: "terminal" } => tab.kind === "terminal")
+      .map((tab) => /^bash(\d+)$/.exec(tab.label)?.[1])
+      .filter((n): n is string => Boolean(n))
+      .map(Number);
+    const next = used.length > 0 ? Math.max(...used) + 1 : 1;
+    return `bash${String(next).padStart(2, "0")}`;
+  }
+
   function openTerminalTab(label: string, command?: string, cwdOverride?: string) {
     const id = crypto.randomUUID();
     setTabs((t) => [...t, { kind: "terminal", id, label, command, cwd: cwdOverride ?? workingDir }]);
     setActiveTabId(id);
+  }
+
+  // Reattach to a tmux session that already exists on the host -- e.g. an
+  // "Orphaned" row from System Control's Terminal Sessions card (a tab
+  // closed by a browser crash/reload leaves its session running there with
+  // no Workspace tab pointing at it anymore). A tab's id *is* the tmux
+  // session name's suffix (see terminal_ws's `forgehub-{session}`), so
+  // reusing that same id here -- instead of the fresh crypto.randomUUID()
+  // every other open*Tab uses -- is what makes TerminalPane's connection
+  // attach to the existing session rather than spawn a new one.
+  function openTerminalSessionTab(sessionId: string, label: string) {
+    const existing = tabs.find((tab) => tab.kind === "terminal" && tab.id === sessionId);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    setTabs((t) => [...t, { kind: "terminal", id: sessionId, label, cwd: workingDir }]);
+    setActiveTabId(sessionId);
   }
 
   function defaultWebTarget(): { url: string; target: WebAppTarget } {
@@ -663,6 +827,18 @@ export default function WorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
+  // Same handoff pattern as openSsh/openTerminal above -- "reattach to this
+  // orphaned tmux session" from System Control's Terminal Sessions card.
+  const openSessionHandledRef = useRef(false);
+  useEffect(() => {
+    const openSession = (location.state as { openSession?: { id: string; label: string } } | null)?.openSession;
+    if (!openSession || openSessionHandledRef.current) return;
+    openSessionHandledRef.current = true;
+    openTerminalSessionTab(openSession.id, openSession.label);
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
   // Same handoff pattern as openSsh/openTerminal above -- "open this
   // project's channel" from the Project detail page's "Equipe & Canal"
   // section (ProjectAutomationCard). Switches to Canais mode and hands
@@ -703,14 +879,24 @@ export default function WorkspacePage() {
     clearChatTabStaging(id);
   }
 
-  async function terminateTerminalTab(id: string, label: string) {
-    if (!window.confirm(t("tabs.confirmTerminateTerminal", { label }))) return;
+  function terminateTerminalTab(id: string, label: string) {
+    setTerminateTarget({ id, label });
+  }
+
+  async function confirmTerminateTerminalTab() {
+    if (!terminateTarget) return;
+    const { id } = terminateTarget;
     setWorkspaceActionError(null);
+    setTerminatingTab(true);
     try {
       await apiClient.post(`/api/v1/terminal/sessions/${id}/kill`);
       closeTab(id);
+      queryClient.invalidateQueries({ queryKey: ["terminal-sessions"] });
+      setTerminateTarget(null);
     } catch (error) {
       setWorkspaceActionError(error instanceof Error ? error.message : t("tabs.terminateTerminalFailed"));
+    } finally {
+      setTerminatingTab(false);
     }
   }
 
@@ -919,16 +1105,14 @@ export default function WorkspacePage() {
           >
             <Send className="h-4 w-4 text-sky-500" />
           </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            title={t("toolbar.newTerminal")}
-            aria-label={t("toolbar.newTerminal")}
-            onClick={() => openTerminalTab("bash")}
-          >
-            <SquareTerminal className="h-4 w-4" />
-          </Button>
+          <TerminalTabsMenu
+            localTabs={tabs.filter((tab): tab is WorkspaceTab & { kind: "terminal" } => tab.kind === "terminal")}
+            activeTabId={activeTabId}
+            newLabel={nextBashLabel()}
+            onNew={() => openTerminalTab(nextBashLabel())}
+            onSelect={openTerminalSessionTab}
+            onDelete={terminateTerminalTab}
+          />
           <Button
             variant={activeWebTab ? "secondary" : "outline"}
             size="icon"
@@ -1037,7 +1221,7 @@ export default function WorkspacePage() {
                 active={tab.id === activeTabId}
                 onSelect={() => setActiveTabId(tab.id)}
                 onClose={() => closeTab(tab.id)}
-                onTerminate={tab.kind === "terminal" ? () => void terminateTerminalTab(tab.id, tab.label) : undefined}
+                onTerminate={tab.kind === "terminal" ? () => terminateTerminalTab(tab.id, tab.label) : undefined}
                 onKeyDown={(event) => handleTabKeyDown(event, index)}
                 onDragStart={() => (dragTabIdRef.current = tab.id)}
                 onDrop={() => handleTabDrop(tab.id)}
@@ -1054,6 +1238,15 @@ export default function WorkspacePage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={terminateTarget !== null}
+        title={terminateTarget ? t("tabs.terminateTerminal", { label: terminateTarget.label }) : undefined}
+        description={terminateTarget ? t("tabs.confirmTerminateTerminal", { label: terminateTarget.label }) : undefined}
+        loading={terminatingTab}
+        onConfirm={() => void confirmTerminateTerminalTab()}
+        onCancel={() => setTerminateTarget(null)}
+      />
 
       <div className="relative flex-1">
         {tabs.map((tab) =>

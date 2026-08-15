@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Archive, ChevronDown, ChevronRight, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Archive, ChevronDown, ChevronRight, ExternalLink, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -68,6 +69,7 @@ export default function SystemControlPage() {
   const { data: terminalSessions, isLoading: terminalSessionsLoading } = useTerminalSessions();
   const killTerminalSession = useKillTerminalSession();
   const [killingSession, setKillingSession] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   if (isLoading) {
     return (
@@ -574,16 +576,32 @@ export default function SystemControlPage() {
                     <TableCell className="text-xs">{formatUnixDateTime(s.created_at)}</TableCell>
                     <TableCell className="text-xs">{formatUnixDateTime(s.last_activity_at)}</TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive"
-                        aria-label={`Kill session ${s.session_id}`}
-                        title={`Kill session ${s.session_id}`}
-                        onClick={() => setKillingSession(s.session_id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          aria-label={`Open session ${s.session_id} in Workspace`}
+                          title="Open in Workspace"
+                          onClick={() =>
+                            navigate("/workspace", {
+                              state: { openSession: { id: s.session_id, label: s.session_id.slice(0, 8) } },
+                            })
+                          }
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          aria-label={`Kill session ${s.session_id}`}
+                          title={`Kill session ${s.session_id}`}
+                          onClick={() => setKillingSession(s.session_id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

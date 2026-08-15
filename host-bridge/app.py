@@ -3757,7 +3757,7 @@ async def set_openclaw_gateway_token(req: OpenclawGatewayTokenRequest, x_bridge_
 # terminal instead of needing special-cased error handling here.
 # ---------------------------------------------------------------------------
 
-LAUNCHER_COMMANDS = {"hermes", "claude", "codex", "agy", "pi", "opencode", "openclaw"}
+LAUNCHER_COMMANDS = {"hermes --tui", "claude", "codex", "agy", "pi", "opencode", "openclaw"}
 
 # The Servers domain's "SSH" launcher (ForgeHub frontend's buildSshCommand)
 # sends a per-server command that can't be a fixed whitelist entry like the
