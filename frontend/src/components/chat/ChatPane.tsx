@@ -125,6 +125,11 @@ export function clearChatTabStaging(tabId: string): void {
 // of taking over the message area.
 const COMPOSER_MAX_HEIGHT_PX = 240;
 
+// Prevent the same physical gesture from being handled twice (for example,
+// a rapid double-click) without treating repeated text as a duplicate. A
+// user may intentionally send identical prompts as separate turns.
+const SEND_GESTURE_DEDUPE_MS = 500;
+
 // A primingMessage turn is persisted by the backend with BOTH sides (the
 // context sent and the agent's ack) wrapped in these markers (chat.py's
 // _wrap_hidden, mirrored here) -- visibleMessages drops any message that is
@@ -1834,25 +1839,17 @@ export function ChatPane({
     if (controllers.length > 0) abortByTabId.set(tabId, controllers);
     else abortByTabId.delete(tabId);
   }, [queue, tabId]);
-  // Hidden items (e.g. the priming turn's long "Contexto: ..." text) render
-  // as nothing in the chat screen by design -- clicking one in the summary
-  // strip below reveals that specific item's bubble/details inline, right
-  // where it already sits among the other queue items, instead of a modal
-  // that would cover the rest of the screen. Multiple can be revealed at
-  // once; revealing one never hides another.
+  // Concurrent turns use accordion behavior: the summary strip controls
+  // which turn's live details are visible, and opening one closes the
+  // previous one. Hidden priming turns remain invisible until selected.
   const [revealedQueueIds, setRevealedQueueIds] = useState<Set<string>>(new Set());
   const queueItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const pendingScrollToRevealedRef = useRef<string | null>(null);
   function toggleQueueItemRevealed(id: string) {
     setRevealedQueueIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-        pendingScrollToRevealedRef.current = id;
-      }
-      return next;
+      if (prev.has(id)) return new Set();
+      pendingScrollToRevealedRef.current = id;
+      return new Set([id]);
     });
   }
   // Process detail (tool-call steps) for a turn that has already finished,
@@ -1894,6 +1891,7 @@ export function ChatPane({
   const audioChunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastSendGestureRef = useRef<{ signature: string; timestamp: number } | null>(null);
 
   // Voice conversation state
   type VoicePhase = "idle" | "checking" | "active" | "error";
@@ -2119,14 +2117,23 @@ export function ChatPane({
       return;
     }
 
-    // The dedupe-guard only makes sense for the normal composer flow --
-    // "edit and resend" (isOverride) deliberately allows resending the
-    // same text (e.g. user just fixed a typo elsewhere and reverted it).
-    const lastUserMessage =
-      queue[queue.length - 1]?.content ?? [...(messages ?? [])].reverse().find((m) => m.role === "user")?.content;
-    if (!isOverride && attachedFiles.length === 0 && trimmed && lastUserMessage?.trim() === trimmed) {
-      setComposerWarning(t("composer.alreadySent"));
-      return;
+    // Deduplicate only a repeated UI gesture, never conversation content.
+    // Repeating the same prompt later is a valid new turn in this session.
+    if (!isOverride) {
+      const signature = JSON.stringify([
+        trimmed,
+        ...attachedFiles.map((file) => [file.name, file.size, file.lastModified]),
+      ]);
+      const timestamp = Date.now();
+      const previous = lastSendGestureRef.current;
+      if (
+        previous
+        && previous.signature === signature
+        && timestamp - previous.timestamp < SEND_GESTURE_DEDUPE_MS
+      ) {
+        return;
+      }
+      lastSendGestureRef.current = { signature, timestamp };
     }
 
     // Internal grounding never rides on the user's message -- it went out
@@ -2229,6 +2236,12 @@ export function ChatPane({
   }, [queue, sessionId]);
 
   function handleStreamEvent(itemId: string, event: ChatStreamEvent) {
+    // Approval controls must never remain hidden in a collapsed concurrent
+    // turn. Expanding it also preserves the one-open-at-a-time contract.
+    if (event.type === "approval_request") {
+      setRevealedQueueIds(new Set([itemId]));
+      pendingScrollToRevealedRef.current = itemId;
+    }
     setQueue((q) =>
       q.map((item) => {
         if (item.id !== itemId) return item;
@@ -3891,13 +3904,14 @@ export function ChatPane({
           ))}
           {queue.map((item) => {
             const revealed = revealedQueueIds.has(item.id);
+            const showDetails = item.hidden ? revealed : pendingQueue.length <= 1 || revealed;
             // A hidden priming turn renders as nothing at all while it
             // works (the transcript never shows it either way) -- only an
             // error is surfaced, so a failed priming isn't silently lost.
             // The user can still reveal it by clicking its line in the
             // summary strip below (see revealedQueueIds), which shows it
             // right here in the chat screen rather than anywhere else.
-            if (item.hidden && item.status !== "error" && !revealed) return null;
+            if (item.hidden && item.status !== "error" && !showDetails) return null;
             return (
             <div
               key={item.id}
@@ -3927,10 +3941,10 @@ export function ChatPane({
                   }}
                 />
               )}
-              {item.status === "queued" && (
+              {item.status === "queued" && showDetails && (
                 <p className="pl-1 text-xs italic text-muted-foreground">{t("queue.queued")}</p>
               )}
-              {item.status === "processing" && (
+              {item.status === "processing" && showDetails && (
                 <div className="flex max-w-[85%] flex-col gap-1">
                   {(item.startedAt && !item.isExec) || item.abortController ? (
                     <div className="flex items-center gap-2">
@@ -3979,7 +3993,7 @@ export function ChatPane({
                   )}
                 </div>
               )}
-              {item.approval && (
+              {item.approval && showDetails && (
                 <div className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
                   <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
                     {t("queue.approvalRequest", { name: item.targetAgentName ?? selectedAgent?.name ?? t("queue.agentFallback") })}

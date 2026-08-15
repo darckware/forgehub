@@ -132,7 +132,6 @@
     "promptTechniqueEffort": { "low": "low effort", "medium": "medium effort", "high": "high effort", "very_high": "very high effort" },
     "typeMessageFirst": "Type a message before sending.",
     "selectAgentFirst": "Select an agent before sending.",
-    "alreadySent": "You already sent this message.",
     "selfRestartWarning": "This may briefly drop this very conversation -- history is saved, but the in-flight turn might need to be resent.",
     "couldNotAttach": "Could not attach {{name}}.",
     "suggestedReplyYes": "Yes",

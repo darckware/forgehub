@@ -154,7 +154,15 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
           const file = item.getAsFile();
           if (!file) continue;
 
-          const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
+          // Avoid a bracketed regex here: Tailwind scans TSX as plain text and
+          // mistakes its character class for an arbitrary CSS class.
+          const timestamp = new Date()
+            .toISOString()
+            .split("-").join("")
+            .split(":").join("")
+            .split("T").join("")
+            .split(".").join("")
+            .slice(0, 14);
           const extension = file.type.split("/")[1] || "png";
           const pastedFile = new File([file], `paste_${timestamp}.${extension}`, { type: file.type });
 

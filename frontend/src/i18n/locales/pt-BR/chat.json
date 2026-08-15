@@ -132,7 +132,6 @@
     "promptTechniqueEffort": { "low": "esforço baixo", "medium": "esforço médio", "high": "esforço alto", "very_high": "esforço muito alto" },
     "typeMessageFirst": "Digite uma mensagem antes de enviar.",
     "selectAgentFirst": "Selecione um agente antes de enviar.",
-    "alreadySent": "Você já enviou esta mensagem.",
     "selfRestartWarning": "Isso pode derrubar esta própria conversa por um instante -- o histórico fica salvo, mas o turno em andamento pode precisar ser reenviado.",
     "couldNotAttach": "Não foi possível anexar {{name}}.",
     "suggestedReplyYes": "Sim",

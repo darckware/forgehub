@@ -1,3 +1,4 @@
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Info, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -96,6 +97,25 @@ export function ImprovePromptDialog({
   const submitting = status === "submitting";
   const selectedTechnique = techniques.find((item) => item.code === techniqueCode);
   const categories = Array.from(new Set(techniques.map((item) => item.category)));
+  const draftTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const resizeDraftTextarea = useCallback(() => {
+    const textarea = draftTextareaRef.current;
+    if (!textarea) return;
+
+    const minimumHeight = 144;
+    const maximumHeight = Math.max(minimumHeight, Math.min(320, window.innerHeight * 0.36));
+    textarea.style.height = "auto";
+    const contentHeight = textarea.scrollHeight;
+    textarea.style.height = `${Math.min(Math.max(contentHeight, minimumHeight), maximumHeight)}px`;
+    textarea.style.overflowY = contentHeight > maximumHeight ? "auto" : "hidden";
+  }, []);
+
+  useLayoutEffect(() => {
+    resizeDraftTextarea();
+    window.addEventListener("resize", resizeDraftTextarea);
+    return () => window.removeEventListener("resize", resizeDraftTextarea);
+  }, [draft, resizeDraftTextarea]);
 
   return (
     <div
@@ -105,149 +125,137 @@ export function ImprovePromptDialog({
       aria-labelledby="improve-prompt-title"
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
+      <div className="relative z-10 flex h-[90vh] max-h-[860px] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
         <div className="h-1 w-full shrink-0 rounded-t-xl bg-primary/80" />
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
-          <div className="flex min-h-0 flex-1 items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
-              <Sparkles className="h-5 w-5 text-primary" />
-            </div>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <h2 id="improve-prompt-title" className="text-base font-semibold leading-tight">
-                {t("composer.improvePromptTitle", { subject })}
-              </h2>
-              {/* Draft field gets most of the dialog's height -- this is
-                  where the actual editing happens (2026-08-07, Marcelo:
-                  "aumente a tela, ficou muito pequeno a digitação do
-                  texto"); the instruction field stays compact. */}
-              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    {t("composer.improvePromptDraftLabel")}
-                  </label>
-                  {/* "/" and "#" pickers -- same components/behavior as the
-                      channel/chat composer's own (2026-08-07, Marcelo: "ao
-                      digitar no campo prompt, precisa interagir igual ao
-                      campo prompt do chat do channel"). `placement="down"`
-                      opens below (not above like the real composer, see
-                      SlashCommandPicker's own docstring) -- but anchored to
-                      this zero-height marker right above the (280px+ tall)
-                      textarea, not the textarea's own box, so the dropdown
-                      lands right under the label instead of past the
-                      textarea's bottom edge. That first version rendered
-                      outside the modal's scrollable/visible area, so clicks
-                      meant for the picker fell through to the backdrop and
-                      closed the whole dialog instead (2026-08-07, Marcelo:
-                      "se eu criar fora o model ele se fecha" -- "não dá
-                      para ver"). */}
-                  <div className="relative">
-                    {slashOpen && (
-                      <SlashCommandPicker
-                        ref={slashPickerRef}
-                        promptCommands={promptCommands}
-                        onSelect={handleSlashSelect}
-                        onClose={closeSlash}
-                        includeLocal={includeLocalSlashCommands}
-                        includeHermes={includeHermesSlashCommands}
-                        placement="down"
-                      />
-                    )}
-                    {agentMentionOpen && (
-                      <AgentMentionPicker
-                        ref={agentPickerRef}
-                        agents={agents}
-                        query={agentMentionQuery}
-                        onSelect={handleAgentMentionSelect}
-                        onClose={closeAgentMention}
-                        placement="down"
-                      />
-                    )}
-                  </div>
-                  <Textarea
-                    autoFocus
-                    value={draft}
-                    onChange={(e) => handleDraftChange(e.target.value)}
-                    onKeyDown={handleDraftKeyDown}
-                    rows={12}
-                    className="min-h-[280px] flex-1 text-base"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    {t("composer.improvePromptInstructionLabel")}
-                  </label>
-                  <Textarea
-                    value={instruction}
-                    onChange={(e) => setInstruction(e.target.value)}
-                    onKeyDown={handleFieldKeyDown}
-                    placeholder={t("composer.improvePromptInstructionPlaceholder")}
-                    rows={2}
-                    className="text-sm"
-                  />
-                </div>
-                {selectedTechnique && (
-                  <div className="rounded-lg border border-border/80 bg-muted/35 px-3 py-2.5 text-xs">
-                    <div className="flex items-center gap-2">
-                      <Info className="h-3.5 w-3.5 shrink-0 text-primary" />
-                      <span className="font-semibold">{selectedTechnique.name}</span>
-                      <span className="ml-auto rounded-full bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-                        {t(`composer.promptTechniqueEffort.${selectedTechnique.effort}`)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-muted-foreground">{selectedTechnique.summary}</p>
-                    <p className="mt-1"><span className="font-medium">{t("composer.promptTechniqueWhen")}: </span>{selectedTechnique.when_to_use}</p>
-                    {selectedTechnique.when_to_avoid && (
-                      <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">{t("composer.promptTechniqueAvoid")}: </span>{selectedTechnique.when_to_avoid}</p>
-                    )}
-                  </div>
-                )}
-                {status === "error" && errorMessage && <p className="text-xs text-destructive">{errorMessage}</p>}
-              </div>
-            </div>
+        <div className="flex shrink-0 items-center gap-4 px-6 py-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <Sparkles className="h-5 w-5 text-primary" />
           </div>
-          <div className="mt-4 flex items-end justify-end gap-3">
-            <div className="mr-auto min-w-0 max-w-sm flex-1">
-              <label htmlFor="prompt-technique" className="mb-1 block text-xs font-medium text-muted-foreground">
-                {t("composer.promptTechniqueLabel")}
-              </label>
-              <div className="flex gap-2">
-                <select
-                  id="prompt-technique"
-                  value={techniqueCode}
-                  onChange={(event) => setTechniqueCode(event.target.value)}
-                  disabled={submitting || techniquesLoading}
-                  className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {categories.map((category) => (
-                    <optgroup key={category} label={t(`composer.promptTechniqueCategories.${category}`)}>
-                      {techniques.filter((item) => item.category === category).map((item) => (
-                        <option key={item.code} value={item.code}>{item.name}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-10 w-10 shrink-0"
-                  disabled={submitting || recommendingTechnique || !draft.trim()}
-                  onClick={() => void recommendTechnique()}
-                  title={t("composer.promptTechniqueRecommend")}
-                  aria-label={t("composer.promptTechniqueRecommend")}
-                >
-                  {recommendingTechnique ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                </Button>
-              </div>
-              {recommendedTechniqueCode && (
-                <span className="mt-1 block text-[10px] text-primary">
-                  {t("composer.promptTechniqueRecommended")}
-                </span>
+          <h2 id="improve-prompt-title" className="min-w-0 text-base font-semibold leading-tight">
+            {t("composer.improvePromptTitle", { subject })}
+          </h2>
+        </div>
+
+        {/* Only the form body scrolls. The action bar remains outside this
+            container so long technique notes can never render underneath
+            the buttons. */}
+        <div className="min-h-0 flex-1 scroll-smooth overflow-y-scroll overscroll-contain px-6 pb-6 [scrollbar-gutter:stable]">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              {t("composer.improvePromptDraftLabel")}
+            </label>
+            <div className="relative">
+              {slashOpen && (
+                <SlashCommandPicker
+                  ref={slashPickerRef}
+                  promptCommands={promptCommands}
+                  onSelect={handleSlashSelect}
+                  onClose={closeSlash}
+                  includeLocal={includeLocalSlashCommands}
+                  includeHermes={includeHermesSlashCommands}
+                  placement="down"
+                />
               )}
-              <span className="mt-1 block text-[10px] text-muted-foreground">
-                {t("composer.improvePromptShortcutHint")}
-              </span>
+              {agentMentionOpen && (
+                <AgentMentionPicker
+                  ref={agentPickerRef}
+                  agents={agents}
+                  query={agentMentionQuery}
+                  onSelect={handleAgentMentionSelect}
+                  onClose={closeAgentMention}
+                  placement="down"
+                />
+              )}
             </div>
+            <Textarea
+              ref={draftTextareaRef}
+              autoFocus
+              value={draft}
+              onChange={(e) => handleDraftChange(e.target.value)}
+              onKeyDown={handleDraftKeyDown}
+              rows={5}
+              className="min-h-[144px] max-h-[36vh] resize-y text-base"
+            />
+          </div>
+
+          <div className="mt-4">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              {t("composer.improvePromptInstructionLabel")}
+            </label>
+            <Textarea
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              onKeyDown={handleFieldKeyDown}
+              placeholder={t("composer.improvePromptInstructionPlaceholder")}
+              rows={2}
+              className="text-sm"
+            />
+          </div>
+
+          <div className="mt-4">
+            <label htmlFor="prompt-technique" className="mb-1 block text-xs font-medium text-muted-foreground">
+              {t("composer.promptTechniqueLabel")}
+            </label>
+            <div className="flex gap-2">
+              <select
+                id="prompt-technique"
+                value={techniqueCode}
+                onChange={(event) => setTechniqueCode(event.target.value)}
+                disabled={submitting || techniquesLoading}
+                className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {categories.map((category) => (
+                  <optgroup key={category} label={t(`composer.promptTechniqueCategories.${category}`)}>
+                    {techniques.filter((item) => item.category === category).map((item) => (
+                      <option key={item.code} value={item.code}>{item.name}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-10 w-10 shrink-0"
+                disabled={submitting || recommendingTechnique || !draft.trim()}
+                onClick={() => void recommendTechnique()}
+                title={t("composer.promptTechniqueRecommend")}
+                aria-label={t("composer.promptTechniqueRecommend")}
+              >
+                {recommendingTechnique ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              </Button>
+            </div>
+            {recommendedTechniqueCode && (
+              <span className="mt-1 block text-[10px] text-primary">
+                {t("composer.promptTechniqueRecommended")}
+              </span>
+            )}
+          </div>
+
+          {selectedTechnique && (
+            <div className="mt-3 rounded-lg border border-border/80 bg-muted/35 px-3 py-2.5 text-xs">
+              <div className="flex items-center gap-2">
+                <Info className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="font-semibold">{selectedTechnique.name}</span>
+                <span className="ml-auto rounded-full bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+                  {t(`composer.promptTechniqueEffort.${selectedTechnique.effort}`)}
+                </span>
+              </div>
+              <p className="mt-1 text-muted-foreground">{selectedTechnique.summary}</p>
+              <p className="mt-1"><span className="font-medium">{t("composer.promptTechniqueWhen")}: </span>{selectedTechnique.when_to_use}</p>
+              {selectedTechnique.when_to_avoid && (
+                <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">{t("composer.promptTechniqueAvoid")}: </span>{selectedTechnique.when_to_avoid}</p>
+              )}
+            </div>
+          )}
+          {status === "error" && errorMessage && <p className="mt-3 text-xs text-destructive">{errorMessage}</p>}
+        </div>
+
+        <div className="flex shrink-0 flex-col gap-3 border-t border-border bg-card px-6 py-4 sm:flex-row sm:items-center">
+          <span className="min-w-0 flex-1 text-[10px] text-muted-foreground">
+            {t("composer.improvePromptShortcutHint")}
+          </span>
+          <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={onClose} className="min-w-[88px]">
               {t("common:cancel")}
             </Button>
