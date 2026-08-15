@@ -4,7 +4,7 @@
  * assist creation/filling, always with the same behavior: queue, SSE
  * streaming, elevation approvals, Telegram-style processing feed, voice.
  * One component, no forks -- fix bugs here, every surface gets them. */
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
@@ -769,10 +769,16 @@ export function AgentSelectorPill({
   agents,
   selectedAgentId,
   onSelect,
+  renderStatus,
 }: {
   agents: Agent[];
   selectedAgentId: string;
   onSelect: (id: string) => void;
+  /** Optional per-agent badge rendered right after the name in the dropdown
+   * list (2026-08-15) -- e.g. TelegramPane.tsx's channel status ("canal
+   * ativo"/"não configurado"), which only makes sense in that caller's
+   * context. Omitted by every other caller, so this stays a no-op there. */
+  renderStatus?: (agent: Agent) => ReactNode;
 }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
@@ -804,7 +810,8 @@ export function AgentSelectorPill({
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
             >
               <Check className={cn("h-3.5 w-3.5 shrink-0", a.id !== selectedAgentId && "opacity-0")} />
-              <span className="truncate">{a.name}</span>
+              <span className="flex-1 truncate">{a.name}</span>
+              {renderStatus?.(a)}
             </button>
           ))}
         </div>

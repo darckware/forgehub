@@ -1025,10 +1025,8 @@ export default function WorkspacePage() {
         {/* Dedicated tab strip: sortable (drag-and-drop) + horizontal scroll. */}
         <div role="tablist" aria-label={t("tabs.workspaceTabs")} className="flex items-center gap-1 overflow-x-auto border-t border-border/60 px-2 py-1">
           {tabs.map((tab, index) => {
-            const label = tab.kind === "chat"
+            const label = tab.kind === "chat" || tab.kind === "telegram"
               ? chatableAgents.find((agent) => agent.id === tab.agentId)?.name ?? t("tabs.defaultChatName")
-              : tab.kind === "telegram"
-                ? `Telegram · ${chatableAgents.find((agent) => agent.id === tab.agentId)?.name ?? t("tabs.defaultChatName")}`
               : tab.label;
             return (
               <WorkspaceTabItem

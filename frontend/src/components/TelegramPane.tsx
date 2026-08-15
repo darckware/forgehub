@@ -27,18 +27,25 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
   const [deliveryWarning, setDeliveryWarning] = useState<string | null>(null);
   const [improveOpen, setImproveOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  // Toggle for the sync icon (2026-08-15, Marcelo: "o icone de sync tem que
+  // funcionar como toogle ativa/desativar") -- independent of `active` (the
+  // tab-focus-based signal the polling already respects): this lets an
+  // operator explicitly pause polling for a tab that's on screen but not
+  // being watched, e.g. to stop background requests while reading a long
+  // reply. The initial fetch on mount always happens regardless (that's
+  // react-query's own behavior, untouched by refetchInterval).
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const conversation = useAgentTelegramConversation(agentId, active);
+  const conversation = useAgentTelegramConversation(agentId, active && autoSyncEnabled);
   const sendMessage = useSendAgentTelegramMessage(agentId);
   const improvePrompt = useStreamTelegramImprovePrompt(agentId);
   const transcribe = useTranscribeAudio();
   const { data: statuses } = useAgentsTelegramStatus();
   const agent = agents.find((item) => item.id === agentId);
-  const status = statuses?.agents.find((item) => item.agent_id === agentId);
   // Only agents with a real Telegram channel belong in this switcher
   // (2026-08-15, Marcelo: "só deixe os agentes na seleção do telegram" /
   // "somente os agentes do hermes e openclaw possuem telegram") -- `agents`
@@ -135,28 +142,6 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
       className="flex h-full min-h-0 flex-col bg-background"
       aria-label={`Telegram de ${agent?.name ?? "agente"}`}
     >
-      <header className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <Send className="h-4 w-4 text-sky-500" />
-        <span className="text-sm font-medium">{agent?.name ?? "Agente"}</span>
-        <span className={cn(
-          "rounded-full px-2 py-0.5 text-xs",
-          status?.status === "ok" ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground",
-        )}>
-          {status?.status === "ok" ? "canal ativo" : status?.status === "not_running" ? "gateway parado" : "não configurado"}
-        </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="ml-auto h-8 w-8"
-          onClick={() => void conversation.refetch()}
-          disabled={conversation.isFetching}
-          title="Atualizar mensagens"
-        >
-          <RefreshCw className={cn("h-4 w-4", conversation.isFetching && "animate-spin")} />
-        </Button>
-      </header>
-
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {conversation.isLoading ? (
           <div className="flex h-full items-center justify-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
@@ -239,7 +224,30 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
             }
             trailing={
               <>
-                <AgentSelectorPill agents={selectableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
+                <AgentSelectorPill
+                  agents={selectableAgents}
+                  selectedAgentId={agentId}
+                  onSelect={onAgentChange}
+                  renderStatus={(item) => {
+                    const itemStatus = statuses?.agents.find((s) => s.agent_id === item.id);
+                    return (
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-full px-2 py-0.5 text-[11px]",
+                          itemStatus?.status === "ok"
+                            ? "bg-emerald-500/15 text-emerald-600"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {itemStatus?.status === "ok"
+                          ? "canal ativo"
+                          : itemStatus?.status === "not_running"
+                            ? "gateway parado"
+                            : "não configurado"}
+                      </span>
+                    );
+                  }}
+                />
                 <Button
                   type="button"
                   variant="ghost"
@@ -248,7 +256,6 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
                   aria-label="Melhorar prompt"
                   title="Melhorar prompt"
                   onClick={() => setImproveOpen(true)}
-                  disabled={!draft.trim()}
                 >
                   <Sparkles className="h-4 w-4" />
                 </Button>
@@ -269,6 +276,18 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
                   ) : (
                     <Mic className="h-4 w-4" />
                   )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-8 w-8 shrink-0 rounded-full", autoSyncEnabled && "text-emerald-600")}
+                  aria-label={autoSyncEnabled ? "Desativar atualização automática" : "Ativar atualização automática"}
+                  title={autoSyncEnabled ? "Sincronização automática ativa -- clique para desativar" : "Sincronização automática desativada -- clique para ativar"}
+                  aria-pressed={autoSyncEnabled}
+                  onClick={() => setAutoSyncEnabled((v) => !v)}
+                >
+                  <RefreshCw className={cn("h-4 w-4", autoSyncEnabled && conversation.isFetching && "animate-spin")} />
                 </Button>
                 {sendMessage.isPending && (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" aria-label="Enviando" />
