@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Logo, LogoMark } from "@/components/Logo";
 import { useLogin } from "@/hooks/useAuth";
+import { getRememberMe, setRememberMe } from "@/store/authStore";
 
 /**
  * Deterministic spark field (module-level so positions don't reshuffle on
@@ -225,11 +226,18 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  // Pre-fills from the last choice (defaults true -- see authStore's
+  // getRememberMe docstring for why an unset preference isn't "false").
+  const [rememberMe, setRememberMeChecked] = useState(getRememberMe);
   const login = useLogin();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Set before the login mutation so setAuth's persisted write (inside
+      // useLogin's onSuccess) already lands in the right storage -- no
+      // second write or page reload needed for the choice to take effect.
+      setRememberMe(rememberMe);
       await login.mutateAsync({ username, password });
       navigate(from, { replace: true });
     } catch {
@@ -346,6 +354,16 @@ export default function LoginPage() {
                     </button>
                   </div>
                 </div>
+
+                <label className="flex items-center gap-2 text-sm text-muted-foreground select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMeChecked(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-indigo-500"
+                  />
+                  Stay logged in
+                </label>
 
                 {login.error && (
                   <p className="text-xs text-destructive">{login.error.message}</p>
