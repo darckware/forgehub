@@ -761,8 +761,11 @@ function ChatItemMenu({
 }
 
 /** Gemini-style "model picker" pill, repurposed to pick the agent -- sits
- * inside the composer bar, right before the mic button. */
-function AgentSelectorPill({
+ * inside the composer bar, right before the mic button. Exported
+ * (2026-08-15) so TelegramPane.tsx can reuse the exact same pill for its
+ * own agent switcher instead of a plain `<select>`, matching the
+ * Conversations/Channels composer layout Marcelo asked for. */
+export function AgentSelectorPill({
   agents,
   selectedAgentId,
   onSelect,
@@ -933,7 +936,7 @@ export function AttachMenuButton({
             <Paperclip className="h-4 w-4" />
             {t("attachMenu.sendFile")}
           </button>
-          <div className="my-1 border-t border-border" />
+          {triggers.length > 0 && <div className="my-1 border-t border-border" />}
           {triggers.map((trigger) => (
             <button
               key={trigger.char}

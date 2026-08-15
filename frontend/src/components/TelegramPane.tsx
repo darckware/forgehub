@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Loader2, Mic, Paperclip, RefreshCw, Send, Sparkles, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { AgentSelectorPill, AttachMenuButton } from "@/components/chat/ChatPane";
+import { ComposerShell } from "@/components/chat/ComposerShell";
 import { ImprovePromptDialog } from "@/components/chat/ImprovePromptDialog";
 import {
   type Agent,
@@ -210,88 +211,71 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {attachedFiles.map((file, index) => (
-                <span
-                  key={`${file.name}-${index}`}
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs"
-                >
+                <div key={`${file.name}-${index}`} className="flex w-fit items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs">
                   <Paperclip className="h-3 w-3 shrink-0" />
-                  <span className="max-w-40 truncate">{file.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeAttachedFile(index)}
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label={`Remover ${file.name}`}
-                  >
+                  {file.name}
+                  <button type="button" aria-label={`Remover ${file.name}`} onClick={() => removeAttachedFile(index)}>
                     <X className="h-3 w-3" />
                   </button>
-                </span>
+                </div>
               ))}
             </div>
           )}
-          <div className="flex items-end gap-2">
-            <select
-              className="h-9 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
-              value={agentId}
-              onChange={(event) => onAgentChange(event.target.value)}
-              aria-label="Agente do canal Telegram"
-            >
-              {selectableAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePick} />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 shrink-0 rounded-full"
-              aria-label="Anexar arquivo"
-              title="Anexar arquivo"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            <Textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={`Conversar com ${agent?.name ?? "o agente"} neste canal…`}
-              className="min-h-10 resize-none"
-              disabled={!conversation.data?.session_id || sendMessage.isPending}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 shrink-0 rounded-full"
-              aria-label="Melhorar prompt"
-              title="Melhorar prompt"
-              onClick={() => setImproveOpen(true)}
-              disabled={!draft.trim()}
-            >
-              <Sparkles className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant={isRecording ? "destructive" : "ghost"}
-              size="icon"
-              className="h-9 w-9 shrink-0 rounded-full"
-              aria-label={isRecording ? "Parar gravação" : "Ditar mensagem por voz"}
-              title={isRecording ? "Parar gravação" : "Ditar mensagem por voz"}
-              onClick={() => void handleToggleRecording()}
-              disabled={transcribe.isPending}
-            >
-              {transcribe.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isRecording ? (
-                <Square className="h-4 w-4" />
-              ) : (
-                <Mic className="h-4 w-4" />
-              )}
-            </Button>
-            {sendMessage.isPending && (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" aria-label="Enviando" />
-            )}
-          </div>
+          <ComposerShell
+            ref={textareaRef}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={`Conversar com ${agent?.name ?? "o agente"} neste canal…`}
+            leading={
+              <>
+                <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePick} />
+                <AttachMenuButton
+                  enabledTriggers={[]}
+                  onPickFile={() => fileInputRef.current?.click()}
+                  onInsertTrigger={() => {}}
+                />
+              </>
+            }
+            trailing={
+              <>
+                <AgentSelectorPill agents={selectableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 rounded-full"
+                  aria-label="Melhorar prompt"
+                  title="Melhorar prompt"
+                  onClick={() => setImproveOpen(true)}
+                  disabled={!draft.trim()}
+                >
+                  <Sparkles className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant={isRecording ? "destructive" : "ghost"}
+                  size="icon"
+                  className="h-8 w-8 shrink-0 rounded-full"
+                  aria-label={isRecording ? "Parar gravação" : "Ditar mensagem por voz"}
+                  title={isRecording ? "Parar gravação" : "Ditar mensagem por voz"}
+                  onClick={() => void handleToggleRecording()}
+                  disabled={transcribe.isPending}
+                >
+                  {transcribe.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isRecording ? (
+                    <Square className="h-4 w-4" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
+                </Button>
+                {sendMessage.isPending && (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" aria-label="Enviando" />
+                )}
+              </>
+            }
+          />
         </div>
         {improveOpen && (
           <ImprovePromptDialog
