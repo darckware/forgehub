@@ -651,18 +651,6 @@ class AgentTelegramConversationOut(BaseModel):
     delivery_error: str | None = None
 
 
-class AgentTelegramSendIn(BaseModel):
-    message: str = Field(min_length=1, max_length=50_000)
-
-    @field_validator("message")
-    @classmethod
-    def _strip_message(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("message must not be blank")
-        return value
-
-
 # ---------------------------------------------------------------------------
 # Hermes Foundation sync result
 # ---------------------------------------------------------------------------

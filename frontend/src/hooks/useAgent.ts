@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { apiClient } from "@/lib/api";
+import { apiClient, getToken } from "@/lib/api";
 
 /**
  * Agent domain (see docs/SPEC.md 4.6 Agent Domain / PRD.md 5.11-5.13):
@@ -579,15 +579,102 @@ export function useAgentTelegramConversation(agentId: string | undefined, active
   });
 }
 
+/** Sends through the agent's Telegram relay -- multipart since 2026-08-15
+ * (parity with useChat.ts's useSendChatMessage), so an image or text file
+ * can ride along with the message the same way the Conversations composer
+ * already sends them. `files` is optional and empty by default; the
+ * backend still requires at least a message or a file (see
+ * send_agent_telegram_message's own docstring). */
 export function useSendAgentTelegramMessage(agentId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (message: string) =>
-      apiClient.post<AgentTelegramConversation>(`${RESOURCE}/${agentId}/telegram/messages`, { message }),
+    mutationFn: ({ message, files }: { message: string; files?: File[] }) => {
+      const form = new FormData();
+      form.set("message", message);
+      for (const file of files ?? []) form.append("files", file);
+      return apiClient.postForm<AgentTelegramConversation>(`${RESOURCE}/${agentId}/telegram/messages`, form);
+    },
     onSuccess: (data) => {
       queryClient.setQueryData([...agentTelegramKeys.all, "conversation", agentId], data);
     },
   });
+}
+
+/** Asks the agent to rewrite a Telegram draft per an improvement
+ * instruction -- the Telegram pane's own copy of useStreamImprovePrompt
+ * (2026-08-15), since that one resolves its agent from a ForgeHub chat
+ * session and a Telegram tab has no such session, only the agent id
+ * already in the URL. A private utility call, never a real turn -- see
+ * the backend route's own docstring. */
+export function useStreamTelegramImprovePrompt(agentId: string) {
+  return async function improvePrompt(
+    draft: string,
+    instruction: string,
+    techniqueCode: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const token = getToken() ?? "";
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
+    const url = `${apiBase}${RESOURCE}/${agentId}/telegram/improve-prompt/stream`;
+
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ draft, instruction, technique_code: techniqueCode }),
+      signal,
+    });
+    if (!resp.ok) {
+      let detail = `HTTP ${resp.status}`;
+      try {
+        detail = (await resp.json()).detail ?? detail;
+      } catch {
+        // Body wasn't JSON -- keep the generic HTTP status message.
+      }
+      throw new Error(detail);
+    }
+    if (!resp.body) throw new Error("Empty response body");
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let currentEvent = "message";
+    let improvedText: string | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim();
+            continue;
+          }
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice(5).trim();
+          if (currentEvent === "error") {
+            const parsed = JSON.parse(raw || "{}");
+            throw new Error(parsed.detail ?? "improve-prompt stream error");
+          }
+          if (currentEvent === "done") {
+            currentEvent = "message";
+            continue;
+          }
+          const parsed = JSON.parse(raw || "{}");
+          if (typeof parsed.improved_text === "string") improvedText = parsed.improved_text;
+          currentEvent = "message";
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (improvedText === null) throw new Error("The agent didn't return any text.");
+    return improvedText;
+  };
 }
 
 // ---------------------------------------------------------------------------

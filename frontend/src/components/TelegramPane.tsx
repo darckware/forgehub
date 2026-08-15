@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Loader2, RefreshCw, Send } from "lucide-react";
+import { Loader2, Mic, Paperclip, RefreshCw, Send, Sparkles, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ImprovePromptDialog } from "@/components/chat/ImprovePromptDialog";
 import {
   type Agent,
   useAgentsTelegramStatus,
   useAgentTelegramConversation,
   useSendAgentTelegramMessage,
+  useStreamTelegramImprovePrompt,
 } from "@/hooks/useAgent";
+import { useTranscribeAudio } from "@/hooks/useChat";
 import { cn } from "@/lib/utils";
 
 interface TelegramPaneProps {
@@ -19,13 +22,36 @@ interface TelegramPaneProps {
 
 export function TelegramPane({ agentId, agents, active, onAgentChange }: TelegramPaneProps) {
   const [draft, setDraft] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [deliveryWarning, setDeliveryWarning] = useState<string | null>(null);
+  const [improveOpen, setImproveOpen] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const conversation = useAgentTelegramConversation(agentId, active);
   const sendMessage = useSendAgentTelegramMessage(agentId);
+  const improvePrompt = useStreamTelegramImprovePrompt(agentId);
+  const transcribe = useTranscribeAudio();
   const { data: statuses } = useAgentsTelegramStatus();
   const agent = agents.find((item) => item.id === agentId);
   const status = statuses?.agents.find((item) => item.agent_id === agentId);
+  // Only agents with a real Telegram channel belong in this switcher
+  // (2026-08-15, Marcelo: "só deixe os agentes na seleção do telegram" /
+  // "somente os agentes do hermes e openclaw possuem telegram") -- `agents`
+  // is the whole chatable roster, which also includes test/preview
+  // fixtures and external-CLI runtimes (claude, codex, agy) that have no
+  // per-profile .env to hold a bot token in the first place. Both signals
+  // are checked: runtime_type narrows to the two runtimes capable of it at
+  // all, `installed` (bot token + home channel actually set) narrows to
+  // the ones actually configured, not just eligible.
+  const telegramAgents = agents.filter(
+    (item) =>
+      (item.runtime_type === "hermes" || item.runtime_type === "openclaw") &&
+      statuses?.agents.some((s) => s.agent_id === item.id && s.installed)
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -33,14 +59,17 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
 
   async function submit() {
     const message = draft.trim();
-    if (!message || sendMessage.isPending) return;
+    const files = attachedFiles;
+    if ((!message && files.length === 0) || sendMessage.isPending) return;
     setDraft("");
+    setAttachedFiles([]);
     setDeliveryWarning(null);
     try {
-      const result = await sendMessage.mutateAsync(message);
+      const result = await sendMessage.mutateAsync({ message, files });
       setDeliveryWarning(result.delivery_error ?? null);
     } catch {
       setDraft(message);
+      setAttachedFiles(files);
     }
   }
 
@@ -50,6 +79,45 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
     void submit();
   }
 
+  function handleFilePick(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length > 0) setAttachedFiles((prev) => [...prev, ...files]);
+    event.target.value = "";
+  }
+
+  function removeAttachedFile(index: number) {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  // Voice dictation -- same self-contained mechanism ChatPane's/ChannelPane's
+  // mic button uses (record -> POST /chat/transcribe -> insert text),
+  // agent-agnostic so it's reused as-is (2026-08-15, Marcelo: "igual ao
+  // chat/conversation"). The "voice conversation" (live back-and-forth)
+  // button is deliberately not added here -- a Telegram relay round-trips
+  // through a human's bot on the other end, not a live turn loop.
+  async function handleToggleRecording() {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    audioChunksRef.current = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const result = await transcribe.mutateAsync(blob);
+      setDraft((prev) => (prev ? `${prev} ${result.text}` : result.text));
+    };
+    mediaRecorderRef.current = recorder;
+    recorder.start();
+    setIsRecording(true);
+  }
+
   return (
     <section
       className="flex h-full min-h-0 flex-col bg-background"
@@ -57,14 +125,7 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
     >
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Send className="h-4 w-4 text-sky-500" />
-        <select
-          className="h-8 min-w-40 rounded-md border border-input bg-background px-2 text-sm"
-          value={agentId}
-          onChange={(event) => onAgentChange(event.target.value)}
-          aria-label="Agente do canal Telegram"
-        >
-          {agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
+        <span className="text-sm font-medium">{agent?.name ?? "Agente"}</span>
         <span className={cn(
           "rounded-full px-2 py-0.5 text-xs",
           status?.status === "ok" ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground",
@@ -134,25 +195,109 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
                 : null}
           </p>
         )}
-        <div className="mx-auto flex max-w-3xl items-end gap-2">
-          <Textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={`Conversar com ${agent?.name ?? "o agente"} neste canal…`}
-            className="min-h-10 resize-none"
-            disabled={!conversation.data?.session_id || sendMessage.isPending}
-          />
-          <Button
-            type="button"
-            size="icon"
-            onClick={() => void submit()}
-            disabled={!draft.trim() || !conversation.data?.session_id || sendMessage.isPending}
-            aria-label="Enviar pelo canal Telegram"
-          >
-            {sendMessage.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
+        <div className="mx-auto flex max-w-3xl flex-col gap-2">
+          {attachedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {attachedFiles.map((file, index) => (
+                <span
+                  key={`${file.name}-${index}`}
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs"
+                >
+                  <Paperclip className="h-3 w-3 shrink-0" />
+                  <span className="max-w-40 truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachedFile(index)}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={`Remover ${file.name}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+            <select
+              className="h-9 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+              value={agentId}
+              onChange={(event) => onAgentChange(event.target.value)}
+              aria-label="Agente do canal Telegram"
+            >
+              {telegramAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePick} />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-full"
+              aria-label="Anexar arquivo"
+              title="Anexar arquivo"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+            <Textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={`Conversar com ${agent?.name ?? "o agente"} neste canal…`}
+              className="min-h-10 resize-none"
+              disabled={!conversation.data?.session_id || sendMessage.isPending}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-full"
+              aria-label="Melhorar prompt"
+              title="Melhorar prompt"
+              onClick={() => setImproveOpen(true)}
+              disabled={!draft.trim()}
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant={isRecording ? "destructive" : "ghost"}
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-full"
+              aria-label={isRecording ? "Parar gravação" : "Ditar mensagem por voz"}
+              title={isRecording ? "Parar gravação" : "Ditar mensagem por voz"}
+              onClick={() => void handleToggleRecording()}
+              disabled={transcribe.isPending}
+            >
+              {transcribe.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isRecording ? (
+                <Square className="h-4 w-4" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+            </Button>
+            {sendMessage.isPending && (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" aria-label="Enviando" />
+            )}
+          </div>
         </div>
+        {improveOpen && (
+          <ImprovePromptDialog
+            initialDraft={draft}
+            subject={agent?.name ?? "o agente"}
+            agents={agents}
+            includeLocalSlashCommands={false}
+            includeHermesSlashCommands={false}
+            improvePrompt={improvePrompt}
+            onApply={(improved) => {
+              setDraft(improved);
+              setImproveOpen(false);
+              textareaRef.current?.focus();
+            }}
+            onClose={() => setImproveOpen(false)}
+          />
+        )}
       </footer>
     </section>
   );

@@ -38,12 +38,16 @@ its own file and format; reading and editing them lives in
 app/core/agent_mcp.py. ForgeHub keeps no copy of that configuration -- it
 edits the runtime's own file, which is what the runtime actually reads.
 """
+import asyncio
+import json
 import shlex
 import uuid
 from pathlib import Path
+from typing import AsyncIterator
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +79,6 @@ from app.api.schemas.agent import (
     AgentTelegramStatusListOut,
     AgentTelegramStatusOut,
     AgentTelegramConversationOut,
-    AgentTelegramSendIn,
     AgentUpdate,
     ForgeRouterKeyImportOut,
     ForgeRouterKeySyncAgentOut,
@@ -95,10 +98,13 @@ from app.api.schemas.agent import (
     SubAgentUpdate,
     SyncCounts,
 )
+from app.api.routes.chat import _call_bridge_images, _call_bridge_text
+from app.api.schemas.prompt_technique import ImprovePromptRequest
 from app.core import agent_mcp, agent_profile_files, agent_runtime_sync, agent_telegram, forgerouter_sync, hermes_sync
 from app.core.mcp_catalog_apply import apply_global_servers_to_agent
 from app.core.config import settings
 from app.core.deps import get_current_admin
+from app.core.prompt_improvement import build_prompt_improvement_request, get_prompt_technique
 from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
 from app.db.models.user import User
@@ -574,7 +580,8 @@ async def get_agent_telegram_messages(
 @router.post("/{agent_id}/telegram/messages", response_model=AgentTelegramConversationOut)
 async def send_agent_telegram_message(
     agent_id: uuid.UUID,
-    payload: AgentTelegramSendIn,
+    message: str = Form(default=""),
+    files: list[UploadFile] = File(default=[]),
     db: AsyncSession = Depends(get_db),
 ) -> AgentTelegramConversationOut:
     """Continue the agent's Telegram context from ForgeHub and relay its reply.
@@ -583,6 +590,15 @@ async def send_agent_telegram_message(
     operator prompt is therefore appended by resuming Hermes' actual Telegram
     session, and the agent's answer is delivered to that same Telegram chat
     through the agent's own bot.
+
+    Attachments (2026-08-15, parity with chat.py's send_chat_message, whose
+    image/text-file split this mirrors exactly): an image goes through
+    `_call_bridge_images` (the same vision-capable bridge call the
+    Conversations composer uses); a text file is decoded and pasted inline
+    into the prompt, never uploaded as a binary the agent would need a tool
+    to fetch. Both still resume the same real `conversation.session_id`
+    (never `None`, unlike the improve-prompt route below) so the attachment
+    lands in the actual ongoing Telegram thread, not a throwaway one.
     """
     agent = await _get_agent_or_404(db, agent_id)
     conversation = await _telegram_conversation(agent)
@@ -591,25 +607,45 @@ async def send_agent_telegram_message(
             status_code=409,
             detail="No Telegram conversation exists yet. Send the agent's bot a message first.",
         )
+    if not message.strip() and not files:
+        raise HTTPException(status_code=400, detail="message or file is required")
+
+    if files:
+        images: list[tuple[str, bytes]] = []
+        text_blocks: list[str] = []
+        for f in files:
+            content = await f.read()
+            if (f.content_type or "").startswith("image/"):
+                images.append((f.filename or "image.png", content))
+            else:
+                try:
+                    text_content = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    raise HTTPException(
+                        status_code=400, detail="Attached file must be a text file or an image"
+                    ) from None
+                text_blocks.append(f'Content of file "{f.filename}" pasted below:\n---\n{text_content}\n---')
+        if images:
+            combined_message = "\n\n".join([*text_blocks, message]).strip()
+            bridge_result = await _call_bridge_images(
+                conversation.profile_slug,
+                combined_message or "See the attached images.",
+                conversation.session_id,
+                images,
+            )
+        else:
+            outgoing_message = "\n\n".join([*text_blocks, message]).strip()
+            bridge_result = await _call_bridge_text(
+                conversation.profile_slug, outgoing_message, conversation.session_id
+            )
+    else:
+        bridge_result = await _call_bridge_text(conversation.profile_slug, message, conversation.session_id)
+
+    reply = (bridge_result.get("reply") or "").strip()
+    if not reply:
+        raise HTTPException(status_code=502, detail="Agent returned an empty Telegram reply")
     bridge_headers = {"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
     async with httpx.AsyncClient(timeout=660.0) as client:
-        response = await client.post(
-            f"{settings.CHAT_BRIDGE_URL}/v1/chat",
-            json={
-                "profile": conversation.profile_slug,
-                "message": payload.message,
-                "session_id": conversation.session_id,
-            },
-            headers=bridge_headers,
-        )
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Agent bridge error: {response.text[:500]}",
-            )
-        reply = response.json().get("reply", "").strip()
-        if not reply:
-            raise HTTPException(status_code=502, detail="Agent returned an empty Telegram reply")
         sent = await client.post(
             f"{settings.CHAT_BRIDGE_URL}/v1/messages/send",
             json={
@@ -628,6 +664,49 @@ async def send_agent_telegram_message(
             refreshed.delivery_error = f"Telegram delivery error: {sent.text[:500]}"
             return refreshed
     return await _telegram_conversation(agent)
+
+
+@router.post("/{agent_id}/telegram/improve-prompt/stream")
+async def stream_telegram_improve_prompt(
+    agent_id: uuid.UUID, payload: ImprovePromptRequest, db: AsyncSession = Depends(get_db)
+) -> StreamingResponse:
+    """Same private rewrite-only call as chat.py's stream_improve_prompt
+    (2026-08-15, parity with the Conversations/Channels composer) -- that
+    one resolves its agent from a ForgeHub chat session, which the
+    Telegram pane doesn't have; this resolves it directly from the agent
+    id already in the URL, since a Telegram tab only ever means one agent.
+    Never touches the agent's real Telegram session
+    (`hermes_session_id=None`, a fresh bridge call every time) so drafting
+    can never leak a stray turn into the actual conversation."""
+    agent = await _get_agent_or_404(db, agent_id)
+    technique = await get_prompt_technique(db, payload.technique_code)
+    prompt = build_prompt_improvement_request(
+        actor_context=(
+            f'Você é o agente "{agent.name}" no ForgeHub. O usuário está rascunhando uma mensagem '
+            "para enviar via Telegram e pediu sua ajuda para melhorá-la."
+        ),
+        draft=payload.draft,
+        instruction=payload.instruction,
+        technique=technique,
+    )
+
+    async def _events() -> AsyncIterator[str]:
+        try:
+            task = asyncio.ensure_future(_call_bridge_text(agent.profile_slug, prompt, None))
+            while True:
+                done, _pending = await asyncio.wait([task], timeout=15)
+                if done:
+                    break
+                yield ": ping\n\n"
+            bridge_result = await task
+            improved_text = (bridge_result.get("reply") or "").strip()
+            yield f"data: {json.dumps({'improved_text': improved_text})}\n\n"
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            yield f"event: error\ndata: {json.dumps({'detail': str(detail)})}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(_events(), media_type="text/event-stream")
 
 
 # ---------------------------------------------------------------------------
