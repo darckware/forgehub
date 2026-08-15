@@ -149,21 +149,52 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
           <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">Não foi possível carregar o histórico do Telegram.</p>
         ) : conversation.data?.messages.length ? (
           <div className="flex flex-col gap-3">
-            {conversation.data.messages.map((message) => (
-              <article
-                key={message.id}
-                className={cn(
-                  "max-w-[85%] whitespace-pre-wrap rounded-xl px-3 py-2 text-sm",
-                  message.role === "user" ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-muted",
-                )}
-              >
-                <div className="mb-1 text-[10px] opacity-70">
-                  {message.role === "user" ? "Você · Telegram" : agent?.name ?? "Agente"}
-                  {" · "}{new Date(message.timestamp * 1000).toLocaleString()}
+            {conversation.data.messages.map((message) => {
+              // Same palette as ChatPane's own MessageBubble (2026-08-15,
+              // Marcelo: "adicione os balões... das mesmas cores do
+              // chat/conversation"): assistant replies are plain flowing
+              // text with no card (ChatGPT-style, ChatPane's own comment
+              // calls this out explicitly), only the user's own turn gets a
+              // colored bubble. Telegram adds a distinction ChatPane never
+              // needs, though: a "user" message here can come from two
+              // different places -- typed into this composer, or sent from
+              // the actual Telegram app on the phone. `platform_message_id`
+              // is only ever set by the latter (see
+              // agentTelegramMessageSchema), so it's what tells them apart.
+              // Same indigo-600 for a real Telegram-origin message (matches
+              // ChatPane's bubble exactly); a second, similar blue for one
+              // composed here, so the two origins read as related but not
+              // identical (Marcelo: "só adiciona um outro azul semelhante,
+              // pra diferenciar").
+              if (message.role !== "user") {
+                return (
+                  <div key={message.id} className="max-w-[85%] whitespace-pre-wrap text-sm text-foreground">
+                    <div className="mb-1 text-xs text-muted-foreground">
+                      {agent?.name ?? "Agente"} · {new Date(message.timestamp * 1000).toLocaleString()}
+                    </div>
+                    {message.content}
+                  </div>
+                );
+              }
+              const fromTelegramApp = message.platform_message_id != null;
+              return (
+                <div key={message.id} className="flex justify-end">
+                  <div className="flex max-w-[75%] flex-col items-end">
+                    <div
+                      className={cn(
+                        "whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm text-white shadow-sm",
+                        fromTelegramApp ? "bg-indigo-600" : "bg-blue-600",
+                      )}
+                    >
+                      {message.content}
+                      <p className={cn("mt-1 text-[10px]", fromTelegramApp ? "text-indigo-100/80" : "text-blue-100/80")}>
+                        {fromTelegramApp ? "Telegram" : "ForgeHub"} · {new Date(message.timestamp * 1000).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                {message.content}
-              </article>
-            ))}
+              );
+            })}
             <div ref={bottomRef} />
           </div>
         ) : (
