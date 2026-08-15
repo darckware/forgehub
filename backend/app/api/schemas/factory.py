@@ -79,6 +79,18 @@ class ProjectCockpitRow(BaseModel):
     team_size: int = 0
     channel_id: uuid.UUID | None = None
 
+    # creation | maintenance (2026-08-15) -- see Project.project_type's
+    # docstring. Always set (server_default="creation").
+    project_type: str = "creation"
+    # Name of this project's active ProjectPipeline, and the PipelineTemplate
+    # it was instantiated from (if any) -- surfaced here (2026-08-15) so the
+    # Cockpit, as the product/service tracking screen, shows which
+    # development path each project is actually following instead of that
+    # being invisible outside the Pipelines page (itself unreachable from the
+    # sidebar today). None when the project has no active pipeline yet.
+    pipeline_name: str | None = None
+    pipeline_template_name: str | None = None
+
 
 class ProductVersionRow(BaseModel):
     version_id: uuid.UUID

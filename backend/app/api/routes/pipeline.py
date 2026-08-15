@@ -128,6 +128,71 @@ async def _deactivate_other_active_pipelines(db: AsyncSession, project_id: uuid.
         other.is_active = False
 
 
+async def _expand_template_stages(db: AsyncSession, pipeline: ProjectPipeline, template_id: uuid.UUID) -> None:
+    """Expand a template's stages (and their required artifacts) into real
+    `PipelineStage` rows on an already-created, already-flushed `pipeline`.
+    Shared by `create_pipeline`'s `template_id` branch and Conception's
+    `:authorize-delivery-planning` (2026-08-15) -- same "extract a helper,
+    caller commits" convention as `_dispatch_task_by_id` in task.py (no HTTP
+    self-call, no reimplementation). Adds/flushes only; the caller commits.
+    """
+    template = await db.get(PipelineTemplate, template_id)
+    if template is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+
+    template_stages = (
+        await db.execute(
+            select(PipelineTemplateStage)
+            .where(PipelineTemplateStage.template_id == template.id)
+            .order_by(PipelineTemplateStage.order_index)
+        )
+    ).scalars().all()
+    for template_stage in template_stages:
+        stage = PipelineStage(
+            pipeline_id=pipeline.id,
+            name=template_stage.name,
+            stage_type=template_stage.stage_type,
+            order_index=template_stage.order_index,
+            requires_approval=template_stage.requires_approval,
+            requires_verification=template_stage.requires_verification,
+        )
+        db.add(stage)
+        await db.flush()
+        template_artifacts = (
+            await db.execute(
+                select(PipelineTemplateRequiredArtifact).where(
+                    PipelineTemplateRequiredArtifact.template_stage_id == template_stage.id
+                )
+            )
+        ).scalars().all()
+        for template_artifact in template_artifacts:
+            db.add(
+                PipelineStageRequiredArtifact(
+                    stage_id=stage.id,
+                    artifact_type=template_artifact.artifact_type,
+                    is_mandatory=template_artifact.is_mandatory,
+                )
+            )
+
+
+async def instantiate_pipeline_from_template(
+    db: AsyncSession, project_id: uuid.UUID, template_id: uuid.UUID, name: str
+) -> ProjectPipeline:
+    """Create a new, active `ProjectPipeline` for `project_id` and expand
+    `template_id`'s stages onto it. This is the entry point Conception's
+    `:authorize-delivery-planning` calls; `create_pipeline` below has its own
+    entry point (it already has a full payload with status/is_active) and
+    shares only `_expand_template_stages`.
+    """
+    pipeline = ProjectPipeline(project_id=project_id, template_id=template_id, name=name)
+    db.add(pipeline)
+    await db.flush()  # id available pre-commit (uuid default is python-side)
+    await _expand_template_stages(db, pipeline, template_id)
+    if pipeline.is_active:
+        await _deactivate_other_active_pipelines(db, project_id, exclude_id=pipeline.id)
+    return pipeline
+
+
 # ---------------------------------------------------------------------------
 # PipelineTemplate (secondary entity -- full CRUD, reasonably scoped)
 # ---------------------------------------------------------------------------
@@ -357,39 +422,7 @@ async def create_pipeline(payload: ProjectPipelineCreate, db: AsyncSession = Dep
     await db.flush()  # id available pre-commit (uuid default is python-side)
 
     if template is not None:
-        template_stages = (
-            await db.execute(
-                select(PipelineTemplateStage)
-                .where(PipelineTemplateStage.template_id == template.id)
-                .order_by(PipelineTemplateStage.order_index)
-            )
-        ).scalars().all()
-        for template_stage in template_stages:
-            stage = PipelineStage(
-                pipeline_id=pipeline.id,
-                name=template_stage.name,
-                stage_type=template_stage.stage_type,
-                order_index=template_stage.order_index,
-                requires_approval=template_stage.requires_approval,
-                requires_verification=template_stage.requires_verification,
-            )
-            db.add(stage)
-            await db.flush()
-            template_artifacts = (
-                await db.execute(
-                    select(PipelineTemplateRequiredArtifact).where(
-                        PipelineTemplateRequiredArtifact.template_stage_id == template_stage.id
-                    )
-                )
-            ).scalars().all()
-            for template_artifact in template_artifacts:
-                db.add(
-                    PipelineStageRequiredArtifact(
-                        stage_id=stage.id,
-                        artifact_type=template_artifact.artifact_type,
-                        is_mandatory=template_artifact.is_mandatory,
-                    )
-                )
+        await _expand_template_stages(db, pipeline, template.id)
 
     # Build stages, keeping a name->id map for dependency resolution by
     # index within the same payload (dependencies reference other stage

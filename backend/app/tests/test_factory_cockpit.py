@@ -305,6 +305,53 @@ async def test_cockpit_reports_five_phases_for_a_project(client, factory_fixture
     assert row["task_count"] == 2
     assert row["version_number"] == "0.1.0"
 
+    # 2026-08-15: every project reports its creation/maintenance
+    # classification (server_default -- always set, even for a project
+    # created with no explicit project_type like this fixture's) and, when
+    # none exists yet, a null pipeline.
+    assert row["project_type"] == "creation"
+    assert row["pipeline_name"] is None
+    assert row["pipeline_template_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_cockpit_reports_project_type_and_active_pipeline(client, factory_fixture):
+    """2026-08-15: the Cockpit surfaces which development path a project is
+    actually on -- its creation/maintenance classification and its active
+    ProjectPipeline's name + the PipelineTemplate it was instantiated from,
+    since the Pipelines page isn't reachable from the sidebar today."""
+    from app.db.models.pipeline import PipelineTemplate, ProjectPipeline
+
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        project = await db.get(Project, factory_fixture["project_id"])
+        project.project_type = "maintenance"
+        template = PipelineTemplate(name=f"cockpit-template-{suffix}")
+        db.add(template)
+        await db.flush()
+        pipeline = ProjectPipeline(
+            project_id=project.id, template_id=template.id, name=f"cockpit-pipeline-{suffix}",
+        )
+        db.add(pipeline)
+        await db.commit()
+        template_id, pipeline_id = template.id, pipeline.id
+
+    try:
+        resp = await client.get("/api/v1/factory/cockpit")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        product = next(p for p in body["products"] if p["product_id"] == str(factory_fixture["product_id"]))
+        row = next(r for r in product["projects"] if r["project_id"] == str(factory_fixture["project_id"]))
+
+        assert row["project_type"] == "maintenance"
+        assert row["pipeline_name"] == f"cockpit-pipeline-{suffix}"
+        assert row["pipeline_template_name"] == f"cockpit-template-{suffix}"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(ProjectPipeline).where(ProjectPipeline.id == pipeline_id))
+            await db.execute(delete(PipelineTemplate).where(PipelineTemplate.id == template_id))
+            await db.commit()
+
 
 @pytest.mark.asyncio
 async def test_cockpit_requires_auth():

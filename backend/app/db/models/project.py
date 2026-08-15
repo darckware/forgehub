@@ -50,6 +50,13 @@ PROJECT_STATUSES = ("planned", "active", "on_hold", "completed", "cancelled")
 # (plus a migration) as new solution types are actually needed.
 PROJECT_SOLUTION_TYPES = ("web_app", "mobile_app", "api_service", "database", "deploy")
 
+# Whether a Project is standing up something new or evolving something
+# already shipped (2026-08-15, Marcelo: "o ciclo é o mesmo para os dois,
+# finalizado pelos controles de versão" -- creation and maintenance reuse the
+# exact same Project/Pipeline/PlanningItem machinery, this only classifies
+# intent). Set once at :authorize-delivery-planning time per project spec.
+PROJECT_TYPES = ("creation", "maintenance")
+
 FORGEROUTER_TOOLS = ("claude", "codex", "antigravity")
 PROJECT_PLAN_STATUSES = ("draft", "approved", "baselined", "superseded")
 CHANGE_REQUEST_STATUSES = ("pending", "approved", "rejected", "applied")
@@ -81,6 +88,7 @@ class Project(Base, TimestampMixin):
             f"solution_type IS NULL OR solution_type IN {PROJECT_SOLUTION_TYPES!r}",
             name="ck_projects_solution_type",
         ),
+        CheckConstraint(f"project_type IN {PROJECT_TYPES!r}", name="ck_projects_project_type"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -103,6 +111,13 @@ class Project(Base, TimestampMixin):
     # because pre-existing/manually-created projects may not have one;
     # projects created via :authorize-delivery-planning always set it.
     solution_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # creation | maintenance -- server_default so a raw insert that doesn't
+    # know about this column still gets a valid value (same reasoning as
+    # AgentDemand.requires_response's server_default, see CLAUDE.md).
+    project_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="creation", server_default="creation"
+    )
 
     # planned -> active -> on_hold -> completed -> cancelled
     status: Mapped[str] = mapped_column(

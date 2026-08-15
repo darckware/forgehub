@@ -56,6 +56,11 @@ export const projectCockpitRowSchema = z.object({
   // if any -- see backend factory.py's team_size_by_project/channel_by_project.
   team_size: z.number().default(0),
   channel_id: z.string().nullable().optional(),
+  // creation | maintenance + the project's active pipeline, if any
+  // (2026-08-15) -- which development path this project is actually on.
+  project_type: z.enum(["creation", "maintenance"]).default("creation"),
+  pipeline_name: z.string().nullable().optional(),
+  pipeline_template_name: z.string().nullable().optional(),
 });
 
 export type ProjectCockpitRow = z.infer<typeof projectCockpitRowSchema>;

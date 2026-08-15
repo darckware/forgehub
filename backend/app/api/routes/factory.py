@@ -52,6 +52,7 @@ from app.db.models.backlog import PlanningItem
 from app.db.models.channel import ChatChannel
 from app.db.models.demand import AgentDemand
 from app.db.models.orchestration import ProjectAgentMembership
+from app.db.models.pipeline import PipelineTemplate, ProjectPipeline
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
 from app.db.models.system_scope import (
@@ -329,6 +330,22 @@ async def get_cockpit(db: AsyncSession = Depends(get_db)) -> CockpitOut:
         ).all():
             channel_by_project[project_id] = channel_id
 
+    # --- active pipeline + template name, per project (2026-08-15) -- same
+    # "which development path is this project actually on" the Cockpit
+    # otherwise has no way to show, since the Pipelines page isn't reachable
+    # from the sidebar. Only the active pipeline (rule 6.2.2: at most one)
+    # is relevant here; a project with none simply has no entry. -----------
+    pipeline_by_project: dict[uuid.UUID, tuple[str, str | None]] = {}
+    if project_ids:
+        for project_id, pipeline_name, template_name in (
+            await db.execute(
+                select(ProjectPipeline.project_id, ProjectPipeline.name, PipelineTemplate.name)
+                .outerjoin(PipelineTemplate, ProjectPipeline.template_id == PipelineTemplate.id)
+                .where(ProjectPipeline.project_id.in_(project_ids), ProjectPipeline.is_active.is_(True))
+            )
+        ).all():
+            pipeline_by_project[project_id] = (pipeline_name, template_name)
+
     # --- assemble ---------------------------------------------------------
     projects_by_product: dict[uuid.UUID, list[ProjectCockpitRow]] = {}
     for project, version in rows:
@@ -401,6 +418,7 @@ async def get_cockpit(db: AsyncSession = Depends(get_db)) -> CockpitOut:
         }.get(version.status, "pending")
         phase5 = PhaseStatus(key="quality", state=phase5_state, detail=version.status)
 
+        pipeline_name, pipeline_template_name = pipeline_by_project.get(project.id, (None, None))
         projects_by_product.setdefault(product_id, []).append(
             ProjectCockpitRow(
                 project_id=project.id,
@@ -416,6 +434,9 @@ async def get_cockpit(db: AsyncSession = Depends(get_db)) -> CockpitOut:
                 total_cost=cost_by_project.get(project.id, 0),
                 team_size=team_size_by_project.get(project.id, 0),
                 channel_id=channel_by_project.get(project.id),
+                project_type=project.project_type,
+                pipeline_name=pipeline_name,
+                pipeline_template_name=pipeline_template_name,
             )
         )
 

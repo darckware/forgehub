@@ -11,10 +11,16 @@
     "updateFromDiagram": "Update from diagram",
     "updateFromDiagramEmpty": "The entity and functionality diagram is still empty -- open the System Map to start modeling.",
     "steps": {
-      "problem": "1. Problem and vision",
-      "description": "2. Description and folder",
-      "stack": "3. Tech stack",
-      "documentation": "4. Documentation"
+      "pipeline": "1. Pipeline / Template",
+      "problem": "2. Problem and vision",
+      "description": "3. Description and folder",
+      "stack": "4. Tech stack",
+      "delivery": "5. Project(s) to build",
+      "documentation": "6. Documentation"
+    },
+    "pipeline": {
+      "help": "Optional -- pick an existing pipeline template to drive how this idea gets conceived and, later, how its Project(s) get built. Applies to every Project this idea produces.",
+      "placeholder": "No template (default local pipeline)"
     },
     "documentation": {
       "help": "Attach markdown reference material or fill-in templates for this concept -- upload a file or write a new one, then edit it inline.",
@@ -44,7 +50,7 @@
         "database": "Database",
         "deploy_infra": "Deploy / infrastructure"
       },
-      "selectPlaceholder": "Select an option",
+      "selectPlaceholder": "e.g. React, PostgreSQL, Docker...",
       "rationale": "Rationale (optional)"
     }
   },

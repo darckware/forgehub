@@ -88,9 +88,20 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
                 <div key={project.project_id} className="space-y-2 rounded-lg border p-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{project.project_name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-sm font-medium">{project.project_name}</p>
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 text-[10px] ${project.project_type === "maintenance" ? "border-amber-500/40 text-amber-600" : "border-sky-500/40 text-sky-600"}`}
+                        >
+                          {project.project_type === "maintenance" ? "Manutenção" : "Criação"}
+                        </Badge>
+                      </div>
                       <p className="text-xs text-muted-foreground">
                         v{project.version_number} · {project.version_status}
+                        {project.pipeline_name && (
+                          <> · pipeline: {project.pipeline_name}{project.pipeline_template_name && ` (${project.pipeline_template_name})`}</>
+                        )}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">

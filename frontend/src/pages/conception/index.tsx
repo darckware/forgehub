@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, FileText, Lightbulb, Loader2, Pencil, Plus, Rocket, Trash2, Upload } from "lucide-react";
+import { FileText, Lightbulb, Loader2, Plus, Rocket, Trash2, Upload } from "lucide-react";
+import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,12 +11,11 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { useDeleteProduct, useUpdateProduct } from "@/hooks/useProduct";
-import { useAgents } from "@/hooks/useAgent";
 import { PROJECT_SOLUTION_TYPES } from "@/hooks/useProject";
+import { usePipelineTemplates } from "@/hooks/usePipeline";
 import {
   useAuthorizeDeliveryPlanning,
   useConcept,
@@ -30,20 +30,20 @@ import {
   useUpdateConceptDeliveryMetadata,
   useUpdateDevelopmentRequest,
   useUploadConceptDocument,
+  type DeliveryPlanningProjectResult,
   type DeliveryPlanningProjectSpec,
   type DevelopmentRequest,
   type TechStackDecision,
   type TechStackLayer,
 } from "@/hooks/useSystemScope";
 
-// UI guardrails for the idea-capture form. name/requested_by mirror the
-// backend's IdeaCreate max_length=255; the Text-column fields (no DB limit)
-// get a generous soft cap so the char counter has a target to show.
+// UI guardrails for the idea-capture form. name mirrors the backend's
+// IdeaCreate max_length=255; the Text-column fields (no DB limit) get a
+// generous soft cap so the char counter has a target to show.
 const NAME_MAX = 255;
 const PROBLEM_STATEMENT_MAX = 4000;
 const VISION_MAX = 2000;
 const SCOPE_SUMMARY_MAX = 2000;
-const REQUESTED_BY_MAX = 255;
 const PROJECT_DESCRIPTION_MAX = 4000;
 
 // Fixed set of layers per TECH_STACK_LAYERS (backend/app/db/models/system_scope.py)
@@ -283,68 +283,103 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
   );
 }
 
-const EMPTY_PROJECT_SPEC: DeliveryPlanningProjectSpec = { solution_type: "web_app", project_name: "" };
+type ProjectSpecForm = DeliveryPlanningProjectSpec & { version: string };
 
-/** Sets ProjectSpec.responsible_agent_id -- auto-creates a
- * ProjectAgentMembership + assigns every task in the new Project to this
- * agent (Pacote 3, 2026-08-01). Optional: leaving it unset keeps today's
- * fully-manual assignment flow. */
-function ResponsibleAgentSelect({ value, onChange }: { value: string | undefined; onChange: (agentId: string | undefined) => void }) {
-  const agents = useAgents();
-  return (
-    <Select value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
-      <option value="">Agente responsável (opcional)</option>
-      {agents.data?.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-    </Select>
-  );
-}
+const EMPTY_PROJECT_SPEC: ProjectSpecForm = {
+  solution_type: "web_app", project_name: "", version: "0.1.0", project_type: "creation",
+};
 
-/** "Autorizar Entrega" -- turns an approved Concept into one Project per
+const PROJECT_TYPES = ["creation", "maintenance"] as const;
+
+/** Project(s) section -- turns an approved Concept into one Project per
  * requested application type (2026-08-01 decision: one Project per type,
  * not Tracks inside a single Project -- see docs/architecture/
- * PLANNING_DELIVERY_ARCHITECTURE.md section 2.2's note). Didn't exist as a
- * UI action before this -- :authorize-delivery-planning was backend-only. */
-function DeliveryPlanningPanel({ conceptId, conceptStatus }: { conceptId: string | undefined; conceptStatus: string | undefined }) {
+ * PLANNING_DELIVERY_ARCHITECTURE.md section 2.2's note). Folded into the
+ * single-form Conception page (not its own tab) as of 2026-08-15 -- its
+ * working-directory input was a duplicate of the "Description and folder"
+ * section's, so this now takes the concept-level `workingDirectoryPath` and
+ * applies it to every Project instead of asking again per row. The pipeline
+ * template is likewise chosen once, at the top of the page, and threaded
+ * through here via `pipelineTemplateId` -- never asked twice.
+ *
+ * Each project row still carries its own version (2026-08-15, Marcelo:
+ * "para cada projeto o controle de versão, não posso ter uma versão
+ * [única]"). The backend call itself still only accepts one shared
+ * `version` per request -- a ProductVersion is 1:1 with the System Map
+ * revision it authorizes (see the 409 check in authorize_delivery_planning),
+ * so two different new versions can't be created in the same call without
+ * corrupting that link. Submit works around this without touching the
+ * backend contract: specs are grouped by their version string and one
+ * :authorize-delivery-planning call is fired per group, sequentially, so
+ * each distinct version a project asks for still gets its own call while
+ * specs that share a version still batch together exactly like before. */
+function ProjectPlanningPanel({
+  conceptId, conceptStatus, workingDirectoryPath, pipelineTemplateId,
+}: {
+  conceptId: string | undefined; conceptStatus: string | undefined;
+  workingDirectoryPath: string; pipelineTemplateId: string;
+}) {
   const authorize = useAuthorizeDeliveryPlanning();
   const sync = useSyncArtifactsToProject();
-  const [version, setVersion] = useState("0.1.0");
-  const [specs, setSpecs] = useState<DeliveryPlanningProjectSpec[]>([{ ...EMPTY_PROJECT_SPEC }]);
+  const [specs, setSpecs] = useState<ProjectSpecForm[]>([{ ...EMPTY_PROJECT_SPEC }]);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [results, setResults] = useState<DeliveryPlanningProjectResult[] | null>(null);
 
   if (!conceptId) {
-    return <p className="text-sm text-muted-foreground">Salve a ideia primeiro para poder autorizar a entrega.</p>;
+    return <p className="text-sm text-muted-foreground">Salve a ideia primeiro para poder criar o projeto.</p>;
   }
   if (conceptStatus !== "approved") {
     return <p className="text-sm text-muted-foreground">Disponível depois que a Concepção for aprovada (status atual: {conceptStatus ?? "--"}).</p>;
   }
 
-  const updateSpec = (index: number, patch: Partial<DeliveryPlanningProjectSpec>) =>
+  const updateSpec = (index: number, patch: Partial<ProjectSpecForm>) =>
     setSpecs((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
   const addSpec = () => setSpecs((prev) => [...prev, { ...EMPTY_PROJECT_SPEC }]);
   const removeSpec = (index: number) => setSpecs((prev) => prev.filter((_, i) => i !== index));
 
-  const submit = () => {
+  const submit = async () => {
     const projects = specs.filter((s) => s.project_name.trim());
     if (!projects.length) return;
-    authorize.mutate({ conceptId, version, projects });
+    const groups = new Map<string, DeliveryPlanningProjectSpec[]>();
+    for (const { version, ...spec } of projects) {
+      const key = version.trim() || "0.1.0";
+      const withSharedFields = { ...spec, working_directory_path: workingDirectoryPath || undefined };
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(withSharedFields);
+    }
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const allResults: DeliveryPlanningProjectResult[] = [];
+      for (const [version, groupProjects] of groups) {
+        const res = await authorize.mutateAsync({
+          conceptId, version, projects: groupProjects,
+          pipeline_template_id: pipelineTemplateId || undefined,
+        });
+        allResults.push(...res.projects);
+      }
+      setResults(allResults);
+    } catch (e) {
+      setSubmitError((e as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Cria um Project por tipo de aplicação selecionado, todos ligados à mesma versão do produto.
+        Cria um Project por tipo de aplicação selecionado, cada um com sua própria versão do produto.
         Cada Project recebe só as tarefas da sua camada (telas para web/mobile, APIs para
         backend, etc.). Repetir a mesma versão + tipo é idempotente -- não duplica.
       </p>
-      <div className="max-w-xs space-y-2">
-        <Label>Versão</Label>
-        <Input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="0.1.0" />
-      </div>
       <div className="space-y-2">
         <Label>Projetos a criar</Label>
         {specs.map((spec, i) => (
           <div key={i} className="space-y-2 rounded-md border p-2">
             <div className="grid grid-cols-[160px_1fr_32px] gap-2 items-center">
-              <Select value={spec.solution_type} onChange={(e) => updateSpec(i, { solution_type: e.target.value as DeliveryPlanningProjectSpec["solution_type"] })}>
+              <Select value={spec.solution_type} onChange={(e) => updateSpec(i, { solution_type: e.target.value as ProjectSpecForm["solution_type"] })}>
                 {PROJECT_SOLUTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </Select>
               <Input placeholder="Nome do projeto" value={spec.project_name} onChange={(e) => updateSpec(i, { project_name: e.target.value })} />
@@ -353,28 +388,30 @@ function DeliveryPlanningPanel({ conceptId, conceptStatus }: { conceptId: string
               </Button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <div className="flex items-center gap-1">
-                <Input placeholder="Working directory" value={spec.working_directory_path ?? ""} onChange={(e) => updateSpec(i, { working_directory_path: e.target.value })} />
-                <WorkingDirPicker workingDir={spec.working_directory_path} onSelect={(path) => updateSpec(i, { working_directory_path: path ?? "" })} />
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Versão</Label>
+                <Input placeholder="0.1.0" value={spec.version} onChange={(e) => updateSpec(i, { version: e.target.value })} />
               </div>
-              <ResponsibleAgentSelect
-                value={spec.responsible_agent_id}
-                onChange={(agentId) => updateSpec(i, { responsible_agent_id: agentId })}
-              />
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Tipo</Label>
+                <Select value={spec.project_type ?? "creation"} onChange={(e) => updateSpec(i, { project_type: e.target.value as ProjectSpecForm["project_type"] })}>
+                  {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t === "creation" ? "Criação" : "Manutenção"}</option>)}
+                </Select>
+              </div>
             </div>
           </div>
         ))}
         <Button variant="outline" size="sm" onClick={addSpec}><Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar tipo de aplicação</Button>
       </div>
-      <Button disabled={authorize.isPending || specs.every((s) => !s.project_name.trim())} onClick={submit}>
-        {authorize.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        <Rocket className="mr-2 h-4 w-4" />Autorizar Entrega
+      <Button disabled={submitting || specs.every((s) => !s.project_name.trim())} onClick={submit}>
+        {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        <Rocket className="mr-2 h-4 w-4" />Criar Projeto
       </Button>
-      {authorize.isError && <p className="text-sm text-destructive">Falha ao autorizar: {(authorize.error as Error)?.message}</p>}
-      {authorize.isSuccess && (
+      {submitError && <p className="text-sm text-destructive">Falha ao criar: {submitError}</p>}
+      {results && (
         <div className="space-y-2 rounded-md border p-3">
           <p className="text-sm font-medium">Projetos:</p>
-          {authorize.data.projects.map((p) => (
+          {results.map((p) => (
             <div key={p.project_id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <span>
                 <Badge variant="outline" className="mr-2">{p.solution_type}</Badge>
@@ -413,9 +450,13 @@ export default function ConceptionPage() {
   const updateDeliveryMetadata = useUpdateConceptDeliveryMetadata();
   const [selectedProduct, setSelectedProduct] = useState("");
   const concept = useConcept(selectedProduct);
+  const pipelineTemplates = usePipelineTemplates();
   const [form, setForm] = useState(EMPTY_FORM);
   const [techStack, setTechStack] = useState<TechStackState>(EMPTY_TECH_STACK);
-  const [wizardStep, setWizardStep] = useState<"problem" | "description" | "stack" | "documentation" | "delivery">("problem");
+  // Chosen once, at the top of the single-form page, and threaded through
+  // to every Project the idea produces (see ProjectPlanningPanel's doc
+  // comment) -- 2026-08-15.
+  const [pipelineTemplateId, setPipelineTemplateId] = useState("");
   const [view, setView] = useState<"list" | "form">("list");
   const [pendingDelete, setPendingDelete] = useState<{ productId: string; title: string } | null>(null);
   const [editingRequest, setEditingRequest] = useState<DevelopmentRequest | null>(null);
@@ -446,9 +487,9 @@ export default function ConceptionPage() {
       requested_by: item.requested_by ?? "", project_description: "", working_directory_path: "",
     });
     setTechStack(EMPTY_TECH_STACK);
+    setPipelineTemplateId("");
     setSelectedProduct(item.product_id);
     setEditingRequest(item);
-    setWizardStep("problem");
     setView("form");
   };
 
@@ -456,7 +497,7 @@ export default function ConceptionPage() {
     setEditingRequest(null);
     setForm(EMPTY_FORM);
     setTechStack(EMPTY_TECH_STACK);
-    setWizardStep("problem");
+    setPipelineTemplateId("");
     setView("list");
   };
 
@@ -509,67 +550,93 @@ export default function ConceptionPage() {
   return <div className="space-y-6">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div><h1 className="text-2xl font-semibold">{t("page.title")}</h1><p className="text-sm text-muted-foreground">{t("page.description")}</p></div>
-      <Button variant="outline" onClick={() => {
-        if (view === "list") {
-          setEditingRequest(null);
-          setForm(EMPTY_FORM);
-          setWizardStep("problem");
-          setView("form");
-        } else {
-          backToList();
-        }
-      }}>
-        {view === "list"
-          ? <><Lightbulb className="mr-2 h-4 w-4"/>{t("toggle.newIdea")}</>
-          : <><ArrowLeft className="mr-2 h-4 w-4"/>{t("toggle.backToList")}</>}
-      </Button>
+      <div className="flex items-center gap-2">
+        {view === "list" && (
+          <Button variant="outline" onClick={() => {
+            setEditingRequest(null);
+            setForm(EMPTY_FORM);
+            setView("form");
+          }}>
+            <Lightbulb className="mr-2 h-4 w-4"/>{t("toggle.newIdea")}
+          </Button>
+        )}
+        <AssistantToggleButton />
+      </div>
     </div>
     {view === "form" ? (
       <Card><CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Lightbulb className="h-5 w-5"/>{editingRequest ? t("captureIdea.editTitle") : t("captureIdea.title")}</CardTitle><CardDescription>{editingRequest ? t("captureIdea.editDescription") : t("captureIdea.description")}</CardDescription></CardHeader>
         <form onSubmit={submit}>
-        <CardContent className="space-y-4">
-          <Tabs value={wizardStep} onValueChange={(value) => setWizardStep(value as typeof wizardStep)}>
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="problem">{t("wizard.steps.problem")}</TabsTrigger>
-              <TabsTrigger value="description">{t("wizard.steps.description")}</TabsTrigger>
-              <TabsTrigger value="documentation">{t("wizard.steps.documentation")}</TabsTrigger>
-              <TabsTrigger value="delivery">Entrega</TabsTrigger>
-            </TabsList>
-            <TabsContent value="problem" className="mt-4 space-y-4">
-              <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.name")} count={form.name.length} max={NAME_MAX}/><Input maxLength={NAME_MAX} value={form.name} onChange={e => setForm({...form, name:e.target.value})}/></div>
-              <div className="space-y-2">
-                <FieldLabel label={t("captureIdea.fields.problemStatement")} count={form.problem_statement.length} max={PROBLEM_STATEMENT_MAX}/>
-                <Textarea rows={4} maxLength={PROBLEM_STATEMENT_MAX} value={form.problem_statement} onChange={e => setForm({...form, problem_statement:e.target.value})}/>
+        <CardContent className="space-y-8">
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold">{t("wizard.steps.pipeline")}</h3>
+            <p className="text-sm text-muted-foreground">{t("wizard.pipeline.help")}</p>
+            <Select value={pipelineTemplateId} onChange={(e) => setPipelineTemplateId(e.target.value)}>
+              <option value="">{t("wizard.pipeline.placeholder")}</option>
+              {pipelineTemplates.data?.map((tpl) => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}
+            </Select>
+          </section>
+
+          <section className="space-y-4 border-t pt-8">
+            <h3 className="text-sm font-semibold">{t("wizard.steps.problem")}</h3>
+            <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.name")} count={form.name.length} max={NAME_MAX}/><Input maxLength={NAME_MAX} value={form.name} onChange={e => setForm({...form, name:e.target.value})}/></div>
+            <div className="space-y-2">
+              <FieldLabel label={t("captureIdea.fields.problemStatement")} count={form.problem_statement.length} max={PROBLEM_STATEMENT_MAX}/>
+              <Textarea rows={4} maxLength={PROBLEM_STATEMENT_MAX} value={form.problem_statement} onChange={e => setForm({...form, problem_statement:e.target.value})}/>
+            </div>
+            <div className="space-y-2">
+              <FieldLabel label={t("captureIdea.fields.vision")} count={form.vision.length} max={VISION_MAX}/>
+              <Textarea rows={3} maxLength={VISION_MAX} value={form.vision} onChange={e => setForm({...form, vision:e.target.value})}/>
+            </div>
+            <div className="space-y-2">
+              <FieldLabel label={t("captureIdea.fields.initialScope")} count={form.scope_summary.length} max={SCOPE_SUMMARY_MAX}/>
+              <Textarea rows={3} maxLength={SCOPE_SUMMARY_MAX} value={form.scope_summary} onChange={e => setForm({...form, scope_summary:e.target.value})}/>
+            </div>
+          </section>
+
+          <section className="space-y-4 border-t pt-8">
+            <h3 className="text-sm font-semibold">{t("wizard.steps.description")}</h3>
+            <p className="text-sm text-muted-foreground">{t("wizard.description.help")}</p>
+            <div className="space-y-2"><FieldLabel label={t("wizard.description.fields.projectDescription")} count={form.project_description.length} max={PROJECT_DESCRIPTION_MAX}/><Textarea rows={6} maxLength={PROJECT_DESCRIPTION_MAX} value={form.project_description} onChange={e => setForm({...form, project_description:e.target.value})}/></div>
+            <div className="space-y-2">
+              <Label>{t("wizard.description.fields.workingDirectory")}</Label>
+              <div className="flex items-center gap-2">
+                <Input placeholder={t("wizard.description.workingDirectoryPlaceholder")} value={form.working_directory_path} onChange={e => setForm({...form, working_directory_path:e.target.value})}/>
+                <WorkingDirPicker workingDir={form.working_directory_path || undefined} onSelect={(path) => setForm({...form, working_directory_path: path ?? ""})}/>
               </div>
-              <div className="space-y-2">
-                <FieldLabel label={t("captureIdea.fields.vision")} count={form.vision.length} max={VISION_MAX}/>
-                <Textarea rows={3} maxLength={VISION_MAX} value={form.vision} onChange={e => setForm({...form, vision:e.target.value})}/>
-              </div>
-              <div className="space-y-2">
-                <FieldLabel label={t("captureIdea.fields.initialScope")} count={form.scope_summary.length} max={SCOPE_SUMMARY_MAX}/>
-                <Textarea rows={3} maxLength={SCOPE_SUMMARY_MAX} value={form.scope_summary} onChange={e => setForm({...form, scope_summary:e.target.value})}/>
-              </div>
-              <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.requestedBy")} count={form.requested_by.length} max={REQUESTED_BY_MAX}/><Input maxLength={REQUESTED_BY_MAX} value={form.requested_by} onChange={e => setForm({...form, requested_by:e.target.value})}/></div>
-            </TabsContent>
-            <TabsContent value="description" className="mt-4 space-y-4">
-              <p className="text-sm text-muted-foreground">{t("wizard.description.help")}</p>
-              <div className="space-y-2"><FieldLabel label={t("wizard.description.fields.projectDescription")} count={form.project_description.length} max={PROJECT_DESCRIPTION_MAX}/><Textarea rows={6} maxLength={PROJECT_DESCRIPTION_MAX} value={form.project_description} onChange={e => setForm({...form, project_description:e.target.value})}/></div>
-              <div className="space-y-2">
-                <Label>{t("wizard.description.fields.workingDirectory")}</Label>
-                <div className="flex items-center gap-2">
-                  <Input placeholder={t("wizard.description.workingDirectoryPlaceholder")} value={form.working_directory_path} onChange={e => setForm({...form, working_directory_path:e.target.value})}/>
-                  <WorkingDirPicker workingDir={form.working_directory_path || undefined} onSelect={(path) => setForm({...form, working_directory_path: path ?? ""})}/>
+            </div>
+          </section>
+
+          <section className="space-y-4 border-t pt-8">
+            <h3 className="text-sm font-semibold">{t("wizard.steps.stack")}</h3>
+            <p className="text-sm text-muted-foreground">{t("wizard.stack.help")}</p>
+            {TECH_STACK_LAYERS.map((layer) => (
+              <div key={layer} className="grid gap-3 rounded-lg border p-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>{t(`wizard.stack.layers.${layer}`)}</Label>
+                  <Input placeholder={t("wizard.stack.selectPlaceholder")} value={techStack[layer].decision} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], decision: e.target.value } })}/>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("wizard.stack.rationale")}</Label>
+                  <Input value={techStack[layer].rationale} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], rationale: e.target.value } })}/>
                 </div>
               </div>
-            </TabsContent>
-            <TabsContent value="documentation" className="mt-4 space-y-4">
-              <p className="text-sm text-muted-foreground">{t("wizard.documentation.help")}</p>
-              <ConceptDocumentsPanel conceptId={concept.data?.concept.id}/>
-            </TabsContent>
-            <TabsContent value="delivery" className="mt-4 space-y-4">
-              <DeliveryPlanningPanel conceptId={concept.data?.concept.id} conceptStatus={concept.data?.concept.status} />
-            </TabsContent>
-          </Tabs>
+            ))}
+          </section>
+
+          <section className="space-y-4 border-t pt-8">
+            <h3 className="text-sm font-semibold">{t("wizard.steps.delivery")}</h3>
+            <ProjectPlanningPanel
+              conceptId={concept.data?.concept.id} conceptStatus={concept.data?.concept.status}
+              workingDirectoryPath={form.working_directory_path} pipelineTemplateId={pipelineTemplateId}
+            />
+          </section>
+
+          <section className="space-y-4 border-t pt-8">
+            <h3 className="text-sm font-semibold">{t("wizard.steps.documentation")}</h3>
+            <p className="text-sm text-muted-foreground">{t("wizard.documentation.help")}</p>
+            <ConceptDocumentsPanel conceptId={concept.data?.concept.id}/>
+          </section>
+
           {editingRequest && !conceptEditable && <p className="text-sm text-muted-foreground">{t("captureIdea.conceptLocked")}</p>}
           {create.isError && <p className="text-sm text-destructive">{t("captureIdea.error.createFailed")}</p>}
         </CardContent>
@@ -602,13 +669,6 @@ export default function ConceptionPage() {
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
-                title={t("developmentRequests.edit")}
-                onClick={(e) => { e.stopPropagation(); startEdit(item); }}
-              ><Pencil className="h-3.5 w-3.5"/></Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
                 title={t("developmentRequests.delete")}
                 onClick={(e) => { e.stopPropagation(); setPendingDelete({ productId: item.product_id, title: item.title }); }}
               ><Trash2 className="h-3.5 w-3.5 text-destructive"/></Button>
@@ -616,10 +676,7 @@ export default function ConceptionPage() {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
           <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-            <span>{item.requested_by || "system"} · {item.priority}</span>
-            <span className="text-primary font-medium hover:underline flex items-center gap-1">
-              Editar Ideia & Documentos →
-            </span>
+            <span>{item.priority}</span>
           </div>
         </div>)}
       </CardContent></Card>

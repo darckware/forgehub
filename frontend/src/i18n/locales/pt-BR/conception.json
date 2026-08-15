@@ -11,10 +11,16 @@
     "updateFromDiagram": "Atualizar a partir do diagrama",
     "updateFromDiagramEmpty": "O diagrama de entidades e funcionalidades ainda está vazio -- abra o Mapa do Sistema para começar a modelar.",
     "steps": {
-      "problem": "1. Problema e visão",
-      "description": "2. Descrição e pasta",
-      "stack": "3. Stack tecnológico",
-      "documentation": "4. Documentação"
+      "pipeline": "1. Pipeline / Template",
+      "problem": "2. Problema e visão",
+      "description": "3. Descrição e pasta",
+      "stack": "4. Stack tecnológico",
+      "delivery": "5. Projeto(s) a criar",
+      "documentation": "6. Documentação"
+    },
+    "pipeline": {
+      "help": "Opcional -- escolha um template de pipeline já existente para direcionar como essa ideia vai ser concebida e, depois, como o(s) Projeto(s) vão ser construídos. Aplica-se a todos os Projetos que essa ideia gerar.",
+      "placeholder": "Sem template (pipeline local padrão)"
     },
     "documentation": {
       "help": "Anexe material de referência em markdown ou modelos para preencher a concepção -- envie um arquivo ou crie um novo, depois edite direto aqui.",
@@ -44,7 +50,7 @@
         "database": "Banco de dados",
         "deploy_infra": "Deploy / infraestrutura"
       },
-      "selectPlaceholder": "Selecione uma opção",
+      "selectPlaceholder": "ex.: React, PostgreSQL, Docker...",
       "rationale": "Justificativa (opcional)"
     }
   },

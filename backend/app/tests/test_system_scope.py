@@ -13,6 +13,7 @@ from app.db.models.governance import AuditEvent
 from app.db.models.governance import ApprovalDecisionRecord, ApprovalRequest, PolicyEvaluation
 from app.db.models.notification import Notification
 from app.db.models.orchestration import ProjectAgentMembership
+from app.db.models.pipeline import PipelineStage, PipelineTemplate, PipelineTemplateStage, ProjectPipeline
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
 from app.db.models.task import TaskAssignment
@@ -580,4 +581,185 @@ async def test_screen_mutation_locked_once_version_published(client: AsyncClient
             await db.execute(delete(Project).where(Project.id == project_id))
             await db.execute(delete(ProductVersion).where(ProductVersion.id == version_id))
             await db.execute(delete(Product).where(Product.id == product_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_authorize_delivery_planning_multiple_new_versions_same_revision(
+    client: AsyncClient, governed_users
+):
+    """2026-08-15 regression: the Conception "Project" tab now lets each
+    project spec carry its own version (Marcelo: "para cada projeto o
+    controle de versao, nao posso ter uma versao unica"), so one submit can
+    fire :authorize-delivery-planning once per distinct version string
+    against the same approved System Map revision. The old guard tracked
+    "which version does this revision belong to" with a scalar
+    `revision.product_version_id` FK -- fine for one version, but the second
+    brand-new version in a batch silently stomped the first version's claim
+    on that column. That didn't fail loudly on the second call (the guard
+    only fires when `existing_version` is truthy); it surfaced later as a
+    false 409 on any *idempotent re-submission* of the first version, which
+    is what this test reproduces."""
+    name = f"Multi-Version Product {uuid.uuid4()}"
+    created = await client.post("/api/v1/conception/ideas", json={
+        "name": name,
+        "problem_statement": "One approved System Map, two projects on two different new versions.",
+    })
+    assert created.status_code == 201, created.text
+    body = created.json()
+    product_id = uuid.UUID(body["product_id"])
+    concept_id = uuid.UUID(body["concept"]["id"])
+    revision_id = body["blueprint_revision"]["id"]
+
+    try:
+        screen = await client.post(f"/api/v1/blueprint-revisions/{revision_id}/elements", json={
+            "stable_key": "screen.multi-version", "family": "experience", "element_type": "screen",
+            "name": "Some Screen",
+        })
+        assert screen.status_code == 201, screen.text
+
+        validation = await client.post(f"/api/v1/blueprint-revisions/{revision_id}:validate")
+        assert validation.status_code == 200 and validation.json()["valid"] is True
+
+        submitted = await client.post(f"/api/v1/product-concepts/{concept_id}:submit")
+        assert submitted.status_code == 200, submitted.text
+
+        pending = await client.get("/api/v1/governed/approval-requests", params={"status_filter": "pending"})
+        request_id = next(row["id"] for row in pending.json() if row["target_id"] == str(concept_id))
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=governed_users["approver_headers"]) as approver:
+            approved = await approver.post(f"/api/v1/governed/approval-requests/{request_id}:decide", json={
+                "decision": "approved", "idempotency_key": f"approve-{uuid.uuid4()}"
+            })
+        assert approved.status_code == 200, approved.text
+
+        first = await client.post(
+            f"/api/v1/product-concepts/{concept_id}:authorize-delivery-planning",
+            json={"version": "0.1.0", "projects": [{"solution_type": "web_app", "project_name": f"Web {name}"}]},
+        )
+        assert first.status_code == 200, first.text
+
+        # A second, distinct brand-new version authorized against the exact
+        # same (unchanged) revision -- this is the case that used to
+        # silently steal the revision's version claim.
+        second = await client.post(
+            f"/api/v1/product-concepts/{concept_id}:authorize-delivery-planning",
+            json={"version": "0.2.0", "projects": [{"solution_type": "mobile_app", "project_name": f"Mobile {name}"}]},
+        )
+        assert second.status_code == 200, second.text
+
+        # Re-submitting the first version (idempotent retry, e.g. a UI
+        # double-click) must still succeed -- the old code raised a false
+        # 409 "already exists under a different System Map revision" here,
+        # because the revision's scalar pointer had moved on to 0.2.0.
+        first_again = await client.post(
+            f"/api/v1/product-concepts/{concept_id}:authorize-delivery-planning",
+            json={"version": "0.1.0", "projects": [{"solution_type": "web_app", "project_name": f"Web {name}"}]},
+        )
+        assert first_again.status_code == 200, first_again.text
+        assert first_again.json()["projects"][0]["project_id"] == first.json()["projects"][0]["project_id"]
+
+        async with AsyncSessionLocal() as db:
+            versions = list((await db.execute(select(ProductVersion).where(
+                ProductVersion.product_id == product_id
+            ))).scalars())
+            assert {v.version for v in versions} == {"0.1.0", "0.2.0"}
+    finally:
+        await _cleanup(product_id, concept_id)
+
+
+@pytest.mark.asyncio
+async def test_authorize_delivery_planning_project_type_and_pipeline_template(
+    client: AsyncClient, governed_users
+):
+    """2026-08-15: Conception's Pipeline/Template section is picked once for
+    the whole submission and applied to every Project it creates
+    (`AuthorizeDeliveryPlanning.pipeline_template_id`), while `project_type`
+    (creation|maintenance) stays per-project (`ProjectSpec.project_type`) --
+    one idea can produce a brand new web app alongside a maintenance change
+    to an existing API. Asserts both actually persist/instantiate."""
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        template = PipelineTemplate(name=f"Standard Flow {suffix}")
+        db.add(template)
+        await db.flush()
+        db.add(PipelineTemplateStage(
+            template_id=template.id, name="Build", stage_type="build", order_index=0,
+        ))
+        db.add(PipelineTemplateStage(
+            template_id=template.id, name="Review", stage_type="review", order_index=1, requires_approval=True,
+        ))
+        await db.commit()
+        await db.refresh(template)
+        template_id = template.id
+
+    name = f"Pipeline Template Product {suffix}"
+    created = await client.post("/api/v1/conception/ideas", json={
+        "name": name,
+        "problem_statement": "New web app plus a maintenance API change, one pipeline template for both.",
+    })
+    assert created.status_code == 201, created.text
+    body = created.json()
+    product_id = uuid.UUID(body["product_id"])
+    concept_id = uuid.UUID(body["concept"]["id"])
+    revision_id = body["blueprint_revision"]["id"]
+
+    try:
+        screen = await client.post(f"/api/v1/blueprint-revisions/{revision_id}/elements", json={
+            "stable_key": "screen.pipeline-template", "family": "experience", "element_type": "screen",
+            "name": "Some Screen",
+        })
+        assert screen.status_code == 201, screen.text
+
+        validation = await client.post(f"/api/v1/blueprint-revisions/{revision_id}:validate")
+        assert validation.status_code == 200 and validation.json()["valid"] is True
+
+        submitted = await client.post(f"/api/v1/product-concepts/{concept_id}:submit")
+        assert submitted.status_code == 200, submitted.text
+
+        pending = await client.get("/api/v1/governed/approval-requests", params={"status_filter": "pending"})
+        request_id = next(row["id"] for row in pending.json() if row["target_id"] == str(concept_id))
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=governed_users["approver_headers"]) as approver:
+            approved = await approver.post(f"/api/v1/governed/approval-requests/{request_id}:decide", json={
+                "decision": "approved", "idempotency_key": f"approve-{uuid.uuid4()}"
+            })
+        assert approved.status_code == 200, approved.text
+
+        authorization = await client.post(
+            f"/api/v1/product-concepts/{concept_id}:authorize-delivery-planning",
+            json={
+                "version": "0.1.0",
+                "pipeline_template_id": str(template_id),
+                "projects": [
+                    {"solution_type": "web_app", "project_name": f"Web {name}", "project_type": "creation"},
+                    {"solution_type": "mobile_app", "project_name": f"Mobile {name}", "project_type": "maintenance"},
+                ],
+            },
+        )
+        assert authorization.status_code == 200, authorization.text
+        by_type = {p["solution_type"]: p for p in authorization.json()["projects"]}
+
+        async with AsyncSessionLocal() as db:
+            web_project = await db.get(Project, uuid.UUID(by_type["web_app"]["project_id"]))
+            mobile_project = await db.get(Project, uuid.UUID(by_type["mobile_app"]["project_id"]))
+            assert web_project.project_type == "creation"
+            assert mobile_project.project_type == "maintenance"
+
+            for project in (web_project, mobile_project):
+                pipeline = (await db.execute(select(ProjectPipeline).where(
+                    ProjectPipeline.project_id == project.id
+                ))).scalar_one()
+                assert pipeline.template_id == template_id
+                stages = list((await db.execute(select(PipelineStage).where(
+                    PipelineStage.pipeline_id == pipeline.id
+                ).order_by(PipelineStage.order_index))).scalars())
+                assert [s.name for s in stages] == ["Build", "Review"]
+                assert stages[1].requires_approval is True
+    finally:
+        # Deleting the Product cascades to Project -> ProjectPipeline
+        # (ondelete="CASCADE" on ProjectPipeline.project_id), so only the
+        # template itself (not owned by any project) needs its own cleanup.
+        await _cleanup(product_id, concept_id)
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(PipelineTemplateStage).where(PipelineTemplateStage.template_id == template_id))
+            await db.execute(delete(PipelineTemplate).where(PipelineTemplate.id == template_id))
             await db.commit()

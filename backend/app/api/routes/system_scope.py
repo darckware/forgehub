@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.routes.pipeline import instantiate_pipeline_from_template
 from app.api.routes.project import _bridge_request, _get_working_dir_or_400
 from app.api.schemas.artifact import ArtifactWithVersionsOut
 from app.api.schemas.system_scope import (
@@ -1035,8 +1036,26 @@ async def authorize_delivery_planning(
     existing_version = (await db.execute(select(ProductVersion).where(
         ProductVersion.product_id == concept.product_id, ProductVersion.version == payload.version
     ))).scalar_one_or_none()
-    if existing_version and revision.product_version_id != existing_version.id:
-        raise HTTPException(409, "This product version already exists under a different System Map revision")
+    if existing_version:
+        # Checked against actual Project/ProjectScope rows, not a scalar
+        # `revision.product_version_id` pointer -- a single blueprint
+        # revision can legitimately back several ProductVersions when one
+        # submit authorizes multiple projects on different, all-new version
+        # strings (2026-08-15, Marcelo: "para cada projeto o controle de
+        # versao"), so a single FK column on the revision can't record that
+        # one-to-many fact without one caller's write stomping another's.
+        # This still catches the real drift case a scalar pointer caught --
+        # reusing an existing version string whose already-authorized
+        # projects were scoped against a *different*, since-superseded
+        # revision -- just via a query instead of a mutable column.
+        conflicting_scope = (await db.execute(
+            select(ProjectScope.id)
+            .join(Project, Project.id == ProjectScope.project_id)
+            .where(Project.product_version_id == existing_version.id, ProjectScope.blueprint_base_revision_id != revision.id)
+            .limit(1)
+        )).scalar_one_or_none()
+        if conflicting_scope is not None:
+            raise HTTPException(409, "This product version already exists under a different System Map revision")
 
     # Snapshot the graph before any further writes touch `revision` --
     # flushing a dirty `revision` below expires its onupdate timestamp
@@ -1053,7 +1072,13 @@ async def authorize_delivery_planning(
         product_version = ProductVersion(product_id=concept.product_id, version=payload.version, status="planned")
         db.add(product_version)
         await db.flush()
-        revision.product_version_id = product_version.id
+        # Best-effort provenance only (nothing else in the codebase reads
+        # this field) -- fill it in the first time a version claims this
+        # revision, but never overwrite an earlier claim now that one
+        # revision can legitimately back several versions (see the guard
+        # above).
+        if revision.product_version_id is None:
+            revision.product_version_id = product_version.id
         is_new_version = True
 
     if is_new_version:
@@ -1088,9 +1113,14 @@ async def authorize_delivery_planning(
             name=spec.project_name, description=spec.project_description,
             product_version_id=product_version.id, owner=spec.owner, status="planned",
             solution_type=spec.solution_type, working_directory_path=spec.working_directory_path,
+            project_type=spec.project_type,
         )
         db.add(project)
         await db.flush()
+        if payload.pipeline_template_id is not None:
+            await instantiate_pipeline_from_template(
+                db, project.id, payload.pipeline_template_id, name=f"{project.name} pipeline"
+            )
         project_scope = ProjectScope(
             project_id=project.id, blueprint_base_revision_id=revision.id,
             revision=1, created_by=principal.display_name,

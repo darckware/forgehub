@@ -156,6 +156,10 @@ export interface DeliveryPlanningProjectSpec {
   // new Project and assigns it to every task the authorization creates
   // there (Pacote 3, 2026-08-01).
   responsible_agent_id?: string;
+  // creation | maintenance -- per-project, not shared across the
+  // submission, since one idea can produce a new app alongside a
+  // maintenance change to an existing one (2026-08-15).
+  project_type?: "creation" | "maintenance";
 }
 export interface DeliveryPlanningProjectResult {
   project_id: string; project_scope_id: string; solution_type: string;
@@ -168,7 +172,12 @@ export interface DeliveryPlanningAuthorizationOut {
 export function useAuthorizeDeliveryPlanning() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ conceptId, ...payload }: { conceptId: string; version: string; projects: DeliveryPlanningProjectSpec[] }) =>
+    mutationFn: ({ conceptId, ...payload }: {
+      conceptId: string; version: string; projects: DeliveryPlanningProjectSpec[];
+      // Chosen once for the whole submission (Conception's Pipeline/Template
+      // section), applied to every Project this call creates.
+      pipeline_template_id?: string;
+    }) =>
       apiClient.post<DeliveryPlanningAuthorizationOut>(`/api/v1/product-concepts/${conceptId}:authorize-delivery-planning`, payload),
     onSuccess: () => { client.invalidateQueries({ queryKey: ["products"] }); client.invalidateQueries({ queryKey: ["projects"] }); },
   });

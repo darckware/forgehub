@@ -277,11 +277,22 @@ class ProjectSpec(BaseModel):
     # authorization creates in that Project's scope gets an automatic
     # TaskAssignment to the same agent (2026-08-01 Pacote 3 decision).
     responsible_agent_id: uuid.UUID | None = None
+    # creation | maintenance -- whether this Project stands up something new
+    # or evolves something already shipped (2026-08-15, Marcelo: "o ciclo é
+    # o mesmo para os dois, finalizado pelos controles de versão"). Kept
+    # per-project, not per-submission, since one idea can produce a new
+    # web app alongside a maintenance change to an existing API.
+    project_type: Literal["creation", "maintenance"] = "creation"
 
 
 class AuthorizeDeliveryPlanning(BaseModel):
     version: str = Field(min_length=1, max_length=50)
     projects: list[ProjectSpec] = Field(min_length=1)
+    # Chosen once for the whole submission (Conception's Pipeline/Template
+    # section is presented first and "drives" the idea, 2026-08-15) and
+    # applied to every Project this call creates -- unlike project_type,
+    # this is deliberately not per-spec so it's never asked twice.
+    pipeline_template_id: uuid.UUID | None = None
 
 
 class ProjectAuthorizationResult(BaseModel):
