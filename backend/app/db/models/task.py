@@ -49,6 +49,11 @@ TASK_STATUSES = (
     "cancelled",
 )
 
+# Canonical execution runtimes backed by AgentRuntimeProfile.  Keep this
+# tuple shared with the API schema so legacy aliases cannot drift back into
+# persisted TaskExecution rows.
+TASK_EXECUTION_RUNTIME_TYPES = ("claude", "codex", "agy")
+
 
 class ProjectTask(Base, TimestampMixin):
     """A planned task or subtask within a project's plan.
@@ -262,3 +267,14 @@ class TaskExecution(Base, TimestampMixin):
     outcome_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
     actual_cost: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            f"runtime_type IS NULL OR runtime_type IN {TASK_EXECUTION_RUNTIME_TYPES}",
+            name="ck_task_executions_runtime_type",
+        ),
+        CheckConstraint(
+            "loop_iteration >= 1",
+            name="ck_task_executions_loop_iteration",
+        ),
+    )

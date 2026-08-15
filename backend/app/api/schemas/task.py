@@ -6,6 +6,9 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.db.models.task import (
+    TASK_EXECUTION_RUNTIME_TYPES as _TASK_EXECUTION_RUNTIME_TYPES_TUPLE,
+)
 from app.db.models.task import TASK_STATUSES as _TASK_STATUSES_TUPLE
 
 # --------------------------------------------------------------------------
@@ -242,7 +245,7 @@ class TaskAssignmentOut(BaseModel):
 # --------------------------------------------------------------------------
 
 EXECUTOR_TYPES = {"agent", "sub_agent", "human", "system"}
-RUNTIME_TYPES = {"claude", "codex", "agy", "antigravity"}
+RUNTIME_TYPES = set(_TASK_EXECUTION_RUNTIME_TYPES_TUPLE)
 EXECUTION_STATUSES = {
     "pending", "running", "blocked", "paused", "reconciling", "recovering",
     "failed", "retried", "verified", "completed",
@@ -265,6 +268,13 @@ class TaskExecutionCreate(BaseModel):
     outcome_summary: str | None = None
     evidence_ref: str | None = None
     actual_cost: float | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_runtime(cls, value):
+        if isinstance(value, dict) and value.get("runtime_type") == "antigravity":
+            return {**value, "runtime_type": "agy"}
+        return value
 
     @model_validator(mode="after")
     def _validate(self) -> "TaskExecutionCreate":

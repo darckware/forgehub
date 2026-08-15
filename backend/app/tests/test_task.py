@@ -39,6 +39,7 @@ from app.db.models.task import (  # noqa: F401  (ensures tables register on Base
     TaskExecution,
     TaskRequiredSkill,
 )
+from app.api.schemas.task import TaskExecutionCreate
 from app.main import app
 from app.api.routes import task as task_routes
 
@@ -324,6 +325,12 @@ async def test_execution_requires_evidence_when_completed(
         ).order_by(ProgressCheckpoint.sequence))).scalars())
         assert [checkpoint.checkpoint_type for checkpoint in lifecycle] == ["started", "completed"]
         assert lifecycle[-1].evidence_refs == ["https://example.com/pr/123"]
+
+
+def test_task_execution_normalizes_legacy_runtime_name():
+    payload = TaskExecutionCreate(runtime_type="antigravity")
+
+    assert payload.runtime_type == "agy"
 
 
 @pytest.mark.asyncio
