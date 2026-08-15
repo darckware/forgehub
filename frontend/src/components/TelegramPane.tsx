@@ -163,7 +163,7 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
         ) : conversation.isError ? (
           <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">Não foi possível carregar o histórico do Telegram.</p>
         ) : conversation.data?.messages.length ? (
-          <div className="mx-auto flex max-w-3xl flex-col gap-3">
+          <div className="flex flex-col gap-3">
             {conversation.data.messages.map((message) => (
               <article
                 key={message.id}
@@ -207,7 +207,7 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
                 : null}
           </p>
         )}
-        <div className="mx-auto flex max-w-3xl flex-col gap-2">
+        <div className="flex flex-col gap-2">
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {attachedFiles.map((file, index) => (
