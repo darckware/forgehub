@@ -38,6 +38,18 @@ PROJECT_SCOPE_STATUSES = ("draft", "in_review", "baselined", "superseded")
 SCOPE_CHANGE_TYPES = ("add", "modify", "remove", "deprecate", "verify")
 SCOPE_APPLICABILITY = ("required", "optional", "not_applicable")
 TECH_STACK_LAYERS = ("frontend", "backend", "database", "deploy_infra")
+TECH_STACK_OPTION_SOURCES = ("org_standard", "custom")
+# Only meaningful within layer="frontend" -- these are different frontend
+# scenarios/toolchains for the same layer, not different layers (2026-08-16,
+# Marcelo: catalog view needed distinct groupings instead of lumping every
+# frontend option -- SPA, static site, PWA, React Native -- under one
+# generic "Frontend" label; final list dictated directly: "web app, landing
+# page, site institucional, PWA, mobile"). NULL for every other layer
+# (backend/database/deploy_infra have no such split) and for a frontend
+# option nobody has classified yet (a "+ Add new option" entry defaults to
+# NULL, shown under "web_app" in the UI -- the org's own default
+# recommendation, see stack/02-UI-DESIGN-SYSTEM-AND-TECHNOLOGY-SPEC.md §12).
+TECH_STACK_OPTION_PLATFORMS = ("web_app", "landing_page", "institutional_site", "pwa", "mobile")
 
 
 class DevelopmentRequest(Base, TimestampMixin):
@@ -286,3 +298,32 @@ class ScopeItemAcceptanceCriterion(Base, TimestampMixin):
     verification_type: Mapped[str] = mapped_column(String(50), nullable=False, default="test")
     required: Mapped[bool] = mapped_column(nullable=False, default=True)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class TechStackOption(Base, TimestampMixin):
+    """Catalog of pickable technology choices per TECH_STACK_LAYERS, backing
+    Conception step 4's "Tech stack" fields. Replaces a free-text Input with a
+    closed set the user picks from -- `source="org_standard"` rows are seeded
+    from the org's architecture standard (stack/02-UI-DESIGN-SYSTEM-AND-
+    TECHNOLOGY-SPEC.md §12/§17/§18) via migration; `source="custom"` rows are
+    added ad hoc from the picker itself ("add to the catalog") and immediately
+    reusable by any later concept. `decision`/`rationale` on
+    ProductConceptRevision.tech_stack_decisions stay free-text JSON (a concept
+    is a point-in-time record, not a live FK to this catalog) -- this table
+    only feeds the picker's option list, it is never joined against."""
+    __tablename__ = "tech_stack_options"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    layer: Mapped[str] = mapped_column(String(30), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="custom")
+    # See TECH_STACK_OPTION_PLATFORMS -- only meaningful for layer="frontend".
+    platform: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("layer", "name", name="uq_tech_stack_options_layer_name"),
+        CheckConstraint(f"layer IN {TECH_STACK_LAYERS!r}", name="ck_tech_stack_options_layer"),
+        CheckConstraint(f"source IN {TECH_STACK_OPTION_SOURCES!r}", name="ck_tech_stack_options_source"),
+        CheckConstraint(
+            f"platform IS NULL OR platform IN {TECH_STACK_OPTION_PLATFORMS!r}", name="ck_tech_stack_options_platform"
+        ),
+    )

@@ -22,6 +22,7 @@ from app.core.security import decode_access_token
 
 from app.api.routes import (
     agent,
+    ai_draft,
     artifact,
     audit,
     auth,
@@ -247,6 +248,7 @@ app.include_router(factory.router)
 app.include_router(backlog.router)
 app.include_router(task.router)
 app.include_router(agent.router)
+app.include_router(ai_draft.router)
 app.include_router(mcp_catalog.router)
 app.include_router(tool.router)
 app.include_router(artifact.router)

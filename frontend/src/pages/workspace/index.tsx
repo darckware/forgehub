@@ -49,7 +49,7 @@ import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { ChannelPane } from "@/components/channel/ChannelPane";
 import { TelegramPane } from "@/components/TelegramPane";
-import { useAgents } from "@/hooks/useAgent";
+import { useAgents, useChattableAgents } from "@/hooks/useAgent";
 import { WebAppPane } from "@/components/WebAppPane";
 import { useAssistantContext } from "@/hooks/useAssistant";
 import { useAssistantStore } from "@/store/assistantStore";
@@ -617,10 +617,8 @@ export default function WorkspacePage() {
   const { t } = useTranslation("workspace");
   const { data: allAgents } = useAgents();
   const { data: products = [] } = useProducts();
-  const chatableAgents = useMemo(
-    () => (allAgents ?? []).filter((a) => Boolean(a.profile_slug)),
-    [allAgents]
-  );
+  const { data: chatableAgentsData } = useChattableAgents();
+  const chatableAgents = chatableAgentsData ?? [];
 
   const restoredStateRef = useRef<ReturnType<typeof restoreWorkspaceState> | null>(null);
   if (!restoredStateRef.current) restoredStateRef.current = restoreWorkspaceState(localStorage);

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Bot, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
-import { useAgents } from "@/hooks/useAgent";
+import { useChattableAgents } from "@/hooks/useAgent";
 import { useChatLanguage } from "@/hooks/useChatLanguage";
 import { useAssistantStore, type AssistantForm } from "@/store/assistantStore";
 
@@ -19,7 +19,7 @@ import { useAssistantStore, type AssistantForm } from "@/store/assistantStore";
 // scroll past. Portuguese, matching the manual's own language.
 const MANUAL_GROUNDING_NOTE =
   'Contexto: você é o assistente embutido do ForgeHub nesta tela. Antes de responder, leia ' +
-  '/root/project/forgehub/docs/MANUAL.md (seção "Política do Assistente") para saber o que você pode ' +
+  '/root/project/forgehub/help/MANUAL.md (seção "Política do Assistente") para saber o que você pode ' +
   "e não pode fazer.";
 
 // ```forgehub-fill\n{...}\n``` -- the only channel the agent has to touch
@@ -111,11 +111,8 @@ export function AssistantDrawer() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, pendingSeed, pendingHiddenContext]);
-  const { data: allAgents } = useAgents();
-  const chatableAgents = useMemo(
-    () => (allAgents ?? []).filter((a) => Boolean(a.profile_slug)),
-    [allAgents]
-  );
+  const { data: chatableAgentsData } = useChattableAgents();
+  const chatableAgents = chatableAgentsData ?? [];
   const effectiveAgentId = agentId ?? chatableAgents[0]?.id;
 
   function onClose() {

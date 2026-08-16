@@ -14,7 +14,7 @@ export interface AssistantFormField {
 
 /** Lets a page opt into the assistant filling its currently-open form on
  * request -- the assistant only ever writes field values via `onFill`
- * (never submits/saves anything itself, see docs/MANUAL.md's Assistant
+ * (never submits/saves anything itself, see help/MANUAL.md's Assistant
  * Policy): AssistantDrawer parses a ```forgehub-fill fenced JSON block out
  * of the agent's reply and calls this. */
 export interface AssistantForm {

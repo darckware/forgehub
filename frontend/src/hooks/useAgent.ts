@@ -235,6 +235,31 @@ export function useAgents() {
   });
 }
 
+/** Agents with a runnable profile/runtime -- Hermes profile agents and the
+ * external CLI runtimes (Claude Code/Codex/agy/OpenClaw), never a
+ * sub-agent or a profile-less service entry. This is the one filter every
+ * "pick an agent to talk to" picker across the app must share (Workspace's
+ * chat tab, AssistantDrawer, and Conception's "Gerar via IA" -- 2026-08-16,
+ * Marcelo: "o select do agente é igual ao do chat/conversation") --
+ * previously three independent `.filter(a => Boolean(a.profile_slug))`
+ * copies that could silently drift apart. Same queryKey as useAgents() so
+ * this reuses its cache instead of firing a second request.
+ *
+ * Also requires `runtime_type` (2026-08-16, Marcelo: "filtra dos agentes,
+ * somente os agentes de execução do hermes e externos") -- `profile_slug`
+ * alone let through leaked pytest fixture rows ("Channel Test Agent A",
+ * "Chat Group Test Agent", ...) that got a slug but no dispatchable
+ * runtime; `runtime_type` is exactly the host-bridge dispatch discriminator
+ * (`AGENT_RUNTIME_TYPES` = hermes + the four external CLIs), so requiring
+ * it keeps the picker to agents that can actually run. */
+export function useChattableAgents() {
+  return useQuery({
+    queryKey: agentKeys.all,
+    queryFn: () => apiClient.get<Agent[]>(RESOURCE),
+    select: (agents) => agents.filter((a) => Boolean(a.profile_slug) && Boolean(a.runtime_type)),
+  });
+}
+
 export function useAgent(id: string | undefined) {
   return useQuery({
     queryKey: agentKeys.detail(id ?? ""),

@@ -12,7 +12,7 @@ export const PROJECT_AGENT_ROLES = [
   // -- same shared vocabulary now also used by Agent.default_role and
   // ChatChannelMember.role.
   "documentation",
-  // 2026-08-06, see docs/guides/FORGEHUB_CHANNELS_AGENT_GUIDE.md §8 --
+  // 2026-08-06, see help/FORGEHUB_CHANNELS_AGENT_GUIDE.md §8 --
   // closed a real gap (Themis/legal-compliance, Mnemosyne/knowledge-base
   // had no function that fit).
   "compliance",

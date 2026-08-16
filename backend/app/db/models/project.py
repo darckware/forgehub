@@ -48,7 +48,16 @@ PROJECT_STATUSES = ("planned", "active", "on_hold", "completed", "cancelled")
 # opposite -- one Project per delivery with internal tracks -- and the note
 # added there explaining why this codebase diverges). Extend this tuple
 # (plus a migration) as new solution types are actually needed.
-PROJECT_SOLUTION_TYPES = ("web_app", "mobile_app", "api_service", "database", "deploy")
+PROJECT_SOLUTION_TYPES = (
+    "web_app", "mobile_app", "api_service", "database", "deploy",
+    # Added 2026-08-16 (Marcelo: "não vou fazer somente produto ou
+    # manutenção. Existe serviços de automação, migração, análise de
+    # dados, criação de relatório") -- non-application engagements that
+    # don't fit the "building an app" shape above. See
+    # ROLE_BY_SOLUTION_TYPE / SOLUTION_TYPE_TECH_STACK_KEYS in
+    # api/routes/system_scope.py, which must map every value here.
+    "automation", "data_migration", "data_analysis", "reporting",
+)
 
 # Whether a Project is standing up something new or evolving something
 # already shipped (2026-08-15, Marcelo: "o ciclo é o mesmo para os dois,

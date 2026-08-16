@@ -8,7 +8,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api";
 import { useProducts, useProductVersions, usePublishProductVersion, useUpdateProductVersion } from "@/hooks/useProduct";
-import { useProjects } from "@/hooks/useProject";
+import { PROJECT_SOLUTION_TYPE_LABELS, useProjects, type ProjectSolutionType } from "@/hooks/useProject";
 import { useTasks } from "@/hooks/useTask";
 
 const TERMINAL_STATUSES = new Set(["done", "deployed", "cancelled"]);
@@ -117,7 +117,9 @@ export default function VersionClosurePage() {
                     <div key={project.id} className="flex items-center justify-between rounded-lg border p-3">
                       <div>
                         <p className="text-sm font-medium">{project.name}</p>
-                        <p className="text-xs text-muted-foreground">{project.solution_type ?? "sem tipo"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {project.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[project.solution_type as ProjectSolutionType] ?? project.solution_type : "sem tipo"}
+                        </p>
                       </div>
                       <Badge variant={complete ? "success" : "outline"}>{summary.done}/{summary.total} tasks</Badge>
                     </div>

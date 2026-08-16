@@ -30,16 +30,41 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 // What kind of application this Project delivers -- see backend/app/db/
 // models/project.py's PROJECT_SOLUTION_TYPES docstring for the 2026-08-01
-// "one Project per type" decision.
+// "one Project per type" decision. automation/data_migration/data_analysis/
+// reporting added 2026-08-16 (Marcelo: "não vou fazer somente produto ou
+// manutenção... automação, migração, análise de dados, criação de
+// relatório") for engagements that aren't "building an application".
 export const PROJECT_SOLUTION_TYPES = [
   "web_app",
   "mobile_app",
   "api_service",
   "database",
   "deploy",
+  "automation",
+  "data_migration",
+  "data_analysis",
+  "reporting",
 ] as const;
 
 export type ProjectSolutionType = (typeof PROJECT_SOLUTION_TYPES)[number];
+
+// Human-readable label per solution type -- the Conception "Project(s) to
+// build" picker used to render the raw slug (e.g. "web_app") directly; kept
+// here rather than i18n since it's a short, stable technical vocabulary
+// shared by every screen that renders a ProjectSolutionType (matches how
+// PROJECT_TYPES' "Criação"/"Manutenção" labels are inlined at their call
+// site rather than round-tripped through translation keys).
+export const PROJECT_SOLUTION_TYPE_LABELS: Record<ProjectSolutionType, string> = {
+  web_app: "Aplicação web",
+  mobile_app: "Aplicativo mobile",
+  api_service: "Serviço de API",
+  database: "Banco de dados",
+  deploy: "Deploy/infraestrutura",
+  automation: "Automação",
+  data_migration: "Migração de dados",
+  data_analysis: "Análise de dados",
+  reporting: "Geração de relatórios",
+};
 
 // ---------------------------------------------------------------------------
 // Schemas

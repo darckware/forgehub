@@ -19,6 +19,10 @@ export interface ConceptDetail {
   concept: { id: string; product_id: string; status: string; current_revision_id: string | null };
   current_revision: ConceptRevision | null; revisions: ConceptRevision[];
 }
+export interface IdeaCreatedResult {
+  product_id: string;
+  concept: { id: string; product_id: string; status: string; current_revision_id: string | null };
+}
 export interface BlueprintRevision {
   id: string; revision: number; status: string; concept_revision_id: string | null;
   product_version_id: string | null; content_hash: string | null;
@@ -44,6 +48,31 @@ export interface ScopeItem {
   id: string; system_element_id: string; change_type: string; applicability: string;
   rationale: string | null; acceptance_criteria: { id: string; criterion: string }[];
 }
+export interface TechStackOption {
+  id: string; layer: TechStackLayer; name: string; description: string | null;
+  source: "org_standard" | "custom";
+  /** Only meaningful for layer="frontend" -- a frontend scenario/toolchain,
+   * not a separate layer. Null for every other layer and for an
+   * unclassified frontend option. */
+  platform: "web_app" | "landing_page" | "institutional_site" | "pwa" | "mobile" | null;
+}
+export const TECH_STACK_PLATFORMS = ["web_app", "landing_page", "institutional_site", "pwa", "mobile"] as const;
+export type TechStackPlatform = (typeof TECH_STACK_PLATFORMS)[number];
+
+export function useTechStackOptions(layer: TechStackLayer) {
+  return useQuery({
+    queryKey: ["tech-stack-options", layer],
+    queryFn: () => apiClient.get<TechStackOption[]>(`/api/v1/tech-stack-options?layer=${layer}`),
+  });
+}
+export function useCreateTechStackOption() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { layer: TechStackLayer; name: string; description?: string }) =>
+      apiClient.post<TechStackOption>("/api/v1/tech-stack-options", payload),
+    onSuccess: (data) => client.invalidateQueries({ queryKey: ["tech-stack-options", data.layer] }),
+  });
+}
 
 export function useDevelopmentRequests() {
   return useQuery({ queryKey: ["conception", "requests"], queryFn: () => apiClient.get<DevelopmentRequest[]>("/api/v1/conception/requests") });
@@ -54,7 +83,7 @@ export function useCreateIdea() {
     mutationFn: (payload: {
       name: string; problem_statement: string; vision?: string; scope_summary?: string; requested_by?: string;
       project_description?: string; working_directory_path?: string; tech_stack_decisions?: TechStackDecision[];
-    }) => apiClient.post("/api/v1/conception/ideas", payload),
+    }) => apiClient.post<IdeaCreatedResult>("/api/v1/conception/ideas", payload),
     onSuccess: () => { client.invalidateQueries({ queryKey: ["conception"] }); client.invalidateQueries({ queryKey: ["products"] }); },
   });
 }

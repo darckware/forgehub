@@ -16,7 +16,7 @@ import { useAssistantStore } from "@/store/assistantStore";
 
 /** Builds the Assistant composer draft from a macro's saved lines --
  * numbered so the agent works through them one at a time and reports each
- * result, per docs/MANUAL.md's Assistant Policy (explicit instruction from
+ * result, per help/MANUAL.md's Assistant Policy (explicit instruction from
  * the composer, on the shared Workspace browser session). */
 function buildMacroMessage(targetName: string, lines: string[]): string {
   const steps = lines.map((line, index) => `${index + 1}. ${line}`).join("\n");

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { FileText, Lightbulb, Loader2, Plus, Rocket, Trash2, Upload } from "lucide-react";
+import { FileText, Lightbulb, Loader2, Plus, Rocket, Sparkles, Trash2, Upload } from "lucide-react";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { CopyButton } from "@/components/CopyButton";
+import { TechStackOptionPicker } from "@/components/TechStackOptionPicker";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
+import { useChattableAgents } from "@/hooks/useAgent";
+import { usePromptTemplate, useStreamAgentDraft } from "@/hooks/useAiDraft";
 import { useDeleteProduct, useUpdateProduct } from "@/hooks/useProduct";
-import { PROJECT_SOLUTION_TYPES } from "@/hooks/useProject";
-import { usePipelineTemplates } from "@/hooks/usePipeline";
+import { PROJECT_SOLUTION_TYPES, PROJECT_SOLUTION_TYPE_LABELS } from "@/hooks/useProject";
 import {
   useAuthorizeDeliveryPlanning,
   useConcept,
@@ -27,6 +30,8 @@ import {
   useReviseConcept,
   useSaveConceptDocument,
   useSyncArtifactsToProject,
+  TECH_STACK_PLATFORMS,
+  useTechStackOptions,
   useUpdateConceptDeliveryMetadata,
   useUpdateDevelopmentRequest,
   useUploadConceptDocument,
@@ -37,6 +42,8 @@ import {
   type TechStackLayer,
 } from "@/hooks/useSystemScope";
 
+const CONTEXT_DRAFT_DOC_FILENAME = "context-draft.md";
+
 // UI guardrails for the idea-capture form. name mirrors the backend's
 // IdeaCreate max_length=255; the Text-column fields (no DB limit) get a
 // generous soft cap so the char counter has a target to show.
@@ -46,37 +53,32 @@ const VISION_MAX = 2000;
 const SCOPE_SUMMARY_MAX = 2000;
 const PROJECT_DESCRIPTION_MAX = 4000;
 
-// Fixed set of layers per TECH_STACK_LAYERS (backend/app/db/models/system_scope.py)
-// with the approved option list per stack/02-UI-DESIGN-SYSTEM-AND-TECHNOLOGY-SPEC.md
-// (frontend tech-selection decision tree §12/§14, backend §17, data §18).
-// "deploy_infra" has no dedicated section there -- Docker is the org's
-// documented deploy baseline (stack/10-DEVSECOPS-CI-CD-AND-RELEASE-STANDARD.md),
-// so it anchors that layer's options instead.
+// Layer vocabulary per TECH_STACK_LAYERS (backend/app/db/models/system_scope.py),
+// each backed by an approved option catalog seeded from stack/02-UI-DESIGN-
+// SYSTEM-AND-TECHNOLOGY-SPEC.md (frontend §12/§14, backend §17, data §18;
+// "deploy_infra" has no dedicated section there -- Docker Compose is the
+// org's documented deploy baseline, see TechStackOptionPicker's own seed).
+// The list of entries itself is NOT fixed to "exactly one per layer" --
+// not every pipeline needs all four layers, and some need more than one
+// technology in the same layer (e.g. two backends) -- so the form is a
+// free add/remove list rather than four hardcoded slots (2026-08-15,
+// Marcelo: "nem todo pipeline seria usado esse padrão").
 const TECH_STACK_LAYERS: TechStackLayer[] = ["frontend", "backend", "database", "deploy_infra"];
 
-type TechStackState = Record<TechStackLayer, { decision: string; rationale: string }>;
+interface TechStackEntry { key: string; layer: TechStackLayer; decision: string; rationale: string }
 
-const EMPTY_TECH_STACK: TechStackState = {
-  frontend: { decision: "", rationale: "" },
-  backend: { decision: "", rationale: "" },
-  database: { decision: "", rationale: "" },
-  deploy_infra: { decision: "", rationale: "" },
-};
-
-function techStackToState(decisions: TechStackDecision[] | null | undefined): TechStackState {
-  const state = { ...EMPTY_TECH_STACK };
-  for (const item of decisions ?? []) {
-    state[item.layer] = { decision: item.decision, rationale: item.rationale ?? "" };
-  }
-  return state;
+function techStackToEntries(decisions: TechStackDecision[] | null | undefined): TechStackEntry[] {
+  return (decisions ?? []).map((item) => ({
+    key: crypto.randomUUID(), layer: item.layer, decision: item.decision, rationale: item.rationale ?? "",
+  }));
 }
 
-function techStackToPayload(state: TechStackState): TechStackDecision[] {
-  return TECH_STACK_LAYERS
-    .filter((layer) => state[layer].decision.trim().length > 0)
-    .map((layer) => ({
-      layer, decision: state[layer].decision,
-      rationale: state[layer].rationale.trim() ? state[layer].rationale : null,
+function techStackToPayload(entries: TechStackEntry[]): TechStackDecision[] {
+  return entries
+    .filter((entry) => entry.decision.trim().length > 0)
+    .map((entry) => ({
+      layer: entry.layer, decision: entry.decision,
+      rationale: entry.rationale.trim() ? entry.rationale : null,
     }));
 }
 
@@ -308,9 +310,11 @@ const PROJECT_TYPES = ["creation", "maintenance"] as const;
  * single-form Conception page (not its own tab) as of 2026-08-15 -- its
  * working-directory input was a duplicate of the "Description and folder"
  * section's, so this now takes the concept-level `workingDirectoryPath` and
- * applies it to every Project instead of asking again per row. The pipeline
- * template is likewise chosen once, at the top of the page, and threaded
- * through here via `pipelineTemplateId` -- never asked twice.
+ * applies it to every Project instead of asking again per row. (The pipeline
+ * template picker that used to be chosen once, up top, and threaded through
+ * here was removed 2026-08-16 -- Marcelo: "já tinha decidido que não
+ * precisava mais" -- every Project now goes through :authorize-delivery-
+ * planning with no `pipeline_template_id`, i.e. the default local pipeline.)
  *
  * Each project row still carries its own version (2026-08-15, Marcelo:
  * "para cada projeto o controle de versão, não posso ter uma versão
@@ -324,10 +328,10 @@ const PROJECT_TYPES = ["creation", "maintenance"] as const;
  * each distinct version a project asks for still gets its own call while
  * specs that share a version still batch together exactly like before. */
 function ProjectPlanningPanel({
-  conceptId, conceptStatus, workingDirectoryPath, pipelineTemplateId,
+  conceptId, conceptStatus, workingDirectoryPath,
 }: {
   conceptId: string | undefined; conceptStatus: string | undefined;
-  workingDirectoryPath: string; pipelineTemplateId: string;
+  workingDirectoryPath: string;
 }) {
   const authorize = useAuthorizeDeliveryPlanning();
   const sync = useSyncArtifactsToProject();
@@ -363,10 +367,7 @@ function ProjectPlanningPanel({
     try {
       const allResults: DeliveryPlanningProjectResult[] = [];
       for (const [version, groupProjects] of groups) {
-        const res = await authorize.mutateAsync({
-          conceptId, version, projects: groupProjects,
-          pipeline_template_id: pipelineTemplateId || undefined,
-        });
+        const res = await authorize.mutateAsync({ conceptId, version, projects: groupProjects });
         allResults.push(...res.projects);
       }
       setResults(allResults);
@@ -390,7 +391,7 @@ function ProjectPlanningPanel({
           <div key={i} className="space-y-2 rounded-md border p-2">
             <div className="grid grid-cols-[160px_1fr_32px] gap-2 items-center">
               <Select value={spec.solution_type} onChange={(e) => updateSpec(i, { solution_type: e.target.value as ProjectSpecForm["solution_type"] })}>
-                {PROJECT_SOLUTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {PROJECT_SOLUTION_TYPES.map((t) => <option key={t} value={t}>{PROJECT_SOLUTION_TYPE_LABELS[t]}</option>)}
               </Select>
               <Input placeholder="Nome do projeto" value={spec.project_name} onChange={(e) => updateSpec(i, { project_name: e.target.value })} />
               <Button variant="ghost" size="icon" onClick={() => removeSpec(i)} disabled={specs.length === 1}>
@@ -458,15 +459,65 @@ export default function ConceptionPage() {
   const updateProduct = useUpdateProduct();
   const reviseConcept = useReviseConcept();
   const updateDeliveryMetadata = useUpdateConceptDeliveryMetadata();
+  const saveConceptDocument = useSaveConceptDocument();
+  const agents = useChattableAgents();
+  const generateDraft = useStreamAgentDraft<"concept">();
+  const generateTechStackDraft = useStreamAgentDraft<"tech_stack">();
+  const generateContextSummary = useStreamAgentDraft<"context_summary">();
+  const promptTemplate = usePromptTemplate("concept");
   const [selectedProduct, setSelectedProduct] = useState("");
   const concept = useConcept(selectedProduct);
-  const pipelineTemplates = usePipelineTemplates();
   const [form, setForm] = useState(EMPTY_FORM);
-  const [techStack, setTechStack] = useState<TechStackState>(EMPTY_TECH_STACK);
-  // Chosen once, at the top of the single-form page, and threaded through
-  // to every Project the idea produces (see ProjectPlanningPanel's doc
-  // comment) -- 2026-08-15.
-  const [pipelineTemplateId, setPipelineTemplateId] = useState("");
+  const [techStack, setTechStack] = useState<TechStackEntry[]>([]);
+  // Step 1 "start": paste/upload a loose context .md, ask an agent to draft
+  // the structured fields below from it -- prefills form/techStack for
+  // review, never auto-saves (2026-08-15/16, Marcelo: "esse vai ser o
+  // start... que pode ser processado pelo agente"). Regenerable any number
+  // of times; the generated documentation draft is saved as a concept
+  // document (overwriting the same filename each time) once a concept
+  // exists -- immediately in edit mode, or right after creation for a new
+  // idea (see submit()).
+  const [contextAgentId, setContextAgentId] = useState("");
+  const [contextText, setContextText] = useState("");
+  const [contextGenerating, setContextGenerating] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [pendingContextDoc, setPendingContextDoc] = useState<string | null>(null);
+  // "Upload file" below the Context textarea (2026-08-16, Marcelo: "eu estou
+  // criticando que precisa ser mais completo... é melhor eu enviar um
+  // arquivo md grande e gerar um resumo no campo de texto" / "apos o envio
+  // gere o resumo do texto que caiba no campo" / "o arquivo será utilizado
+  // para o contexto para o preechimento do formulário") -- a large uploaded
+  // .md is summarized via target_kind="context_summary" (see
+  // core/ai_draft.py) down to something that fits the textarea and reads
+  // well, then replaces contextText so "Generate from context" above works
+  // on it exactly like manually pasted/trimmed context. Requires an agent
+  // (same selector as the rest of Step 1) since summarizing is itself an
+  // agent call, not a client-side truncation.
+  const contextFileInputRef = useRef<HTMLInputElement>(null);
+  const [contextUploading, setContextUploading] = useState(false);
+  // Step 4 "Tech stack" own generate action -- same agent selected in Step 1
+  // (2026-08-16, Marcelo: "ele será o agente responsável por gerar a
+  // documentação"), grounded in help/TECH_STACK_GUIDE.md + the current
+  // tech_stack_options catalog (see core/ai_draft.py's "tech_stack"
+  // instructions) instead of the model's own general knowledge (Marcelo:
+  // "preciso dar a nossa base de tecnologia a ser aplicado nos produtos.
+  // São nossas ferramentas"). Separate loading/error state from the Step 1
+  // context generation so the two actions don't fight over one spinner.
+  const [stackGenerating, setStackGenerating] = useState(false);
+  const [stackError, setStackError] = useState<string | null>(null);
+  // "Ver catálogo completo" toggle (2026-08-16, Marcelo: "não entendi essa
+  // referência. Pensei em consultar todos as tech stack") -- a recap of
+  // only the entries already added below was redundant with those same
+  // rows; what's actually useful for consultation is the full org catalog
+  // per layer, browsable before deciding what to add. One hook call per
+  // fixed layer (rules of hooks -- TECH_STACK_LAYERS can't be .map()ed here).
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const catalogByLayer: Record<TechStackLayer, ReturnType<typeof useTechStackOptions>> = {
+    frontend: useTechStackOptions("frontend"),
+    backend: useTechStackOptions("backend"),
+    database: useTechStackOptions("database"),
+    deploy_infra: useTechStackOptions("deploy_infra"),
+  };
   const [view, setView] = useState<"list" | "form">("list");
   const [pendingDelete, setPendingDelete] = useState<{ productId: string; title: string } | null>(null);
   const [editingRequest, setEditingRequest] = useState<DevelopmentRequest | null>(null);
@@ -486,18 +537,98 @@ export default function ConceptionPage() {
       project_description: revision?.project_description ?? "",
       working_directory_path: revision?.working_directory_path ?? "",
     }));
-    setTechStack(techStackToState(revision?.tech_stack_decisions));
+    setTechStack(techStackToEntries(revision?.tech_stack_decisions));
   }, [editingRequest, concept.data]);
 
   const conceptEditable = !concept.data || ["draft", "rework"].includes(concept.data.concept.status);
+
+  const generateConceptDraft = async () => {
+    if (!contextAgentId || !contextText.trim()) return;
+    setContextError(null);
+    setContextGenerating(true);
+    try {
+      const draft = await generateDraft({ agent_id: contextAgentId, target_kind: "concept", context: contextText });
+      setForm((f) => ({
+        ...f,
+        name: draft.name || f.name,
+        problem_statement: draft.problem_statement || f.problem_statement,
+        vision: draft.vision ?? f.vision,
+        scope_summary: draft.scope_summary ?? f.scope_summary,
+        project_description: draft.project_description ?? f.project_description,
+      }));
+      const draftedStack = draft.tech_stack.filter((item): item is typeof item & { decision: string } => Boolean(item.decision?.trim()));
+      if (draftedStack.length) {
+        setTechStack(draftedStack.map((item) => ({
+          key: crypto.randomUUID(), layer: item.layer, decision: item.decision, rationale: item.rationale ?? "",
+        })));
+      }
+      if (draft.documentation_markdown) {
+        setPendingContextDoc(draft.documentation_markdown);
+        // Concept already exists (edit mode) -- save immediately so the
+        // draft is visible in Step 6 right away; for a brand-new idea
+        // there's no concept yet, submit() saves it right after creation.
+        if (concept.data?.concept.id) {
+          await saveConceptDocument.mutateAsync({
+            conceptId: concept.data.concept.id, filename: CONTEXT_DRAFT_DOC_FILENAME, content: draft.documentation_markdown,
+          });
+        }
+      }
+    } catch (err) {
+      setContextError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setContextGenerating(false);
+    }
+  };
+
+  const handleContextFileUpload = async (file: File) => {
+    if (!contextAgentId) {
+      setContextError(t("wizard.context.uploadNoAgent"));
+      return;
+    }
+    setContextError(null);
+    setContextUploading(true);
+    try {
+      const raw = await file.text();
+      const summary = await generateContextSummary({
+        agent_id: contextAgentId, target_kind: "context_summary", context: raw.slice(0, 100_000),
+      });
+      setContextText(summary.summary);
+    } catch (err) {
+      setContextError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setContextUploading(false);
+    }
+  };
+
+  const generateTechStack = async () => {
+    if (!contextAgentId) return;
+    setStackError(null);
+    setStackGenerating(true);
+    try {
+      const stackContext = [
+        form.name, form.problem_statement, form.vision, form.scope_summary, form.project_description,
+      ].filter((part) => part.trim().length > 0).join("\n\n");
+      const draft = await generateTechStackDraft({ agent_id: contextAgentId, target_kind: "tech_stack", context: stackContext });
+      const draftedStack = draft.tech_stack.filter((item): item is typeof item & { decision: string } => Boolean(item.decision?.trim()));
+      if (draftedStack.length) {
+        setTechStack(draftedStack.map((item) => ({
+          key: crypto.randomUUID(), layer: item.layer, decision: item.decision, rationale: item.rationale ?? "",
+        })));
+      }
+    } catch (err) {
+      setStackError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStackGenerating(false);
+    }
+  };
 
   const startEdit = (item: DevelopmentRequest) => {
     setForm({
       name: item.title, problem_statement: item.description, vision: "", scope_summary: "",
       requested_by: item.requested_by ?? "", project_description: "", working_directory_path: "",
     });
-    setTechStack(EMPTY_TECH_STACK);
-    setPipelineTemplateId("");
+    setTechStack([]);
+    setContextAgentId(""); setContextText(""); setContextError(null); setPendingContextDoc(null); setStackError(null);
     setSelectedProduct(item.product_id);
     setEditingRequest(item);
     setView("form");
@@ -506,8 +637,8 @@ export default function ConceptionPage() {
   const backToList = () => {
     setEditingRequest(null);
     setForm(EMPTY_FORM);
-    setTechStack(EMPTY_TECH_STACK);
-    setPipelineTemplateId("");
+    setTechStack([]);
+    setContextAgentId(""); setContextText(""); setContextError(null); setPendingContextDoc(null); setStackError(null);
     setView("list");
   };
 
@@ -537,12 +668,17 @@ export default function ConceptionPage() {
         });
       }
     } else {
-      await create.mutateAsync({
+      const created = await create.mutateAsync({
         ...form,
         project_description: form.project_description || undefined,
         working_directory_path: form.working_directory_path || undefined,
         tech_stack_decisions: tech_stack_decisions.length ? tech_stack_decisions : undefined,
       });
+      if (pendingContextDoc) {
+        await saveConceptDocument.mutateAsync({
+          conceptId: created.concept.id, filename: CONTEXT_DRAFT_DOC_FILENAME, content: pendingContextDoc,
+        });
+      }
     }
     backToList();
   };
@@ -577,13 +713,62 @@ export default function ConceptionPage() {
       <Card><CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Lightbulb className="h-5 w-5"/>{editingRequest ? t("captureIdea.editTitle") : t("captureIdea.title")}</CardTitle><CardDescription>{editingRequest ? t("captureIdea.editDescription") : t("captureIdea.description")}</CardDescription></CardHeader>
         <form onSubmit={submit}>
         <CardContent className="space-y-8">
-          <section className="space-y-2">
+          <section className="space-y-4">
             <h3 className="text-sm font-semibold">{t("wizard.steps.pipeline")}</h3>
-            <p className="text-sm text-muted-foreground">{t("wizard.pipeline.help")}</p>
-            <Select value={pipelineTemplateId} onChange={(e) => setPipelineTemplateId(e.target.value)}>
-              <option value="">{t("wizard.pipeline.placeholder")}</option>
-              {pipelineTemplates.data?.map((tpl) => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}
-            </Select>
+            <p className="text-sm text-muted-foreground">{t("wizard.context.help")}</p>
+            <div className="space-y-2">
+              <Label>{t("wizard.context.contextLabel")}</Label>
+              <Textarea
+                rows={8} placeholder={t("wizard.context.contextPlaceholder")}
+                value={contextText} onChange={(e) => setContextText(e.target.value)}
+              />
+              <input
+                ref={contextFileInputRef} type="file" accept=".md,.markdown,.txt" className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void handleContextFileUpload(file);
+                }}
+              />
+              <Button
+                type="button" variant="outline" size="sm"
+                onClick={() => contextFileInputRef.current?.click()}
+                disabled={contextUploading}
+                title={!contextAgentId ? t("wizard.context.uploadNoAgent") : undefined}
+              >
+                {contextUploading
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <Upload className="mr-2 h-4 w-4" />}
+                {t("wizard.context.upload")}
+              </Button>
+            </div>
+            {contextError && <p className="text-sm text-destructive">{contextError}</p>}
+            <div className="flex items-center gap-3">
+              <Button
+                type="button" variant="outline"
+                onClick={() => void generateConceptDraft()}
+                disabled={!contextAgentId || !contextText.trim() || contextGenerating}
+              >
+                {contextGenerating
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <Sparkles className="mr-2 h-4 w-4" />}
+                {t("wizard.context.generate")}
+              </Button>
+              <Select
+                className="w-56"
+                aria-label={t("wizard.context.agentLabel")}
+                value={contextAgentId} onChange={(e) => setContextAgentId(e.target.value)}
+              >
+                <option value="">{t("wizard.context.selectAgent")}</option>
+                {agents.data?.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </Select>
+              <CopyButton
+                title={t("wizard.context.copyPrompt")}
+                label={t("wizard.context.copyPromptLabel")}
+                getText={() => promptTemplate.data?.instructions ?? ""}
+              />
+              {pendingContextDoc && <span className="text-xs text-muted-foreground">{t("wizard.context.appliedHint")}</span>}
+            </div>
           </section>
 
           <section className="space-y-4 border-t pt-8">
@@ -617,27 +802,123 @@ export default function ConceptionPage() {
           </section>
 
           <section className="space-y-4 border-t pt-8">
-            <h3 className="text-sm font-semibold">{t("wizard.steps.stack")}</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold">{t("wizard.steps.stack")}</h3>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setCatalogOpen((v) => !v)}>
+                {catalogOpen ? t("wizard.stack.hideCatalog") : t("wizard.stack.viewCatalog")}
+              </Button>
+            </div>
             <p className="text-sm text-muted-foreground">{t("wizard.stack.help")}</p>
-            {TECH_STACK_LAYERS.map((layer) => (
-              <div key={layer} className="grid gap-3 rounded-lg border p-3 md:grid-cols-2">
+            {catalogOpen && (
+              <div className="grid gap-4 rounded-lg border bg-muted/30 p-3 md:grid-cols-3">
+                {/* "frontend" splits into 5 scenario groups (platform), since
+                 * they're different toolchains lumped under one layer -- every
+                 * other layer stays a single group (2026-08-16, Marcelo:
+                 * "faltou para mobile", then dictated the full list: "web app,
+                 * landing page, site institucional, PWA, mobile"). An
+                 * unclassified frontend option (platform=null) defaults into
+                 * web_app, the org's own default recommendation. */}
+                {[
+                  ...TECH_STACK_PLATFORMS.map((platform) => ({
+                    key: `frontend-${platform}`,
+                    label: t(`wizard.stack.platforms.${platform}`),
+                    options: (catalogByLayer.frontend.data ?? []).filter((o) =>
+                      platform === "web_app" ? o.platform !== "landing_page" && o.platform !== "institutional_site" && o.platform !== "pwa" && o.platform !== "mobile" : o.platform === platform
+                    ),
+                  })),
+                  { key: "backend", label: t("wizard.stack.layers.backend"), options: catalogByLayer.backend.data ?? [] },
+                  { key: "database", label: t("wizard.stack.layers.database"), options: catalogByLayer.database.data ?? [] },
+                  { key: "deploy_infra", label: t("wizard.stack.layers.deploy_infra"), options: catalogByLayer.deploy_infra.data ?? [] },
+                ].map((group) => (
+                  <div key={group.key} className="space-y-1.5">
+                    <p className="text-xs font-semibold">{group.label}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {group.options.map((option) => (
+                        <Badge key={option.id} variant="outline" className="font-normal" title={option.description ?? undefined}>
+                          {option.name}
+                        </Badge>
+                      ))}
+                      {group.options.length === 0 && (
+                        <span className="text-xs text-muted-foreground">{t("wizard.stack.catalogEmpty")}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {techStack.length === 0 && (
+              <p className="text-sm text-muted-foreground">{t("wizard.stack.empty")}</p>
+            )}
+            {techStack.map((entry) => (
+              <div key={entry.key} className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(0,10rem)_minmax(0,1fr)_minmax(0,1fr)_auto]">
                 <div className="space-y-2">
-                  <Label>{t(`wizard.stack.layers.${layer}`)}</Label>
-                  <Input placeholder={t("wizard.stack.selectPlaceholder")} value={techStack[layer].decision} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], decision: e.target.value } })}/>
+                  <Label>{t("wizard.stack.layer")}</Label>
+                  <Select
+                    value={entry.layer}
+                    onChange={(e) => {
+                      const layer = e.target.value as TechStackLayer;
+                      setTechStack(techStack.map((item) => item.key === entry.key ? { ...item, layer, decision: "" } : item));
+                    }}
+                  >
+                    {TECH_STACK_LAYERS.map((layer) => (
+                      <option key={layer} value={layer}>{t(`wizard.stack.layers.${layer}`)}</option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("wizard.stack.technology")}</Label>
+                  <TechStackOptionPicker
+                    layer={entry.layer}
+                    value={entry.decision}
+                    onChange={(decision) => setTechStack(techStack.map((item) => item.key === entry.key ? { ...item, decision } : item))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>{t("wizard.stack.rationale")}</Label>
-                  <Input value={techStack[layer].rationale} onChange={(e) => setTechStack({ ...techStack, [layer]: { ...techStack[layer], rationale: e.target.value } })}/>
+                  <Input
+                    value={entry.rationale}
+                    onChange={(e) => setTechStack(techStack.map((item) => item.key === entry.key ? { ...item, rationale: e.target.value } : item))}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    type="button" variant="ghost" size="icon"
+                    aria-label={t("wizard.stack.remove")}
+                    onClick={() => setTechStack(techStack.filter((item) => item.key !== entry.key))}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
                 </div>
               </div>
             ))}
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button" variant="outline" size="sm"
+                onClick={() => setTechStack([...techStack, { key: crypto.randomUUID(), layer: "frontend", decision: "", rationale: "" }])}
+              >
+                <Plus className="mr-2 h-4 w-4" />{t("wizard.stack.add")}
+              </Button>
+              <Button
+                type="button" variant="outline" size="sm"
+                onClick={() => void generateTechStack()}
+                disabled={!contextAgentId || stackGenerating}
+                title={!contextAgentId ? t("wizard.stack.generateNoAgent") : undefined}
+              >
+                {stackGenerating
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <Sparkles className="mr-2 h-4 w-4" />}
+                {t("wizard.stack.generate")}
+              </Button>
+            </div>
+            {!contextAgentId && <p className="text-xs text-muted-foreground">{t("wizard.stack.generateNoAgent")}</p>}
+            {stackError && <p className="text-sm text-destructive">{stackError}</p>}
           </section>
 
           <section className="space-y-4 border-t pt-8">
             <h3 className="text-sm font-semibold">{t("wizard.steps.delivery")}</h3>
             <ProjectPlanningPanel
               conceptId={concept.data?.concept.id} conceptStatus={concept.data?.concept.status}
-              workingDirectoryPath={form.working_directory_path} pipelineTemplateId={pipelineTemplateId}
+              workingDirectoryPath={form.working_directory_path}
             />
           </section>
 

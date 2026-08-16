@@ -25,6 +25,7 @@ from app.db.models.system_scope import (
     SystemElement,
     SystemElementRelation,
     SystemElementRevision,
+    TechStackOption,
 )
 from app.db.models.user import User
 from app.core.security import create_access_token, hash_password
@@ -762,4 +763,49 @@ async def test_authorize_delivery_planning_project_type_and_pipeline_template(
         async with AsyncSessionLocal() as db:
             await db.execute(delete(PipelineTemplateStage).where(PipelineTemplateStage.template_id == template_id))
             await db.execute(delete(PipelineTemplate).where(PipelineTemplate.id == template_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_tech_stack_options_catalog(client: AsyncClient):
+    """Conception step 4's picker: org_standard rows come seeded (migration
+    9823e7890ae4), and POSTing a new one adds it to the catalog idempotently
+    by (layer, name) case-insensitive -- see TechStackOptionPicker.tsx."""
+    listed = await client.get("/api/v1/tech-stack-options", params={"layer": "database"})
+    assert listed.status_code == 200
+    names = {row["name"] for row in listed.json()}
+    assert "PostgreSQL" in names
+    assert all(row["source"] == "org_standard" for row in listed.json())
+    assert all(row["platform"] is None for row in listed.json())  # not a frontend layer
+
+    frontend = await client.get("/api/v1/tech-stack-options", params={"layer": "frontend"})
+    frontend_by_name = {row["name"]: row["platform"] for row in frontend.json()}
+    assert frontend_by_name["React Native + Expo + Tamagui"] == "mobile"
+    assert frontend_by_name["React + TypeScript + Vite + Tailwind CSS + shadcn/ui"] == "web_app"
+    assert frontend_by_name["Next.js + TypeScript + Tailwind CSS + shadcn/ui"] == "institutional_site"
+    assert frontend_by_name["HTML + CSS + JS puro"] == "landing_page"
+    assert frontend_by_name["React + TypeScript + Vite + Tailwind CSS + shadcn/ui + vite-plugin-pwa"] == "pwa"
+
+    option_name = f"Custom DB {uuid.uuid4().hex[:8]}"
+    try:
+        created = await client.post("/api/v1/tech-stack-options", json={
+            "layer": "database", "name": option_name, "description": "test-only option",
+        })
+        assert created.status_code == 201
+        body = created.json()
+        assert body["source"] == "custom"
+        assert body["platform"] is None
+        option_id = body["id"]
+
+        relisted = await client.get("/api/v1/tech-stack-options", params={"layer": "database"})
+        assert option_name in {row["name"] for row in relisted.json()}
+
+        duplicate = await client.post("/api/v1/tech-stack-options", json={
+            "layer": "database", "name": option_name.lower(), "description": "different text",
+        })
+        assert duplicate.status_code == 201
+        assert duplicate.json()["id"] == option_id
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(TechStackOption).where(TechStackOption.name == option_name))
             await db.commit()

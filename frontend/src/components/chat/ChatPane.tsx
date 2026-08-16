@@ -1691,7 +1691,7 @@ export function ChatPane({
   emptyStateText?: string;
   /** Internal grounding sent ONCE, by itself, as the opening turn of a
    * fresh session as soon as the pane mounts (requires startNewSession) --
-   * e.g. AssistantDrawer's "read docs/MANUAL.md" note plus the current
+   * e.g. AssistantDrawer's "read help/MANUAL.md" note plus the current
    * screen's hidden context (see assistantStore's pendingHiddenContext).
    * Deliberately a separate agent turn instead of a prefix glued onto the
    * user's first message: the user's own text stays clean, and the agent

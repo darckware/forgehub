@@ -11,16 +11,25 @@
     "updateFromDiagram": "Update from diagram",
     "updateFromDiagramEmpty": "The entity and functionality diagram is still empty -- open the System Map to start modeling.",
     "steps": {
-      "pipeline": "1. Pipeline / Template",
+      "pipeline": "1. Context",
       "problem": "2. Problem and vision",
       "description": "3. Description and folder",
       "stack": "4. Tech stack",
       "delivery": "5. Project(s) to build",
       "documentation": "6. Documentation"
     },
-    "pipeline": {
-      "help": "Optional -- pick an existing pipeline template to drive how this idea gets conceived and, later, how its Project(s) get built. Applies to every Project this idea produces.",
-      "placeholder": "No template (default local pipeline)"
+    "context": {
+      "help": "Paste a loose context document (an idea for a system, an automation, or a service) and have an agent draft the fields below from it -- review and adjust before saving. Regenerate as many times as you like.",
+      "agentLabel": "Agent",
+      "selectAgent": "Select an agent...",
+      "contextLabel": "Context (.md)",
+      "contextPlaceholder": "Paste or write the loose context here...",
+      "upload": "Upload file",
+      "uploadNoAgent": "Select an agent below to upload and summarize a file.",
+      "generate": "Generate from context",
+      "copyPromptLabel": "Copy prompt",
+      "copyPrompt": "Copy the prompt (what the agent expects from the context)",
+      "appliedHint": "Documentation draft ready -- see it in Step 6 (Documentation)."
     },
     "documentation": {
       "help": "Attach markdown reference material or fill-in templates for this concept -- upload a file or write a new one, then edit it inline.",
@@ -43,14 +52,35 @@
       "workingDirectoryPlaceholder": "/root/project/my-project"
     },
     "stack": {
-      "help": "Pick the technology for each layer following the organization's architecture standards. This is recorded on the concept and feeds the Tech Spec once the concept is approved.",
+      "help": "Add the technologies this project actually uses, picking from the organization's architecture standards -- not every project needs every layer, and some need more than one entry per layer. This is recorded on the concept and feeds the Tech Spec once the concept is approved. \"Generate with agent\" proposes a stack grounded in help/TECH_STACK_GUIDE.md and the current catalog instead of a free-form suggestion.",
+      "empty": "No technology added yet.",
+      "viewCatalog": "View full catalog",
+      "hideCatalog": "Hide catalog",
+      "catalogEmpty": "No option registered yet.",
+      "add": "Add technology",
+      "generate": "Generate with agent",
+      "generateNoAgent": "Select an agent above (Step 1) to generate the stack.",
+      "remove": "Remove",
+      "layer": "Layer",
+      "technology": "Technology",
       "layers": {
         "frontend": "Frontend",
         "backend": "Backend",
         "database": "Database",
         "deploy_infra": "Deploy / infrastructure"
       },
-      "selectPlaceholder": "e.g. React, PostgreSQL, Docker...",
+      "platforms": {
+        "web_app": "Web app",
+        "landing_page": "Landing page",
+        "institutional_site": "Institutional site",
+        "pwa": "PWA",
+        "mobile": "Mobile"
+      },
+      "selectPlaceholder": "Select a technology...",
+      "addNewOption": "Add new option",
+      "newOptionPlaceholder": "New technology name",
+      "confirmAdd": "Add",
+      "cancelAdd": "Cancel",
       "rationale": "Rationale (optional)"
     }
   },

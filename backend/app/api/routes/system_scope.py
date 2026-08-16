@@ -50,6 +50,8 @@ from app.api.schemas.system_scope import (
     SystemElementRelationCreate,
     SystemElementRelationOut,
     SystemElementUpdate,
+    TechStackOptionCreate,
+    TechStackOptionOut,
     ValidationIssue,
     AuthorizeDeliveryPlanning,
     AcceptanceCriterionOut,
@@ -90,6 +92,7 @@ from app.db.models.system_scope import (
     SystemElement,
     SystemElementRelation,
     SystemElementRevision,
+    TechStackOption,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["planning-scope"])
@@ -345,6 +348,48 @@ async def create_idea(
         product_id=product.id, request=request, concept=concept, concept_revision=revision,
         blueprint=blueprint, blueprint_revision=blueprint_revision,
     )
+
+
+@router.get("/tech-stack-options", response_model=list[TechStackOptionOut])
+async def list_tech_stack_options(layer: str | None = None, db: AsyncSession = Depends(get_db)):
+    """Catalog for Conception step 4's picker -- org_standard rows first
+    (seeded via migration from the org's architecture standard), then custom
+    rows added ad hoc through :func:`create_tech_stack_option`, both alpha."""
+    query = select(TechStackOption)
+    if layer is not None:
+        query = query.where(TechStackOption.layer == layer)
+    query = query.order_by(TechStackOption.layer, TechStackOption.source.desc(), TechStackOption.name)
+    result = await db.execute(query)
+    return list(result.scalars())
+
+
+@router.post("/tech-stack-options", response_model=TechStackOptionOut, status_code=status.HTTP_201_CREATED)
+async def create_tech_stack_option(
+    payload: TechStackOptionCreate, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    """Adds a new pickable option to the catalog ("add to the registry"
+    instead of a free-text field). Idempotent by (layer, name) case-
+    insensitive: re-adding an option that already exists returns it
+    unchanged rather than erroring or duplicating it."""
+    await authorize_action(db, principal, "planning.concept.edit")
+    name = payload.name.strip()
+    existing = (await db.execute(
+        select(TechStackOption).where(
+            TechStackOption.layer == payload.layer, func.lower(TechStackOption.name) == name.lower(),
+        )
+    )).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    option = TechStackOption(
+        layer=payload.layer, name=name,
+        description=payload.description.strip() if payload.description and payload.description.strip() else None,
+        source="custom", platform=payload.platform,
+    )
+    db.add(option)
+    await db.commit()
+    await db.refresh(option)
+    return option
 
 
 @router.get("/conception/requests", response_model=list[DevelopmentRequestOut])
@@ -969,6 +1014,13 @@ SOLUTION_TYPE_LAYERS = {
     "api_service": {"Backend"},
     "database": {"Banco de Dados"},
     "deploy": {"Deploy/Infra"},
+    # Non-application engagements (2026-08-16, see PROJECT_SOLUTION_TYPES'
+    # own docstring) -- automation is script/service-shaped like an API, the
+    # other three are fundamentally data-centric.
+    "automation": {"Backend"},
+    "data_migration": {"Banco de Dados"},
+    "data_analysis": {"Banco de Dados"},
+    "reporting": {"Banco de Dados"},
 }
 
 # Same idea for Conception's tech_stack_decisions, keyed by their raw
@@ -982,6 +1034,10 @@ SOLUTION_TYPE_TECH_STACK_KEYS = {
     "api_service": {"backend"},
     "database": {"database"},
     "deploy": {"deploy_infra"},
+    "automation": {"backend"},
+    "data_migration": {"database"},
+    "data_analysis": {"database"},
+    "reporting": {"database"},
 }
 
 # Only web_app/mobile_app are ambiguous (both map to the "Frontend" layer --
@@ -999,6 +1055,8 @@ SOLUTION_TYPE_PLATFORM = {"web_app": "web", "mobile_app": "mobile"}
 ROLE_BY_SOLUTION_TYPE = {
     "web_app": "developer", "mobile_app": "developer", "api_service": "developer",
     "database": "data_engineer", "deploy": "release_manager",
+    "automation": "developer",
+    "data_migration": "data_engineer", "data_analysis": "data_engineer", "reporting": "data_engineer",
 }
 
 

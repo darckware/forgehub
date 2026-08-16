@@ -51,7 +51,7 @@ PROJECT_AGENT_ROLES = (
     # ForgeHub" channel -- Themis (legal/compliance) and Mnemosyne
     # (knowledge base/RAG) had no function that fit and were left
     # approximated ("reviewer") or unset. See
-    # docs/guides/FORGEHUB_CHANNELS_AGENT_GUIDE.md §8.
+    # help/FORGEHUB_CHANNELS_AGENT_GUIDE.md §8.
     "compliance",
     "knowledge_management",
 )

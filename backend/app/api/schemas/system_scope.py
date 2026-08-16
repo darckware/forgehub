@@ -15,6 +15,26 @@ class TechStackDecision(BaseModel):
     rationale: str | None = None
 
 
+class TechStackOptionOut(BaseModel):
+    id: uuid.UUID
+    layer: Literal["frontend", "backend", "database", "deploy_infra"]
+    name: str
+    description: str | None
+    source: Literal["org_standard", "custom"]
+    # Only meaningful for layer="frontend" -- a frontend scenario/toolchain,
+    # not a separate layer. Null for every other layer and for an
+    # unclassified frontend option (see TECH_STACK_OPTION_PLATFORMS's docstring).
+    platform: Literal["web_app", "landing_page", "institutional_site", "pwa", "mobile"] | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TechStackOptionCreate(BaseModel):
+    layer: Literal["frontend", "backend", "database", "deploy_infra"]
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    platform: Literal["web_app", "landing_page", "institutional_site", "pwa", "mobile"] | None = None
+
+
 class IdeaCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     problem_statement: str = Field(min_length=1)

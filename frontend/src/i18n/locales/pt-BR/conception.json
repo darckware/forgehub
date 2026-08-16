@@ -11,16 +11,25 @@
     "updateFromDiagram": "Atualizar a partir do diagrama",
     "updateFromDiagramEmpty": "O diagrama de entidades e funcionalidades ainda está vazio -- abra o Mapa do Sistema para começar a modelar.",
     "steps": {
-      "pipeline": "1. Pipeline / Template",
+      "pipeline": "1. Contexto",
       "problem": "2. Problema e visão",
       "description": "3. Descrição e pasta",
       "stack": "4. Stack tecnológico",
       "delivery": "5. Projeto(s) a criar",
       "documentation": "6. Documentação"
     },
-    "pipeline": {
-      "help": "Opcional -- escolha um template de pipeline já existente para direcionar como essa ideia vai ser concebida e, depois, como o(s) Projeto(s) vão ser construídos. Aplica-se a todos os Projetos que essa ideia gerar.",
-      "placeholder": "Sem template (pipeline local padrão)"
+    "context": {
+      "help": "Cole um documento de contexto solto (uma ideia de sistema, automação ou serviço) e peça para um agente rascunhar os campos abaixo a partir dele -- revise e ajuste antes de salvar. Pode regenerar quantas vezes quiser.",
+      "agentLabel": "Agente",
+      "selectAgent": "Selecione um agente...",
+      "contextLabel": "Contexto (.md)",
+      "contextPlaceholder": "Cole ou escreva o contexto solto aqui...",
+      "upload": "Enviar arquivo",
+      "uploadNoAgent": "Selecione um agente abaixo para enviar e resumir um arquivo.",
+      "generate": "Gerar a partir do contexto",
+      "copyPromptLabel": "Copiar prompt",
+      "copyPrompt": "Copiar o prompt (o que o agente espera do contexto)",
+      "appliedHint": "Rascunho de documentação pronto -- veja no Passo 6 (Documentação)."
     },
     "documentation": {
       "help": "Anexe material de referência em markdown ou modelos para preencher a concepção -- envie um arquivo ou crie um novo, depois edite direto aqui.",
@@ -43,14 +52,35 @@
       "workingDirectoryPlaceholder": "/root/project/meu-projeto"
     },
     "stack": {
-      "help": "Escolha a tecnologia de cada camada seguindo os padrões organizacionais de arquitetura. Fica registrado na concepção e alimenta o Spec de tecnologia quando o conceito for aprovado.",
+      "help": "Adicione as tecnologias que este projeto realmente usa, escolhendo entre os padrões organizacionais de arquitetura -- nem todo projeto precisa de todas as camadas, e alguns precisam de mais de uma entrada na mesma camada. Fica registrado na concepção e alimenta o Spec de tecnologia quando o conceito for aprovado. \"Gerar com agente\" propõe uma stack com base no help/TECH_STACK_GUIDE.md e no catálogo atual, em vez de uma sugestão livre.",
+      "empty": "Nenhuma tecnologia adicionada ainda.",
+      "viewCatalog": "Ver catálogo completo",
+      "hideCatalog": "Ocultar catálogo",
+      "catalogEmpty": "Nenhuma opção registrada ainda.",
+      "add": "Adicionar tecnologia",
+      "generate": "Gerar com agente",
+      "generateNoAgent": "Selecione um agente acima (Passo 1) para gerar a stack.",
+      "remove": "Remover",
+      "layer": "Camada",
+      "technology": "Tecnologia",
       "layers": {
         "frontend": "Frontend",
         "backend": "Backend",
         "database": "Banco de dados",
         "deploy_infra": "Deploy / infraestrutura"
       },
-      "selectPlaceholder": "ex.: React, PostgreSQL, Docker...",
+      "platforms": {
+        "web_app": "Web app",
+        "landing_page": "Landing page",
+        "institutional_site": "Site institucional",
+        "pwa": "PWA",
+        "mobile": "Mobile"
+      },
+      "selectPlaceholder": "Selecione uma tecnologia...",
+      "addNewOption": "Adicionar nova opção",
+      "newOptionPlaceholder": "Nome da nova tecnologia",
+      "confirmAdd": "Adicionar",
+      "cancelAdd": "Cancelar",
       "rationale": "Justificativa (opcional)"
     }
   },

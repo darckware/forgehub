@@ -82,6 +82,7 @@ from app.db.models.system_scope import (  # noqa: F401
     ProjectScope,
     ProjectScopeItem,
     ScopeItemAcceptanceCriterion,
+    TechStackOption,
 )
 from app.db.models.progress import ProgressCheckpoint, StageCompletionAssessment  # noqa: F401
 from app.db.models.execution import (  # noqa: F401

@@ -97,7 +97,8 @@ cd frontend && npm test
 | [`docs/TECHNOLOGY.md`](docs/TECHNOLOGY.md) | Canonical technology stack |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Entity/relationship reference |
 | [`docs/DB_README.md`](docs/DB_README.md) | Database topology and connection setup |
-| [`docs/MANUAL.md`](docs/MANUAL.md) | End-user operating manual |
+| [`help/MANUAL.md`](help/MANUAL.md) | End-user operating manual |
+| [`help/TECH_STACK_GUIDE.md`](help/TECH_STACK_GUIDE.md) | Tech stack guide for products the app manages |
 | `http://localhost:8000/docs` | Live FastAPI interactive API reference |
 
 ## License

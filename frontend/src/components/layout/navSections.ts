@@ -13,7 +13,6 @@ import {
   Gauge,
   Gem,
   GitBranch,
-  Hash,
   Landmark,
   Layout,
   LayoutDashboard,
@@ -81,13 +80,6 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
       { type: "link", to: "/concept-erd", labelKey: "nav.conceptDatabaseDiagram", icon: Share2, module: "database" },
       { type: "link", to: "/projects", labelKey: "nav.projectCenter", icon: FolderKanban, module: "projects" },
-      // The channel/work-group hub (2026-08-05, Marcelo: "o objetivo é o
-      // grupo de trabalho trabalhar no sidebar Software Factory") --
-      // reuses Workspace's existing "Canais" view (ChannelPane) rather
-      // than a parallel screen; the ?view=channels query param is read on
-      // mount by pages/workspace/index.tsx to switch straight to it
-      // instead of leaving the operator to find the in-page toggle.
-      { type: "link", to: "/workspace?view=channels", labelKey: "nav.channels", icon: Hash, module: "projects" },
       { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance" },
       { type: "link", to: "/version-closure", labelKey: "nav.versionClosure", icon: CheckCircle2, module: "product" },
     ],

@@ -311,7 +311,7 @@ async def _onboarding_note(db: AsyncSession, channel: ChatChannel, member: ChatC
     contexto de um grupo de trabalho... para ele poder saber como
     interagir no ambiente" -- the concrete gap this closes is the same one
     Athos hit, asking for a message-based command that doesn't exist).
-    Condensed from docs/guides/FORGEHUB_CHANNELS_AGENT_GUIDE.md -- keep
+    Condensed from help/FORGEHUB_CHANNELS_AGENT_GUIDE.md -- keep
     the two in sync if this changes."""
     role_line = (
         f'Sua função neste canal é "{member.role}".'
@@ -351,8 +351,8 @@ async def _onboarding_note(db: AsyncSession, channel: ChatChannel, member: ChatC
         f'Governança > Delegações de Autoridade, mesmo para o orquestrador do canal. Este canal '
         f'faz parte do módulo Software Factory do ForgeHub (Product -> Project -> Planejamento -> '
         f'Task, com Cockpit, Pipeline e Governança) -- se precisar entender o pipeline completo '
-        f'além do canal em si, consulte docs/guides/MANUAL.md (seção Software Factory). Guia do '
-        f'canal em si: docs/guides/FORGEHUB_CHANNELS_AGENT_GUIDE.md. Antes de responder à '
+        f'além do canal em si, consulte help/MANUAL.md (seção Software Factory). Guia do '
+        f'canal em si: help/FORGEHUB_CHANNELS_AGENT_GUIDE.md. Antes de responder à '
         f'mensagem real abaixo, cumprimente brevemente e de forma natural os demais membros do '
         f'canal, apresentando-se e sua função em uma frase -- depois continue normalmente.\n\n'
     )

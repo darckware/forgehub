@@ -17,8 +17,7 @@ docs/
 │   └── FOUNDATION_AGENT_ORGANIZATION.md
 ├── baseline/                      ← documentos históricos de origem
 │   └── CONTEXT_BRIEF.md
-├── guides/                        ← guias operacionais e experiência
-│   ├── MANUAL.md
+├── guides/                        ← direção/visão de produto (dev-facing)
 │   └── PROJECT_DELIVERY_GUIDE.md
 ├── reference/                     ← especificação técnica do estado atual
 │   ├── DATA_MODEL.md
@@ -50,6 +49,19 @@ docs/
     └── forgehub-logo.svg
 ```
 
+**`help/` (irmã de `docs/`, na raiz do repositório) é uma pasta separada** (2026-08-16, Marcelo:
+"crie um pasta de help e adicione essa documentação separada do docs" / "a pasta docs, utilizada
+mais para documentação do dev, e a pasta help para suporte e ajuda") para conteúdo de suporte
+consultado por humano *e* por agente durante o **uso** do produto -- diferente de `docs/`, que é
+governança/especificação para quem **desenvolve** o próprio ForgeHub. Contém:
+
+- `MANUAL.md` -- manual operacional do usuário final (movido para fora de `docs/guides/`);
+- `FORGEHUB_CHANNELS_AGENT_GUIDE.md` -- guia operacional do canal de agentes, enviado literalmente
+  aos agentes dentro de uma mensagem de canal real (`backend/app/api/routes/channel.py`), mesma
+  categoria de suporte do manual (movido para fora de `docs/guides/`);
+- `TECH_STACK_GUIDE.md` -- guia de stack tecnológico para os produtos que o ForgeHub gerencia,
+  consumido pelo botão "Gerar com agente" da Concepção.
+
 ---
 
 ## Finalidade
@@ -66,7 +78,7 @@ Quando houver conflito, use esta ordem:
 4. **`architecture/ENGINEERING_LOOP.md`** — contrato operacional-alvo para execução determinística por agentes/LLMs.
 5. **`architecture/IMPLEMENTATION_READINESS.md`** — lacunas entre estado atual e arquitetura-alvo e ordem de fechamento.
 6. **`architecture/AGENT_CLI_DEVELOPMENT_PROTOCOL.md`** — conduta transitória para executar Tasks no modelo disponível.
-7. **`guides/PROJECT_DELIVERY_GUIDE.md` e `guides/MANUAL.md`** — experiência de uso desejada e orientação ao operador.
+7. **`guides/PROJECT_DELIVERY_GUIDE.md` e `../help/MANUAL.md`** — experiência de uso desejada e orientação ao operador.
 8. **`specs/PRD.md`, `specs/SPEC.md` e documentos de tela históricos** — baseline original; não substituem decisões posteriores.
 
 Regra: documento de direção pode exigir uma mudança, mas não prova que ela já existe. Documento do estado atual pode descrever uma limitação, mas não revoga a arquitetura-alvo.
@@ -86,7 +98,7 @@ Regra: documento de direção pode exigir uma mudança, mas não prova que ela j
 | `reference/TECHNOLOGY.md` | stack implementada | estado atual |
 | `architecture/AGENT_CLI_DEVELOPMENT_PROTOCOL.md` | pacote e conduta de execução | transição atual → alvo |
 | `guides/PROJECT_DELIVERY_GUIDE.md` | jornada operacional desejada | misto; confirmar disponibilidade |
-| `guides/MANUAL.md` | navegação e operação da aplicação atual | operacional |
+| `../help/MANUAL.md` | navegação e operação da aplicação atual | operacional |
 | `agents/AGENT_ORGANIZATION_CHART.md` | organização operacional dos agentes | arquitetura organizacional |
 | `agents/AGENT_ECOSYSTEM_ASSESSMENT.md` | justificativa e acionamento dos agentes | análise de apoio |
 | `agents/FOUNDATION_AGENT_ORGANIZATION.md` | projeção proposta para Hermes Foundation | integração proposta |
@@ -117,7 +129,7 @@ Regra: documento de direção pode exigir uma mudança, mas não prova que ela j
 
 ### Para operar o sistema atual
 
-1. `guides/MANUAL.md`;
+1. `../help/MANUAL.md`;
 2. `reference/DATA_MODEL.md` e `reference/BUSINESS_RULES.md` quando houver dúvida;
 3. código/rotas atuais;
 4. nunca presumir que itens marcados como propostos estejam disponíveis.
