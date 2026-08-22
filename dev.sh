@@ -75,7 +75,7 @@ check_config() {
   local failed=0
 
   if [ ! -f "$ROOT_DIR/.env" ]; then
-    err ".env not found at repo root -- copy .env.example and fill in Postgres/Kanboard credentials first."
+    err ".env not found at repo root -- copy .env.example and fill in Postgres credentials first."
     failed=1
   fi
 

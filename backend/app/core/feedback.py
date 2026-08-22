@@ -105,6 +105,22 @@ async def _deliver_notification(db: AsyncSession, demand: AgentDemand, *, title:
     success without opening it -- the bell holds thousands of routine info
     rows, and an error that looks like all of them is invisible.
     """
+    # Terminal-state-scoped: a message can only be delivered once per
+    # outcome, and a reprocessed one that fails again is a new event.
+    event_key = f"demand-feedback:{demand.id}:{demand.dispatch_attempts}"
+    # This notification survives a delivery that fails afterwards (Telegram
+    # down, no Workspace channel): it is added first, on purpose, so the run
+    # is recorded either way -- but `feedback_sent_at` then stays NULL and
+    # the sweep picks the same message up again. Without this check the
+    # second attempt re-inserts the same event_key and the UNIQUE violation
+    # aborts the whole pass, taking every other owed outcome with it.
+    already_notified = (
+        await db.execute(
+            select(Notification.id).where(Notification.event_key == event_key).limit(1)
+        )
+    ).scalar_one_or_none()
+    if already_notified is not None:
+        return
     db.add(
         Notification(
             source="system",
@@ -112,9 +128,7 @@ async def _deliver_notification(db: AsyncSession, demand: AgentDemand, *, title:
             title=title,
             message=_outcome_line(demand),
             summary=_body(demand, limit=600) or None,
-            # Terminal-state-scoped: a message can only be delivered once per
-            # outcome, and a reprocessed one that fails again is a new event.
-            event_key=f"demand-feedback:{demand.id}:{demand.dispatch_attempts}",
+            event_key=event_key,
             occurred_at=datetime.now(timezone.utc),
         )
     )

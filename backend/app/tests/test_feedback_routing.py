@@ -17,6 +17,7 @@ The rules these protect (all agreed with Marcelo):
 """
 import uuid
 
+import httpx
 import pytest_asyncio
 from sqlalchemy import delete, select
 
@@ -240,6 +241,46 @@ async def test_the_sweep_picks_up_what_inline_delivery_missed(agent):
     async with AsyncSessionLocal() as session:
         d = await session.get(AgentDemand, demand_id)
         assert d.feedback_sent_at is not None
+
+
+async def test_a_failed_delivery_does_not_poison_the_next_sweep(agent, monkeypatch):
+    """Reproduces a real production stall: three terminal messages sat with
+    feedback owed for days while every sweep crashed on the first one.
+
+    The in-app notification is added *before* the channel send, so the run is
+    recorded even when Telegram is down -- but then `feedback_sent_at` stays
+    NULL and the same message is picked up again. Re-inserting its event_key
+    raised a UNIQUE violation that aborted the whole pass, so every *other*
+    owed outcome in that sweep was lost too, not just this one."""
+    class _DownClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, *a, **k):
+            raise httpx.ConnectError("bridge down")
+
+    monkeypatch.setattr("app.core.feedback.httpx.AsyncClient", _DownClient)
+
+    stuck = await _finished(agent, channel="telegram", channel_ref="1085550644")
+    async with AsyncSessionLocal() as session:
+        await run_feedback_pass(session)
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        assert (await session.get(AgentDemand, stuck)).feedback_sent_at is None, (
+            "a send that never went out must stay visibly owed"
+        )
+    assert len(await _notifications_for(stuck)) == 1
+
+    # The next sweep must survive the still-owed message and keep delivering
+    # the ones behind it.
+    reachable = await _finished(agent, channel="assistant")
+    async with AsyncSessionLocal() as session:
+        assert await run_feedback_pass(session) >= 1
+
+    async with AsyncSessionLocal() as session:
+        assert (await session.get(AgentDemand, reachable)).feedback_sent_at is not None
+    assert len(await _notifications_for(stuck)) == 1, "same outcome, same event, one record"
 
 
 async def test_telegram_answers_through_the_receiving_agents_bot(agent, monkeypatch):
