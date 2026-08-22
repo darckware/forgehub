@@ -44,6 +44,7 @@
     "auditor": "Auditor",
     "deployControl": "Deploy Control",
     "servers": "Servers",
+    "agentActivity": "Agent Activity",
     "database": "Database",
     "databaseSchema": "Schema",
     "databaseDiagram": "Database ERD Diagram",

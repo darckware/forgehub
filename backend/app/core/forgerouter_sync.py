@@ -20,6 +20,7 @@ generic `foundation_postgres`/`forgerouter` connection (settings.db_url_for)
 -- this module just narrows that to one query.
 """
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -31,6 +32,27 @@ from app.core.config import settings
 class ForgeRouterAgentKey:
     name: str
     api_key: str
+
+
+@dataclass(frozen=True)
+class ForgeRouterActivityEvent:
+    """One row of `ai_router.route_events` -- a single LLM completion call
+    ForgeRouter routed for an agent, not a tool-call-level log (ForgeRouter
+    doesn't record which individual tool -- web search, bash, etc. -- a
+    call used, only the routing `required_capability` tier it needed:
+    text/code/tool_call/vision). Still real, per-request telemetry (unlike
+    ForgeHub's own dispatch_status, which only changes at message
+    granularity), so it's the only honest source for "is this agent
+    actively calling an LLM right now" between dispatch and completion."""
+
+    request_id: str
+    agent_name: str | None
+    required_capability: str
+    demand: str | None
+    status: str
+    created_at: datetime
+    prompt_preview: str | None
+    cost: float | None
 
 
 async def _read_ai_router_agents(kind: str) -> list[ForgeRouterAgentKey]:
@@ -77,3 +99,52 @@ async def read_forgerouter_service_keys() -> list[ForgeRouterAgentKey]:
     a key into, so it's looked up by name straight against this table
     instead of through Agent.forgerouter_api_key_encrypted."""
     return await _read_ai_router_agents("service")
+
+
+async def read_recent_forgerouter_activity(since_seconds: int = 120, limit: int = 200) -> list[ForgeRouterActivityEvent]:
+    """Route events from the last `since_seconds` -- backs the Agent
+    Activity board's live "agent is actively calling an LLM" pulse (2026-08-
+    17, Marcelo: "eu tenho no forgerouter" -- pointing out that per-request
+    telemetry already exists there, after ForgeHub's own dispatch_status was
+    shown to only ever answer "dispatched/running/completed/failed" with no
+    finer signal). Joined to `ai_router.agents` for a display name; a null
+    `agent_name` means the request wasn't attributed to a registered agent
+    (a raw/anonymous call) and the caller should treat it as unmapped rather
+    than guessing."""
+    url = settings.db_url_for(
+        settings.FOUNDATION_POSTGRES_HOST, settings.FOUNDATION_POSTGRES_PORT, "forgerouter"
+    )
+    engine = create_async_engine(url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        """
+                        SELECT re.request_id, a.name, re.required_capability, re.demand,
+                               re.status, re.created_at, re.prompt_preview, re.cost
+                        FROM ai_router.route_events re
+                        LEFT JOIN ai_router.agents a ON a.agent_id = re.agent_id
+                        WHERE re.created_at > now() - make_interval(secs => :since_seconds)
+                        ORDER BY re.created_at DESC
+                        LIMIT :limit
+                        """
+                    ),
+                    {"since_seconds": since_seconds, "limit": limit},
+                )
+            ).fetchall()
+            return [
+                ForgeRouterActivityEvent(
+                    request_id=str(r[0]),
+                    agent_name=r[1],
+                    required_capability=r[2],
+                    demand=r[3],
+                    status=r[4],
+                    created_at=r[5],
+                    prompt_preview=r[6],
+                    cost=float(r[7]) if r[7] is not None else None,
+                )
+                for r in rows
+            ]
+    finally:
+        await engine.dispose()

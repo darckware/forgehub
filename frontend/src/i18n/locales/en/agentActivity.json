@@ -1,0 +1,16 @@
+{
+  "title": "Agent Activity",
+  "subtitle": "Live view of real message exchanges between agents — every packet and glow reflects an actual ForgeHub Messages dispatch.",
+  "emptyState": "No agent-to-agent traffic yet.",
+  "openTasks": "Running tasks",
+  "dialog": {
+    "title": "Tasks in progress",
+    "empty": "No dispatched task in the current window.",
+    "status": {
+      "dispatched": "Dispatched",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
+  }
+}

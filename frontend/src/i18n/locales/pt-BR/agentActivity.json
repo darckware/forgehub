@@ -1,0 +1,16 @@
+{
+  "title": "Atividade dos Agentes",
+  "subtitle": "Visão ao vivo da troca real de mensagens entre agentes — cada pacote e brilho no mapa reflete um despacho real do ForgeHub Messages.",
+  "emptyState": "Ainda não há tráfego entre agentes para exibir.",
+  "openTasks": "Tarefas em execução",
+  "dialog": {
+    "title": "Tarefas em andamento",
+    "empty": "Nenhuma tarefa despachada na janela atual.",
+    "status": {
+      "dispatched": "Despachada",
+      "running": "Em execução",
+      "completed": "Concluída",
+      "failed": "Falhou"
+    }
+  }
+}

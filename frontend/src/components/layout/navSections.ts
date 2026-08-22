@@ -1,4 +1,5 @@
 import {
+  Activity,
   Bell,
   BookOpen,
   Bot,
@@ -126,6 +127,10 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     labelKey: "nav.section.operations",
     entries: [
       { type: "link", to: "/system-control", labelKey: "nav.systemControl", icon: GitBranch, module: "system_control" },
+      // Live board over the same data the Messages page's overview tab
+      // aggregates -- gated on the same "demands" module rather than a new
+      // one, since it's a different view of identical rows/permissions.
+      { type: "link", to: "/agent-activity", labelKey: "nav.agentActivity", icon: Activity, module: "demands" },
       { type: "link", to: "/hindsight", labelKey: "nav.hindsight", icon: Brain, module: "foundation" },
       // Ecosystem checkpoints (audit_checks) -- admins always see it; grant
       // the "auditor" module in Access Profiles for non-admin visibility.

@@ -13,12 +13,49 @@ non-admin ForgeHub profile grants.
 """
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.deps import get_current_admin
+from app.core.forgerouter_sync import read_recent_forgerouter_activity
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/forgerouter", tags=["forgerouter"])
+
+
+class ForgeRouterActivityOut(BaseModel):
+    request_id: str
+    agent_name: str | None
+    required_capability: str
+    demand: str | None
+    status: str
+    created_at: str
+    prompt_preview: str | None
+    cost: float | None
+
+
+@router.get("/activity")
+async def forgerouter_activity(since_seconds: int = 120, limit: int = 200) -> list[ForgeRouterActivityOut]:
+    """Recent `ai_router.route_events` rows -- see
+    read_recent_forgerouter_activity's own docstring for what this is and
+    isn't (per-LLM-call telemetry, not a per-tool-call log). Auth is the
+    global RequireAuthMiddleware (any logged-in user), same as every other
+    plain-read domain route -- this isn't admin-gated like /sso above
+    because it doesn't touch provider credentials, just request metadata."""
+    events = await read_recent_forgerouter_activity(since_seconds=since_seconds, limit=limit)
+    return [
+        ForgeRouterActivityOut(
+            request_id=e.request_id,
+            agent_name=e.agent_name,
+            required_capability=e.required_capability,
+            demand=e.demand,
+            status=e.status,
+            created_at=e.created_at.isoformat(),
+            prompt_preview=e.prompt_preview,
+            cost=e.cost,
+        )
+        for e in events
+    ]
 
 
 @router.post("/sso")

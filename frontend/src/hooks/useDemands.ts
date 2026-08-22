@@ -76,6 +76,11 @@ export const demandSchema = z.object({
   // one picks the project a *converted* entity lands in).
   project_id: z.string().nullable(),
   command_text: z.string().nullable(),
+  // The cwd the recipient agent's run starts in for this message (2026-08-13,
+  // see AgentDemand.working_path's own docstring) -- null means the runtime
+  // default applies, not "no folder". Used to show which working directory
+  // an agent is actually processing in on the Agent Activity board.
+  working_path: z.string().nullable().optional(),
   // Mandatory (2026-07-28) -- always "task" or "incubation", never null.
   // "demand" was retired: an auto-generated return message is now Tipo=task
   // too (see reply_to_id below).
