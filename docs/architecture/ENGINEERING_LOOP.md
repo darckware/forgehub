@@ -8,6 +8,8 @@ O runtime de implementação suportado nesta arquitetura é fechado inicialmente
 
 O loop é independente do tipo de entrega. Pode governar um sistema completo ou um único componente; o que muda é o ProjectScope e o template resolvido. Categorias não aplicáveis devem ser marcadas explicitamente como `not_applicable`, nunca simplesmente omitidas e depois inferidas pela LLM.
 
+> **Nota de implementação (2026-08-17):** o gate de evidência (§8, `TaskExecution: completed -> verified`) e o loop produtor-revisor com `changes_requested` (§9) descritos abaixo já têm uma implementação real no caminho canônico de dispatch (`task.py`/Messages, não o Execution Wave/Work Package deste documento) — ver `PLANNING_DELIVERY_ARCHITECTURE.md` §6.6 para o que foi construído, os arquivos exatos e a lacuna de reconciliação ainda pendente entre os dois pipelines de revisão.
+
 ## 2. Princípio central
 
 ```text

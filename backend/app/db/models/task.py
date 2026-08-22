@@ -21,10 +21,13 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -129,6 +132,57 @@ class ProjectTask(Base, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint(f"status IN {TASK_STATUSES!r}", name="ck_project_tasks_status"),
+    )
+
+
+class ResponsibilityArea(Base, TimestampMixin):
+    """Default agent owner for a category of task (`task_type`), optionally
+    scoped to one project -- layered task-execution governance, Fase 2
+    (plan: resilient-twirling-blossom). Deliberately reuses `task_type`
+    (feature|bug|improvement|technical_debt|refactoring|security_fix|
+    research|documentation|other) instead of inventing a parallel taxonomy:
+    that's the axis this table exists to give a default owner for.
+
+    Distinct from `ProjectAgentMembership.role` (developer|data_engineer|
+    release_manager, PM-lifecycle vocabulary set by ROLE_BY_SOLUTION_TYPE) --
+    a different axis (who's responsible for *this kind of work*, not what
+    lifecycle role an agent plays on the project). `_dispatch_task_by_id`
+    (api/routes/task.py) consults this only as a fallback when a task has
+    no explicit target_agent_id and no active TaskAssignment.
+
+    `project_id=NULL` is the global default for that task_type; a row with
+    `project_id` set overrides it for that one project. Resolution order
+    (see core/responsibility.py's resolve_responsibility_owner): exact
+    (task_type, project_id) match first, then (task_type, NULL).
+    """
+
+    __tablename__ = "responsibility_areas"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    task_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=True
+    )
+    owner_agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id"), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "task_type", "project_id", name="uq_responsibility_areas_task_type_project"
+        ),
+        # Postgres treats each NULL as distinct under a plain UniqueConstraint,
+        # so the constraint above alone would let multiple "global default"
+        # rows (project_id IS NULL) coexist for the same task_type. A partial
+        # unique index closes that -- there can be at most one global default
+        # per task_type, same as there's at most one override per project.
+        Index(
+            "uq_responsibility_areas_global_default",
+            "task_type",
+            unique=True,
+            postgresql_where=text("project_id IS NULL"),
+        ),
     )
 
 

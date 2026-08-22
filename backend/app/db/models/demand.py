@@ -272,6 +272,20 @@ class AgentDemand(Base, TimestampMixin):
     # from a human-typed display number at the route layer (see demand.py's
     # _resolve_origin), never hand-typed as a UUID.
     origin_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # The specific TaskExecution attempt this dispatch is finalizing --
+    # distinct from origin_id (which names the *task*, not a single attempt).
+    # A task can have multiple executions/retries, so _finalize_dispatch
+    # needs to know exactly which attempt to close, not "the latest one for
+    # this task" (a race against a concurrent retry). Set once, when
+    # _dispatch_task_by_id (task.py) creates the TaskExecution alongside this
+    # demand; NULL for any demand not tied to a real ProjectTask dispatch
+    # (a loose Messages task, an incubation, a reply). Real FK, unlike
+    # origin_id's deliberate polymorphism -- both sides always resolve to
+    # the same two tables (AgentDemand, TaskExecution), no ambiguity to
+    # keep loose for.
+    task_execution_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.task_executions.id", ondelete="SET NULL"), nullable=True
+    )
     # The agent's raw output once a dispatch reaches a terminal state --
     # written by _finalize_dispatch (demand.py) onto this SAME message,
     # regardless of requires_response (2026-07-28, Marcelo: "não temos

@@ -60,7 +60,7 @@ from app.db.models.demand import (
 )
 from app.db.models.notification import Notification
 from app.db.models.project import Project
-from app.db.models.task import ProjectTask
+from app.db.models.task import ProjectTask, TaskExecution
 
 logger = logging.getLogger(__name__)
 
@@ -1611,6 +1611,20 @@ def _format_execution_header(demand: AgentDemand, agent_name: str) -> str:
     )
 
 
+def _extract_evidence_ref(text: str) -> str | None:
+    """Pulls a structured `EVIDENCE: <ref>` line out of an agent's response,
+    per the convention _dispatch_task_by_id (task.py) asks for in the
+    dispatch body. Returns None when absent -- that's not an error, it just
+    means the execution stays in "reported" for manual verification instead
+    of the automatic pass (core/task_evidence.py) picking it up."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith("EVIDENCE:"):
+            ref = stripped.split(":", 1)[1].strip()
+            return ref or None
+    return None
+
+
 async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[str, Any]) -> AgentDemand | None:
     """The terminal transition of a dispatch, shared by the frontend's
     GET .../dispatch-status and the background completion pass: flips
@@ -1675,6 +1689,29 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
     # #number, never Kanboard (2026-07-28, Marcelo: "remova o kanboard do
     # forgehub").
     locked.dispatch_result = _format_execution_header(locked, agent.name if agent else "agent") + reply_body
+
+    # Layered task-execution governance, Fase 1.3 (plan: resilient-twirling-
+    # blossom): dispatch_status only ever meant "the host-bridge process
+    # exited cleanly," never "the work is verified" -- but nothing upstream
+    # of this made that distinction visible. When this dispatch is tied to a
+    # real TaskExecution (task.py's _dispatch_task_by_id sets
+    # task_execution_id), close it here instead of ever writing
+    # "completed"/"verified" directly: a failed run is unambiguous, but a
+    # clean exit only means the agent finished *talking*, not that the
+    # claimed work is real. run_evidence_verification_pass
+    # (core/task_evidence.py) is what actually promotes "reported" to
+    # "verified" -- by checking evidence_ref against reality -- or demotes
+    # it to "failed" when the check comes up empty.
+    if locked.task_execution_id is not None:
+        execution = await db.get(TaskExecution, locked.task_execution_id)
+        if execution is not None:
+            execution.finished_at = datetime.now(timezone.utc)
+            execution.outcome_summary = reply_body
+            if locked.dispatch_status == "failed":
+                execution.status = "failed"
+            else:
+                execution.status = "reported"
+                execution.evidence_ref = _extract_evidence_ref(reply_body)
 
     # Channel narration (see db/models/channel.py's module docstring): a
     # ChatChannel message can trigger a real dispatch via this exact

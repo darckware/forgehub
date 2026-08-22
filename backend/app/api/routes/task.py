@@ -11,6 +11,11 @@ and 6.2 used as a pattern for dependency-style blocking):
   creating a TaskExecution moves it to "in_progress"; it never silently
   jumps to "done" -- only an explicit PATCH with status="done" does that,
   and only once at least one execution is "completed" or "verified".
+  Enforced by `_ensure_evidence_verified` (2026-08-17, layered
+  task-execution governance): a task with an execution history is gated
+  on its *latest* attempt, not any prior "completed" one -- a task with
+  no executions at all (never dispatched to an agent) is unaffected, so
+  manually-tracked/human-finished tasks keep working exactly as before.
 - 6.4.2 Each task can have multiple executions -- enforced naturally by
   allowing repeated POSTs to the executions sub-resource; attempt_number
   auto-increments per task.
@@ -22,6 +27,12 @@ and 6.2 used as a pattern for dependency-style blocking):
 - A task cannot be marked "done" while it has an incomplete dependency
   (mirrors SPEC 6.2.9 "blocked stages must prevent dependent stages from
   advancing", applied at task granularity).
+- A task cannot be marked "done" while any of its own subtasks
+  (`parent_task_id`) hasn't reached "done"/"deployed" -- the fan-out half
+  of layered task-execution governance (2026-08-17): an area breaks a task
+  into subtasks via the same self-FK, dispatches each individually, and
+  the parent can't complete until all of them have (`_ensure_subtasks_
+  completed`).
 - A task must trace back to the planning item it was split from
   (core traceability invariant, CLAUDE.md / SPEC 5.4) -- planning_item_id
   is required on create and must reference an existing PlanningItem.
@@ -38,6 +49,9 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.task import (
+    ResponsibilityAreaCreate,
+    ResponsibilityAreaOut,
+    ResponsibilityAreaUpdate,
     TaskAssignmentCreate,
     TaskAssignmentOut,
     TaskDependencyCreate,
@@ -55,17 +69,19 @@ from app.api.schemas.task import (
     TaskSubmitIn,
 )
 from app.core.config import settings
+from app.core.responsibility import resolve_responsibility_owner
 from app.db.base import get_db
 from app.db.models.agent import Agent, SubAgent
 from app.db.models.backlog import PLANNING_ITEM_TYPES, PlanningItem
 from app.db.models.demand import AgentDemand
-from app.db.models.governance import AuditEvent
+from app.db.models.governance import ApprovalRequest, AuditEvent
 from app.db.models.notification import Notification
 from app.db.models.progress import ProgressCheckpoint
 from app.db.models.orchestration import AgentRuntimeProfile, ProjectAgentMembership, ProjectLoopPolicy
 from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import (
     ProjectTask,
+    ResponsibilityArea,
     TaskAssignment,
     TaskDependency,
     TaskExecution,
@@ -73,6 +89,12 @@ from app.db.models.task import (
 )
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
+
+# Standalone resource (not nested under a task) -- a ResponsibilityArea maps
+# a task_type (optionally scoped to a project) to a default owner agent, see
+# db/models/task.py's ResponsibilityArea docstring. Registered separately in
+# main.py alongside `router` (same pattern module, two prefixes).
+responsibility_router = APIRouter(prefix="/api/v1/responsibility-areas", tags=["responsibility-areas"])
 
 
 async def _get_task_or_404(db: AsyncSession, task_id: uuid.UUID) -> ProjectTask:
@@ -347,6 +369,8 @@ async def update_task(
 
     if data.get("status") == "done":
         await _ensure_dependencies_satisfied(db, task_id)
+        await _ensure_evidence_verified(db, task_id)
+        await _ensure_subtasks_completed(db, task_id)
 
     for field, value in data.items():
         setattr(task, field, value)
@@ -396,6 +420,77 @@ async def _ensure_dependencies_satisfied(db: AsyncSession, task_id: uuid.UUID) -
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Cannot complete task: dependency {dep_id} is not done (status={dep_status})",
             )
+
+
+async def _ensure_subtasks_completed(db: AsyncSession, task_id: uuid.UUID) -> None:
+    """Layered task-execution governance, Fase 4 (plan: resilient-twirling-
+    blossom): the fan-out half of "área despacha seus próprios subagentes"
+    -- a responsible area breaks a task into subtasks via the existing
+    `parent_task_id` self-FK (create_task already validates it, list_tasks
+    already filters by it; dispatch stays 1:1 per subtask, nothing new
+    there). The only piece that didn't already exist: a parent cannot be
+    marked done while any of its own subtasks (parent_task_id == task_id)
+    hasn't reached a terminal "delivered" state -- same shape as
+    `_ensure_dependencies_satisfied` above, just walking the parent/child
+    axis instead of the explicit TaskDependency axis."""
+    stmt = select(ProjectTask.id, ProjectTask.status).where(ProjectTask.parent_task_id == task_id)
+    result = await db.execute(stmt)
+    for subtask_id, subtask_status in result.all():
+        if subtask_status not in ("done", "deployed"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot complete task: subtask {subtask_id} is not done (status={subtask_status})",
+            )
+
+
+async def _ensure_evidence_verified(db: AsyncSession, task_id: uuid.UUID) -> None:
+    """Layered task-execution governance, Fase 1.5 (plan: resilient-
+    twirling-blossom): a task that was actually dispatched to an agent
+    cannot be marked done while its latest execution attempt hasn't been
+    verified (core/task_evidence.py) or explicitly completed. A task with
+    no executions at all -- never dispatched, tracked/finished by hand --
+    is deliberately unaffected: this closes the gap where a *dispatched*
+    task's narrated-but-unverified result got accepted as done, without
+    forcing every task in the system through agent dispatch."""
+    result = await db.execute(
+        select(TaskExecution)
+        .where(TaskExecution.task_id == task_id)
+        .order_by(TaskExecution.attempt_number.desc())
+        .limit(1)
+    )
+    latest = result.scalar_one_or_none()
+    if latest is None:
+        return
+    if latest.status not in ("verified", "completed"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Cannot complete task: latest execution (attempt {latest.attempt_number}) "
+                f"has status={latest.status!r}, not verified/completed"
+            ),
+        )
+
+    # Fase 3: if a governed approval decision is outstanding for this exact
+    # execution, a direct PATCH status=done must wait for that decision --
+    # request_task_approval (core/governed_approval.py) only ever creates
+    # one when an active project_task policy binding exists, so this stays
+    # a no-op (nothing pending, nothing to check here) until someone
+    # deliberately turns that layer on.
+    pending = (
+        await db.execute(
+            select(ApprovalRequest.id).where(
+                ApprovalRequest.target_type == "project_task",
+                ApprovalRequest.target_id == task_id,
+                ApprovalRequest.target_revision_id == latest.id,
+                ApprovalRequest.status == "pending",
+            )
+        )
+    ).scalar_one_or_none()
+    if pending is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot complete task: awaiting governed approval decision",
+        )
 
 
 # --------------------------------------------------------------------------
@@ -719,6 +814,85 @@ async def list_task_assignments(
 
 
 # --------------------------------------------------------------------------
+# ResponsibilityArea (standalone -- see responsibility_router above)
+# --------------------------------------------------------------------------
+
+
+@responsibility_router.post("", response_model=ResponsibilityAreaOut, status_code=status.HTTP_201_CREATED)
+async def create_responsibility_area(
+    payload: ResponsibilityAreaCreate, db: AsyncSession = Depends(get_db)
+) -> ResponsibilityArea:
+    if payload.project_id is not None:
+        if await db.get(Project, payload.project_id) is None:
+            raise HTTPException(status_code=400, detail="project_id must reference an existing project")
+    if await db.get(Agent, payload.owner_agent_id) is None:
+        raise HTTPException(status_code=400, detail="owner_agent_id must reference an existing agent")
+
+    existing = (
+        await db.execute(
+            select(ResponsibilityArea).where(
+                ResponsibilityArea.task_type == payload.task_type,
+                ResponsibilityArea.project_id == payload.project_id
+                if payload.project_id is not None
+                else ResponsibilityArea.project_id.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A responsibility area already exists for this task_type/project combination",
+        )
+
+    area = ResponsibilityArea(**payload.model_dump())
+    db.add(area)
+    await db.commit()
+    await db.refresh(area)
+    return area
+
+
+@responsibility_router.get("", response_model=list[ResponsibilityAreaOut])
+async def list_responsibility_areas(
+    project_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)
+) -> list[ResponsibilityArea]:
+    stmt = select(ResponsibilityArea)
+    if project_id is not None:
+        # Both the project-scoped overrides and the global defaults are
+        # relevant to a project's own view -- resolve_responsibility_owner
+        # falls back to the global row, so callers listing "what applies
+        # here" need to see both.
+        stmt = stmt.where(
+            or_(ResponsibilityArea.project_id == project_id, ResponsibilityArea.project_id.is_(None))
+        )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+@responsibility_router.patch("/{area_id}", response_model=ResponsibilityAreaOut)
+async def update_responsibility_area(
+    area_id: uuid.UUID, payload: ResponsibilityAreaUpdate, db: AsyncSession = Depends(get_db)
+) -> ResponsibilityArea:
+    area = await db.get(ResponsibilityArea, area_id)
+    if area is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Responsibility area not found")
+    if await db.get(Agent, payload.owner_agent_id) is None:
+        raise HTTPException(status_code=400, detail="owner_agent_id must reference an existing agent")
+    area.owner_agent_id = payload.owner_agent_id
+    await db.commit()
+    await db.refresh(area)
+    return area
+
+
+@responsibility_router.delete("/{area_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_responsibility_area(area_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+    area = await db.get(ResponsibilityArea, area_id)
+    if area is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Responsibility area not found")
+    await db.delete(area)
+    await db.commit()
+
+
+# --------------------------------------------------------------------------
 # Task dispatch -- executed through the Inbox message process
 # --------------------------------------------------------------------------
 @router.post("/{task_id}/dispatch", response_model=TaskInboxDispatchOut)
@@ -784,8 +958,13 @@ async def _dispatch_task_by_id(
             "blocking": blocking,
         })
 
-    # Alvo: o informado, senão o agente da atribuição ativa da task.
+    project_id = await _resolve_task_project_id(db, task)
+
+    # Alvo: o informado, senão o agente da atribuição ativa da task, senão
+    # (layered task-execution governance, Fase 2) o dono padrão resolvido
+    # por ResponsibilityArea para a categoria desta task -- só então falha.
     target_agent_id = payload.target_agent_id
+    assignment_id: uuid.UUID | None = None
     if target_agent_id is None:
         assignment = (
             await db.execute(
@@ -799,18 +978,24 @@ async def _dispatch_task_by_id(
                 .limit(1)
             )
         ).scalar_one_or_none()
-        if assignment is None:
+        if assignment is not None:
+            target_agent_id = assignment.agent_id
+            assignment_id = assignment.id
+        else:
+            target_agent_id = await resolve_responsibility_owner(db, task.task_type, project_id)
+        if target_agent_id is None:
             raise HTTPException(
                 status_code=400,
-                detail="Task has no active agent assignment; pass target_agent_id or assign it first",
+                detail=(
+                    "Task has no active agent assignment and no responsibility area covers "
+                    f"task_type={task.task_type!r}; pass target_agent_id, assign it, or "
+                    "register a responsibility area first"
+                ),
             )
-        target_agent_id = assignment.agent_id
 
     agent = await db.get(Agent, target_agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    project_id = await _resolve_task_project_id(db, task)
 
     body_parts = [f"Task #{task.number}: {task.title}"]
     if task.description:
@@ -820,6 +1005,33 @@ async def _dispatch_task_by_id(
     body_parts.append(
         f"Tipo: {task.task_type} | Prioridade: {task.priority} | Status atual: {task.status}"
     )
+    # Evidência (Fase 1 da governança em camadas): pede ao agente que declare
+    # de forma estruturada o que comprova o trabalho, para o verificador
+    # automático (core/task_evidence.py) cruzar contra a realidade em vez de
+    # aceitar só a narrativa da resposta.
+    body_parts.append(
+        "Ao concluir, declare a evidência numa linha própria no formato "
+        "'EVIDENCE: <ref>', onde <ref> é um dos:\n"
+        "- file:<caminho relativo ao projeto> (arquivo que você criou/alterou)\n"
+        "- git:<sha> (commit que contém a mudança)\n"
+        "- db:<entity_type>:<uuid> (registro real que você criou, ex: db:project:...)\n"
+        "Sem essa linha, a execução fica pendente de verificação manual."
+    )
+
+    count_result = await db.execute(
+        select(TaskExecution.id).where(TaskExecution.task_id == task.id)
+    )
+    attempt_number = len(count_result.all()) + 1
+    execution = TaskExecution(
+        task_id=task.id,
+        assignment_id=assignment_id,
+        attempt_number=attempt_number,
+        executor_type="agent",
+        status="running",
+        started_at=datetime.now(timezone.utc),
+    )
+    db.add(execution)
+    await db.flush()  # atribui execution.id antes do demand referenciá-lo
 
     demand = AgentDemand(
         from_agent="forgehub",
@@ -830,6 +1042,7 @@ async def _dispatch_task_by_id(
         project_id=project_id,
         origin_type="task",
         origin_id=task.id,
+        task_execution_id=execution.id,
         # Meio de comunicação = Software Factory, com a própria task como
         # endereço de retorno: aqui o resultado é o status/evidência da task,
         # não uma mensagem (2026-08-13).
@@ -839,6 +1052,7 @@ async def _dispatch_task_by_id(
     )
     db.add(demand)
     await db.flush()  # atribui demand.id/number antes da notificação referenciá-los
+    execution.runtime_session_ref = str(demand.id)
 
     db.add(
         Notification(

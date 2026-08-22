@@ -14,7 +14,7 @@ from app.api.schemas.governed_approval import (
     DelegationCreate, DelegationOut, GovernedDecisionIn, GovernedDecisionOut, PolicyEvaluationOut,
 )
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
-from app.core.governed_approval import decide_concept_approval
+from app.core.governed_approval import decide_concept_approval, decide_task_approval
 from app.db.base import AsyncSessionLocal, get_db
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import ApprovalRequest, AuthorityDelegation, AuditEvent, PolicyEvaluation
@@ -69,11 +69,16 @@ async def decide_request(
     request = await db.get(ApprovalRequest, request_id)
     if not request:
         raise HTTPException(404, "Approval request not found")
-    if request.target_type != "product_concept":
+    if request.target_type == "product_concept":
+        decision = await decide_concept_approval(
+            db, principal, request, payload.decision, payload.comments, payload.idempotency_key
+        )
+    elif request.target_type == "project_task":
+        decision = await decide_task_approval(
+            db, principal, request, payload.decision, payload.comments, payload.idempotency_key
+        )
+    else:
         raise HTTPException(422, "Unsupported governed target type")
-    decision = await decide_concept_approval(
-        db, principal, request, payload.decision, payload.comments, payload.idempotency_key
-    )
     await db.commit()
     await db.refresh(decision)
     # Notification is intentionally post-commit and best-effort: a delivery
@@ -83,9 +88,10 @@ async def decide_request(
             event_key = f"approval:decision:{request.id}"
             exists = await notify_db.scalar(select(Notification.id).where(Notification.event_key == event_key))
             if not exists:
+                subject = "Concept" if request.target_type == "product_concept" else "Task"
                 notify_db.add(Notification(
                     source="system", severity="success" if payload.decision == "approved" else "warning",
-                    title=f"Concept {payload.decision.replace('_', ' ')}",
+                    title=f"{subject} {payload.decision.replace('_', ' ')}",
                     message=f"{principal.display_name} decided approval request {request.id}.",
                     event_key=event_key, occurred_at=datetime.now(timezone.utc),
                 ))

@@ -373,6 +373,57 @@ async def test_task_cannot_complete_with_unfinished_dependency(
 
 
 @pytest.mark.asyncio
+async def test_task_cannot_complete_with_unfinished_subtask(
+    client: AsyncClient, created_ids, planning_item_id
+):
+    """Layered task-execution governance, Fase 4 (plan: resilient-twirling-
+    blossom): the fan-out half -- a parent task cannot be marked done while
+    any of its own subtasks (parent_task_id) hasn't reached done/deployed.
+    Mirrors test_task_cannot_complete_with_unfinished_dependency above,
+    walking the parent/child axis instead of the explicit TaskDependency
+    one."""
+    parent_resp = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Parent task")
+    )
+    assert parent_resp.status_code == 201
+    parent_id = parent_resp.json()["id"]
+    created_ids["project_tasks"].append(parent_id)
+
+    sub_resp = await client.post(
+        "/api/v1/tasks",
+        json=_task_payload(planning_item_id, title="Subtask", parent_task_id=parent_id),
+    )
+    assert sub_resp.status_code == 201, sub_resp.text
+    sub_id = sub_resp.json()["id"]
+    created_ids["project_tasks"].append(sub_id)
+
+    blocked = await client.patch(f"/api/v1/tasks/{parent_id}", json={"status": "done"})
+    assert blocked.status_code == 409, blocked.text
+    assert "subtask" in blocked.json()["detail"]
+
+    finish_sub = await client.patch(f"/api/v1/tasks/{sub_id}", json={"status": "done"})
+    assert finish_sub.status_code == 200
+
+    unblocked = await client.patch(f"/api/v1/tasks/{parent_id}", json={"status": "done"})
+    assert unblocked.status_code == 200
+    assert unblocked.json()["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_task_with_no_subtasks_is_unaffected(client: AsyncClient, created_ids, planning_item_id):
+    """A leaf task (no children at all) must keep completing exactly as
+    before -- the new gate only engages when parent_task_id rows actually
+    exist for it."""
+    resp = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id, title="Leaf task"))
+    assert resp.status_code == 201
+    task_id = resp.json()["id"]
+    created_ids["project_tasks"].append(task_id)
+
+    done = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
+    assert done.status_code == 200, done.text
+
+
+@pytest.mark.asyncio
 async def test_self_dependency_rejected(client: AsyncClient, created_ids, planning_item_id):
     resp = await client.post(
         "/api/v1/tasks", json=_task_payload(planning_item_id, title="Solo task")

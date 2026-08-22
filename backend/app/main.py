@@ -247,6 +247,7 @@ app.include_router(execution.router)
 app.include_router(factory.router)
 app.include_router(backlog.router)
 app.include_router(task.router)
+app.include_router(task.responsibility_router)
 app.include_router(agent.router)
 app.include_router(ai_draft.router)
 app.include_router(mcp_catalog.router)
@@ -329,6 +330,13 @@ DISPATCH_COMPLETION_POLL_INTERVAL_SECONDS = 30
 # deadline or a stalled execution isn't as time-sensitive as a queued
 # message, and this pass walks every non-terminal task in the system.
 TASK_FAILURE_POLL_INTERVAL_SECONDS = 900
+
+# How often reported-but-unverified TaskExecutions get their evidence_ref
+# checked against reality (see core/task_evidence.py). Short-ish: this is
+# the gate that stops a narrated-but-not-executed claim from sitting as
+# "reported" indefinitely, and it's a cheap query (filesystem/git checks
+# only run for the handful of rows actually in that state).
+EVIDENCE_VERIFICATION_POLL_INTERVAL_SECONDS = 120
 
 # How often in-flight background app-test runs (mode="background") are
 # polled to completion -- same role as DISPATCH_COMPLETION_POLL_INTERVAL_
@@ -445,6 +453,19 @@ async def _task_failure_poll_loop() -> None:
         except Exception:
             logger.exception("Task failure poll failed")
         await asyncio.sleep(TASK_FAILURE_POLL_INTERVAL_SECONDS)
+
+
+async def _evidence_verification_poll_loop() -> None:
+    from app.core.task_evidence import run_evidence_verification_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_evidence_verification_pass(db)
+        except Exception:
+            logger.exception("Evidence verification poll failed")
+        await asyncio.sleep(EVIDENCE_VERIFICATION_POLL_INTERVAL_SECONDS)
 
 
 async def _bootstrap_admin() -> None:
@@ -590,6 +611,7 @@ async def _start_background_tasks() -> None:
         ("dispatch-completion-poll", _dispatch_completion_poll_loop),
         ("background-test-completion-poll", _background_test_completion_poll_loop),
         ("task-failure-poll", _task_failure_poll_loop),
+        ("evidence-verification-poll", _evidence_verification_poll_loop),
         ("demand-retention-poll", _demand_retention_poll_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]

@@ -156,6 +156,33 @@ class ProjectTaskOut(ProjectTaskBase):
 DEPENDENCY_TYPES = {"finish_to_start", "start_to_start", "finish_to_finish", "start_to_finish"}
 
 
+class ResponsibilityAreaCreate(BaseModel):
+    task_type: str
+    project_id: uuid.UUID | None = None
+    owner_agent_id: uuid.UUID
+
+    @model_validator(mode="after")
+    def _validate(self) -> "ResponsibilityAreaCreate":
+        if self.task_type not in TASK_TYPES:
+            raise ValueError(f"task_type must be one of {sorted(TASK_TYPES)}")
+        return self
+
+
+class ResponsibilityAreaUpdate(BaseModel):
+    owner_agent_id: uuid.UUID
+
+
+class ResponsibilityAreaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    task_type: str
+    project_id: uuid.UUID | None
+    owner_agent_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
 class TaskDependencyCreate(BaseModel):
     task_id: uuid.UUID
     depends_on_task_id: uuid.UUID
