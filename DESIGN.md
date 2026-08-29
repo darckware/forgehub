@@ -1,6 +1,7 @@
 ---
 version: alpha
 colors:
+  primary: "hsl(239 84% 67%)"
   background: "hsl(222 47% 8%)"
   foreground: "hsl(210 40% 98%)"
   card: "hsl(222 47% 11%)"
@@ -23,12 +24,30 @@ rounded:
 spacing:
   unit: "0.25rem"
 components:
+  application:
+    backgroundColor: "{colors.background}"
+    textColor: "{colors.foreground}"
+  surface:
+    backgroundColor: "{colors.card}"
+    rounded: "{rounded.DEFAULT}"
   rosterTable:
-    rowHeight: "3.5rem"
-    expansion: "inline detail row"
+    backgroundColor: "{colors.muted}"
+    textColor: "{colors.mutedForeground}"
+    rounded: "{rounded.compact}"
+    padding: "{spacing.unit}"
   avatar:
-    shape: "circle"
-    fallback: "agent initials"
+    backgroundColor: "{colors.muted}"
+    textColor: "{colors.mutedForeground}"
+    rounded: "9999px"
+    size: "3rem"
+  successBadge:
+    backgroundColor: "{colors.success}"
+  warningBadge:
+    backgroundColor: "{colors.warning}"
+  destructiveAction:
+    textColor: "{colors.destructive}"
+  divider:
+    backgroundColor: "{colors.border}"
 ---
 
 # ForgeHub Design Context
