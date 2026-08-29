@@ -239,3 +239,35 @@ export function useDeleteCleanupCategory() {
     },
   });
 }
+
+export interface TrashStatus {
+  trash_root: string;
+  total_size: number;
+  item_count: number;
+}
+
+/** Size/count of everything currently sitting in TRASH_ROOT -- every
+ * cleanup-scan/delete click and the weekly policy's own files land here
+ * first (recoverable), so this is what "Empty trash" removes for good. */
+export function useTrashStatus() {
+  return useQuery<TrashStatus>({
+    queryKey: ["system-control", "trash-status"],
+    queryFn: () => apiClient.get("/api/v1/system-control/trash-status"),
+    retry: false,
+  });
+}
+
+/** Permanently deletes everything under TRASH_ROOT -- a hard delete, unlike
+ * every other action on this page (cleanup-scan/delete and Run Cleanup only
+ * ever move things here). Separate from Run Cleanup so clearing trash
+ * doesn't also trigger Docker/journal/backup-expiry pruning. */
+export function useEmptyTrash() {
+  const queryClient = useQueryClient();
+  return useMutation<{ trash_root: string }, Error>({
+    mutationFn: () => apiClient.post("/api/v1/system-control/trash:empty", undefined),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "trash-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+    },
+  });
+}

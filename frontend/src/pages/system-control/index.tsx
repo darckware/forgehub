@@ -15,9 +15,11 @@ import {
   useCommitChanges,
   useDeleteBackup,
   useDeleteCleanupCategory,
+  useEmptyTrash,
   useRunBackup,
   useRunCleanup,
   useSystemControlStatus,
+  useTrashStatus,
 } from "@/hooks/useSystemControl";
 import { useKillTerminalSession, useTerminalSessions } from "@/hooks/useTerminalBrowse";
 import {
@@ -68,11 +70,14 @@ export default function SystemControlPage() {
   const deleteBackup = useDeleteBackup();
   const [deletingBackup, setDeletingBackup] = useState<string | null>(null);
 
-  const { data: scan, isLoading: scanLoading, isError: scanError } = useCleanupScan();
+  const { data: scan, isLoading: scanLoading, isFetching: scanFetching, isError: scanError } = useCleanupScan();
   const runCleanup = useRunCleanup();
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const deleteCleanupCategory = useDeleteCleanupCategory();
+  const { data: trashStatus } = useTrashStatus();
+  const emptyTrash = useEmptyTrash();
+  const [confirmingEmptyTrash, setConfirmingEmptyTrash] = useState(false);
   const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
 
   const { data: terminalSessions, isLoading: terminalSessionsLoading } = useTerminalSessions();
@@ -437,8 +442,30 @@ export default function SystemControlPage() {
                   {scan.total_count} file(s), {formatBytes(scan.total_size)} under {scan.root}
                 </span>
               )}
+              {scanFetching && !scanLoading && (
+                <span
+                  className="flex items-center gap-1 text-xs text-muted-foreground"
+                  title="A category was just cleared -- the host filesystem is being re-scanned in the background, counts below are still catching up"
+                >
+                  <Loader2 className="h-3 w-3 animate-spin" /> Updating…
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmingEmptyTrash(true)}
+                disabled={!trashStatus || trashStatus.item_count === 0 || emptyTrash.isPending}
+                className="gap-2 text-destructive hover:text-destructive"
+                title="Permanently deletes everything moved to trash by the buttons below -- unlike them, this cannot be undone"
+              >
+                {emptyTrash.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Empty trash{" "}
+                {trashStatus && trashStatus.item_count > 0
+                  ? `(${trashStatus.item_count} item(s), ${formatBytes(trashStatus.total_size)})`
+                  : ""}
+              </Button>
               <Button
                 size="sm"
                 onClick={() => setConfirmingCleanup(true)}
@@ -452,8 +479,10 @@ export default function SystemControlPage() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Read-only inventory of logs, backup files, cron output snapshots, and old/duplicate scripts. "Run
-            Cleanup" executes the same weekly Athos policy used by the foundation-clear cron: clears trash, expires
+            Read-only inventory of logs, backup files, cron output snapshots, and old/duplicate scripts. Files
+            cleared here (individually or via "Run Cleanup") are moved to trash, not deleted -- use "Empty trash"
+            above to permanently remove what has accumulated there. "Run Cleanup" also executes the same weekly
+            Athos policy used by the foundation-clear cron: expires
             manual backups after 30 days, bounds temporary files and journals, and prunes all inactive reproducible Docker cache,
             stopped containers, dangling images, and unused networks. Docker volumes, databases, live agent logs,
             sessions, knowledge, and scripts are never deleted by this action.
@@ -468,6 +497,24 @@ export default function SystemControlPage() {
               runCleanup.mutate(undefined, { onSuccess: () => setConfirmingCleanup(false) })
             }
             onCancel={() => setConfirmingCleanup(false)}
+          />
+          {emptyTrash.isError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {(emptyTrash.error as Error)?.message ?? "Failed to empty trash"}
+            </div>
+          )}
+          <ConfirmDialog
+            open={confirmingEmptyTrash}
+            title={
+              trashStatus
+                ? `Permanently delete ${trashStatus.item_count} item(s) (${formatBytes(trashStatus.total_size)}) from trash?`
+                : "Permanently delete everything in trash?"
+            }
+            description="Everything currently in trash -- from every category clear and every Run Cleanup so far -- is deleted for good. This cannot be undone and is not part of the weekly policy; it only runs when you click this button."
+            confirmLabel="Empty trash"
+            loading={emptyTrash.isPending}
+            onConfirm={() => emptyTrash.mutate(undefined, { onSuccess: () => setConfirmingEmptyTrash(false) })}
+            onCancel={() => setConfirmingEmptyTrash(false)}
           />
           {runCleanup.isSuccess && (
             <div className="space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">

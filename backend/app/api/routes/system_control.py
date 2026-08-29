@@ -624,6 +624,71 @@ async def cleanup_run(_admin: User = Depends(get_current_admin)) -> dict[str, An
     }
 
 
+def _assert_trash_root_safe() -> None:
+    """Guards the two routes below against ever running a recursive delete
+    over something other than a real, non-root trash directory -- TRASH_ROOT
+    is operator-configurable (Settings -> System defaults), and update_config
+    already rejects "/" or a relative value there, but these two routes do
+    the actual `rm`/`find -delete`, so they re-check rather than trust that
+    the value in memory was never set another way (e.g. a raw .env edit)."""
+    root = TRASH_ROOT.rstrip("/")
+    if not root.startswith("/") or root in ("", "/") or len(root) < 5:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Refusing to operate on suspicious trash_root {TRASH_ROOT!r}",
+        )
+
+
+@router.get("/trash-status")
+async def trash_status(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    """Read-only size/count of everything currently sitting in TRASH_ROOT --
+    every /cleanup-scan/delete click and the weekly policy's own files land
+    here first (recoverable-by-default), so this is what "Empty trash" below
+    is about to permanently remove. Counts top-level entries (one per
+    cleanup-manual/<category>/<run> or a manual backup), not every file
+    inside them, to match what an operator visually sees as "an item" here."""
+    _assert_trash_root_safe()
+    command = (
+        f"if [ -d {shlex.quote(TRASH_ROOT)} ]; then "
+        f"du -sb {shlex.quote(TRASH_ROOT)} 2>/dev/null | cut -f1; "
+        f"find {shlex.quote(TRASH_ROOT)} -mindepth 1 -maxdepth 1 | wc -l; "
+        f"else echo 0; echo 0; fi"
+    )
+    data = await _bridge("POST", "/v1/exec", json={"command": command})
+    if data["exit_code"] != 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(data["stderr"] or "").strip() or "trash status failed",
+        )
+    lines = (data["stdout"] or "").strip().splitlines()
+    total_size = int(lines[0]) if len(lines) > 0 and lines[0].isdigit() else 0
+    item_count = int(lines[1]) if len(lines) > 1 and lines[1].isdigit() else 0
+    return {"trash_root": TRASH_ROOT, "total_size": total_size, "item_count": item_count}
+
+
+@router.post("/trash:empty")
+async def empty_trash(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    """Permanently deletes everything under TRASH_ROOT -- a hard delete,
+    unlike every other action on this page (cleanup-scan/delete and the
+    weekly Run Cleanup policy only ever *move* things here). This is the
+    operator's own "empty the recycle bin" step, separate from Run Cleanup
+    so clearing trash doesn't also have to run Docker/journal/backup-expiry
+    pruning (create_trash_cleanup_task.sh already empties TRASH_DIR
+    unconditionally as its first step every time it runs -- this duplicates
+    only that one step, not the rest of the weekly policy, and touches
+    nothing else that script also does).
+    """
+    _assert_trash_root_safe()
+    command = f"find {shlex.quote(TRASH_ROOT)} -mindepth 1 -delete"
+    data = await _bridge("POST", "/v1/exec", timeout_seconds=90.0, json={"command": command, "timeout_seconds": 60})
+    if data["exit_code"] != 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(data["stderr"] or "").strip() or "Failed to empty trash",
+        )
+    return {"trash_root": TRASH_ROOT}
+
+
 @router.post("/cleanup-scan/delete")
 async def delete_cleanup_category(
     category: str, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
