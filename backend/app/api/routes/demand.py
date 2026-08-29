@@ -268,9 +268,36 @@ def _telegram_home_chat(agent: Agent | None) -> str | None:
     from app.core.agent_telegram import read_profile_home_chat
 
     try:
-        return read_profile_home_chat(agent.home_path)
+        return read_profile_home_chat(agent.home_path, agent.runtime_type, agent.profile_slug)
     except Exception:  # perfil ausente/ilegível não pode derrubar um envio
         return None
+
+
+def _resolve_telegram_channel_ref(agent: Agent | None, channel_ref: str | None) -> str | None:
+    """Turn a Telegram bot/agent alias into the profile's real home chat id.
+
+    Telegram's ``sendMessage.chat_id`` addresses a chat, not the bot account
+    that sends the message.  Humans and agents nevertheless naturally pass
+    ``Atlas``/``HermesAtlas2bot`` as the destination.  For the demand's target
+    agent those names, plus the legacy literal ``telegram``, are safe aliases
+    for the home chat already declared by that profile.  Numeric chat ids and
+    unrelated ``@channel`` usernames remain untouched.
+    """
+    if channel_ref is None or not channel_ref.strip():
+        return _telegram_home_chat(agent)
+
+    raw = channel_ref.strip()
+    normalized = raw.removeprefix("@").casefold()
+    aliases = {"telegram"}
+    if agent is not None:
+        aliases.update(
+            value.casefold()
+            for value in (agent.name, agent.profile_slug, agent.telegram_account)
+            if value
+        )
+    if normalized in aliases:
+        return _telegram_home_chat(agent)
+    return raw
 
 
 async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) -> AgentDemand:
@@ -319,15 +346,18 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
     # Só preenche quando `channel` veio vazio: um chamador que declarou o meio
     # sabe mais do que uma frase no corpo, e sobrescrevê-lo mandaria a
     # resposta para outro lugar que não o pedido.
+    telegram_requested = wants_telegram_reply(f"{payload.subject}\n{payload.body}")
     channel = payload.channel
     channel_ref = payload.channel_ref
-    if channel is None and wants_telegram_reply(f"{payload.subject}\n{payload.body}"):
+    if channel is None and telegram_requested:
         channel = "telegram"
-        if channel_ref is None:
-            # Sem chat declarado, usa o home channel do agente destinatário --
-            # é a conversa que o próprio perfil já considera "a minha".
-            target = await db.get(Agent, target_agent_id) if target_agent_id else None
-            channel_ref = _telegram_home_chat(target)
+    if channel == "telegram" and telegram_requested:
+        # Sem chat concreto, ou quando o chamador usa o nome do bot/agente
+        # como identificador lógico, usa o home channel daquele perfil. Isso
+        # impede que valores como ``telegram`` cheguem ao sendMessage como se
+        # fossem um chat_id e mantém o bot correto associado ao destinatário.
+        target = await db.get(Agent, target_agent_id) if target_agent_id else None
+        channel_ref = _resolve_telegram_channel_ref(target, channel_ref)
 
     # The three incubation invariants, applied at the single choke point
     # every insert goes through: an owner, an explicit state, and a
@@ -379,6 +409,18 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
 
     await db.commit()
     await db.refresh(demand)
+
+    # A Task addressed to an agent is executable work, so wake the single
+    # dispatch worker immediately after the transaction becomes visible.
+    # The worker still reads/claims from PostgreSQL and applies its global
+    # concurrency + one-run-per-agent guards; the 30-second sweep in main.py
+    # remains only as recovery if this in-process signal is ever lost.
+    due_now = scheduled_at is not None and scheduled_at <= datetime.now(timezone.utc)
+    dispatchable_origin = origin_type != "incubation" or from_agent_id is not None
+    if due_now and target_agent_id is not None and dispatchable_origin:
+        from app.core.dispatch_signal import wake_scheduled_dispatch
+
+        wake_scheduled_dispatch()
     return demand
 
 
@@ -1460,7 +1502,9 @@ async def run_incubation_maturation_pass(db: AsyncSession) -> int:
 
 
 async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
-    """Polled by main.py's _scheduled_dispatch_poll_loop -- finds every item
+    """Run when a new due Message wakes the worker, with periodic fallback.
+
+    Finds every item
     whose scheduled_at has come due and hasn't been dispatched yet (this
     loop or a human, whichever gets there first, since dispatch_status
     moving off NULL is the guard against double-dispatch either way), and

@@ -34,6 +34,7 @@ from app.api.schemas.chat import (
     ChatMessageOut,
     ChatSendResult,
     ChatSessionCreate,
+    ChatSessionHostStatusOut,
     ChatSessionOut,
     ChatSessionUpdate,
 )
@@ -276,6 +277,143 @@ async def search_chat_sessions(
         stmt = stmt.where(ChatSession.agent_id == agent_id)
     result = await db.execute(stmt.order_by(ChatSession.updated_at.desc()).limit(50))
     return list(result.scalars().all())
+
+
+@router.get("/sessions/host-status", response_model=list[ChatSessionHostStatusOut])
+async def get_chat_sessions_host_status(db: AsyncSession = Depends(get_db)) -> list[dict]:
+    """Cross-references every ChatSession/ChatSessionParticipant that has a
+    `hermes_session_id` against the Hermes profile's own session store on
+    the host -- the "Chat Sessions" card in System Control (2026-08-24),
+    modelled on Terminal Sessions' tmux liveness check but for a resumed
+    Hermes conversation instead of a pane. Declared before
+    /sessions/{session_id} for the same reason /sessions/search is: a
+    literal "host-status" would otherwise be parsed as a session_id.
+
+    Only `runtime_type == "hermes"` agents have a state.db to check --
+    Claude Code/Codex/Agy/OpenClaw keep their own session continuity
+    entirely outside ForgeHub's reach, so those rows are skipped rather than
+    reported as permanently "stale".
+    """
+    owner_stmt = (
+        select(ChatSession, Agent)
+        .join(Agent, Agent.id == ChatSession.agent_id)
+        .where(ChatSession.hermes_session_id.isnot(None), Agent.runtime_type == "hermes", Agent.profile_slug.isnot(None))
+    )
+    participant_stmt = (
+        select(ChatSessionParticipant, Agent, ChatSession)
+        .join(Agent, Agent.id == ChatSessionParticipant.agent_id)
+        .join(ChatSession, ChatSession.id == ChatSessionParticipant.session_id)
+        .where(
+            ChatSessionParticipant.hermes_session_id.isnot(None),
+            Agent.runtime_type == "hermes",
+            Agent.profile_slug.isnot(None),
+        )
+    )
+    owner_rows = (await db.execute(owner_stmt)).all()
+    participant_rows = (await db.execute(participant_stmt)).all()
+
+    check_items = [
+        {"profile": agent.profile_slug, "session_id": session.hermes_session_id} for session, agent in owner_rows
+    ] + [
+        {"profile": agent.profile_slug, "session_id": participant.hermes_session_id}
+        for participant, agent, _session in participant_rows
+    ]
+
+    host_status: dict[tuple[str, str], dict] = {}
+    if check_items:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{settings.CHAT_BRIDGE_URL}/v1/hermes/sessions/check",
+                    json={"sessions": check_items},
+                    headers=_bridge_headers(),
+                )
+                resp.raise_for_status()
+            for entry in resp.json().get("sessions", []):
+                host_status[(entry["profile"], entry["session_id"])] = entry
+        except httpx.HTTPError:
+            # Bridge unreachable -- report every row as unknown-exists rather
+            # than failing the whole card; `exists: True` would misreport a
+            # dead session as healthy, `False` would misreport a healthy one
+            # as stale, so leaving the entry absent (handled below) is the
+            # only option that doesn't lie either way.
+            pass
+
+    running_ids = set(
+        (
+            await db.execute(
+                select(ActiveTurn.scope_id).where(ActiveTurn.scope == "chat", ActiveTurn.status == "running")
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    results: list[dict] = []
+    for session, agent in owner_rows:
+        entry = host_status.get((agent.profile_slug, session.hermes_session_id))
+        if entry is None:
+            continue
+        results.append({
+            "session_id": session.id,
+            "participant_id": None,
+            "session_title": session.title,
+            "agent_id": agent.id,
+            "agent_name": agent.name,
+            "hermes_session_id": session.hermes_session_id,
+            "exists": entry["exists"],
+            "hermes_title": entry.get("title"),
+            "last_activity_at": entry.get("last_activity_at"),
+            "message_count": entry.get("message_count"),
+            "running": session.id in running_ids,
+        })
+    for participant, agent, session in participant_rows:
+        entry = host_status.get((agent.profile_slug, participant.hermes_session_id))
+        if entry is None:
+            continue
+        results.append({
+            "session_id": session.id,
+            "participant_id": participant.id,
+            "session_title": session.title,
+            "agent_id": agent.id,
+            "agent_name": agent.name,
+            "hermes_session_id": participant.hermes_session_id,
+            "exists": entry["exists"],
+            "hermes_title": entry.get("title"),
+            "last_activity_at": entry.get("last_activity_at"),
+            "message_count": entry.get("message_count"),
+            "running": session.id in running_ids,
+        })
+    results.sort(key=lambda r: r["last_activity_at"] or 0, reverse=True)
+    return results
+
+
+@router.post("/sessions/{session_id}:reset-hermes-session", response_model=ChatSessionOut)
+async def reset_chat_session_hermes_link(
+    session_id: uuid.UUID,
+    participant_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> ChatSession:
+    """Forgets the stored `hermes_session_id` (session's own, or one
+    participant's when `participant_id` is given) so the next message opens
+    a fresh Hermes session instead of repeating a resume that's known to
+    fail. Never touches Hermes' own state.db -- this only breaks the resume
+    pointer on ForgeHub's side, so the real conversation history in Hermes
+    (if it still exists) and every message already persisted in ForgeHub's
+    own chat_messages are both untouched. The "Reset" action on System
+    Control's Chat Sessions card (2026-08-24) -- see get_chat_sessions_host_status.
+    """
+    session = await _get_session_or_404(db, session_id)
+    if participant_id is not None:
+        participant = await db.get(ChatSessionParticipant, participant_id)
+        if participant is None or participant.session_id != session_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")
+        participant.hermes_session_id = None
+    else:
+        session.hermes_session_id = None
+    await db.commit()
+    await db.refresh(session)
+    return session
 
 
 @router.get("/sessions/{session_id}", response_model=ChatSessionOut)
@@ -820,6 +958,35 @@ async def _run_chat_turn(
                                         content = _interrupted_turn_content()
                                         if content:
                                             await _persist_reply(db, content)
+                                    await db.commit()
+                                # "_init_agent() returned False" is hermes_stream.py's
+                                # one generic message for every _init_agent() failure
+                                # mode (cli_agent_setup_mixin.py) -- including "Session
+                                # not found" when the Hermes profile's own SQLite store
+                                # no longer has the session_id we resumed with (pruned,
+                                # rebuilt, or otherwise gone on the host side, outside
+                                # ForgeHub's control). Without this, effective_bridge_params
+                                # above keeps resolving to that same dead session_id on
+                                # every future message in this chat/participant, so the
+                                # conversation is permanently stuck repeating the exact
+                                # same failure (observed 2026-08-24, Athos Workspace
+                                # session idle since 2026-08-14). Clearing it here costs
+                                # nothing when the real cause was something else (e.g.
+                                # credentials) -- the next turn just fails again with the
+                                # same message -- but recovers the common case by letting
+                                # the next message start a fresh Hermes session instead.
+                                if (
+                                    "_init_agent() returned False" in str(data["error"])
+                                    and effective_bridge_params.get("session_id")
+                                ):
+                                    if participant_id is not None:
+                                        participant = await db.get(ChatSessionParticipant, participant_id)
+                                        if participant is not None:
+                                            participant.hermes_session_id = None
+                                    else:
+                                        stale_session = await db.get(ChatSession, session_id)
+                                        if stale_session is not None:
+                                            stale_session.hermes_session_id = None
                                     await db.commit()
                                 return
 

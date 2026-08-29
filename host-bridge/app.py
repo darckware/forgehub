@@ -3933,6 +3933,83 @@ async def kill_terminal_session(session_id: str, x_bridge_token: str | None = He
     return {"status": "ok"}
 
 
+class HermesSessionCheckItem(BaseModel):
+    profile: str
+    session_id: str
+
+
+class HermesSessionCheckRequest(BaseModel):
+    sessions: list[HermesSessionCheckItem]
+
+
+@app.post("/v1/hermes/sessions/check")
+async def check_hermes_sessions(
+    req: HermesSessionCheckRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Batch liveness check for Hermes CLI sessions, one profile's `state.db`
+    at a time -- backs the Workspace's "Chat Sessions" card (System Control,
+    2026-08-24), same disk-truth idea as `/v1/terminal/sessions` above but
+    for a `ChatSession.hermes_session_id` instead of a tmux pane. Unlike a
+    tmux session, a Hermes session row never disappears on its own (no
+    auto_prune by default -- see hermes_cli/config_defaults.py); it going
+    missing means it was pruned, the profile's state.db was rebuilt, or
+    similar host-side housekeeping outside ForgeHub's control. That's
+    exactly the failure this card exists to surface (Athos Workspace chat
+    stuck resuming a session ten days gone, root-caused 2026-08-24) --
+    `_init_agent()` (hermes_cli/cli_agent_setup_mixin.py) just returns False
+    with no detail reaching the caller, so this is the only way to tell
+    "stale" apart from "credentials broken" ahead of the next message
+    failing.
+
+    Grouped by profile so N sessions in the same profile cost one query,
+    not N -- callers are expected to batch every ChatSession/
+    ChatSessionParticipant row across every agent in one request.
+    """
+    _check_token(x_bridge_token)
+    by_profile: dict[str, list[str]] = {}
+    for item in req.sessions:
+        if not _is_valid_profile(item.profile) or not SESSION_ID_RE.match(item.session_id):
+            continue
+        by_profile.setdefault(item.profile, []).append(item.session_id)
+
+    results: list[dict] = []
+    for profile, session_ids in by_profile.items():
+        state_db = PROFILES_DIR / profile / "state.db"
+        found: dict[str, sqlite3.Row] = {}
+        if state_db.is_file():
+            try:
+                with sqlite3.connect(f"file:{state_db}?mode=ro", uri=True, timeout=5) as conn:
+                    conn.row_factory = sqlite3.Row
+                    placeholders = ",".join("?" for _ in session_ids)
+                    rows = conn.execute(
+                        f"""
+                        SELECT id, title, started_at, last_activity_at, ended_at, message_count
+                        FROM sessions
+                        WHERE id IN ({placeholders})
+                        """,
+                        session_ids,
+                    ).fetchall()
+                    found = {row["id"]: row for row in rows}
+            except sqlite3.Error:
+                found = {}
+        for sid in session_ids:
+            row = found.get(sid)
+            if row is None:
+                results.append({"profile": profile, "session_id": sid, "exists": False})
+            else:
+                results.append({
+                    "profile": profile,
+                    "session_id": sid,
+                    "exists": True,
+                    "title": row["title"],
+                    "started_at": row["started_at"],
+                    "last_activity_at": row["last_activity_at"] or row["started_at"],
+                    "ended_at": row["ended_at"],
+                    "message_count": row["message_count"],
+                })
+    return {"sessions": results}
+
+
 @app.websocket("/v1/terminal/ws")
 async def terminal_ws(
     websocket: WebSocket,

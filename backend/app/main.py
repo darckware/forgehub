@@ -293,9 +293,9 @@ logger = logging.getLogger(__name__)
 # re-checks itself roughly every 15 min regardless of this loop).
 TOOL_VERSION_POLL_INTERVAL_SECONDS = 900
 
-# How often the scheduled-send loop checks for demands whose scheduled_at
-# has come due. Short interval -- unlike tool version sync, a message
-# sitting in the queue past its scheduled time is directly user-visible.
+# Recovery interval for due demands. New due Messages wake the worker as soon
+# as their transaction commits; this timeout catches direct database writes,
+# a signal lost to restart, and future scheduled_at timestamps.
 SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS = 30
 
 # How often matured incubations are handed to their owners. The deadline
@@ -371,6 +371,7 @@ async def _tool_version_poll_loop() -> None:
 
 async def _scheduled_dispatch_poll_loop() -> None:
     from app.api.routes.demand import run_scheduled_dispatch_pass
+    from app.core.dispatch_signal import wait_for_scheduled_dispatch
     from app.db.base import AsyncSessionLocal
 
     while True:
@@ -379,7 +380,9 @@ async def _scheduled_dispatch_poll_loop() -> None:
                 await run_scheduled_dispatch_pass(db)
         except Exception:
             logger.exception("Scheduled dispatch poll failed")
-        await asyncio.sleep(SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS)
+        # Normal path: a committed message wakes this immediately. Timeout is
+        # deliberately retained as a database-backed recovery sweep.
+        await wait_for_scheduled_dispatch(SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS)
 
 
 async def _incubation_maturation_poll_loop() -> None:
@@ -601,6 +604,9 @@ async def _start_background_tasks() -> None:
     global _background_tasks
     if _background_tasks:
         return
+    from app.core.dispatch_signal import reset_scheduled_dispatch_signal
+
+    reset_scheduled_dispatch_signal()
     workers = (
         ("tool-version-poll", _tool_version_poll_loop),
         ("scheduled-dispatch-poll", _scheduled_dispatch_poll_loop),
@@ -625,3 +631,6 @@ async def _stop_background_tasks() -> None:
         background_task.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
+    from app.core.dispatch_signal import reset_scheduled_dispatch_signal
+
+    reset_scheduled_dispatch_signal()

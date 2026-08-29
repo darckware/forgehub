@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.core.agent_profile_files import resolve_home_dir
+from app.core.agent_profile_files import effective_home_path, resolve_home_dir
 
 # Only these keys are ever read out of the profile .env, and only the
 # home-channel *name* is ever returned. TELEGRAM_BOT_TOKEN is reduced to a
@@ -122,7 +122,7 @@ def read_profile_telegram_config(
     `installed` requires both a bot token and a home channel: a token with no
     channel cannot deliver anything, which is exactly the half-configured
     state this check exists to surface."""
-    home_dir = resolve_home_dir(home_path)
+    home_dir = resolve_home_dir(effective_home_path(home_path, runtime_type, profile_slug))
     if home_dir is None:
         return False, None
     values = _read_env_values(home_dir / ".env")
@@ -130,7 +130,11 @@ def read_profile_telegram_config(
     return installed, values.get(_CHANNEL_NAME_KEY) or None
 
 
-def read_profile_home_chat(home_path: str | None) -> str | None:
+def read_profile_home_chat(
+    home_path: str | None,
+    runtime_type: str | None = None,
+    profile_slug: str | None = None,
+) -> str | None:
     """The chat id an agent's own profile treats as "mine"
     (TELEGRAM_HOME_CHANNEL), or None when it has none.
 
@@ -144,7 +148,7 @@ def read_profile_home_chat(home_path: str | None) -> str | None:
     The token in the same file is never read here (see this module's header:
     it is reduced to a boolean before leaving).
     """
-    home_dir = resolve_home_dir(home_path)
+    home_dir = resolve_home_dir(effective_home_path(home_path, runtime_type, profile_slug))
     if home_dir is None:
         return None
     return _read_env_values(home_dir / ".env").get(_CHANNEL_KEY) or None

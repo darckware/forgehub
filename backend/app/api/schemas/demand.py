@@ -64,9 +64,9 @@ class DemandSubmitIn(BaseModel):
     working_path: str | None = None
     # Meio de comunicação por onde este pedido chegou, e o endereço concreto
     # de retorno dentro dele (id da sessão de chat, id do canal, id da task,
-    # chat_id do Telegram). Ver DEMAND_CHANNELS. Sem `channel_ref`, um
-    # retorno para o Telegram só alcança o canal padrão, nunca a conversa
-    # que pediu.
+    # chat_id do Telegram). Ver DEMAND_CHANNELS. No Telegram, o nome do bot
+    # ou do agente destinatário também pode ser usado como alias do home
+    # channel configurado no perfil.
     channel: str | None = None
     channel_ref: str | None = None
     # Links this new item to an existing Task or Demand as its origin,

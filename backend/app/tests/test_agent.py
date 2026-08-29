@@ -463,6 +463,26 @@ def test_telegram_status_reads_env_without_leaking_the_token(tmp_path):
     assert "super-secret" not in repr(status)
 
 
+def test_telegram_config_uses_the_profiles_default_home_when_override_is_empty(
+    tmp_path, monkeypatch
+):
+    """Synced Hermes agents normally leave Agent.home_path NULL."""
+    (tmp_path / ".env").write_text(
+        "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_HOME_CHANNEL=1085550644\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        agent_telegram,
+        "effective_home_path",
+        lambda home_path, runtime_type, profile_slug: "/root/.hermes/profiles/atlas",
+    )
+    monkeypatch.setattr(agent_telegram, "resolve_home_dir", lambda path: tmp_path)
+
+    installed, _ = agent_telegram.read_profile_telegram_config(None, "hermes", "atlas")
+    assert installed is True
+    assert agent_telegram.read_profile_home_chat(None, "hermes", "atlas") == "1085550644"
+
+
 def test_telegram_status_states(tmp_path):
     configured = tmp_path / "configured"
     configured.mkdir()

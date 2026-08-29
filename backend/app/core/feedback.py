@@ -67,10 +67,22 @@ _TELEGRAM_REPLY_PATTERNS = (
     re.compile(r"\bretorn[oa]\s+(?:pel[oa]|no|via)\s+telegram\b", re.I),
 )
 
+_TELEGRAM_NO_REPLY_PATTERNS = (
+    re.compile(
+        r"\b(?:não|nao)\s+(?:me\s+)?"
+        r"(?:respond[ae]|retorn[ae]|avis[ae]|notifiqu?e|mand[ae]|envi[ae])\b"
+        r"[^.\n]{0,40}\btelegram\b",
+        re.I,
+    ),
+    re.compile(r"\bsem\s+(?:respost|retorno|notifica)[^.\n]{0,20}\btelegram\b", re.I),
+)
+
 
 def wants_telegram_reply(text: str | None) -> bool:
     """True when the request itself asks to be answered on Telegram."""
     if not text:
+        return False
+    if any(pattern.search(text) for pattern in _TELEGRAM_NO_REPLY_PATTERNS):
         return False
     return any(p.search(text) for p in _TELEGRAM_REPLY_PATTERNS)
 
@@ -251,8 +263,22 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
             # Notify in the app as well: the Telegram send can fail, and this
             # is the record that the run finished either way.
             await _deliver_notification(db, demand, title=title)
-            delivered = await _deliver_telegram(db, demand)
-            if not delivered:
+            # Telegram feedback is opt-in from the message itself. Channel
+            # metadata records where a request came from, but it is not
+            # permission to push the result back out of ForgeHub. In
+            # particular, a stale or malformed channel_ref must not turn an
+            # ordinary completed message into an infinite external-delivery
+            # retry. The same narrow language detector used at submission is
+            # the canonical expression of that request.
+            requested = wants_telegram_reply(f"{demand.subject}\n{demand.body}")
+            delivered = await _deliver_telegram(db, demand) if requested else False
+            if not requested:
+                logger.info(
+                    "Feedback for #%s has Telegram metadata but no explicit Telegram "
+                    "reply request; notified in-app only",
+                    demand.number,
+                )
+            elif not delivered:
                 logger.warning(
                     "Feedback for #%s has channel=telegram but no chat to answer -- "
                     "notified in-app only", demand.number,

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["mcp[cli]>=1.2.0", "httpx>=0.27"]
+# dependencies = ["mcp[cli]>=1.2.0,<2", "httpx>=0.27"]
 # ///
 """MCP server exposing ForgeHub's Agent Message channel as tools.
 
@@ -197,8 +197,8 @@ async def send_agent_message(
       for the operator to triage on the Messages page. Nothing executes.
     - **Message to another agent** (`to_agent` set): the recipient's CLI is
       really dispatched with this body as its prompt, automatically — by
-      default scheduled for now and picked up by the backend's dispatch loop
-      within ~30s, with no human involved. Set `requires_response=True` when
+      default scheduled for now and signalled to the backend's dispatch
+      worker immediately, with no human involved. Set `requires_response=True` when
       you want a real return message once the recipient finishes — it lands
       in your own inbox (read it later with `check_agent_inbox`), sent from
       the recipient back to you, body = the recipient's own output. Default
@@ -224,9 +224,10 @@ async def send_agent_message(
             you for something somewhere and you are delegating it — without
             it the result has no way back to them and dies in ForgeHub.
         channel_ref: the concrete address to answer at within that medium --
-            for Telegram, the chat_id the request came from. Naming the
-            medium alone is not enough: "telegram" on its own only reaches
-            the configured home channel, never the conversation that asked.
+            for Telegram, preferably the chat_id the request came from. The
+            destination bot/agent name (for example ``HermesAtlas2bot`` or
+            ``Atlas``) is also accepted as an alias for that profile's
+            configured home channel.
         requires_response: create a real return message once the recipient
             finishes, instead of only recording the result on this message.
         scheduled_at: ISO-8601 datetime to defer dispatch (e.g.
@@ -278,7 +279,7 @@ async def send_agent_message(
     if to_agent:
         lines.append(
             f"Addressed to {to_agent!r} and scheduled for {payload['scheduled_at']} — "
-            "the backend dispatch loop runs the recipient's CLI (poll ~30s)."
+            "the backend wakes its dispatch worker immediately to run the recipient's CLI."
         )
         if requires_response:
             lines.append(

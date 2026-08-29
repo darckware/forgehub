@@ -66,14 +66,14 @@ async def agent():
 
 
 async def _finished(agent_id, *, channel=None, channel_ref=None,
-                    status="completed", result="tudo certo") -> uuid.UUID:
+                    status="completed", result="tudo certo", body="faz isso") -> uuid.UUID:
     async with AsyncSessionLocal() as session:
         d = AgentDemand(
             from_agent="tester",
             from_agent_id=agent_id,
             target_agent_id=agent_id,
             subject=f"pedido {uuid.uuid4().hex[:6]}",
-            body="faz isso",
+            body=body,
             origin_type="task",
             dispatch_status=status,
             dispatch_attempts=1,
@@ -198,7 +198,12 @@ async def test_telegram_without_a_chat_still_reports_in_app(agent, monkeypatch):
     """We never guess a Telegram destination: without the chat that asked,
     the bridge would answer the home channel -- the wrong conversation. The
     in-app notification still happens, so the outcome isn't lost."""
-    demand_id = await _finished(agent, channel="telegram", channel_ref=None)
+    demand_id = await _finished(
+        agent,
+        channel="telegram",
+        channel_ref=None,
+        body="Faça isso e me retorne pelo Telegram.",
+    )
 
     async with AsyncSessionLocal() as session:
         d = await session.get(AgentDemand, demand_id)
@@ -219,7 +224,12 @@ async def test_telegram_answers_the_chat_that_asked(agent, monkeypatch):
         return True
 
     monkeypatch.setattr("app.core.feedback._deliver_telegram", _fake_deliver)
-    demand_id = await _finished(agent, channel="telegram", channel_ref="-100123456")
+    demand_id = await _finished(
+        agent,
+        channel="telegram",
+        channel_ref="-100123456",
+        body="Faça isso e me responda no Telegram.",
+    )
 
     async with AsyncSessionLocal() as session:
         d = await session.get(AgentDemand, demand_id)
@@ -227,6 +237,35 @@ async def test_telegram_answers_the_chat_that_asked(agent, monkeypatch):
         await session.commit()
 
     assert sent["target"] == "-100123456", "must answer the asking chat, not the home channel"
+
+
+async def test_telegram_metadata_alone_does_not_authorize_external_feedback(agent, monkeypatch):
+    """The message text, not transport metadata alone, opts into Telegram.
+
+    This covers stale/bad rows such as channel_ref="telegram": they finish
+    with an in-app notification instead of retrying an invalid external
+    destination forever.
+    """
+    async def _unexpected_delivery(*args, **kwargs):
+        raise AssertionError("Telegram delivery must not run without an explicit request")
+
+    monkeypatch.setattr("app.core.feedback._deliver_telegram", _unexpected_delivery)
+    demand_id = await _finished(
+        agent,
+        channel="telegram",
+        channel_ref="telegram",
+        body="Registre apenas o resultado no Messages.",
+    )
+
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        assert await deliver_feedback(session, demand) is True
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        assert demand.feedback_sent_at is not None
+    assert len(await _notifications_for(demand_id)) == 1
 
 
 async def test_the_sweep_picks_up_what_inline_delivery_missed(agent):
@@ -261,7 +300,12 @@ async def test_a_failed_delivery_does_not_poison_the_next_sweep(agent, monkeypat
 
     monkeypatch.setattr("app.core.feedback.httpx.AsyncClient", _DownClient)
 
-    stuck = await _finished(agent, channel="telegram", channel_ref="1085550644")
+    stuck = await _finished(
+        agent,
+        channel="telegram",
+        channel_ref="1085550644",
+        body="Quando terminar, responda no Telegram.",
+    )
     async with AsyncSessionLocal() as session:
         await run_feedback_pass(session)
         await session.commit()
@@ -311,7 +355,12 @@ async def test_telegram_answers_through_the_receiving_agents_bot(agent, monkeypa
         await session.commit()
         slug = a.profile_slug
 
-    demand_id = await _finished(agent, channel="telegram", channel_ref="1085550644")
+    demand_id = await _finished(
+        agent,
+        channel="telegram",
+        channel_ref="1085550644",
+        body="Quando terminar, responda no Telegram.",
+    )
     async with AsyncSessionLocal() as session:
         d = await session.get(AgentDemand, demand_id)
         assert await deliver_feedback(session, d) is True
@@ -346,7 +395,12 @@ async def test_an_agent_without_a_telegram_bot_sends_no_profile(agent, monkeypat
         a.telegram_account = None
         await session.commit()
 
-    demand_id = await _finished(agent, channel="telegram", channel_ref="1085550644")
+    demand_id = await _finished(
+        agent,
+        channel="telegram",
+        channel_ref="1085550644",
+        body="Quando terminar, responda no Telegram.",
+    )
     async with AsyncSessionLocal() as session:
         d = await session.get(AgentDemand, demand_id)
         await deliver_feedback(session, d)
@@ -382,7 +436,30 @@ def test_merely_mentioning_telegram_does_not_hijack_the_reply():
         "Analise o código do bot do telegram",
         "Corrija o envio de mensagens do gateway",
         "Responda o mais rápido possível",
+        "Não me responda no Telegram; registre somente no Messages.",
+        "Sem retorno pelo Telegram.",
         "",
         None,
     ):
         assert not wants_telegram_reply(text), text
+
+
+def test_telegram_bot_name_resolves_to_the_target_profiles_home_chat(monkeypatch):
+    """Bot usernames are convenient logical ids, but Telegram needs chat_id."""
+    from app.api.routes.demand import _resolve_telegram_channel_ref
+
+    target = Agent(
+        name="Atlas",
+        agent_type="executor",
+        profile_slug="atlas",
+        telegram_account="HermesAtlas2bot",
+    )
+    monkeypatch.setattr(
+        "app.api.routes.demand._telegram_home_chat", lambda agent: "1085550644"
+    )
+
+    for alias in (None, "telegram", "Atlas", "atlas", "HermesAtlas2bot", "@HermesAtlas2bot"):
+        assert _resolve_telegram_channel_ref(target, alias) == "1085550644"
+
+    assert _resolve_telegram_channel_ref(target, "-100123456:42") == "-100123456:42"
+    assert _resolve_telegram_channel_ref(target, "@public_channel") == "@public_channel"

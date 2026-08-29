@@ -208,3 +208,26 @@ export function useRunCleanup() {
     },
   });
 }
+
+export interface CleanupDeleteResult {
+  category: string;
+  count: number;
+  total_size: number;
+  trash_path: string;
+}
+
+/** Clears one cleanup-scan category card on demand (2026-08-24) -- moves
+ * every file currently in that category to TRASH_ROOT (never a hard
+ * delete, same recoverable-by-default philosophy as useRunCleanup) without
+ * waiting for or triggering the full weekly policy. `category` goes as a
+ * query param, not a path segment -- some category names contain "/". */
+export function useDeleteCleanupCategory() {
+  const queryClient = useQueryClient();
+  return useMutation<CleanupDeleteResult, Error, string>({
+    mutationFn: (category: string) =>
+      apiClient.post("/api/v1/system-control/cleanup-scan/delete", undefined, { params: { category } }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+    },
+  });
+}

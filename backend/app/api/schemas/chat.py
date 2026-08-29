@@ -98,6 +98,28 @@ class ChatArtifactGlobalOut(ChatArtifactOut):
     agent_name: str
 
 
+class ChatSessionHostStatusOut(BaseModel):
+    """One ChatSession's (or ChatSessionParticipant's) Hermes-side liveness
+    -- backs System Control's "Chat Sessions" card (2026-08-24), the same
+    "is what we think is running actually still there" question Terminal
+    Sessions answers for tmux panes. `participant_id` is set only for a
+    participant lane (a message addressed to a non-owning agent -- see
+    ChatSessionParticipant's own docstring); `None` means this is the
+    session's own owning agent (ChatSession.hermes_session_id)."""
+
+    session_id: uuid.UUID
+    participant_id: uuid.UUID | None
+    session_title: str
+    agent_id: uuid.UUID
+    agent_name: str
+    hermes_session_id: str
+    exists: bool
+    hermes_title: str | None
+    last_activity_at: float | None
+    message_count: int | None
+    running: bool
+
+
 class ChatApproveRequest(BaseModel):
     """Answers a pending approval_request SSE event from /messages/stream.
     stream_id addresses the live agent subprocess directly (see

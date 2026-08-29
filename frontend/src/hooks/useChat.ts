@@ -79,6 +79,65 @@ export const chatKeys = {
   groups: ["chat-groups"] as const,
 };
 
+/** One ChatSession's (or ChatSessionParticipant's) Hermes-side liveness --
+ * backs System Control's "Chat Sessions" card (2026-08-24), mirroring
+ * useTerminalSessions' tmux liveness check but for a resumed Hermes
+ * conversation instead of a pane. See get_chat_sessions_host_status. */
+export const chatSessionHostStatusSchema = z.object({
+  session_id: z.string(),
+  participant_id: z.string().nullable(),
+  session_title: z.string(),
+  agent_id: z.string(),
+  agent_name: z.string(),
+  hermes_session_id: z.string(),
+  exists: z.boolean(),
+  hermes_title: z.string().nullable(),
+  last_activity_at: z.number().nullable(),
+  message_count: z.number().nullable(),
+  running: z.boolean(),
+});
+
+export type ChatSessionHostStatus = z.infer<typeof chatSessionHostStatusSchema>;
+
+const chatSessionsHostStatusKey = ["chat-sessions-host-status"] as const;
+
+export function useChatSessionsHostStatus(enabled = true) {
+  return useQuery({
+    queryKey: chatSessionsHostStatusKey,
+    queryFn: () => apiClient.get<ChatSessionHostStatus[]>(`${RESOURCE}/sessions/host-status`),
+    enabled,
+  });
+}
+
+/** Forgets the stored hermes_session_id (session's own, or one
+ * participant's) so the next message opens a fresh Hermes session instead
+ * of repeating a resume known to fail -- never touches Hermes' own
+ * history, see reset_chat_session_hermes_link's docstring. */
+export function useResetChatSessionHermesLink() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, participantId }: { sessionId: string; participantId?: string | null }) =>
+      apiClient.post<ChatSession>(`${RESOURCE}/sessions/${sessionId}:reset-hermes-session`, undefined, {
+        params: participantId ? { participant_id: participantId } : undefined,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: chatSessionsHostStatusKey }),
+  });
+}
+
+/** Permanently deletes a chat session (and its messages) -- the "delete"
+ * icon on System Control's Chat Sessions card, mirroring Terminal
+ * Sessions' kill button. Distinct from useDeleteChatSession below only in
+ * which cache it invalidates: this card lists sessions across every agent
+ * (chatSessionsHostStatusKey), not one agent's own list
+ * (chatKeys.sessions(agentId)). */
+export function useDeleteChatSessionHostStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) => apiClient.delete<void>(`${RESOURCE}/sessions/${sessionId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: chatSessionsHostStatusKey }),
+  });
+}
+
 export function useChatSessions(agentId: string | undefined) {
   return useQuery({
     queryKey: chatKeys.sessions(agentId),

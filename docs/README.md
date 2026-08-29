@@ -18,7 +18,8 @@ docs/
 ├── baseline/                      ← documentos históricos de origem
 │   └── CONTEXT_BRIEF.md
 ├── guides/                        ← direção/visão de produto (dev-facing)
-│   └── PROJECT_DELIVERY_GUIDE.md
+│   ├── PROJECT_DELIVERY_GUIDE.md
+│   └── MESSAGES_TELEGRAM_OPERATIONS.md
 ├── reference/                     ← especificação técnica do estado atual
 │   ├── DATA_MODEL.md
 │   ├── BUSINESS_RULES.md
@@ -98,6 +99,7 @@ Regra: documento de direção pode exigir uma mudança, mas não prova que ela j
 | `reference/TECHNOLOGY.md` | stack implementada | estado atual |
 | `architecture/AGENT_CLI_DEVELOPMENT_PROTOCOL.md` | pacote e conduta de execução | transição atual → alvo |
 | `guides/PROJECT_DELIVERY_GUIDE.md` | jornada operacional desejada | misto; confirmar disponibilidade |
+| `guides/MESSAGES_TELEGRAM_OPERATIONS.md` | operação e recuperação de Messages, Telegram e gateways | estado atual verificado |
 | `../help/MANUAL.md` | navegação e operação da aplicação atual | operacional |
 | `agents/AGENT_ORGANIZATION_CHART.md` | organização operacional dos agentes | arquitetura organizacional |
 | `agents/AGENT_ECOSYSTEM_ASSESSMENT.md` | justificativa e acionamento dos agentes | análise de apoio |
@@ -130,9 +132,10 @@ Regra: documento de direção pode exigir uma mudança, mas não prova que ela j
 ### Para operar o sistema atual
 
 1. `../help/MANUAL.md`;
-2. `reference/DATA_MODEL.md` e `reference/BUSINESS_RULES.md` quando houver dúvida;
-3. código/rotas atuais;
-4. nunca presumir que itens marcados como propostos estejam disponíveis.
+2. `guides/MESSAGES_TELEGRAM_OPERATIONS.md` para comunicação ou gateways;
+3. `reference/DATA_MODEL.md` e `reference/BUSINESS_RULES.md` quando houver dúvida;
+4. código/rotas atuais;
+5. nunca presumir que itens marcados como propostos estejam disponíveis.
 
 ## Definition Gate de documentação
 

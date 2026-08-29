@@ -511,6 +511,38 @@ async def _script_categories(db: AsyncSession) -> tuple[list[dict[str, Any]], li
     return old_scripts, duplicate_scripts
 
 
+async def _cleanup_scan_groups(db: AsyncSession) -> dict[str, list[dict[str, Any]]]:
+    """The category -> files grouping shared by GET /cleanup-scan (read-only
+    inventory) and POST /cleanup-scan/delete (clears one category) -- pulled
+    out so the delete action re-derives a fresh file list from the same five
+    sources of truth instead of trusting a client-supplied path list that
+    may be stale by the time the operator clicks the button."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+
+    # The four scans below are independent (different find roots/filters and
+    # a separate DB+filesystem pass for scripts) -- run concurrently instead
+    # of as four sequential host-bridge round trips.
+    log_files, backup_files, cron_output_files, (old_scripts, duplicate_scripts) = await asyncio.gather(
+        _scan_find("-type f \\( -path '*/profiles/*/logs/*' -o -path '*/cron/logs/*' \\)"),
+        _scan_find("-type f -iname '*.bak*'"),
+        _scan_find("-type f -path '*/cron/output/*'"),
+        _script_categories(db),
+    )
+
+    for f in log_files:
+        groups.setdefault(_categorize_log(f["path"]), []).append(f)
+
+    if backup_files:
+        groups["Backup files"] = backup_files
+    if cron_output_files:
+        groups["Cron output files"] = cron_output_files
+    if old_scripts:
+        groups["Old/unused scripts"] = old_scripts
+    if duplicate_scripts:
+        groups["Duplicate scripts"] = duplicate_scripts
+    return groups
+
+
 @router.get("/cleanup-scan")
 async def cleanup_scan(
     _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
@@ -536,31 +568,7 @@ async def cleanup_scan(
       cleanup-worthy by the operator.
     - Old/unused scripts and duplicate scripts -- see _script_categories.
     """
-    groups: dict[str, list[dict[str, Any]]] = {}
-
-    # The four scans below are independent (different find roots/filters and
-    # a separate DB+filesystem pass for scripts) -- run concurrently instead
-    # of as four sequential host-bridge round trips.
-    log_files, backup_files, cron_output_files, (old_scripts, duplicate_scripts) = await asyncio.gather(
-        _scan_find("-type f \\( -path '*/profiles/*/logs/*' -o -path '*/cron/logs/*' \\)"),
-        _scan_find("-type f -iname '*.bak*'"),
-        _scan_find("-type f -path '*/cron/output/*'"),
-        _script_categories(db),
-    )
-
-    for f in log_files:
-        groups.setdefault(_categorize_log(f["path"]), []).append(f)
-
-    if backup_files:
-        groups["Backup files"] = backup_files
-
-    if cron_output_files:
-        groups["Cron output files"] = cron_output_files
-    if old_scripts:
-        groups["Old/unused scripts"] = old_scripts
-    if duplicate_scripts:
-        groups["Duplicate scripts"] = duplicate_scripts
-
+    groups = await _cleanup_scan_groups(db)
     categories = []
     for category, files in groups.items():
         files.sort(key=lambda f: -f["size"])
@@ -608,6 +616,61 @@ async def cleanup_run(_admin: User = Depends(get_current_admin)) -> dict[str, An
         "script": CLEANUP_SCRIPT,
         "output": (data["stdout"] or "").strip(),
         "policy": "no-docker-volume-prune",
+    }
+
+
+@router.post("/cleanup-scan/delete")
+async def delete_cleanup_category(
+    category: str, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Clears one cleanup-scan category on demand, without waiting for or
+    triggering the full weekly /cleanup-run policy (2026-08-24, Marcelo:
+    "adicione um icone de exclusão em cada card, para limpeza do grupo").
+
+    Moves every file to TRASH_ROOT rather than a hard delete -- same
+    recoverable-by-default philosophy /cleanup-run's own TRASH_DIR already
+    uses, so a category cleared by mistake (or an "Old/unused scripts"
+    false positive -- see foundation.py's _audit_check_script_refs for the
+    documented history of exactly that) isn't unrecoverable. Files land
+    under a per-category, per-run timestamped subfolder so two clears of
+    the same category never collide.
+
+    Re-derives the file list server-side via _cleanup_scan_groups instead
+    of trusting whatever paths the client last rendered -- the GET and this
+    POST can be minutes apart, and a stale client list could otherwise
+    target a file that's already gone (or, in principle, a different file
+    that reused the same name).
+
+    `category` is a query param, not a path segment: two category names
+    contain a literal "/" (e.g. "Old/unused scripts"), which would
+    otherwise split across path segments.
+    """
+    groups = await _cleanup_scan_groups(db)
+    files = groups.get(category)
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No files currently in category {category!r} (already clean, or an unknown category).",
+        )
+    slug = re.sub(r"[^a-z0-9]+", "-", category.lower()).strip("-") or "category"
+    dest = f"{TRASH_ROOT}/cleanup-manual/{slug}/{int(datetime.now(timezone.utc).timestamp())}"
+    mv_parts = []
+    for i, file_info in enumerate(files):
+        src = file_info["path"]
+        dest_path = f"{dest}/{i:04d}_{Path(src).name}"
+        mv_parts.append(f"mv -- {shlex.quote(src)} {shlex.quote(dest_path)} 2>/dev/null")
+    command = f"mkdir -p {shlex.quote(dest)} && " + " ; ".join(mv_parts)
+    data = await _bridge("POST", "/v1/exec", timeout_seconds=90.0, json={"command": command, "timeout_seconds": 60})
+    if data["exit_code"] != 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(data["stderr"] or "").strip() or f"Failed to clear category {category!r}",
+        )
+    return {
+        "category": category,
+        "count": len(files),
+        "total_size": sum(f["size"] for f in files),
+        "trash_path": dest,
     }
 
 

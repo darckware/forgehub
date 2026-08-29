@@ -134,6 +134,43 @@ async def test_assign_target_agent_without_dispatching(client: AsyncClient, disp
         await _delete_demand(demand["id"])
 
 
+async def test_due_agent_message_wakes_dispatch_immediately(
+    client: AsyncClient, dispatchable_agent, monkeypatch
+):
+    """A due Task does not wait for the 30-second recovery sweep."""
+    wakes: list[bool] = []
+    monkeypatch.setattr(
+        "app.core.dispatch_signal.wake_scheduled_dispatch", lambda: wakes.append(True)
+    )
+
+    demand = await _create_demand(
+        client,
+        from_agent_id=str(dispatchable_agent),
+        target_agent_id=str(dispatchable_agent),
+        origin_type="task",
+    )
+    try:
+        assert wakes == [True]
+        assert demand["scheduled_at"] is not None
+        assert demand["dispatch_status"] is None
+    finally:
+        await _delete_demand(demand["id"])
+
+
+async def test_plain_note_does_not_wake_dispatch(client: AsyncClient, monkeypatch):
+    """Notes remain for triage and must not spawn an agent run."""
+    wakes: list[bool] = []
+    monkeypatch.setattr(
+        "app.core.dispatch_signal.wake_scheduled_dispatch", lambda: wakes.append(True)
+    )
+
+    demand = await _create_demand(client)
+    try:
+        assert wakes == []
+    finally:
+        await _delete_demand(demand["id"])
+
+
 async def test_dispatch_requires_target_or_reply_flag(client: AsyncClient):
     demand = await _create_demand(client)
     try:

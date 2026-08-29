@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Archive, ChevronDown, ChevronRight, ExternalLink, GitBranch, GitCommit, Loader2, RefreshCw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, ExternalLink, GitBranch, GitCommit, Loader2, MessageSquare, RefreshCw, RotateCcw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,11 +14,13 @@ import {
   useCleanupScan,
   useCommitChanges,
   useDeleteBackup,
+  useDeleteCleanupCategory,
   useRunBackup,
   useRunCleanup,
   useSystemControlStatus,
 } from "@/hooks/useSystemControl";
 import { useKillTerminalSession, useTerminalSessions } from "@/hooks/useTerminalBrowse";
+import { useChatSessionsHostStatus, useDeleteChatSessionHostStatus, useResetChatSessionHermesLink } from "@/hooks/useChat";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
 function formatBytes(bytes: number | null | undefined): string {
@@ -65,10 +67,20 @@ export default function SystemControlPage() {
   const runCleanup = useRunCleanup();
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const deleteCleanupCategory = useDeleteCleanupCategory();
+  const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
 
   const { data: terminalSessions, isLoading: terminalSessionsLoading } = useTerminalSessions();
   const killTerminalSession = useKillTerminalSession();
   const [killingSession, setKillingSession] = useState<string | null>(null);
+
+  const { data: chatSessions, isLoading: chatSessionsLoading } = useChatSessionsHostStatus();
+  const resetChatSession = useResetChatSessionHermesLink();
+  const [resettingChatSession, setResettingChatSession] = useState<{ sessionId: string; participantId: string | null } | null>(
+    null
+  );
+  const deleteChatSession = useDeleteChatSessionHostStatus();
+  const [deletingChatSession, setDeletingChatSession] = useState<{ sessionId: string; title: string } | null>(null);
   const navigate = useNavigate();
 
   if (isLoading) {
@@ -469,28 +481,72 @@ export default function SystemControlPage() {
           {scan && scan.categories.length === 0 && (
             <p className="text-sm text-muted-foreground">Nothing found.</p>
           )}
+          {deleteCleanupCategory.isError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {(deleteCleanupCategory.error as Error)?.message ?? "Failed to clear category"}
+            </div>
+          )}
+          <ConfirmDialog
+            open={deletingCategory !== null}
+            title={`Clear "${deletingCategory ?? ""}"?`}
+            description="Moves every file currently in this category to the trash root -- not a hard delete, so it stays recoverable there. The full weekly cleanup policy is unaffected."
+            confirmLabel="Clear category"
+            loading={deleteCleanupCategory.isPending}
+            onConfirm={() => {
+              if (deletingCategory) {
+                deleteCleanupCategory.mutate(deletingCategory, {
+                  onSuccess: () => {
+                    setDeletingCategory(null);
+                    setExpandedCategory((current) => (current === deletingCategory ? null : current));
+                  },
+                });
+              }
+            }}
+            onCancel={() => setDeletingCategory(null)}
+          />
           {scan && scan.categories.length > 0 && (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               {scan.categories.map((cat) => {
                 const expanded = expandedCategory === cat.category;
                 return (
-                  <button
+                  <div
                     key={cat.category}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedCategory(expanded ? null : cat.category)}
-                    className="rounded-md border border-border p-3 text-left hover:bg-accent"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setExpandedCategory(expanded ? null : cat.category);
+                      }
+                    }}
+                    className="cursor-pointer rounded-md border border-border p-3 text-left hover:bg-accent"
                   >
                     <span className="flex items-center justify-between gap-1">
                       <span className="text-xs font-medium uppercase text-muted-foreground">{cat.category}</span>
-                      {expanded ? (
-                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      )}
+                      <span className="flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          aria-label={`Clear ${cat.category}`}
+                          title={`Clear ${cat.category}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingCategory(cat.category);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                        {expanded ? (
+                          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        )}
+                      </span>
                     </span>
                     <span className="mt-1 block text-lg font-semibold">{cat.count} file(s)</span>
                     <span className="text-xs text-muted-foreground">{formatBytes(cat.total_size)}</span>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -609,6 +665,147 @@ export default function SystemControlPage() {
                   <TableRow>
                     <TableCell colSpan={5} className="text-sm text-muted-foreground">
                       No live terminal sessions.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-base font-semibold">Chat Sessions</h2>
+              {chatSessions && (
+                <span className="text-xs text-muted-foreground">{chatSessions.length} tracked session(s)</span>
+              )}
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Every Workspace conversation with a Hermes agent that has a resumed session, checked against that
+            profile's own session store on the host. A conversation can go "Stale" without any action here -- the
+            underlying Hermes session was pruned or rebuilt on the host -- and every message sent to it afterwards
+            fails the same way until reset. Reset only forgets the resume link on ForgeHub's side; it never touches
+            Hermes' own conversation history.
+          </p>
+          {chatSessionsLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading sessions...
+            </div>
+          )}
+          {resetChatSession.isError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {(resetChatSession.error as Error)?.message ?? "Failed to reset session"}
+            </div>
+          )}
+          <ConfirmDialog
+            open={resettingChatSession !== null}
+            title="Reset this chat session?"
+            description="Forgets the resumed Hermes session so the next message starts a fresh one. The conversation history in ForgeHub is kept; only continuity on the Hermes side is lost. Use this when the session shows Stale."
+            confirmLabel="Reset session"
+            loading={resetChatSession.isPending}
+            onConfirm={() => {
+              if (resettingChatSession) {
+                resetChatSession.mutate(
+                  { sessionId: resettingChatSession.sessionId, participantId: resettingChatSession.participantId },
+                  { onSuccess: () => setResettingChatSession(null) }
+                );
+              }
+            }}
+            onCancel={() => setResettingChatSession(null)}
+          />
+          {deleteChatSession.isError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {(deleteChatSession.error as Error)?.message ?? "Failed to delete session"}
+            </div>
+          )}
+          <ConfirmDialog
+            open={deletingChatSession !== null}
+            title="Delete this chat session?"
+            description={`Permanently deletes "${deletingChatSession?.title ?? ""}" and every message in it from ForgeHub. This cannot be undone.`}
+            confirmLabel="Delete session"
+            loading={deleteChatSession.isPending}
+            onConfirm={() => {
+              if (deletingChatSession) {
+                deleteChatSession.mutate(deletingChatSession.sessionId, {
+                  onSuccess: () => setDeletingChatSession(null),
+                });
+              }
+            }}
+            onCancel={() => setDeletingChatSession(null)}
+          />
+          {!chatSessionsLoading && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Agent</TableHead>
+                  <TableHead>Session</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Last activity</TableHead>
+                  <TableHead className="w-28" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(chatSessions ?? []).map((s) => (
+                  <TableRow key={`${s.session_id}:${s.participant_id ?? "owner"}`}>
+                    <TableCell className="text-sm">{s.agent_name}</TableCell>
+                    <TableCell className="max-w-[240px] truncate text-sm" title={s.session_title}>
+                      {s.session_title}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={s.running ? "default" : s.exists ? "success" : "destructive"}>
+                        {s.running ? "Running" : s.exists ? "Live" : "Stale"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {s.last_activity_at != null ? formatUnixDateTime(s.last_activity_at) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          aria-label={`Open ${s.session_title} in Workspace`}
+                          title="Open in Workspace"
+                          onClick={() =>
+                            navigate("/workspace", { state: { openChatSession: { agentId: s.agent_id, sessionId: s.session_id } } })
+                          }
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          aria-label={`Reset ${s.session_title}`}
+                          title="Reset Hermes session"
+                          onClick={() => setResettingChatSession({ sessionId: s.session_id, participantId: s.participant_id })}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          aria-label={`Delete ${s.session_title}`}
+                          title="Delete session"
+                          onClick={() => setDeletingChatSession({ sessionId: s.session_id, title: s.session_title })}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {(chatSessions ?? []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-sm text-muted-foreground">
+                      No tracked chat sessions.
                     </TableCell>
                   </TableRow>
                 )}

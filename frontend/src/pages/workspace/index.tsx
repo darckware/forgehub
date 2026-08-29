@@ -45,6 +45,7 @@ import {
   type ServerCheckStatus,
 } from "@/hooks/useServers";
 import { fetchOpenclawDashboardUrl, useTerminalSessions } from "@/hooks/useTerminalBrowse";
+import { useChatSessionsHostStatus } from "@/hooks/useChat";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { ChannelPane } from "@/components/channel/ChannelPane";
@@ -57,7 +58,6 @@ import { useProducts } from "@/hooks/useProduct";
 import {
   WORKSPACE_STORAGE_KEYS,
   WORKSPACE_STORAGE_VERSION,
-  repairActiveTabId,
   restoreWorkspaceState,
   type WebAppTarget,
   type WorkspaceTab,
@@ -561,6 +561,118 @@ function TerminalTabsMenu({
   );
 }
 
+/* Same idea as TerminalTabsMenu above, mirrored for agent chats
+ * (2026-08-24, Marcelo: "não seria interessante trabalhar da mesma forma
+ * no chat igual ao terminal... vamos saber quais agentes estão com sessão
+ * aberta persistente"). The source of truth is `useChatSessionsHostStatus`
+ * -- every ChatSession/participant across every agent that has a resumed
+ * Hermes session, cross-checked against that profile's own session store
+ * (same data System Control's Chat Sessions card reads). "Orphaned" here
+ * means the same thing it means for a terminal tab: the session persists
+ * (in Hermes, or in ForgeHub's own chat_messages) but this Workspace has no
+ * open tab looking at it right now -- not that it's broken. A session
+ * whose Hermes side is actually gone gets its own "stale" flag instead,
+ * shown but with no fix-it action here (that's System Control's job); this
+ * menu is for at-a-glance visibility and quick navigation, not cleanup. */
+function ChatSessionsMenu({
+  localTabs,
+  activeTabId,
+  onNew,
+  onSelect,
+}: {
+  localTabs: Array<{ id: string; agentId: string; sessionId?: string }>;
+  activeTabId: string;
+  onNew: () => void;
+  onSelect: (agentId: string, sessionId: string) => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(containerRef, () => setOpen(false), open);
+  const { data: sessions, isLoading } = useChatSessionsHostStatus(open);
+
+  const rows = (sessions ?? []).map((session) => {
+    const local = localTabs.find(
+      (tab) => tab.sessionId === session.session_id && tab.agentId === session.agent_id
+    );
+    return {
+      key: `${session.session_id}:${session.participant_id ?? "owner"}`,
+      agentId: session.agent_id,
+      sessionId: session.session_id,
+      label: `${session.agent_name}: ${session.session_title}`,
+      isOpenHere: Boolean(local),
+      tabId: local?.id,
+      isStale: !session.exists,
+    };
+  });
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8 shrink-0"
+        title={t("toolbar.newChat")}
+        aria-label={t("toolbar.newChat")}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <MessageSquare className="h-4 w-4" />
+      </Button>
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              onNew();
+              setOpen(false);
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t("toolbar.newChat")}
+          </button>
+          {isLoading && (
+            <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> {t("toolbar.loadingChats")}
+            </div>
+          )}
+          {rows.length > 0 && (
+            <>
+              <div className="my-1 border-t border-border" />
+              <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t("toolbar.openChats")}
+              </div>
+              {rows.map((row) => (
+                <button
+                  key={row.key}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                    row.tabId === activeTabId && "bg-accent text-accent-foreground"
+                  )}
+                  onClick={() => {
+                    onSelect(row.agentId, row.sessionId);
+                    setOpen(false);
+                  }}
+                >
+                  <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                  <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                  {row.isStale && (
+                    <span className="shrink-0 text-[10px] text-destructive">{t("toolbar.staleSession")}</span>
+                  )}
+                  {!row.isStale && !row.isOpenHere && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground">{t("toolbar.orphanedSession")}</span>
+                  )}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LaunchersMenu({ onLaunch }: { onLaunch: (label: string, command: string) => void }) {
   const { t } = useTranslation("workspace");
   const [open, setOpen] = useState(false);
@@ -708,6 +820,23 @@ export default function WorkspacePage() {
     setActiveTabId(id);
   }
 
+  // Same idea as openChatTab, but pinned to a specific already-existing
+  // session instead of starting fresh -- backs System Control's Chat
+  // Sessions card "Open in Workspace" action (2026-08-24).
+  function openChatSessionTab(agentId: string, sessionId: string) {
+    const existing = tabs.find(
+      (tab): tab is WorkspaceTab & { kind: "chat" } =>
+        tab.kind === "chat" && tab.agentId === agentId && tab.sessionId === sessionId
+    );
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const id = crypto.randomUUID();
+    setTabs((t) => [...t, { kind: "chat", id, agentId, sessionId, historyCollapsed: true }]);
+    setActiveTabId(id);
+  }
+
   function openTelegramTab(agentId: string) {
     const existing = tabs.find((tab) => tab.kind === "telegram" && tab.agentId === agentId);
     if (existing) {
@@ -837,6 +966,20 @@ export default function WorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
+  // Same handoff pattern as openSession above -- "open this conversation"
+  // from System Control's Chat Sessions card (2026-08-24).
+  const openChatSessionHandledRef = useRef(false);
+  useEffect(() => {
+    const openChatSession = (location.state as { openChatSession?: { agentId: string; sessionId: string } } | null)
+      ?.openChatSession;
+    if (!openChatSession || openChatSessionHandledRef.current) return;
+    openChatSessionHandledRef.current = true;
+    setViewMode("conversas");
+    openChatSessionTab(openChatSession.agentId, openChatSession.sessionId);
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
   // Same handoff pattern as openSsh/openTerminal above -- "open this
   // project's channel" from the Project detail page's "Equipe & Canal"
   // section (ProjectAutomationCard). Switches to Canais mode and hands
@@ -958,7 +1101,21 @@ export default function WorkspacePage() {
       return;
     }
     if (repairedTabs.some((tab, index) => tab !== tabs[index])) setTabs(repairedTabs);
-    setActiveTabId((current) => repairActiveTabId(repairedTabs, current));
+    // Clamped against this render's own (possibly stale) `activeTabId`
+    // closure, not a functional `current` updater -- a same-mount handoff
+    // effect declared above (openSession/openChatSession/etc.) may have
+    // already queued its own setActiveTabId(newTabId) for a tab that only
+    // exists in ITS state update, not yet in this effect's `tabs` closure.
+    // `current` would still see that queued value (React applies updater
+    // functions against pending state in order), so clamping against
+    // `repairedTabs` unconditionally would wrongly overwrite a just-opened
+    // tab back to the first restored one. Only touch activeTabId when the
+    // pre-handoff id genuinely doesn't resolve -- the actual repair this
+    // effect exists for (2026-08-24, found while wiring System Control's
+    // Chat Sessions "Open in Workspace").
+    if (!repairedTabs.some((tab) => tab.id === activeTabId)) {
+      setActiveTabId(repairedTabs[0]?.id ?? "");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatableAgents]);
 
@@ -1082,16 +1239,14 @@ export default function WorkspacePage() {
           >
             <Package className="h-4 w-4" />
           </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            title={t("toolbar.newChat")}
-            aria-label={t("toolbar.newChat")}
-            onClick={() => openChatTab(defaultAgentIdForNewTab())}
-          >
-            <MessageSquare className="h-4 w-4" />
-          </Button>
+          <ChatSessionsMenu
+            localTabs={tabs.filter(
+              (tab): tab is WorkspaceTab & { kind: "chat" } => tab.kind === "chat"
+            )}
+            activeTabId={activeTabId}
+            onNew={() => openChatTab(defaultAgentIdForNewTab())}
+            onSelect={openChatSessionTab}
+          />
           <Button
             variant="outline"
             size="icon"
