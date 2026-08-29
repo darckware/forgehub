@@ -726,11 +726,9 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
     creation and never touched again, so manual edits made in ForgeHub
     survive a re-sync.
 
-    The roster is sourced from the real, provisioned profile directories
-    under /root/.hermes/profiles/ (`hermes_sync.list_provisioned_profiles`)
-    -- NOT from the registry docs (ECOSYSTEM_AGENTS.md etc.), which can
-    list agents that are only planned/documented and not actually
-    provisioned (e.g. `forgenet`), or go stale.
+    A Hermes profile is roster-eligible only when it is both provisioned
+    under /root/.hermes/profiles/ and present in the active Foundation
+    registry.  Directory presence alone cannot reactivate an archived role.
 
     name/layer/mission are read from each profile's own IDENTITY.md first
     (`hermes_sync.parse_profile_identity` -- the agent's live self-declared
@@ -751,7 +749,8 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
     # 1. Agent roster.
     registry_by_slug = {e["profile_slug"]: e for e in hermes_sync.parse_agent_registry()}
     agent_by_slug: dict[str, Agent] = {}
-    for slug in hermes_sync.list_provisioned_profiles():
+    active_profile_slugs = hermes_sync.list_active_provisioned_profiles()
+    for slug in active_profile_slugs:
         has_registry_entry = slug in registry_by_slug
         entry = registry_by_slug.get(slug)
         if entry is None:
@@ -838,6 +837,29 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
             agents_updated += 1
         await db.flush()
         agent_by_slug[slug] = agent
+
+    # A restored directory is not a lifecycle promotion. Preserve the row for
+    # audit and references, but stop presenting a previously synced Hermes
+    # identity as active when the canonical registry no longer contains it.
+    # If the registry read itself failed, do not mass-retire anything: an
+    # empty active set is treated as unavailable evidence, not as an empty
+    # ecosystem.
+    if active_profile_slugs:
+        stale_result = await db.execute(
+            select(Agent).where(
+                Agent.runtime_type == "hermes",
+                Agent.has_profile.is_(True),
+                Agent.profile_slug.not_in(active_profile_slugs),
+                Agent.is_active.is_(True),
+            )
+        )
+        for stale_agent in stale_result.scalars().all():
+            stale_agent.is_active = False
+            stale_agent.status = "retired"
+            agents_updated += 1
+            warnings.append(
+                f"Profile '{stale_agent.profile_slug}' is not in the active Foundation registry; retired."
+            )
 
     # 2. Sub-agent WORKER/ROLE catalog, per owning agent.
     for slug, roles in hermes_sync.parse_subagent_catalog().items():
@@ -1100,7 +1122,17 @@ async def update_agent(
 async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     agent = await _get_agent_or_404(db, agent_id)
     await db.delete(agent)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This agent has related operational history. "
+                "Retire it instead of deleting it."
+            ),
+        ) from None
 
 
 # ---------------------------------------------------------------------------

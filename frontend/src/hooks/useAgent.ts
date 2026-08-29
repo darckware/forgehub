@@ -141,6 +141,7 @@ export const agentSchema = z.object({
   agent_type: z.enum(AGENT_TYPES).default("executor"),
   status: z.enum(AGENT_STATUSES).default("active"),
   is_active: z.boolean().default(true),
+  avatar_data_url: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
   // Hermes Foundation metadata -- read-only, populated by the sync below.
@@ -191,6 +192,7 @@ export const agentInputSchema = z.object({
   agent_type: z.enum(AGENT_TYPES).default("executor"),
   status: z.enum(AGENT_STATUSES).default("active"),
   is_active: z.boolean().default(true),
+  avatar_data_url: z.string().nullable().optional(),
   forgerouter_api_key: z.string().max(1000).optional(),
   clear_forgerouter_api_key: z.boolean().optional(),
   // Absolute host path; "" clears the override and restores the runtime default.

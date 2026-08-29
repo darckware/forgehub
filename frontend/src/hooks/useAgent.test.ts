@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isExternalRuntime, profileFileNamesFor, subAgentsFileName } from "./useAgent";
+import { agentSchema, isExternalRuntime, profileFileNamesFor, subAgentsFileName } from "./useAgent";
 
 /**
  * `profileFileNamesFor` mirrors `allowed_filenames` in
@@ -58,5 +58,17 @@ describe("isExternalRuntime", () => {
     // under "external CLI runtimes" in the org chart.
     expect(isExternalRuntime(null)).toBe(false);
     expect(isExternalRuntime(undefined)).toBe(false);
+  });
+});
+
+describe("agentSchema avatar", () => {
+  it("keeps the optional avatar data URL returned by the API", () => {
+    const parsed = agentSchema.parse({
+      id: "agent-1",
+      name: "Athos",
+      avatar_data_url: "data:image/png;base64,iVBORw0KGgo=",
+    });
+
+    expect(parsed.avatar_data_url).toBe("data:image/png;base64,iVBORw0KGgo=");
   });
 });

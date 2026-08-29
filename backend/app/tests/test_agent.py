@@ -34,6 +34,7 @@ from app.db.models.agent import (
     SubAgent,
     SubAgentSkill,
 )
+from app.db.models.chat import ChatSession
 from app.db.models.user import User
 
 _MY_TABLES = [
@@ -173,6 +174,98 @@ async def test_create_agent_invalid_status_rejected(client):
     )
     # Pydantic field_validator raises ValueError -> FastAPI returns 422.
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_foundation_sync_retires_previously_synced_profile_outside_active_registry(
+    client, cleanup_agent_ids, monkeypatch, restore_hermes_agent_statuses,
+):
+    suffix = uuid.uuid4().hex[:8]
+    stale = Agent(
+        name=f"Archived sync agent {suffix}",
+        profile_slug=f"archived-sync-{suffix}",
+        runtime_type="hermes",
+        has_profile=True,
+        status="active",
+        is_active=True,
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(stale)
+        await db.commit()
+        await db.refresh(stale)
+        cleanup_agent_ids.append(stale.id)
+
+    active_slug = f"active-sync-{suffix}"
+    monkeypatch.setattr(agent_routes.hermes_sync, "list_active_provisioned_profiles", lambda: [active_slug])
+    monkeypatch.setattr(
+        agent_routes.hermes_sync,
+        "parse_agent_registry",
+        lambda: [{
+            "profile_slug": active_slug,
+            "name": f"Active sync agent {suffix}",
+            "layer": "Governance",
+            "telegram_required": False,
+            "runtime_tier": "A",
+        }],
+    )
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_agent_mission", lambda _slug: (None, None))
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_profile_identity", lambda _slug: {})
+    monkeypatch.setattr(agent_routes.hermes_sync, "read_profile_forgerouter_api_key", lambda _slug: None)
+    monkeypatch.setattr(agent_routes.hermes_sync, "organization_for_profile", lambda _slug: (None, None, None))
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_subagent_catalog", lambda: {})
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_profile_skills", lambda _slug: [])
+
+    response = await client.post("/api/v1/agents/sync/hermes-foundation")
+
+    assert response.status_code == 200, response.text
+    async with AsyncSessionLocal() as db:
+        active = (
+            await db.execute(select(Agent).where(Agent.profile_slug == active_slug))
+        ).scalar_one()
+        cleanup_agent_ids.append(active.id)
+        refreshed_stale = await db.get(Agent, stale.id)
+        assert refreshed_stale is not None
+        assert refreshed_stale.is_active is False
+        assert refreshed_stale.status == "retired"
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_with_chat_history_returns_conflict_instead_of_server_error():
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"Agent with history {suffix}")
+        db.add(agent)
+        await db.flush()
+        session = ChatSession(agent_id=agent.id, title="History must survive")
+        db.add(session)
+        await db.commit()
+        agent_id = agent.id
+        session_id = session.id
+
+    app = FastAPI()
+    app.include_router(agent_routes.router)
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.delete(f"/api/v1/agents/{agent_id}")
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == (
+            "This agent has related operational history. Retire it instead of deleting it."
+        )
+        async with AsyncSessionLocal() as db:
+            assert await db.get(Agent, agent_id) is not None
+            assert await db.get(ChatSession, session_id) is not None
+    finally:
+        async with AsyncSessionLocal() as db:
+            chat = await db.get(ChatSession, session_id)
+            if chat is not None:
+                await db.delete(chat)
+                await db.flush()
+            persisted_agent = await db.get(Agent, agent_id)
+            if persisted_agent is not None:
+                await db.delete(persisted_agent)
+            await db.commit()
 
 
 @pytest.mark.asyncio

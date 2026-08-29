@@ -205,6 +205,40 @@
     "retiredSectionTitle": "Agentes aposentados / inativos",
     "retiredSectionSubtitle": "Mantidos para auditoria e nunca parte do organograma ativo. A sincronização da Foundation nunca desativa uma linha sozinha — foi um humano que aposentou estes."
   },
+  "roster": {
+    "title": "Cadastro de agentes",
+    "description": "Clique em uma linha para abrir o perfil completo sem perder o contexto da lista.",
+    "stats": { "active": "{{count}} agentes ativos" },
+    "columns": {
+      "agent": "Agente",
+      "function": "Função",
+      "organization": "Departamento / setor",
+      "runtime": "Runtime / tier",
+      "status": "Status",
+      "inventory": "Skills / workers",
+      "details": "Detalhes"
+    },
+    "expandAgent": "Expandir detalhes de {{name}}",
+    "collapseAgent": "Recolher detalhes de {{name}}",
+    "notDefined": "Não definido",
+    "inventory": "{{skills}} skills · {{workers}} workers",
+    "status": { "active": "Ativo", "inactive": "Inativo", "retired": "Arquivado" },
+    "photo": {
+      "title": "Foto do agente",
+      "imageAlt": "Foto de {{name}}",
+      "hint": "JPEG, PNG ou WebP · máximo de 512 KiB.",
+      "choose": "Enviar foto",
+      "replace": "Substituir foto",
+      "remove": "Remover foto",
+      "saving": "Salvando foto…",
+      "errorType": "Escolha uma imagem JPEG, PNG ou WebP.",
+      "errorEmpty": "A imagem selecionada está vazia.",
+      "errorSize": "A imagem deve ter no máximo 512 KiB.",
+      "errorRead": "Não foi possível ler a imagem selecionada.",
+      "errorSave": "Não foi possível salvar a foto: {{message}}"
+    },
+    "deleteError": "Não foi possível excluir o agente: {{message}}"
+  },
   "telegram": {
     "ariaLabel": "Canal do Telegram: {{status}}",
     "channel": "canal {{name}}",

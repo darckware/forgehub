@@ -7,7 +7,7 @@ extra setup) and take `auth_headers` from here to build it.
 """
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
@@ -18,10 +18,81 @@ from app.db.models.agent import Agent
 # which is what gives those messages an owner.
 TEST_SUITE_SLUG = "test-suite"
 
+# Exact signatures owned by automated fixtures. A killed pytest process can
+# skip yield-fixture teardown; cleaning these at the next session boundary
+# prevents those records from remaining in the operational roster forever.
+_STALE_AGENT_FIXTURE_PREDICATE = """
+    profile_slug = 'test-suite'
+    OR profile_slug LIKE 'channel-test-a-%'
+    OR profile_slug LIKE 'channel-test-b-%'
+    OR profile_slug LIKE 'chat-group-test-%'
+    OR profile_slug LIKE 'fb-%'
+"""
+
+
+async def _cleanup_stale_agent_fixtures() -> None:
+    async with AsyncSessionLocal() as session:
+        fixture_ids = text(
+            f"SELECT id FROM company.agents WHERE {_STALE_AGENT_FIXTURE_PREDICATE}"
+        )
+        session_ids = text(
+            f"SELECT id FROM company.chat_sessions WHERE agent_id IN ({fixture_ids.text})"
+        )
+        await session.execute(
+            text(f"DELETE FROM company.chat_artifacts WHERE session_id IN ({session_ids.text})")
+        )
+        await session.execute(
+            text(f"DELETE FROM company.chat_messages WHERE session_id IN ({session_ids.text})")
+        )
+        await session.execute(
+            text(f"DELETE FROM company.chat_session_participants WHERE session_id IN ({session_ids.text})")
+        )
+        await session.execute(
+            text(f"DELETE FROM company.chat_sessions WHERE id IN ({session_ids.text})")
+        )
+        await session.execute(
+            text(f"DELETE FROM company.responsibility_areas WHERE owner_agent_id IN ({fixture_ids.text})")
+        )
+        await session.execute(
+            text(f"DELETE FROM company.task_assignments WHERE agent_id IN ({fixture_ids.text})")
+        )
+        await session.execute(
+            text(f"DELETE FROM company.agents WHERE id IN ({fixture_ids.text})")
+        )
+        await session.commit()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def clean_stale_agent_fixtures():
+    await _cleanup_stale_agent_fixtures()
+    yield
+    await _cleanup_stale_agent_fixtures()
+
 
 @pytest.fixture
 def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {create_access_token('test-suite')}"}
+
+
+@pytest_asyncio.fixture
+async def restore_hermes_agent_statuses():
+    """Protect the operational roster from sync tests that replace the
+    canonical registry with a deliberately tiny fake registry."""
+    async with AsyncSessionLocal() as session:
+        rows = list((await session.execute(
+            select(Agent).where(Agent.runtime_type == "hermes")
+        )).scalars())
+        snapshot = {row.id: (row.status, row.is_active) for row in rows}
+
+    yield
+
+    async with AsyncSessionLocal() as session:
+        rows = list((await session.execute(
+            select(Agent).where(Agent.id.in_(snapshot))
+        )).scalars())
+        for row in rows:
+            row.status, row.is_active = snapshot[row.id]
+        await session.commit()
 
 
 @pytest_asyncio.fixture(autouse=True)
