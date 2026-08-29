@@ -39,3 +39,6 @@ dist/
 
 # Superdesign temporary component templates
 .superdesign/tmp/
+
+# Isolated implementation worktrees
+.worktrees/
