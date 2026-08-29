@@ -20,7 +20,12 @@ import {
   useSystemControlStatus,
 } from "@/hooks/useSystemControl";
 import { useKillTerminalSession, useTerminalSessions } from "@/hooks/useTerminalBrowse";
-import { useChatSessionsHostStatus, useDeleteChatSessionHostStatus, useResetChatSessionHermesLink } from "@/hooks/useChat";
+import {
+  useChatSessionsHostStatus,
+  useDeleteChatSessionHostStatus,
+  useResetAllStaleChatSessions,
+  useResetChatSessionHermesLink,
+} from "@/hooks/useChat";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
 function formatBytes(bytes: number | null | undefined): string {
@@ -81,6 +86,9 @@ export default function SystemControlPage() {
   );
   const deleteChatSession = useDeleteChatSessionHostStatus();
   const [deletingChatSession, setDeletingChatSession] = useState<{ sessionId: string; title: string } | null>(null);
+  const resetAllStaleChatSessions = useResetAllStaleChatSessions();
+  const [confirmingResetAllStale, setConfirmingResetAllStale] = useState(false);
+  const staleChatSessions = (chatSessions ?? []).filter((s) => !s.running && !s.exists);
   const navigate = useNavigate();
 
   if (isLoading) {
@@ -684,6 +692,20 @@ export default function SystemControlPage() {
                 <span className="text-xs text-muted-foreground">{chatSessions.length} tracked session(s)</span>
               )}
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmingResetAllStale(true)}
+              disabled={staleChatSessions.length === 0 || resetAllStaleChatSessions.isPending}
+              title="Resets every session currently showing Stale, one confirm instead of one row at a time"
+            >
+              {resetAllStaleChatSessions.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RotateCcw className="h-4 w-4" />
+              )}
+              Reset all stale ({staleChatSessions.length})
+            </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
             Every Workspace conversation with a Hermes agent that has a resumed session, checked against that
@@ -717,6 +739,25 @@ export default function SystemControlPage() {
               }
             }}
             onCancel={() => setResettingChatSession(null)}
+          />
+          {resetAllStaleChatSessions.isError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {(resetAllStaleChatSessions.error as Error)?.message ?? "Failed to reset one or more sessions"}
+            </div>
+          )}
+          <ConfirmDialog
+            open={confirmingResetAllStale}
+            title={`Reset ${staleChatSessions.length} stale session(s)?`}
+            description="Forgets the resumed Hermes session for every session currently showing Stale, so the next message on each starts a fresh one. Conversation history in ForgeHub is kept; only continuity on the Hermes side is lost."
+            confirmLabel="Reset all stale"
+            loading={resetAllStaleChatSessions.isPending}
+            onConfirm={() => {
+              resetAllStaleChatSessions.mutate(
+                staleChatSessions.map((s) => ({ sessionId: s.session_id, participantId: s.participant_id })),
+                { onSuccess: () => setConfirmingResetAllStale(false) }
+              );
+            }}
+            onCancel={() => setConfirmingResetAllStale(false)}
           />
           {deleteChatSession.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">

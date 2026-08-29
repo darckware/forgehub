@@ -124,6 +124,37 @@ export function useResetChatSessionHermesLink() {
   });
 }
 
+/** Bulk form of the reset above for the System Control "Reset all stale"
+ * button -- resets every currently-Stale session in one confirm instead of
+ * one row at a time. Same non-destructive semantics per session (keeps
+ * ForgeHub history, only forgets the Hermes resume link); requests run
+ * concurrently and a single failure doesn't stop the rest. */
+export function useResetAllStaleChatSessions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessions: { sessionId: string; participantId: string | null }[]) => {
+      const results = await Promise.allSettled(
+        sessions.map(({ sessionId, participantId }) =>
+          apiClient.post<ChatSession>(`${RESOURCE}/sessions/${sessionId}:reset-hermes-session`, undefined, {
+            params: participantId ? { participant_id: participantId } : undefined,
+          })
+        )
+      );
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed.length > 0) {
+        throw new Error(`${failed.length} of ${sessions.length} session(s) failed to reset`);
+      }
+    },
+    // onSettled (not onSuccess): a partial failure still throws above, but
+    // whichever sessions did succeed should still refresh out of the list.
+    // Not awaited -- same reasoning as useDeleteCleanupCategory: the refetch
+    // shouldn't hold this mutation (and the confirm dialog's spinner) open.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: chatSessionsHostStatusKey });
+    },
+  });
+}
+
 /** Permanently deletes a chat session (and its messages) -- the "delete"
  * icon on System Control's Chat Sessions card, mirroring Terminal
  * Sessions' kill button. Distinct from useDeleteChatSession below only in

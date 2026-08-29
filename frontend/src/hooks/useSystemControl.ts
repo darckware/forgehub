@@ -203,8 +203,13 @@ export function useRunCleanup() {
   const queryClient = useQueryClient();
   return useMutation<CleanupRunResult, Error>({
     mutationFn: () => apiClient.post("/api/v1/system-control/cleanup-run", {}),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+    // Not awaited: cleanup-scan re-scans the whole host filesystem (10s+,
+    // longer under load) -- awaiting it here would keep this mutation (and
+    // any UI bound to its pending state) stuck "loading" for the length of
+    // that rescan even though the run itself already finished. The query
+    // still refetches and the UI still updates once it resolves.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
     },
   });
 }
@@ -226,8 +231,11 @@ export function useDeleteCleanupCategory() {
   return useMutation<CleanupDeleteResult, Error, string>({
     mutationFn: (category: string) =>
       apiClient.post("/api/v1/system-control/cleanup-scan/delete", undefined, { params: { category } }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+    // Not awaited -- see useRunCleanup's comment: cleanup-scan's own rescan
+    // (not this delete) was what made the confirm dialog's spinner sit for
+    // 10s+ looking like the click had done nothing.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
     },
   });
 }

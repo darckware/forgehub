@@ -437,11 +437,16 @@ async def delete_backup(
 
 
 async def _scan_find(find_expr: str) -> list[dict[str, Any]]:
-    """Runs `find SCAN_ROOT <prune clause> <find_expr> -printf ...` over the
-    host-bridge -- find_expr is just the test/action part (e.g.
+    """Runs `find SCAN_ROOT <prune clause> <find_expr> ! -empty -printf ...`
+    over the host-bridge -- find_expr is just the test/action part (e.g.
     `-type f -iname '*.bak*'`), the root and prune clause are shared by
-    every scan so /mnt etc. are consistently excluded everywhere."""
-    command = f"find {shlex.quote(SCAN_ROOT)} {_prune_clause()} {find_expr} -printf '%s|%T@|%p\\n'"
+    every scan so /mnt etc. are consistently excluded everywhere.
+
+    `! -empty` drops 0-byte files (e.g. a profile's errors.log that a
+    logger has touched but never written to) -- there is no space to
+    reclaim and the producing process recreates it on demand, so it isn't
+    a cleanup candidate, just noise in the count."""
+    command = f"find {shlex.quote(SCAN_ROOT)} {_prune_clause()} {find_expr} ! -empty -printf '%s|%T@|%p\\n'"
     data = await _bridge("POST", "/v1/exec", json={"command": command})
     if data["exit_code"] != 0:
         raise HTTPException(
