@@ -7,7 +7,7 @@ objects themselves never cross this API boundary.
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -114,6 +114,21 @@ class ActivityMessageEdgeOut(BaseModel):
     canonical_path: str
 
 
+class ActivityPriorAttemptOut(BaseModel):
+    """One prior execution attempt linked to the canonical execution record."""
+
+    id: uuid.UUID
+    execution_id: uuid.UUID
+    attempt_number: int = Field(ge=1)
+    started_at: datetime
+    completed_at: datetime | None = None
+    outcome: str
+    error_code: str | None = None
+    summary: str | None = None
+    canonical_path: str
+    related_records: list[ActivityRecordLinkOut] = Field(default_factory=list)
+
+
 class ActivityIncidentOut(BaseModel):
     """An operational concern derived from a canonical source record."""
 
@@ -146,7 +161,7 @@ class ActivityIncidentOut(BaseModel):
         "open_message",
         "inspect_execution",
     ]
-    prior_attempts: list[dict[str, Any]] = Field(default_factory=list)
+    prior_attempts: list[ActivityPriorAttemptOut] = Field(default_factory=list)
     last_observed_at: datetime | None = None
     impact: str | None = None
     runtime_type: str | None = None
