@@ -34,6 +34,7 @@ from app.db.models.agent import (
     SubAgent,
     SubAgentSkill,
 )
+from app.db.models.chat import ChatSession
 from app.db.models.user import User
 
 _MY_TABLES = [
@@ -226,6 +227,45 @@ async def test_foundation_sync_retires_previously_synced_profile_outside_active_
         assert refreshed_stale is not None
         assert refreshed_stale.is_active is False
         assert refreshed_stale.status == "retired"
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_with_chat_history_returns_conflict_instead_of_server_error():
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"Agent with history {suffix}")
+        db.add(agent)
+        await db.flush()
+        session = ChatSession(agent_id=agent.id, title="History must survive")
+        db.add(session)
+        await db.commit()
+        agent_id = agent.id
+        session_id = session.id
+
+    app = FastAPI()
+    app.include_router(agent_routes.router)
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.delete(f"/api/v1/agents/{agent_id}")
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == (
+            "This agent has related operational history. Retire it instead of deleting it."
+        )
+        async with AsyncSessionLocal() as db:
+            assert await db.get(Agent, agent_id) is not None
+            assert await db.get(ChatSession, session_id) is not None
+    finally:
+        async with AsyncSessionLocal() as db:
+            chat = await db.get(ChatSession, session_id)
+            if chat is not None:
+                await db.delete(chat)
+                await db.flush()
+            persisted_agent = await db.get(Agent, agent_id)
+            if persisted_agent is not None:
+                await db.delete(persisted_agent)
+            await db.commit()
 
 
 @pytest.mark.asyncio

@@ -100,6 +100,9 @@ class Agent(Base, TimestampMixin):
         String(20), nullable=False, default="active"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Small profile portrait stored like User.avatar_data_url. The API limits
+    # decoded bytes and validates the actual JPEG/PNG/WebP signature.
+    avatar_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Hermes Foundation metadata -- see class docstring.
     profile_slug: Mapped[str | None] = mapped_column(String(50), nullable=True)

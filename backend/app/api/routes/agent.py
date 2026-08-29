@@ -1122,7 +1122,17 @@ async def update_agent(
 async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     agent = await _get_agent_or_404(db, agent_id)
     await db.delete(agent)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This agent has related operational history. "
+                "Retire it instead of deleting it."
+            ),
+        ) from None
 
 
 # ---------------------------------------------------------------------------

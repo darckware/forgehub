@@ -3,6 +3,8 @@
 Covers: agents (primary, full CRUD + nested sub_agents/skills), sub_agents,
 skills, agent_skills, sub_agent_skills, agent_cost_rates, agent_capacities.
 """
+import base64
+import binascii
 import uuid
 from datetime import datetime
 
@@ -17,6 +19,41 @@ from app.db.models.agent import (
     SKILL_RISK_LEVELS,
 )
 from app.db.models.orchestration import PROJECT_AGENT_ROLES
+
+
+AGENT_AVATAR_MAX_BYTES = 512 * 1024
+_AGENT_AVATAR_PREFIXES = {
+    "image/png": b"\x89PNG\r\n\x1a\n",
+    "image/jpeg": b"\xff\xd8\xff",
+}
+
+
+def _validate_agent_avatar_data_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    header, separator, encoded = value.partition(",")
+    if not separator or not header.startswith("data:") or not header.endswith(";base64"):
+        raise ValueError("avatar_data_url must be a base64 image data URL")
+    mime = header[5:-7]
+    if mime not in {*_AGENT_AVATAR_PREFIXES, "image/webp"}:
+        raise ValueError("avatar image must be JPEG, PNG, or WebP")
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError("avatar image contains invalid base64 data") from None
+    if len(decoded) > AGENT_AVATAR_MAX_BYTES:
+        raise ValueError("avatar image must be 512 KiB or smaller")
+    if mime == "image/webp":
+        signature_valid = (
+            len(decoded) >= 12
+            and decoded.startswith(b"RIFF")
+            and decoded[8:12] == b"WEBP"
+        )
+    else:
+        signature_valid = decoded.startswith(_AGENT_AVATAR_PREFIXES[mime])
+    if not signature_valid:
+        raise ValueError("avatar image content does not match its media type")
+    return value
 
 
 def _validate_choice(value: str, choices: tuple[str, ...], field_name: str) -> str:
@@ -277,6 +314,7 @@ class AgentUpdate(BaseModel):
     agent_type: str | None = None
     status: str | None = None
     is_active: bool | None = None
+    avatar_data_url: str | None = None
     forgerouter_api_key: str | None = Field(default=None, min_length=1, max_length=1000)
     clear_forgerouter_api_key: bool = False
     runtime_type: str | None = None
@@ -314,6 +352,11 @@ class AgentUpdate(BaseModel):
     def _check_default_role(cls, v: str | None) -> str | None:
         return v if v is None else _validate_choice(v, PROJECT_AGENT_ROLES, "default_role")
 
+    @field_validator("avatar_data_url")
+    @classmethod
+    def _check_avatar_data_url(cls, v: str | None) -> str | None:
+        return _validate_agent_avatar_data_url(v)
+
     @field_validator("home_path")
     @classmethod
     def _check_home_path(cls, v: str | None) -> str | None:
@@ -348,6 +391,7 @@ class AgentOut(AgentBase):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
+    avatar_data_url: str | None = None
 
     # Hermes Foundation metadata -- read-only, populated/refreshed only by
     # POST /api/v1/agents/sync/hermes-foundation (app/core/hermes_sync.py).
