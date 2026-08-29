@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "/agent-activity": {
+      "targetKind": "existing-ui",
+      "projectId": "5c3ea9c0-d0dd-489a-9f6c-36c33873154a",
+      "baselineDraftId": "3a3f8753-3899-430a-bf40-2079b385fc6d",
+      "activeDraftId": "85f71cfa-b2e5-4cb3-a89d-af05778598cf",
+      "designSystemPath": ".superdesign/design-system.md",
+      "referenceIds": ["frontend-public-favicon.svg"],
+      "brandAssets": {
+        "logo": {
+          "assetKey": "frontend-public-favicon.svg",
+          "url": "https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/5c3ea9c0-d0dd-489a-9f6c-36c33873154a/brand-assets/frontend-public-favicon.svg/favicon.svg",
+          "sourcePath": "frontend/public/favicon.svg"
+        }
+      },
+      "contextFiles": [
+        ".superdesign/design-system.md",
+        "frontend/src/index.css",
+        "frontend/src/pages/agent-activity/index.tsx",
+        "frontend/src/components/AgentActivityStage.tsx",
+        "frontend/src/components/AgentActivityTasksDialog.tsx"
+      ],
+      "fingerprints": {
+        ".superdesign/design-system.md": "660cb035c20715d6079a272d807b29578fbbc41b35f32ff3f01df8d696f82c18",
+        "frontend/src/index.css": "ed5f4c6a072f0cc1223931c68b0d2923280db0def09f1d9e4d2ceab3b218aad3",
+        "frontend/src/pages/agent-activity/index.tsx": "f9023db13ca5abb356c70b6044f04be6144f8ec991e29bfdbfd2247b70f21749",
+        "frontend/src/components/AgentActivityStage.tsx": "5a57c03f5b5b4db9511587f6e256ba33cb78f8d4bbe838b511af988d64669ee8",
+        "frontend/src/components/AgentActivityTasksDialog.tsx": "e365d0da448d1d167700c5ea5f045cde810c48b67f3cbc3b9fe42167832ab3e3"
+      },
+      "components": [
+        {
+          "name": "Sidebar",
+          "id": "54f8295f-79e9-4bbc-b422-a74a3d550f91",
+          "sourcePath": "frontend/src/components/layout/Sidebar.tsx",
+          "logoAssetKey": "frontend-public-favicon.svg"
+        }
+      ],
+      "drafts": {
+        "3a3f8753-3899-430a-bf40-2079b385fc6d": {
+          "title": "Agent Activity — Existing Baseline",
+          "visualDirection": "faithful reproduction of the current data-center floor",
+          "currentVersion": 1
+        },
+        "85f71cfa-b2e5-4cb3-a89d-af05778598cf": {
+          "title": "Atividade dos agentes — Continuidade operacional",
+          "visualDirection": "continuity-first hybrid with topology, selected-agent inspector and handoff swimlane",
+          "parentDraftId": "3a3f8753-3899-430a-bf40-2079b385fc6d",
+          "currentVersion": 1
+        },
+        "4ba1f3c3-e734-4497-b801-06b8d06f78ab": {
+          "title": "ForgeHub — Atividade dos agentes orientada a incidentes",
+          "visualDirection": "incident-first hybrid with live map, operations rail and synchronized timeline",
+          "parentDraftId": "3a3f8753-3899-430a-bf40-2079b385fc6d",
+          "currentVersion": 1
+        }
+      },
+      "updatedAt": "2026-08-29T16:33:00-03:00"
+    }
+  }
+}

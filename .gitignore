@@ -36,3 +36,6 @@ dist/
 
 # dev.sh state (pidfiles + logs for the local dev servers)
 .dev/
+
+# Superdesign temporary component templates
+.superdesign/tmp/
