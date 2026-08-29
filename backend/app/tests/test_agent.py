@@ -178,7 +178,7 @@ async def test_create_agent_invalid_status_rejected(client):
 
 @pytest.mark.asyncio
 async def test_foundation_sync_retires_previously_synced_profile_outside_active_registry(
-    client, cleanup_agent_ids, monkeypatch,
+    client, cleanup_agent_ids, monkeypatch, restore_hermes_agent_statuses,
 ):
     suffix = uuid.uuid4().hex[:8]
     stale = Agent(

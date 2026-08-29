@@ -74,6 +74,27 @@ def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {create_access_token('test-suite')}"}
 
 
+@pytest_asyncio.fixture
+async def restore_hermes_agent_statuses():
+    """Protect the operational roster from sync tests that replace the
+    canonical registry with a deliberately tiny fake registry."""
+    async with AsyncSessionLocal() as session:
+        rows = list((await session.execute(
+            select(Agent).where(Agent.runtime_type == "hermes")
+        )).scalars())
+        snapshot = {row.id: (row.status, row.is_active) for row in rows}
+
+    yield
+
+    async with AsyncSessionLocal() as session:
+        rows = list((await session.execute(
+            select(Agent).where(Agent.id.in_(snapshot))
+        )).scalars())
+        for row in rows:
+            row.status, row.is_active = snapshot[row.id]
+        await session.commit()
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def test_suite_agent():
     """Registers the `test-suite` agent for the whole session.
