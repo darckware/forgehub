@@ -113,6 +113,20 @@ def list_provisioned_profiles() -> list[str]:
     return sorted(p.name for p in PROFILES_DIR.iterdir() if p.is_dir())
 
 
+def list_active_provisioned_profiles() -> list[str]:
+    """Return provisioned profiles that the active Foundation registry names.
+
+    A directory can survive a restore or be created experimentally without
+    promoting its name back to a persistent agent.  The Foundation lifecycle
+    contract therefore requires both pieces of evidence: a live directory and
+    an active registry row.  This deliberately excludes archived Tier C role
+    names and undocumented directories such as accidental duplicates.
+    """
+    provisioned = set(list_provisioned_profiles())
+    registered = {entry["profile_slug"] for entry in parse_agent_registry()}
+    return sorted(provisioned & registered)
+
+
 def read_profile_forgerouter_api_key(profile_slug: str) -> str | None:
     """Return an already-provisioned agent key without logging it.
 

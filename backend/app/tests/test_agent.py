@@ -176,6 +176,59 @@ async def test_create_agent_invalid_status_rejected(client):
 
 
 @pytest.mark.asyncio
+async def test_foundation_sync_retires_previously_synced_profile_outside_active_registry(
+    client, cleanup_agent_ids, monkeypatch,
+):
+    suffix = uuid.uuid4().hex[:8]
+    stale = Agent(
+        name=f"Archived sync agent {suffix}",
+        profile_slug=f"archived-sync-{suffix}",
+        runtime_type="hermes",
+        has_profile=True,
+        status="active",
+        is_active=True,
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(stale)
+        await db.commit()
+        await db.refresh(stale)
+        cleanup_agent_ids.append(stale.id)
+
+    active_slug = f"active-sync-{suffix}"
+    monkeypatch.setattr(agent_routes.hermes_sync, "list_active_provisioned_profiles", lambda: [active_slug])
+    monkeypatch.setattr(
+        agent_routes.hermes_sync,
+        "parse_agent_registry",
+        lambda: [{
+            "profile_slug": active_slug,
+            "name": f"Active sync agent {suffix}",
+            "layer": "Governance",
+            "telegram_required": False,
+            "runtime_tier": "A",
+        }],
+    )
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_agent_mission", lambda _slug: (None, None))
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_profile_identity", lambda _slug: {})
+    monkeypatch.setattr(agent_routes.hermes_sync, "read_profile_forgerouter_api_key", lambda _slug: None)
+    monkeypatch.setattr(agent_routes.hermes_sync, "organization_for_profile", lambda _slug: (None, None, None))
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_subagent_catalog", lambda: {})
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_profile_skills", lambda _slug: [])
+
+    response = await client.post("/api/v1/agents/sync/hermes-foundation")
+
+    assert response.status_code == 200, response.text
+    async with AsyncSessionLocal() as db:
+        active = (
+            await db.execute(select(Agent).where(Agent.profile_slug == active_slug))
+        ).scalar_one()
+        cleanup_agent_ids.append(active.id)
+        refreshed_stale = await db.get(Agent, stale.id)
+        assert refreshed_stale is not None
+        assert refreshed_stale.is_active is False
+        assert refreshed_stale.status == "retired"
+
+
+@pytest.mark.asyncio
 async def test_skill_cannot_self_approve_on_create(client, cleanup_skill_ids):
     """A skill must never be created already approved -- approval is a
     distinct governance action (SPEC 6.5 rule 5/6)."""
