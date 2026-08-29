@@ -13,6 +13,7 @@ interface ConfirmDialogProps {
   variant?: "destructive" | "default";
   icon?: "trash" | "warning" | "wrench";
   loading?: boolean;
+  error?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -26,6 +27,7 @@ export function ConfirmDialog({
   variant = "destructive",
   icon,
   loading = false,
+  error,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -97,6 +99,12 @@ export function ConfirmDialog({
               )}
             </div>
           </div>
+
+          {error && (
+            <p role="alert" className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
 
           {/* Actions */}
           <div className="mt-6 flex justify-end gap-3">

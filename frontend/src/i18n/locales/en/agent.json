@@ -205,6 +205,40 @@
     "retiredSectionTitle": "Retired / inactive agents",
     "retiredSectionSubtitle": "Kept for audit and never part of the live org chart. The Foundation sync never deactivates a row on its own — a human retired these."
   },
+  "roster": {
+    "title": "Agent roster",
+    "description": "Select a row to open the full profile without losing the list context.",
+    "stats": { "active": "{{count}} active agents" },
+    "columns": {
+      "agent": "Agent",
+      "function": "Function",
+      "organization": "Department / sector",
+      "runtime": "Runtime / tier",
+      "status": "Status",
+      "inventory": "Skills / workers",
+      "details": "Details"
+    },
+    "expandAgent": "Expand details for {{name}}",
+    "collapseAgent": "Collapse details for {{name}}",
+    "notDefined": "Not defined",
+    "inventory": "{{skills}} skills · {{workers}} workers",
+    "status": { "active": "Active", "inactive": "Inactive", "retired": "Archived" },
+    "photo": {
+      "title": "Agent photo",
+      "imageAlt": "Photo of {{name}}",
+      "hint": "JPEG, PNG, or WebP · 512 KiB maximum.",
+      "choose": "Upload photo",
+      "replace": "Replace photo",
+      "remove": "Remove photo",
+      "saving": "Saving photo…",
+      "errorType": "Choose a JPEG, PNG, or WebP image.",
+      "errorEmpty": "The selected image is empty.",
+      "errorSize": "The image must be 512 KiB or smaller.",
+      "errorRead": "The selected image could not be read.",
+      "errorSave": "The photo could not be saved: {{message}}"
+    },
+    "deleteError": "The agent could not be deleted: {{message}}"
+  },
   "telegram": {
     "ariaLabel": "Telegram channel: {{status}}",
     "channel": "channel {{name}}",

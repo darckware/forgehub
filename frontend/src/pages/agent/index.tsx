@@ -1,6 +1,5 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, Bot, Download, KeyRound, Loader2, RefreshCw, Send, Wrench } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -9,18 +8,8 @@ import { AgentEcosystemHierarchy } from "@/components/AgentEcosystemHierarchy";
 import { useAgents, useSyncForgeRouterKeys, useSyncHermesAgents, useSkills } from "@/hooks/useAgent";
 import { cn } from "@/lib/utils";
 
-/**
- * The Agents page is the org chart, full stop.
- *
- * It used to carry a second surface below the chart: a filter bar plus a
- * roster table repeating every agent with its own View/Delete actions. Once
- * each chart card grew the agent's runtime, profile directory, profile files,
- * Telegram health, skills, sub-agents, crons and scripts, that table was
- * showing strictly less than the card directly above it — so it was removed
- * (2026-07-26) and its two real capabilities moved onto the card itself:
- * View, Delete, and delete-a-sub-agent. Retired agents, which the table used
- * to preserve for audit, now have their own section in the chart.
- */
+/** The Agents page is an active roster table. Each row expands in place to
+ * expose the existing operational detail and edit actions. */
 
 /** Path the Hermes Foundation sync reads its canonical agent contracts from
  *  (backend/app/core/hermes_sync.py's CANONICAL_AGENTS_DOC_ROOT). Shown next
@@ -34,7 +23,14 @@ export default function AgentPage() {
   const { data: skills = [] } = useSkills();
   const syncHermes = useSyncHermesAgents();
   const syncForgeRouterKeys = useSyncForgeRouterKeys();
-  const [focusedAgentId, setFocusedAgentId] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusedAgentId = searchParams.get("agent") ?? "";
+  const setFocusedAgentId = (agentId: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (agentId) next.set("agent", agentId);
+    else next.delete("agent");
+    setSearchParams(next, { replace: true });
+  };
 
   return (
     <div className="space-y-6">
@@ -47,8 +43,7 @@ export default function AgentPage() {
           </p>
         </div>
         <div className="flex items-center gap-1.5">
-          {/* Focus the chart on one agent. Built from the full roster, retired
-              rows included, so filtering to an archived agent still works. */}
+          {/* Keep the active-agent filter in the URL with table ordering. */}
           <Select
             value={focusedAgentId}
             onChange={(e) => setFocusedAgentId(e.target.value)}
@@ -57,11 +52,11 @@ export default function AgentPage() {
           >
             <option value="">{t("list.allAgents")}</option>
             {[...(agents ?? [])]
+              .filter((agent) => agent.is_active)
               .sort((a, b) => a.name.localeCompare(b.name))
               .map((agent) => (
                 <option key={agent.id} value={agent.id}>
                   {agent.name}
-                  {agent.is_active ? "" : ` · ${t("list.retiredSuffix")}`}
                 </option>
               ))}
           </Select>
@@ -240,9 +235,8 @@ export default function AgentPage() {
         </Card>
       )}
 
-      {/* The full roster goes in, retired rows included — the chart owns the
-          active/inactive split and renders retired agents in their own
-          section. */}
+      {/* Retired rows remain auditable in storage but are not part of the
+          current operational roster shown here. */}
       {!isLoading && !isError && agents && agents.length > 0 && (
         <AgentEcosystemHierarchy
           agents={agents}
