@@ -25,6 +25,7 @@ The existing `forge-agent-activity/v1` response may be extended additively. Exis
 | Approval | governed approval request and decision | pending/decided state and canonical link |
 | Delivery authorization | `AuthorizeDeliveryPlanning` result | transition from conception context to one or more real projects |
 | Project work | `Project`, planning items, tasks, assignments, executions | project/task/owner/current action |
+| Communication context | `AgentDemand.development_request_id`, `project_id`, and task `origin_id` | canonical conception/project/task links and routes |
 | Version readiness | `ProductVersion` plus every project and task under it | aggregate blocking state, project-level breakdown, publish eligibility |
 
 Stable activity keys include the source type and source UUID. They never derive identity from titles. Historical conception events keep conception keys after projects are created.
@@ -42,6 +43,13 @@ Introduce an additive operational-context shape:
 - `status`, `title`, `created_at`, and `updated_at`.
 
 Agent rows, flow items, incidents, message edges, and timeline events may reference a context. Project-specific fields remain nullable for pre-project work. The backend derives links only from structured identifiers such as `product_id`, request/concept references, approval subject references, message `project_id`, assignments, and executions. It must not parse free-form message prose to manufacture relationships.
+
+Messages carries the pre-project relationship through a nullable
+`development_request_id` foreign key. It may coexist with `project_id` and a
+task origin after delivery authorization, but the backend rejects mixed
+request/project links whose records belong to different products. This keeps
+one communication history across Conception, Software Factory delivery, and
+Agent Activity without rewriting old messages.
 
 The unfiltered topology shows active conceptions when canonical evidence connects an agent to the conception through a structured request, approval, or message context. A project filter continues to show only that project. A conception filter shows its intake, approval, communication, and transition events plus the projects created from it.
 
@@ -113,7 +121,7 @@ Final verification includes Ruff, focused and full backend tests, focused and fu
 
 ## Deployment and rollback
 
-Use the repository's established deployment path and record the exact revision deployed. Apply database migrations only if the final implementation introduces schema changes; the preferred additive read-model implementation requires none.
+Use the repository's established deployment path and record the exact revision deployed. Apply the additive Messages-to-development-request migration before promoting the application revision.
 
 Before deployment, capture current service status and revision. After deployment, verify backend health, frontend availability, authenticated Agent Activity data, conception visibility, version-wide closure blocking, and existing Software Factory navigation. If a health or smoke check fails, stop promotion and use the established recoverable deployment rollback path; do not rewrite shared git history or remove user changes.
 
