@@ -66,6 +66,7 @@ export type ActivityCurrentWork = z.infer<typeof activityCurrentWorkSchema>;
 export const activityAgentSchema = z.object({
   id: uuidSchema,
   name: z.string(),
+  avatar_data_url: z.string().nullable(),
   profile_slug: z.string().nullable(),
   runtime_type: z.string(),
   availability: z.enum(["available", "busy", "degraded", "unavailable", "unknown"]),
@@ -77,6 +78,34 @@ export const activityAgentSchema = z.object({
   profile_summary: activityProfileSummarySchema,
 });
 export type ActivityAgent = z.infer<typeof activityAgentSchema>;
+
+export const activityProjectSchema = z.object({
+  id: uuidSchema,
+  name: z.string(),
+  status: z.string(),
+  canonical_path: z.string(),
+});
+export type ActivityProject = z.infer<typeof activityProjectSchema>;
+
+export const activityResourceSchema = z.object({
+  key: z.string(),
+  kind: z.literal("database"),
+  label: z.string(),
+  detail: z.string().nullable(),
+  status: z.enum(["available", "degraded", "unavailable"]),
+});
+export type ActivityResource = z.infer<typeof activityResourceSchema>;
+
+export const activityTopologyRelationSchema = z.object({
+  key: z.string(),
+  kind: z.enum(["current_work", "membership", "persistence"]),
+  from_type: z.enum(["agent", "project"]),
+  from_id: z.string(),
+  to_type: z.enum(["project", "resource"]),
+  to_id: z.string(),
+  label: z.string(),
+});
+export type ActivityTopologyRelation = z.infer<typeof activityTopologyRelationSchema>;
 
 export const activityMessageEdgeSchema = z.object({
   message_id: uuidSchema,
@@ -155,12 +184,43 @@ export const activityIncidentSchema = z.object({
 });
 export type ActivityIncident = z.infer<typeof activityIncidentSchema>;
 
+export const activityFlowStageSchema = z.enum([
+  "incoming",
+  "planning",
+  "queued",
+  "executing",
+  "verifying",
+  "completed",
+  "attention",
+  "archived",
+]);
+export type ActivityFlowStage = z.infer<typeof activityFlowStageSchema>;
+
+export const activityFlowItemSchema = z.object({
+  key: z.string(),
+  stage: activityFlowStageSchema,
+  source_type: z.string(),
+  source_id: uuidSchema,
+  source_status: z.string(),
+  title: z.string(),
+  occurred_at: timestampSchema,
+  updated_at: timestampSchema,
+  canonical_path: z.string(),
+  agent_id: uuidSchema.nullable(),
+  project_id: uuidSchema.nullable(),
+  task_id: uuidSchema.nullable(),
+  execution_id: uuidSchema.nullable(),
+});
+export type ActivityFlowItem = z.infer<typeof activityFlowItemSchema>;
+
 export const activityTimelineEventSchema = z.object({
   key: z.string(),
   kind: z.string(),
   occurred_at: timestampSchema,
   source_type: z.string(),
   source_id: uuidSchema,
+  source_status: z.string(),
+  lane: z.enum(["communication", "planning", "execution", "checkpoint", "governance"]),
   title: z.string(),
   canonical_path: z.string(),
   summary: z.string().nullable(),
@@ -191,6 +251,10 @@ export const agentActivitySchema = z.object({
   generated_at: timestampSchema,
   project_id: uuidSchema.nullable(),
   agents: z.array(activityAgentSchema),
+  projects: z.array(activityProjectSchema),
+  resources: z.array(activityResourceSchema),
+  topology_relations: z.array(activityTopologyRelationSchema),
+  flow_items: z.array(activityFlowItemSchema),
   message_edges: z.array(activityMessageEdgeSchema),
   incidents: z.array(activityIncidentSchema),
   timeline: z.array(activityTimelineEventSchema),

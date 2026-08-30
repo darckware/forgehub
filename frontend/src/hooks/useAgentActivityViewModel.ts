@@ -1,4 +1,99 @@
-import type { ActivityAgent, ActivityMessageEdge } from "./useAgentActivity";
+import type {
+  ActivityAgent,
+  ActivityMessageEdge,
+  ActivityProject,
+  ActivityResource,
+} from "./useAgentActivity";
+
+export type ActivityGraphNodeKind = "agent" | "project" | "resource";
+
+export interface GraphPosition {
+  xPct: number;
+  yPct: number;
+}
+
+export interface ActivityGraphNode extends GraphPosition {
+  id: string;
+  sourceId: string;
+  kind: ActivityGraphNodeKind;
+  label: string;
+}
+
+const GRAPH_POSITION_STORAGE_PREFIX = "forgehub:agent-activity:topology:v1";
+
+export function graphNodeId(kind: ActivityGraphNodeKind, sourceId: string): string {
+  return kind === "resource" ? sourceId : `${kind}:${sourceId}`;
+}
+
+export function graphPositionStorageKey(projectId: string | null): string {
+  return `${GRAPH_POSITION_STORAGE_PREFIX}:${projectId ?? "all"}`;
+}
+
+export function clampGraphPosition(position: GraphPosition): GraphPosition {
+  return {
+    xPct: Math.min(96, Math.max(4, position.xPct)),
+    yPct: Math.min(94, Math.max(6, position.yPct)),
+  };
+}
+
+function layoutBand(
+  records: readonly { sourceId: string; label: string }[],
+  kind: ActivityGraphNodeKind,
+  top: number,
+  bottom: number,
+): ActivityGraphNode[] {
+  if (records.length === 0) return [];
+  const columns = Math.min(5, Math.max(1, Math.ceil(Math.sqrt(records.length * 1.6))));
+  const rows = Math.ceil(records.length / columns);
+  return records.map((record, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    return {
+      id: graphNodeId(kind, record.sourceId),
+      sourceId: record.sourceId,
+      kind,
+      label: record.label,
+      xPct: roundPercent(((column + 1) * 100) / (Math.min(columns, records.length) + 1)),
+      yPct: roundPercent(rows === 1 ? (top + bottom) / 2 : top + (row * (bottom - top)) / (rows - 1)),
+    };
+  });
+}
+
+export function layoutActivityGraph(
+  agents: readonly ActivityAgent[],
+  projects: readonly ActivityProject[],
+  resources: readonly ActivityResource[],
+): ActivityGraphNode[] {
+  const orderedAgents = [...agents]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((agent) => ({ sourceId: agent.id, label: agent.name }));
+  const orderedProjects = [...projects]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((project) => ({ sourceId: project.id, label: project.name }));
+  const orderedResources = [...resources]
+    .sort((left, right) => left.key.localeCompare(right.key))
+    .map((resource) => ({ sourceId: resource.key, label: resource.label }));
+
+  return [
+    ...layoutBand(orderedAgents, "agent", 12, 44),
+    ...layoutBand(orderedProjects, "project", 54, 72),
+    ...layoutBand(orderedResources, "resource", 82, 90),
+  ];
+}
+
+export function mergeSavedGraphPositions(
+  nodes: readonly ActivityGraphNode[],
+  saved: Record<string, GraphPosition> | null | undefined,
+): ActivityGraphNode[] {
+  if (!saved) return [...nodes];
+  return nodes.map((node) => {
+    const position = saved[node.id];
+    if (!position || !Number.isFinite(position.xPct) || !Number.isFinite(position.yPct)) {
+      return node;
+    }
+    return { ...node, ...clampGraphPosition(position) };
+  });
+}
 
 export interface ActivityNode {
   id: string;

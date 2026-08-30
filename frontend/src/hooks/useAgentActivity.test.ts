@@ -83,6 +83,7 @@ const AGENTS = [
   {
     id: IDS.athos,
     name: "Athos",
+    avatar_data_url: "data:image/png;base64,AA==",
     profile_slug: "athos",
     runtime_type: "hermes",
     availability: "busy",
@@ -96,6 +97,7 @@ const AGENTS = [
   {
     id: IDS.aramis,
     name: "Aramis",
+    avatar_data_url: null,
     profile_slug: "aramis",
     runtime_type: "codex",
     availability: "available",
@@ -175,6 +177,60 @@ const ACTIVITY = {
   generated_at: AT,
   project_id: IDS.project,
   agents: AGENTS,
+  projects: [
+    {
+      id: IDS.project,
+      name: "ForgeHub",
+      status: "active",
+      canonical_path: `/projects/${IDS.project}`,
+    },
+  ],
+  resources: [
+    {
+      key: "database:company_postgres/company",
+      kind: "database",
+      label: "company_postgres",
+      detail: "company",
+      status: "available",
+    },
+  ],
+  topology_relations: [
+    {
+      key: `current-work:${IDS.athos}:${IDS.project}`,
+      kind: "current_work",
+      from_type: "agent",
+      from_id: IDS.athos,
+      to_type: "project",
+      to_id: IDS.project,
+      label: "Working now",
+    },
+    {
+      key: `persistence:${IDS.project}:database:company_postgres/company`,
+      kind: "persistence",
+      from_type: "project",
+      from_id: IDS.project,
+      to_type: "resource",
+      to_id: "database:company_postgres/company",
+      label: "Persists in company schema",
+    },
+  ],
+  flow_items: [
+    {
+      key: `task_execution:${IDS.execution}`,
+      stage: "attention",
+      source_type: "task_execution",
+      source_id: IDS.execution,
+      source_status: "failed",
+      title: "Read model",
+      occurred_at: AT,
+      updated_at: AT,
+      canonical_path: `/tasks/${IDS.task}?execution=${IDS.execution}`,
+      agent_id: IDS.athos,
+      project_id: IDS.project,
+      task_id: IDS.task,
+      execution_id: IDS.execution,
+    },
+  ],
   message_edges: [MESSAGE_EDGE],
   incidents: [INCIDENT],
   timeline: [
@@ -184,6 +240,8 @@ const ACTIVITY = {
       occurred_at: AT,
       source_type: "task_execution",
       source_id: IDS.incidentSource,
+      source_status: "failed",
+      lane: "execution",
       title: "Execution failed",
       canonical_path: `/api/v1/task-executions/${IDS.execution}`,
       summary: "A canonical execution failure",
@@ -231,6 +289,17 @@ describe("agent activity schemas", () => {
     expect(agentActivitySchema.parse({ ...ACTIVITY, generated_at: "2026-08-29T12:00:00" }).generated_at).toBe(
       "2026-08-29T12:00:00"
     );
+  });
+
+  it("rejects malformed topology endpoints and unsupported flow stages", () => {
+    expect(() => agentActivitySchema.parse({
+      ...ACTIVITY,
+      topology_relations: [{ ...ACTIVITY.topology_relations[0], to_type: "agent" }],
+    })).toThrow();
+    expect(() => agentActivitySchema.parse({
+      ...ACTIVITY,
+      flow_items: [{ ...ACTIVITY.flow_items[0], stage: "mystery" }],
+    })).toThrow();
   });
 });
 
