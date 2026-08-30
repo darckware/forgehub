@@ -10,7 +10,7 @@ import httpx
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select, text
 
-from app.core.agent_activity import build_agent_activity
+from app.core.agent_activity import build_agent_activity, classify_flow_stage
 from app.core.security import create_access_token, hash_password
 from app.db.base import AsyncSessionLocal, engine
 from app.db.models.agent import Agent
@@ -380,6 +380,24 @@ def _incident_payload() -> dict[str, object]:
     }
 
 
+@pytest.mark.parametrize(
+    ("source_type", "source_status", "expected"),
+    [
+        ("agent_demand", "new", "incoming"),
+        ("agent_demand", "incubating", "planning"),
+        ("agent_demand", "dispatched", "queued"),
+        ("task_execution", "pending", "queued"),
+        ("task_execution", "running", "executing"),
+        ("task_execution", "verified", "verifying"),
+        ("task_execution", "failed", "attention"),
+        ("approval_request", "pending", "attention"),
+        ("agent_demand", "archived", "archived"),
+    ],
+)
+def test_classify_flow_stage(source_type, source_status, expected):
+    assert classify_flow_stage(source_type, source_status) == expected
+
+
 @pytest.mark.asyncio
 async def test_build_activity_joins_message_execution_checkpoint_and_approval(
     activity_world,
@@ -407,6 +425,26 @@ async def test_build_activity_joins_message_execution_checkpoint_and_approval(
     assert any(
         event.source_id == activity_world.approval_id for event in view.timeline
     )
+    assert {
+        (item.source_type, item.source_id, item.source_status, item.stage)
+        for item in view.flow_items
+        if item.source_id
+        in {
+            activity_world.demand_id,
+            activity_world.execution_id,
+            activity_world.approval_id,
+        }
+    } == {
+        ("agent_demand", activity_world.demand_id, "failed", "attention"),
+        ("task_execution", activity_world.execution_id, "failed", "attention"),
+        ("approval_request", activity_world.approval_id, "pending", "attention"),
+    }
+    timeline_by_source = {event.source_id: event for event in view.timeline}
+    assert timeline_by_source[activity_world.demand_id].lane == "communication"
+    assert timeline_by_source[activity_world.execution_id].lane == "execution"
+    assert timeline_by_source[activity_world.checkpoint_id].lane == "checkpoint"
+    assert timeline_by_source[activity_world.approval_id].lane == "governance"
+    assert timeline_by_source[activity_world.execution_id].source_status == "failed"
 
 
 @pytest.mark.asyncio
@@ -453,6 +491,41 @@ async def test_build_activity_includes_membership_only_project(activity_world):
             await conn.execute(
                 text("DELETE FROM company.projects WHERE id = :id"),
                 {"id": membership_project_id},
+            )
+
+
+@pytest.mark.asyncio
+async def test_build_activity_includes_planned_task_without_execution(activity_world):
+    task_id = uuid.uuid4()
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                ProjectTask(
+                    id=task_id,
+                    title="Planned without an execution",
+                    planning_item_id=activity_world.planning_item_id,
+                    status="planned",
+                )
+            )
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            view = await build_agent_activity(
+                db,
+                project_id=activity_world.project_id,
+                window_minutes=60,
+            )
+
+        item = next(flow for flow in view.flow_items if flow.source_id == task_id)
+        assert item.source_type == "project_task"
+        assert item.source_status == "planned"
+        assert item.stage == "planning"
+        assert item.project_id == activity_world.project_id
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("DELETE FROM company.project_tasks WHERE id = :id"),
+                {"id": task_id},
             )
 
 
@@ -873,6 +946,8 @@ def test_agent_activity_contract_serializes_canonical_operational_records():
                 occurred_at=observed_at,
                 source_type="approval_request",
                 source_id=approval_id,
+                source_status="pending",
+                lane="governance",
                 title="Approval requested",
                 canonical_path=f"/governance/{approval_id}",
                 project_id=project_id,

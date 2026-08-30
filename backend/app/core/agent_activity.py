@@ -20,6 +20,7 @@ from app.api.schemas.agent_activity import (
     ActivityAgentOut,
     ActivityCheckpointOut,
     ActivityCurrentWorkOut,
+    ActivityFlowItemOut,
     ActivityIncidentOut,
     ActivityMessageEdgeOut,
     ActivityPriorAttemptOut,
@@ -50,6 +51,57 @@ from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 ROW_LIMIT = 500
 FORGEROUTER_LIMIT = 200
 ACTIVE_EXECUTION_STATUSES = {"pending", "running", "reported"}
+
+FLOW_STAGE_BY_SOURCE: dict[str, dict[str, str]] = {
+    "agent_demand": {
+        "new": "incoming",
+        "read": "incoming",
+        "incubating": "planning",
+        "decision_pending": "attention",
+        "promoted": "planning",
+        "dropped": "archived",
+        "dispatched": "queued",
+        "running": "executing",
+        "completed": "completed",
+        "failed": "attention",
+        "converted": "planning",
+        "archived": "archived",
+    },
+    "project_task": {
+        "planned": "planning",
+        "ready": "queued",
+        "assigned": "queued",
+        "in_progress": "executing",
+        "blocked": "attention",
+        "done": "completed",
+        "deployed": "completed",
+        "cancelled": "archived",
+    },
+    "task_execution": {
+        "pending": "queued",
+        "running": "executing",
+        "reported": "verifying",
+        "verified": "verifying",
+        "reconciling": "verifying",
+        "recovering": "verifying",
+        "completed": "completed",
+        "failed": "attention",
+        "blocked": "attention",
+        "paused": "attention",
+        "retried": "queued",
+    },
+    "approval_request": {
+        "pending": "attention",
+        "approved": "completed",
+        "rejected": "attention",
+    },
+}
+
+
+def classify_flow_stage(source_type: str, source_status: str) -> str:
+    """Map a canonical domain status into the read-only operational display."""
+
+    return FLOW_STAGE_BY_SOURCE.get(source_type, {}).get(source_status, "attention")
 
 
 @dataclass(frozen=True)
@@ -484,6 +536,146 @@ def build_incidents(
     )
 
 
+def _demand_flow_status(demand: AgentDemand) -> str:
+    """Choose the demand state that best describes its current processing position."""
+
+    if demand.dispatch_status in {"failed", "running", "dispatched"}:
+        return demand.dispatch_status
+    if demand.status == "archived":
+        return "archived"
+    if demand.dispatch_status == "completed":
+        return "completed"
+    if demand.origin_type == "incubation" and demand.incubation_state:
+        return demand.incubation_state
+    return demand.status
+
+
+def build_flow_items(
+    *,
+    demands: Iterable[AgentDemand],
+    tasks_by_id: dict[uuid.UUID, TaskActivityContext | ProjectTask],
+    executions: Iterable[ExecutionActivityContext | TaskExecution],
+    approvals: Iterable[ApprovalRequest],
+) -> list[ActivityFlowItemOut]:
+    """Project canonical records into mutually exclusive operational stages."""
+
+    items: list[ActivityFlowItemOut] = []
+    contexts = [_execution_context(item) for item in executions]
+    latest_execution_by_task: dict[uuid.UUID, ExecutionActivityContext] = {}
+    for context in sorted(
+        contexts,
+        key=lambda item: (item.execution.updated_at, str(item.execution.id)),
+        reverse=True,
+    ):
+        latest_execution_by_task.setdefault(context.execution.task_id, context)
+
+    for demand in demands:
+        source_status = _demand_flow_status(demand)
+        items.append(
+            ActivityFlowItemOut(
+                key=f"agent_demand:{demand.id}",
+                stage=classify_flow_stage("agent_demand", source_status),
+                source_type="agent_demand",
+                source_id=demand.id,
+                source_status=source_status,
+                title=demand.subject,
+                occurred_at=demand.created_at,
+                updated_at=demand.updated_at,
+                canonical_path=f"/demands?message={demand.id}",
+                agent_id=demand.target_agent_id,
+                project_id=demand.project_id,
+                task_id=demand.origin_id if demand.origin_type == "task" else None,
+                execution_id=demand.task_execution_id,
+            )
+        )
+
+    for task_id, value in tasks_by_id.items():
+        task_context = _task_context(value)
+        if not task_context or task_id in latest_execution_by_task:
+            continue
+        task = task_context.task
+        items.append(
+            ActivityFlowItemOut(
+                key=f"project_task:{task.id}",
+                stage=classify_flow_stage("project_task", task.status),
+                source_type="project_task",
+                source_id=task.id,
+                source_status=task.status,
+                title=task.title,
+                occurred_at=task.created_at,
+                updated_at=task.updated_at,
+                canonical_path=f"/tasks/{task.id}",
+                project_id=task_context.project.id if task_context.project else None,
+                task_id=task.id,
+            )
+        )
+
+    for task_id, context in latest_execution_by_task.items():
+        execution = context.execution
+        task_context = _task_context(tasks_by_id.get(task_id))
+        task = task_context.task if task_context else None
+        items.append(
+            ActivityFlowItemOut(
+                key=f"task_execution:{execution.id}",
+                stage=classify_flow_stage("task_execution", execution.status),
+                source_type="task_execution",
+                source_id=execution.id,
+                source_status=execution.status,
+                title=task.title if task else f"Execution {execution.attempt_number}",
+                occurred_at=execution.started_at or execution.created_at,
+                updated_at=execution.updated_at,
+                canonical_path=f"/tasks/{execution.task_id}?execution={execution.id}",
+                agent_id=context.agent_id,
+                project_id=(
+                    task_context.project.id
+                    if task_context and task_context.project
+                    else None
+                ),
+                task_id=execution.task_id,
+                execution_id=execution.id,
+            )
+        )
+
+    for approval in approvals:
+        task_context = (
+            _task_context(tasks_by_id.get(approval.target_id))
+            if approval.target_type == "project_task"
+            else None
+        )
+        items.append(
+            ActivityFlowItemOut(
+                key=f"approval_request:{approval.id}",
+                stage=classify_flow_stage("approval_request", approval.status),
+                source_type="approval_request",
+                source_id=approval.id,
+                source_status=approval.status,
+                title=f"Approval: {approval.approval_type}",
+                occurred_at=approval.created_at,
+                updated_at=approval.updated_at,
+                canonical_path=f"/governance/{approval.id}",
+                agent_id=(
+                    approval.requested_by_id
+                    if approval.requested_by_type == "agent"
+                    else None
+                ),
+                project_id=(
+                    task_context.project.id
+                    if task_context and task_context.project
+                    else approval.target_id
+                    if approval.target_type == "project"
+                    else None
+                ),
+                task_id=(
+                    approval.target_id
+                    if approval.target_type == "project_task"
+                    else None
+                ),
+            )
+        )
+
+    return sorted(items, key=lambda item: (item.updated_at, item.key), reverse=True)
+
+
 def build_timeline(
     *,
     demands: Iterable[AgentDemand],
@@ -503,6 +695,8 @@ def build_timeline(
                 occurred_at=demand.created_at,
                 source_type="agent_demand",
                 source_id=demand.id,
+                source_status=demand.dispatch_status or demand.status,
+                lane="communication",
                 title=demand.subject,
                 canonical_path=f"/demands?message={demand.id}",
                 agent_id=demand.target_agent_id,
@@ -521,6 +715,8 @@ def build_timeline(
                 occurred_at=execution.finished_at or execution.started_at or execution.created_at,
                 source_type="task_execution",
                 source_id=execution.id,
+                source_status=execution.status,
+                lane="execution",
                 title=f"Execution {execution.status}",
                 canonical_path=f"/tasks/{execution.task_id}?execution={execution.id}",
                 summary=execution.outcome_summary,
@@ -537,6 +733,8 @@ def build_timeline(
                 occurred_at=checkpoint.last_confirmed_at,
                 source_type="progress_checkpoint",
                 source_id=checkpoint.id,
+                source_status=checkpoint.checkpoint_type,
+                lane="checkpoint",
                 title=checkpoint.step_label,
                 canonical_path=f"/tasks/{checkpoint.task_id}?checkpoint={checkpoint.id}",
                 summary=checkpoint.message,
@@ -556,6 +754,8 @@ def build_timeline(
                 occurred_at=approval.updated_at,
                 source_type="approval_request",
                 source_id=approval.id,
+                source_status=approval.status,
+                lane="governance",
                 title=f"Approval {approval.status}",
                 canonical_path=f"/governance/{approval.id}",
                 summary=approval.approval_type,
@@ -576,6 +776,8 @@ def build_timeline(
                 occurred_at=notification.occurred_at,
                 source_type="notification",
                 source_id=notification.id,
+                source_status=notification.severity,
+                lane="communication",
                 title=notification.title,
                 canonical_path=f"/notifications/{notification.id}",
                 summary=notification.summary or notification.message,
@@ -669,16 +871,29 @@ async def build_agent_activity(
         for demand in demands
         if demand.origin_type == "task" and demand.origin_id is not None
     )
-    tasks = (
-        list(
-            (
-                await db.execute(
-                    select(ProjectTask).where(ProjectTask.id.in_(task_ids)).limit(ROW_LIMIT)
-                )
-            ).scalars()
-        )
+    task_recency_filter = ProjectTask.updated_at >= since
+    task_query = select(ProjectTask).where(
+        or_(ProjectTask.id.in_(task_ids), task_recency_filter)
         if task_ids
-        else []
+        else task_recency_filter
+    )
+    if project_id is not None:
+        task_query = task_query.where(
+            or_(
+                ProjectTask.planning_item_id.in_(
+                    select(PlanningItem.id).where(PlanningItem.project_id == project_id)
+                ),
+                ProjectTask.change_request_id.in_(
+                    select(ChangeRequest.id).where(ChangeRequest.project_id == project_id)
+                ),
+            )
+        )
+    tasks = list(
+        (
+            await db.execute(
+                task_query.order_by(ProjectTask.updated_at.desc()).limit(ROW_LIMIT)
+            )
+        ).scalars()
     )
     planning_item_ids = {
         task.planning_item_id for task in tasks if task.planning_item_id is not None
@@ -1025,6 +1240,12 @@ async def build_agent_activity(
             )
         ],
         topology_relations=sorted(topology_relations, key=lambda item: item.key),
+        flow_items=build_flow_items(
+            demands=demands,
+            tasks_by_id=tasks_by_id,
+            executions=execution_contexts,
+            approvals=approvals,
+        ),
         message_edges=build_message_edges(
             demands=demands,
             agents=agents,

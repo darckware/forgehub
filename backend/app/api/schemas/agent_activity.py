@@ -203,6 +203,36 @@ class ActivityIncidentOut(BaseModel):
     related_records: list[ActivityRecordLinkOut] = Field(default_factory=list)
 
 
+ActivityFlowStage = Literal[
+    "incoming",
+    "planning",
+    "queued",
+    "executing",
+    "verifying",
+    "completed",
+    "attention",
+    "archived",
+]
+
+
+class ActivityFlowItemOut(BaseModel):
+    """One canonical record normalized into the read-only operational flow."""
+
+    key: str
+    stage: ActivityFlowStage
+    source_type: str
+    source_id: uuid.UUID
+    source_status: str
+    title: str
+    occurred_at: datetime
+    updated_at: datetime
+    canonical_path: str
+    agent_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+    task_id: uuid.UUID | None = None
+    execution_id: uuid.UUID | None = None
+
+
 class ActivityTimelineEventOut(BaseModel):
     """A chronological event with a stable key and a canonical source link."""
 
@@ -211,6 +241,8 @@ class ActivityTimelineEventOut(BaseModel):
     occurred_at: datetime
     source_type: str
     source_id: uuid.UUID
+    source_status: str
+    lane: Literal["communication", "planning", "execution", "checkpoint", "governance"]
     title: str
     canonical_path: str
     summary: str | None = None
@@ -246,6 +278,7 @@ class AgentActivityOut(BaseModel):
     projects: list[ActivityProjectOut] = Field(default_factory=list)
     resources: list[ActivityResourceOut] = Field(default_factory=list)
     topology_relations: list[ActivityTopologyRelationOut] = Field(default_factory=list)
+    flow_items: list[ActivityFlowItemOut] = Field(default_factory=list)
     message_edges: list[ActivityMessageEdgeOut]
     incidents: list[ActivityIncidentOut]
     timeline: list[ActivityTimelineEventOut]
