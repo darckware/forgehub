@@ -363,7 +363,7 @@ export default function AgentDetailPage() {
             <CardContent className="space-y-3">
               {isEditingDescription ? (
                 <>
-                  <Textarea
+                  <Textarea className="resize-none"
                     value={descriptionDraft}
                     onChange={(e) => setDescriptionDraft(e.target.value)}
                     placeholder={t("detail.descriptionPlaceholder")}

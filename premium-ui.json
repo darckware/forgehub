@@ -1,0 +1,28 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["frontend/src"],
+  "locale": "pt-BR",
+  "canonicalMap": "UX-CONTRACT.md",
+  "requiredCapabilities": [
+    "Table Selection",
+    "Select/Listbox",
+    "Date",
+    "Form",
+    "Scrollbar",
+    "Toast",
+    "CRUD"
+  ],
+  "ownership": {
+    "Select/Listbox": "native",
+    "Date": "native"
+  },
+  "requiredCommands": ["unit", "build", "premium"],
+  "commands": {
+    "unit": "cd frontend && npm test -- --run",
+    "build": "cd frontend && npm run build",
+    "premium": "python /root/.codex/plugins/cache/openai-curated-remote/frontend-design-premium/1.4.0/skills/frontend-design-premium/scripts/audit_project.py . --mode strict --no-write"
+  },
+  "evidence": {
+    "failurePaths": "frontend/src/pages/agent-activity/index.test.tsx"
+  }
+}

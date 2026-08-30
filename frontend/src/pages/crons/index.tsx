@@ -266,7 +266,7 @@ function CronEditPanel({
 
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">Description / prompt</label>
-          <Textarea
+          <Textarea className="resize-none"
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             rows={4}

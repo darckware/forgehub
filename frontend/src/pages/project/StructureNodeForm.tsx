@@ -50,7 +50,7 @@ export function StructureNodeForm({
   });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="name">{t("structureNodeForm.nameLabel")}</Label>
@@ -100,7 +100,7 @@ export function StructureNodeForm({
 
       <div className="space-y-2">
         <Label htmlFor="description">{t("structureNodeForm.descriptionLabel")}</Label>
-        <Textarea
+        <Textarea className="resize-none"
           id="description"
           placeholder={t("structureNodeForm.descriptionPlaceholder")}
           {...register("description")}

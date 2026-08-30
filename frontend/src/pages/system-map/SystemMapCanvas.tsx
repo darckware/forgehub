@@ -998,7 +998,7 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly, statusByElementId
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">{t("canvas.panel.descriptionLabel")}</Label>
-              <Textarea
+              <Textarea className="resize-none"
                 rows={3}
                 disabled={readOnly}
                 value={editDraft.description}
@@ -1012,7 +1012,7 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly, statusByElementId
                 {(Object.keys(EMPTY_SCREEN_SPEC) as (keyof ScreenSpec)[]).map((field) => (
                   <div key={field} className="space-y-1.5">
                     <Label className="text-xs">{t(`canvas.panel.screenSpecFields.${field}`)}</Label>
-                    <Textarea
+                    <Textarea className="resize-none"
                       rows={2}
                       disabled={readOnly}
                       value={editDraft.screenSpec[field]}

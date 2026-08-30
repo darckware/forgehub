@@ -286,7 +286,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
             {document.isLoading ? (
               <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>
             ) : (
-              <Textarea rows={18} className="font-mono text-xs" value={editedContent} onChange={(e) => setEditedContent(e.target.value)} />
+              <Textarea rows={18} className="resize-none font-mono text-xs" value={editedContent} onChange={(e) => setEditedContent(e.target.value)} />
             )}
           </>
         )}
@@ -711,14 +711,14 @@ export default function ConceptionPage() {
     </div>
     {view === "form" ? (
       <Card><CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Lightbulb className="h-5 w-5"/>{editingRequest ? t("captureIdea.editTitle") : t("captureIdea.title")}</CardTitle><CardDescription>{editingRequest ? t("captureIdea.editDescription") : t("captureIdea.description")}</CardDescription></CardHeader>
-        <form onSubmit={submit}>
+        <form noValidate onSubmit={submit}>
         <CardContent className="space-y-8">
           <section className="space-y-4">
             <h3 className="text-sm font-semibold">{t("wizard.steps.pipeline")}</h3>
             <p className="text-sm text-muted-foreground">{t("wizard.context.help")}</p>
             <div className="space-y-2">
               <Label>{t("wizard.context.contextLabel")}</Label>
-              <Textarea
+              <Textarea className="resize-none"
                 rows={8} placeholder={t("wizard.context.contextPlaceholder")}
                 value={contextText} onChange={(e) => setContextText(e.target.value)}
               />
@@ -776,22 +776,22 @@ export default function ConceptionPage() {
             <div className="space-y-2"><FieldLabel label={t("captureIdea.fields.name")} count={form.name.length} max={NAME_MAX}/><Input maxLength={NAME_MAX} value={form.name} onChange={e => setForm({...form, name:e.target.value})}/></div>
             <div className="space-y-2">
               <FieldLabel label={t("captureIdea.fields.problemStatement")} count={form.problem_statement.length} max={PROBLEM_STATEMENT_MAX}/>
-              <Textarea rows={4} maxLength={PROBLEM_STATEMENT_MAX} value={form.problem_statement} onChange={e => setForm({...form, problem_statement:e.target.value})}/>
+              <Textarea className="resize-none" rows={4} maxLength={PROBLEM_STATEMENT_MAX} value={form.problem_statement} onChange={e => setForm({...form, problem_statement:e.target.value})}/>
             </div>
             <div className="space-y-2">
               <FieldLabel label={t("captureIdea.fields.vision")} count={form.vision.length} max={VISION_MAX}/>
-              <Textarea rows={3} maxLength={VISION_MAX} value={form.vision} onChange={e => setForm({...form, vision:e.target.value})}/>
+              <Textarea className="resize-none" rows={3} maxLength={VISION_MAX} value={form.vision} onChange={e => setForm({...form, vision:e.target.value})}/>
             </div>
             <div className="space-y-2">
               <FieldLabel label={t("captureIdea.fields.initialScope")} count={form.scope_summary.length} max={SCOPE_SUMMARY_MAX}/>
-              <Textarea rows={3} maxLength={SCOPE_SUMMARY_MAX} value={form.scope_summary} onChange={e => setForm({...form, scope_summary:e.target.value})}/>
+              <Textarea className="resize-none" rows={3} maxLength={SCOPE_SUMMARY_MAX} value={form.scope_summary} onChange={e => setForm({...form, scope_summary:e.target.value})}/>
             </div>
           </section>
 
           <section className="space-y-4 border-t pt-8">
             <h3 className="text-sm font-semibold">{t("wizard.steps.description")}</h3>
             <p className="text-sm text-muted-foreground">{t("wizard.description.help")}</p>
-            <div className="space-y-2"><FieldLabel label={t("wizard.description.fields.projectDescription")} count={form.project_description.length} max={PROJECT_DESCRIPTION_MAX}/><Textarea rows={6} maxLength={PROJECT_DESCRIPTION_MAX} value={form.project_description} onChange={e => setForm({...form, project_description:e.target.value})}/></div>
+            <div className="space-y-2"><FieldLabel label={t("wizard.description.fields.projectDescription")} count={form.project_description.length} max={PROJECT_DESCRIPTION_MAX}/><Textarea className="resize-none" rows={6} maxLength={PROJECT_DESCRIPTION_MAX} value={form.project_description} onChange={e => setForm({...form, project_description:e.target.value})}/></div>
             <div className="space-y-2">
               <Label>{t("wizard.description.fields.workingDirectory")}</Label>
               <div className="flex items-center gap-2">

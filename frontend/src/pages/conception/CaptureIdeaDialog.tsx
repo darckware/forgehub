@@ -39,7 +39,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
         onClick={() => { reset(); onClose(); }}
       />
       <div className="relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
-        <form className="p-6" onSubmit={handleSubmit}>
+        <form noValidate className="p-6" onSubmit={handleSubmit}>
           <h2 className="text-base font-semibold">{t("captureIdea.title")}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {t("captureIdea.description")}
@@ -47,9 +47,9 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
 
           <div className="mt-4 space-y-4">
             <div><Label>{t("captureIdea.fields.name")}</Label><Input required value={form.name} onChange={e => setForm({...form, name:e.target.value})}/></div>
-            <div><Label>{t("captureIdea.fields.problemStatement")}</Label><Textarea required rows={4} value={form.problem_statement} onChange={e => setForm({...form, problem_statement:e.target.value})}/></div>
-            <div><Label>{t("captureIdea.fields.vision")}</Label><Textarea rows={3} value={form.vision} onChange={e => setForm({...form, vision:e.target.value})}/></div>
-            <div><Label>{t("captureIdea.fields.initialScope")}</Label><Textarea rows={3} value={form.scope_summary} onChange={e => setForm({...form, scope_summary:e.target.value})}/></div>
+            <div><Label>{t("captureIdea.fields.problemStatement")}</Label><Textarea className="resize-none" required rows={4} value={form.problem_statement} onChange={e => setForm({...form, problem_statement:e.target.value})}/></div>
+            <div><Label>{t("captureIdea.fields.vision")}</Label><Textarea className="resize-none" rows={3} value={form.vision} onChange={e => setForm({...form, vision:e.target.value})}/></div>
+            <div><Label>{t("captureIdea.fields.initialScope")}</Label><Textarea className="resize-none" rows={3} value={form.scope_summary} onChange={e => setForm({...form, scope_summary:e.target.value})}/></div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>{t("captureIdea.fields.priority")}</Label>
                 <Select value={form.priority} onChange={e => setForm({...form, priority: e.target.value})}>

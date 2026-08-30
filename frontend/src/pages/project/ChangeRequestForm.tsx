@@ -58,7 +58,7 @@ export function ChangeRequestForm({
   });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="cr_title">{t("changeRequestForm.titleLabel")}</Label>
         <Input id="cr_title" placeholder={t("changeRequestForm.titlePlaceholder")} {...register("title")} />
@@ -67,7 +67,7 @@ export function ChangeRequestForm({
 
       <div className="space-y-2">
         <Label htmlFor="justification">{t("changeRequestForm.justificationLabel")}</Label>
-        <Textarea
+        <Textarea className="resize-none"
           id="justification"
           placeholder={t("changeRequestForm.justificationPlaceholder")}
           {...register("justification")}

@@ -479,7 +479,7 @@ function InstallationForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit} className="space-y-4">
       {/* Name + group row */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">

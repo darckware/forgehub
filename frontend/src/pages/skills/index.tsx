@@ -175,7 +175,7 @@ function SkillViewerOverlay({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               spellCheck={false}
-              className="min-h-[45vh] flex-1 font-mono text-xs"
+              className="resize-none min-h-[45vh] flex-1 font-mono text-xs"
             />
           )}
         </div>
@@ -277,7 +277,7 @@ function SkillFormModal({ skill, onClose }: { skill: Skill; onClose: () => void 
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Description</label>
-            <Textarea
+            <Textarea className="resize-none"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               rows={3}

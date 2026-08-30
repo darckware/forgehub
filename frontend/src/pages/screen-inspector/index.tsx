@@ -286,7 +286,7 @@ function ScreenEditor({
                 <Input value={cssFramework} onChange={(e) => setCssFramework(e.target.value)} placeholder="plain, tailwind, bootstrap..." />
                 <Label>HTML</Label>
                 <Textarea
-                  rows={12} className="font-mono text-xs"
+                  rows={12} className="resize-none font-mono text-xs"
                   value={prototypeHtml}
                   onChange={(e) => setPrototypeHtml(e.target.value)}
                   onBlur={() => saveSpec({ prototype_html: prototypeHtml, css_framework: cssFramework, template_ref: null })}
@@ -343,7 +343,7 @@ function ScreenEditor({
             <p className="text-xs text-muted-foreground">Carregando...</p>
           ) : (
             <>
-              <Textarea rows={8} className="font-mono text-xs" value={ruleContent} onChange={(e) => setRuleContent(e.target.value)} />
+              <Textarea rows={8} className="resize-none font-mono text-xs" value={ruleContent} onChange={(e) => setRuleContent(e.target.value)} />
               <Button size="sm" disabled={saveBusinessRule.isPending} onClick={() => saveBusinessRule.mutate({ scopeId, elementId, content: ruleContent })}>
                 {saveBusinessRule.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                 Salvar regra
@@ -422,7 +422,7 @@ function RequestAgentPanel({ projectId, screenName, attributes }: { projectId: s
         </div>
         <div>
           <Label>Instruções adicionais</Label>
-          <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="O que deve mudar/ser construído..." />
+          <Textarea className="resize-none" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="O que deve mudar/ser construído..." />
         </div>
         <div className="flex gap-2">
           <Button disabled={!fromAgentId || createDemand.isPending} onClick={submit}>

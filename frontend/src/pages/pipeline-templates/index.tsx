@@ -107,7 +107,7 @@ function AddStageForm({ templateId, nextOrder, onDone }: { templateId: string; n
   };
 
   return (
-    <form onSubmit={submit} className="flex gap-2 items-end px-3 py-2 border-t border-border/50">
+    <form noValidate onSubmit={submit} className="flex gap-2 items-end px-3 py-2 border-t border-border/50">
       <div className="flex-1 flex flex-col gap-1">
         <Label className="text-xs">{t("templates.addStageForm.nameLabel")}</Label>
         <Input value={name} onChange={(e) => setName(e.target.value)} required className="h-7 text-xs" placeholder={t("templates.addStageForm.namePlaceholder")} />
@@ -259,7 +259,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <form onSubmit={submit} className="space-y-3">
+        <form noValidate onSubmit={submit} className="space-y-3">
           <div className="flex flex-col gap-1">
             <Label className="text-xs">{t("templates.import.sourceLabel")}</Label>
             <select value={pipelineId} onChange={(e) => setPipelineId(e.target.value)} required
@@ -332,7 +332,7 @@ export default function PipelineTemplatesPage() {
       {showCreate && (
         <Card>
           <CardContent className="pt-4 pb-4">
-            <form onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
+            <form noValidate onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">
                 <Label>{t("templates.create.nameLabel")}</Label>
                 <Input value={newName} onChange={(e) => setNewName(e.target.value)} required placeholder={t("templates.create.namePlaceholder")} />

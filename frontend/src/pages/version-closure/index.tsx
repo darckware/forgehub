@@ -133,7 +133,7 @@ export default function VersionClosurePage() {
                 <CardTitle className="flex items-center gap-2 text-sm font-semibold"><GitBranch className="h-4 w-4" />Notas de Lançamento</CardTitle>
               </CardHeader>
               <CardContent>
-                <Textarea rows={4} value={releaseNotes} onChange={(e) => setReleaseNotes(e.target.value)} placeholder="O que mudou nesta versão..." />
+                <Textarea className="resize-none" rows={4} value={releaseNotes} onChange={(e) => setReleaseNotes(e.target.value)} placeholder="O que mudou nesta versão..." />
               </CardContent>
             </Card>
           </div>

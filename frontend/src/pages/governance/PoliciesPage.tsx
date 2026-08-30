@@ -72,7 +72,7 @@ function PolicyForm({
   });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>{t("policies.form.name")}</Label>
@@ -107,7 +107,7 @@ function PolicyForm({
 
       <div className="space-y-2">
         <Label>{t("policies.form.description")}</Label>
-        <Textarea
+        <Textarea className="resize-none"
           placeholder={t("policies.form.descriptionPlaceholder")}
           rows={3}
           {...register("description")}

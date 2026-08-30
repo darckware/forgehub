@@ -386,7 +386,7 @@ export default function SettingsPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="cleanup_prune_paths">{t("settings.cleanup.prunedPaths.label")}</Label>
-              <Textarea
+              <Textarea className="resize-none"
                 id="cleanup_prune_paths"
                 rows={5}
                 value={form.cleanup_prune_paths.join("\n")}
@@ -395,7 +395,7 @@ export default function SettingsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="cleanup_prune_names">{t("settings.cleanup.prunedNames.label")}</Label>
-              <Textarea
+              <Textarea className="resize-none"
                 id="cleanup_prune_names"
                 rows={5}
                 value={form.cleanup_prune_names.join("\n")}

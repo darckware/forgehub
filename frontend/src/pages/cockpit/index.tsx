@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AgentTelemetryPanel } from "@/components/AgentTelemetryPanel";
 import { useProducts } from "@/hooks/useProduct";
@@ -386,11 +385,6 @@ export default function CockpitPage() {
                   </div>
                 </div>
 
-                {wave.status === "queued" && (
-                  <Button size="sm" variant="outline" className="text-xs">
-                    Liberar Lote
-                  </Button>
-                )}
                 {wave.status === "completed" && (
                   <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                 )}

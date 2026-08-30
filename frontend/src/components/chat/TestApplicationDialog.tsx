@@ -58,7 +58,7 @@ export function TestApplicationDialog({ open, onClose }: { open: boolean; onClos
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
       <div className="relative z-10 w-full max-w-md rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
-        <form className="p-6" onSubmit={handleSubmit}>
+        <form noValidate className="p-6" onSubmit={handleSubmit}>
           <div className="flex items-center gap-2">
             <TestTube2 className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-base font-semibold">{t("testDialog.title")}</h2>

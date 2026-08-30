@@ -157,7 +157,7 @@ function ServerForm({
               value={draft.argsText}
               onChange={(e) => setDraft({ ...draft, argsText: e.target.value })}
               placeholder={"run\n/root/project/forgehub/host-bridge/forgehub_messages_mcp.py"}
-              className="h-20 resize-y font-mono text-xs"
+              className="h-20 resize-none font-mono text-xs"
               spellCheck={false}
             />
           </div>
@@ -182,7 +182,7 @@ function ServerForm({
           value={draft.envText}
           onChange={(e) => setDraft({ ...draft, envText: e.target.value })}
           placeholder={"FORGEHUB_API_URL=http://localhost:8000\nFORGEHUB_AGENT_SLUG=athos"}
-          className="h-20 resize-y font-mono text-xs"
+          className="h-20 resize-none font-mono text-xs"
           spellCheck={false}
         />
         <p className="text-xs text-muted-foreground">{t("mcp.form.envHint")}</p>

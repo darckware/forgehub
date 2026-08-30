@@ -112,7 +112,7 @@ function StartExecutionForm({
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="executor_type">{t("startExecutionForm.executorTypeLabel")}</Label>
@@ -137,7 +137,7 @@ function StartExecutionForm({
       </div>
       <div className="space-y-2">
         <Label htmlFor="outcome_summary">{t("startExecutionForm.summaryLabel")}</Label>
-        <Textarea
+        <Textarea className="resize-none"
           id="outcome_summary"
           placeholder={t("startExecutionForm.summaryPlaceholder")}
           {...register("outcome_summary")}

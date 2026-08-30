@@ -193,7 +193,7 @@ function CatalogServerForm({
               value={draft.argsText}
               onChange={(e) => setDraft({ ...draft, argsText: e.target.value })}
               placeholder={"-y\n@notionhq/notion-mcp-server"}
-              className="h-20 resize-y font-mono text-xs"
+              className="h-20 resize-none font-mono text-xs"
               spellCheck={false}
             />
           </div>
@@ -218,7 +218,7 @@ function CatalogServerForm({
           value={draft.envText}
           onChange={(e) => setDraft({ ...draft, envText: e.target.value })}
           placeholder={"NOTION_API_KEY=..."}
-          className="h-20 resize-y font-mono text-xs"
+          className="h-20 resize-none font-mono text-xs"
           spellCheck={false}
         />
         <p className="text-xs text-muted-foreground">{t("mcp.form.envHint")}</p>

@@ -178,7 +178,7 @@ function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onCl
             <Textarea
               value={form.command}
               rows={3}
-              className="font-mono text-xs"
+              className="resize-none font-mono text-xs"
               onChange={(e) => setForm((f) => ({ ...f, command: e.target.value }))}
             />
           </div>
@@ -189,7 +189,7 @@ function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onCl
             <div className="space-y-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Correction context</label>
-                <Textarea
+                <Textarea className="resize-none"
                   value={form.remediation_description ?? ""}
                   rows={2}
                   placeholder="What this correction changes and why it is safe"
@@ -201,7 +201,7 @@ function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onCl
                 <Textarea
                   value={form.remediation_command ?? ""}
                   rows={3}
-                  className="font-mono text-xs"
+                  className="resize-none font-mono text-xs"
                   placeholder="Leave blank when this control requires manual analysis"
                   onChange={(e) => setForm((f) => ({ ...f, remediation_command: e.target.value }))}
                 />
@@ -231,7 +231,7 @@ function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onCl
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Description</label>
-            <Textarea
+            <Textarea className="resize-none"
               value={form.description ?? ""}
               rows={2}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
