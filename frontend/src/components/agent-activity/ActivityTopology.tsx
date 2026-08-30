@@ -295,20 +295,35 @@ export function ActivityTopology({
             <ul className="flex flex-wrap gap-2" aria-label={t("topology.messageRecords")}>
               {edges.map((edge, index) => (
                 <li key={edge.message_id}>
-                  <a
-                    href={edge.canonical_path}
-                    aria-label={t("topology.openMessage", {
-                      from: edge.from_agent_name ?? t("topology.unknownAgent"),
-                      to: edge.target_agent_name ?? t("topology.unknownAgent"),
-                      subject: edge.subject ?? t("topology.noSubject"),
-                      index: index + 1,
-                    })}
-                    onClick={(event) => handleRecordNavigation(event, () => onOpenMessage(edge))}
-                    className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted"
-                  >
-                    {edge.from_agent_name ?? "—"} → {edge.target_agent_name ?? "—"}
-                    <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
-                  </a>
+                  <span className="inline-flex items-center gap-1">
+                    <a
+                      href={edge.canonical_path}
+                      aria-label={t("topology.openMessage", {
+                        from: edge.from_agent_name ?? t("topology.unknownAgent"),
+                        to: edge.target_agent_name ?? t("topology.unknownAgent"),
+                        subject: edge.subject ?? t("topology.noSubject"),
+                        index: index + 1,
+                      })}
+                      onClick={(event) => handleRecordNavigation(event, () => onOpenMessage(edge))}
+                      className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted"
+                    >
+                      {edge.from_agent_name ?? "—"} → {edge.target_agent_name ?? "—"}
+                      <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                    </a>
+                    {edge.factory_context_path && (
+                      <a
+                        href={edge.factory_context_path}
+                        aria-label={t("topology.openFactoryContext", {
+                          context: edge.development_request_id
+                            ? t("topology.conception")
+                            : t("topology.project"),
+                        })}
+                        className="inline-flex min-h-7 cursor-pointer items-center rounded-md border border-border px-2 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted"
+                      >
+                        {edge.development_request_id ? t("topology.conception") : t("topology.project")}
+                      </a>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

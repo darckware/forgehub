@@ -49,12 +49,36 @@
     "noTask": "No current task",
     "messageRecords": "Messages records",
     "openMessage": "Open message from {{from}} to {{to}}: {{subject}}",
+    "openFactoryContext": "Open Software Factory context: {{context}}",
+    "conception": "Conception",
+    "project": "Project",
     "unknownAgent": "Unknown agent",
     "noSubject": "No subject",
     "noMessages": "No messages in the current window."
   },
   "rail": {
     "title": "Operations rail and inspector"
+  },
+  "views": {
+    "label": "Operational view",
+    "flow": "Current flow",
+    "history": "History"
+  },
+  "flow": {
+    "title": "Current flow",
+    "subtitle": "canonical records by processing stage",
+    "empty": "No operational items in the current window.",
+    "stageEmpty": "No items",
+    "stage": {
+      "incoming": "Incoming",
+      "planning": "Planning",
+      "queued": "Queue",
+      "executing": "Execution",
+      "verifying": "Verification",
+      "completed": "Completed",
+      "attention": "Attention",
+      "archived": "Archived"
+    }
   },
   "severity": {
     "title": "Severity inbox",
@@ -90,10 +114,19 @@
     "notRecorded": "Not recorded"
   },
   "timeline": {
-    "title": "Continuity timeline",
-    "subtitle": "synchronized records",
+    "ariaLabel": "Continuity timeline",
+    "title": "Continuity history",
+    "subtitle": "synchronized records by lane",
     "selectedAgentEvent": "related to the selected agent",
-    "empty": "No continuity events in the current window."
+    "empty": "No continuity events in the current window.",
+    "laneEmpty": "No events",
+    "lane": {
+      "communication": "Communication",
+      "planning": "Planning",
+      "execution": "Execution",
+      "checkpoint": "Checkpoints",
+      "governance": "Governance"
+    }
   },
   "monitoring": {
     "title": "Request Athos monitoring",

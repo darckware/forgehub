@@ -4,6 +4,7 @@ import "@/i18n";
 import i18n from "@/i18n";
 import type {
   ActivityAgent,
+  ActivityMessageEdge,
   ActivityProject,
   ActivityResource,
   ActivityTopologyRelation,
@@ -13,6 +14,7 @@ import { ActivityTopology } from "./ActivityTopology";
 const AGENT_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const RESOURCE_ID = "database:company_postgres/company";
+const REQUEST_ID = "33333333-3333-4333-8333-333333333334";
 
 const agents = [
   {
@@ -96,6 +98,49 @@ describe("ActivityTopology", () => {
     const relationList = screen.getByRole("list", { name: /topology relationships/i });
     expect(within(relationList).getByText(/Aramis.*ForgeHub.*Working now/i)).toBeVisible();
     expect(within(relationList).getByText(/ForgeHub.*company_postgres.*Persists in company schema/i)).toBeVisible();
+  });
+
+  it("exposes the canonical Software Factory context attached to a Message", () => {
+    const edge = {
+      message_id: "44444444-4444-4444-8444-444444444444",
+      from_agent_id: AGENT_ID,
+      from_agent_name: "Aramis",
+      target_agent_id: AGENT_ID,
+      target_agent_name: "Aramis",
+      reply_to_id: null,
+      project_id: PROJECT_ID,
+      development_request_id: REQUEST_ID,
+      product_id: "55555555-5555-4555-8555-555555555555",
+      task_id: null,
+      subject: "Continue conception",
+      dispatch_status: "completed",
+      requires_response: false,
+      response_status: null,
+      waiting_for_response: false,
+      waiting_on_agent_id: null,
+      sent_at: "2026-08-30T12:00:00Z",
+      updated_at: "2026-08-30T12:00:00Z",
+      responded_at: null,
+      canonical_path: "/demands?message=44444444-4444-4444-8444-444444444444",
+      factory_context_path: `/conception?request=${REQUEST_ID}`,
+    } satisfies ActivityMessageEdge;
+
+    render(
+      <ActivityTopology
+        agents={agents}
+        projects={projects}
+        resources={resources}
+        relations={relations}
+        edges={[edge]}
+        projectScopeId={null}
+        selectedAgentId={null}
+        onSelectAgent={vi.fn()}
+        onOpenMessage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: /open software factory context: conception/i }))
+      .toHaveAttribute("href", `/conception?request=${REQUEST_ID}`);
   });
 
   it("moves a focused node with the keyboard and restores automatic organization", async () => {

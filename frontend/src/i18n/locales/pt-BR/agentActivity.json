@@ -49,12 +49,36 @@
     "noTask": "Sem tarefa atual",
     "messageRecords": "Registros de Messages",
     "openMessage": "Abrir mensagem de {{from}} para {{to}}: {{subject}}",
+    "openFactoryContext": "Abrir contexto da Software Factory: {{context}}",
+    "conception": "Concepção",
+    "project": "Projeto",
     "unknownAgent": "Agente desconhecido",
     "noSubject": "Sem assunto",
     "noMessages": "Nenhuma mensagem na janela atual."
   },
   "rail": {
     "title": "Painel operacional e inspetor"
+  },
+  "views": {
+    "label": "Visão operacional",
+    "flow": "Fluxo atual",
+    "history": "Histórico"
+  },
+  "flow": {
+    "title": "Fluxo atual",
+    "subtitle": "registros canônicos por etapa de processamento",
+    "empty": "Nenhum item operacional na janela atual.",
+    "stageEmpty": "Sem itens",
+    "stage": {
+      "incoming": "Entrada",
+      "planning": "Planejamento",
+      "queued": "Fila",
+      "executing": "Execução",
+      "verifying": "Verificação",
+      "completed": "Concluído",
+      "attention": "Atenção",
+      "archived": "Arquivado"
+    }
   },
   "severity": {
     "title": "Caixa de severidade",
@@ -90,10 +114,19 @@
     "notRecorded": "Não registrado"
   },
   "timeline": {
-    "title": "Timeline de continuidade",
-    "subtitle": "registros sincronizados",
+    "ariaLabel": "Timeline de continuidade",
+    "title": "Histórico de continuidade",
+    "subtitle": "registros sincronizados por faixa",
     "selectedAgentEvent": "relacionado ao agente selecionado",
-    "empty": "Nenhum evento de continuidade na janela atual."
+    "empty": "Nenhum evento de continuidade na janela atual.",
+    "laneEmpty": "Sem eventos",
+    "lane": {
+      "communication": "Comunicação",
+      "planning": "Planejamento",
+      "execution": "Execução",
+      "checkpoint": "Checkpoints",
+      "governance": "Governança"
+    }
   },
   "monitoring": {
     "title": "Solicitar monitoramento ao Athos",

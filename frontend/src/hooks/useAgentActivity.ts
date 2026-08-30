@@ -115,6 +115,8 @@ export const activityMessageEdgeSchema = z.object({
   target_agent_name: z.string().nullable(),
   reply_to_id: uuidSchema.nullable(),
   project_id: uuidSchema.nullable(),
+  development_request_id: uuidSchema.nullable().default(null),
+  product_id: uuidSchema.nullable().default(null),
   task_id: uuidSchema.nullable(),
   subject: z.string().nullable(),
   dispatch_status: z.string(),
@@ -126,6 +128,7 @@ export const activityMessageEdgeSchema = z.object({
   updated_at: timestampSchema,
   responded_at: timestampSchema.nullable(),
   canonical_path: z.string(),
+  factory_context_path: z.string().nullable().default(null),
 });
 export type ActivityMessageEdge = z.infer<typeof activityMessageEdgeSchema>;
 

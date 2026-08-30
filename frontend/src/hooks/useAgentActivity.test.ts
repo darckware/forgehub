@@ -118,6 +118,8 @@ const MESSAGE_EDGE = {
   target_agent_name: "Athos",
   reply_to_id: null,
   project_id: IDS.project,
+  development_request_id: null,
+  product_id: null,
   task_id: IDS.task,
   subject: "Validate the canonical activity contract",
   dispatch_status: "running",
@@ -129,6 +131,7 @@ const MESSAGE_EDGE = {
   updated_at: "2026-08-29T12:01:00Z",
   responded_at: null,
   canonical_path: `/api/v1/demands/${IDS.message}`,
+  factory_context_path: null,
 };
 
 const PRIOR_ATTEMPT = {
