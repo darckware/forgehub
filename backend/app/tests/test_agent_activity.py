@@ -1,3 +1,4 @@
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -5,9 +6,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 import httpx
-from sqlalchemy import text
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete, select, text
 
 from app.core.agent_activity import build_agent_activity
+from app.core.security import create_access_token, hash_password
 from app.db.base import AsyncSessionLocal, engine
 from app.db.models.agent import Agent
 from app.db.models.backlog import PlanningItem
@@ -24,6 +27,9 @@ from app.db.models.progress import ProgressCheckpoint
 from app.db.models.project import ChangeRequest, Project
 from app.db.models.notification import Notification
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
+from app.db.models.profile import Profile
+from app.db.models.user import User
+from app.main import app
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,53 @@ class ActivityWorld:
     policy_binding_id: uuid.UUID
     policy_evaluation_id: uuid.UUID
     approval_id: uuid.UUID
+
+
+@pytest_asyncio.fixture
+async def activity_api_users():
+    """Real principals keep route authorization tests at the HTTP boundary."""
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        profile = Profile(name=f"activity-limited-{suffix}")
+        admin = User(
+            username=f"activity-admin-{suffix}",
+            hashed_password=hash_password("test"),
+            is_admin=True,
+        )
+        db.add_all([profile, admin])
+        await db.flush()
+        limited = User(
+            username=f"activity-limited-{suffix}",
+            hashed_password=hash_password("test"),
+            profile_id=profile.id,
+        )
+        db.add(limited)
+        await db.commit()
+        headers = {
+            "admin": {"Authorization": f"Bearer {create_access_token(admin.username)}"},
+            "limited": {"Authorization": f"Bearer {create_access_token(limited.username)}"},
+            "admin_username": admin.username,
+        }
+        ids = (profile.id, admin.id, limited.id)
+
+    try:
+        yield headers
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(User).where(User.id.in_(ids[1:])))
+            await db.execute(delete(Profile).where(Profile.id == ids[0]))
+            await db.commit()
+
+
+@pytest_asyncio.fixture
+async def activity_client(activity_api_users):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=activity_api_users["admin"],
+    ) as client:
+        yield client
 
 
 @pytest_asyncio.fixture
@@ -769,3 +822,234 @@ def test_agent_activity_contract_serializes_canonical_operational_records():
     assert payload["agents"][0]["current_work"]["task_path"] == f"/tasks/{task_id}"
     assert payload["message_edges"][0]["canonical_path"] == f"/demands?message={message_id}"
     assert payload["timeline"][0]["canonical_path"] == f"/governance/{approval_id}"
+
+
+async def _get_or_create_athos() -> tuple[Agent, bool]:
+    async with AsyncSessionLocal() as db:
+        athos = (
+            await db.execute(select(Agent).where(Agent.profile_slug == "athos"))
+        ).scalar_one_or_none()
+        if athos is not None:
+            return athos, False
+        athos = Agent(
+            name="Athos Activity Test",
+            agent_type="coordinator",
+            runtime_type="hermes",
+            profile_slug="athos",
+        )
+        db.add(athos)
+        await db.commit()
+        await db.refresh(athos)
+        return athos, True
+
+
+async def _remove_monitoring_records(
+    *,
+    channel_ref: str | None = None,
+    event_key: str | None = None,
+    created_athos_id: uuid.UUID | None = None,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        if event_key:
+            await db.execute(delete(Notification).where(Notification.event_key == event_key))
+        if channel_ref:
+            await db.execute(delete(AgentDemand).where(AgentDemand.channel_ref == channel_ref))
+        if created_athos_id:
+            await db.execute(delete(Agent).where(Agent.id == created_athos_id))
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_request_athos_monitoring_is_idempotent_and_records_structured_context(
+    activity_world,
+    activity_client,
+    activity_api_users,
+):
+    """A retry must reuse one monitoring Message and its mirrored notification."""
+    athos, athos_created = await _get_or_create_athos()
+    key = f"activity-monitor-{uuid.uuid4()}"
+    channel_ref = f"agent-activity:{key}"
+    event_key = f"agent-activity:athos-monitor:{key}"
+    incident_key = f"execution_failed:{activity_world.execution_id}"
+    try:
+        first = await activity_client.post(
+            f"/api/v1/agent-activity/incidents/{incident_key}:request-athos-monitoring",
+            json={"execution_id": str(activity_world.execution_id), "idempotency_key": key},
+        )
+        second = await activity_client.post(
+            f"/api/v1/agent-activity/incidents/{incident_key}:request-athos-monitoring",
+            json={"execution_id": str(activity_world.execution_id), "idempotency_key": key},
+        )
+
+        assert first.status_code == second.status_code == 201
+        assert first.json()["message_id"] == second.json()["message_id"]
+        assert first.json()["notification_id"] == second.json()["notification_id"]
+        assert first.json()["created"] is True
+        assert second.json()["created"] is False
+
+        async with AsyncSessionLocal() as db:
+            demand = (
+                await db.execute(
+                    select(AgentDemand).where(AgentDemand.id == uuid.UUID(first.json()["message_id"]))
+                )
+            ).scalar_one()
+            notification = (
+                await db.execute(
+                    select(Notification).where(Notification.id == uuid.UUID(first.json()["notification_id"]))
+                )
+            ).scalar_one()
+            demands = list(
+                (
+                    await db.execute(
+                        select(AgentDemand).where(AgentDemand.channel_ref == channel_ref)
+                    )
+                ).scalars()
+            )
+            notifications = list(
+                (
+                    await db.execute(
+                        select(Notification).where(Notification.event_key == event_key)
+                    )
+                ).scalars()
+            )
+
+        assert demand.number == first.json()["message_number"]
+        assert demand.target_agent_id == athos.id
+        assert demand.channel == "agent"
+        assert demand.channel_ref == channel_ref
+        assert demand.requires_response is True
+        assert demand.scheduled_at is None
+        assert demand.dispatch_status is None
+        assert json.loads(demand.body) == {
+            "contract_version": "forge-agent-incident-monitor/v1",
+            "execution_id": str(activity_world.execution_id),
+            "incident_key": incident_key,
+            "requested_by": activity_api_users["admin_username"],
+            "task_id": str(activity_world.task_id),
+        }
+        assert notification.event_key == event_key
+        assert len(demands) == len(notifications) == 1
+    finally:
+        await _remove_monitoring_records(
+            channel_ref=channel_ref,
+            event_key=event_key,
+            created_athos_id=athos.id if athos_created else None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_agent_activity_get_requires_authority_and_returns_canonical_view(
+    activity_world,
+    activity_api_users,
+):
+    """Changing the route to skip authorization or aggregation breaks this boundary."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=activity_api_users["limited"],
+    ) as limited_client:
+        denied = await limited_client.get("/api/v1/agent-activity")
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=activity_api_users["admin"],
+    ) as admin_client:
+        response = await admin_client.get(
+            "/api/v1/agent-activity",
+            params={"project_id": str(activity_world.project_id), "window_minutes": 60},
+        )
+
+    assert denied.status_code == 403
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["contract_version"] == "forge-agent-activity/v1"
+    assert any(item["execution_id"] == str(activity_world.execution_id) for item in payload["incidents"])
+
+
+@pytest.mark.asyncio
+async def test_athos_request_rejects_unknown_incident(activity_world, activity_client):
+    response = await activity_client.post(
+        "/api/v1/agent-activity/incidents/execution_failed:missing:request-athos-monitoring",
+        json={"execution_id": str(activity_world.execution_id), "idempotency_key": str(uuid.uuid4())},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_athos_request_rejects_execution_not_owned_by_incident(
+    activity_world,
+    activity_client,
+):
+    response = await activity_client.post(
+        f"/api/v1/agent-activity/incidents/execution_failed:{activity_world.execution_id}:request-athos-monitoring",
+        json={"execution_id": str(uuid.uuid4()), "idempotency_key": str(uuid.uuid4())},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_athos_request_returns_not_found_when_athos_is_unavailable(
+    activity_world,
+    activity_client,
+    monkeypatch,
+):
+    from app.api.routes import agent_activity as agent_activity_routes
+
+    async def no_athos(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(agent_activity_routes, "_find_athos", no_athos)
+    response = await activity_client.post(
+        f"/api/v1/agent-activity/incidents/execution_failed:{activity_world.execution_id}:request-athos-monitoring",
+        json={"execution_id": str(activity_world.execution_id), "idempotency_key": str(uuid.uuid4())},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_athos_request_repairs_a_missing_notification_pair(
+    activity_world,
+    activity_client,
+):
+    athos, athos_created = await _get_or_create_athos()
+    key = f"activity-repair-{uuid.uuid4()}"
+    channel_ref = f"agent-activity:{key}"
+    event_key = f"agent-activity:athos-monitor:{key}"
+    incident_key = f"execution_failed:{activity_world.execution_id}"
+    try:
+        created = await activity_client.post(
+            f"/api/v1/agent-activity/incidents/{incident_key}:request-athos-monitoring",
+            json={"execution_id": str(activity_world.execution_id), "idempotency_key": key},
+        )
+        assert created.status_code == 201
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Notification).where(Notification.event_key == event_key))
+            await db.commit()
+
+        repaired = await activity_client.post(
+            f"/api/v1/agent-activity/incidents/{incident_key}:request-athos-monitoring",
+            json={"execution_id": str(activity_world.execution_id), "idempotency_key": key},
+        )
+
+        assert repaired.status_code == 201
+        assert repaired.json()["message_id"] == created.json()["message_id"]
+        assert repaired.json()["created"] is False
+        async with AsyncSessionLocal() as db:
+            notifications = list(
+                (
+                    await db.execute(
+                        select(Notification).where(Notification.event_key == event_key)
+                    )
+                ).scalars()
+            )
+        assert len(notifications) == 1
+    finally:
+        await _remove_monitoring_records(
+            channel_ref=channel_ref,
+            event_key=event_key,
+            created_athos_id=athos.id if athos_created else None,
+        )
