@@ -300,7 +300,12 @@ def _resolve_telegram_channel_ref(agent: Agent | None, channel_ref: str | None) 
     return raw
 
 
-async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) -> AgentDemand:
+async def create_demand_and_notify(
+    db: AsyncSession,
+    payload: DemandSubmitIn,
+    *,
+    commit: bool = True,
+) -> AgentDemand:
     """Every new inbox item also surfaces in the system Notifications bell
     (source="system", not "cron") -- so arriving mail doesn't go unnoticed
     unless the user happens to have the Inbox page open. event_key is
@@ -406,9 +411,11 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
         occurred_at=datetime.now(timezone.utc),
     )
     db.add(notification)
+    await db.flush()
 
-    await db.commit()
-    await db.refresh(demand)
+    if commit:
+        await db.commit()
+        await db.refresh(demand)
 
     # A Task addressed to an agent is executable work, so wake the single
     # dispatch worker immediately after the transaction becomes visible.
@@ -417,7 +424,7 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
     # remains only as recovery if this in-process signal is ever lost.
     due_now = scheduled_at is not None and scheduled_at <= datetime.now(timezone.utc)
     dispatchable_origin = origin_type != "incubation" or from_agent_id is not None
-    if due_now and target_agent_id is not None and dispatchable_origin:
+    if commit and due_now and target_agent_id is not None and dispatchable_origin:
         from app.core.dispatch_signal import wake_scheduled_dispatch
 
         wake_scheduled_dispatch()
