@@ -60,6 +60,8 @@ from app.db.models.demand import (
 )
 from app.db.models.notification import Notification
 from app.db.models.project import Project
+from app.db.models.product import ProductVersion
+from app.db.models.system_scope import DevelopmentRequest
 from app.db.models.task import ProjectTask, TaskExecution
 
 logger = logging.getLogger(__name__)
@@ -111,6 +113,35 @@ async def _get_project_or_404(db: AsyncSession, project_id: uuid.UUID) -> Projec
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+
+async def _get_development_request_or_404(
+    db: AsyncSession, request_id: uuid.UUID
+) -> DevelopmentRequest:
+    request = await db.get(DevelopmentRequest, request_id)
+    if request is None:
+        raise HTTPException(status_code=404, detail="Development request not found")
+    return request
+
+
+async def _validate_factory_context(
+    db: AsyncSession,
+    *,
+    development_request_id: uuid.UUID | None,
+    project_id: uuid.UUID | None,
+) -> None:
+    if development_request_id is None:
+        return
+    request = await _get_development_request_or_404(db, development_request_id)
+    if project_id is None:
+        return
+    project = await _get_project_or_404(db, project_id)
+    version = await db.get(ProductVersion, project.product_version_id)
+    if version is None or version.product_id != request.product_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Development request and project must belong to the same product",
+        )
 
 
 async def _find_agent_by_slug(db: AsyncSession, profile_slug: str) -> Agent | None:
@@ -342,6 +373,11 @@ async def create_demand_and_notify(
         scheduled_at = datetime.now(timezone.utc)
     if payload.project_id is not None:
         await _get_project_or_404(db, payload.project_id)
+    await _validate_factory_context(
+        db,
+        development_request_id=payload.development_request_id,
+        project_id=payload.project_id,
+    )
 
     # Meio de comunicação: o que o chamador informou, ou -- quando ninguém
     # informou -- o que o próprio pedido pede em texto ("me responda no
@@ -385,6 +421,7 @@ async def create_demand_and_notify(
         status=payload.status or "new",
         target_agent_id=target_agent_id,
         project_id=payload.project_id,
+        development_request_id=payload.development_request_id,
         origin_type=origin_type,
         origin_id=origin_id,
         incubation_owner_id=incubation_owner_id,
@@ -827,6 +864,16 @@ async def update_demand(
         if data["project_id"] is not None:
             await _get_project_or_404(db, data["project_id"])
         demand.project_id = data["project_id"]
+    if "development_request_id" in data:
+        if data["development_request_id"] is not None:
+            await _get_development_request_or_404(db, data["development_request_id"])
+        demand.development_request_id = data["development_request_id"]
+    if "project_id" in data or "development_request_id" in data:
+        await _validate_factory_context(
+            db,
+            development_request_id=demand.development_request_id,
+            project_id=demand.project_id,
+        )
     if "subject" in data:
         demand.subject = data["subject"]
     if "body" in data:

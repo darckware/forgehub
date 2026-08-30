@@ -57,6 +57,7 @@ class DemandSubmitIn(BaseModel):
     # Which project this message is about -- see AgentDemand.project_id's
     # docstring for how this differs from ConvertIn.project_id below.
     project_id: uuid.UUID | None = None
+    development_request_id: uuid.UUID | None = None
     # Working directory path for agent execution -- when dispatching to
     # external agents (claude, codex, agy, openclaw), this specifies the
     # cwd where the agent should run. If not provided, falls back to
@@ -129,6 +130,7 @@ class DemandUpdateIn(BaseModel):
     # docstring for what this feeds (the requires_response relay).
     from_agent_id: uuid.UUID | None = None
     project_id: uuid.UUID | None = None
+    development_request_id: uuid.UUID | None = None
     # Working directory path for agent execution -- when dispatching to
     # external agents (claude, codex, agy, openclaw), this specifies the
     # cwd where the agent should run.
@@ -224,6 +226,7 @@ class DemandOut(BaseModel):
     target_agent_id: uuid.UUID | None
     from_agent_id: uuid.UUID | None
     project_id: uuid.UUID | None
+    development_request_id: uuid.UUID | None
     command_text: str | None
     # cwd the recipient agent's run starts in; None means fall back to the
     # runtime default (see AgentDemand.working_path's docstring).

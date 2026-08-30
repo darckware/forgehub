@@ -207,6 +207,14 @@ class AgentDemand(Base, TimestampMixin):
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="SET NULL"), nullable=True
     )
+    # Canonical pre-project Software Factory context. It remains attached
+    # after authorization creates one or more Projects, so Messages and
+    # Agent Activity can show the complete conception-to-execution chain.
+    development_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.development_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     # Marcelo's instruction when dispatching/forwarding an item that had no
     # prior direction of its own. NULL when the body itself already IS the
     # full prompt (autonomous agent-to-agent handoff, or a reply continuing

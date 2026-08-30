@@ -75,6 +75,7 @@ export const demandSchema = z.object({
   // "Controle" tab), independent of ConvertPayload.project_id below (that
   // one picks the project a *converted* entity lands in).
   project_id: z.string().nullable(),
+  development_request_id: z.string().nullable().default(null),
   command_text: z.string().nullable(),
   // The cwd the recipient agent's run starts in for this message (2026-08-13,
   // see AgentDemand.working_path's own docstring) -- null means the runtime
@@ -333,6 +334,7 @@ export function useCreateDemand() {
         /** Which project this message is about -- see demandSchema's
          * project_id comment. */
         projectId?: string;
+        developmentRequestId?: string;
         requiresResponse?: boolean;
         /** ISO datetime string -- backend 400s if set without targetAgentId. */
         scheduledAt?: string;
@@ -348,6 +350,7 @@ export function useCreateDemand() {
         body: payload.body,
         target_agent_id: payload.targetAgentId,
         project_id: payload.projectId,
+        development_request_id: payload.developmentRequestId,
         origin_type: payload.originType,
         origin_number: payload.originNumber,
         requires_response: payload.requiresResponse ?? false,
@@ -372,6 +375,7 @@ export function useUpdateDemand() {
       targetAgentId,
       fromAgentId,
       projectId,
+      developmentRequestId,
       originType,
       originNumber,
       requiresResponse,
@@ -384,6 +388,7 @@ export function useUpdateDemand() {
       fromAgentId?: string | null;
       /** Which project this message is about, or null to clear. */
       projectId?: string | null;
+      developmentRequestId?: string | null;
       requiresResponse?: boolean;
       /** ISO datetime string, or null to clear. */
       scheduledAt?: string | null;
@@ -401,6 +406,7 @@ export function useUpdateDemand() {
         target_agent_id: targetAgentId,
         from_agent_id: fromAgentId,
         project_id: projectId,
+        development_request_id: developmentRequestId,
         origin_type: originType,
         scheduled_at: scheduledAt,
         origin_number: originNumber,

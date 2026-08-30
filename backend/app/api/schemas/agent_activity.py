@@ -133,6 +133,8 @@ class ActivityMessageEdgeOut(BaseModel):
     target_agent_name: str | None = None
     reply_to_id: uuid.UUID | None = None
     project_id: uuid.UUID | None = None
+    development_request_id: uuid.UUID | None = None
+    product_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     subject: str | None = None
     dispatch_status: str
@@ -144,6 +146,7 @@ class ActivityMessageEdgeOut(BaseModel):
     updated_at: datetime
     responded_at: datetime | None = None
     canonical_path: str
+    factory_context_path: str | None = None
 
 
 class ActivityPriorAttemptOut(BaseModel):

@@ -47,6 +47,7 @@ from app.db.models.orchestration import ProjectAgentMembership
 from app.db.models.progress import ProgressCheckpoint
 from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
+from app.db.models.system_scope import DevelopmentRequest
 
 ROW_LIMIT = 500
 FORGEROUTER_LIMIT = 200
@@ -297,11 +298,13 @@ def build_message_edges(
     demands: Iterable[AgentDemand],
     agents: Iterable[Agent],
     replies: Iterable[AgentDemand] = (),
+    development_requests: Iterable[DevelopmentRequest] = (),
 ) -> list[ActivityMessageEdgeOut]:
     """Build communication edges exclusively from structured message fields."""
 
     rows = list(demands)
     names_by_id = {agent.id: agent.name for agent in agents}
+    requests_by_id = {request.id: request for request in development_requests}
     parent_ids = {demand.id for demand in rows}
     replies_by_parent: dict[uuid.UUID, AgentDemand] = {}
     for reply in sorted(
@@ -315,6 +318,7 @@ def build_message_edges(
     for demand in rows:
         reply = replies_by_parent.get(demand.id)
         waiting = bool(demand.requires_response and reply is None)
+        development_request = requests_by_id.get(demand.development_request_id)
         edges.append(
             ActivityMessageEdgeOut(
                 message_id=demand.id,
@@ -324,6 +328,8 @@ def build_message_edges(
                 target_agent_name=names_by_id.get(demand.target_agent_id),
                 reply_to_id=demand.reply_to_id,
                 project_id=demand.project_id,
+                development_request_id=demand.development_request_id,
+                product_id=development_request.product_id if development_request else None,
                 task_id=demand.origin_id if demand.origin_type == "task" else None,
                 subject=demand.subject,
                 dispatch_status=demand.dispatch_status or demand.status,
@@ -335,6 +341,11 @@ def build_message_edges(
                 updated_at=demand.updated_at,
                 responded_at=reply.created_at if reply else None,
                 canonical_path=f"/demands?message={demand.id}",
+                factory_context_path=(
+                    f"/conception?request={demand.development_request_id}"
+                    if demand.development_request_id
+                    else (f"/projects/{demand.project_id}" if demand.project_id else None)
+                ),
             )
         )
     return sorted(edges, key=lambda item: item.updated_at, reverse=True)
@@ -842,6 +853,24 @@ async def build_agent_activity(
             )
         ).scalars()
     )
+    development_request_ids = {
+        demand.development_request_id
+        for demand in demands
+        if demand.development_request_id is not None
+    }
+    development_requests = (
+        list(
+            (
+                await db.execute(
+                    select(DevelopmentRequest)
+                    .where(DevelopmentRequest.id.in_(development_request_ids))
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        if development_request_ids
+        else []
+    )
 
     execution_query = select(TaskExecution).join(
         ProjectTask, ProjectTask.id == TaskExecution.task_id
@@ -949,6 +978,9 @@ async def build_agent_activity(
         change_request.project_id for change_request in change_requests
     )
     project_ids.update(membership.project_id for membership in memberships)
+    project_ids.update(
+        demand.project_id for demand in demands if demand.project_id is not None
+    )
     if project_id is not None:
         project_ids.add(project_id)
     projects = (
@@ -1250,6 +1282,7 @@ async def build_agent_activity(
             demands=demands,
             agents=agents,
             replies=replies,
+            development_requests=development_requests,
         ),
         incidents=build_incidents(
             demands=demands,
