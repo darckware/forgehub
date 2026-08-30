@@ -27,6 +27,7 @@ from app.db.models.product import Product, ProductVersion
 from app.db.models.progress import ProgressCheckpoint
 from app.db.models.project import ChangeRequest, Project
 from app.db.models.notification import Notification
+from app.db.models.orchestration import ProjectAgentMembership
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 from app.db.models.profile import Profile, ProfileActionPermission
 from app.db.models.user import User
@@ -149,8 +150,18 @@ async def activity_world():
             agent_type="executor",
             runtime_type="codex",
             profile_slug=f"activity-{suffix}",
+            avatar_data_url="data:image/png;base64,AA==",
         )
         db.add_all([task, agent])
+        await db.flush()
+        db.add(
+            ProjectAgentMembership(
+                project_id=project.id,
+                agent_id=agent.id,
+                role="developer",
+                status="active",
+            )
+        )
         await db.flush()
         assignment = TaskAssignment(
             task_id=task.id,
@@ -396,6 +407,53 @@ async def test_build_activity_joins_message_execution_checkpoint_and_approval(
     assert any(
         event.source_id == activity_world.approval_id for event in view.timeline
     )
+
+
+@pytest.mark.asyncio
+async def test_build_activity_includes_membership_only_project(activity_world):
+    membership_project_id = uuid.uuid4()
+    try:
+        async with AsyncSessionLocal() as db:
+            project = Project(
+                id=membership_project_id,
+                name="Membership-only activity project",
+                product_version_id=activity_world.version_id,
+                status="active",
+            )
+            db.add(project)
+            await db.flush()
+            db.add(
+                ProjectAgentMembership(
+                    project_id=project.id,
+                    agent_id=activity_world.agent_id,
+                    role="reviewer",
+                    status="active",
+                )
+            )
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            view = await build_agent_activity(db, project_id=None, window_minutes=60)
+
+        assert any(project.id == membership_project_id for project in view.projects)
+        assert any(
+            relation.kind == "membership"
+            and relation.from_id == str(activity_world.agent_id)
+            and relation.to_id == str(membership_project_id)
+            for relation in view.topology_relations
+        )
+        assert any(
+            relation.kind == "persistence"
+            and relation.from_id == str(membership_project_id)
+            and relation.to_id == "database:company_postgres/company"
+            for relation in view.topology_relations
+        )
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("DELETE FROM company.projects WHERE id = :id"),
+                {"id": membership_project_id},
+            )
 
 
 @pytest.mark.asyncio
@@ -840,6 +898,80 @@ def test_agent_activity_contract_serializes_canonical_operational_records():
     assert payload["timeline"][0]["canonical_path"] == f"/governance/{approval_id}"
 
 
+def test_agent_activity_contract_serializes_topology_objects():
+    from app.api.schemas.agent_activity import (
+        ActivityAgentOut,
+        ActivityProfileSummaryOut,
+        ActivityProjectOut,
+        ActivityResourceOut,
+        ActivityTopologyRelationOut,
+        AgentActivityOut,
+    )
+
+    agent_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+    view = AgentActivityOut(
+        generated_at=observed_at,
+        project_id=None,
+        agents=[
+            ActivityAgentOut(
+                id=agent_id,
+                name="Aramis",
+                avatar_data_url="data:image/png;base64,AA==",
+                runtime_type="codex",
+                availability="available",
+                canonical_path=f"/agents/{agent_id}",
+                profile_summary=ActivityProfileSummaryOut(
+                    status="healthy",
+                    checked_at=observed_at,
+                    runtime_native=True,
+                    canonical_path=f"/agents/{agent_id}",
+                ),
+            )
+        ],
+        projects=[
+            ActivityProjectOut(
+                id=project_id,
+                name="ForgeHub",
+                status="active",
+                canonical_path=f"/projects/{project_id}",
+            )
+        ],
+        resources=[
+            ActivityResourceOut(
+                key="database:company_postgres/company",
+                kind="database",
+                label="company_postgres",
+                detail="company",
+                status="available",
+            )
+        ],
+        topology_relations=[
+            ActivityTopologyRelationOut(
+                key=f"current-work:{agent_id}:{project_id}",
+                kind="current_work",
+                from_type="agent",
+                from_id=str(agent_id),
+                to_type="project",
+                to_id=str(project_id),
+                label="Working now",
+            )
+        ],
+        message_edges=[],
+        incidents=[],
+        timeline=[],
+        source_freshness=[],
+    )
+
+    payload = view.model_dump(mode="json")
+
+    assert payload["agents"][0]["avatar_data_url"].startswith("data:image/png")
+    assert payload["projects"][0]["id"] == str(project_id)
+    assert payload["resources"][0]["key"] == "database:company_postgres/company"
+    assert payload["topology_relations"][0]["kind"] == "current_work"
+
+
 async def _get_or_create_athos() -> tuple[Agent, bool]:
     async with AsyncSessionLocal() as db:
         athos = (
@@ -1000,6 +1132,30 @@ async def test_agent_activity_get_requires_authority_and_returns_canonical_view(
     payload = response.json()
     assert payload["contract_version"] == "forge-agent-activity/v1"
     assert any(item["execution_id"] == str(activity_world.execution_id) for item in payload["incidents"])
+    agent = next(item for item in payload["agents"] if item["id"] == str(activity_world.agent_id))
+    assert agent["avatar_data_url"] == "data:image/png;base64,AA=="
+    assert any(item["id"] == str(activity_world.project_id) for item in payload["projects"])
+    assert payload["resources"] == [
+        {
+            "key": "database:company_postgres/company",
+            "kind": "database",
+            "label": "company_postgres",
+            "detail": "company",
+            "status": "available",
+        }
+    ]
+    assert any(
+        relation["kind"] == "current_work"
+        and relation["from_id"] == str(activity_world.agent_id)
+        and relation["to_id"] == str(activity_world.project_id)
+        for relation in payload["topology_relations"]
+    )
+    assert not any(
+        relation["kind"] == "membership"
+        and relation["from_id"] == str(activity_world.agent_id)
+        and relation["to_id"] == str(activity_world.project_id)
+        for relation in payload["topology_relations"]
+    )
 
 
 @pytest.mark.asyncio

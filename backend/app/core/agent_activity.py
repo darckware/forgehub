@@ -24,9 +24,12 @@ from app.api.schemas.agent_activity import (
     ActivityMessageEdgeOut,
     ActivityPriorAttemptOut,
     ActivityProfileSummaryOut,
+    ActivityProjectOut,
     ActivityRecordLinkOut,
+    ActivityResourceOut,
     ActivitySourceFreshnessOut,
     ActivityTimelineEventOut,
+    ActivityTopologyRelationOut,
     AgentActivityOut,
 )
 from app.core.forgerouter_sync import (
@@ -39,6 +42,7 @@ from app.db.models.demand import AgentDemand
 from app.db.models.execution import ExecutionLease, ExecutionWorkPackage
 from app.db.models.governance import ApprovalRequest
 from app.db.models.notification import Notification
+from app.db.models.orchestration import ProjectAgentMembership
 from app.db.models.progress import ProgressCheckpoint
 from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
@@ -213,6 +217,7 @@ def build_activity_agents(
             ActivityAgentOut(
                 id=agent.id,
                 name=agent.name,
+                avatar_data_url=agent.avatar_data_url,
                 profile_slug=agent.profile_slug,
                 runtime_type=agent.runtime_type or "unknown",
                 availability=availability,
@@ -709,12 +714,28 @@ async def build_agent_activity(
         else []
     )
     change_requests_by_id = {change_request.id: change_request for change_request in change_requests}
+    membership_filters = [ProjectAgentMembership.status == "active"]
+    if project_id is not None:
+        membership_filters.append(ProjectAgentMembership.project_id == project_id)
+    memberships = list(
+        (
+            await db.execute(
+                select(ProjectAgentMembership)
+                .where(*membership_filters)
+                .order_by(ProjectAgentMembership.created_at.desc())
+                .limit(ROW_LIMIT)
+            )
+        ).scalars()
+    )
     project_ids = {
         item.project_id for item in planning_items if item.project_id is not None
     }
     project_ids.update(
         change_request.project_id for change_request in change_requests
     )
+    project_ids.update(membership.project_id for membership in memberships)
+    if project_id is not None:
+        project_ids.add(project_id)
     projects = (
         list(
             (
@@ -869,6 +890,9 @@ async def build_agent_activity(
     agent_ids.update(
         assignment.agent_id for assignment in assignments if assignment.agent_id is not None
     )
+    agent_ids.update(
+        membership.agent_id for membership in memberships if membership.agent_id is not None
+    )
     agent_query = select(Agent)
     if project_id is not None:
         agent_query = agent_query.where(Agent.id.in_(agent_ids))
@@ -918,16 +942,89 @@ async def build_agent_activity(
     forgerouter_state, forgerouter_freshness = await _load_forgerouter_state(
         window_minutes=window_minutes
     )
+    activity_agents = build_activity_agents(
+        agents=agents,
+        tasks_by_id=tasks_by_id,
+        executions=execution_contexts,
+        checkpoints_by_execution=checkpoints_by_execution,
+        forgerouter_state=forgerouter_state,
+    )
+    visible_agent_ids = {agent.id for agent in activity_agents}
+    visible_project_ids = {project.id for project in projects}
+    relation_by_pair: dict[
+        tuple[uuid.UUID, uuid.UUID], ActivityTopologyRelationOut
+    ] = {}
+    for membership in memberships:
+        if (
+            membership.agent_id not in visible_agent_ids
+            or membership.project_id not in visible_project_ids
+        ):
+            continue
+        relation_by_pair[(membership.agent_id, membership.project_id)] = (
+            ActivityTopologyRelationOut(
+                key=f"membership:{membership.agent_id}:{membership.project_id}",
+                kind="membership",
+                from_type="agent",
+                from_id=str(membership.agent_id),
+                to_type="project",
+                to_id=str(membership.project_id),
+                label="Allocated",
+            )
+        )
+    for agent in activity_agents:
+        if not agent.current_work or not agent.current_work.project_id:
+            continue
+        current_project_id = agent.current_work.project_id
+        if current_project_id not in visible_project_ids:
+            continue
+        relation_by_pair[(agent.id, current_project_id)] = ActivityTopologyRelationOut(
+            key=f"current-work:{agent.id}:{current_project_id}",
+            kind="current_work",
+            from_type="agent",
+            from_id=str(agent.id),
+            to_type="project",
+            to_id=str(current_project_id),
+            label="Working now",
+        )
+
+    database_key = "database:company_postgres/company"
+    topology_relations = list(relation_by_pair.values())
+    topology_relations.extend(
+        ActivityTopologyRelationOut(
+            key=f"persistence:{project.id}:{database_key}",
+            kind="persistence",
+            from_type="project",
+            from_id=str(project.id),
+            to_type="resource",
+            to_id=database_key,
+            label="Persists in company schema",
+        )
+        for project in projects
+    )
+
     return AgentActivityOut(
         generated_at=generated_at,
         project_id=project_id,
-        agents=build_activity_agents(
-            agents=agents,
-            tasks_by_id=tasks_by_id,
-            executions=execution_contexts,
-            checkpoints_by_execution=checkpoints_by_execution,
-            forgerouter_state=forgerouter_state,
-        ),
+        agents=activity_agents,
+        projects=[
+            ActivityProjectOut(
+                id=project.id,
+                name=project.name,
+                status=project.status,
+                canonical_path=f"/projects/{project.id}",
+            )
+            for project in sorted(projects, key=lambda item: (item.name.casefold(), str(item.id)))
+        ],
+        resources=[
+            ActivityResourceOut(
+                key=database_key,
+                kind="database",
+                label="company_postgres",
+                detail="company",
+                status="available",
+            )
+        ],
+        topology_relations=sorted(topology_relations, key=lambda item: item.key),
         message_edges=build_message_edges(
             demands=demands,
             agents=agents,

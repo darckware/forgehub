@@ -75,6 +75,7 @@ class ActivityAgentOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    avatar_data_url: str | None = None
     profile_slug: str | None = None
     runtime_type: str
     availability: Literal["available", "busy", "degraded", "unavailable", "unknown"]
@@ -89,6 +90,37 @@ class ActivityAgentOut(BaseModel):
     def current_execution_id(self) -> uuid.UUID | None:
         """Compatibility accessor for aggregation consumers; API JSON uses current_work."""
         return self.current_work.execution_id if self.current_work else None
+
+
+class ActivityProjectOut(BaseModel):
+    """One canonical project rendered as a topology node."""
+
+    id: uuid.UUID
+    name: str
+    status: str
+    canonical_path: str
+
+
+class ActivityResourceOut(BaseModel):
+    """A configured infrastructure resource used by visible projects."""
+
+    key: str
+    kind: Literal["database"]
+    label: str
+    detail: str | None = None
+    status: Literal["available", "degraded", "unavailable"]
+
+
+class ActivityTopologyRelationOut(BaseModel):
+    """A typed, text-labelled relationship between topology objects."""
+
+    key: str
+    kind: Literal["current_work", "membership", "persistence"]
+    from_type: Literal["agent", "project"]
+    from_id: str
+    to_type: Literal["project", "resource"]
+    to_id: str
+    label: str
 
 
 class ActivityMessageEdgeOut(BaseModel):
@@ -211,6 +243,9 @@ class AgentActivityOut(BaseModel):
     generated_at: datetime
     project_id: uuid.UUID | None
     agents: list[ActivityAgentOut]
+    projects: list[ActivityProjectOut] = Field(default_factory=list)
+    resources: list[ActivityResourceOut] = Field(default_factory=list)
+    topology_relations: list[ActivityTopologyRelationOut] = Field(default_factory=list)
     message_edges: list[ActivityMessageEdgeOut]
     incidents: list[ActivityIncidentOut]
     timeline: list[ActivityTimelineEventOut]
