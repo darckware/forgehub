@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.agent_activity import (
@@ -40,7 +40,7 @@ from app.db.models.execution import ExecutionLease, ExecutionWorkPackage
 from app.db.models.governance import ApprovalRequest
 from app.db.models.notification import Notification
 from app.db.models.progress import ProgressCheckpoint
-from app.db.models.project import Project
+from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 
 ROW_LIMIT = 500
@@ -239,14 +239,21 @@ def build_message_edges(
     *,
     demands: Iterable[AgentDemand],
     agents: Iterable[Agent],
+    replies: Iterable[AgentDemand] = (),
 ) -> list[ActivityMessageEdgeOut]:
     """Build communication edges exclusively from structured message fields."""
 
     rows = list(demands)
     names_by_id = {agent.id: agent.name for agent in agents}
-    replies_by_parent = {
-        demand.reply_to_id: demand for demand in rows if demand.reply_to_id is not None
-    }
+    parent_ids = {demand.id for demand in rows}
+    replies_by_parent: dict[uuid.UUID, AgentDemand] = {}
+    for reply in sorted(
+        {reply.id: reply for reply in [*rows, *replies]}.values(),
+        key=lambda item: (item.updated_at, item.created_at, str(item.id)),
+        reverse=True,
+    ):
+        if reply.reply_to_id in parent_ids:
+            replies_by_parent.setdefault(reply.reply_to_id, reply)
     edges: list[ActivityMessageEdgeOut] = []
     for demand in rows:
         reply = replies_by_parent.get(demand.id)
@@ -291,6 +298,7 @@ def classify_runtime_failure(
 def _prior_attempts(
     current: ExecutionActivityContext,
     executions: list[ExecutionActivityContext],
+    checkpoints_by_execution: dict[uuid.UUID, ProgressCheckpoint],
 ) -> list[ActivityPriorAttemptOut]:
     rows: list[ActivityPriorAttemptOut] = []
     for context in executions:
@@ -299,7 +307,7 @@ def _prior_attempts(
             continue
         if execution.attempt_number >= current.execution.attempt_number:
             continue
-        checkpoint = None
+        checkpoint = checkpoints_by_execution.get(execution.id)
         rows.append(
             ActivityPriorAttemptOut(
                 id=execution.id,
@@ -399,7 +407,11 @@ def build_incidents(
                     else execution.outcome_summary
                 ),
                 recommended_action="request_athos_monitoring",
-                prior_attempts=_prior_attempts(context, contexts),
+                prior_attempts=_prior_attempts(
+                    context,
+                    contexts,
+                    checkpoints_by_execution,
+                ),
                 last_observed_at=execution.updated_at,
                 runtime_type=execution.runtime_type,
                 current_owner_agent_id=context.agent_id,
@@ -624,14 +636,20 @@ async def build_agent_activity(
         ).scalars()
     )
 
-    execution_query = (
-        select(TaskExecution)
-        .join(ProjectTask, ProjectTask.id == TaskExecution.task_id)
-        .join(PlanningItem, PlanningItem.id == ProjectTask.planning_item_id)
-        .where(TaskExecution.updated_at >= since)
-    )
+    execution_query = select(TaskExecution).join(
+        ProjectTask, ProjectTask.id == TaskExecution.task_id
+    ).where(TaskExecution.updated_at >= since)
     if project_id is not None:
-        execution_query = execution_query.where(PlanningItem.project_id == project_id)
+        execution_query = execution_query.where(
+            or_(
+                ProjectTask.planning_item_id.in_(
+                    select(PlanningItem.id).where(PlanningItem.project_id == project_id)
+                ),
+                ProjectTask.change_request_id.in_(
+                    select(ChangeRequest.id).where(ChangeRequest.project_id == project_id)
+                ),
+            )
+        )
     executions = list(
         (
             await db.execute(
@@ -674,9 +692,29 @@ async def build_agent_activity(
         else []
     )
     planning_by_id = {item.id: item for item in planning_items}
+    change_request_ids = {
+        task.change_request_id for task in tasks if task.change_request_id is not None
+    }
+    change_requests = (
+        list(
+            (
+                await db.execute(
+                    select(ChangeRequest)
+                    .where(ChangeRequest.id.in_(change_request_ids))
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        if change_request_ids
+        else []
+    )
+    change_requests_by_id = {change_request.id: change_request for change_request in change_requests}
     project_ids = {
         item.project_id for item in planning_items if item.project_id is not None
     }
+    project_ids.update(
+        change_request.project_id for change_request in change_requests
+    )
     projects = (
         list(
             (
@@ -692,9 +730,13 @@ async def build_agent_activity(
     tasks_by_id = {
         task.id: TaskActivityContext(
             task=task,
-            project=projects_by_id.get(planning_by_id[task.planning_item_id].project_id)
-            if task.planning_item_id in planning_by_id
-            else None,
+            project=projects_by_id.get(
+                planning_by_id[task.planning_item_id].project_id
+                if task.planning_item_id in planning_by_id
+                else change_requests_by_id[task.change_request_id].project_id
+                if task.change_request_id in change_requests_by_id
+                else None
+            ),
         )
         for task in tasks
     }
@@ -785,6 +827,22 @@ async def build_agent_activity(
         if checkpoint.task_execution_id is not None:
             checkpoints_by_execution.setdefault(checkpoint.task_execution_id, checkpoint)
 
+    parent_demand_ids = {demand.id for demand in demands}
+    replies = (
+        list(
+            (
+                await db.execute(
+                    select(AgentDemand)
+                    .where(AgentDemand.reply_to_id.in_(parent_demand_ids))
+                    .order_by(AgentDemand.updated_at.desc())
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        if parent_demand_ids
+        else []
+    )
+
     source_demand_by_execution = {
         demand.task_execution_id: demand
         for demand in demands
@@ -826,8 +884,14 @@ async def build_agent_activity(
     if project_id is not None:
         approval_filters.append(
             or_(
-                ApprovalRequest.target_id.in_(task_ids),
-                ApprovalRequest.target_id == project_id,
+                and_(
+                    ApprovalRequest.target_type == "project_task",
+                    ApprovalRequest.target_id.in_(task_ids),
+                ),
+                and_(
+                    ApprovalRequest.target_type == "project",
+                    ApprovalRequest.target_id == project_id,
+                ),
             )
         )
     approvals = list(
@@ -849,7 +913,7 @@ async def build_agent_activity(
                 .limit(ROW_LIMIT)
             )
         ).scalars()
-    )
+    ) if project_id is None else []
 
     forgerouter_state, forgerouter_freshness = await _load_forgerouter_state(
         window_minutes=window_minutes
@@ -864,7 +928,11 @@ async def build_agent_activity(
             checkpoints_by_execution=checkpoints_by_execution,
             forgerouter_state=forgerouter_state,
         ),
-        message_edges=build_message_edges(demands=demands, agents=agents),
+        message_edges=build_message_edges(
+            demands=demands,
+            agents=agents,
+            replies=replies,
+        ),
         incidents=build_incidents(
             demands=demands,
             executions=execution_contexts,

@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -21,7 +21,8 @@ from app.db.models.governance import (
 )
 from app.db.models.product import Product, ProductVersion
 from app.db.models.progress import ProgressCheckpoint
-from app.db.models.project import Project
+from app.db.models.project import ChangeRequest, Project
+from app.db.models.notification import Notification
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 
 
@@ -357,6 +358,241 @@ async def test_build_activity_preserves_db_state_when_forgerouter_is_unavailable
         for freshness in view.source_freshness
         if freshness.name == "forgerouter"
     ).status == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_build_activity_includes_change_request_task_execution_for_project(
+    activity_world,
+):
+    """Project activity resolves executions through a task's change request."""
+
+    async with AsyncSessionLocal() as db:
+        change_request = ChangeRequest(
+            project_id=activity_world.project_id,
+            title="Keep change-request execution visible",
+        )
+        db.add(change_request)
+        await db.flush()
+        task = ProjectTask(
+            title="Execute approved change request",
+            change_request_id=change_request.id,
+            status="in_progress",
+        )
+        db.add(task)
+        await db.flush()
+        assignment = TaskAssignment(
+            task_id=task.id,
+            agent_id=activity_world.agent_id,
+            status="active",
+            assigned_at=datetime.now(timezone.utc),
+        )
+        db.add(assignment)
+        await db.flush()
+        execution = TaskExecution(
+            task_id=task.id,
+            assignment_id=assignment.id,
+            executor_type="agent",
+            runtime_type="codex",
+            status="running",
+            started_at=datetime.now(timezone.utc),
+        )
+        db.add(execution)
+        await db.commit()
+
+        try:
+            view = await build_agent_activity(
+                db,
+                project_id=activity_world.project_id,
+                window_minutes=60,
+            )
+
+            assert any(
+                item.current_execution_id == execution.id for item in view.agents
+            )
+        finally:
+            await db.delete(task)
+            await db.delete(change_request)
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_build_activity_excludes_unlinked_notifications_from_project_timeline(
+    activity_world,
+):
+    """A project view cannot attribute globally linked notifications by prose."""
+
+    notification = Notification(
+        source="system",
+        severity="warning",
+        title="Global alert",
+        event_key=f"activity-unlinked-{uuid.uuid4()}",
+        occurred_at=datetime.now(timezone.utc),
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(notification)
+        await db.commit()
+
+        try:
+            view = await build_agent_activity(
+                db,
+                project_id=activity_world.project_id,
+                window_minutes=60,
+            )
+
+            assert all(
+                event.source_id != notification.id for event in view.timeline
+            )
+        finally:
+            await db.delete(notification)
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_build_activity_resolves_reply_outside_the_demand_window(activity_world):
+    """A selected request stops waiting when its canonical reply is older."""
+
+    old = datetime.now(timezone.utc) - timedelta(hours=2)
+    reply = AgentDemand(
+        from_agent="reply-worker",
+        from_agent_id=activity_world.agent_id,
+        target_agent_id=activity_world.agent_id,
+        project_id=activity_world.project_id,
+        subject="Canonical reply",
+        body="This text is not used to detect the reply.",
+        origin_type="task",
+        origin_id=activity_world.task_id,
+        reply_to_id=activity_world.demand_id,
+        dispatch_status="completed",
+        requires_response=False,
+        created_at=old,
+        updated_at=old,
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(reply)
+        await db.commit()
+
+        try:
+            view = await build_agent_activity(
+                db,
+                project_id=activity_world.project_id,
+                window_minutes=60,
+            )
+
+            edge = next(
+                item
+                for item in view.message_edges
+                if item.message_id == activity_world.demand_id
+            )
+            assert edge.response_status == "responded"
+            assert edge.waiting_for_response is False
+            assert edge.responded_at == old
+        finally:
+            await db.delete(reply)
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_build_activity_excludes_mismatched_approval_target_type(activity_world):
+    """Approval target IDs are scoped only with their target discriminator."""
+
+    unrelated_approval = ApprovalRequest(
+        target_type="release",
+        target_id=activity_world.task_id,
+        target_hash=uuid.uuid4().hex.ljust(64, "0"),
+        approval_type="release_approval",
+        policy_evaluation_id=activity_world.policy_evaluation_id,
+        status="pending",
+        requested_by_type="agent",
+        requested_by_id=activity_world.agent_id,
+        requested_by_name="Activity Worker",
+        idempotency_key=f"activity-unrelated-approval-{uuid.uuid4()}",
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(unrelated_approval)
+        await db.commit()
+
+        try:
+            view = await build_agent_activity(
+                db,
+                project_id=activity_world.project_id,
+                window_minutes=60,
+            )
+
+            assert all(
+                event.source_id != unrelated_approval.id for event in view.timeline
+            )
+            assert all(
+                incident.source_id != unrelated_approval.id
+                for incident in view.incidents
+            )
+        finally:
+            await db.delete(unrelated_approval)
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_build_activity_includes_prior_attempt_checkpoint_error(activity_world):
+    """Prior attempts expose their own canonical checkpoint error code."""
+
+    previous_execution = TaskExecution(
+        task_id=activity_world.task_id,
+        assignment_id=activity_world.assignment_id,
+        attempt_number=1,
+        executor_type="agent",
+        runtime_type="codex",
+        status="retried",
+        started_at=datetime.now(timezone.utc),
+        finished_at=datetime.now(timezone.utc),
+        outcome_summary="Retry after runtime failure",
+    )
+    async with AsyncSessionLocal() as db:
+        current_execution = await db.get(TaskExecution, activity_world.execution_id)
+        current_execution.attempt_number = 2
+        db.add(previous_execution)
+        await db.flush()
+        checkpoint = ProgressCheckpoint(
+            project_id=activity_world.project_id,
+            task_id=activity_world.task_id,
+            task_execution_id=previous_execution.id,
+            sequence=1,
+            checkpoint_type="failed",
+            step_key="run-tests",
+            step_label="Run focused tests",
+            state_snapshot={},
+            completed_requirement_keys=[],
+            evidence_refs=[],
+            last_confirmed_at=datetime.now(timezone.utc),
+            error_code="EXEC_PREVIOUS_FAILURE",
+            actor_type="agent",
+            actor_id=activity_world.agent_id,
+            actor_name="Activity Worker",
+            idempotency_key=f"activity-prior-checkpoint-{uuid.uuid4()}",
+        )
+        db.add(checkpoint)
+        await db.commit()
+
+        try:
+            view = await build_agent_activity(
+                db,
+                project_id=activity_world.project_id,
+                window_minutes=60,
+            )
+
+            incident = next(
+                item
+                for item in view.incidents
+                if item.execution_id == activity_world.execution_id
+            )
+            prior = next(
+                item
+                for item in incident.prior_attempts
+                if item.execution_id == previous_execution.id
+            )
+            assert prior.error_code == "EXEC_PREVIOUS_FAILURE"
+        finally:
+            await db.delete(checkpoint)
+            await db.delete(previous_execution)
+            await db.commit()
 
 
 def test_agent_activity_contract_rejects_incident_without_source_id():
