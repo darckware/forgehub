@@ -1556,6 +1556,19 @@ async def build_agent_activity(
         )
         for project in projects
     )
+    topology_relations.extend(
+        ActivityTopologyRelationOut(
+            key=f"transition:{context.concept_id}:{context.project_id}",
+            kind="transition",
+            from_type="conception",
+            from_id=str(context.concept_id),
+            to_type="project",
+            to_id=str(context.project_id),
+            label="Authorized delivery",
+        )
+        for context in project_context_by_id.values()
+        if context.concept_id is not None
+    )
 
     context_by_request_id = {
         context.development_request_id: context

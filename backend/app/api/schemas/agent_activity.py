@@ -140,8 +140,8 @@ class ActivityTopologyRelationOut(BaseModel):
     """A typed, text-labelled relationship between topology objects."""
 
     key: str
-    kind: Literal["current_work", "membership", "persistence"]
-    from_type: Literal["agent", "project"]
+    kind: Literal["current_work", "membership", "persistence", "transition"]
+    from_type: Literal["agent", "project", "conception"]
     from_id: str
     to_type: Literal["project", "resource"]
     to_id: str

@@ -1677,6 +1677,14 @@ async def test_build_activity_preserves_conception_transition_to_multiple_projec
         assert {item.concept_id for item in project_contexts} == {ids["concept"]}
         assert {item.concept_revision_id for item in project_contexts} == {ids["concept_revision"]}
         assert len([event for event in result.timeline if event.key == f"product-concept:{ids['concept']}"]) == 1
+        assert {
+            (relation.from_type, relation.from_id, relation.to_type, relation.to_id)
+            for relation in result.topology_relations
+            if relation.kind == "transition" and relation.from_id == str(ids["concept"])
+        } == {
+            ("conception", str(ids["concept"]), "project", str(project_id))
+            for project_id in ids["projects"]
+        }
     finally:
         async with engine.begin() as conn:
             await conn.execute(
