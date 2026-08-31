@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.schemas.agent_activity import (
     ActivityAgentOut,
     ActivityCheckpointOut,
+    ActivityContextOut,
     ActivityCurrentWorkOut,
     ActivityFlowItemOut,
     ActivityIncidentOut,
@@ -47,11 +48,27 @@ from app.db.models.orchestration import ProjectAgentMembership
 from app.db.models.progress import ProgressCheckpoint
 from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
-from app.db.models.system_scope import DevelopmentRequest
+from app.db.models.product import Product, ProductVersion
+from app.db.models.system_scope import (
+    DevelopmentRequest,
+    ProductConcept,
+    ProductConceptRevision,
+    SystemBlueprintRevision,
+)
 
 ROW_LIMIT = 500
 FORGEROUTER_LIMIT = 200
 ACTIVE_EXECUTION_STATUSES = {"pending", "running", "reported"}
+
+CONCEPT_FLOW_STAGE: dict[str, str] = {
+    "draft": "planning",
+    "in_review": "attention",
+    "hold": "attention",
+    "rework": "attention",
+    "approved": "completed",
+    "rejected": "archived",
+    "superseded": "archived",
+}
 
 FLOW_STAGE_BY_SOURCE: dict[str, dict[str, str]] = {
     "agent_demand": {
@@ -871,6 +888,48 @@ async def build_agent_activity(
         if development_request_ids
         else []
     )
+    recent_concepts = (
+        list(
+            (
+                await db.execute(
+                    select(ProductConcept)
+                    .where(ProductConcept.updated_at >= since)
+                    .order_by(ProductConcept.updated_at.desc())
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        if project_id is None
+        else []
+    )
+    recent_concept_revision_ids = {
+        concept.current_revision_id
+        for concept in recent_concepts
+        if concept.current_revision_id is not None
+    }
+    lineage_revisions = (
+        list(
+            (
+                await db.execute(
+                    select(SystemBlueprintRevision)
+                    .where(
+                        SystemBlueprintRevision.concept_revision_id.in_(
+                            recent_concept_revision_ids
+                        )
+                    )
+                    .order_by(SystemBlueprintRevision.updated_at.desc())
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        if recent_concept_revision_ids
+        else []
+    )
+    lineage_version_ids = {
+        revision.product_version_id
+        for revision in lineage_revisions
+        if revision.product_version_id is not None
+    }
 
     execution_query = select(TaskExecution).join(
         ProjectTask, ProjectTask.id == TaskExecution.task_id
@@ -981,6 +1040,16 @@ async def build_agent_activity(
     project_ids.update(
         demand.project_id for demand in demands if demand.project_id is not None
     )
+    if lineage_version_ids:
+        project_ids.update(
+            (
+                await db.execute(
+                    select(Project.id).where(
+                        Project.product_version_id.in_(lineage_version_ids)
+                    )
+                )
+            ).scalars()
+        )
     if project_id is not None:
         project_ids.add(project_id)
     projects = (
@@ -995,6 +1064,245 @@ async def build_agent_activity(
         else []
     )
     projects_by_id = {project.id: project for project in projects}
+    version_ids = {
+        project.product_version_id
+        for project in projects
+        if project.product_version_id is not None
+    }
+    product_versions = (
+        list(
+            (
+                await db.execute(
+                    select(ProductVersion)
+                    .where(ProductVersion.id.in_(version_ids))
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        if version_ids
+        else []
+    )
+    versions_by_id = {version.id: version for version in product_versions}
+    product_ids = {concept.product_id for concept in recent_concepts}
+    product_ids.update(version.product_id for version in product_versions)
+    products = (
+        list(
+            (
+                await db.execute(
+                    select(Product).where(Product.id.in_(product_ids)).limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        if product_ids
+        else []
+    )
+    products_by_id = {product.id: product for product in products}
+
+    concepts_by_id = {concept.id: concept for concept in recent_concepts}
+    if product_ids:
+        product_concepts = list(
+            (
+                await db.execute(
+                    select(ProductConcept)
+                    .where(ProductConcept.product_id.in_(product_ids))
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        concepts_by_id.update({concept.id: concept for concept in product_concepts})
+
+    current_revision_ids = {
+        concept.current_revision_id
+        for concept in concepts_by_id.values()
+        if concept.current_revision_id is not None
+    }
+    concept_revisions = (
+        list(
+            (
+                await db.execute(
+                    select(ProductConceptRevision)
+                    .where(ProductConceptRevision.id.in_(current_revision_ids))
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        if current_revision_ids
+        else []
+    )
+    concept_revisions_by_id = {
+        revision.id: revision for revision in concept_revisions
+    }
+
+    lineage_by_id = {revision.id: revision for revision in lineage_revisions}
+    if version_ids:
+        project_lineage = list(
+            (
+                await db.execute(
+                    select(SystemBlueprintRevision)
+                    .where(SystemBlueprintRevision.product_version_id.in_(version_ids))
+                    .order_by(SystemBlueprintRevision.updated_at.desc())
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        lineage_by_id.update({revision.id: revision for revision in project_lineage})
+    missing_concept_revision_ids = {
+        revision.concept_revision_id
+        for revision in lineage_by_id.values()
+        if revision.concept_revision_id is not None
+        and revision.concept_revision_id not in concept_revisions_by_id
+    }
+    if missing_concept_revision_ids:
+        missing_revisions = list(
+            (
+                await db.execute(
+                    select(ProductConceptRevision)
+                    .where(ProductConceptRevision.id.in_(missing_concept_revision_ids))
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        concept_revisions_by_id.update(
+            {revision.id: revision for revision in missing_revisions}
+        )
+        missing_concept_ids = {
+            revision.concept_id
+            for revision in missing_revisions
+            if revision.concept_id not in concepts_by_id
+        }
+        if missing_concept_ids:
+            missing_concepts = list(
+                (
+                    await db.execute(
+                        select(ProductConcept)
+                        .where(ProductConcept.id.in_(missing_concept_ids))
+                        .limit(ROW_LIMIT)
+                    )
+                ).scalars()
+            )
+            concepts_by_id.update(
+                {concept.id: concept for concept in missing_concepts}
+            )
+
+    context_requests = (
+        list(
+            (
+                await db.execute(
+                    select(DevelopmentRequest)
+                    .where(DevelopmentRequest.product_id.in_(product_ids))
+                    .order_by(DevelopmentRequest.updated_at.desc())
+                    .limit(ROW_LIMIT)
+                )
+            ).scalars()
+        )
+        if product_ids
+        else []
+    )
+    requests_by_id = {
+        request.id: request for request in [*development_requests, *context_requests]
+    }
+    latest_request_by_product: dict[uuid.UUID, DevelopmentRequest] = {}
+    for request in sorted(
+        requests_by_id.values(),
+        key=lambda item: (item.updated_at, str(item.id)),
+        reverse=True,
+    ):
+        latest_request_by_product.setdefault(request.product_id, request)
+
+    lineage_by_version: dict[uuid.UUID, SystemBlueprintRevision] = {}
+    for revision in sorted(
+        lineage_by_id.values(),
+        key=lambda item: (item.updated_at, item.revision, str(item.id)),
+        reverse=True,
+    ):
+        if revision.product_version_id is not None:
+            lineage_by_version.setdefault(revision.product_version_id, revision)
+
+    contexts: list[ActivityContextOut] = []
+    conception_context_by_id: dict[uuid.UUID, ActivityContextOut] = {}
+    for concept in sorted(
+        concepts_by_id.values(),
+        key=lambda item: (item.updated_at, str(item.id)),
+        reverse=True,
+    ):
+        if project_id is not None:
+            continue
+        product = products_by_id.get(concept.product_id)
+        if product is None:
+            continue
+        request = latest_request_by_product.get(concept.product_id)
+        revision = concept_revisions_by_id.get(concept.current_revision_id)
+        context = ActivityContextOut(
+            context_kind="conception",
+            context_id=concept.id,
+            product_id=product.id,
+            product_name=product.name,
+            development_request_id=request.id if request else None,
+            concept_id=concept.id,
+            concept_revision_id=revision.id if revision else None,
+            working_directory_path=revision.working_directory_path if revision else None,
+            title=request.title if request else product.name,
+            status=concept.status,
+            canonical_path=(
+                f"/conception?request={request.id}" if request else "/conception"
+            ),
+            created_at=concept.created_at,
+            updated_at=concept.updated_at,
+        )
+        contexts.append(context)
+        conception_context_by_id[concept.id] = context
+
+    project_context_by_id: dict[uuid.UUID, ActivityContextOut] = {}
+    for project in sorted(projects, key=lambda item: (item.name.casefold(), str(item.id))):
+        version = versions_by_id.get(project.product_version_id)
+        product = products_by_id.get(version.product_id) if version else None
+        if version is None or product is None:
+            continue
+        lineage = lineage_by_version.get(version.id)
+        concept_revision = (
+            concept_revisions_by_id.get(lineage.concept_revision_id)
+            if lineage and lineage.concept_revision_id
+            else None
+        )
+        concept = (
+            concepts_by_id.get(concept_revision.concept_id)
+            if concept_revision
+            else next(
+                (
+                    candidate
+                    for candidate in concepts_by_id.values()
+                    if candidate.product_id == product.id
+                ),
+                None,
+            )
+        )
+        request = latest_request_by_product.get(product.id)
+        context = ActivityContextOut(
+            context_kind="project",
+            context_id=project.id,
+            product_id=product.id,
+            product_name=product.name,
+            development_request_id=request.id if request else None,
+            concept_id=concept.id if concept else None,
+            concept_revision_id=(
+                concept_revision.id
+                if concept_revision
+                else concept.current_revision_id
+                if concept
+                else None
+            ),
+            project_id=project.id,
+            project_name=project.name,
+            working_directory_path=project.working_directory_path,
+            title=project.name,
+            status=project.status,
+            canonical_path=f"/projects/{project.id}",
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+        )
+        contexts.append(context)
+        project_context_by_id[project.id] = context
+
     tasks_by_id = {
         task.id: TaskActivityContext(
             task=task,
@@ -1249,10 +1557,115 @@ async def build_agent_activity(
         for project in projects
     )
 
+    context_by_request_id = {
+        context.development_request_id: context
+        for context in contexts
+        if context.development_request_id is not None
+        and context.context_kind == "conception"
+    }
+    demands_by_id = {demand.id: demand for demand in demands}
+    approvals_by_id = {approval.id: approval for approval in approvals}
+
+    def attach_context(item, context: ActivityContextOut | None) -> None:
+        if context is None:
+            return
+        item.context_kind = context.context_kind
+        item.context_id = context.context_id
+        item.development_request_id = context.development_request_id
+        item.concept_id = context.concept_id
+        item.concept_revision_id = context.concept_revision_id
+
+    def resolve_item_context(item) -> ActivityContextOut | None:
+        if item.project_id is not None:
+            project_context = project_context_by_id.get(item.project_id)
+            if project_context is not None:
+                return project_context
+        if item.source_type == "agent_demand":
+            demand = demands_by_id.get(item.source_id)
+            if demand and demand.development_request_id is not None:
+                return context_by_request_id.get(demand.development_request_id)
+        if item.source_type == "approval_request":
+            approval = approvals_by_id.get(item.source_id)
+            if approval and approval.target_type == "product_concept":
+                return conception_context_by_id.get(approval.target_id)
+        return None
+
+    flow_items = build_flow_items(
+        demands=demands,
+        tasks_by_id=tasks_by_id,
+        executions=execution_contexts,
+        approvals=approvals,
+    )
+    timeline = build_timeline(
+        demands=demands,
+        executions=execution_contexts,
+        checkpoints_by_execution=checkpoints_by_execution,
+        approvals=approvals,
+        notifications=notifications,
+    )
+    incidents = build_incidents(
+        demands=demands,
+        executions=execution_contexts,
+        checkpoints_by_execution=checkpoints_by_execution,
+        approvals=approvals,
+        forgerouter_state=forgerouter_state,
+    )
+    for item in [*flow_items, *timeline, *incidents]:
+        attach_context(item, resolve_item_context(item))
+    for agent in activity_agents:
+        if agent.current_work and agent.current_work.project_id:
+            attach_context(
+                agent.current_work,
+                project_context_by_id.get(agent.current_work.project_id),
+            )
+
+    for context in conception_context_by_id.values():
+        flow_items.append(
+            ActivityFlowItemOut(
+                key=f"product_concept:{context.concept_id}",
+                stage=CONCEPT_FLOW_STAGE[context.status],
+                source_type="product_concept",
+                source_id=context.concept_id,
+                source_status=context.status,
+                title=context.title,
+                occurred_at=context.created_at,
+                updated_at=context.updated_at,
+                canonical_path=context.canonical_path,
+                context_kind=context.context_kind,
+                context_id=context.context_id,
+                development_request_id=context.development_request_id,
+                concept_id=context.concept_id,
+                concept_revision_id=context.concept_revision_id,
+            )
+        )
+        timeline.append(
+            ActivityTimelineEventOut(
+                key=f"product-concept:{context.concept_id}",
+                kind=f"product_concept_{context.status}",
+                occurred_at=context.updated_at,
+                source_type="product_concept",
+                source_id=context.concept_id,
+                source_status=context.status,
+                lane="planning",
+                title=context.title,
+                canonical_path=context.canonical_path,
+                context_kind=context.context_kind,
+                context_id=context.context_id,
+                development_request_id=context.development_request_id,
+                concept_id=context.concept_id,
+                concept_revision_id=context.concept_revision_id,
+            )
+        )
+
     return AgentActivityOut(
         generated_at=generated_at,
         project_id=project_id,
         agents=activity_agents,
+        contexts=sorted(
+            contexts,
+            key=lambda item: (item.updated_at, item.context_kind, str(item.context_id)),
+            reverse=True,
+        ),
         projects=[
             ActivityProjectOut(
                 id=project.id,
@@ -1272,11 +1685,10 @@ async def build_agent_activity(
             )
         ],
         topology_relations=sorted(topology_relations, key=lambda item: item.key),
-        flow_items=build_flow_items(
-            demands=demands,
-            tasks_by_id=tasks_by_id,
-            executions=execution_contexts,
-            approvals=approvals,
+        flow_items=sorted(
+            flow_items,
+            key=lambda item: (item.updated_at, item.key),
+            reverse=True,
         ),
         message_edges=build_message_edges(
             demands=demands,
@@ -1284,19 +1696,11 @@ async def build_agent_activity(
             replies=replies,
             development_requests=development_requests,
         ),
-        incidents=build_incidents(
-            demands=demands,
-            executions=execution_contexts,
-            checkpoints_by_execution=checkpoints_by_execution,
-            approvals=approvals,
-            forgerouter_state=forgerouter_state,
-        ),
-        timeline=build_timeline(
-            demands=demands,
-            executions=execution_contexts,
-            checkpoints_by_execution=checkpoints_by_execution,
-            approvals=approvals,
-            notifications=notifications,
+        incidents=incidents,
+        timeline=sorted(
+            timeline,
+            key=lambda item: (item.occurred_at, item.key),
+            reverse=True,
         ),
         source_freshness=[
             ActivitySourceFreshnessOut(

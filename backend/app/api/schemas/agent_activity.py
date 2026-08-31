@@ -37,6 +37,26 @@ class ActivityCheckpointOut(BaseModel):
     canonical_path: str
 
 
+class ActivityContextOut(BaseModel):
+    """One canonical Conception or Delivery context projected into operations."""
+
+    context_kind: Literal["conception", "project"]
+    context_id: uuid.UUID
+    product_id: uuid.UUID
+    product_name: str
+    development_request_id: uuid.UUID | None = None
+    concept_id: uuid.UUID | None = None
+    concept_revision_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+    project_name: str | None = None
+    working_directory_path: str | None = None
+    title: str
+    status: str
+    canonical_path: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class ActivityProfileSummaryOut(BaseModel):
     """Safe profile-health metadata; never profile or memory contents."""
 
@@ -68,6 +88,11 @@ class ActivityCurrentWorkOut(BaseModel):
     requested_by_agent_id: uuid.UUID | None = None
     source_message_id: uuid.UUID | None = None
     source_message_path: str | None = None
+    context_kind: Literal["conception", "project"] | None = None
+    context_id: uuid.UUID | None = None
+    development_request_id: uuid.UUID | None = None
+    concept_id: uuid.UUID | None = None
+    concept_revision_id: uuid.UUID | None = None
 
 
 class ActivityAgentOut(BaseModel):
@@ -204,6 +229,11 @@ class ActivityIncidentOut(BaseModel):
     current_owner_agent_id: uuid.UUID | None = None
     canonical_path: str | None = None
     related_records: list[ActivityRecordLinkOut] = Field(default_factory=list)
+    context_kind: Literal["conception", "project"] | None = None
+    context_id: uuid.UUID | None = None
+    development_request_id: uuid.UUID | None = None
+    concept_id: uuid.UUID | None = None
+    concept_revision_id: uuid.UUID | None = None
 
 
 ActivityFlowStage = Literal[
@@ -234,6 +264,11 @@ class ActivityFlowItemOut(BaseModel):
     project_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     execution_id: uuid.UUID | None = None
+    context_kind: Literal["conception", "project"] | None = None
+    context_id: uuid.UUID | None = None
+    development_request_id: uuid.UUID | None = None
+    concept_id: uuid.UUID | None = None
+    concept_revision_id: uuid.UUID | None = None
 
 
 class ActivityTimelineEventOut(BaseModel):
@@ -257,6 +292,11 @@ class ActivityTimelineEventOut(BaseModel):
     approval_id: uuid.UUID | None = None
     notification_id: uuid.UUID | None = None
     related_records: list[ActivityRecordLinkOut] = Field(default_factory=list)
+    context_kind: Literal["conception", "project"] | None = None
+    context_id: uuid.UUID | None = None
+    development_request_id: uuid.UUID | None = None
+    concept_id: uuid.UUID | None = None
+    concept_revision_id: uuid.UUID | None = None
 
 
 class ActivitySourceFreshnessOut(BaseModel):
@@ -278,6 +318,7 @@ class AgentActivityOut(BaseModel):
     generated_at: datetime
     project_id: uuid.UUID | None
     agents: list[ActivityAgentOut]
+    contexts: list[ActivityContextOut] = Field(default_factory=list)
     projects: list[ActivityProjectOut] = Field(default_factory=list)
     resources: list[ActivityResourceOut] = Field(default_factory=list)
     topology_relations: list[ActivityTopologyRelationOut] = Field(default_factory=list)

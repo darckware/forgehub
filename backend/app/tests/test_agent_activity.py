@@ -30,6 +30,13 @@ from app.db.models.notification import Notification
 from app.db.models.orchestration import ProjectAgentMembership
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 from app.db.models.profile import Profile, ProfileActionPermission
+from app.db.models.system_scope import (
+    DevelopmentRequest,
+    ProductConcept,
+    ProductConceptRevision,
+    SystemBlueprint,
+    SystemBlueprintRevision,
+)
 from app.db.models.user import User
 from app.main import app
 
@@ -1521,3 +1528,170 @@ async def test_athos_request_rejects_orphan_monitoring_notification(
         assert response.status_code == 409
     finally:
         await _remove_monitoring_records(event_key=event_key)
+
+
+@pytest.mark.asyncio
+async def test_build_activity_projects_pre_project_conception_context():
+    """An active conception is visible without manufacturing a Project."""
+
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        product = Product(name=f"Pre-project activity {suffix}", status="concept")
+        db.add(product)
+        await db.flush()
+        request = DevelopmentRequest(
+            product_id=product.id,
+            request_type="new_product",
+            title="Define the operational control plane",
+            description="Canonical intake for a product still in conception.",
+            status="accepted",
+        )
+        concept = ProductConcept(product_id=product.id, status="draft")
+        db.add_all([request, concept])
+        await db.flush()
+        revision = ProductConceptRevision(
+            concept_id=concept.id,
+            revision=1,
+            problem_statement="Operators need one continuous activity view.",
+            working_directory_path="/root/project/pre-project",
+            content_hash=uuid.uuid4().hex.ljust(64, "0"),
+        )
+        db.add(revision)
+        await db.flush()
+        concept.current_revision_id = revision.id
+        await db.commit()
+        ids = (product.id, request.id, concept.id, revision.id)
+
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await build_agent_activity(db, project_id=None, window_minutes=60)
+
+        context = next(item for item in result.contexts if item.concept_id == ids[2])
+        assert context.context_kind == "conception"
+        assert context.context_id == ids[2]
+        assert context.development_request_id == ids[1]
+        assert context.concept_revision_id == ids[3]
+        assert context.project_id is None
+        assert context.canonical_path == f"/conception?request={ids[1]}"
+        assert any(
+            item.source_type == "product_concept"
+            and item.source_id == ids[2]
+            and item.context_id == ids[2]
+            and item.stage == "planning"
+            for item in result.flow_items
+        )
+        assert any(
+            event.key == f"product-concept:{ids[2]}"
+            and event.context_id == ids[2]
+            and event.lane == "planning"
+            for event in result.timeline
+        )
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE company.product_concepts SET current_revision_id = NULL WHERE id = :id"),
+                {"id": ids[2]},
+            )
+            await conn.execute(text("DELETE FROM company.product_concept_revisions WHERE id = :id"), {"id": ids[3]})
+            await conn.execute(text("DELETE FROM company.product_concepts WHERE id = :id"), {"id": ids[2]})
+            await conn.execute(text("DELETE FROM company.development_requests WHERE id = :id"), {"id": ids[1]})
+            await conn.execute(text("DELETE FROM company.products WHERE id = :id"), {"id": ids[0]})
+
+
+@pytest.mark.asyncio
+async def test_build_activity_preserves_conception_transition_to_multiple_projects():
+    """Delivery projects retain the exact conception lineage without duplicating history."""
+
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        product = Product(name=f"Transition activity {suffix}", status="active")
+        db.add(product)
+        await db.flush()
+        request = DevelopmentRequest(
+            product_id=product.id,
+            request_type="feature",
+            title="Authorize multi-project delivery",
+            description="One conception creates two delivery projects.",
+            status="converted",
+        )
+        concept = ProductConcept(product_id=product.id, status="approved")
+        db.add_all([request, concept])
+        await db.flush()
+        concept_revision = ProductConceptRevision(
+            concept_id=concept.id,
+            revision=1,
+            problem_statement="Delivery spans web and API projects.",
+            content_hash=uuid.uuid4().hex.ljust(64, "0"),
+        )
+        db.add(concept_revision)
+        await db.flush()
+        concept.current_revision_id = concept_revision.id
+        version = ProductVersion(product_id=product.id, version=f"0.1.{suffix}")
+        blueprint = SystemBlueprint(product_id=product.id, name=f"Blueprint {suffix}")
+        db.add_all([version, blueprint])
+        await db.flush()
+        blueprint_revision = SystemBlueprintRevision(
+            blueprint_id=blueprint.id,
+            revision=1,
+            status="approved",
+            concept_revision_id=concept_revision.id,
+            product_version_id=version.id,
+        )
+        first_project = Project(
+            name=f"Web delivery {suffix}",
+            product_version_id=version.id,
+            solution_type="web_app",
+        )
+        second_project = Project(
+            name=f"API delivery {suffix}",
+            product_version_id=version.id,
+            solution_type="api_service",
+        )
+        db.add_all([blueprint_revision, first_project, second_project])
+        await db.flush()
+        blueprint.current_revision_id = blueprint_revision.id
+        await db.commit()
+        ids = {
+            "product": product.id,
+            "request": request.id,
+            "concept": concept.id,
+            "concept_revision": concept_revision.id,
+            "version": version.id,
+            "blueprint": blueprint.id,
+            "blueprint_revision": blueprint_revision.id,
+            "projects": {first_project.id, second_project.id},
+        }
+
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await build_agent_activity(db, project_id=None, window_minutes=60)
+
+        conception_contexts = [
+            item for item in result.contexts if item.concept_id == ids["concept"] and item.context_kind == "conception"
+        ]
+        project_contexts = [
+            item for item in result.contexts if item.project_id in ids["projects"]
+        ]
+        assert len(conception_contexts) == 1
+        assert {item.project_id for item in project_contexts} == ids["projects"]
+        assert {item.concept_id for item in project_contexts} == {ids["concept"]}
+        assert {item.concept_revision_id for item in project_contexts} == {ids["concept_revision"]}
+        assert len([event for event in result.timeline if event.key == f"product-concept:{ids['concept']}"]) == 1
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE company.system_blueprints SET current_revision_id = NULL WHERE id = :id"),
+                {"id": ids["blueprint"]},
+            )
+            await conn.execute(
+                text("UPDATE company.product_concepts SET current_revision_id = NULL WHERE id = :id"),
+                {"id": ids["concept"]},
+            )
+            await conn.execute(text("DELETE FROM company.projects WHERE id = ANY(:ids)"), {"ids": list(ids["projects"])})
+            await conn.execute(text("DELETE FROM company.system_blueprint_revisions WHERE id = :id"), {"id": ids["blueprint_revision"]})
+            await conn.execute(text("DELETE FROM company.system_blueprints WHERE id = :id"), {"id": ids["blueprint"]})
+            await conn.execute(text("DELETE FROM company.product_versions WHERE id = :id"), {"id": ids["version"]})
+            await conn.execute(text("DELETE FROM company.product_concept_revisions WHERE id = :id"), {"id": ids["concept_revision"]})
+            await conn.execute(text("DELETE FROM company.product_concepts WHERE id = :id"), {"id": ids["concept"]})
+            await conn.execute(text("DELETE FROM company.development_requests WHERE id = :id"), {"id": ids["request"]})
+            await conn.execute(text("DELETE FROM company.products WHERE id = :id"), {"id": ids["product"]})
