@@ -58,6 +58,8 @@ from app.api.schemas.system_scope import (
     ElementRevisionOut,
     ElementWithRevisionOut,
     SystemElementOut,
+    ColumnCreate,
+    TableCreate,
 )
 from app.db.base import get_db
 from app.core.concept_artifacts import (
@@ -1608,11 +1610,13 @@ async def get_screen_business_rule(scope_id: uuid.UUID, element_id: uuid.UUID, d
     if target is None:
         raise HTTPException(500, f"Could not resolve a safe path for {rel_path}")
     if not target.is_file():
-        return BusinessRuleOut(content="", updated_at=None)
+        return BusinessRuleOut(content="", updated_at=None, file_path=rel_path, abs_path=str(target))
     stat = target.stat()
     return BusinessRuleOut(
         content=target.read_text(encoding="utf-8", errors="replace"),
         updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        file_path=rel_path,
+        abs_path=str(target),
     )
 
 
@@ -1637,7 +1641,59 @@ async def write_screen_business_rule(
     db.add(_audit("system_element", element.id, "business_rule_written", principal.display_name, {"path": rel_path}))
     await db.commit()
     stat = target.stat()
-    return BusinessRuleOut(content=payload.content, updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc))
+    return BusinessRuleOut(
+        content=payload.content,
+        updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        file_path=rel_path,
+        abs_path=str(target),
+    )
+
+
+def _database_doc_path(project: Project) -> str:
+    return f"projects/{_project_slug(project.name)}/database/data-model.md"
+
+
+@router.get("/project-scopes/{scope_id}/database-doc", response_model=BusinessRuleOut)
+async def get_database_doc(scope_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    rel_path = _database_doc_path(project)
+    target = resolve_doc_path(PROJECT_DOCS_ROOT, rel_path)
+    if target is None:
+        raise HTTPException(500, f"Could not resolve a safe path for {rel_path}")
+    if not target.is_file():
+        return BusinessRuleOut(content="", updated_at=None, file_path=rel_path, abs_path=str(target))
+    stat = target.stat()
+    return BusinessRuleOut(
+        content=target.read_text(encoding="utf-8", errors="replace"),
+        updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        file_path=rel_path,
+        abs_path=str(target),
+    )
+
+
+@router.put("/project-scopes/{scope_id}/database-doc", response_model=BusinessRuleOut)
+async def write_database_doc(
+    scope_id: uuid.UUID, payload: BusinessRuleWrite, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await authorize_action(db, principal, "planning.scope.edit", product_id=blueprint.product_id)
+    await _assert_version_editable(db, project.id)
+    rel_path = _database_doc_path(project)
+    target = resolve_doc_path(PROJECT_DOCS_ROOT, rel_path)
+    if target is None:
+        raise HTTPException(500, f"Could not resolve a safe path for {rel_path}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(payload.content, encoding="utf-8")
+    db.add(_audit("project_scope", scope.id, "database_doc_written", principal.display_name, {"path": rel_path}))
+    await db.commit()
+    stat = target.stat()
+    return BusinessRuleOut(
+        content=payload.content,
+        updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        file_path=rel_path,
+        abs_path=str(target),
+    )
 
 
 @router.post("/project-scopes/{scope_id}/derive-database", response_model=DeriveDatabaseOut)
@@ -1768,3 +1824,263 @@ async def derive_database(
     return DeriveDatabaseOut(
         revision_id=revision.id, tables_created=tables_created, tables_updated=tables_updated, fields_written=fields_written,
     )
+
+
+@router.post("/projects/{project_id}/ensure-scope", response_model=ProjectScopeOut)
+async def ensure_project_scope(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    scope = (await db.execute(
+        select(ProjectScope).where(ProjectScope.project_id == project_id).order_by(ProjectScope.revision.desc())
+    )).scalars().first()
+    if scope:
+        return scope
+    version = await db.get(ProductVersion, project.product_version_id)
+    if not version:
+        raise HTTPException(404, "Version not found")
+    blueprint = (await db.execute(
+        select(SystemBlueprint).where(SystemBlueprint.product_id == version.product_id)
+    )).scalars().first()
+    if not blueprint:
+        blueprint = SystemBlueprint(product_id=version.product_id, name="Default Blueprint")
+        db.add(blueprint)
+        await db.flush()
+    screens_rev = await _screens_revision(db, blueprint)
+    scope = ProjectScope(
+        project_id=project_id,
+        blueprint_base_revision_id=screens_rev.id,
+        revision=1,
+        status="draft",
+    )
+    db.add(scope)
+    await db.commit()
+    await db.refresh(scope)
+    return scope
+
+
+@router.post("/project-scopes/{scope_id}/tables", response_model=SystemElementOut, status_code=201)
+async def create_table_in_scope(
+    scope_id: uuid.UUID,
+    payload: TableCreate,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await authorize_action(db, principal, "planning.scope.edit", product_id=blueprint.product_id)
+    await _assert_version_editable(db, project.id)
+    revision = await _screens_revision(db, blueprint)
+
+    clean_name = payload.name.strip()
+    table_key = payload.stable_key or f"{_product_slug(clean_name)}_table"
+    table = SystemElement(
+        product_id=blueprint.product_id,
+        stable_key=table_key,
+        family="data",
+        element_type="table",
+        name=clean_name,
+        description=payload.description,
+    )
+    db.add(table)
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "A table with this key already exists for this product") from None
+
+    table_revision = SystemElementRevision(
+        system_element_id=table.id,
+        blueprint_revision_id=revision.id,
+        spec_snapshot={},
+        content_hash=_hash({}),
+    )
+    db.add(table_revision)
+    await db.flush()
+
+    # Initial ID column if none specified
+    cols = payload.initial_columns or [ColumnCreate(name="id", sql_type="uuid", is_pk=True)]
+    for col in cols:
+        field_key = f"{table_key}__{col.name}"
+        field_element = SystemElement(
+            product_id=blueprint.product_id,
+            stable_key=field_key,
+            family="data",
+            element_type="field",
+            name=col.name,
+        )
+        db.add(field_element)
+        await db.flush()
+        f_snapshot = {
+            "field_spec": {
+                "sql_type": col.sql_type,
+                "is_pk": col.is_pk,
+                "is_fk": col.is_fk,
+                "fk_ref_table": col.fk_ref_table,
+                "nullable": col.nullable,
+            }
+        }
+        db.add(SystemElementRevision(
+            system_element_id=field_element.id,
+            blueprint_revision_id=revision.id,
+            spec_snapshot=f_snapshot,
+            content_hash=_hash(f_snapshot),
+        ))
+        db.add(SystemElementRelation(
+            blueprint_revision_id=revision.id,
+            from_element_id=table.id,
+            to_element_id=field_element.id,
+            relation_type="contains",
+        ))
+
+    db.add(_audit("system_element", table.id, "table_created", principal.display_name, {"project_scope_id": str(scope_id)}))
+    await db.commit()
+    await db.refresh(table)
+    return table
+
+
+@router.post("/project-scopes/{scope_id}/tables/{table_id}/columns", response_model=SystemElementOut, status_code=201)
+async def create_column_in_table(
+    scope_id: uuid.UUID,
+    table_id: uuid.UUID,
+    payload: ColumnCreate,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await authorize_action(db, principal, "planning.scope.edit", product_id=blueprint.product_id)
+    await _assert_version_editable(db, project.id)
+    revision = await _screens_revision(db, blueprint)
+
+    table = await db.get(SystemElement, table_id)
+    if not table or table.element_type != "table":
+        raise HTTPException(404, "Table element not found")
+
+    col_name = payload.name.strip()
+    field_key = f"{table.stable_key}__{col_name}"
+    field_element = (await db.execute(select(SystemElement).where(
+        SystemElement.product_id == blueprint.product_id, SystemElement.stable_key == field_key,
+    ))).scalar_one_or_none()
+
+    if field_element is None:
+        field_element = SystemElement(
+            product_id=blueprint.product_id,
+            stable_key=field_key,
+            family="data",
+            element_type="field",
+            name=col_name,
+        )
+        db.add(field_element)
+        await db.flush()
+
+    f_snapshot = {
+        "field_spec": {
+            "sql_type": payload.sql_type,
+            "is_pk": payload.is_pk,
+            "is_fk": payload.is_fk,
+            "fk_ref_table": payload.fk_ref_table,
+            "nullable": payload.nullable,
+        }
+    }
+
+    field_revision = (await db.execute(select(SystemElementRevision).where(
+        SystemElementRevision.system_element_id == field_element.id,
+        SystemElementRevision.blueprint_revision_id == revision.id,
+    ))).scalar_one_or_none()
+
+    if field_revision is None:
+        db.add(SystemElementRevision(
+            system_element_id=field_element.id,
+            blueprint_revision_id=revision.id,
+            spec_snapshot=f_snapshot,
+            content_hash=_hash(f_snapshot),
+        ))
+    else:
+        field_revision.spec_snapshot = f_snapshot
+        field_revision.content_hash = _hash(f_snapshot)
+
+    existing_contains = (await db.execute(select(SystemElementRelation).where(
+        SystemElementRelation.blueprint_revision_id == revision.id,
+        SystemElementRelation.from_element_id == table.id,
+        SystemElementRelation.to_element_id == field_element.id,
+        SystemElementRelation.relation_type == "contains",
+    ))).scalar_one_or_none()
+
+    if existing_contains is None:
+        db.add(SystemElementRelation(
+            blueprint_revision_id=revision.id,
+            from_element_id=table.id,
+            to_element_id=field_element.id,
+            relation_type="contains",
+        ))
+
+    # If foreign key, also add table-to-table relation if referenced table exists
+    if payload.is_fk and payload.fk_ref_table:
+        ref_table = (await db.execute(select(SystemElement).where(
+            SystemElement.product_id == blueprint.product_id,
+            SystemElement.name == payload.fk_ref_table,
+            SystemElement.element_type == "table",
+        ))).scalar_one_or_none()
+        if ref_table:
+            existing_dep = (await db.execute(select(SystemElementRelation).where(
+                SystemElementRelation.blueprint_revision_id == revision.id,
+                SystemElementRelation.from_element_id == table.id,
+                SystemElementRelation.to_element_id == ref_table.id,
+                SystemElementRelation.relation_type == "depends_on",
+            ))).scalar_one_or_none()
+            if existing_dep is None:
+                db.add(SystemElementRelation(
+                    blueprint_revision_id=revision.id,
+                    from_element_id=table.id,
+                    to_element_id=ref_table.id,
+                    relation_type="depends_on",
+                ))
+
+    await db.commit()
+    await db.refresh(field_element)
+    return field_element
+
+
+@router.delete("/project-scopes/{scope_id}/tables/{table_id}", status_code=204)
+async def delete_table_in_scope(
+    scope_id: uuid.UUID,
+    table_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    scope, project, blueprint = await _scope_context(db, scope_id)
+    await authorize_action(db, principal, "planning.scope.edit", product_id=blueprint.product_id)
+    await _assert_version_editable(db, project.id)
+    revision = await _screens_revision(db, blueprint)
+
+    table = await db.get(SystemElement, table_id)
+    if not table or table.element_type != "table":
+        raise HTTPException(404, "Table not found")
+
+    # Find contains child fields
+    child_rels = list((await db.execute(select(SystemElementRelation).where(
+        SystemElementRelation.blueprint_revision_id == revision.id,
+        SystemElementRelation.from_element_id == table_id,
+        SystemElementRelation.relation_type == "contains",
+    ))).scalars().all())
+
+    for rel in child_rels:
+        await db.delete(rel)
+
+    # Delete any relations from/to table
+    other_rels = list((await db.execute(select(SystemElementRelation).where(
+        SystemElementRelation.blueprint_revision_id == revision.id,
+        (SystemElementRelation.from_element_id == table_id) | (SystemElementRelation.to_element_id == table_id),
+    ))).scalars().all())
+    for rel in other_rels:
+        await db.delete(rel)
+
+    # Delete revisions
+    revs = list((await db.execute(select(SystemElementRevision).where(
+        SystemElementRevision.system_element_id == table_id,
+        SystemElementRevision.blueprint_revision_id == revision.id,
+    ))).scalars().all())
+    for r in revs:
+        await db.delete(r)
+
+    await db.delete(table)
+    await db.commit()

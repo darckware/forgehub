@@ -775,5 +775,736 @@ async def propose_channel_task(
     return f"Task {task['title']!r} created for {assignee_agent!r}, ready to work on now (no approval needed)."
 
 
+# ---------------------------------------------------------------------------
+# Agents & AI — Registry, Profiles, Skills, and Tools Management
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_skill_id(skill: str) -> tuple[str, dict[str, Any]]:
+    """`skill` may be a UUID, slug or name -- returns (id, skill_row)."""
+    skills = await _call("GET", "/api/v1/agents/skills")
+    try:
+        import uuid as _uuid
+        _uuid.UUID(skill)
+        match = next((s for s in skills if s.get("id") == skill), None)
+        if match is None:
+            raise ForgeHubError(f"No skill with id {skill!r}.")
+        return skill, match
+    except ValueError:
+        pass
+    needle = skill.strip().lower()
+    matches = [
+        s for s in skills
+        if (s.get("slug") or "").strip().lower() == needle
+        or (s.get("name") or "").strip().lower() == needle
+    ]
+    if not matches:
+        raise ForgeHubError(f"No skill named or slugged {skill!r}.")
+    if len(matches) > 1:
+        raise ForgeHubError(
+            f"{len(matches)} skills match {skill!r} -- use one of their ids instead: "
+            + ", ".join(f"{s['id']} ({s.get('name')})" for s in matches)
+        )
+    return matches[0]["id"], matches[0]
+
+
+@mcp.tool()
+async def list_agents(status: str | None = None, runtime: str | None = None) -> str:
+    """List all agents registered in ForgeHub, with their function, runtime, tier,
+    and status. Use this to discover ecosystem agents or inspect the roster.
+
+    Args:
+        status: optional filter by status ('active', 'inactive', 'retired').
+        runtime: optional filter by runtime ('hermes', 'claude', 'codex', 'agy', 'openclaw').
+    """
+    try:
+        agents = await _call("GET", "/api/v1/agents")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    if status:
+        agents = [a for a in agents if a.get("status") == status]
+    if runtime:
+        agents = [a for a in agents if a.get("runtime_type") == runtime]
+
+    if not agents:
+        return "No agents match the specified criteria."
+
+    lines = [f"Registered Agents ({len(agents)}):"]
+    for a in agents:
+        slug = a.get("profile_slug") or "no-slug"
+        r_type = a.get("runtime_type") or "hermes"
+        tier = a.get("runtime_tier") or "Tier B"
+        dept = [a.get("department"), a.get("sector")]
+        dept_str = " · ".join(filter(None, dept)) or "Unclassified"
+        status_tag = a.get("status") or "active"
+        mission = a.get("mission") or a.get("description") or "(no mission statement)"
+        lines.append(
+            f"- {a.get('name')} (@{slug}) | {r_type} ({tier}) | Status: {status_tag} | Dept: {dept_str}\n"
+            f"  ID: {a.get('id')}\n"
+            f"  Mission: {mission}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def get_agent_profile(agent: str) -> str:
+    """Get the full detailed profile of an agent by id, profile_slug or name.
+    Returns identity, mission, department, sub-agents, approved skills, profile files, and tools.
+
+    Args:
+        agent: UUID, profile_slug (e.g. 'aegis', 'athos', 'porthos') or display name.
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        detail = await _call("GET", f"/api/v1/agents/{agent_id}")
+        tools = await _call("GET", f"/api/v1/tools?agent_id={agent_id}")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    name = detail.get("name")
+    slug = detail.get("profile_slug") or "no-slug"
+    lines = [
+        f"Agent Profile: {name} (@{slug})",
+        f"ID: {detail.get('id')}",
+        f"Type: {detail.get('agent_type')} | Runtime: {detail.get('runtime_type')} ({detail.get('runtime_tier')})",
+        f"Status: {detail.get('status')} (Active: {detail.get('is_active')})",
+        f"Department: {detail.get('department') or '—'} | Sector: {detail.get('sector') or '—'}",
+        f"Home Path: {detail.get('effective_home_path') or detail.get('home_path') or '—'}",
+        f"Mission: {detail.get('mission') or '—'}",
+        f"Description: {detail.get('description') or '—'}",
+        f"ForgeRouter Configured: {detail.get('forgerouter_api_key_configured')}",
+    ]
+
+    sub_agents = detail.get("sub_agents", [])
+    lines.append(f"\nSub-agents ({len(sub_agents)}):")
+    if not sub_agents:
+        lines.append("  (none)")
+    else:
+        for sa in sub_agents:
+            lines.append(f"  - {sa.get('name')} (ID: {sa.get('id')}): {sa.get('description') or sa.get('permission_scope') or 'scoped worker'}")
+
+    skills = detail.get("skills", [])
+    approved = [s for s in skills if s.get("is_approved")]
+    lines.append(f"\nApproved Skills ({len(approved)} of {len(skills)} granted):")
+    if not approved:
+        lines.append("  (no approved skills granted)")
+    else:
+        for s in approved:
+            lines.append(f"  - {s.get('name')} (v{s.get('version')}) [ID: {s.get('id')}] - {s.get('description') or ''}")
+
+    profile_files = detail.get("profile_files", [])
+    lines.append(f"\nProfile Files ({len(profile_files)}):")
+    if not profile_files:
+        lines.append("  (none found)")
+    else:
+        for pf in profile_files:
+            exists_tag = "exists" if pf.get("exists") else "missing"
+            lines.append(f"  - {pf.get('filename')} ({exists_tag}, {pf.get('size_bytes', 0)} bytes) -> {pf.get('path')}")
+
+    lines.append(f"\nRegistered Tools ({len(tools)}):")
+    if not tools:
+        lines.append("  (no tools registered)")
+    else:
+        for t in tools:
+            lines.append(f"  - {t.get('name')} [{t.get('category')}] ({t.get('status')}): {t.get('file_path')}\n    {t.get('description') or ''}")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def update_agent_profile(
+    agent: str,
+    mission: str | None = None,
+    description: str | None = None,
+    department: str | None = None,
+    sector: str | None = None,
+    runtime_type: str | None = None,
+    runtime_tier: str | None = None,
+    status: str | None = None,
+    home_path: str | None = None,
+) -> str:
+    """Update/correct an agent's registration details in ForgeHub.
+    Allows agents to correct their own or fellow agents' missions, departments, sectors,
+    runtime configurations, or profile home directories.
+
+    Args:
+        agent: the agent's name, profile_slug, or UUID.
+        mission: concise primary mission statement.
+        description: extended functional description.
+        department: organizational department name.
+        sector: organizational sector name.
+        runtime_type: runtime engine ('hermes', 'claude', 'codex', 'agy', 'openclaw').
+        runtime_tier: tier classification (e.g. 'Tier A', 'Tier B').
+        status: lifecycle status ('active', 'inactive', 'retired').
+        home_path: absolute host profile directory path.
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        payload: dict[str, Any] = {}
+        if mission is not None:
+            payload["mission"] = mission
+        if description is not None:
+            payload["description"] = description
+        if department is not None:
+            payload["department"] = department
+        if sector is not None:
+            payload["sector"] = sector
+        if runtime_type is not None:
+            payload["runtime_type"] = runtime_type
+        if runtime_tier is not None:
+            payload["runtime_tier"] = runtime_tier
+        if status is not None:
+            payload["status"] = status
+        if home_path is not None:
+            payload["home_path"] = home_path
+
+        if not payload:
+            return "No fields provided to update."
+
+        updated = await _call("PATCH", f"/api/v1/agents/{agent_id}", json=payload)
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return (
+        f"Successfully updated agent {updated.get('name')!r} (@{updated.get('profile_slug')}).\n"
+        f"Updated fields: {', '.join(payload.keys())}"
+    )
+
+
+@mcp.tool()
+async def get_agent_profile_file(agent: str, filename: str) -> str:
+    """Read a specific profile markdown file (SOUL.md, IDENTITY.md, TOOLS.md, AGENTS.md,
+    USER.md, MEMORY.md, HEARTBEAT.md, CONTINUITY.md, SUBAGENTS.md, FOUNDATION_LINK.md) for an agent.
+
+    Args:
+        agent: the agent's name, profile_slug, or UUID.
+        filename: name of the profile file to read (e.g. 'SOUL.md', 'TOOLS.md').
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        res = await _call("GET", f"/api/v1/agents/{agent_id}/profile-files/{filename}")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return (
+        f"# Profile File: {res.get('filename')} for {roster_row.get('name')}\n"
+        f"Path: {res.get('path')}\n"
+        f"Exists: {res.get('exists')}\n"
+        f"----------------------------------------\n"
+        f"{res.get('content', '')}"
+    )
+
+
+@mcp.tool()
+async def update_agent_profile_file(agent: str, filename: str, content: str) -> str:
+    """Update/write the contents of an agent's profile file (SOUL.md, IDENTITY.md, TOOLS.md, etc.).
+    Allows agents to maintain, calibrate, and refine their profile instructions and memory.
+
+    Args:
+        agent: the agent's name, profile_slug, or UUID.
+        filename: name of the profile file to write (e.g. 'SOUL.md', 'TOOLS.md', 'MEMORY.md').
+        content: the complete new markdown text to write to the file.
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        res = await _call("PUT", f"/api/v1/agents/{agent_id}/profile-files/{filename}", json={"content": content})
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return (
+        f"Successfully saved {res.get('filename')} ({res.get('size_bytes')} bytes) "
+        f"for agent {roster_row.get('name')} at {res.get('path')}."
+    )
+
+
+@mcp.tool()
+async def list_skills(category: str | None = None, approved_only: bool = False) -> str:
+    """List skills registered across ForgeHub, including their slug, version, risk level,
+    governance approval status, and granted agents.
+
+    Args:
+        category: optional category filter.
+        approved_only: if true, returns only governance-approved skills.
+    """
+    try:
+        skills = await _call("GET", "/api/v1/agents/skills")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    if category:
+        skills = [s for s in skills if s.get("category") == category]
+    if approved_only:
+        skills = [s for s in skills if s.get("is_approved")]
+
+    if not skills:
+        return "No skills found matching the criteria."
+
+    lines = [f"Skills Catalog ({len(skills)}):"]
+    for s in skills:
+        app_str = "approved" if s.get("is_approved") else "pending approval"
+        agents_count = len(s.get("agents", []))
+        lines.append(
+            f"- {s.get('name')} (@{s.get('slug')}) v{s.get('version')} | Risk: {s.get('risk_level')} | [{app_str}]\n"
+            f"  ID: {s.get('id')} | Category: {s.get('category') or 'general'} | Granted to: {agents_count} agents\n"
+            f"  {s.get('description') or ''}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def grant_agent_skill(agent: str, skill: str, inheritable: bool = True) -> str:
+    """Grant an approved skill to an agent so it has authorization and capability to use it.
+
+    Args:
+        agent: the agent's name, profile_slug, or UUID.
+        skill: the skill's name, slug, or UUID.
+        inheritable: whether sub-agents of this agent inherit this skill (default True).
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        skill_id, skill_row = await _resolve_skill_id(skill)
+        grant = await _call(
+            "POST",
+            f"/api/v1/agents/{agent_id}/skills",
+            json={"skill_id": skill_id, "inheritable": inheritable},
+        )
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return (
+        f"Successfully granted skill {skill_row.get('name')!r} to agent {roster_row.get('name')!r} "
+        f"(inheritable={inheritable})."
+    )
+
+
+@mcp.tool()
+async def revoke_agent_skill(agent: str, skill: str) -> str:
+    """Revoke a granted skill from an agent.
+
+    Args:
+        agent: the agent's name, profile_slug, or UUID.
+        skill: the skill's name, slug, or UUID.
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        skill_id, skill_row = await _resolve_skill_id(skill)
+        await _call("DELETE", f"/api/v1/agents/{agent_id}/skills/{skill_id}")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return f"Successfully revoked skill {skill_row.get('name')!r} from agent {roster_row.get('name')!r}."
+
+
+@mcp.tool()
+async def list_agent_tools(
+    agent: str | None = None,
+    category: str | None = None,
+    status: str | None = None,
+) -> str:
+    """List registered agent tools/scripts in ForgeHub with their location and purpose.
+
+    Args:
+        agent: optional filter by responsible agent (name, slug, or UUID).
+        category: optional filter by category ('monitoring', 'maintenance', 'backup', 'database', etc.).
+        status: optional filter by status ('active', 'deprecated', 'archived').
+    """
+    try:
+        params: dict[str, str] = {}
+        if agent:
+            agent_id, _ = await _resolve_agent_id(agent)
+            params["agent_id"] = agent_id
+        if category:
+            params["category"] = category
+        if status:
+            params["status"] = status
+        qs = "&".join(f"{k}={v}" for k, v in params.items())
+        path = f"/api/v1/tools?{qs}" if qs else "/api/v1/tools"
+        tools = await _call("GET", path)
+    except ForgeHubError as exc:
+        return str(exc)
+
+    if not tools:
+        return "No tools found matching the specified filter."
+
+    lines = [f"Registered Tools ({len(tools)}):"]
+    for t in tools:
+        lines.append(
+            f"- {t.get('name')} [{t.get('category')}] ({t.get('status')}) — Agent: {t.get('agent_name') or t.get('agent_id')}\n"
+            f"  ID: {t.get('id')}\n"
+            f"  Path: {t.get('file_path')}\n"
+            f"  Description: {t.get('description') or '—'}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def register_agent_tool(
+    agent: str,
+    name: str,
+    file_path: str,
+    description: str,
+    category: str = "general",
+    status: str = "active",
+) -> str:
+    """Register a new script or utility tool in the ForgeHub tool catalog for an agent.
+
+    Args:
+        agent: responsible agent's name, profile_slug, or UUID.
+        name: tool identifier (e.g. 'health_check.sh', 'db_backup.py').
+        file_path: absolute path on disk to the executable script or entrypoint.
+        description: what the tool does and when to run it.
+        category: tool classification ('monitoring', 'maintenance', 'backup', 'database', 'reporting', etc.).
+        status: lifecycle status ('active', 'deprecated', 'archived').
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        payload = {
+            "agent_id": agent_id,
+            "name": name,
+            "file_path": file_path,
+            "description": description,
+            "category": category,
+            "status": status,
+        }
+        tool = await _call("POST", "/api/v1/tools", json=payload)
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return (
+        f"Successfully registered tool {tool.get('name')!r} (ID: {tool.get('id')}) "
+        f"for agent {roster_row.get('name')!r} at {tool.get('file_path')}."
+    )
+
+
+@mcp.tool()
+async def update_agent_tool(
+    tool_id: str,
+    name: str | None = None,
+    file_path: str | None = None,
+    description: str | None = None,
+    category: str | None = None,
+    status: str | None = None,
+) -> str:
+    """Update metadata, file path, description, category, or status of an existing registered tool.
+
+    Args:
+        tool_id: UUID of the tool to update.
+        name: new name for the tool.
+        file_path: updated absolute file path.
+        description: updated functional description.
+        category: updated category.
+        status: updated status ('active', 'deprecated', 'archived').
+    """
+    try:
+        payload: dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if file_path is not None:
+            payload["file_path"] = file_path
+        if description is not None:
+            payload["description"] = description
+        if category is not None:
+            payload["category"] = category
+        if status is not None:
+            payload["status"] = status
+
+        if not payload:
+            return "No fields provided to update."
+
+        tool = await _call("PATCH", f"/api/v1/tools/{tool_id}", json=payload)
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return (
+        f"Successfully updated tool {tool.get('name')!r} (ID: {tool.get('id')}).\n"
+        f"Updated fields: {', '.join(payload.keys())}"
+    )
+
+
+@mcp.tool()
+async def scan_agent_tools() -> str:
+    """Scan the filesystem (/root/.hermes/profiles/*/scripts and central script catalogs)
+    to automatically discover and register uncataloged tools.
+    """
+    try:
+        result = await _call("POST", "/api/v1/tools/scan")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return (
+        f"Tool scan completed: {result.get('scanned', 0)} files scanned, "
+        f"{result.get('created', 0)} newly registered, {result.get('skipped', 0)} already registered."
+    )
+
+
+@mcp.tool()
+async def sync_hermes_agents() -> str:
+    """Reconcile and sync canonical agents, sub-agents, and skills from the Hermes Foundation
+    contract files (/root/.hermes/foundation/agents).
+    """
+    try:
+        result = await _call("POST", "/api/v1/agents/sync/hermes-foundation")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    agents = result.get("agents", {})
+    sub_agents = result.get("sub_agents", {})
+    skills = result.get("skills", {})
+    grants = result.get("agent_skills", {})
+    warnings = result.get("warnings", [])
+
+    lines = [
+        "Hermes Foundation sync completed:",
+        f"- Agents: {agents.get('created', 0)} created, {agents.get('updated', 0)} updated",
+        f"- Sub-agents: {sub_agents.get('created', 0)} created, {sub_agents.get('updated', 0)} updated",
+        f"- Skills: {skills.get('created', 0)} created, {skills.get('updated', 0)} updated",
+        f"- Skill Grants: {grants.get('created', 0)} created",
+    ]
+    if warnings:
+        lines.append(f"Warnings ({len(warnings)}): " + "; ".join(warnings))
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Operations — System Control, Auditor, Deploy, Database, and Infrastructure
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_system_status() -> str:
+    """Get the live operational status of the host and ForgeHub platform,
+    including CPU, memory, disk usage, active background services, and health status.
+    """
+    try:
+        data = await _call("GET", "/api/v1/system-control/status")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    host = data.get("host", {})
+    disk = data.get("disk", {})
+    mem = data.get("memory", {})
+    cpu = data.get("cpu", {})
+
+    lines = [
+        "System Operational Status:",
+        f"- Hostname: {host.get('hostname', 'unknown')} | Platform: {host.get('platform', 'linux')}",
+        f"- CPU Usage: {cpu.get('percent', 0)}% ({cpu.get('count', 0)} cores)",
+        f"- Memory: {mem.get('used_gb', 0):.1f} GB / {mem.get('total_gb', 0):.1f} GB ({mem.get('percent', 0)}% used)",
+        f"- Disk: {disk.get('used_gb', 0):.1f} GB / {disk.get('total_gb', 0):.1f} GB ({disk.get('percent', 0)}% used)",
+    ]
+
+    services = data.get("services", [])
+    if services:
+        lines.append(f"\nServices ({len(services)}):")
+        for s in services:
+            lines.append(f"  - {s.get('name')}: {s.get('status')} (port {s.get('port') or 'internal'})")
+
+    containers = data.get("containers", [])
+    if containers:
+        lines.append(f"\nContainers ({len(containers)}):")
+        for c in containers:
+            lines.append(f"  - {c.get('name')}: {c.get('status')} ({c.get('state')})")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def list_system_backups() -> str:
+    """List available system and database backup snapshots in ForgeHub."""
+    try:
+        data = await _call("GET", "/api/v1/system-control/backups")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    backups = data.get("backups", []) if isinstance(data, dict) else data
+    if not backups:
+        return "No backup archives found."
+
+    lines = [f"System Backups ({len(backups)}):"]
+    for b in backups:
+        lines.append(
+            f"- {b.get('filename')} | Target: {b.get('target')} | Size: {b.get('size_human', 'unknown')} | Created: {b.get('created_at')}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def run_system_backup(target: str = "all") -> str:
+    """Trigger an immediate backup creation for the system, database, or specific target.
+
+    Args:
+        target: backup target ('all', 'database', 'hermes', 'forgehub').
+    """
+    try:
+        res = await _call("POST", "/api/v1/system-control/backups/run", json={"target": target})
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return f"Backup completed successfully: {res.get('filename')} ({res.get('size_human', 'unknown')}) created at {res.get('path')}."
+
+
+@mcp.tool()
+async def list_audit_checks() -> str:
+    """List ecosystem auditor checks with their latest run results, status, and compliance health.
+    """
+    try:
+        checks = await _call("GET", "/api/v1/audit/checks")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    if not checks:
+        return "No audit checks registered."
+
+    lines = [f"Auditor Checks ({len(checks)}):"]
+    for c in checks:
+        last_status = c.get("last_run_status") or "never_ran"
+        lines.append(
+            f"- {c.get('name')} [{c.get('category')}] | Status: {last_status} | Severity: {c.get('severity')}\n"
+            f"  ID: {c.get('id')}\n"
+            f"  Description: {c.get('description') or '—'}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def run_audit_checks() -> str:
+    """Execute all ecosystem audit checks and return an aggregated compliance & integrity report.
+    """
+    try:
+        res = await _call("POST", "/api/v1/audit/run")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    passed = res.get("passed", 0)
+    failed = res.get("failed", 0)
+    total = res.get("total", 0)
+    lines = [
+        f"Audit run completed: {passed}/{total} passed, {failed} failed.",
+    ]
+    runs = res.get("results", [])
+    for r in runs:
+        if r.get("status") != "passed":
+            lines.append(f"- [FAILED] {r.get('name')}: {r.get('message') or r.get('details')}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def list_deploy_containers() -> str:
+    """List all deployment containers running the ForgeHub stack with their health and ports.
+    """
+    try:
+        containers = await _call("GET", "/api/v1/deploy/containers")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    if not containers:
+        return "No deploy containers found."
+
+    lines = [f"Deploy Containers ({len(containers)}):"]
+    for c in containers:
+        ports = ", ".join(c.get("ports", [])) or "no exposed ports"
+        lines.append(
+            f"- {c.get('name')} | Image: {c.get('image')} | Status: {c.get('status')} ({c.get('state')}) | Ports: {ports}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def restart_deploy_container(container_name: str) -> str:
+    """Restart a deployment container (e.g. 'forgehub-backend', 'forgehub-frontend', 'hindsight').
+
+    Args:
+        container_name: name of the docker container to restart.
+    """
+    try:
+        res = await _call("POST", f"/api/v1/deploy/containers/{container_name}/restart")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return f"Successfully restarted container {container_name!r}."
+
+
+@mcp.tool()
+async def get_container_logs(container_name: str, tail: int = 100) -> str:
+    """Read the latest execution logs from a running deployment container.
+
+    Args:
+        container_name: name of the docker container (e.g. 'forgehub-backend', 'forgehub-frontend').
+        tail: number of lines from the end to retrieve (default 100).
+    """
+    try:
+        res = await _call("GET", f"/api/v1/deploy/containers/{container_name}/logs?tail={tail}")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    logs = res.get("logs") if isinstance(res, dict) else str(res)
+    return f"Logs for {container_name} (last {tail} lines):\n----------------------------------------\n{logs}"
+
+
+@mcp.tool()
+async def list_managed_servers() -> str:
+    """List managed servers and host infrastructure registered in ForgeHub.
+    """
+    try:
+        servers = await _call("GET", "/api/v1/servers")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    if not servers:
+        return "No managed servers registered."
+
+    lines = [f"Managed Servers ({len(servers)}):"]
+    for s in servers:
+        lines.append(
+            f"- {s.get('name')} ({s.get('host')}:{s.get('port', 22)}) | Status: {s.get('status')} | OS: {s.get('os_type', 'linux')}\n"
+            f"  ID: {s.get('id')} | Environment: {s.get('environment', 'production')}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def execute_database_query(
+    query: str,
+    instance: str = "company_postgres",
+    database: str = "forgehub",
+) -> str:
+    """Execute a safe SQL query against one of ForgeHub's PostgreSQL databases and return tabular results.
+
+    Args:
+        query: SQL query (SELECT / introspection).
+        instance: database instance ('company_postgres' or 'foundation_postgres').
+        database: database name ('forgehub', 'foundation', 'forgerouter').
+    """
+    try:
+        res = await _call(
+            "POST",
+            "/api/v1/database/query",
+            json={"query": query, "instance": instance, "database": database},
+        )
+    except ForgeHubError as exc:
+        return str(exc)
+
+    columns = res.get("columns", [])
+    rows = res.get("rows", [])
+    elapsed_ms = res.get("elapsed_ms", 0)
+
+    if not rows:
+        return f"Query returned 0 rows in {elapsed_ms:.1f}ms.\nColumns: {', '.join(columns)}"
+
+    lines = [
+        f"Query Results ({len(rows)} rows in {elapsed_ms:.1f}ms):",
+        " | ".join(columns),
+        "-" * 50,
+    ]
+    for r in rows[:50]:
+        lines.append(" | ".join(str(r.get(c, "")) for c in columns))
+    if len(rows) > 50:
+        lines.append(f"... and {len(rows) - 50} more rows.")
+
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     mcp.run()
+

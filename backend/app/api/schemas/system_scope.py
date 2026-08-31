@@ -444,6 +444,8 @@ class ScreenOut(BaseModel):
 class BusinessRuleOut(BaseModel):
     content: str
     updated_at: datetime | None = None
+    file_path: str | None = None
+    abs_path: str | None = None
 
 
 class BusinessRuleWrite(BaseModel):
@@ -469,3 +471,19 @@ class IdeaCreatedOut(BaseModel):
     concept_revision: ConceptRevisionOut
     blueprint: SystemBlueprintOut
     blueprint_revision: BlueprintRevisionOut
+
+
+class ColumnCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    sql_type: str = Field(default="text")
+    is_pk: bool = False
+    is_fk: bool = False
+    fk_ref_table: str = ""
+    nullable: bool = True
+
+
+class TableCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    stable_key: str | None = None
+    initial_columns: list[ColumnCreate] | None = None

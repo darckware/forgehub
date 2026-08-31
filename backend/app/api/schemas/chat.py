@@ -64,9 +64,10 @@ class ChatMessageOut(BaseModel):
     session_id: uuid.UUID
     role: str
     content: str
-    attachment_names: str | None
-    responding_agent_id: uuid.UUID | None
-    thinking_seconds: int | None
+    attachment_names: str | None = None
+    attachment_data_urls: str | None = None
+    responding_agent_id: uuid.UUID | None = None
+    thinking_seconds: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Clock, FileCode2, Loader2 } from "lucide-react";
+import { Clock, FileCode2, Loader2, Wrench } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { useFoundationCrons } from "@/hooks/useFoundationCrons";
 import { useFoundationAllScripts } from "@/hooks/useFoundationScripts";
+import { useTools } from "@/hooks/useTools";
 import type { Agent } from "@/hooks/useAgent";
 
 /**
@@ -42,6 +43,7 @@ export function AgentAutomationCard({ agent }: { agent: Agent }) {
   const { t } = useTranslation("agent");
   const { data: cronData, isLoading: cronsLoading } = useFoundationCrons();
   const { data: scriptData, isLoading: scriptsLoading } = useFoundationAllScripts();
+  const { data: toolsData = [], isLoading: toolsLoading } = useTools({ agentId: agent.id });
 
   const slug = agent.profile_slug;
   const crons = slug ? (cronData?.jobs ?? []).filter((job) => job.profile === slug) : [];
@@ -52,7 +54,7 @@ export function AgentAutomationCard({ agent }: { agent: Agent }) {
     ? (cronData?.store_errors ?? []).find((entry) => entry.profile === slug)
     : undefined;
 
-  const isLoading = cronsLoading || scriptsLoading;
+  const isLoading = cronsLoading || scriptsLoading || toolsLoading;
 
   return (
     <Card>
@@ -173,6 +175,55 @@ export function AgentAutomationCard({ agent }: { agent: Agent }) {
                           <TableCell>
                             <Badge variant={SCRIPT_STATUS_VARIANT[script.status] ?? "outline"}>
                               {t(`hierarchy.scriptStatus.${script.status}`)}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </section>
+
+            <section>
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                <Wrench className="h-4 w-4" />
+                {t("hierarchy.tools")}
+                <Badge variant="outline">{toolsData.length}</Badge>
+                <Link to={`/tools?agent=${agent.id}`} className="text-xs font-normal text-muted-foreground hover:underline">
+                  {t("hierarchy.viewInToolsPanel")}
+                </Link>
+              </h3>
+              {toolsData.length === 0 ? (
+                <p className="text-sm italic text-muted-foreground">{t("hierarchy.noTools")}</p>
+              ) : (
+                <div className="max-h-72 overflow-y-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t("automation.scriptColumns.name")}</TableHead>
+                        <TableHead>{t("automation.scriptColumns.description")}</TableHead>
+                        <TableHead>{t("automation.scriptColumns.status")}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {toolsData.map((tool) => (
+                        <TableRow key={tool.id}>
+                          <TableCell>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <code className="text-xs font-medium">{tool.name}</code>
+                              <Badge variant="outline" className="text-[10px] uppercase">{tool.category}</Badge>
+                            </div>
+                            <p className="max-w-md truncate text-[11px] text-muted-foreground">
+                              {tool.file_path}
+                            </p>
+                          </TableCell>
+                          <TableCell className="max-w-md truncate text-xs text-muted-foreground">
+                            {tool.description ?? "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={tool.status === "active" ? "success" : tool.status === "deprecated" ? "warning" : "outline"}>
+                              {tool.status}
                             </Badge>
                           </TableCell>
                         </TableRow>

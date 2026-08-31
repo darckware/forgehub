@@ -678,12 +678,14 @@ async def publish_product_version(version_id: uuid.UUID, db: AsyncSession = Depe
         select(Project).where(Project.product_version_id == version_id)
     )).scalars())
     blocking: list[dict] = []
+    task_count = 0
     for project in projects:
         tasks = list((await db.execute(
             select(ProjectTask)
             .join(PlanningItem, PlanningItem.id == ProjectTask.planning_item_id)
             .where(PlanningItem.project_id == project.id)
         )).scalars())
+        task_count += len(tasks)
         for task in tasks:
             if task.status not in ("done", "deployed", "cancelled"):
                 blocking.append({
@@ -691,6 +693,11 @@ async def publish_product_version(version_id: uuid.UUID, db: AsyncSession = Depe
                     "task_id": str(task.id), "task_number": task.number,
                     "title": task.title, "status": task.status,
                 })
+    if task_count == 0:
+        raise HTTPException(status_code=409, detail={
+            "message": "This version needs at least one task before it can be published",
+            "blocking": [],
+        })
     if blocking:
         raise HTTPException(status_code=409, detail={
             "message": "This version has unfinished tasks and cannot be published yet",
@@ -698,6 +705,15 @@ async def publish_product_version(version_id: uuid.UUID, db: AsyncSession = Depe
         })
 
     version.status = "published"
+    for project in projects:
+        project.status = "completed"
+        # Also ensure all planning items are marked as done
+        proj_planning_items = list((await db.execute(
+            select(PlanningItem).where(PlanningItem.project_id == project.id)
+        )).scalars())
+        for pi in proj_planning_items:
+            pi.status = "done"
+
     await db.commit()
     await db.refresh(version)
     return version

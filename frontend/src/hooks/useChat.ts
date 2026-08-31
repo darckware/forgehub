@@ -45,6 +45,7 @@ export const chatMessageSchema = z.object({
   role: chatMessageRoleSchema,
   content: z.string(),
   attachment_names: z.string().nullable().optional(),
+  attachment_data_urls: z.string().nullable().optional(),
   responding_agent_id: z.string().nullable().optional(),
   thinking_seconds: z.number().nullable().optional(),
   created_at: z.string(),
@@ -99,7 +100,7 @@ export const chatSessionHostStatusSchema = z.object({
 
 export type ChatSessionHostStatus = z.infer<typeof chatSessionHostStatusSchema>;
 
-const chatSessionsHostStatusKey = ["chat-sessions-host-status"] as const;
+export const chatSessionsHostStatusKey = ["chat-sessions-host-status"] as const;
 
 export function useChatSessionsHostStatus(enabled = true) {
   return useQuery({

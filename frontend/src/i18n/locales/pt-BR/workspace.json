@@ -17,6 +17,7 @@
     "openTerminals": "Terminais abertos",
     "loadingTerminals": "Carregando sessões...",
     "orphanedSession": "órfã",
+    "deleteChat": "Excluir sessão {{label}}",
     "deleteTerminal": "Encerrar {{label}}",
     "hideInternalBrowser": "Ocultar navegador interno",
     "openInternalBrowser": "Abrir navegador interno",
@@ -50,6 +51,9 @@
     "terminateTerminal": "Encerrar {{label}} e fechar sua aba",
     "confirmTerminateTerminal": "Encerrar a sessão de terminal {{label}} e o processo em execução?",
     "terminateTerminalFailed": "Falha ao encerrar a sessão do terminal.",
+    "terminateChat": "Encerrar e excluir sessão {{label}}",
+    "confirmTerminateChat": "Deseja encerrar e excluir permanentemente a sessão de conversa {{label}} e todas as suas mensagens?",
+    "terminateChatFailed": "Falha ao encerrar e excluir a sessão de conversa.",
     "noAgentAvailable": "Nenhum agente com perfil Hermes disponível para conversar ainda.",
     "noTabsOpen": "Nenhuma aba aberta",
     "noTabsOpenHelp": "Inicie uma conversa ou abra um terminal usando os botões acima."

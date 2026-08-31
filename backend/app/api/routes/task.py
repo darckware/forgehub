@@ -40,6 +40,7 @@ and 6.2 used as a pattern for dependency-style blocking):
   a TaskExecution "verified"/"completed" writes a companion AuditEvent
   (governance domain) so the transition is part of the audit trail.
 """
+import hashlib
 import uuid
 from datetime import datetime, timezone
 
@@ -69,9 +70,10 @@ from app.api.schemas.task import (
     TaskSubmitIn,
 )
 from app.core.config import settings
+from app.core.deps import ActorPrincipal, authorize_action
 from app.core.responsibility import resolve_responsibility_owner
 from app.db.base import get_db
-from app.db.models.agent import Agent, SubAgent
+from app.db.models.agent import Agent, AgentServiceCredential, SubAgent
 from app.db.models.backlog import PLANNING_ITEM_TYPES, PlanningItem
 from app.db.models.demand import AgentDemand
 from app.db.models.governance import ApprovalRequest, AuditEvent
@@ -102,6 +104,50 @@ async def _get_task_or_404(db: AsyncSession, task_id: uuid.UUID) -> ProjectTask:
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task
+
+
+async def _authorize_agent_task_update(
+    db: AsyncSession,
+    task: ProjectTask,
+    authorization: str | None,
+) -> None:
+    """Apply delegated authority only to agt_ callers.
+
+    Human/JWT behavior remains owned by the existing application permission
+    boundary. Agent credentials are denied unless explicitly delegated
+    ``planning.execution.manage`` for the task's Project.
+    """
+    if not authorization or not authorization.lower().startswith("bearer agt_"):
+        return
+    token = authorization[7:]
+    credential = (
+        await db.execute(
+            select(AgentServiceCredential).where(
+                AgentServiceCredential.token_hash == hashlib.sha256(token.encode()).hexdigest(),
+                AgentServiceCredential.revoked_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if credential is None:
+        raise HTTPException(401, "Invalid or expired agent credential")
+    agent = await db.get(Agent, credential.agent_id)
+    if agent is None or not agent.is_active or agent.status != "active":
+        raise HTTPException(403, "Agent principal is inactive")
+    project_id: uuid.UUID | None = None
+    if task.planning_item_id is not None:
+        planning_item = await db.get(PlanningItem, task.planning_item_id)
+        project_id = planning_item.project_id if planning_item else None
+    elif task.change_request_id is not None:
+        change_request = await db.get(ChangeRequest, task.change_request_id)
+        project_id = change_request.project_id if change_request else None
+    if project_id is None:
+        raise HTTPException(409, "Task cannot be resolved to a project")
+    await authorize_action(
+        db,
+        ActorPrincipal("agent", agent.id, agent.name),
+        "planning.execution.manage",
+        project_id=project_id,
+    )
 
 
 async def _resolve_task_project_id(db: AsyncSession, task: ProjectTask) -> uuid.UUID:
@@ -340,9 +386,13 @@ async def get_task(task_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Pr
 
 @router.patch("/{task_id}", response_model=ProjectTaskOut)
 async def update_task(
-    task_id: uuid.UUID, payload: ProjectTaskUpdate, db: AsyncSession = Depends(get_db)
+    task_id: uuid.UUID,
+    payload: ProjectTaskUpdate,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
 ) -> ProjectTask:
     task = await _get_task_or_404(db, task_id)
+    await _authorize_agent_task_update(db, task, authorization)
 
     data = payload.model_dump(exclude_unset=True)
     if data.get("status") == "ready":

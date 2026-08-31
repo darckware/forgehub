@@ -307,3 +307,69 @@ export function useScopeExecutionStatus(scopeId?: string) {
     enabled: Boolean(scopeId),
   });
 }
+
+export function useEnsureProjectScope() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => apiClient.post<ProjectScope>(`/api/v1/projects/${projectId}/ensure-scope`),
+    onSuccess: (_, projectId) => {
+      client.invalidateQueries({ queryKey: ["project-scopes", projectId] });
+    },
+  });
+}
+
+export interface TableColumnPayload {
+  name: string;
+  sql_type?: string;
+  is_pk?: boolean;
+  is_fk?: boolean;
+  fk_ref_table?: string;
+  nullable?: boolean;
+}
+
+export function useCreateTable() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scopeId, ...payload }: {
+      scopeId: string;
+      name: string;
+      description?: string;
+      stable_key?: string;
+      initial_columns?: TableColumnPayload[];
+    }) => apiClient.post<SystemElement>(`/api/v1/project-scopes/${scopeId}/tables`, payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["blueprint-graph"] });
+      client.invalidateQueries({ queryKey: ["screens"] });
+    },
+  });
+}
+
+export function useAddTableColumn() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scopeId, tableId, ...payload }: {
+      scopeId: string;
+      tableId: string;
+      name: string;
+      sql_type?: string;
+      is_pk?: boolean;
+      is_fk?: boolean;
+      fk_ref_table?: string;
+      nullable?: boolean;
+    }) => apiClient.post<SystemElement>(`/api/v1/project-scopes/${scopeId}/tables/${tableId}/columns`, payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["blueprint-graph"] });
+    },
+  });
+}
+
+export function useDeleteTable() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scopeId, tableId }: { scopeId: string; tableId: string }) =>
+      apiClient.delete(`/api/v1/project-scopes/${scopeId}/tables/${tableId}`),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["blueprint-graph"] });
+    },
+  });
+}

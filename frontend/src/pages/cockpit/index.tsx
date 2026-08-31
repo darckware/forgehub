@@ -1,24 +1,25 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Gauge,
   Sparkles,
   Layers,
-  Play,
   CheckCircle2,
-  ArrowRight,
   Filter,
   Lightbulb,
   Layout,
   FolderKanban,
-  ListTodo,
   CheckSquare,
+  ShieldCheck,
   TrendingUp,
   Users,
+  Database,
+  PlayCircle,
+  ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AgentTelemetryPanel } from "@/components/AgentTelemetryPanel";
 import { useProducts } from "@/hooks/useProduct";
@@ -94,7 +95,7 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
                           variant="outline"
                           className={`shrink-0 text-[10px] ${project.project_type === "maintenance" ? "border-amber-500/40 text-amber-600" : "border-sky-500/40 text-sky-600"}`}
                         >
-                          {project.project_type === "maintenance" ? "Manutenção" : "Criação"}
+                          {project.project_type === "maintenance" ? "Manutenção" : "Nova Implementação"}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -132,23 +133,11 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
   );
 }
 
-interface WaveBatch {
-  id: string;
-  name: string;
-  plansCount: number;
-  tasksCount: number;
-  status: "active" | "queued" | "completed";
-}
-
-const MOCK_WAVES: WaveBatch[] = [
-  { id: "wave_1", name: "Lote 1: Core API Backend & Schemas DB", plansCount: 2, tasksCount: 7, status: "completed" },
-  { id: "wave_2", name: "Lote 2: Frontend Auth & Telas de Usuários", plansCount: 2, tasksCount: 6, status: "active" },
-  { id: "wave_3", name: "Lote 3: Dashboard Financeiro & Relatórios", plansCount: 1, tasksCount: 4, status: "queued" },
-];
-
 export default function CockpitPage() {
   const [tab, setTab] = useState("pipeline");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+
   const { data: products } = useProducts();
   const { data: projects } = useProjects();
   const { data: planningItems } = usePlanningItems();
@@ -158,51 +147,77 @@ export default function CockpitPage() {
 
   const activeProduct = products?.find((p) => p.id === selectedProductId);
 
-  // Filter metrics based on selected product
-  const relevantProjects = projects?.filter((p) => {
-    if (!selectedProductId) return true;
-    return activeProduct?.versions?.some((v) => v.id === p.product_version_id);
-  });
+  // Filter projects by selected product
+  const productProjects = useMemo(() => {
+    if (!selectedProductId) return projects ?? [];
+    return (projects ?? []).filter((p) =>
+      activeProduct?.versions?.some((v) => v.id === p.product_version_id)
+    );
+  }, [projects, selectedProductId, activeProduct]);
 
-  const relevantPlanningItems = planningItems?.filter((item) => {
-    if (!selectedProductId) return true;
-    return relevantProjects?.some((p) => p.id === item.project_id);
-  });
+  // Active focused project
+  const activeProject = useMemo(() => {
+    if (selectedProjectId) {
+      return productProjects.find((p) => p.id === selectedProjectId);
+    }
+    return productProjects[0];
+  }, [productProjects, selectedProjectId]);
 
-  const relevantTasks = tasks?.filter((t) => {
-    if (!selectedProductId) return true;
-    return relevantProjects?.some((p) => p.id === t.project_id);
-  });
+  // Metrics filtered by project or product
+  const relevantPlanningItems = useMemo(() => {
+    return (planningItems ?? []).filter((item) => {
+      if (activeProject) return item.project_id === activeProject.id;
+      if (selectedProductId) {
+        return productProjects.some((p) => p.id === item.project_id);
+      }
+      return true;
+    });
+  }, [planningItems, activeProject, selectedProductId, productProjects]);
 
-  // Calculate phase counts
-  const conceptionCount = activeProduct ? (activeProduct.versions?.length ?? 1) : (products?.length ?? 0);
-  const projectsCount = relevantProjects?.length ?? 0;
-  const planningCount = relevantPlanningItems?.length ?? 0;
-  const tasksDoneCount = relevantTasks?.filter((t) => t.status === "done" || t.status === "deployed").length ?? 0;
-  const tasksTotalCount = relevantTasks?.length ?? 0;
-  const progressPercent = tasksTotalCount > 0 ? Math.round((tasksDoneCount / tasksTotalCount) * 100) : 0;
+  const relevantTasks = useMemo(() => {
+    return (tasks ?? []).filter((t) => {
+      if (activeProject) return t.project_id === activeProject.id;
+      if (selectedProductId) {
+        return productProjects.some((p) => p.id === t.project_id);
+      }
+      return true;
+    });
+  }, [tasks, activeProject, selectedProductId, productProjects]);
+
+  // Task counters
+  const inProgressTasks = relevantTasks.filter((t) => t.status === "in_progress");
+  const blockedTasks = relevantTasks.filter((t) => t.status === "blocked");
+  const doneTasks = relevantTasks.filter((t) => t.status === "done" || t.status === "deployed");
+  const progressPercent =
+    relevantTasks.length > 0 ? Math.round((doneTasks.length / relevantTasks.length) * 100) : 0;
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header com Filtro de Produto */}
+      {/* Header com Filtros de Contexto */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b pb-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
             <Gauge className="h-6 w-6 text-primary" />
-            Cockpit Multiprojetos & Fluxo de Desenvolvimento IA
+            6. Cockpit de Execução
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Visão ponta a ponta do pipeline AI-SDLC: da Concepção à Liberação por Lotes de Execução (Waves).
+            Acompanhamento em tempo real da esteira de desenvolvimento, ondas de tarefas e agentes em execução.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+
+        {/* Seletores de Contexto: Produto e Projeto */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 bg-muted/30 p-1.5 rounded-lg border">
             <Filter className="h-4 w-4 text-muted-foreground" />
-            <span className="text-xs font-semibold text-muted-foreground">Produto:</span>
+
+            {/* Seletor de Produto */}
             <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-xs font-medium focus-visible:ring-1 focus-visible:ring-primary"
+              className="h-8 rounded-md border border-input bg-background px-2.5 text-xs font-medium focus-visible:ring-1 focus-visible:ring-primary"
               value={selectedProductId}
-              onChange={(e) => setSelectedProductId(e.target.value)}
+              onChange={(e) => {
+                setSelectedProductId(e.target.value);
+                setSelectedProjectId("");
+              }}
             >
               <option value="">Todos os Produtos</option>
               {products?.map((p) => (
@@ -211,202 +226,348 @@ export default function CockpitPage() {
                 </option>
               ))}
             </select>
+
+            {/* Seletor de Projeto */}
+            <select
+              className="h-8 rounded-md border border-input bg-background px-2.5 text-xs font-semibold focus-visible:ring-1 focus-visible:ring-primary"
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+            >
+              <option value="">Todos os Projetos</option>
+              {productProjects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.status})
+                </option>
+              ))}
+            </select>
           </div>
-          <Badge variant="outline" className="flex items-center gap-1 border-primary/30 text-primary">
+
+          <Badge variant="outline" className="flex items-center gap-1 border-primary/30 text-primary py-1 px-2.5 font-semibold text-xs">
             <Sparkles className="h-3.5 w-3.5" />
-            AI-SDLC Pipeline
+            AI-SDLC 7 Fases
           </Badge>
         </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
-          <TabsTrigger value="telemetria">Telemetria</TabsTrigger>
+          <TabsTrigger value="pipeline">Pipeline & Esteira (7 Fases)</TabsTrigger>
+          <TabsTrigger value="tarefas">Execução de Tarefas ({relevantTasks.length})</TabsTrigger>
+          <TabsTrigger value="telemetria">Telemetria & Agentes</TabsTrigger>
         </TabsList>
 
+        {/* ABA 1: PIPELINE COMPLETO 7 FASES */}
         <TabsContent value="pipeline" className="mt-4 space-y-6">
-      {/* Visão Sequencial do Fluxo de Desenvolvimento (5 Fases) */}
-      <Card className="border-primary/20 shadow-sm">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Layers className="h-4 w-4 text-primary" />
-              Pipeline de Desenvolvimento de Software (AI-SDLC)
-            </CardTitle>
-            <span className="text-xs font-medium text-muted-foreground">
-              {selectedProductId ? `Foco: ${activeProduct?.name}` : "Visão Global Multiprojetos"}
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-5 relative">
-            {/* Fase 1: Concepção */}
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3.5 space-y-2 relative">
-              <div className="flex items-center justify-between font-bold text-emerald-600 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Lightbulb className="h-3.5 w-3.5" />
-                  1. Concepção
-                </span>
-                <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-600">
-                  {conceptionCount} Versão(ões)
-                </Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground">PRD, Visão do Produto e Módulos definidos.</p>
-              <div className="flex justify-end pt-1">
-                <Link to="/conception" className="text-[10px] text-primary hover:underline flex items-center gap-0.5">
-                  Ver Concepção <ArrowRight className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-
-            {/* Fase 2: UI & ERD */}
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3.5 space-y-2">
-              <div className="flex items-center justify-between font-bold text-emerald-600 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Layout className="h-3.5 w-3.5" />
-                  2. UI & Diagrama ERD
-                </span>
-                <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-600">
-                  Aprovado
-                </Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Inspeção de Telas & Modelo Relacional de Dados.</p>
-              <div className="flex justify-end gap-2 pt-1">
-                <Link to="/screen-inspector" className="text-[10px] text-primary hover:underline">
-                  Telas
-                </Link>
-                <span className="text-[10px] text-muted-foreground">•</span>
-                <Link to="/concept-erd" className="text-[10px] text-primary hover:underline flex items-center gap-0.5">
-                  Diagrama <ArrowRight className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-
-            {/* Fase 3: Projetos & Criar Projeto */}
-            <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3.5 space-y-2">
-              <div className="flex items-center justify-between font-bold text-sky-600 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <FolderKanban className="h-3.5 w-3.5" />
-                  3. Projetos
-                </span>
-                <Badge className="bg-sky-500 text-white text-[10px]">
-                  {projectsCount} Ativos
-                </Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Projetos técnicos criados e vinculados à versão.</p>
-              <div className="flex justify-end pt-1">
-                <Link to="/projects?tab=projects" className="text-[10px] text-primary hover:underline flex items-center gap-0.5">
-                  Ver Projetos <ArrowRight className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-
-            {/* Fase 4: Planejamento & Escopo */}
-            <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3.5 space-y-2">
-              <div className="flex items-center justify-between font-bold text-sky-600 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <ListTodo className="h-3.5 w-3.5" />
-                  4. Planejamento
-                </span>
-                <Badge className="bg-sky-500 text-white text-[10px]">
-                  {planningCount} Itens
-                </Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Features, bugs e melhorias triados no escopo.</p>
-              <div className="flex justify-end pt-1">
-                <Link to="/projects?tab=planning" className="text-[10px] text-primary hover:underline flex items-center gap-0.5">
-                  Ver Planejamento <ArrowRight className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-
-            {/* Fase 5: Tarefas & Liberação */}
-            <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-3.5 space-y-2">
-              <div className="flex items-center justify-between font-bold text-indigo-600 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <CheckSquare className="h-3.5 w-3.5" />
-                  5. Liberação Tarefas
-                </span>
-                <Badge variant="outline" className="text-[10px] border-indigo-500/40 text-indigo-600">
-                  {progressPercent}% Pronto
-                </Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Ondas de tarefas em execução e prontas para release.</p>
-              <div className="flex justify-end pt-1">
-                <Link to="/projects?tab=tasks" className="text-[10px] text-primary hover:underline flex items-center gap-0.5">
-                  Ver Tarefas <ArrowRight className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Painel de Lotes de Liberação (Execution Waves) */}
-      <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Play className="h-4 w-4 text-primary" />
-              Lotes de Liberação da Execução (Execution Waves)
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Liberação em lotes controlados para os agentes programadores do Módulo Messages.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {MOCK_WAVES.map((wave) => (
-              <div
-                key={wave.id}
-                className={`flex items-center justify-between rounded-lg border p-3.5 text-xs transition-colors ${
-                  wave.status === "active"
-                    ? "border-sky-500/50 bg-sky-500/5"
-                    : wave.status === "completed"
-                    ? "border-emerald-500/30 bg-emerald-500/5 opacity-80"
-                    : "bg-muted/20"
-                }`}
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold">{wave.name}</span>
-                    {wave.status === "active" && (
-                      <Badge className="bg-sky-500 text-white text-[10px]">Em Execução</Badge>
-                    )}
-                    {wave.status === "completed" && (
-                      <Badge className="bg-emerald-500 text-white text-[10px]">Concluído</Badge>
-                    )}
-                    {wave.status === "queued" && (
-                      <Badge variant="outline" className="text-[10px]">Na Fila</Badge>
-                    )}
+          <Card className="border-primary/20 shadow-sm">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <Layers className="h-4 w-4 text-primary" />
+                    Fluxo Sequencial da Software Factory
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Navegue diretamente por cada fase do ciclo de vida de desenvolvimento governado.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground font-medium">Progresso Geral:</span>
+                  <span className="font-bold text-primary">{progressPercent}%</span>
+                  <div className="w-24 h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full bg-primary transition-all duration-300"
+                      style={{ width: `${progressPercent}%` }}
+                    />
                   </div>
-                  <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                    <span>{wave.plansCount} Planejamentos</span>
-                    <span>•</span>
-                    <span>{wave.tasksCount} Tarefas</span>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+                {/* 1. Concepção & Contexto */}
+                <Link
+                  to="/conception"
+                  className="group rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex flex-col justify-between hover:border-emerald-500/60 hover:shadow-md transition-all"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-emerald-600">
+                      <span className="flex items-center gap-1.5">
+                        <Lightbulb className="h-3.5 w-3.5" />
+                        1. Concepção
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      Abertura de escopo vinculado ao Produto e Stack.
+                    </p>
+                  </div>
+                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-emerald-600 group-hover:translate-x-0.5 transition-transform">
+                    <span>Acessar</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </Link>
+
+                {/* 2. Telas & Regras */}
+                <Link
+                  to="/screen-inspector"
+                  className="group rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex flex-col justify-between hover:border-emerald-500/60 hover:shadow-md transition-all"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-emerald-600">
+                      <span className="flex items-center gap-1.5">
+                        <Layout className="h-3.5 w-3.5" />
+                        2. Telas & Regras
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      Protótipos visuais e regras de negócio de tela.
+                    </p>
+                  </div>
+                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-emerald-600 group-hover:translate-x-0.5 transition-transform">
+                    <span>Acessar</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </Link>
+
+                {/* 3. Banco de Dados & ERD */}
+                <Link
+                  to="/concept-erd"
+                  className="group rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex flex-col justify-between hover:border-emerald-500/60 hover:shadow-md transition-all"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-emerald-600">
+                      <span className="flex items-center gap-1.5">
+                        <Database className="h-3.5 w-3.5" />
+                        3. Banco & ERD
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      Modelagem relacional e schemas de dados.
+                    </p>
+                  </div>
+                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-emerald-600 group-hover:translate-x-0.5 transition-transform">
+                    <span>Acessar</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </Link>
+
+                {/* 4. Central de Projetos & Backlog */}
+                <Link
+                  to="/projects"
+                  className="group rounded-xl border border-sky-500/30 bg-sky-500/5 p-3.5 flex flex-col justify-between hover:border-sky-500/60 hover:shadow-md transition-all"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-sky-600">
+                      <span className="flex items-center gap-1.5">
+                        <FolderKanban className="h-3.5 w-3.5" />
+                        4. Projetos
+                      </span>
+                      <Badge className="bg-sky-500 text-white text-[9px] px-1 py-0">
+                        {productProjects.length}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      1 Projeto → N Planejamentos → N Tarefas.
+                    </p>
+                  </div>
+                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-sky-600 group-hover:translate-x-0.5 transition-transform">
+                    <span>Acessar</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </Link>
+
+                {/* 5. Gate de Governança */}
+                <Link
+                  to="/governance"
+                  className="group rounded-xl border border-amber-500/30 bg-amber-500/5 p-3.5 flex flex-col justify-between hover:border-amber-500/60 hover:shadow-md transition-all"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-amber-600">
+                      <span className="flex items-center gap-1.5">
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        5. Governança
+                      </span>
+                      <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-600 px-1 py-0">
+                        {relevantPlanningItems.length}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      Homologação e seleção do Agente Executor.
+                    </p>
+                  </div>
+                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-amber-600 group-hover:translate-x-0.5 transition-transform">
+                    <span>Acessar</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </Link>
+
+                {/* 6. Cockpit de Execução */}
+                <div
+                  className="rounded-xl border-2 border-primary bg-primary/10 p-3.5 flex flex-col justify-between shadow-sm"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-primary">
+                      <span className="flex items-center gap-1.5">
+                        <Gauge className="h-3.5 w-3.5" />
+                        6. Cockpit
+                      </span>
+                      <Badge className="bg-primary text-primary-foreground text-[9px] px-1 py-0">
+                        Atual
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      Visão em tempo real das ondas de tarefas.
+                    </p>
+                  </div>
+                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-primary">
+                    <span>Monitorando</span>
+                    <PlayCircle className="h-3.5 w-3.5" />
                   </div>
                 </div>
 
-                {wave.status === "queued" && (
-                  <Button size="sm" variant="outline" className="text-xs">
-                    Liberar Lote
-                  </Button>
-                )}
-                {wave.status === "completed" && (
-                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                )}
+                {/* 7. Fechamento de Versão */}
+                <Link
+                  to="/version-closure"
+                  className="group rounded-xl border border-purple-500/30 bg-purple-500/5 p-3.5 flex flex-col justify-between hover:border-purple-500/60 hover:shadow-md transition-all"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-purple-600">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        7. Fechamento
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      Auditoria 100% e trava definitiva de produção.
+                    </p>
+                  </div>
+                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-purple-600 group-hover:translate-x-0.5 transition-transform">
+                    <span>Acessar</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </Link>
               </div>
-            ))}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          {/* Resumo do Projeto Selecionado */}
+          {activeProject && (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FolderKanban className="h-4 w-4 text-primary" />
+                    <CardTitle className="text-sm font-semibold">
+                      Projeto em Destaque: {activeProject.name}
+                    </CardTitle>
+                    <Badge variant="outline" className="text-[10px]">
+                      {activeProject.status}
+                    </Badge>
+                  </div>
+                  <Link
+                    to={`/projects`}
+                    className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
+                  >
+                    Abrir na Central de Projetos <ExternalLink className="h-3 w-3" />
+                  </Link>
+                </div>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                <div className="p-3 rounded-lg bg-muted/30 border">
+                  <span className="text-xs text-muted-foreground">Planejamentos</span>
+                  <p className="text-xl font-bold text-foreground mt-0.5">{relevantPlanningItems.length}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-sky-500/10 border border-sky-500/20">
+                  <span className="text-xs text-sky-600 font-semibold">Em Execução</span>
+                  <p className="text-xl font-bold text-sky-600 mt-0.5">{inProgressTasks.length}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <span className="text-xs text-amber-600 font-semibold">Bloqueadas</span>
+                  <p className="text-xl font-bold text-amber-600 mt-0.5">{blockedTasks.length}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <span className="text-xs text-emerald-600 font-semibold">Concluídas</span>
+                  <p className="text-xl font-bold text-emerald-600 mt-0.5">{doneTasks.length}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
+        {/* ABA 2: QUADRO DE EXECUÇÃO DAS TAREFAS */}
+        <TabsContent value="tarefas" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <CheckSquare className="h-4 w-4 text-primary" />
+                Tarefas do Projeto em Andamento ({relevantTasks.length})
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Acompanhe o estado de execução de cada tarefa com o agente responsável e status em tempo real.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {relevantTasks.length === 0 ? (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  Nenhuma tarefa registrada para o projeto selecionado.
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {relevantTasks.map((t) => (
+                    <div key={t.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="space-y-1 flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={
+                              t.status === "done" || t.status === "deployed"
+                                ? "success"
+                                : t.status === "in_progress"
+                                ? "default"
+                                : t.status === "blocked"
+                                ? "destructive"
+                                : "outline"
+                            }
+                            className="text-[10px]"
+                          >
+                            {t.status}
+                          </Badge>
+                          <span className="font-semibold text-foreground truncate">
+                            {t.title}
+                          </span>
+                        </div>
+                        {t.description && (
+                          <p className="text-[11px] text-muted-foreground truncate max-w-xl">
+                            {t.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <Badge variant="outline" className="text-[10px] capitalize">
+                          Prioridade: {t.priority}
+                        </Badge>
+                        <Link
+                          to="/projects"
+                          className="text-[11px] font-semibold text-primary hover:underline"
+                        >
+                          Ver no Projeto →
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ABA 3: TELEMETRIA */}
         <TabsContent value="telemetria" className="mt-4 space-y-6">
           <AgentTelemetryPanel agents={agentTelemetry?.agents ?? []} />
 
           <div>
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
               <TrendingUp className="h-4 w-4 text-primary" />
-              Andamento do Projeto
+              Andamento Consolidado por Produto
             </h2>
             <ProjectProgressList cockpit={cockpit} />
           </div>

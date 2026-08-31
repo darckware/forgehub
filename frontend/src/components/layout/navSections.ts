@@ -72,16 +72,20 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     labelKey: "nav.section.factory2",
     entries: [
-      // Cockpit first -- it's the overview/entry point across every phase
-      // below, not a phase itself. The rest follows the pipeline order:
-      // 1 Conception, 2 Screens/Business Rules, 2.1 Database Modeling,
-      // 3 Projects/Planning/Tasks, 4 Governance, 5 Version Closure.
-      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
+      // Pipeline Sequencial da Software Factory (1 a 7):
+      // 1. Concepção & Contexto
+      // 2. Telas & Regras de Negócio
+      // 3. Banco de Dados & ERD
+      // 4. Central de Projetos & Backlog
+      // 5. Gate de Governança
+      // 6. Cockpit de Execução
+      // 7. Fechamento de Versão
       { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
       { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
       { type: "link", to: "/concept-erd", labelKey: "nav.conceptDatabaseDiagram", icon: Share2, module: "database" },
       { type: "link", to: "/projects", labelKey: "nav.projectCenter", icon: FolderKanban, module: "projects" },
       { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance" },
+      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/version-closure", labelKey: "nav.versionClosure", icon: CheckCircle2, module: "product" },
     ],
   },
@@ -113,12 +117,6 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/crons", labelKey: "nav.crons", icon: Clock, module: "crons" },
       { type: "link", to: "/systems-hub", labelKey: "nav.systemsHub", icon: Boxes, module: "agents" },
       { type: "link", to: "/foundation", labelKey: "nav.foundation", icon: Landmark, module: "foundation" },
-    ],
-  },
-  {
-    type: "section",
-    labelKey: "nav.section.integrations",
-    entries: [
       { type: "link", to: "/obsidian", labelKey: "nav.knowledgeBase", icon: Gem, module: "obsidian" },
     ],
   },

@@ -45,7 +45,7 @@ import {
   type ServerCheckStatus,
 } from "@/hooks/useServers";
 import { fetchOpenclawDashboardUrl, useTerminalSessions } from "@/hooks/useTerminalBrowse";
-import { useChatSessionsHostStatus } from "@/hooks/useChat";
+import { chatKeys, chatSessionsHostStatusKey, useChatSessionsHostStatus } from "@/hooks/useChat";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { ChannelPane } from "@/components/channel/ChannelPane";
@@ -579,11 +579,13 @@ function ChatSessionsMenu({
   activeTabId,
   onNew,
   onSelect,
+  onDelete,
 }: {
   localTabs: Array<{ id: string; agentId: string; sessionId?: string }>;
   activeTabId: string;
   onNew: () => void;
   onSelect: (agentId: string, sessionId: string) => void;
+  onDelete: (agentId: string, sessionId: string, label: string) => void;
 }) {
   const { t } = useTranslation("workspace");
   const [open, setOpen] = useState(false);
@@ -643,27 +645,43 @@ function ChatSessionsMenu({
                 {t("toolbar.openChats")}
               </div>
               {rows.map((row) => (
-                <button
+                <div
                   key={row.key}
-                  type="button"
                   className={cn(
-                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                    "group flex items-center hover:bg-accent hover:text-accent-foreground",
                     row.tabId === activeTabId && "bg-accent text-accent-foreground"
                   )}
-                  onClick={() => {
-                    onSelect(row.agentId, row.sessionId);
-                    setOpen(false);
-                  }}
                 >
-                  <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                  <span className="min-w-0 flex-1 truncate">{row.label}</span>
-                  {row.isStale && (
-                    <span className="shrink-0 text-[10px] text-destructive">{t("toolbar.staleSession")}</span>
-                  )}
-                  {!row.isStale && !row.isOpenHere && (
-                    <span className="shrink-0 text-[10px] text-muted-foreground">{t("toolbar.orphanedSession")}</span>
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-sm"
+                    onClick={() => {
+                      onSelect(row.agentId, row.sessionId);
+                      setOpen(false);
+                    }}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                    <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                    {row.isStale && (
+                      <span className="shrink-0 text-[10px] text-destructive">{t("toolbar.staleSession")}</span>
+                    )}
+                    {!row.isStale && !row.isOpenHere && (
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{t("toolbar.orphanedSession")}</span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t("toolbar.deleteChat", { label: row.label })}
+                    title={t("toolbar.deleteChat", { label: row.label })}
+                    className="mr-2 shrink-0 opacity-60 hover:text-destructive"
+                    onClick={() => {
+                      setOpen(false);
+                      onDelete(row.agentId, row.sessionId, row.label);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ))}
             </>
           )}
@@ -749,7 +767,13 @@ export default function WorkspacePage() {
     "idle"
   );
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
-  const [terminateTarget, setTerminateTarget] = useState<{ id: string; label: string } | null>(null);
+  const [terminateTarget, setTerminateTarget] = useState<{
+    kind: "terminal" | "chat";
+    id: string;
+    label: string;
+    agentId?: string;
+    sessionId?: string;
+  } | null>(null);
   const [terminatingTab, setTerminatingTab] = useState(false);
   const queryClient = useQueryClient();
 
@@ -1021,21 +1045,63 @@ export default function WorkspacePage() {
   }
 
   function terminateTerminalTab(id: string, label: string) {
-    setTerminateTarget({ id, label });
+    setTerminateTarget({ kind: "terminal", id, label });
   }
 
-  async function confirmTerminateTerminalTab() {
+  function terminateChatTab(id: string, agentId: string, sessionId?: string, label?: string) {
+    setTerminateTarget({
+      kind: "chat",
+      id,
+      label: label || t("tabs.defaultChatName"),
+      agentId,
+      sessionId,
+    });
+  }
+
+  function terminateChatSessionDirect(agentId: string, sessionId: string, label: string) {
+    const matchingTab = tabs.find(
+      (tab) => tab.kind === "chat" && tab.sessionId === sessionId && tab.agentId === agentId
+    );
+    setTerminateTarget({
+      kind: "chat",
+      id: matchingTab?.id ?? sessionId,
+      label,
+      agentId,
+      sessionId,
+    });
+  }
+
+  async function confirmTerminateTab() {
     if (!terminateTarget) return;
-    const { id } = terminateTarget;
+    const { kind, id, agentId, sessionId } = terminateTarget;
     setWorkspaceActionError(null);
     setTerminatingTab(true);
     try {
-      await apiClient.post(`/api/v1/terminal/sessions/${id}/kill`);
-      closeTab(id);
-      queryClient.invalidateQueries({ queryKey: ["terminal-sessions"] });
+      if (kind === "terminal") {
+        await apiClient.post(`/api/v1/terminal/sessions/${id}/kill`);
+        closeTab(id);
+        queryClient.invalidateQueries({ queryKey: ["terminal-sessions"] });
+      } else {
+        const targetSessionId = sessionId || id;
+        if (targetSessionId) {
+          await apiClient.delete(`/api/v1/chat/sessions/${targetSessionId}`);
+        }
+        closeTab(id);
+        queryClient.invalidateQueries({ queryKey: chatSessionsHostStatusKey });
+        if (agentId) {
+          queryClient.invalidateQueries({ queryKey: chatKeys.sessions(agentId) });
+        }
+        queryClient.invalidateQueries({ queryKey: ["chat-sessions"] });
+      }
       setTerminateTarget(null);
     } catch (error) {
-      setWorkspaceActionError(error instanceof Error ? error.message : t("tabs.terminateTerminalFailed"));
+      setWorkspaceActionError(
+        error instanceof Error
+          ? error.message
+          : kind === "terminal"
+          ? t("tabs.terminateTerminalFailed")
+          : t("tabs.terminateChatFailed")
+      );
     } finally {
       setTerminatingTab(false);
     }
@@ -1246,6 +1312,7 @@ export default function WorkspacePage() {
             activeTabId={activeTabId}
             onNew={() => openChatTab(defaultAgentIdForNewTab())}
             onSelect={openChatSessionTab}
+            onDelete={terminateChatSessionDirect}
           />
           <Button
             variant="outline"
@@ -1374,12 +1441,22 @@ export default function WorkspacePage() {
                 active={tab.id === activeTabId}
                 onSelect={() => setActiveTabId(tab.id)}
                 onClose={() => closeTab(tab.id)}
-                onTerminate={tab.kind === "terminal" ? () => terminateTerminalTab(tab.id, tab.label) : undefined}
+                onTerminate={
+                  tab.kind === "terminal"
+                    ? () => terminateTerminalTab(tab.id, tab.label)
+                    : tab.kind === "chat"
+                    ? () => terminateChatTab(tab.id, tab.agentId, tab.sessionId, label)
+                    : undefined
+                }
                 onKeyDown={(event) => handleTabKeyDown(event, index)}
                 onDragStart={() => (dragTabIdRef.current = tab.id)}
                 onDrop={() => handleTabDrop(tab.id)}
                 closeLabel={tab.kind === "terminal" ? t("tabs.detachTerminal", { label }) : t("tabs.closeTab", { label })}
-                terminateLabel={tab.kind === "terminal" ? t("tabs.terminateTerminal", { label }) : undefined}
+                terminateLabel={
+                  tab.kind === "chat"
+                    ? t("tabs.terminateChat", { label })
+                    : t("tabs.terminateTerminal", { label })
+                }
               />
             );
           })}
@@ -1394,10 +1471,22 @@ export default function WorkspacePage() {
 
       <ConfirmDialog
         open={terminateTarget !== null}
-        title={terminateTarget ? t("tabs.terminateTerminal", { label: terminateTarget.label }) : undefined}
-        description={terminateTarget ? t("tabs.confirmTerminateTerminal", { label: terminateTarget.label }) : undefined}
+        title={
+          terminateTarget
+            ? terminateTarget.kind === "terminal"
+              ? t("tabs.terminateTerminal", { label: terminateTarget.label })
+              : t("tabs.terminateChat", { label: terminateTarget.label })
+            : undefined
+        }
+        description={
+          terminateTarget
+            ? terminateTarget.kind === "terminal"
+              ? t("tabs.confirmTerminateTerminal", { label: terminateTarget.label })
+              : t("tabs.confirmTerminateChat", { label: terminateTarget.label })
+            : undefined
+        }
         loading={terminatingTab}
-        onConfirm={() => void confirmTerminateTerminalTab()}
+        onConfirm={() => void confirmTerminateTab()}
         onCancel={() => setTerminateTarget(null)}
       />
 

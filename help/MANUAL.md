@@ -70,29 +70,44 @@ O botão **Login** usa a credencial de desenvolvimento configurada no backend. A
 
 ### Software Factory
 
-Renomeada de "Planning" para "Software Factory" em 2026-07-26 — é a seção única do ciclo de desenvolvimento, organizada pela granularidade real do domínio: **Product** é durável (Concepção e Mapa do Sistema ficam no nível de produto, herdados por todo Project); cada evolução do produto vira um **Project**, que percorre as cinco fases; a cadeia completa é **Product → Project → Planejamento (grupos) → Task**. Arquitetura, classificação de projetos e operação detalhadas: [Planning e Delivery](PLANNING_DELIVERY_ARCHITECTURE.md). Funções por agente, orquestração e canais multiagente: [Canais, Funções e Orquestração](../architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md). Protocolo para Codex, Claude CLI e Agy: [Agentes CLI](AGENT_CLI_DEVELOPMENT_PROTOCOL.md). No código atual, Agy ainda aparece pelo identificador legado `antigravity`.
+A Software Factory é o motor unificado do ciclo de desenvolvimento de software (AI-SDLC) do ForgeHub. Toda a esteira é governada e dividida em 7 módulos claros, garantindo rastreabilidade desde a concepção do produto até a entrega final em produção:
+
+1. **Concepção & Contexto (`/conceptions`)**: Registra a abertura da demanda vinculada a um **Produto** existente (ou novo), classificando o tipo de abertura como **🚀 Nova Implementação** (novas features / módulos) ou **🔧 Manutenção** (sustentação / correção / melhorias). Define a stack tecnológica (Frontend, Backend, Database) e gera 1 ou N Projetos associados.
+2. **Telas & Regras (`/screen-inspector`)**: Mapeamento completo de telas, rotas, protótipos de interface e regras de negócio de cada projeto.
+3. **Banco de Dados & ERD (`/concept-erd`)**: Modelagem do Diagrama Entidade-Relacionamento, schemas, tabelas, campos, chaves e relacionamentos.
+4. **Central de Projetos & Backlog (`/projects`)**: Estrutura hierárquica **1 Projeto → N Itens de Planejamento → N Tarefas**. Visualização Master-Detail interativa com filtros de status (*Abertos, Em Execução, Finalizados, Com Bloqueio / Erro*).
+5. **Gate de Governança (`/governance`)**: Gate de validação formal de planejamento. Itens não validados permanecem em **Backlog** (`new`); em revisão ficam **Em Análise** (`triaged`); ao clicar em **Liberar p/ Execução** (`in_progress`), o operador **seleciona o Agente Executor** responsável pelas tarefas.
+6. **Cockpit de Execução (`/cockpit`)**: Painel de visualização e acompanhamento em tempo real das ondas de execução e progresso dos agentes.
+7. **Fechamento de Versão & Produção (`/version-closure`)**: Checklist de auditoria 100% de tarefas. O botão de publicação é bloqueado se houver pendências. Ao publicar a versão, o projeto é marcado como `completed` e os itens de planejamento como `done`, tornando o projeto **permanentemente bloqueado contra alterações**.
 
 | Tela | Rota | Para que serve |
 |---|---|---|
-| Multi-Project Cockpit | `/cockpit` | Visão geral em árvore Produto → Projeto: ponto de entrada para cadastrar produto/projeto e navegar até cada detalhe. Não é uma fase, é o hub das outras seis. |
-| Conception | `/conception` | Registra a ideia do Product, mantém revisões conceituais e submete a revisão exata para aprovação governada. |
-| Screens & Business Rules | `/screen-inspector` | Telas do sistema, seus elementos/relações e regras de negócio — sucessora do antigo "System Map" no nível de produto. |
-| Concept DB Diagram | `/concept-erd` | Diagrama ER derivado da modelagem de banco feita durante a Concepção. |
-| Project Center | `/projects` | Projetos ligados a uma versão de produto; cada um tem diretório de trabalho real no host. A partir do detalhe de um Project (`/projects/:id`) chega-se a Escopo, Pipeline/Estágios, Planejamento (`/backlog`), Tasks (`/tasks`) e Artefatos (`/artifact`) daquele projeto — essas telas continuam existindo (ver rotas em `App.tsx`) mas não têm mais entrada própria no sidebar nem no Ctrl+K desde a reorganização de 2026-07-26; chegue a elas navegando a partir do Project ou do Cockpit. |
-| Grupo de Trabalho (Canais) | `/workspace?view=channels` | Sala em tempo real onde você e os agentes conversam com contexto compartilhado — ver seção dedicada abaixo. Tecnicamente é a aba "Canais" do Workspace; o link do sidebar já abre direto nela. |
-| Governance | `/governance` | Approval Inbox governado, decisões, trilha de auditoria e delegação limitada do Athos (e de qualquer outro agente-orquestrador). Políticas (`/governance/policies`) e Delegações de Autoridade ficam dentro dessa tela. |
-| Version Closure | `/version-closure` | Fechamento de uma versão de produto: bloqueia se algum Project ainda tiver Task fora de `done/deployed/cancelled`, nunca força conclusão para desbloquear a si mesmo. |
+| Multi-Project Cockpit | `/cockpit` | Painel de monitoramento visual das fases e acompanhamento da execução em tempo real. |
+| Conception | `/conceptions` | Abertura do projeto associado ao Produto, seleção de Nova Implementação vs Manutenção e definição da Stack. |
+| Screens & Business Rules | `/screen-inspector` | Inventário de telas, rotas e regras de negócio do projeto. |
+| Concept DB Diagram | `/concept-erd` | Diagrama ER e schemas de dados do projeto. |
+| Project Center | `/projects` | Central de projetos relacionando N planejamentos e N tarefas por projeto. |
+| Grupo de Trabalho (Canais) | `/workspace?view=channels` | Sala de colaboração em tempo real entre humano e múltiplos agentes com contexto compartilhado. |
+| Governance | `/governance` | Gate de liberação de planejamento para execução com atribuição de Agente Executor e auditoria. |
+| Version Closure | `/version-closure` | Fechamento do projeto com checagem 100% concluída, geração de versão e bloqueio permanente. |
 
-#### Grupo de Trabalho (Canais): como usar
+---
 
-Um canal é uma sala persistente onde você (autenticado) e N agentes conversam com o mesmo histórico visível para todos — diferente do Workspace/Conversas (1 humano + 1 agente, sem contexto compartilhado). Cobre o mesmo papel que o board de tarefas de uma branch faz numa ferramenta como o Buzz: o canal é o ponto único onde se discute, propõe e acompanha o trabalho de um Project (ou de uma ideia sem projeto ainda).
+### Servidor MCP Unificado (`forgehub`)
 
-1. **Criar um canal**: clique em "+" ao lado de CHANNELS. Dê um nome; o Project é opcional (uma sala pode ser só uma ideia livre) e pode ser anexado depois, a qualquer momento, como se fosse um MCP — nunca trava o canal num "modo". Os membros (agentes) são sempre uma escolha explícita sua, nunca herdados automaticamente do time do projeto — mesmo quando um Project é anexado, o time dele só aparece como sugestão.
-2. **Função de cada especialista, já na criação**: ao marcar um agente como membro, aparece um resumo (a descrição cadastrada do agente) e um seletor de função — pré-preenchido com a função padrão do cadastro dele (`Agent.default_role`, editável na própria página do agente em "Função padrão"), mas você pode ajustar ali mesmo antes de criar a sala. Depois de criado, a função de cada membro continua editável a qualquer momento pelo seletor ao lado do nome no cabeçalho do canal.
-3. **Orquestrador (opcional)**: ainda na criação (ou depois, clicando no ícone de coroa ao lado de um agente no cabeçalho), você pode designar um agente como orquestrador operacional daquele canal — por exemplo, o Athos coordenando os demais e as funções deles no projeto. Essa marcação é só informativa: ela não concede autoridade nenhuma sozinha. Você continua sendo o chefe (etiqueta "Chefe" ao lado do seu nome) e a autoridade final de qualquer decisão é sempre sua.
-4. **Agentes propõem tarefas, mas ficam pendentes**: um agente-membro pode propor uma tarefa para si mesmo (dentro da própria função no canal) e ela já nasce liberada; propor uma tarefa **para outro agente** sempre cria uma Approval pendente de verdade, no mesmo mecanismo de Governance já usado no resto do sistema (Policy/Approval/trilha de auditoria) — nunca um campo booleano à parte. A tarefa fica visualmente bloqueada na aba Tasks do canal até alguém decidir.
-5. **Decidir a proposta**: por padrão, só você decide — pelo botão Aprovar/Rejeitar que aparece na própria tarefa pendente do canal, ou pela tela Governance como qualquer outra Approval. Para que o agente-orquestrador decida em seu lugar (ex.: Athos aprovando propostas do time sem precisar de você em cada uma), conceda a ele, em Governance → Delegações de Autoridade, a ação `channel.member.role.assign` (para ele poder ajustar a função dos colegas no canal) e/ou `governance.approval.decide` (para ele poder decidir as propostas de tarefa) — a mesma credencial de serviço e o mesmo mandato com prazo que o resto do sistema já usa para delegar ao Athos, não um mecanismo novo exclusivo de canais.
-6. **Rodar de verdade**: uma mensagem do canal vira uma execução real (dispara o CLI do agente) pelo mesmo caminho de despacho que qualquer Task do sistema usa — nunca um segundo executor. O resultado narra de volta no próprio canal como uma mensagem do sistema.
+O ForgeHub disponibiliza o servidor MCP oficial **`forgehub`** via protocolo JSON-RPC 2.0 (stdio), permitindo que agentes de IA autônomos (Claude Code, Hermes, Antigravity, OpenClaw, Codex) interajam diretamente com o ciclo de desenvolvimento e colaborem entre si:
+
+- **Script de Execução**: `backend/app/mcp/factory_server.py`
+- **Registro Global**: Tabela `company.mcp_catalog_servers` (`forgehub`) com `apply_to_all_agents: true`.
+- **Ferramentas de AI-SDLC**:
+  - `list_projects`, `get_project_context`: Contexto do produto, versão, stack e working directory.
+  - `list_project_screens`, `get_project_erd`: Leitura de telas, regras de negócio e diagramas de banco de dados.
+  - `list_planning_items`, `list_project_tasks`: Leitura do backlog e tarefas de execução.
+  - `update_task_status`: Atualização do status de tarefas pelo agente em tempo real.
+  - `report_governance_blocker`: Sinalização de bloqueios técnicos/negociais para a Governança.
+  - `get_product_evolution_history`: Histórico de versões e releases anteriores.
+- **Ferramentas de Comunicação Inter-Agentes**:
+  - `send_agent_message`, `list_agent_messages`, `check_agent_inbox`, `propose_channel_task`, `list_my_incubation`, `receive_incubation`, `list_agent_skills`.
 
 ### Controle de conclusão e retomada
 

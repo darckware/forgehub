@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ToolVersionsCard } from "@/components/ToolVersionsCard";
 import { SystemStatsCard } from "@/components/SystemStatsCard";
 import { RemoteAccessCard } from "@/components/RemoteAccessCard";
-import { ProjectsForgeRouterCard } from "@/components/ProjectsForgeRouterCard";
+import { CliForgeRouterCard } from "@/components/CliForgeRouterCard";
 import { CronsCard } from "@/components/CronsCard";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -41,7 +41,7 @@ export default function Dashboard() {
           <CronsCard />
         </div>
       </div>
-      <ProjectsForgeRouterCard />
+      <CliForgeRouterCard />
     </div>
   );
 }

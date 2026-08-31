@@ -42,6 +42,8 @@ import {
 } from "@/components/chat/ChatPane";
 import { ComposerShell } from "@/components/chat/ComposerShell";
 import { ImprovePromptDialog } from "@/components/chat/ImprovePromptDialog";
+import { AgentAvatar } from "@/components/AgentAvatar";
+import { useAuthStore } from "@/store/authStore";
 import { useChatSessions } from "@/hooks/useChat";
 import { useChannelRoomViewModel } from "@/hooks/useChannelRoomViewModel";
 import { useChannelHeaderViewModel } from "@/hooks/useChannelHeaderViewModel";
@@ -632,7 +634,15 @@ function ChannelRoom({
                 )}
                 <MessageBubble
                   message={m}
-                  agent={m.author_agent_id ? agentById.get(m.author_agent_id) : undefined}
+                  agent={
+                    m.author_agent_id
+                      ? agentById.get(m.author_agent_id)
+                      : agents.find(
+                          (a) =>
+                            a.name.toLowerCase() === (m.author_label ?? "").toLowerCase() ||
+                            (a.profile_slug && a.profile_slug.toLowerCase() === (m.author_label ?? "").toLowerCase())
+                        )
+                  }
                   channelId={channelId}
                   dispatchAgents={agents.filter((candidate) => channel.members.some((member) => member.agent_id === candidate.id && !member.muted))}
                 />
@@ -1374,38 +1384,55 @@ function AgentDetailPopover({
 
 function MessageBubble({ message, agent, channelId, dispatchAgents }: { message: ChatChannelMessage; agent?: Agent; channelId: string; dispatchAgents: Agent[] }) {
   const { t } = useTranslation("workspace");
+  const { user } = useAuthStore();
   const dispatch = useDispatchChannelMessage(channelId);
   const [dispatching, setDispatching] = useState(false);
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const [dispatchTargetId, setDispatchTargetId] = useState(agent?.id ?? "");
 
+  const isHuman = message.author_type === "human";
+  const isAgent = message.author_type === "agent";
   const label =
-    message.author_type === "human"
-      ? message.author_label ?? "Marcelo"
+    isHuman
+      ? message.author_label ?? user?.username ?? "Marcelo"
       : message.author_type === "system"
         ? t("channels.system")
         : agent?.name ?? message.author_label ?? t("channels.agent");
 
+  const avatarUrl = isHuman
+    ? user?.avatar_data_url
+    : isAgent
+      ? agent?.avatar_data_url
+      : null;
+
   return (
-    <div className="mb-3 flex gap-2">
+    <div className="mb-3 flex gap-2.5">
       <div
         className={cn(
-          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-medium",
-          message.author_type === "human"
+          "flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-medium border border-border/60 shadow-sm",
+          isHuman
             ? "bg-primary/15 text-primary"
             : message.author_type === "system"
               ? "bg-muted text-muted-foreground"
               : "bg-secondary text-secondary-foreground"
         )}
       >
-        {message.author_type === "human" ? <User className="h-3.5 w-3.5" /> : message.author_type === "agent" ? <Bot className="h-3.5 w-3.5" /> : "!"}
+        {avatarUrl ? (
+          <img src={avatarUrl} alt={label} className="h-full w-full object-cover" />
+        ) : isHuman ? (
+          <User className="h-4 w-4" />
+        ) : isAgent ? (
+          <AgentAvatar name={label} avatarDataUrl={agent?.avatar_data_url} size="sm" className="h-7 w-7 text-[10px]" />
+        ) : (
+          "!"
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-xs font-medium">{label}</span>
+          <span className="text-xs font-semibold text-foreground">{label}</span>
           <span className="text-[10px] text-muted-foreground">{new Date(message.created_at).toLocaleTimeString()}</span>
         </div>
-        <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+        <p className="whitespace-pre-wrap text-sm mt-0.5">{message.content}</p>
         {message.author_type === "agent" && !message.triggered_demand_id && agent && (
           <div className="mt-1">
             {!dispatchOpen ? (

@@ -76,3 +76,54 @@ async def forgerouter_sso(user: User = Depends(get_current_admin)) -> dict:
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"ForgeRouter SSO error: {resp.text[:300]}")
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Global CLI ForgeRouter integration (Host Bridge proxy)
+# ---------------------------------------------------------------------------
+
+class ForgeRouterCliStatusOut(BaseModel):
+    claude: bool
+    codex: bool
+    antigravity: bool
+
+
+class ForgeRouterCliToggleIn(BaseModel):
+    tool: str
+    enabled: bool
+
+
+class ForgeRouterCliToggleOut(BaseModel):
+    tool: str
+    enabled: bool
+    config_path: str
+    status: ForgeRouterCliStatusOut
+
+
+def _bridge_headers() -> dict[str, str]:
+    return {"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
+
+
+async def _bridge_request(method: str, path: str, **kwargs) -> dict:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.request(
+            method, f"{settings.CHAT_BRIDGE_URL}{path}", headers=_bridge_headers(), **kwargs
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=f"Chat bridge: {resp.text[:500]}")
+    return resp.json()
+
+
+@router.get("/cli-status", response_model=ForgeRouterCliStatusOut)
+async def get_forgerouter_cli_status() -> ForgeRouterCliStatusOut:
+    """Return the global CLI ForgeRouter status across Claude, Codex, and Antigravity."""
+    data = await _bridge_request("GET", "/v1/forgerouter/cli-status")
+    return ForgeRouterCliStatusOut(**data)
+
+
+@router.put("/cli-toggle", response_model=ForgeRouterCliToggleOut)
+async def set_forgerouter_cli_toggle(payload: ForgeRouterCliToggleIn) -> ForgeRouterCliToggleOut:
+    """Toggle global ForgeRouter configuration for a CLI tool."""
+    data = await _bridge_request("PUT", "/v1/forgerouter/cli-toggle", json=payload.model_dump())
+    return ForgeRouterCliToggleOut(**data)
+
