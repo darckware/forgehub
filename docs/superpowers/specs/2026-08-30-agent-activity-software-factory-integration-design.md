@@ -1,7 +1,7 @@
 # Agent Activity and Software Factory Integration Design
 
-**Date:** 2026-08-30  
-**Status:** Approved by Marcelo  
+**Date:** 2026-08-30
+**Status:** Approved by Marcelo
 **Scope:** Agent Activity operational read model, pre-project conception visibility, version closure consistency, integration, deployment
 
 ## Objective

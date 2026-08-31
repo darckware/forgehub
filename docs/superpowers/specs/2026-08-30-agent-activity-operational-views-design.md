@@ -1,7 +1,7 @@
 # Agent Activity Operational Views Design
 
-**Date:** 2026-08-30  
-**Status:** Approved  
+**Date:** 2026-08-30
+**Status:** Approved
 **Scope:** Agent Activity topology, current-flow board, and continuity history
 
 ## Objective
