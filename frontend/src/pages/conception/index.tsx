@@ -17,7 +17,7 @@ import { TechStackOptionPicker } from "@/components/TechStackOptionPicker";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { useChattableAgents } from "@/hooks/useAgent";
 import { usePromptTemplate, useStreamAgentDraft } from "@/hooks/useAiDraft";
-import { useDeleteProduct, useUpdateProduct } from "@/hooks/useProduct";
+import { useDeleteProduct, useProductVersions, useUpdateProduct } from "@/hooks/useProduct";
 import {
   PROJECT_SOLUTION_TYPES,
   PROJECT_SOLUTION_TYPE_LABELS,
@@ -348,9 +348,10 @@ const PROJECT_TYPES = ["creation", "maintenance"] as const;
  * each distinct version a project asks for still gets its own call while
  * specs that share a version still batch together exactly like before. */
 function ProjectPlanningPanel({
-  conceptId, conceptStatus, workingDirectoryPath,
+  productId, conceptId, workingDirectoryPath,
 }: {
-  conceptId: string | undefined; conceptStatus: string | undefined;
+  productId: string | undefined;
+  conceptId: string | undefined;
   workingDirectoryPath: string;
 }) {
   const { t } = useTranslation("conception");
@@ -359,6 +360,7 @@ function ProjectPlanningPanel({
   const sync = useSyncArtifactsToProject();
   const deleteProject = useDeleteProject();
   const { data: allProjects } = useProjects();
+  const { data: productVersions } = useProductVersions(productId);
   const [specs, setSpecs] = useState<ProjectSpecForm[]>([{ ...EMPTY_PROJECT_SPEC }]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -367,9 +369,6 @@ function ProjectPlanningPanel({
 
   if (!conceptId) {
     return <p className="text-sm text-muted-foreground">Salve a ideia primeiro para poder criar o projeto.</p>;
-  }
-  if (conceptStatus !== "approved") {
-    return <p className="text-sm text-muted-foreground">Disponível depois que a Concepção for aprovada (status atual: {conceptStatus ?? "--"}).</p>;
   }
 
   const updateSpec = (index: number, patch: Partial<ProjectSpecForm>) =>
@@ -396,6 +395,10 @@ function ProjectPlanningPanel({
         allResults.push(...res.projects);
       }
       setResults(allResults);
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      if (productId) {
+        queryClient.invalidateQueries({ queryKey: ["products", productId, "versions"] });
+      }
     } catch (e) {
       setSubmitError((e as Error).message);
     } finally {
@@ -420,6 +423,9 @@ function ProjectPlanningPanel({
     });
   };
 
+  const versionIds = new Set((productVersions || []).map((v) => v.id));
+  const productProjects = (allProjects || []).filter((p) => p.product_version_id && versionIds.has(p.product_version_id));
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
@@ -427,8 +433,58 @@ function ProjectPlanningPanel({
         Cada Project recebe só as tarefas da sua camada (telas para web/mobile, APIs para
         backend, etc.). Repetir a mesma versão + tipo é idempotente -- não duplica.
       </p>
+
+      {productProjects.length > 0 && (
+        <div className="space-y-2 rounded-md border p-3">
+          <p className="text-sm font-medium">Projetos existentes:</p>
+          {productProjects.map((p) => {
+            const versionObj = productVersions?.find((v) => v.id === p.product_version_id);
+            const resultInfo = results?.find((r) => r.project_id === p.id);
+            return (
+              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border-b last:border-0 pb-2 last:pb-0">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{p.solution_type || "geral"}</Badge>
+                  {versionObj && <Badge variant="secondary">v{versionObj.version}</Badge>}
+                  <Link to={`/projects/${p.id}`} className="text-primary font-medium hover:underline">
+                    {p.name}
+                  </Link>
+                  {resultInfo && (
+                    <span className="text-xs text-muted-foreground">
+                      ({resultInfo.scope_items_created} escopos, {resultInfo.tasks_created} tasks)
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm" variant="outline" disabled={sync.isPending}
+                    onClick={() => sync.mutate({ conceptId, projectId: p.id })}
+                  >
+                    {sync.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    Sincronizar docs
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    title={t("developmentRequests.delete")}
+                    onClick={() => handleDeleteProject(p.id, p.name)}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+          {sync.isSuccess && (
+            <p className="text-xs text-muted-foreground pt-1">
+              Gravado: {sync.data.files_written.join(", ") || "(nenhum documento gerado ainda)"}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2">
-        <Label>Projetos a criar</Label>
+        <Label>Adicionar novo projeto</Label>
         {specs.map((spec, i) => (
           <div key={i} className="space-y-2 rounded-md border p-2">
             <div className="grid grid-cols-[160px_1fr_32px] gap-2 items-center">
@@ -461,49 +517,6 @@ function ProjectPlanningPanel({
         <Rocket className="mr-2 h-4 w-4" />Criar Projeto
       </Button>
       {submitError && <p className="text-sm text-destructive">Falha ao criar: {submitError}</p>}
-      {results && (
-        <div className="space-y-2 rounded-md border p-3">
-          <p className="text-sm font-medium">Projetos:</p>
-          {results.map((p) => {
-            const projectInfo = allProjects?.find((proj) => proj.id === p.project_id);
-            const projectName = projectInfo?.name || p.solution_type;
-            return (
-              <div key={p.project_id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span>
-                  <Badge variant="outline" className="mr-2">{p.solution_type}</Badge>
-                  <Link to={`/projects/${p.project_id}`} className="text-primary hover:underline">
-                    {projectName}
-                  </Link>
-                  {" "}({p.scope_items_created} itens de escopo, {p.tasks_created} tasks)
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm" variant="outline" disabled={sync.isPending}
-                    onClick={() => sync.mutate({ conceptId, projectId: p.project_id })}
-                  >
-                    {sync.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                    Sincronizar docs para o repositório
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    title={t("developmentRequests.delete")}
-                    onClick={() => handleDeleteProject(p.project_id, projectName)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-          {sync.isSuccess && (
-            <p className="text-xs text-muted-foreground">
-              Gravado: {sync.data.files_written.join(", ") || "(nenhum documento gerado ainda)"}
-            </p>
-          )}
-        </div>
-      )}
       <ConfirmDialog
         open={pendingDeleteProject !== null}
         title={`Excluir projeto "${pendingDeleteProject?.name ?? ""}"?`}
@@ -972,7 +985,8 @@ export default function ConceptionPage() {
           <section className="space-y-4 border-t pt-8">
             <h3 className="text-sm font-semibold">{t("wizard.steps.delivery")}</h3>
             <ProjectPlanningPanel
-              conceptId={concept.data?.concept.id} conceptStatus={concept.data?.concept.status}
+              productId={concept.data?.concept.product_id}
+              conceptId={concept.data?.concept.id}
               workingDirectoryPath={form.working_directory_path}
             />
           </section>

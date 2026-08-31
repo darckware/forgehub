@@ -197,7 +197,16 @@ export function useDecideConcept() {
   });
 }
 export interface DeliveryPlanningProjectSpec {
-  solution_type: "web_app" | "mobile_app" | "api_service" | "database" | "deploy";
+  solution_type:
+    | "web_app"
+    | "mobile_app"
+    | "api_service"
+    | "database"
+    | "deploy"
+    | "automation"
+    | "data_migration"
+    | "data_analysis"
+    | "reporting";
   project_name: string;
   project_description?: string;
   owner?: string;

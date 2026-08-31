@@ -306,7 +306,17 @@ class ProjectSpec(BaseModel):
     Concept approval can produce one Project per application type (2026-08-01
     decision, see docs/architecture/PLANNING_DELIVERY_ARCHITECTURE.md section
     2.2's note and docs/modules/01_CONCEPTION_AND_SYSTEM_SCOPE.md)."""
-    solution_type: Literal["web_app", "mobile_app", "api_service", "database", "deploy"]
+    solution_type: Literal[
+        "web_app",
+        "mobile_app",
+        "api_service",
+        "database",
+        "deploy",
+        "automation",
+        "data_migration",
+        "data_analysis",
+        "reporting",
+    ]
     project_name: str = Field(min_length=1, max_length=255)
     project_description: str | None = None
     owner: str | None = Field(default=None, max_length=255)

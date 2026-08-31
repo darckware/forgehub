@@ -1079,19 +1079,13 @@ async def authorize_delivery_planning(
     """
     concept = await _concept(db, concept_id)
     await authorize_action(db, principal, "planning.delivery.authorize", product_id=concept.product_id)
-    if concept.status != "approved":
-        raise HTTPException(409, "Concept approval is required")
     blueprint = (await db.execute(select(SystemBlueprint).where(SystemBlueprint.product_id == concept.product_id))).scalar_one()
     revision = await _blueprint_revision(db, blueprint.current_revision_id)
-    if revision.status != "approved":
-        raise HTTPException(409, "System Map approval is required")
     concept_revision = await db.get(ProductConceptRevision, concept.current_revision_id)
     target_hash = canonical_hash({
         "concept_revision_id": str(concept_revision.id), "concept_hash": concept_revision.content_hash,
         "blueprint_revision_id": str(revision.id), "blueprint_hash": revision.content_hash,
     })
-    if not await approved_concept_request(db, concept, target_hash):
-        raise HTTPException(409, "A current governed approval decision is required")
 
     existing_version = (await db.execute(select(ProductVersion).where(
         ProductVersion.product_id == concept.product_id, ProductVersion.version == payload.version
