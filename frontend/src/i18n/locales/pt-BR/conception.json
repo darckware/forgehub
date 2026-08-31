@@ -65,9 +65,20 @@
       "technology": "Tecnologia",
       "layers": {
         "frontend": "Frontend",
+        "mobile": "Mobile",
         "backend": "Backend",
-        "database": "Banco de dados",
-        "deploy_infra": "Deploy / infraestrutura"
+        "database": "Database",
+        "cache": "Cache",
+        "messaging": "Messaging / Event Bus",
+        "auth": "Authentication / Identity",
+        "storage": "Storage",
+        "search": "Search",
+        "api_gateway": "API / Gateway",
+        "deploy_infra": "Deploy / Infrastructure",
+        "cicd": "CI/CD",
+        "observability": "Observability",
+        "testing": "Testing",
+        "documentation": "Documentation"
       },
       "platforms": {
         "web_app": "Web app",

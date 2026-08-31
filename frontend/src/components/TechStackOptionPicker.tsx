@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
-  TECH_STACK_PLATFORMS, useCreateTechStackOption, useTechStackOptions, type TechStackLayer,
+  useCreateTechStackOption, useTechStackOptions, type TechStackLayer,
 } from "@/hooks/useSystemScope";
 
 const ADD_NEW_VALUE = "__add_new__";
@@ -73,39 +73,16 @@ export function TechStackOptionPicker({
     );
   }
 
-  // "frontend" mixes several scenarios/toolchains (React+Vite next to plain
-  // HTML/CSS next to React Native+Expo) -- split into optgroups there so
-  // picking doesn't require reading every option's name to tell which
-  // scenario it targets (2026-08-16, Marcelo: "faltou para mobile", then
-  // "web app, landing page, site institucional, PWA, mobile"). Every other
-  // layer has no such split. An unclassified option (platform=null) falls
-  // into web_app, the org's own default recommendation.
-  const groupedByPlatform = layer === "frontend"
-    ? TECH_STACK_PLATFORMS.map((platform) => ({
-        platform,
-        options: list.filter((option) =>
-          platform === "web_app"
-            ? option.platform !== "landing_page" && option.platform !== "institutional_site"
-              && option.platform !== "pwa" && option.platform !== "mobile"
-            : option.platform === platform
-        ),
-      })).filter((group) => group.options.length > 0)
-    : [];
-
   return (
     <div className="space-y-1">
       <Select value={value} onChange={(e) => handleSelectChange(e.target.value)}>
         <option value="" disabled>{t("wizard.stack.selectPlaceholder")}</option>
         {currentIsUnlisted && <option value={value}>{value}</option>}
-        {layer === "frontend" ? (
-          groupedByPlatform.map((group) => (
-            <optgroup key={group.platform} label={t(`wizard.stack.platforms.${group.platform}`)}>
-              {group.options.map((option) => <option key={option.id} value={option.name}>{option.name}</option>)}
-            </optgroup>
-          ))
-        ) : (
-          list.map((option) => <option key={option.id} value={option.name}>{option.name}</option>)
-        )}
+        {list.map((option) => (
+          <option key={option.id} value={option.name}>
+            {option.name}
+          </option>
+        ))}
         <option value={ADD_NEW_VALUE}>{`+ ${t("wizard.stack.addNewOption")}`}</option>
       </Select>
       {selectedDescription && <p className="text-xs text-muted-foreground">{selectedDescription}</p>}

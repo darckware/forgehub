@@ -779,12 +779,16 @@ async def test_tech_stack_options_catalog(client: AsyncClient):
     assert all(row["platform"] is None for row in listed.json())  # not a frontend layer
 
     frontend = await client.get("/api/v1/tech-stack-options", params={"layer": "frontend"})
-    frontend_by_name = {row["name"]: row["platform"] for row in frontend.json()}
-    assert frontend_by_name["React Native + Expo + Tamagui"] == "mobile"
-    assert frontend_by_name["React + TypeScript + Vite + Tailwind CSS + shadcn/ui"] == "web_app"
-    assert frontend_by_name["Next.js + TypeScript + Tailwind CSS + shadcn/ui"] == "institutional_site"
-    assert frontend_by_name["HTML + CSS + JS puro"] == "landing_page"
-    assert frontend_by_name["React + TypeScript + Vite + Tailwind CSS + shadcn/ui + vite-plugin-pwa"] == "pwa"
+    frontend_names = {row["name"] for row in frontend.json()}
+    assert "React + TypeScript + Vite + Tailwind CSS + shadcn/ui" in frontend_names
+    assert "Next.js + TypeScript + Tailwind CSS + shadcn/ui" in frontend_names
+    assert "Vue 3 + TypeScript + Vite + Tailwind CSS" in frontend_names
+    assert "HTML + CSS + JavaScript" in frontend_names
+
+    mobile = await client.get("/api/v1/tech-stack-options", params={"layer": "mobile"})
+    mobile_names = {row["name"] for row in mobile.json()}
+    assert "React Native + Expo + TypeScript + NativeWind" in mobile_names
+    assert "Flutter + Dart" in mobile_names
 
     option_name = f"Custom DB {uuid.uuid4().hex[:8]}"
     try:

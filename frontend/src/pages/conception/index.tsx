@@ -35,8 +35,7 @@ import {
   useReviseConcept,
   useSaveConceptDocument,
   useSyncArtifactsToProject,
-  TECH_STACK_PLATFORMS,
-  useTechStackOptions,
+  useAllTechStackOptions,
   useUpdateConceptDeliveryMetadata,
   useUpdateDevelopmentRequest,
   useUploadConceptDocument,
@@ -68,7 +67,23 @@ const PROJECT_DESCRIPTION_MAX = 4000;
 // technology in the same layer (e.g. two backends) -- so the form is a
 // free add/remove list rather than four hardcoded slots (2026-08-15,
 // Marcelo: "nem todo pipeline seria usado esse padrão").
-const TECH_STACK_LAYERS: TechStackLayer[] = ["frontend", "backend", "database", "deploy_infra"];
+const TECH_STACK_LAYERS: TechStackLayer[] = [
+  "frontend",
+  "mobile",
+  "backend",
+  "database",
+  "cache",
+  "messaging",
+  "auth",
+  "storage",
+  "search",
+  "api_gateway",
+  "deploy_infra",
+  "cicd",
+  "observability",
+  "testing",
+  "documentation",
+];
 
 interface TechStackEntry { key: string; layer: TechStackLayer; decision: string; rationale: string }
 
@@ -565,12 +580,7 @@ export default function ConceptionPage() {
   // per layer, browsable before deciding what to add. One hook call per
   // fixed layer (rules of hooks -- TECH_STACK_LAYERS can't be .map()ed here).
   const [catalogOpen, setCatalogOpen] = useState(false);
-  const catalogByLayer: Record<TechStackLayer, ReturnType<typeof useTechStackOptions>> = {
-    frontend: useTechStackOptions("frontend"),
-    backend: useTechStackOptions("backend"),
-    database: useTechStackOptions("database"),
-    deploy_infra: useTechStackOptions("deploy_infra"),
-  };
+  const allTechOptions = useAllTechStackOptions();
   const [view, setView] = useState<"list" | "form">("list");
   const [pendingDelete, setPendingDelete] = useState<{ productId: string; title: string } | null>(null);
   const [editingRequest, setEditingRequest] = useState<DevelopmentRequest | null>(null);
@@ -871,32 +881,24 @@ export default function ConceptionPage() {
                  * landing page, site institucional, PWA, mobile"). An
                  * unclassified frontend option (platform=null) defaults into
                  * web_app, the org's own default recommendation. */}
-                {[
-                  ...TECH_STACK_PLATFORMS.map((platform) => ({
-                    key: `frontend-${platform}`,
-                    label: t(`wizard.stack.platforms.${platform}`),
-                    options: (catalogByLayer.frontend.data ?? []).filter((o) =>
-                      platform === "web_app" ? o.platform !== "landing_page" && o.platform !== "institutional_site" && o.platform !== "pwa" && o.platform !== "mobile" : o.platform === platform
-                    ),
-                  })),
-                  { key: "backend", label: t("wizard.stack.layers.backend"), options: catalogByLayer.backend.data ?? [] },
-                  { key: "database", label: t("wizard.stack.layers.database"), options: catalogByLayer.database.data ?? [] },
-                  { key: "deploy_infra", label: t("wizard.stack.layers.deploy_infra"), options: catalogByLayer.deploy_infra.data ?? [] },
-                ].map((group) => (
-                  <div key={group.key} className="space-y-1.5">
-                    <p className="text-xs font-semibold">{group.label}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {group.options.map((option) => (
-                        <Badge key={option.id} variant="outline" className="font-normal" title={option.description ?? undefined}>
-                          {option.name}
-                        </Badge>
-                      ))}
-                      {group.options.length === 0 && (
-                        <span className="text-xs text-muted-foreground">{t("wizard.stack.catalogEmpty")}</span>
-                      )}
+                {TECH_STACK_LAYERS.map((layer) => {
+                  const options = (allTechOptions.data ?? []).filter((o) => o.layer === layer);
+                  return (
+                    <div key={layer} className="space-y-1.5">
+                      <p className="text-xs font-semibold">{t(`wizard.stack.layers.${layer}`)}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {options.map((option) => (
+                          <Badge key={option.id} variant="outline" className="font-normal" title={option.description ?? undefined}>
+                            {option.name}
+                          </Badge>
+                        ))}
+                        {options.length === 0 && (
+                          <span className="text-xs text-muted-foreground">{t("wizard.stack.catalogEmpty")}</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             {techStack.length === 0 && (

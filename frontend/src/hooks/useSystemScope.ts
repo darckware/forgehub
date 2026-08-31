@@ -5,7 +5,22 @@ export interface DevelopmentRequest {
   id: string; product_id: string; title: string; description: string;
   requested_by: string | null; priority: string; status: string; created_at: string;
 }
-export type TechStackLayer = "frontend" | "backend" | "database" | "deploy_infra";
+export type TechStackLayer =
+  | "frontend"
+  | "mobile"
+  | "backend"
+  | "database"
+  | "cache"
+  | "messaging"
+  | "auth"
+  | "storage"
+  | "search"
+  | "api_gateway"
+  | "deploy_infra"
+  | "cicd"
+  | "observability"
+  | "testing"
+  | "documentation";
 export interface TechStackDecision {
   layer: TechStackLayer; decision: string; rationale: string | null;
 }
@@ -59,10 +74,16 @@ export interface TechStackOption {
 export const TECH_STACK_PLATFORMS = ["web_app", "landing_page", "institutional_site", "pwa", "mobile"] as const;
 export type TechStackPlatform = (typeof TECH_STACK_PLATFORMS)[number];
 
-export function useTechStackOptions(layer: TechStackLayer) {
+export function useTechStackOptions(layer?: TechStackLayer) {
   return useQuery({
-    queryKey: ["tech-stack-options", layer],
-    queryFn: () => apiClient.get<TechStackOption[]>(`/api/v1/tech-stack-options?layer=${layer}`),
+    queryKey: ["tech-stack-options", layer ?? "all"],
+    queryFn: () => apiClient.get<TechStackOption[]>(layer ? `/api/v1/tech-stack-options?layer=${layer}` : "/api/v1/tech-stack-options"),
+  });
+}
+export function useAllTechStackOptions() {
+  return useQuery({
+    queryKey: ["tech-stack-options", "all"],
+    queryFn: () => apiClient.get<TechStackOption[]>("/api/v1/tech-stack-options"),
   });
 }
 export function useCreateTechStackOption() {

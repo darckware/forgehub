@@ -9,15 +9,34 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 JsonValue = dict[str, Any] | list[Any]
 
 
+TechStackLayer = Literal[
+    "frontend",
+    "mobile",
+    "backend",
+    "database",
+    "cache",
+    "messaging",
+    "auth",
+    "storage",
+    "search",
+    "api_gateway",
+    "deploy_infra",
+    "cicd",
+    "observability",
+    "testing",
+    "documentation",
+]
+
+
 class TechStackDecision(BaseModel):
-    layer: Literal["frontend", "backend", "database", "deploy_infra"]
+    layer: TechStackLayer
     decision: str = Field(min_length=1, max_length=255)
     rationale: str | None = None
 
 
 class TechStackOptionOut(BaseModel):
     id: uuid.UUID
-    layer: Literal["frontend", "backend", "database", "deploy_infra"]
+    layer: TechStackLayer
     name: str
     description: str | None
     source: Literal["org_standard", "custom"]
@@ -29,7 +48,7 @@ class TechStackOptionOut(BaseModel):
 
 
 class TechStackOptionCreate(BaseModel):
-    layer: Literal["frontend", "backend", "database", "deploy_infra"]
+    layer: TechStackLayer
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     platform: Literal["web_app", "landing_page", "institutional_site", "pwa", "mobile"] | None = None

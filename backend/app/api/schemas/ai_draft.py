@@ -30,8 +30,24 @@ class AiDraftRequest(BaseModel):
 
 
 class TechStackDraftItem(BaseModel):
-    layer: Literal["frontend", "backend", "database", "deploy_infra"]
-    # Nullable on purpose: an agent asked for all 4 layers legitimately has
+    layer: Literal[
+        "frontend",
+        "mobile",
+        "backend",
+        "database",
+        "cache",
+        "messaging",
+        "auth",
+        "storage",
+        "search",
+        "api_gateway",
+        "deploy_infra",
+        "cicd",
+        "observability",
+        "testing",
+        "documentation",
+    ]
+    # Nullable on purpose: an agent asked for all layers legitimately has
     # no opinion for some (e.g. a headless automation has nothing to say
     # about "frontend") -- observed in practice returning decision=null
     # rather than omitting the layer entirely. The caller (apply step) skips
