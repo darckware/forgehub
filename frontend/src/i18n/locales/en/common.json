@@ -52,7 +52,7 @@
     "databaseQuery": "Query",
     "users": "Users",
     "accessProfiles": "Access Profiles",
-    "cockpit": "6. Execution Cockpit",
+    "cockpit": "0. Execution Cockpit",
     "conception": "1. Conception & Context",
     "systemMap": "System Map",
     "projectCenter": "4. Project Center & Backlog",
@@ -63,7 +63,7 @@
     "screenInspector": "2. Screens & Business Rules",
     "screenRules": "Screen Context Rules",
     "systemsHub": "Systems Hub",
-    "versionClosure": "7. Version Closure"
+    "versionClosure": "6. Version Closure"
   },
   "sidebar": {
     "search": "Search",

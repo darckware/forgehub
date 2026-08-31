@@ -52,7 +52,7 @@
     "databaseQuery": "Consulta",
     "users": "Usuários",
     "accessProfiles": "Perfis de Acesso",
-    "cockpit": "6. Cockpit de Execução",
+    "cockpit": "0. Cockpit de Execução",
     "conception": "1. Concepção & Contexto",
     "systemMap": "Mapa do Sistema",
     "projectCenter": "4. Central de Projetos & Backlog",
@@ -63,7 +63,7 @@
     "screenInspector": "2. Telas & Regras de Negócio",
     "screenRules": "Regras de Contexto por Tela",
     "systemsHub": "Central de Sistemas",
-    "versionClosure": "7. Fechamento de Versão"
+    "versionClosure": "6. Fechamento de Versão"
   },
   "sidebar": {
     "search": "Buscar",

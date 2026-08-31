@@ -72,20 +72,21 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     labelKey: "nav.section.factory2",
     entries: [
-      // Pipeline Sequencial da Software Factory (1 a 7):
+      // Monitoramento da Software Factory:
+      // 0. Cockpit de Execução
+      // Pipeline Sequencial da Software Factory (1 a 6):
       // 1. Concepção & Contexto
       // 2. Telas & Regras de Negócio
       // 3. Banco de Dados & ERD
       // 4. Central de Projetos & Backlog
       // 5. Gate de Governança
-      // 6. Cockpit de Execução
-      // 7. Fechamento de Versão
+      // 6. Fechamento de Versão
+      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
       { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
       { type: "link", to: "/concept-erd", labelKey: "nav.conceptDatabaseDiagram", icon: Share2, module: "database" },
       { type: "link", to: "/projects", labelKey: "nav.projectCenter", icon: FolderKanban, module: "projects" },
       { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance" },
-      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/version-closure", labelKey: "nav.versionClosure", icon: CheckCircle2, module: "product" },
     ],
   },
