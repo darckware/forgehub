@@ -1,7 +1,7 @@
 import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
-import { Database, FolderKanban } from "lucide-react";
+import { Database, FolderKanban, Lightbulb } from "lucide-react";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import type { ActivityAgent, ActivityProject, ActivityResource } from "@/hooks/useAgentActivity";
+import type { ActivityAgent, ActivityContext, ActivityProject, ActivityResource } from "@/hooks/useAgentActivity";
 import type { ActivityGraphNode } from "@/hooks/useAgentActivityViewModel";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,7 @@ const AVAILABILITY_CLASS: Record<ActivityAgent["availability"], string> = {
 interface TopologyNodeProps {
   node: ActivityGraphNode;
   agent?: ActivityAgent;
+  conception?: ActivityContext;
   project?: ActivityProject;
   resource?: ActivityResource;
   selected: boolean;
@@ -39,6 +40,7 @@ function IconFrame({ children }: { children: ReactNode }) {
 export function TopologyNode({
   node,
   agent,
+  conception,
   project,
   resource,
   selected,
@@ -75,6 +77,8 @@ export function TopologyNode({
             size="sm"
             className={AVAILABILITY_CLASS[agent.availability]}
           />
+        ) : conception ? (
+          <IconFrame><Lightbulb className="h-4 w-4" aria-hidden="true" /></IconFrame>
         ) : project ? (
           <IconFrame><FolderKanban className="h-4 w-4" aria-hidden="true" /></IconFrame>
         ) : (
@@ -83,7 +87,7 @@ export function TopologyNode({
         <span className="min-w-0">
           <span className="block truncate text-xs font-medium">{node.label}</span>
           <span className="block truncate font-mono text-[9px] text-muted-foreground">
-            {agent?.runtime_type ?? project?.status ?? resource?.detail ?? statusLabel}
+            {agent?.runtime_type ?? conception?.status ?? project?.status ?? resource?.detail ?? statusLabel}
           </span>
         </span>
       </span>

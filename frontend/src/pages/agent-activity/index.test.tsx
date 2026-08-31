@@ -130,6 +130,7 @@ export const ACTIVITY_FIXTURE: AgentActivity = {
       profile_summary: { ...PROFILE, runtime_native: false },
     },
   ],
+  contexts: [],
   projects: [
     {
       id: IDS.project,
@@ -282,6 +283,7 @@ function renderPage(activity: AgentActivity = ACTIVITY_FIXTURE) {
 
 describe("AgentActivityPage", () => {
   beforeEach(async () => {
+    localStorage.clear();
     hookMocks.useAgentActivity.mockReset();
     hookMocks.mutateAsync.mockReset();
     hookMocks.useReducedMotion.mockReset();
@@ -331,6 +333,7 @@ describe("AgentActivityPage", () => {
       "href",
       `/demands?message=${IDS.message}`,
     );
+    fireEvent.click(screen.getByRole("tab", { name: /Histórico/i }));
     const timeline = screen.getByRole("region", { name: /timeline de continuidade/i });
     expect(within(timeline).getByRole("link", { name: /CP-771/i })).toHaveAttribute(
       "href",
@@ -441,6 +444,7 @@ describe("AgentActivityPage", () => {
       ],
     });
 
+    fireEvent.click(screen.getByRole("tab", { name: /Histórico/i }));
     const timeline = screen.getByRole("region", { name: /timeline de continuidade/i });
     expect(within(timeline).getAllByRole("link").map((link) => link.textContent)).toEqual([
       expect.stringContaining("Evento anterior"),
@@ -451,6 +455,7 @@ describe("AgentActivityPage", () => {
   it("announces timeline records related to the selected agent without relying on color", () => {
     renderPage();
 
+    fireEvent.click(screen.getByRole("tab", { name: /Histórico/i }));
     const timeline = screen.getByRole("region", { name: /timeline de continuidade/i });
     expect(within(timeline).getByRole("link", { name: /CP-771.*agente selecionado/i })).toBeVisible();
   });
@@ -507,6 +512,56 @@ describe("AgentActivityPage", () => {
     expect(screen.getByRole("region", { name: /topologia operacional/i })).toHaveTextContent(
       /nenhum trabalho ativo/i,
     );
+  });
+
+  it("renders a pre-project conception and switches between current flow and history", () => {
+    const conceptId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const conceptionActivity = {
+      ...ACTIVITY_FIXTURE,
+      project_id: null,
+      projects: [],
+      contexts: [{
+        context_kind: "conception",
+        context_id: conceptId,
+        product_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        product_name: "ForgeHub",
+        development_request_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        concept_id: conceptId,
+        concept_revision_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        project_id: null,
+        project_name: null,
+        working_directory_path: "/root/project/forgehub",
+        title: "Agent Activity continuity",
+        status: "in_review",
+        canonical_path: "/conception",
+        created_at: "2026-08-30T12:00:00Z",
+        updated_at: "2026-08-30T12:00:00Z",
+      }],
+      flow_items: [{
+        ...ACTIVITY_FIXTURE.flow_items[0],
+        key: `product_concept:${conceptId}`,
+        context_kind: "conception",
+        context_id: conceptId,
+        product_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        concept_id: conceptId,
+        concept_revision_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        source_type: "product_concept",
+        source_id: conceptId,
+        source_status: "in_review",
+        title: "Agent Activity continuity",
+        stage: "attention",
+        project_id: null,
+      }],
+    } as AgentActivity;
+
+    renderPage(conceptionActivity);
+
+    expect(screen.getByRole("button", { name: /Agent Activity continuity.*Concepção.*in_review/i })).toBeVisible();
+    const flowPanel = screen.getByRole("tabpanel", { name: /Fluxo atual/i });
+    expect(flowPanel).toHaveTextContent("Agent Activity continuity");
+    expect(flowPanel).toHaveTextContent("Concepção");
+    fireEvent.click(screen.getByRole("tab", { name: /Histórico/i }));
+    expect(screen.getByRole("tabpanel", { name: /Histórico/i })).toBeVisible();
   });
 
   it("distinguishes request failure from optional source degradation", () => {

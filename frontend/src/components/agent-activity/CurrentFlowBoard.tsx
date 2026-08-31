@@ -64,7 +64,9 @@ export function CurrentFlowBoard({ items }: { items: ActivityFlowItem[] }) {
                               {stage === "attention" && <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" aria-hidden="true" />}
                             </span>
                             <span className="mt-1.5 block truncate font-mono text-[9px] text-muted-foreground">
-                              {item.source_type} · {item.source_status}
+                              {item.context_kind === "conception"
+                                ? t("topology.objectType.conception")
+                                : item.source_type} · {item.source_status}
                             </span>
                             <span className="mt-1 block font-mono text-[9px] text-muted-foreground">
                               {new Intl.DateTimeFormat(i18n.language, { hour: "2-digit", minute: "2-digit" }).format(new Date(item.updated_at))}

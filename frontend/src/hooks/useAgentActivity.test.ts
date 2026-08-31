@@ -25,6 +25,10 @@ const IDS = {
   message: "77777777-7777-4777-8777-777777777777",
   incidentSource: "88888888-8888-4888-8888-888888888888",
   notification: "99999999-9999-4999-8999-999999999999",
+  product: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+  request: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+  concept: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3",
+  conceptRevision: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4",
 };
 
 const AT = "2026-08-29T12:00:00Z";
@@ -180,6 +184,7 @@ const ACTIVITY = {
   generated_at: AT,
   project_id: IDS.project,
   agents: AGENTS,
+  contexts: [],
   projects: [
     {
       id: IDS.project,
@@ -302,6 +307,37 @@ describe("agent activity schemas", () => {
     expect(() => agentActivitySchema.parse({
       ...ACTIVITY,
       flow_items: [{ ...ACTIVITY.flow_items[0], stage: "mystery" }],
+    })).toThrow();
+  });
+
+  it("accepts a canonical conception without a project and rejects unknown context kinds", () => {
+    const context = {
+      context_kind: "conception",
+      context_id: IDS.concept,
+      product_id: IDS.product,
+      product_name: "ForgeHub",
+      development_request_id: IDS.request,
+      concept_id: IDS.concept,
+      concept_revision_id: IDS.conceptRevision,
+      project_id: null,
+      project_name: null,
+      working_directory_path: "/root/project/forgehub",
+      title: "Agent Activity continuity",
+      status: "in_review",
+      canonical_path: `/conception?request=${IDS.request}`,
+      created_at: AT,
+      updated_at: AT,
+    };
+
+    const parsed = agentActivitySchema.parse({ ...ACTIVITY, project_id: null, contexts: [context] });
+    expect(parsed.contexts[0]).toMatchObject({
+      context_kind: "conception",
+      concept_id: IDS.concept,
+      project_id: null,
+    });
+    expect(() => agentActivitySchema.parse({
+      ...ACTIVITY,
+      contexts: [{ ...context, context_kind: "workspace" }],
     })).toThrow();
   });
 });

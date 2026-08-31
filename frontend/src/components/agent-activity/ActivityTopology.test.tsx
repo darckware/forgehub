@@ -4,6 +4,7 @@ import "@/i18n";
 import i18n from "@/i18n";
 import type {
   ActivityAgent,
+  ActivityContext,
   ActivityMessageEdge,
   ActivityProject,
   ActivityResource,
@@ -141,6 +142,63 @@ describe("ActivityTopology", () => {
 
     expect(screen.getByRole("link", { name: /open software factory context: conception/i }))
       .toHaveAttribute("href", `/conception?request=${REQUEST_ID}`);
+  });
+
+  it("shows one conception transitioning into every linked delivery project", () => {
+    const conceptId = "66666666-6666-4666-8666-666666666666";
+    const secondProjectId = "77777777-7777-4777-8777-777777777777";
+    const contexts = [
+      {
+        context_kind: "conception",
+        context_id: conceptId,
+        product_id: "55555555-5555-4555-8555-555555555555",
+        product_name: "ForgeHub",
+        development_request_id: REQUEST_ID,
+        concept_id: conceptId,
+        concept_revision_id: "88888888-8888-4888-8888-888888888888",
+        project_id: null,
+        project_name: null,
+        working_directory_path: "/root/project/forgehub",
+        title: "Agent Activity continuity",
+        status: "approved",
+        canonical_path: `/conception?request=${REQUEST_ID}`,
+        created_at: "2026-08-30T12:00:00Z",
+        updated_at: "2026-08-30T12:00:00Z",
+      },
+    ] satisfies ActivityContext[];
+    const deliveryProjects = [
+      ...projects,
+      { id: secondProjectId, name: "ForgeRouter", status: "active", canonical_path: `/projects/${secondProjectId}` },
+    ] satisfies ActivityProject[];
+    const transitions = deliveryProjects.map((project) => ({
+      key: `transition:${conceptId}:${project.id}`,
+      kind: "transition" as const,
+      from_type: "conception" as const,
+      from_id: conceptId,
+      to_type: "project" as const,
+      to_id: project.id,
+      label: "Transitioned to delivery",
+    }));
+
+    render(
+      <ActivityTopology
+        agents={[]}
+        contexts={contexts}
+        projects={deliveryProjects}
+        resources={[]}
+        relations={transitions}
+        edges={[]}
+        projectScopeId={null}
+        selectedAgentId={null}
+        onSelectAgent={vi.fn()}
+        onOpenMessage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Agent Activity continuity.*conception.*approved/i })).toBeVisible();
+    const relationList = screen.getByRole("list", { name: /topology relationships/i });
+    expect(within(relationList).getByText(/Agent Activity continuity.*ForgeHub.*Transitioned to delivery/i)).toBeVisible();
+    expect(within(relationList).getByText(/Agent Activity continuity.*ForgeRouter.*Transitioned to delivery/i)).toBeVisible();
   });
 
   it("moves a focused node with the keyboard and restores automatic organization", async () => {

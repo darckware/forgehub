@@ -32,6 +32,33 @@ export const activityCheckpointSchema = z.object({
 });
 export type ActivityCheckpoint = z.infer<typeof activityCheckpointSchema>;
 
+export const activityContextSchema = z.object({
+  context_kind: z.enum(["conception", "project"]),
+  context_id: uuidSchema,
+  product_id: uuidSchema,
+  product_name: z.string(),
+  development_request_id: uuidSchema.nullable(),
+  concept_id: uuidSchema.nullable(),
+  concept_revision_id: uuidSchema.nullable(),
+  project_id: uuidSchema.nullable(),
+  project_name: z.string().nullable(),
+  working_directory_path: z.string().nullable(),
+  title: z.string(),
+  status: z.string(),
+  canonical_path: z.string(),
+  created_at: timestampSchema,
+  updated_at: timestampSchema,
+});
+export type ActivityContext = z.infer<typeof activityContextSchema>;
+
+const activityContextReferenceShape = {
+  context_kind: z.enum(["conception", "project"]).nullable().optional(),
+  context_id: uuidSchema.nullable().optional(),
+  development_request_id: uuidSchema.nullable().optional(),
+  concept_id: uuidSchema.nullable().optional(),
+  concept_revision_id: uuidSchema.nullable().optional(),
+};
+
 export const activityProfileSummarySchema = z.object({
   status: z.enum(["healthy", "warning", "error", "unavailable"]),
   checked_at: timestampSchema,
@@ -60,6 +87,7 @@ export const activityCurrentWorkSchema = z.object({
   requested_by_agent_id: uuidSchema.nullable(),
   source_message_id: uuidSchema.nullable(),
   source_message_path: z.string().nullable(),
+  ...activityContextReferenceShape,
 });
 export type ActivityCurrentWork = z.infer<typeof activityCurrentWorkSchema>;
 
@@ -98,8 +126,8 @@ export type ActivityResource = z.infer<typeof activityResourceSchema>;
 
 export const activityTopologyRelationSchema = z.object({
   key: z.string(),
-  kind: z.enum(["current_work", "membership", "persistence"]),
-  from_type: z.enum(["agent", "project"]),
+  kind: z.enum(["current_work", "membership", "persistence", "transition"]),
+  from_type: z.enum(["agent", "project", "conception"]),
   from_id: z.string(),
   to_type: z.enum(["project", "resource"]),
   to_id: z.string(),
@@ -184,6 +212,7 @@ export const activityIncidentSchema = z.object({
   current_owner_agent_id: uuidSchema.nullable(),
   canonical_path: z.string().nullable(),
   related_records: z.array(activityRecordLinkSchema),
+  ...activityContextReferenceShape,
 });
 export type ActivityIncident = z.infer<typeof activityIncidentSchema>;
 
@@ -213,6 +242,7 @@ export const activityFlowItemSchema = z.object({
   project_id: uuidSchema.nullable(),
   task_id: uuidSchema.nullable(),
   execution_id: uuidSchema.nullable(),
+  ...activityContextReferenceShape,
 });
 export type ActivityFlowItem = z.infer<typeof activityFlowItemSchema>;
 
@@ -235,6 +265,7 @@ export const activityTimelineEventSchema = z.object({
   approval_id: uuidSchema.nullable(),
   notification_id: uuidSchema.nullable(),
   related_records: z.array(activityRecordLinkSchema),
+  ...activityContextReferenceShape,
 });
 export type ActivityTimelineEvent = z.infer<typeof activityTimelineEventSchema>;
 
@@ -254,6 +285,7 @@ export const agentActivitySchema = z.object({
   generated_at: timestampSchema,
   project_id: uuidSchema.nullable(),
   agents: z.array(activityAgentSchema),
+  contexts: z.array(activityContextSchema),
   projects: z.array(activityProjectSchema),
   resources: z.array(activityResourceSchema),
   topology_relations: z.array(activityTopologyRelationSchema),

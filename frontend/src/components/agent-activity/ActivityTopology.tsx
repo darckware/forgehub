@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from
 import { useTranslation } from "react-i18next";
 import type {
   ActivityAgent,
+  ActivityContext,
   ActivityMessageEdge,
   ActivityProject,
   ActivityResource,
@@ -22,6 +23,7 @@ import { useTopologyPositions } from "./useTopologyPositions";
 
 interface ActivityTopologyProps {
   agents: ActivityAgent[];
+  contexts?: ActivityContext[];
   projects: ActivityProject[];
   resources: ActivityResource[];
   relations: ActivityTopologyRelation[];
@@ -31,6 +33,8 @@ interface ActivityTopologyProps {
   onSelectAgent: (agentId: string) => void;
   onOpenMessage: (edge: ActivityMessageEdge) => void;
 }
+
+const EMPTY_CONTEXTS: ActivityContext[] = [];
 
 function handleRecordNavigation(event: React.MouseEvent<HTMLAnchorElement>, openRecord: () => void) {
   if (
@@ -59,6 +63,7 @@ interface DragState {
 
 export function ActivityTopology({
   agents,
+  contexts = EMPTY_CONTEXTS,
   projects,
   resources,
   relations,
@@ -75,18 +80,23 @@ export function ActivityTopology({
   const suppressActivationRef = useRef(false);
   const [announcement, setAnnouncement] = useState("");
   const defaultNodes = useMemo(
-    () => layoutActivityGraph(agents, projects, resources),
-    [agents, projects, resources],
+    () => layoutActivityGraph(agents, projects, resources, contexts),
+    [agents, contexts, projects, resources],
   );
   const { positions: nodes, previewMove, commitMove, organize } = useTopologyPositions(defaultNodes, projectScopeId);
 
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
+  const conceptionById = useMemo(
+    () => new Map(contexts.filter((context) => context.context_kind === "conception").map((context) => [context.context_id, context])),
+    [contexts],
+  );
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const resourceById = useMemo(() => new Map(resources.map((resource) => [resource.key, resource])), [resources]);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
 
-  const sourceLabel = (kind: "agent" | "project" | "resource", id: string) => {
+  const sourceLabel = (kind: "agent" | "conception" | "project" | "resource", id: string) => {
     if (kind === "agent") return agentById.get(id)?.name ?? id;
+    if (kind === "conception") return conceptionById.get(id)?.title ?? id;
     if (kind === "project") return projectById.get(id)?.name ?? id;
     return resourceById.get(id)?.label ?? id;
   };
@@ -212,6 +222,7 @@ export function ActivityTopology({
                     relation.kind === "current_work" && "stroke-emerald-500/75",
                     relation.kind === "membership" && "stroke-sky-500/65",
                     relation.kind === "persistence" && "stroke-muted-foreground/50",
+                    relation.kind === "transition" && "stroke-violet-500/70",
                   )} strokeDasharray={relation.kind === "membership" ? "2 2" : undefined} strokeWidth="0.45" />
                 );
               })}
@@ -227,15 +238,17 @@ export function ActivityTopology({
 
             {nodes.map((node) => {
               const agent = node.kind === "agent" ? agentById.get(node.sourceId) : undefined;
+              const conception = node.kind === "conception" ? conceptionById.get(node.sourceId) : undefined;
               const project = node.kind === "project" ? projectById.get(node.sourceId) : undefined;
               const resource = node.kind === "resource" ? resourceById.get(node.sourceId) : undefined;
-              if (!agent && !project && !resource) return null;
-              const statusLabel = agent ? t(`availability.${agent.availability}`) : project?.status ?? resource?.status ?? t("availability.unknown");
+              if (!agent && !conception && !project && !resource) return null;
+              const statusLabel = agent ? t(`availability.${agent.availability}`) : conception?.status ?? project?.status ?? resource?.status ?? t("availability.unknown");
               return (
                 <TopologyNode
                   key={node.id}
                   node={node}
                   agent={agent}
+                  conception={conception}
                   project={project}
                   resource={resource}
                   selected={Boolean(agent && agent.id === selectedAgentId)}

@@ -42,6 +42,7 @@
     "noRelationships": "No project or resource relationships recorded.",
     "objectType": {
       "agent": "agent",
+      "conception": "Conception",
       "project": "project",
       "resource": "database"
     },

@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Loader2, Radio } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ActivityTopology } from "@/components/agent-activity/ActivityTopology";
+import { ActivityViewSwitch, readActivityView, type ActivityOperationalView } from "@/components/agent-activity/ActivityViewSwitch";
 import { AgentInspector } from "@/components/agent-activity/AgentInspector";
 import { ContinuityTimeline } from "@/components/agent-activity/ContinuityTimeline";
+import { CurrentFlowBoard } from "@/components/agent-activity/CurrentFlowBoard";
 import { RequestAthosDialog } from "@/components/agent-activity/RequestAthosDialog";
 import { SeverityInbox } from "@/components/agent-activity/SeverityInbox";
 import {
@@ -52,6 +54,7 @@ export default function AgentActivityPage() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [monitoringIncident, setMonitoringIncident] = useState<ActivityIncident | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [operationalView, setOperationalView] = useState<ActivityOperationalView>(readActivityView);
 
   const data = activity.data;
   const fallbackAgentId = data?.incidents.find((incident) => incident.affected_agent_id)?.affected_agent_id
@@ -153,6 +156,7 @@ export default function AgentActivityPage() {
         ) : (
           <ActivityTopology
             agents={data?.agents ?? []}
+            contexts={data?.contexts ?? []}
             projects={data?.projects ?? []}
             resources={data?.resources ?? []}
             relations={data?.topology_relations ?? []}
@@ -173,7 +177,16 @@ export default function AgentActivityPage() {
           <AgentInspector agent={selectedAgent} onOpenRecord={openCanonicalRecord} />
         </aside>
 
-        <ContinuityTimeline events={data?.timeline ?? []} selectedAgentId={effectiveSelectedAgentId} />
+        <div className="space-y-2 lg:col-span-2">
+          <ActivityViewSwitch value={operationalView} onChange={setOperationalView} />
+          <div role="tabpanel" aria-label={t(`views.${operationalView}`)}>
+            {operationalView === "flow" ? (
+              <CurrentFlowBoard items={data?.flow_items ?? []} />
+            ) : (
+              <ContinuityTimeline events={data?.timeline ?? []} selectedAgentId={effectiveSelectedAgentId} />
+            )}
+          </div>
+        </div>
       </div>
 
       <RequestAthosDialog incident={monitoringIncident} open={dialogOpen} onOpenChange={setDialogOpen} />

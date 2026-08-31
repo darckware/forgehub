@@ -1,11 +1,12 @@
 import type {
   ActivityAgent,
+  ActivityContext,
   ActivityMessageEdge,
   ActivityProject,
   ActivityResource,
 } from "./useAgentActivity";
 
-export type ActivityGraphNodeKind = "agent" | "project" | "resource";
+export type ActivityGraphNodeKind = "agent" | "conception" | "project" | "resource";
 
 export interface GraphPosition {
   xPct: number;
@@ -63,6 +64,7 @@ export function layoutActivityGraph(
   agents: readonly ActivityAgent[],
   projects: readonly ActivityProject[],
   resources: readonly ActivityResource[],
+  contexts: readonly ActivityContext[] = [],
 ): ActivityGraphNode[] {
   const orderedAgents = [...agents]
     .sort((left, right) => left.id.localeCompare(right.id))
@@ -70,13 +72,18 @@ export function layoutActivityGraph(
   const orderedProjects = [...projects]
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((project) => ({ sourceId: project.id, label: project.name }));
+  const orderedConceptions = contexts
+    .filter((context) => context.context_kind === "conception")
+    .sort((left, right) => left.context_id.localeCompare(right.context_id))
+    .map((context) => ({ sourceId: context.context_id, label: context.title }));
   const orderedResources = [...resources]
     .sort((left, right) => left.key.localeCompare(right.key))
     .map((resource) => ({ sourceId: resource.key, label: resource.label }));
 
   return [
-    ...layoutBand(orderedAgents, "agent", 12, 44),
-    ...layoutBand(orderedProjects, "project", 54, 72),
+    ...layoutBand(orderedAgents, "agent", 10, 34),
+    ...layoutBand(orderedConceptions, "conception", 43, 53),
+    ...layoutBand(orderedProjects, "project", 62, 74),
     ...layoutBand(orderedResources, "resource", 82, 90),
   ];
 }
