@@ -135,7 +135,7 @@ export function TaskAutomationCard({ taskId, projectId }: { taskId: string; proj
           <div><Label>Loop policy</Label><Select value={policyId} onChange={(event) => setPolicyId(event.target.value)}><option value="">Single execution</option>{policies.filter((p) => p.is_active).map((policy) => <option key={policy.id} value={policy.id}>{policy.name}</option>)}</Select></div>
           <div><Label>Mode</Label><Select value={mode} onChange={(event) => setMode(event.target.value)}><option value="execute">Execute/edit</option><option value="plan">Plan/read-only</option></Select></div>
         </div>
-        <div><Label>Additional governed instructions (optional)</Label><Textarea value={addendum} onChange={(event) => setAddendum(event.target.value)} placeholder="Task-specific constraints; never paste secrets." /></div>
+        <div><Label>Additional governed instructions (optional)</Label><Textarea className="resize-none" value={addendum} onChange={(event) => setAddendum(event.target.value)} placeholder="Task-specific constraints; never paste secrets." /></div>
         <Button
           disabled
         >

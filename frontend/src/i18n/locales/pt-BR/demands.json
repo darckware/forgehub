@@ -41,6 +41,8 @@
     "noAgent": "Sem agente",
     "project": "Projeto",
     "noProject": "Sem projeto",
+    "developmentRequest": "Concepção",
+    "noDevelopmentRequest": "Sem concepção vinculada",
     "originId": "ID",
     "type": "Tipo",
     "typeTaskOutgoing": "Task",

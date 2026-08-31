@@ -140,7 +140,7 @@ function ProjectServerForm({
               value={draft.argsText}
               onChange={(e) => setDraft({ ...draft, argsText: e.target.value })}
               placeholder={"-y\n@playwright/mcp@latest"}
-              className="h-20 resize-y font-mono text-xs"
+              className="h-20 resize-none font-mono text-xs"
               spellCheck={false}
             />
           </div>
@@ -165,7 +165,7 @@ function ProjectServerForm({
           value={draft.envText}
           onChange={(e) => setDraft({ ...draft, envText: e.target.value })}
           placeholder={"API_KEY=..."}
-          className="h-20 resize-y font-mono text-xs"
+          className="h-20 resize-none font-mono text-xs"
           spellCheck={false}
         />
         <p className="text-xs text-muted-foreground">{t("mcp.form.envHint")}</p>

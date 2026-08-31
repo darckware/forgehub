@@ -180,7 +180,7 @@ function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onC
             {result.ok && result.public_key && (
               <div className="space-y-1 pt-1">
                 <Label className="text-[11px]">Installed public key (saved on the server record)</Label>
-                <Textarea readOnly value={result.public_key} className="min-h-[64px] font-mono text-[10px]" />
+                <Textarea readOnly value={result.public_key} className="resize-none min-h-[64px] font-mono text-[10px]" />
               </div>
             )}
           </div>
@@ -278,7 +278,7 @@ function ImportCsvModal({ onClose }: { onClose: () => void }) {
           value={csvText}
           onChange={(e) => setCsvText(e.target.value)}
           placeholder={CSV_PLACEHOLDER}
-          className="min-h-[180px] font-mono text-xs"
+          className="resize-none min-h-[180px] font-mono text-xs"
         />
         <div className="flex items-center gap-2">
           <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handlePickFile} />

@@ -482,7 +482,7 @@ export default function VersionClosurePage() {
                   value={releaseNotes}
                   onChange={(e) => setReleaseNotes(e.target.value)}
                   placeholder="Ex: Lançamento da versão 1.0.0 contendo módulo de autenticação, relatórios gerenciais e correção de lentidão no carregamento..."
-                  className="text-xs font-mono"
+                  className="resize-none text-xs font-mono"
                 />
               </CardContent>
             </Card>

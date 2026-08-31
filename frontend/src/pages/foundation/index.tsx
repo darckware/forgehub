@@ -668,7 +668,7 @@ function ScriptFormModal({
           </div>
           <div className="space-y-1">
             <Label>{t("scriptForm.whatItDoes")}</Label>
-            <Textarea
+            <Textarea className="resize-none"
               value={draft.description}
               onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
               placeholder="Transcribes Telegram voice notes before handing them to the agent"

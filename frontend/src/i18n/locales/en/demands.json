@@ -41,6 +41,8 @@
     "noAgent": "No agent",
     "project": "Project",
     "noProject": "No project",
+    "developmentRequest": "Conception request",
+    "noDevelopmentRequest": "No linked conception",
     "originId": "ID",
     "type": "Type",
     "typeTaskOutgoing": "Task",

@@ -339,7 +339,7 @@ function SendToOutgoingForm({ demand, onDone }: { demand: Demand; onDone: () => 
         value={instructions}
         onChange={(e) => setInstructions(e.target.value)}
         placeholder={t("sendToOutgoing.instructionsPlaceholder")}
-        className="min-h-16 text-xs"
+        className="resize-none min-h-16 text-xs"
       />
       {dispatchDemand.isError && (
         <p className="text-xs text-destructive">{(dispatchDemand.error as Error)?.message}</p>

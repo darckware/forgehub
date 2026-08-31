@@ -101,7 +101,7 @@ export default function UserForm({ user, onClose }: Props) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
+    <form noValidate onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
       {!user && (
         <div className="flex flex-col gap-1">
           <Label>{t("users.form.usernameLabel")}</Label>

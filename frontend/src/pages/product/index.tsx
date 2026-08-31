@@ -81,7 +81,7 @@ function EditProductForm({ product, onClose }: EditFormProps) {
 
   return (
     <Card>
-      <form
+      <form noValidate
         onSubmit={handleSubmit((v) =>
           update.mutate({
             ...v,
@@ -104,7 +104,7 @@ function EditProductForm({ product, onClose }: EditFormProps) {
           </div>
           <div className="space-y-2">
             <Label htmlFor="edit-description">{t("editRow.descriptionLabel")}</Label>
-            <Textarea id="edit-description" rows={6} {...register("description")} />
+            <Textarea className="resize-none" id="edit-description" rows={6} {...register("description")} />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -375,7 +375,7 @@ export default function ProductPage() {
           <EditProductForm product={editingProduct} onClose={backToList} />
         ) : (
           <Card>
-            <form onSubmit={handleSubmit(onSubmit)}>
+            <form noValidate onSubmit={handleSubmit(onSubmit)}>
               <CardHeader>
                 <CardTitle>{t("list.createForm.title")}</CardTitle>
                 <CardDescription>{t("list.createForm.description")}</CardDescription>
@@ -391,7 +391,7 @@ export default function ProductPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="description">{t("list.createForm.descriptionLabel")}</Label>
-                  <Textarea
+                  <Textarea className="resize-none"
                     id="description"
                     rows={6}
                     placeholder={t("list.createForm.descriptionPlaceholder")}

@@ -53,7 +53,7 @@ export function ArtifactForm({
   });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="name">{t("form.nameLabel")}</Label>
         <Input id="name" placeholder={t("form.namePlaceholder")} {...register("name")} />
@@ -62,7 +62,7 @@ export function ArtifactForm({
 
       <div className="space-y-2">
         <Label htmlFor="description">{t("form.descriptionLabel")}</Label>
-        <Textarea
+        <Textarea className="resize-none"
           id="description"
           placeholder={t("form.descriptionPlaceholder")}
           {...register("description")}

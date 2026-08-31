@@ -1,16 +1,147 @@
 {
-  "title": "Agent Activity",
-  "subtitle": "Live view of real message exchanges between agents — every packet and glow reflects an actual ForgeHub Messages dispatch.",
-  "emptyState": "No agent-to-agent traffic yet.",
-  "openTasks": "Running tasks",
-  "dialog": {
-    "title": "Tasks in progress",
-    "empty": "No dispatched task in the current window.",
-    "status": {
-      "dispatched": "Dispatched",
-      "running": "Running",
+  "documentTitle": "Agent activity · ForgeHub",
+  "title": "Agent activity",
+  "subtitle": "Communication, execution, and continuity from Messages, checkpoints, and approvals.",
+  "liveRecords": "Live records",
+  "recordStatus": {
+    "loading": "Loading records",
+    "degraded": "Records are delayed",
+    "unavailable": "Records unavailable"
+  },
+  "updatedAt": "Updated {{value}}",
+  "availability": {
+    "available": "Available",
+    "busy": "Running",
+    "degraded": "Degraded",
+    "unavailable": "Unavailable",
+    "unknown": "Unknown"
+  },
+  "profileStatus": {
+    "healthy": "Healthy",
+    "warning": "Warning",
+    "error": "Error",
+    "unavailable": "Unavailable"
+  },
+  "states": {
+    "loading": "Loading operational activity…",
+    "empty": "No active work to display.",
+    "requestFailed": "Agent activity could not be loaded. Check the API and try again.",
+    "sourceHealth": "Source health",
+    "optionalUnavailable": "Optional source unavailable: {{source}}.",
+    "stale": "Stale data from source {{source}}."
+  },
+  "topology": {
+    "title": "Operational topology",
+    "legend": "Availability legend",
+    "organize": "Organize objects",
+    "organized": "Objects returned to the automatic layout.",
+    "movementStatus": "Topology movement",
+    "nodeMoved": "{{name}} moved.",
+    "nodeSelected": "{{name}} selected.",
+    "relationships": "Topology relationships",
+    "noRelationships": "No project or resource relationships recorded.",
+    "objectType": {
+      "agent": "agent",
+      "conception": "Conception",
+      "project": "project",
+      "resource": "database"
+    },
+    "noProject": "No current project",
+    "noTask": "No current task",
+    "messageRecords": "Messages records",
+    "openMessage": "Open message from {{from}} to {{to}}: {{subject}}",
+    "openFactoryContext": "Open Software Factory context: {{context}}",
+    "conception": "Conception",
+    "project": "Project",
+    "unknownAgent": "Unknown agent",
+    "noSubject": "No subject",
+    "noMessages": "No messages in the current window."
+  },
+  "rail": {
+    "title": "Operations rail and inspector"
+  },
+  "views": {
+    "label": "Operational view",
+    "flow": "Current flow",
+    "history": "History"
+  },
+  "flow": {
+    "title": "Current flow",
+    "subtitle": "canonical records by processing stage",
+    "empty": "No operational items in the current window.",
+    "stageEmpty": "No items",
+    "stage": {
+      "incoming": "Incoming",
+      "planning": "Planning",
+      "queued": "Queue",
+      "executing": "Execution",
+      "verifying": "Verification",
       "completed": "Completed",
-      "failed": "Failed"
+      "attention": "Attention",
+      "archived": "Archived"
     }
+  },
+  "severity": {
+    "title": "Severity inbox",
+    "empty": "No operational incidents.",
+    "requestMonitoring": "Request Athos monitoring",
+    "level": {
+      "info": "Information",
+      "warning": "Warning",
+      "error": "Error",
+      "critical": "Critical"
+    }
+  },
+  "inspector": {
+    "title": "Agent inspector",
+    "selectAgent": "Select an agent in the topology.",
+    "noProfile": "no profile",
+    "runtimeHealth": "Runtime health",
+    "currentAction": "Current action",
+    "project": "Project",
+    "execution": "Execution",
+    "branch": "Branch",
+    "workingDirectory": "Working directory",
+    "sourceTask": "Source task",
+    "sourceMessage": "Source message",
+    "waits": "Wait / dependency",
+    "checkpoint": "Latest checkpoint",
+    "resumeFrom": "Resume from",
+    "error": "Error",
+    "authorization": "Authorization",
+    "pendingAuthorization": "Authorization pending",
+    "noActiveWork": "No active work",
+    "noWaits": "No recorded waits",
+    "notRecorded": "Not recorded"
+  },
+  "timeline": {
+    "ariaLabel": "Continuity timeline",
+    "title": "Continuity history",
+    "subtitle": "synchronized records by lane",
+    "selectedAgentEvent": "related to the selected agent",
+    "empty": "No continuity events in the current window.",
+    "laneEmpty": "No events",
+    "lane": {
+      "communication": "Communication",
+      "planning": "Planning",
+      "execution": "Execution",
+      "checkpoint": "Checkpoints",
+      "governance": "Governance"
+    }
+  },
+  "monitoring": {
+    "title": "Request Athos monitoring",
+    "description": "Confirm the incident and execution before creating the Messages and Notifications records.",
+    "errorCode": "Error code",
+    "execution": "Execution",
+    "checkpoint": "Checkpoint",
+    "blocker": "Blocker",
+    "notRecorded": "Not recorded",
+    "missingExecution": "This incident has no linked execution and cannot be submitted.",
+    "cancel": "Cancel",
+    "confirm": "Confirm request",
+    "close": "Close monitoring request",
+    "failure": "Monitoring was not requested. Review the incident and try again.",
+    "success": "Monitoring request created."
   }
 }

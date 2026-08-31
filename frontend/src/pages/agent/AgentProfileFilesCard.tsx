@@ -136,7 +136,7 @@ function FilePanel({ agentId, file }: { agentId: string; file: AgentProfileFileI
         <Textarea
           value={content}
           onChange={(e) => setDraft(e.target.value)}
-          className="h-[28rem] resize-y overflow-y-auto font-mono text-xs leading-relaxed"
+          className="h-[28rem] resize-none overflow-y-auto font-mono text-xs leading-relaxed"
           placeholder={`# ${file.filename}`}
           spellCheck={false}
         />

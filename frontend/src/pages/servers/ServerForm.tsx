@@ -112,7 +112,7 @@ function KeyVaultSection({ server }: { server: Server }) {
           value={vm.pastedKey}
           onChange={(e) => vm.setPastedKey(e.target.value)}
           placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…paste a key this host doesn't have…"
-          className="min-h-[56px] font-mono text-[10px]"
+          className="resize-none min-h-[56px] font-mono text-[10px]"
           disabled={vm.isBusy}
         />
         <Button
@@ -346,7 +346,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       {/* Capped height + a single scrolling region: the header and the actions
           must stay reachable however long the form grows. */}
-      <form
+      <form noValidate
         onSubmit={handleSubmit(onSubmit)}
         className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
       >
@@ -454,14 +454,14 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
 
           <div className="space-y-1">
             <Label>Description</Label>
-            <Textarea {...register("description")} placeholder="Main application server" />
+            <Textarea className="resize-none" {...register("description")} placeholder="Main application server" />
           </div>
 
           {live?.public_key && (
             <div className="space-y-1">
               <Label>Public key (installed on the server)</Label>
               <div className="flex items-start gap-2">
-                <Textarea readOnly value={live.public_key} className="min-h-[56px] flex-1 font-mono text-[10px]" />
+                <Textarea readOnly value={live.public_key} className="resize-none min-h-[56px] flex-1 font-mono text-[10px]" />
                 <Button
                   type="button"
                   variant="outline"

@@ -630,7 +630,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                     </div>
                     <Textarea
                       rows={18}
-                      className="font-mono text-xs leading-relaxed bg-muted/20 resize-y"
+                      className="resize-none font-mono text-xs leading-relaxed bg-muted/20"
                       placeholder="<div><h1>Título da Tela</h1><p>Conteúdo...</p></div>"
                       value={prototypeHtml}
                       onChange={(e) => setPrototypeHtml(e.target.value)}
@@ -859,7 +859,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                   {mdTab === "edit" && (
                     <Textarea
                       rows={20}
-                      className="font-mono text-xs leading-relaxed bg-muted/20"
+                      className="resize-none font-mono text-xs leading-relaxed bg-muted/20"
                       placeholder="# Regras de Negócio da Tela&#10;&#10;1. Invariantes de validação...&#10;2. Permissões de acesso...&#10;3. Integrações com backend..."
                       value={ruleContent}
                       onChange={(e) => setRuleContent(e.target.value)}
@@ -882,7 +882,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                         <Label className="text-xs text-muted-foreground">Editor Markdown (.md)</Label>
                         <Textarea
                           rows={20}
-                          className="font-mono text-xs leading-relaxed bg-muted/20"
+                          className="resize-none font-mono text-xs leading-relaxed bg-muted/20"
                           placeholder="# Regras de Negócio..."
                           value={ruleContent}
                           onChange={(e) => setRuleContent(e.target.value)}

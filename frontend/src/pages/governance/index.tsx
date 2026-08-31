@@ -503,7 +503,7 @@ function ConceptApprovalRow({ request }: { request: GovernedApprovalRequest }) {
       </div>
       {isPending && (
         <div className="flex items-end gap-2">
-          <Textarea rows={1} placeholder="Comentário (opcional)" value={comments} onChange={(e) => setComments(e.target.value)} className="flex-1" />
+          <Textarea rows={1} placeholder="Comentário (opcional)" value={comments} onChange={(e) => setComments(e.target.value)} className="resize-none flex-1" />
           <Button
             size="sm" variant="outline" disabled={decide.isPending}
             onClick={() => decide.mutate({ requestId: request.id, decision: "approved", comments: comments || undefined })}

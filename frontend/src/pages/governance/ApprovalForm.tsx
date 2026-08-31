@@ -111,7 +111,7 @@ export function ApprovalForm({
   const entityType = useWatch({ control, name: "entity_type" });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="entity_type">{t("form.entityType")}</Label>
@@ -185,7 +185,7 @@ export function ApprovalForm({
 
       <div className="space-y-2">
         <Label htmlFor="comments">{t("form.comments")}</Label>
-        <Textarea
+        <Textarea className="resize-none"
           id="comments"
           placeholder={t("form.commentsPlaceholder")}
           {...register("comments")}

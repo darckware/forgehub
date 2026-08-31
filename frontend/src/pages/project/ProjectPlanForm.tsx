@@ -38,7 +38,7 @@ export function ProjectPlanForm({
   });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="plan_name">{t("projectPlanForm.nameLabel")}</Label>
         <Input id="plan_name" placeholder={t("projectPlanForm.namePlaceholder")} {...register("name")} />
@@ -47,7 +47,7 @@ export function ProjectPlanForm({
 
       <div className="space-y-2">
         <Label htmlFor="scope_summary">{t("projectPlanForm.scopeSummaryLabel")}</Label>
-        <Textarea
+        <Textarea className="resize-none"
           id="scope_summary"
           placeholder={t("projectPlanForm.scopeSummaryPlaceholder")}
           {...register("scope_summary")}

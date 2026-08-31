@@ -329,7 +329,7 @@ export function WebAppPane({ url, target: selectedTarget, products, onUrlChange,
             <span className="text-xs text-destructive">{t("webAppPane.configureApplicationUrl", { name: selectedProduct.name })}</span>
           )}
 
-          <form className="flex min-w-56 flex-1" onSubmit={(event) => { event.preventDefault(); go(draftUrl); }}>
+          <form noValidate className="flex min-w-56 flex-1" onSubmit={(event) => { event.preventDefault(); go(draftUrl); }}>
             <input
               value={draftUrl}
               aria-label={t("webAppPane.sharedBrowserUrl")}

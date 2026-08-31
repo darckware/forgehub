@@ -60,6 +60,8 @@ from app.db.models.demand import (
 )
 from app.db.models.notification import Notification
 from app.db.models.project import Project
+from app.db.models.product import ProductVersion
+from app.db.models.system_scope import DevelopmentRequest
 from app.db.models.task import ProjectTask, TaskExecution
 
 logger = logging.getLogger(__name__)
@@ -111,6 +113,35 @@ async def _get_project_or_404(db: AsyncSession, project_id: uuid.UUID) -> Projec
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+
+async def _get_development_request_or_404(
+    db: AsyncSession, request_id: uuid.UUID
+) -> DevelopmentRequest:
+    request = await db.get(DevelopmentRequest, request_id)
+    if request is None:
+        raise HTTPException(status_code=404, detail="Development request not found")
+    return request
+
+
+async def _validate_factory_context(
+    db: AsyncSession,
+    *,
+    development_request_id: uuid.UUID | None,
+    project_id: uuid.UUID | None,
+) -> None:
+    if development_request_id is None:
+        return
+    request = await _get_development_request_or_404(db, development_request_id)
+    if project_id is None:
+        return
+    project = await _get_project_or_404(db, project_id)
+    version = await db.get(ProductVersion, project.product_version_id)
+    if version is None or version.product_id != request.product_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Development request and project must belong to the same product",
+        )
 
 
 async def _find_agent_by_slug(db: AsyncSession, profile_slug: str) -> Agent | None:
@@ -300,7 +331,12 @@ def _resolve_telegram_channel_ref(agent: Agent | None, channel_ref: str | None) 
     return raw
 
 
-async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) -> AgentDemand:
+async def create_demand_and_notify(
+    db: AsyncSession,
+    payload: DemandSubmitIn,
+    *,
+    commit: bool = True,
+) -> AgentDemand:
     """Every new inbox item also surfaces in the system Notifications bell
     (source="system", not "cron") -- so arriving mail doesn't go unnoticed
     unless the user happens to have the Inbox page open. event_key is
@@ -337,6 +373,11 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
         scheduled_at = datetime.now(timezone.utc)
     if payload.project_id is not None:
         await _get_project_or_404(db, payload.project_id)
+    await _validate_factory_context(
+        db,
+        development_request_id=payload.development_request_id,
+        project_id=payload.project_id,
+    )
 
     # Meio de comunicação: o que o chamador informou, ou -- quando ninguém
     # informou -- o que o próprio pedido pede em texto ("me responda no
@@ -380,6 +421,7 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
         status=payload.status or "new",
         target_agent_id=target_agent_id,
         project_id=payload.project_id,
+        development_request_id=payload.development_request_id,
         origin_type=origin_type,
         origin_id=origin_id,
         incubation_owner_id=incubation_owner_id,
@@ -406,9 +448,11 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
         occurred_at=datetime.now(timezone.utc),
     )
     db.add(notification)
+    await db.flush()
 
-    await db.commit()
-    await db.refresh(demand)
+    if commit:
+        await db.commit()
+        await db.refresh(demand)
 
     # A Task addressed to an agent is executable work, so wake the single
     # dispatch worker immediately after the transaction becomes visible.
@@ -417,7 +461,7 @@ async def create_demand_and_notify(db: AsyncSession, payload: DemandSubmitIn) ->
     # remains only as recovery if this in-process signal is ever lost.
     due_now = scheduled_at is not None and scheduled_at <= datetime.now(timezone.utc)
     dispatchable_origin = origin_type != "incubation" or from_agent_id is not None
-    if due_now and target_agent_id is not None and dispatchable_origin:
+    if commit and due_now and target_agent_id is not None and dispatchable_origin:
         from app.core.dispatch_signal import wake_scheduled_dispatch
 
         wake_scheduled_dispatch()
@@ -820,6 +864,16 @@ async def update_demand(
         if data["project_id"] is not None:
             await _get_project_or_404(db, data["project_id"])
         demand.project_id = data["project_id"]
+    if "development_request_id" in data:
+        if data["development_request_id"] is not None:
+            await _get_development_request_or_404(db, data["development_request_id"])
+        demand.development_request_id = data["development_request_id"]
+    if "project_id" in data or "development_request_id" in data:
+        await _validate_factory_context(
+            db,
+            development_request_id=demand.development_request_id,
+            project_id=demand.project_id,
+        )
     if "subject" in data:
         demand.subject = data["subject"]
     if "body" in data:

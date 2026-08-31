@@ -1,16 +1,147 @@
 {
-  "title": "Atividade dos Agentes",
-  "subtitle": "Visão ao vivo da troca real de mensagens entre agentes — cada pacote e brilho no mapa reflete um despacho real do ForgeHub Messages.",
-  "emptyState": "Ainda não há tráfego entre agentes para exibir.",
-  "openTasks": "Tarefas em execução",
-  "dialog": {
-    "title": "Tarefas em andamento",
-    "empty": "Nenhuma tarefa despachada na janela atual.",
-    "status": {
-      "dispatched": "Despachada",
-      "running": "Em execução",
-      "completed": "Concluída",
-      "failed": "Falhou"
+  "documentTitle": "Atividade dos agentes · ForgeHub",
+  "title": "Atividade dos agentes",
+  "subtitle": "Comunicação, execução e continuidade a partir de Messages, checkpoints e approvals.",
+  "liveRecords": "Registros ao vivo",
+  "recordStatus": {
+    "loading": "Carregando registros",
+    "degraded": "Registros com defasagem",
+    "unavailable": "Registros indisponíveis"
+  },
+  "updatedAt": "Atualizado {{value}}",
+  "availability": {
+    "available": "Disponível",
+    "busy": "Executando",
+    "degraded": "Degradado",
+    "unavailable": "Indisponível",
+    "unknown": "Desconhecido"
+  },
+  "profileStatus": {
+    "healthy": "Saudável",
+    "warning": "Atenção",
+    "error": "Com erro",
+    "unavailable": "Indisponível"
+  },
+  "states": {
+    "loading": "Carregando atividade operacional…",
+    "empty": "Nenhum trabalho ativo para exibir.",
+    "requestFailed": "Não foi possível carregar a atividade dos agentes. Verifique a API e tente novamente.",
+    "sourceHealth": "Estado das fontes",
+    "optionalUnavailable": "Fonte opcional indisponível: {{source}}.",
+    "stale": "Dados desatualizados da fonte {{source}}."
+  },
+  "topology": {
+    "title": "Topologia operacional",
+    "legend": "Legenda de disponibilidade",
+    "organize": "Organizar objetos",
+    "organized": "Objetos restaurados ao layout automático.",
+    "movementStatus": "Movimentação da topologia",
+    "nodeMoved": "{{name}} foi movido.",
+    "nodeSelected": "{{name}} foi selecionado.",
+    "relationships": "Relações da topologia",
+    "noRelationships": "Nenhuma relação de projeto ou recurso registrada.",
+    "objectType": {
+      "agent": "agente",
+      "conception": "Concepção",
+      "project": "projeto",
+      "resource": "banco de dados"
+    },
+    "noProject": "Sem projeto atual",
+    "noTask": "Sem tarefa atual",
+    "messageRecords": "Registros de Messages",
+    "openMessage": "Abrir mensagem de {{from}} para {{to}}: {{subject}}",
+    "openFactoryContext": "Abrir contexto da Software Factory: {{context}}",
+    "conception": "Concepção",
+    "project": "Projeto",
+    "unknownAgent": "Agente desconhecido",
+    "noSubject": "Sem assunto",
+    "noMessages": "Nenhuma mensagem na janela atual."
+  },
+  "rail": {
+    "title": "Painel operacional e inspetor"
+  },
+  "views": {
+    "label": "Visão operacional",
+    "flow": "Fluxo atual",
+    "history": "Histórico"
+  },
+  "flow": {
+    "title": "Fluxo atual",
+    "subtitle": "registros canônicos por etapa de processamento",
+    "empty": "Nenhum item operacional na janela atual.",
+    "stageEmpty": "Sem itens",
+    "stage": {
+      "incoming": "Entrada",
+      "planning": "Planejamento",
+      "queued": "Fila",
+      "executing": "Execução",
+      "verifying": "Verificação",
+      "completed": "Concluído",
+      "attention": "Atenção",
+      "archived": "Arquivado"
     }
+  },
+  "severity": {
+    "title": "Caixa de severidade",
+    "empty": "Nenhum incidente operacional.",
+    "requestMonitoring": "Solicitar monitoramento ao Athos",
+    "level": {
+      "info": "Informação",
+      "warning": "Atenção",
+      "error": "Erro",
+      "critical": "Crítico"
+    }
+  },
+  "inspector": {
+    "title": "Inspetor do agente",
+    "selectAgent": "Selecione um agente na topologia.",
+    "noProfile": "sem perfil",
+    "runtimeHealth": "Saúde do runtime",
+    "currentAction": "Ação atual",
+    "project": "Projeto",
+    "execution": "Execução",
+    "branch": "Branch",
+    "workingDirectory": "Diretório de trabalho",
+    "sourceTask": "Tarefa de origem",
+    "sourceMessage": "Mensagem de origem",
+    "waits": "Espera / dependência",
+    "checkpoint": "Último checkpoint",
+    "resumeFrom": "Retomar de",
+    "error": "Erro",
+    "authorization": "Autorização",
+    "pendingAuthorization": "Autorização pendente",
+    "noActiveWork": "Nenhum trabalho ativo",
+    "noWaits": "Nenhuma espera registrada",
+    "notRecorded": "Não registrado"
+  },
+  "timeline": {
+    "ariaLabel": "Timeline de continuidade",
+    "title": "Histórico de continuidade",
+    "subtitle": "registros sincronizados por faixa",
+    "selectedAgentEvent": "relacionado ao agente selecionado",
+    "empty": "Nenhum evento de continuidade na janela atual.",
+    "laneEmpty": "Sem eventos",
+    "lane": {
+      "communication": "Comunicação",
+      "planning": "Planejamento",
+      "execution": "Execução",
+      "checkpoint": "Checkpoints",
+      "governance": "Governança"
+    }
+  },
+  "monitoring": {
+    "title": "Solicitar monitoramento ao Athos",
+    "description": "Confirme o incidente e a execução antes de criar os registros de Messages e Notifications.",
+    "errorCode": "Código de erro",
+    "execution": "Execução",
+    "checkpoint": "Checkpoint",
+    "blocker": "Bloqueio",
+    "notRecorded": "Não registrado",
+    "missingExecution": "Este incidente não possui uma execução vinculada e não pode ser enviado.",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar solicitação",
+    "close": "Fechar solicitação de monitoramento",
+    "failure": "O monitoramento não foi solicitado. Revise o incidente e tente novamente.",
+    "success": "Solicitação de monitoramento criada."
   }
 }

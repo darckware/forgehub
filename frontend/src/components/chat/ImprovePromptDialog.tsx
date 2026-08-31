@@ -174,7 +174,7 @@ export function ImprovePromptDialog({
               onChange={(e) => handleDraftChange(e.target.value)}
               onKeyDown={handleDraftKeyDown}
               rows={5}
-              className="min-h-[144px] max-h-[36vh] resize-y text-base"
+              className="min-h-[144px] max-h-[36vh] resize-none text-base"
             />
           </div>
 
@@ -188,7 +188,7 @@ export function ImprovePromptDialog({
               onKeyDown={handleFieldKeyDown}
               placeholder={t("composer.improvePromptInstructionPlaceholder")}
               rows={2}
-              className="text-sm"
+              className="resize-none text-sm"
             />
           </div>
 

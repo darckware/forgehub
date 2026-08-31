@@ -15,6 +15,7 @@ import {
 import { useAgents } from "@/hooks/useAgent";
 import { useProjects } from "@/hooks/useProject";
 import { useTasks } from "@/hooks/useTask";
+import { useDevelopmentRequests } from "@/hooks/useSystemScope";
 
 /** Mandatory, always one of these two (2026-07-28) -- never "none"/"demand".
  * "incubation" é trabalho estacionado: classificação, não vínculo -- nunca
@@ -147,6 +148,7 @@ export function DemandFormPanel({
   const user = useAuthStore((s) => s.user);
   const { data: agents } = useAgents();
   const { data: projects } = useProjects();
+  const { data: developmentRequests } = useDevelopmentRequests();
   // File + its caption travel together: the description is per file, so
   // keeping two parallel arrays would drift the moment one is removed.
   const [files, setFiles] = useState<{ file: File; description: string }[]>([]);
@@ -180,6 +182,9 @@ export function DemandFormPanel({
   // AgentDemand.project_id's docstring backend-side (independent of the
   // convert flow's own project picker).
   const [projectId, setProjectId] = useState(demand?.project_id ?? "");
+  const [developmentRequestId, setDevelopmentRequestId] = useState(
+    demand?.development_request_id ?? "",
+  );
   // Compose defaults to Origin=Task (the dominant case, and Origin is
   // required on compose anyway -- see handleSubmit) with Send at defaulted
   // to now (adjust it to schedule for later instead). Edit mode always
@@ -251,7 +256,7 @@ export function DemandFormPanel({
   useEffect(() => {
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetAgentId, fromAgentId, projectId, originChoice, requiresResponse, scheduledAt, subject, body]);
+  }, [targetAgentId, fromAgentId, projectId, developmentRequestId, originChoice, requiresResponse, scheduledAt, subject, body]);
 
   // Task sem De (From) nem chega a existir como opção (2026-07-28, Marcelo:
   // "se o agente não tem (to), não tem retorno. Preciso ter agente (from)
@@ -342,6 +347,7 @@ export function DemandFormPanel({
           targetAgentId: effectiveTargetAgentId || null,
           fromAgentId: fromAgentId || null,
           projectId: projectId || null,
+          developmentRequestId: developmentRequestId || null,
           originType: originChoice,
           originNumber: parsedOriginNumber,
           requiresResponse,
@@ -359,6 +365,7 @@ export function DemandFormPanel({
           body,
           targetAgentId: effectiveTargetAgentId || undefined,
           projectId: projectId || undefined,
+          developmentRequestId: developmentRequestId || undefined,
           originType: originChoice,
           originNumber: parsedOriginNumber,
           requiresResponse,
@@ -443,6 +450,17 @@ export function DemandFormPanel({
 
         <div className="flex items-end gap-2">
           <div className="flex-1 space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">{t("form.developmentRequest")}</label>
+            <Select value={developmentRequestId} onChange={(e) => setDevelopmentRequestId(e.target.value)}>
+              <option value="">{t("form.noDevelopmentRequest")}</option>
+              {(developmentRequests ?? []).map((request) => (
+                <option key={request.id} value={request.id}>
+                  {request.title}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex-1 space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t("form.project")}</label>
             <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">{t("form.noProject")}</option>
@@ -509,7 +527,7 @@ export function DemandFormPanel({
           onChange={(e) => onSubjectChange(e.target.value)}
           maxLength={255}
         />
-        <Textarea
+        <Textarea className="resize-none"
           placeholder={t("bodyPlaceholder")}
           value={body}
           onChange={(e) => onBodyChange(e.target.value)}
@@ -521,7 +539,7 @@ export function DemandFormPanel({
         {demand?.dispatch_result && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t("form.dispatchResult")}</label>
-            <Textarea disabled value={demand.dispatch_result} rows={6} />
+            <Textarea className="resize-none" disabled value={demand.dispatch_result} rows={6} />
           </div>
         )}
 

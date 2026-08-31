@@ -370,7 +370,7 @@ function AddStageForm({
         <CardTitle className="text-base">{t("detail.addStage")}</CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="stage_name">{t("detail.addStageForm.nameLabel")}</Label>

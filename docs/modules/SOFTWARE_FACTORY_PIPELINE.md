@@ -10,7 +10,7 @@ stateDiagram-v2
     Concepcao --> TelasERD: Mapeamento de Telas, Regras e Banco de Dados (ERD)
     TelasERD --> Planejamento: Criação do Backlog de Planejamento e Tarefas (1:N:N)
     Planejamento --> GovernancaGate: Submissão ao Gate de Governança
-    
+
     state GovernancaGate {
         Backlog --> EmAnalise: Triagem Técnica
         EmAnalise --> LiberadoExecucao: Homologação + Atribuição do Agente Executor

@@ -697,7 +697,7 @@ export default function ConceptErdViewerPage() {
                     {mdTab === "edit" && (
                       <Textarea
                         rows={20}
-                        className="font-mono text-xs leading-relaxed bg-muted/20"
+                        className="resize-none bg-muted/20 font-mono text-xs leading-relaxed"
                         placeholder="# Modelagem de Dados e Regras de Banco
 
 ## 1. Visão Geral do Schema
@@ -726,7 +726,7 @@ export default function ConceptErdViewerPage() {
                           <Label className="text-xs text-muted-foreground">Editor Markdown (.md)</Label>
                           <Textarea
                             rows={20}
-                            className="font-mono text-xs leading-relaxed bg-muted/20"
+                            className="resize-none bg-muted/20 font-mono text-xs leading-relaxed"
                             placeholder="# Modelagem de Dados e Regras de Banco..."
                             value={docContent}
                             onChange={(e) => setDocContent(e.target.value)}

@@ -126,4 +126,3 @@ async def set_forgerouter_cli_toggle(payload: ForgeRouterCliToggleIn) -> ForgeRo
     """Toggle global ForgeRouter configuration for a CLI tool."""
     data = await _bridge_request("PUT", "/v1/forgerouter/cli-toggle", json=payload.model_dump())
     return ForgeRouterCliToggleOut(**data)
-

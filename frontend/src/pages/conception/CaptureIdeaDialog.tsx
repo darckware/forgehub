@@ -57,7 +57,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
         onClick={() => { reset(); onClose(); }}
       />
       <div className="relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
-        <form className="p-6 space-y-4" onSubmit={handleSubmit}>
+        <form noValidate className="p-6 space-y-4" onSubmit={handleSubmit}>
           <div>
             <h2 className="text-base font-bold flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
@@ -139,7 +139,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
               placeholder="Descreva o problema a ser resolvido ou o objetivo desta abertura..."
               value={form.problem_statement}
               onChange={(e) => setForm({ ...form, problem_statement: e.target.value })}
-              className="text-xs"
+              className="resize-none text-xs"
             />
           </div>
 
@@ -152,7 +152,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
                 placeholder="Visão da solução..."
                 value={form.vision}
                 onChange={(e) => setForm({ ...form, vision: e.target.value })}
-                className="text-xs"
+                className="resize-none text-xs"
               />
             </div>
             <div>
@@ -162,7 +162,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
                 placeholder="Resumo do escopo..."
                 value={form.scope_summary}
                 onChange={(e) => setForm({ ...form, scope_summary: e.target.value })}
-                className="text-xs"
+                className="resize-none text-xs"
               />
             </div>
           </div>

@@ -77,7 +77,7 @@ export function PlanningItemForm({
   );
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="title">{t("form.titleLabel")}</Label>
         <Input id="title" placeholder={t("form.titlePlaceholder")} {...register("title")} />
@@ -86,7 +86,7 @@ export function PlanningItemForm({
 
       <div className="space-y-2">
         <Label htmlFor="description">{t("form.descriptionLabel")}</Label>
-        <Textarea
+        <Textarea className="resize-none"
           id="description"
           placeholder={t("form.descriptionPlaceholder")}
           {...register("description")}

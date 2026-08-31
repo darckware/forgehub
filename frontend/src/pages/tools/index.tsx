@@ -186,7 +186,7 @@ function ToolFormModal({
           </div>
           <div className="space-y-1">
             <Label>{t("form.whatItDoes")}</Label>
-            <Textarea
+            <Textarea className="resize-none"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               placeholder="Scans the local network and reports open ports"

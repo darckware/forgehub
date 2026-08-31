@@ -147,7 +147,7 @@ export default function ProductDetail() {
 
       {showForm && (
         <Card>
-          <form onSubmit={handleSubmit(onSubmit)}>
+          <form noValidate onSubmit={handleSubmit(onSubmit)}>
             <CardHeader>
               <CardTitle>{t("detail.createForm.title")}</CardTitle>
               <CardDescription>
@@ -176,7 +176,7 @@ export default function ProductDetail() {
 
               <div className="space-y-2">
                 <Label htmlFor="release_notes">{t("detail.createForm.releaseNotesLabel")}</Label>
-                <Textarea
+                <Textarea className="resize-none"
                   id="release_notes"
                   placeholder={t("detail.createForm.releaseNotesPlaceholder")}
                   {...register("release_notes")}

@@ -186,6 +186,7 @@ async def send_agent_message(
     requires_response: bool = False,
     scheduled_at: str | None = None,
     origin_task_number: int | None = None,
+    development_request_id: str | None = None,
     channel: str | None = None,
     channel_ref: str | None = None,
 ) -> str:
@@ -235,6 +236,9 @@ async def send_agent_message(
             omit to dispatch now.
         origin_task_number: ForgeHub task number (ProjectTask.number) this
             came from.
+        development_request_id: DevelopmentRequest UUID for a pre-project
+            Software Factory conception. The link remains valid after a
+            Project and Task are created.
 
     Prefer this over a tracked task for a direct handoff or request that
     doesn't need ownership and a lifecycle.
@@ -270,6 +274,8 @@ async def send_agent_message(
             payload["scheduled_at"] = scheduled_at or _utc_now_iso()
         if origin_task_number is not None:
             payload["origin_number"] = origin_task_number
+        if development_request_id is not None:
+            payload["development_request_id"] = development_request_id
 
         demand = await _call("POST", "/api/v1/demands/submit", json=payload)
     except ForgeHubError as exc:
@@ -1507,4 +1513,3 @@ async def execute_database_query(
 
 if __name__ == "__main__":
     mcp.run()
-

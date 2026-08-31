@@ -127,7 +127,7 @@ function CommandFormModal({
               id="command-prompt"
               value={draft.prompt}
               onChange={(e) => setDraft((d) => ({ ...d, prompt: e.target.value }))}
-              className="min-h-[320px] font-mono text-xs"
+              className="resize-none min-h-[320px] font-mono text-xs"
               placeholder={"## Goal\nReview the current code and list bugs, risks, and missing tests.\n\n## Expected output\n- Findings by severity\n- Affected files\n- Verification commands"}
               spellCheck={false}
             />
