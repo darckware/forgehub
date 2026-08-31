@@ -215,14 +215,15 @@ export default function ProjectCentralPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => setShowCreateProjectModal(true)}
-            className="gap-1.5 text-xs font-semibold"
-          >
-            <Plus className="h-4 w-4" />
-            Novo Projeto
-          </Button>
+          {activeProject && (
+            <Link
+              to={`/projects/${activeProject.id}`}
+              className="inline-flex items-center gap-1.5 text-xs rounded-md border border-input bg-background px-3 py-1.5 font-medium hover:bg-accent"
+            >
+              <Pencil className="h-4 w-4 text-primary" />
+              Configurações do Projeto
+            </Link>
+          )}
           <Link
             to="/screen-inspector"
             className="inline-flex items-center gap-1.5 text-xs rounded-md border border-input bg-background px-3 py-1.5 font-medium hover:bg-accent"
@@ -292,13 +293,16 @@ export default function ProjectCentralPage() {
                 <div>
                   <p className="font-semibold text-sm">Nenhum projeto cadastrado</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Crie um projeto para associar itens de planejamento e tarefas de execução.
+                    Projetos são gerados a partir da Fase 1 (Conception & Context) ao aprovar a ideia e criar o projeto.
                   </p>
                 </div>
-                <Button size="sm" onClick={() => setShowCreateProjectModal(true)} className="gap-1.5 text-xs">
-                  <Plus className="h-4 w-4" />
-                  Criar Primeiro Projeto
-                </Button>
+                <Link
+                  to="/conception"
+                  className={buttonVariants({ variant: "default", size: "sm" }) + " gap-1.5 text-xs"}
+                >
+                  <FolderKanban className="h-4 w-4" />
+                  Ir para 1. Conception & Context
+                </Link>
               </CardContent>
             </Card>
           ) : (
@@ -404,12 +408,15 @@ export default function ProjectCentralPage() {
         <TabsContent value="all_projects" className="space-y-6">
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              Lista consolidada de todos os projetos cadastrados no ambiente.
+              Lista consolidada de todos os projetos cadastrados no ambiente. A criação de novos projetos ocorre na Fase 1 (Conception & Context).
             </p>
-            <Button size="sm" onClick={() => setShowCreateProjectModal(true)} className="gap-1.5 text-xs font-semibold">
-              <Plus className="h-4 w-4" />
-              Novo Projeto
-            </Button>
+            <Link
+              to="/conception"
+              className={buttonVariants({ variant: "outline", size: "sm" }) + " gap-1.5 text-xs font-semibold"}
+            >
+              <FolderKanban className="h-4 w-4 text-primary" />
+              1. Conception & Context
+            </Link>
           </div>
 
           {projects && projects.length > 0 && (
