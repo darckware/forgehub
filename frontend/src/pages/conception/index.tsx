@@ -121,6 +121,29 @@ const EMPTY_FORM = {
  * directly, then edit inline. Lives in the same concepts/<slug>/ folder the
  * approval-gated artifact generation (PRD/Spec/...) writes to, so both show
  * up together once a concept is approved. */
+const DOCUMENT_CATEGORIES = [
+  { id: "prd", label: "PRD / Requisitos", defaultFilename: "PRD.md", description: "Documento de Requisitos do Produto" },
+  { id: "design_system", label: "Design System / UI", defaultFilename: "DESIGN_SYSTEM.md", description: "Guia de Estilos, Tokens e Componentes UI" },
+  { id: "database", label: "Modelagem de Dados", defaultFilename: "DATABASE_SPEC.md", description: "Modelagem, Schemas e Tabelas do Banco" },
+  { id: "screens", label: "Telas / Wireframes", defaultFilename: "SCREENS.md", description: "Especificação e Protótipos de Telas" },
+  { id: "architecture", label: "Arquitetura / SPEC", defaultFilename: "SPEC.md", description: "Especificação Técnica e Arquitetura" },
+  { id: "api", label: "APIs / Integrações", defaultFilename: "API_SPEC.md", description: "Contratos de Endpoints e Integrações" },
+  { id: "other", label: "Outros Documentos", defaultFilename: "DOC.md", description: "Documentação Geral de Referência" },
+] as const;
+
+type DocCategoryKey = (typeof DOCUMENT_CATEGORIES)[number]["id"];
+
+function inferDocCategory(filename: string): DocCategoryKey {
+  const lower = filename.toLowerCase();
+  if (lower.includes("prd") || lower.includes("requisito")) return "prd";
+  if (lower.includes("design") || lower.includes("theme") || lower.includes("style")) return "design_system";
+  if (lower.includes("data") || lower.includes("db") || lower.includes("banco") || lower.includes("model")) return "database";
+  if (lower.includes("screen") || lower.includes("tela") || lower.includes("wireframe") || lower.includes("paste_")) return "screens";
+  if (lower.includes("spec") || lower.includes("tech") || lower.includes("arch") || lower.includes("arquitetura")) return "architecture";
+  if (lower.includes("api") || lower.includes("endpoint") || lower.includes("contrato")) return "api";
+  return "other";
+}
+
 function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined }) {
   const { t } = useTranslation("conception");
   const documents = useConceptDocuments(conceptId);
@@ -131,25 +154,18 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
   const deleteDocument = useDeleteConceptDocument();
   const [editedContent, setEditedContent] = useState("");
   const [newFilename, setNewFilename] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<DocCategoryKey>("prd");
   const [creating, setCreating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Every hook this component calls must run on every render, in the same
-  // order, regardless of `conceptId` -- this and the paste-handler effect
-  // below used to sit after an early `if (!conceptId) return`, which is a
-  // Rules-of-Hooks violation (React error #310, "rendered more hooks than
-  // during the previous render") the moment a render where conceptId is
-  // still undefined is followed by one where it's loaded. That never
-  // surfaced while this panel only mounted once its Documentation *tab* was
-  // clicked (by then the concept had usually already loaded); folding it
-  // into the single continuous form (2026-08-15) mounts it immediately,
-  // exposing the pre-existing bug on every "New idea" / freshly-loading
-  // "Edit idea" render.
+
   const [fileDescriptions, setFileDescriptions] = useState<Record<string, string>>({
     "PRD.md": "Documento de Requisitos do Produto (PRD)",
     "SPEC.md": "Especificação Técnica e Arquitetura do Sistema",
     "STACK.md": "Decisão das Tecnologias e Frameworks",
-    "DESIGN_SYSTEM.md": "Guia de Estilos e Componentes UI",
-    "DATABASE_SPEC.md": "Modelagem e Tabelas do Banco de Dados",
+    "DESIGN_SYSTEM.md": "Guia de Estilos, Design System e Componentes UI",
+    "DATABASE_SPEC.md": "Modelagem de Dados e Esquema de Tabelas",
+    "SCREENS.md": "Especificação de Telas e Navegação",
+    "API_SPEC.md": "Contratos de Endpoints e Integrações",
   });
 
   useEffect(() => {
@@ -168,8 +184,6 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
           const file = item.getAsFile();
           if (!file) continue;
 
-          // Avoid a bracketed regex here: Tailwind scans TSX as plain text and
-          // mistakes its character class for an arbitrary CSS class.
           const timestamp = new Date()
             .toISOString()
             .split("-").join("")
@@ -184,7 +198,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
           setSelectedFilename(result.filename);
           setFileDescriptions((prev) => ({
             ...prev,
-            [result.filename]: "Imagem da Área de Transferência",
+            [result.filename]: "Mockup / Imagem de Tela Colada",
           }));
           break;
         }
@@ -202,10 +216,23 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
   const createDocument = async () => {
     const trimmed = newFilename.trim();
     if (!trimmed) return;
-    const filename = /\.(md|markdown|txt)$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
-    const result = await saveDocument.mutateAsync({ conceptId, filename, content: "" });
+    const filename = /\.(md|markdown|txt|json)$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
+    const cat = DOCUMENT_CATEGORIES.find((c) => c.id === selectedCategory);
+    const initialContent = `# ${cat?.label ?? "Documento"}\n\n${cat?.description ?? ""}\n\n## Detalhes\n\n`;
+    const result = await saveDocument.mutateAsync({ conceptId, filename, content: initialContent });
+    if (cat?.description) {
+      setFileDescriptions((prev) => ({ ...prev, [result.filename]: cat.description }));
+    }
     setNewFilename("");
     setCreating(false);
+    setSelectedFilename(result.filename);
+  };
+
+  const addTemplateDocument = async (category: typeof DOCUMENT_CATEGORIES[number]) => {
+    const filename = category.defaultFilename;
+    const initialContent = `# ${category.label}\n\n${category.description}\n\n## 1. Visão Geral\n\n## 2. Especificação Detalhada\n\n`;
+    const result = await saveDocument.mutateAsync({ conceptId, filename, content: initialContent });
+    setFileDescriptions((prev) => ({ ...prev, [result.filename]: category.description }));
     setSelectedFilename(result.filename);
   };
 
@@ -213,103 +240,188 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
     setFileDescriptions((prev) => ({ ...prev, [filename]: desc }));
   };
 
-  return (
-    <div className="grid gap-4 md:grid-cols-[320px_1fr] focus:outline-none" tabIndex={0}>
-      <div className="space-y-3 border-r pr-4">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("wizard.documentation.filesTitle")}</p>
-          <div className="flex gap-1">
-            <input
-              ref={fileInputRef} type="file" accept=".md,.markdown,.txt,.png,.jpg,.svg" className="hidden"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (!file) return;
-                const result = await uploadDocument.mutateAsync({ conceptId, file });
-                setSelectedFilename(result.filename);
-              }}
-            />
-            <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" title={t("wizard.documentation.upload")} onClick={() => fileInputRef.current?.click()} disabled={uploadDocument.isPending}>
-              {uploadDocument.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Upload className="h-3.5 w-3.5"/>}
-              Upload
-            </Button>
-            <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" title={t("wizard.documentation.newDocument")} onClick={() => setCreating((v) => !v)}>
-              <Plus className="h-3.5 w-3.5"/>
-              Novo
-            </Button>
-          </div>
-        </div>
-        {creating && (
-          <div className="flex gap-1">
-            <Input className="h-8 text-xs" placeholder="Nome do arquivo (ex: SPEC.md)" value={newFilename} onChange={(e) => setNewFilename(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); createDocument(); } }} />
-            <Button type="button" size="sm" className="h-8 px-2 text-xs" onClick={createDocument} disabled={saveDocument.isPending || !newFilename.trim()}>{t("wizard.documentation.create")}</Button>
-          </div>
-        )}
-        {documents.isLoading && <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>}
-        {documents.data?.length === 0 && !creating && <p className="text-xs text-muted-foreground">{t("wizard.documentation.empty")}</p>}
-        <div className="space-y-2">
-          {documents.data?.map((doc) => (
-            <div
-              key={doc.filename}
-              onClick={() => setSelectedFilename(doc.filename)}
-              className={`rounded-lg border p-2 text-xs space-y-1.5 cursor-pointer transition-colors ${selectedFilename === doc.filename ? "border-primary bg-primary/5" : "hover:bg-accent/40"}`}
-            >
-              <div className="flex items-center justify-between gap-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <FileText className="h-3.5 w-3.5 shrink-0 text-primary"/>
-                  <span className="font-semibold truncate">{doc.filename}</span>
-                </div>
-                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
-                  {doc.filename.endsWith(".md") ? "Markdown" : "Asset"}
-                </Badge>
-              </div>
+  const isImageFile = (filename: string | null) => {
+    if (!filename) return false;
+    return /\.(png|jpg|jpeg|webp|svg|gif)$/i.test(filename);
+  };
 
-              {/* Campo de Descrição do Arquivo */}
-              <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
-                <Input
-                  className="h-6 text-[11px] px-2 bg-background/80 placeholder:text-muted-foreground/60"
-                  placeholder="Descreva a finalidade (ex: PRD, Stack...)"
-                  value={fileDescriptions[doc.filename] ?? ""}
-                  onChange={(e) => updateDescription(doc.filename, e.target.value)}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
+  return (
+    <div className="space-y-4">
+      {/* Atalhos Rápidos para Catalogar Documentação Padrão */}
+      <div className="flex flex-wrap items-center gap-2 pb-2 border-b">
+        <span className="text-xs font-semibold text-muted-foreground mr-1">Catalogar Modelo:</span>
+        {DOCUMENT_CATEGORIES.map((cat) => {
+          const alreadyExists = documents.data?.some((d) => d.filename.toLowerCase() === cat.defaultFilename.toLowerCase());
+          return (
+            <Button
+              key={cat.id}
+              type="button"
+              variant={alreadyExists ? "secondary" : "outline"}
+              size="sm"
+              className="h-7 text-xs gap-1.5"
+              onClick={() => {
+                if (alreadyExists) {
+                  setSelectedFilename(cat.defaultFilename);
+                } else {
+                  void addTemplateDocument(cat);
+                }
+              }}
+            >
+              {alreadyExists ? <FileText className="h-3.5 w-3.5 text-primary" /> : <Plus className="h-3.5 w-3.5" />}
+              {cat.label}
+            </Button>
+          );
+        })}
       </div>
-      <div className="space-y-2">
-        {!selectedFilename ? (
-          <div className="flex flex-col items-center justify-center h-64 border rounded-lg border-dashed text-muted-foreground space-y-1 text-center p-4">
-            <FileText className="h-8 w-8 text-muted-foreground/40" />
-            <p className="text-sm font-medium">{t("wizard.documentation.selectHint")}</p>
-            <p className="text-xs text-muted-foreground max-w-xs">Selecione um arquivo da lista ou pressione Ctrl+V / Cmd+V para colar uma imagem da área de transferência.</p>
+
+      <div className="grid gap-4 md:grid-cols-[340px_1fr] focus:outline-none" tabIndex={0}>
+        <div className="space-y-3 border-r pr-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("wizard.documentation.filesTitle")}</p>
+            <div className="flex gap-1">
+              <input
+                ref={fileInputRef} type="file" accept=".md,.markdown,.txt,.png,.jpg,.jpeg,.webp,.svg,.pdf,.json" className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  const result = await uploadDocument.mutateAsync({ conceptId, file });
+                  setSelectedFilename(result.filename);
+                }}
+              />
+              <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" title={t("wizard.documentation.upload")} onClick={() => fileInputRef.current?.click()} disabled={uploadDocument.isPending}>
+                {uploadDocument.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Upload className="h-3.5 w-3.5"/>}
+                Upload
+              </Button>
+              <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" title={t("wizard.documentation.newDocument")} onClick={() => setCreating((v) => !v)}>
+                <Plus className="h-3.5 w-3.5"/>
+                Novo
+              </Button>
+            </div>
           </div>
-        ) : (
-          <>
-            <div className="flex items-center justify-between pb-2 border-b">
-              <div>
-                <p className="text-sm font-bold">{selectedFilename}</p>
-                <p className="text-xs text-muted-foreground">
-                  {fileDescriptions[selectedFilename] || "Sem descrição informada"}
-                </p>
+
+          {creating && (
+            <div className="space-y-2 rounded-lg border p-2 bg-muted/30">
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">Categoria do Documento</Label>
+                <Select value={selectedCategory} onChange={(e) => {
+                  const catKey = e.target.value as DocCategoryKey;
+                  setSelectedCategory(catKey);
+                  const catObj = DOCUMENT_CATEGORIES.find((c) => c.id === catKey);
+                  if (catObj && !newFilename.trim()) {
+                    setNewFilename(catObj.defaultFilename);
+                  }
+                }}>
+                  {DOCUMENT_CATEGORIES.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </Select>
               </div>
-              <div className="flex gap-2">
-                <Button type="button" size="sm" disabled={saveDocument.isPending || document.isLoading} onClick={() => saveDocument.mutate({ conceptId, filename: selectedFilename, content: editedContent })}>
-                  {saveDocument.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>}
-                  {t("wizard.documentation.save")}
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => { deleteDocument.mutate({ conceptId, filename: selectedFilename }); setSelectedFilename(null); }} disabled={deleteDocument.isPending}>
-                  <Trash2 className="h-3.5 w-3.5 text-destructive"/>
+              <div className="flex gap-1">
+                <Input
+                  className="h-8 text-xs"
+                  placeholder="Nome do arquivo (ex: PRD.md)"
+                  value={newFilename}
+                  onChange={(e) => setNewFilename(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void createDocument(); } }}
+                />
+                <Button type="button" size="sm" className="h-8 px-2 text-xs" onClick={() => void createDocument()} disabled={saveDocument.isPending || !newFilename.trim()}>
+                  {t("wizard.documentation.create")}
                 </Button>
               </div>
             </div>
-            {document.isLoading ? (
-              <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>
-            ) : (
-              <Textarea rows={18} className="font-mono text-xs" value={editedContent} onChange={(e) => setEditedContent(e.target.value)} />
-            )}
-          </>
-        )}
+          )}
+
+          {documents.isLoading && <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>}
+          {documents.data?.length === 0 && !creating && <p className="text-xs text-muted-foreground">{t("wizard.documentation.empty")}</p>}
+          <div className="space-y-2">
+            {documents.data?.map((doc) => {
+              const catKey = inferDocCategory(doc.filename);
+              const catObj = DOCUMENT_CATEGORIES.find((c) => c.id === catKey);
+              const isImg = isImageFile(doc.filename);
+              return (
+                <div
+                  key={doc.filename}
+                  onClick={() => setSelectedFilename(doc.filename)}
+                  className={`rounded-lg border p-2 text-xs space-y-1.5 cursor-pointer transition-colors ${selectedFilename === doc.filename ? "border-primary bg-primary/5 shadow-sm" : "hover:bg-accent/40"}`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <FileText className={`h-3.5 w-3.5 shrink-0 ${isImg ? "text-amber-500" : "text-primary"}`}/>
+                      <span className="font-semibold truncate">{doc.filename}</span>
+                    </div>
+                    <Badge variant={isImg ? "secondary" : "outline"} className="text-[9px] px-1 py-0 h-4">
+                      {catObj?.label || (doc.filename.endsWith(".md") ? "Markdown" : "Asset")}
+                    </Badge>
+                  </div>
+
+                  {/* Campo de Descrição / Catálogo do Arquivo */}
+                  <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                    <Input
+                      className="h-6 text-[11px] px-2 bg-background/80 placeholder:text-muted-foreground/60"
+                      placeholder="Descreva o propósito (ex: PRD, Design System, Telas...)"
+                      value={fileDescriptions[doc.filename] ?? ""}
+                      onChange={(e) => updateDescription(doc.filename, e.target.value)}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {!selectedFilename ? (
+            <div className="flex flex-col items-center justify-center h-72 border rounded-lg border-dashed text-muted-foreground space-y-1 text-center p-4">
+              <FileText className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-sm font-medium">{t("wizard.documentation.selectHint")}</p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                Selecione um documento catalogado ao lado ou use os botões rápidos no topo para criar PRD, Design System, Modelagem de Dados ou Telas. Pressione Ctrl+V / Cmd+V para colar imagens de telas diretamente.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between pb-2 border-b">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold">{selectedFilename}</p>
+                    <Badge variant="outline" className="text-[10px]">
+                      {DOCUMENT_CATEGORIES.find((c) => c.id === inferDocCategory(selectedFilename))?.label || "Geral"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {fileDescriptions[selectedFilename] || "Sem descrição informada"}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {!isImageFile(selectedFilename) && (
+                    <Button type="button" size="sm" disabled={saveDocument.isPending || document.isLoading} onClick={() => saveDocument.mutate({ conceptId, filename: selectedFilename, content: editedContent })}>
+                      {saveDocument.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>}
+                      {t("wizard.documentation.save")}
+                    </Button>
+                  )}
+                  <Button type="button" size="sm" variant="outline" onClick={() => { deleteDocument.mutate({ conceptId, filename: selectedFilename }); setSelectedFilename(null); }} disabled={deleteDocument.isPending}>
+                    <Trash2 className="h-3.5 w-3.5 text-destructive"/>
+                  </Button>
+                </div>
+              </div>
+              {document.isLoading ? (
+                <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>
+              ) : isImageFile(selectedFilename) ? (
+                <div className="flex flex-col items-center justify-center p-4 border rounded-lg bg-muted/10 min-h-[300px]">
+                  <p className="text-xs text-muted-foreground mb-2">Visualização de Imagem / Mockup</p>
+                  <img
+                    src={`/api/v1/product-concepts/${conceptId}/documents/${selectedFilename}`}
+                    alt={selectedFilename}
+                    className="max-h-96 max-w-full rounded border shadow-sm object-contain"
+                  />
+                </div>
+              ) : (
+                <Textarea rows={18} className="font-mono text-xs" value={editedContent} onChange={(e) => setEditedContent(e.target.value)} />
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

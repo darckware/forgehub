@@ -622,12 +622,12 @@ async def generate_concept_artifacts(
 # document list, not a general file browser (see api/routes/docs.py for
 # that).
 # ---------------------------------------------------------------------------
-_DOC_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(md|markdown|txt)$")
+_DOC_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(md|markdown|txt|png|jpg|jpeg|webp|svg|pdf|json)$", re.IGNORECASE)
 
 
 def _validate_doc_filename(filename: str) -> None:
     if not _DOC_FILENAME_RE.match(filename):
-        raise HTTPException(422, "Filename must be a single .md/.markdown/.txt file name (no folders)")
+        raise HTTPException(422, "Filename must be a valid document/asset file name (no folders)")
 
 
 async def _concept_docs_dir(db: AsyncSession, concept_id: uuid.UUID) -> Path:
