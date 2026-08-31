@@ -5,7 +5,22 @@ export interface DevelopmentRequest {
   id: string; product_id: string; title: string; description: string;
   requested_by: string | null; priority: string; status: string; created_at: string;
 }
-export type TechStackLayer = "frontend" | "backend" | "database" | "deploy_infra";
+export type TechStackLayer =
+  | "frontend"
+  | "mobile"
+  | "backend"
+  | "database"
+  | "cache"
+  | "messaging"
+  | "auth"
+  | "storage"
+  | "search"
+  | "api_gateway"
+  | "deploy_infra"
+  | "cicd"
+  | "observability"
+  | "testing"
+  | "documentation";
 export interface TechStackDecision {
   layer: TechStackLayer; decision: string; rationale: string | null;
 }
@@ -59,10 +74,16 @@ export interface TechStackOption {
 export const TECH_STACK_PLATFORMS = ["web_app", "landing_page", "institutional_site", "pwa", "mobile"] as const;
 export type TechStackPlatform = (typeof TECH_STACK_PLATFORMS)[number];
 
-export function useTechStackOptions(layer: TechStackLayer) {
+export function useTechStackOptions(layer?: TechStackLayer) {
   return useQuery({
-    queryKey: ["tech-stack-options", layer],
-    queryFn: () => apiClient.get<TechStackOption[]>(`/api/v1/tech-stack-options?layer=${layer}`),
+    queryKey: ["tech-stack-options", layer ?? "all"],
+    queryFn: () => apiClient.get<TechStackOption[]>(layer ? `/api/v1/tech-stack-options?layer=${layer}` : "/api/v1/tech-stack-options"),
+  });
+}
+export function useAllTechStackOptions() {
+  return useQuery({
+    queryKey: ["tech-stack-options", "all"],
+    queryFn: () => apiClient.get<TechStackOption[]>("/api/v1/tech-stack-options"),
   });
 }
 export function useCreateTechStackOption() {
@@ -176,7 +197,16 @@ export function useDecideConcept() {
   });
 }
 export interface DeliveryPlanningProjectSpec {
-  solution_type: "web_app" | "mobile_app" | "api_service" | "database" | "deploy";
+  solution_type:
+    | "web_app"
+    | "mobile_app"
+    | "api_service"
+    | "database"
+    | "deploy"
+    | "automation"
+    | "data_migration"
+    | "data_analysis"
+    | "reporting";
   project_name: string;
   project_description?: string;
   owner?: string;
@@ -305,5 +335,71 @@ export function useScopeExecutionStatus(scopeId?: string) {
     queryKey: ["scope-execution-status", scopeId],
     queryFn: () => apiClient.get<Record<string, string>>(`/api/v1/project-scopes/${scopeId}/execution-status`),
     enabled: Boolean(scopeId),
+  });
+}
+
+export function useEnsureProjectScope() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => apiClient.post<ProjectScope>(`/api/v1/projects/${projectId}/ensure-scope`),
+    onSuccess: (_, projectId) => {
+      client.invalidateQueries({ queryKey: ["project-scopes", projectId] });
+    },
+  });
+}
+
+export interface TableColumnPayload {
+  name: string;
+  sql_type?: string;
+  is_pk?: boolean;
+  is_fk?: boolean;
+  fk_ref_table?: string;
+  nullable?: boolean;
+}
+
+export function useCreateTable() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scopeId, ...payload }: {
+      scopeId: string;
+      name: string;
+      description?: string;
+      stable_key?: string;
+      initial_columns?: TableColumnPayload[];
+    }) => apiClient.post<SystemElement>(`/api/v1/project-scopes/${scopeId}/tables`, payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["blueprint-graph"] });
+      client.invalidateQueries({ queryKey: ["screens"] });
+    },
+  });
+}
+
+export function useAddTableColumn() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scopeId, tableId, ...payload }: {
+      scopeId: string;
+      tableId: string;
+      name: string;
+      sql_type?: string;
+      is_pk?: boolean;
+      is_fk?: boolean;
+      fk_ref_table?: string;
+      nullable?: boolean;
+    }) => apiClient.post<SystemElement>(`/api/v1/project-scopes/${scopeId}/tables/${tableId}/columns`, payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["blueprint-graph"] });
+    },
+  });
+}
+
+export function useDeleteTable() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scopeId, tableId }: { scopeId: string; tableId: string }) =>
+      apiClient.delete(`/api/v1/project-scopes/${scopeId}/tables/${tableId}`),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["blueprint-graph"] });
+    },
   });
 }

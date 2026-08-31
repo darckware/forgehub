@@ -84,5 +84,38 @@
     "details": "Detalhes",
     "reAudit": "Reauditar",
     "legend": "Clique em um ícone de CLI para ativar/desativar o ForgeRouter individualmente: Claude (.claude/settings.local.json), Codex (.codex/forgerouter.env, ativado via overrides -c no launcher, já que o Codex ignora model_provider vindo do config do projeto). Antigravity requer carregamento manual do env (.forgerouter/antigravity.env)."
+  },
+  "cliForgeRouter": {
+    "title": "CLI ForgeRouter Global",
+    "description": "Roteie ferramentas globais de CLI de IA através do gateway local do ForgeRouter (porta 2100).",
+    "refresh": "Atualizar status dos CLIs",
+    "targetGateway": "Gateway de Destino",
+    "gatewayUrl": "http://localhost:2100 (Gateway Local ForgeRouter)",
+    "localGatewayDesc": "Proxy Local e Telemetria do ForgeRouter",
+    "active": "Ativo",
+    "off": "Desligado",
+    "protocol": "Protocolo",
+    "configLocation": "Configuração Global",
+    "tools": {
+      "claude": {
+        "title": "Claude Code",
+        "protocol": "Protocolo Anthropic Messages",
+        "description": "Roteia o URL base em ~/.claude/settings.json para a porta local 2100 do ForgeRouter."
+      },
+      "codex": {
+        "title": "OpenAI Codex",
+        "protocol": "Protocolo Responses",
+        "description": "Roteia o provedor em ~/.codex/config.toml para o ForgeRouter local."
+      },
+      "antigravity": {
+        "title": "Antigravity",
+        "protocol": "Protocolo OpenAI Compatível",
+        "description": "Roteia o endpoint de IA em ~/.antigravity/settings.json para o ForgeRouter local."
+      }
+    },
+    "loading": "Carregando status do roteador de CLI...",
+    "loadError": "Falha ao conectar com o host-bridge para verificar as configurações de CLI.",
+    "toggleSuccess": "Configuração de {{tool}} atualizada com sucesso.",
+    "toggleError": "Falha ao atualizar configuração de {{tool}}."
   }
 }

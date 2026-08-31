@@ -1,6 +1,6 @@
 {
   "page": {
-    "title": "Conception",
+    "title": "1. Conception & Context",
     "description": "Transform an idea into a versioned, reviewable product definition before execution begins."
   },
   "toggle": {
@@ -65,9 +65,20 @@
       "technology": "Technology",
       "layers": {
         "frontend": "Frontend",
+        "mobile": "Mobile",
         "backend": "Backend",
         "database": "Database",
-        "deploy_infra": "Deploy / infrastructure"
+        "cache": "Cache",
+        "messaging": "Messaging / Event Bus",
+        "auth": "Authentication / Identity",
+        "storage": "Storage",
+        "search": "Search",
+        "api_gateway": "API / Gateway",
+        "deploy_infra": "Deploy / Infrastructure",
+        "cicd": "CI/CD",
+        "observability": "Observability",
+        "testing": "Testing",
+        "documentation": "Documentation"
       },
       "platforms": {
         "web_app": "Web app",

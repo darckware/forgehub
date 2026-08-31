@@ -42,8 +42,14 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models.backlog import PlanningItem
+from app.db.models.task import ProjectTask, TaskExecution, TaskAssignment
+from app.db.models.execution import ExecutionWave, ExecutionWorkPackage
+from app.db.models.orchestration import ProjectLoopPolicy, TaskExecutionReview
+from app.db.models.system_scope import ProjectScope, ProjectScopeItem
 
 from app.api.schemas.project import (
     ChangeRequestCreate,
@@ -164,9 +170,34 @@ async def update_project(
     return project
 
 
+async def _clear_project_dependencies(db: AsyncSession, project_id: uuid.UUID) -> None:
+    task_ids_subq = select(ProjectTask.id).where(or_(
+        ProjectTask.planning_item_id.in_(select(PlanningItem.id).where(PlanningItem.project_id == project_id)),
+        ProjectTask.change_request_id.in_(select(ChangeRequest.id).where(ChangeRequest.project_id == project_id)),
+    ))
+
+    # execution_work_packages RESTRICTs execution_waves/plan_baselines/task_assignments.
+    await db.execute(delete(ExecutionWorkPackage).where(ExecutionWorkPackage.execution_wave_id.in_(
+        select(ExecutionWave.id).where(ExecutionWave.project_id == project_id)
+    )))
+    # task_execution_reviews RESTRICTs project_agent_memberships.
+    await db.execute(delete(TaskExecutionReview).where(TaskExecutionReview.execution_id.in_(
+        select(TaskExecution.id).where(TaskExecution.task_id.in_(task_ids_subq))
+    )))
+    # project_loop_policies RESTRICTs project_agent_memberships.
+    await db.execute(delete(ProjectLoopPolicy).where(ProjectLoopPolicy.project_id == project_id))
+    # project_scope_items RESTRICTs system_elements; project_scopes itself
+    # RESTRICTs system_blueprint_revisions.
+    await db.execute(delete(ProjectScopeItem).where(ProjectScopeItem.project_scope_id.in_(
+        select(ProjectScope.id).where(ProjectScope.project_id == project_id)
+    )))
+    await db.execute(delete(ProjectScope).where(ProjectScope.project_id == project_id))
+
+
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     project = await _get_project_or_404(db, project_id)
+    await _clear_project_dependencies(db, project_id)
     await db.delete(project)
     await db.commit()
 

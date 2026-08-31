@@ -59,7 +59,6 @@ import { StructureNodeForm } from "./StructureNodeForm";
 import { ProjectPlanForm } from "./ProjectPlanForm";
 import { ChangeRequestForm } from "./ChangeRequestForm";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { ProjectAutomationCard } from "@/components/ProjectAutomationCard";
 
 const CHANGE_REQUEST_STATUS_VARIANT: Record<string, "outline" | "success" | "destructive" | "secondary"> = {
   pending: "outline",
@@ -472,13 +471,6 @@ export default function ProjectDetailPage() {
             </div>
           </div>
 
-          {/* Equipe & Canal -- promoted from the bottom of this page
-              (2026-08-05, "Software Factory" visibility fix): the project
-              team (ProjectAgentMembership, managed below) used to be the
-              very last card on this page, with no entry point anywhere
-              else in the app. It stays the same form/data, just moved
-              next to the header where it's actually discoverable. */}
-          <ProjectAutomationCard projectId={project.id} />
 
           {showEditForm && (
             <Card>

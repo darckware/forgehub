@@ -8,6 +8,7 @@ conversation history view) and the proxy call; it has no access to the
 Hermes CLI itself.
 """
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -683,13 +684,18 @@ async def send_chat_message(
     outgoing_message = message
     call_started_at = time.monotonic()
 
+    attachment_data_urls_str: str | None = None
     if files:
         images: list[tuple[str, bytes]] = []
         text_blocks: list[str] = []
+        data_urls: list[str] = []
         for f in files:
             content = await f.read()
             if (f.content_type or "").startswith("image/"):
                 images.append((f.filename or "image.png", content))
+                mime = f.content_type or "image/png"
+                b64 = base64.b64encode(content).decode("utf-8")
+                data_urls.append(f"data:{mime};base64,{b64}")
             else:
                 try:
                     text_content = content.decode("utf-8")
@@ -698,6 +704,9 @@ async def send_chat_message(
                         status_code=400, detail="Attached file must be a text file or an image"
                     ) from None
                 text_blocks.append(f'Content of file "{f.filename}" pasted below:\n---\n{text_content}\n---')
+
+        if data_urls:
+            attachment_data_urls_str = json.dumps(data_urls)
 
         if images:
             # Plain prose framing, not a bracketed "[Arquivo anexado: ...]"
@@ -722,7 +731,11 @@ async def send_chat_message(
         )
 
     user_message = ChatMessage(
-        session_id=session.id, role="user", content=message, attachment_names=attachment_name
+        session_id=session.id,
+        role="user",
+        content=message,
+        attachment_names=attachment_name,
+        attachment_data_urls=attachment_data_urls_str,
     )
     assistant_message = ChatMessage(
         session_id=session.id,

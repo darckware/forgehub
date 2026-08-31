@@ -6,6 +6,8 @@ ForgeHub is split into a FastAPI backend and a React/Vite frontend. Backend code
 
 ## Build, Test, and Development Commands
 
+- `./dev.sh`: start development servers with hot-reload (backend on :8001, frontend on :5172).
+- `./dev.sh status` / `./dev.sh stop` / `./dev.sh restart`: inspect and manage dev servers.
 - `docker compose up -d --build`: build and run the full stack.
 - `cd backend && uvicorn app.main:app --reload --port 8000`: run the API locally.
 - `cd backend && alembic upgrade head`: apply database migrations.

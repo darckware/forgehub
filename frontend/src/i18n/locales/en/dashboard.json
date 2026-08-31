@@ -84,5 +84,38 @@
     "details": "Details",
     "reAudit": "Re-audit",
     "legend": "Click a CLI icon to enable/disable ForgeRouter for it individually: Claude (.claude/settings.local.json), Codex (.codex/forgerouter.env, activated via launcher -c overrides since Codex ignores model_provider from project config). Antigravity requires manual env sourcing (.forgerouter/antigravity.env)."
+  },
+  "cliForgeRouter": {
+    "title": "Global CLI ForgeRouter",
+    "description": "Route global AI CLI tools through the local ForgeRouter gateway (port 2100).",
+    "refresh": "Refresh CLI status",
+    "targetGateway": "Target Gateway",
+    "gatewayUrl": "http://localhost:2100 (ForgeRouter Local Gateway)",
+    "localGatewayDesc": "ForgeRouter Local Proxy & Telemetry",
+    "active": "Active",
+    "off": "Off",
+    "protocol": "Protocol",
+    "configLocation": "Global Config",
+    "tools": {
+      "claude": {
+        "title": "Claude Code",
+        "protocol": "Anthropic Messages Protocol",
+        "description": "Routes ~/.claude/settings.json base URL to local ForgeRouter port 2100."
+      },
+      "codex": {
+        "title": "OpenAI Codex",
+        "protocol": "Responses Protocol",
+        "description": "Routes ~/.codex/config.toml model provider to local ForgeRouter."
+      },
+      "antigravity": {
+        "title": "Antigravity",
+        "protocol": "OpenAI Compatible Protocol",
+        "description": "Routes ~/.antigravity/settings.json AI endpoint to local ForgeRouter."
+      }
+    },
+    "loading": "Loading CLI router status...",
+    "loadError": "Failed to connect to host bridge to check CLI router configurations.",
+    "toggleSuccess": "Successfully updated {{tool}} configuration.",
+    "toggleError": "Failed to update {{tool}} configuration."
   }
 }

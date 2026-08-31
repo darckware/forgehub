@@ -99,10 +99,10 @@ class ChatMessage(Base, TimestampMixin):
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    # Original filename(s) attached by the user, comma-separated, for
-    # display only -- the file's content/image bytes are never persisted
-    # here, only forwarded to the chat bridge for that one turn.
+    # Original filename(s) attached by the user, comma-separated, for display only.
     attachment_names: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # JSON-encoded array of base64 data URLs for image attachments rendered inline in the chat bubble.
+    attachment_data_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Set only when this reply came from a "#Agente"-mentioned agent other
     # than the session's own agent_id (see ChatSessionParticipant) -- lets
     # the frontend show a name badge on cross-agent replies. Null for a

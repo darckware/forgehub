@@ -13,9 +13,20 @@ from typing import Any
 
 TECH_STACK_LAYER_LABELS = {
     "frontend": "Frontend",
+    "mobile": "Mobile",
     "backend": "Backend",
     "database": "Banco de dados",
+    "cache": "Cache",
+    "messaging": "Messaging / Event Bus",
+    "auth": "Authentication / Identity",
+    "storage": "Storage",
+    "search": "Search",
+    "api_gateway": "API / Gateway",
     "deploy_infra": "Deploy / infraestrutura",
+    "cicd": "CI/CD",
+    "observability": "Observabilidade",
+    "testing": "Testing",
+    "documentation": "Documentação",
 }
 SCREEN_SPEC_FIELD_LABELS = {
     "objective": "Objetivo",

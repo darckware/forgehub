@@ -1287,7 +1287,7 @@ export default function DemandsPage() {
               label={t("backlogFolder")}
               count={incubationCount}
               active={folder.kind === "incubation"}
-              expanded={Boolean(expandedGroups.backlog)}
+              expanded={Boolean(expandedGroups.incubation)}
               onToggleExpanded={() => toggleGroup("incubation")}
               onSelect={() => selectFolder({ kind: "incubation" })}
               onCleanup={() => setCleanupConfirm({ kind: "group", scope: "incubation" })}

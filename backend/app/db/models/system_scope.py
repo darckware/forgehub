@@ -37,18 +37,24 @@ RELATION_TYPES = (
 PROJECT_SCOPE_STATUSES = ("draft", "in_review", "baselined", "superseded")
 SCOPE_CHANGE_TYPES = ("add", "modify", "remove", "deprecate", "verify")
 SCOPE_APPLICABILITY = ("required", "optional", "not_applicable")
-TECH_STACK_LAYERS = ("frontend", "backend", "database", "deploy_infra")
+TECH_STACK_LAYERS = (
+    "frontend",
+    "mobile",
+    "backend",
+    "database",
+    "cache",
+    "messaging",
+    "auth",
+    "storage",
+    "search",
+    "api_gateway",
+    "deploy_infra",
+    "cicd",
+    "observability",
+    "testing",
+    "documentation",
+)
 TECH_STACK_OPTION_SOURCES = ("org_standard", "custom")
-# Only meaningful within layer="frontend" -- these are different frontend
-# scenarios/toolchains for the same layer, not different layers (2026-08-16,
-# Marcelo: catalog view needed distinct groupings instead of lumping every
-# frontend option -- SPA, static site, PWA, React Native -- under one
-# generic "Frontend" label; final list dictated directly: "web app, landing
-# page, site institucional, PWA, mobile"). NULL for every other layer
-# (backend/database/deploy_infra have no such split) and for a frontend
-# option nobody has classified yet (a "+ Add new option" entry defaults to
-# NULL, shown under "web_app" in the UI -- the org's own default
-# recommendation, see stack/02-UI-DESIGN-SYSTEM-AND-TECHNOLOGY-SPEC.md §12).
 TECH_STACK_OPTION_PLATFORMS = ("web_app", "landing_page", "institutional_site", "pwa", "mobile")
 
 

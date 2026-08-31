@@ -1756,6 +1756,231 @@ async def get_project_forgerouter_status(
 
 
 # ---------------------------------------------------------------------------
+# Global CLI ForgeRouter configuration (User Home ~/.claude, ~/.codex, ~/.forgerouter)
+# ---------------------------------------------------------------------------
+
+class CliToggleRequest(BaseModel):
+    tool: str
+    enabled: bool
+
+
+def _configure_global_claude_forgerouter(enabled: bool) -> str:
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = claude_dir / "settings.json"
+    if not settings_path.exists() and (claude_dir / "settings.local.json").exists():
+        target_path = claude_dir / "settings.local.json"
+    else:
+        target_path = settings_path
+
+    if target_path.exists():
+        backup_path = target_path.with_suffix(target_path.suffix + ".forgerouter.bak")
+        backup_path.write_text(target_path.read_text())
+
+    try:
+        current = json.loads(target_path.read_text()) if target_path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        current = {}
+
+    env = current.setdefault("env", {})
+    if enabled:
+        env["ANTHROPIC_BASE_URL"] = FORGEROUTER_ANTHROPIC_BASE_URL
+        current["model"] = FORGEROUTER_ANTHROPIC_MODEL
+    else:
+        env.pop("ANTHROPIC_BASE_URL", None)
+        if not env:
+            current.pop("env", None)
+        if current.get("model") == FORGEROUTER_ANTHROPIC_MODEL:
+            current.pop("model", None)
+
+    target_path.write_text(json.dumps(current, indent=2) + "\n")
+    os.chmod(target_path, 0o600)
+    return str(target_path)
+
+
+def _configure_global_codex_forgerouter(enabled: bool) -> str:
+    codex_dir = Path.home() / ".codex"
+    codex_dir.mkdir(parents=True, exist_ok=True)
+    config_path = codex_dir / "config.toml"
+
+    if config_path.exists():
+        backup_path = codex_dir / "config.toml.forgerouter.bak"
+        backup_path.write_text(config_path.read_text())
+        content = config_path.read_text()
+    else:
+        content = ""
+
+    lines = content.splitlines(keepends=True)
+    out_lines = []
+    i = 0
+    in_fr_table = False
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        if stripped.startswith("[model_providers.forgerouter"):
+            in_fr_table = True
+            i += 1
+            continue
+
+        if in_fr_table:
+            if stripped.startswith("["):
+                in_fr_table = False
+            else:
+                i += 1
+                continue
+
+        if (stripped.startswith("model_provider =") or stripped.startswith("model_provider=")) and "forgerouter" in stripped:
+            i += 1
+            continue
+
+        out_lines.append(line)
+        i += 1
+
+    cleaned = "".join(out_lines)
+
+    if enabled:
+        cleaned_lines = cleaned.splitlines(keepends=True)
+        first_table_idx = len(cleaned_lines)
+        for idx, l in enumerate(cleaned_lines):
+            if l.strip().startswith("["):
+                first_table_idx = idx
+                break
+
+        top_lines = cleaned_lines[:first_table_idx]
+        table_lines = cleaned_lines[first_table_idx:]
+
+        top_lines.insert(0, 'model_provider = "forgerouter"\n')
+
+        fr_table = (
+            "[model_providers.forgerouter]\n"
+            'name = "ForgeRouter"\n'
+            f'base_url = "{FORGEROUTER_OPENAI_BASE_URL}"\n'
+            'env_key = "FORGEROUTER_API_KEY"\n'
+            "requires_openai_auth = false\n"
+            'wire_api = "responses"\n'
+        )
+
+        top_part = "".join(top_lines).rstrip("\n")
+        table_part = "".join(table_lines).lstrip("\n")
+
+        if table_part:
+            final_content = f"{top_part}\n\n{fr_table}\n{table_part}"
+        else:
+            final_content = f"{top_part}\n\n{fr_table}"
+    else:
+        final_content = cleaned
+
+    config_path.write_text(final_content)
+    os.chmod(config_path, 0o600)
+    return str(config_path)
+
+
+def _configure_global_antigravity_forgerouter(enabled: bool) -> str:
+    fr_dir = Path.home() / ".forgerouter"
+    fr_dir.mkdir(parents=True, exist_ok=True)
+    env_path = fr_dir / "antigravity.env"
+
+    if env_path.exists():
+        backup_path = fr_dir / "antigravity.env.forgerouter.bak"
+        backup_path.write_text(env_path.read_text())
+
+    if enabled:
+        env_path.write_text(
+            "# ForgeRouter configuration for Antigravity CLI\n"
+            "# Source this file before running agy:\n"
+            "#   source ~/.forgerouter/antigravity.env\n"
+            "#\n"
+            f'export FORGEROUTER_BASE_URL="{FORGEROUTER_OPENAI_BASE_URL}"\n'
+            f'export FORGEROUTER_MODEL="{FORGEROUTER_OPENAI_MODEL}"\n'
+        )
+        os.chmod(env_path, 0o600)
+    else:
+        env_path.unlink(missing_ok=True)
+
+    return str(env_path)
+
+
+@app.get("/v1/forgerouter/cli-status")
+async def get_forgerouter_cli_status(
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Return the live global CLI ForgeRouter status across Claude, Codex, and Antigravity."""
+    _check_token(x_bridge_token)
+
+    # Claude check: looks at ~/.claude/settings.json or ~/.claude/settings.local.json
+    claude_enabled = False
+    claude_paths = [Path.home() / ".claude" / "settings.json", Path.home() / ".claude" / "settings.local.json"]
+    for cp in claude_paths:
+        if cp.exists():
+            try:
+                s = json.loads(cp.read_text())
+                env = s.get("env", {})
+                base_url = env.get("ANTHROPIC_BASE_URL", "")
+                if base_url and ("2100" in base_url or "forgerouter" in base_url.lower()):
+                    claude_enabled = True
+                    break
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    # Codex check: looks at ~/.codex/config.toml for model_provider = "forgerouter"
+    codex_enabled = False
+    codex_cfg = Path.home() / ".codex" / "config.toml"
+    if codex_cfg.exists():
+        try:
+            content = codex_cfg.read_text()
+            if 'model_provider = "forgerouter"' in content or 'model_provider="forgerouter"' in content:
+                codex_enabled = True
+        except OSError:
+            pass
+
+    # Antigravity check: looks at ~/.forgerouter/antigravity.env for FORGEROUTER_BASE_URL
+    agy_enabled = False
+    agy_path = Path.home() / ".forgerouter" / "antigravity.env"
+    if agy_path.exists():
+        try:
+            content = agy_path.read_text()
+            if "FORGEROUTER_BASE_URL" in content:
+                agy_enabled = True
+        except OSError:
+            pass
+
+    return {
+        "claude": claude_enabled,
+        "codex": codex_enabled,
+        "antigravity": agy_enabled,
+    }
+
+
+@app.put("/v1/forgerouter/cli-toggle")
+async def set_forgerouter_cli_toggle(
+    req: CliToggleRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Set or remove global ForgeRouter configuration for a CLI tool."""
+    _check_token(x_bridge_token)
+    tool = req.tool.lower()
+
+    if tool == "claude":
+        config_path = _configure_global_claude_forgerouter(req.enabled)
+    elif tool == "codex":
+        config_path = _configure_global_codex_forgerouter(req.enabled)
+    elif tool == "antigravity":
+        config_path = _configure_global_antigravity_forgerouter(req.enabled)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported tool: {req.tool}")
+
+    status = await get_forgerouter_cli_status(x_bridge_token=x_bridge_token)
+    return {
+        "tool": tool,
+        "enabled": req.enabled,
+        "config_path": config_path,
+        "status": status,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Project-scoped MCP servers -- Claude Code's `.mcp.json` at the project
 # root, ForgeHub's counterpart to per-agent MCP (agent_mcp.py, a different
 # Python process/venv entirely -- this file can't import from it, so the

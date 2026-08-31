@@ -9,15 +9,34 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 JsonValue = dict[str, Any] | list[Any]
 
 
+TechStackLayer = Literal[
+    "frontend",
+    "mobile",
+    "backend",
+    "database",
+    "cache",
+    "messaging",
+    "auth",
+    "storage",
+    "search",
+    "api_gateway",
+    "deploy_infra",
+    "cicd",
+    "observability",
+    "testing",
+    "documentation",
+]
+
+
 class TechStackDecision(BaseModel):
-    layer: Literal["frontend", "backend", "database", "deploy_infra"]
+    layer: TechStackLayer
     decision: str = Field(min_length=1, max_length=255)
     rationale: str | None = None
 
 
 class TechStackOptionOut(BaseModel):
     id: uuid.UUID
-    layer: Literal["frontend", "backend", "database", "deploy_infra"]
+    layer: TechStackLayer
     name: str
     description: str | None
     source: Literal["org_standard", "custom"]
@@ -29,7 +48,7 @@ class TechStackOptionOut(BaseModel):
 
 
 class TechStackOptionCreate(BaseModel):
-    layer: Literal["frontend", "backend", "database", "deploy_infra"]
+    layer: TechStackLayer
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     platform: Literal["web_app", "landing_page", "institutional_site", "pwa", "mobile"] | None = None
@@ -287,7 +306,17 @@ class ProjectSpec(BaseModel):
     Concept approval can produce one Project per application type (2026-08-01
     decision, see docs/architecture/PLANNING_DELIVERY_ARCHITECTURE.md section
     2.2's note and docs/modules/01_CONCEPTION_AND_SYSTEM_SCOPE.md)."""
-    solution_type: Literal["web_app", "mobile_app", "api_service", "database", "deploy"]
+    solution_type: Literal[
+        "web_app",
+        "mobile_app",
+        "api_service",
+        "database",
+        "deploy",
+        "automation",
+        "data_migration",
+        "data_analysis",
+        "reporting",
+    ]
     project_name: str = Field(min_length=1, max_length=255)
     project_description: str | None = None
     owner: str | None = Field(default=None, max_length=255)
@@ -444,6 +473,8 @@ class ScreenOut(BaseModel):
 class BusinessRuleOut(BaseModel):
     content: str
     updated_at: datetime | None = None
+    file_path: str | None = None
+    abs_path: str | None = None
 
 
 class BusinessRuleWrite(BaseModel):
@@ -469,3 +500,19 @@ class IdeaCreatedOut(BaseModel):
     concept_revision: ConceptRevisionOut
     blueprint: SystemBlueprintOut
     blueprint_revision: BlueprintRevisionOut
+
+
+class ColumnCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    sql_type: str = Field(default="text")
+    is_pk: bool = False
+    is_fk: bool = False
+    fk_ref_table: str = ""
+    nullable: bool = True
+
+
+class TableCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    stable_key: str | None = None
+    initial_columns: list[ColumnCreate] | None = None

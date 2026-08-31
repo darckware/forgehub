@@ -143,9 +143,9 @@
   },
   "runtimes": {
     "hermes": "Hermes",
-    "claude": "Claude Code",
-    "codex": "Codex CLI",
-    "agy": "Gemini CLI (Agy)",
+    "claude": "claude",
+    "codex": "codex",
+    "agy": "agy",
     "openclaw": "OpenClaw"
   },
   "homePath": {
@@ -166,6 +166,9 @@
     "noApprovedSkills": "Sem cobertura de skills aprovadas",
     "subAgents": "Sub-agentes",
     "scopedWorker": "Worker com escopo",
+    "tools": "Ferramentas (Tools)",
+    "noTools": "Nenhuma ferramenta cadastrada para este agente",
+    "viewInToolsPanel": "Abrir no painel de ferramentas",
     "baselineWarning": "O ecossistema registrado está abaixo da baseline governada atual: 1 orquestrador Athos + 7 agentes principais de desenvolvimento. Departamentos futuros podem expandir essa baseline.",
     "hermesSectionTitle": "Agentes do sistema Hermes",
     "hermesSectionSubtitle": "Perfis internos sob /root/.hermes/profiles, organizados por camada, tier e departamento.",

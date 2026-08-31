@@ -34,6 +34,7 @@ import {
   Sparkles,
   Square,
   Trash2,
+  User,
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -43,6 +44,8 @@ import { ComposerShell } from "@/components/chat/ComposerShell";
 import { ImprovePromptDialog } from "@/components/chat/ImprovePromptDialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Markdown } from "@/components/Markdown";
+import { AgentAvatar } from "@/components/AgentAvatar";
+import { useAuthStore } from "@/store/authStore";
 import { TestApplicationDialog } from "@/components/chat/TestApplicationDialog";
 import { useFsList, type FsEntry } from "@/hooks/useTerminalBrowse";
 import { getToken } from "@/lib/api";
@@ -318,6 +321,7 @@ type ChatQueueItem = {
   id: string;
   content: string;
   attachmentName: string | null;
+  attachmentDataUrls?: string[];
   files: File[];
   liveText: string;
   steps: ChatQueueStep[];
@@ -1473,6 +1477,7 @@ function MessageBubble({
   onRegenerate,
   regenerateDisabled,
   respondingAgentName,
+  agent,
   onEdit,
   editDisabled,
 }: {
@@ -1483,6 +1488,7 @@ function MessageBubble({
   /** Name badge shown above a reply that came from a "#Agente"-mentioned
    * agent other than the tab's own (message.responding_agent_id set). */
   respondingAgentName?: string;
+  agent?: Agent;
   /** Only passed for the last user message in the thread -- edits it and
    * resends (see handleEditMessage: deletes this message + its reply,
    * then queues the new text as a fresh turn). */
@@ -1490,10 +1496,25 @@ function MessageBubble({
   editDisabled?: boolean;
 }) {
   const { t } = useTranslation("chat");
+  const { user } = useAuthStore();
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.content);
+
+  const attachedImages = useMemo(() => {
+    if (!message.attachment_data_urls) return [];
+    try {
+      const parsed = JSON.parse(message.attachment_data_urls);
+      if (Array.isArray(parsed)) return parsed.filter((u): u is string => typeof u === "string");
+      if (typeof parsed === "string") return [parsed];
+    } catch {
+      if (typeof message.attachment_data_urls === "string" && message.attachment_data_urls.startsWith("data:")) {
+        return [message.attachment_data_urls];
+      }
+    }
+    return [];
+  }, [message.attachment_data_urls]);
 
   async function handleCopyMessage() {
     await navigator.clipboard.writeText(message.content);
@@ -1501,54 +1522,82 @@ function MessageBubble({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  // ChatGPT-style: only the user's own turn gets a colored bubble. The
-  // agent's reply is plain text flowing in the page, no card/background.
+  // ChatGPT-style with visual identity: Avatar and name badges
   if (!isUser) {
+    const displayAgentName = respondingAgentName ?? agent?.name ?? "Agent";
+    const avatarUrl = agent?.avatar_data_url;
+
     return (
-      <div className="group/msg max-w-[85%] text-sm text-foreground">
-        {message.thinking_seconds != null && !isCommandReply && (
-          <p className="mb-1 text-xs text-muted-foreground">
-            {t("messageBubble.thoughtFor", { duration: formatThinkingDuration(message.thinking_seconds) })}
-          </p>
-        )}
-        {respondingAgentName && (
-          <span className="mb-1 flex w-fit items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-foreground">
-            <Bot className="h-2.5 w-2.5" />
-            {respondingAgentName}
-          </span>
-        )}
-        {message.attachment_names && (
-          <p className="mb-1 text-xs text-muted-foreground">📎 {message.attachment_names}</p>
-        )}
-        {isCommandReply ? (
-          <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs">
-            {message.content}
-          </pre>
-        ) : (
-          <Markdown content={message.content} />
-        )}
-        <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover/msg:opacity-100">
-          <button
-            type="button"
-            aria-label={t("messageBubble.copyMessage")}
-            title={t("messageBubble.copyMessage")}
-            onClick={handleCopyMessage}
-            className="flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          </button>
-          {onRegenerate && (
+      <div className="group/msg flex gap-3 max-w-[88%] text-sm text-foreground">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted text-xs font-semibold text-muted-foreground shadow-sm">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt={displayAgentName} className="h-full w-full object-cover" />
+          ) : (
+            <AgentAvatar name={displayAgentName} avatarDataUrl={avatarUrl} size="sm" className="h-8 w-8 text-[11px]" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-xs font-semibold text-foreground">{displayAgentName}</span>
+            {message.created_at && (
+              <span className="text-[10px] text-muted-foreground">{formatTime(message.created_at)}</span>
+            )}
+          </div>
+          {message.thinking_seconds != null && !isCommandReply && (
+            <p className="mb-1 text-xs text-muted-foreground">
+              {t("messageBubble.thoughtFor", { duration: formatThinkingDuration(message.thinking_seconds) })}
+            </p>
+          )}
+          {attachedImages.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {attachedImages.map((imgUrl, idx) => (
+                <div
+                  key={idx}
+                  className="group/img relative max-h-72 max-w-md overflow-hidden rounded-lg border border-border bg-muted/40 shadow-sm"
+                >
+                  <img
+                    src={imgUrl}
+                    alt={`Anexo ${idx + 1}`}
+                    className="max-h-72 max-w-full rounded-lg object-contain transition-transform duration-200 hover:scale-[1.02] cursor-pointer"
+                    onClick={() => window.open(imgUrl, "_blank")}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          {message.attachment_names && attachedImages.length === 0 && (
+            <p className="mb-1 text-xs text-muted-foreground">📎 {message.attachment_names}</p>
+          )}
+          {isCommandReply ? (
+            <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs">
+              {message.content}
+            </pre>
+          ) : (
+            <Markdown content={message.content} />
+          )}
+          <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover/msg:opacity-100">
             <button
               type="button"
-              aria-label={t("messageBubble.regenerateReply")}
-              title={t("messageBubble.regenerateReply")}
-              disabled={regenerateDisabled}
-              onClick={onRegenerate}
-              className="flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+              aria-label={t("messageBubble.copyMessage")}
+              title={t("messageBubble.copyMessage")}
+              onClick={handleCopyMessage}
+              className="flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground hover:text-foreground"
             >
-              <RotateCcw className="h-3 w-3" />
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
             </button>
-          )}
+            {onRegenerate && (
+              <button
+                type="button"
+                aria-label={t("messageBubble.regenerateReply")}
+                title={t("messageBubble.regenerateReply")}
+                disabled={regenerateDisabled}
+                onClick={onRegenerate}
+                className="flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -1556,7 +1605,7 @@ function MessageBubble({
 
   if (isEditing) {
     return (
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-3">
         <div className="w-full max-w-[75%] space-y-2 rounded-2xl border border-indigo-500 bg-indigo-500/10 px-4 py-2">
           <Textarea
             autoFocus
@@ -1598,24 +1647,46 @@ function MessageBubble({
             </Button>
           </div>
         </div>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-primary/15 text-primary shadow-sm">
+          {user?.avatar_data_url ? (
+            <img src={user.avatar_data_url} alt={user.username} className="h-full w-full object-cover" />
+          ) : (
+            <User className="h-4 w-4" />
+          )}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="group/msg flex justify-end">
+    <div className="group/msg flex justify-end gap-3">
       <div className="flex max-w-[75%] flex-col items-end">
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-[10px] text-muted-foreground">{formatTime(message.created_at)}</span>
+          <span className="text-xs font-semibold text-foreground">{user?.username || user?.full_name || "Você"}</span>
+        </div>
         <div className="rounded-2xl bg-indigo-600 px-4 py-2 text-sm text-white shadow-sm">
-          {message.attachment_names && (
+          {attachedImages.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {attachedImages.map((imgUrl, idx) => (
+                <div
+                  key={idx}
+                  className="group/img relative max-h-72 max-w-md overflow-hidden rounded-lg border border-white/20 bg-black/20 shadow-sm"
+                >
+                  <img
+                    src={imgUrl}
+                    alt={`Anexo ${idx + 1}`}
+                    className="max-h-72 max-w-full rounded-lg object-contain transition-transform duration-200 hover:scale-[1.02] cursor-pointer"
+                    onClick={() => window.open(imgUrl, "_blank")}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          {message.attachment_names && attachedImages.length === 0 && (
             <p className="mb-1 text-xs text-white/70">📎 {message.attachment_names}</p>
           )}
           <Markdown content={message.content} />
-          {/* Fixed indigo-600 bubble in both themes -- the timestamp must
-              be a fixed light tint too. text-primary-foreground flips to
-              near-black in dark mode (it's meant to pair with the *theme's*
-              bg-primary, not this hardcoded bubble color), which read as
-              unreadably dark-on-dark against this background. */}
-          <p className="mt-1 text-[10px] text-indigo-100/80">{formatTime(message.created_at)}</p>
         </div>
         {onEdit && (
           <button
@@ -1631,6 +1702,13 @@ function MessageBubble({
           >
             <Pencil className="h-3 w-3" />
           </button>
+        )}
+      </div>
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-primary/15 text-primary shadow-sm">
+        {user?.avatar_data_url ? (
+          <img src={user.avatar_data_url} alt={user.username} className="h-full w-full object-cover" />
+        ) : (
+          <User className="h-4 w-4" />
         )}
       </div>
     </div>
@@ -2175,6 +2253,8 @@ export function ChatPane({
     // ChatSessionParticipant's docstring). Excludes a self-mention (the
     // tab's own agent), which just behaves as a normal send.
     const mentionedAgents = files.length > 0 ? [] : extractMentionedAgents(message, chatableAgents);
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    const imagePreviews = imageFiles.map((f) => URL.createObjectURL(f));
 
     if (mentionedAgents.length === 0) {
       setQueue((q) => [
@@ -2183,6 +2263,7 @@ export function ChatPane({
           id: crypto.randomUUID(),
           content: message,
           attachmentName: files.length > 0 ? files.map((f) => f.name).join(", ") : null,
+          attachmentDataUrls: imagePreviews.length > 0 ? imagePreviews : undefined,
           files,
           liveText: "",
           steps: [],
@@ -3843,9 +3924,10 @@ export function ChatPane({
             const isLastUserMessage =
               m.role === "user" && !list.slice(i + 1).some((later) => later.role === "user");
             const canEdit = isLastUserMessage && pendingQueue.length === 0 && !isPlainTextReply(m.content);
-            const respondingAgentName = m.responding_agent_id
-              ? chatableAgents.find((a) => a.id === m.responding_agent_id)?.name
-              : undefined;
+            const respondingAgent = m.responding_agent_id
+              ? chatableAgents.find((a) => a.id === m.responding_agent_id)
+              : selectedAgent;
+            const respondingAgentName = respondingAgent?.name ?? undefined;
             const finishedSteps = m.role === "assistant" ? finishedStepsByMessageId.get(m.id) : undefined;
             return (
               <div key={m.id} className="space-y-1">
@@ -3856,6 +3938,7 @@ export function ChatPane({
                   onRegenerate={canRegenerate ? () => handleRegenerate(m) : undefined}
                   regenerateDisabled={deleteMessage.isPending}
                   respondingAgentName={respondingAgentName}
+                  agent={respondingAgent}
                   onEdit={canEdit ? (newContent) => handleEditMessage(m, newContent) : undefined}
                   editDisabled={deleteMessage.isPending}
                 />
@@ -3937,6 +4020,7 @@ export function ChatPane({
                     role: "user",
                     content: item.content,
                     attachment_names: item.attachmentName,
+                    attachment_data_urls: item.attachmentDataUrls ? JSON.stringify(item.attachmentDataUrls) : undefined,
                     created_at: new Date().toISOString(),
                   }}
                 />

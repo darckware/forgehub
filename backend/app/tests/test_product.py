@@ -18,7 +18,7 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.db.base import AsyncSessionLocal
 from app.db.models.backlog import PlanningItem
@@ -221,6 +221,24 @@ async def test_product_carries_a_dev_and_a_production_url(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_publish_version_requires_at_least_one_task(client: AsyncClient):
+    create_resp = await client.post(
+        "/api/v1/products",
+        json={"name": f"Empty Publish Gate {uuid.uuid4()}"},
+    )
+    assert create_resp.status_code == 201
+    product_id = uuid.UUID(create_resp.json()["id"])
+    version_id = uuid.UUID(create_resp.json()["versions"][0]["id"])
+    try:
+        response = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+        assert response.status_code == 409, response.text
+        assert "at least one task" in response.json()["detail"]["message"]
+        assert response.json()["detail"]["blocking"] == []
+    finally:
+        await _cleanup_product(product_id)
+
+
+@pytest.mark.asyncio
 async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
     """Pacote 4 (2026-08-01): :publish blocks (409 + blocking list) while any
     Project under the version has a non-terminal task -- publishing never
@@ -236,21 +254,32 @@ async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
     try:
         async with AsyncSessionLocal() as db:
             project = Project(name=f"Publish Gate Project {uuid.uuid4()}", product_version_id=version_id, status="planned")
-            db.add(project)
+            sibling = Project(name=f"Publish Gate Sibling {uuid.uuid4()}", product_version_id=version_id, status="active")
+            db.add_all([project, sibling])
             await db.flush()
             item = PlanningItem(title="Gate item", item_type="feature", project_id=project.id)
-            db.add(item)
+            sibling_item = PlanningItem(title="Sibling gate item", item_type="feature", project_id=sibling.id)
+            db.add_all([item, sibling_item])
             await db.flush()
-            task = ProjectTask(planning_item_id=item.id, title="Gate task", task_type="feature")
-            db.add(task)
+            completed_task = ProjectTask(
+                planning_item_id=item.id,
+                title="Completed task",
+                task_type="feature",
+                status="done",
+            )
+            task = ProjectTask(planning_item_id=sibling_item.id, title="Sibling gate task", task_type="feature")
+            db.add_all([completed_task, task])
             await db.commit()
-            project_id, item_id, task_id = project.id, item.id, task.id
+            project_id, sibling_id = project.id, sibling.id
+            item_id, sibling_item_id = item.id, sibling_item.id
+            completed_task_id, task_id = completed_task.id, task.id
 
         blocked = await client.post(f"/api/v1/products/versions/{version_id}:publish")
         assert blocked.status_code == 409, blocked.text
         detail = blocked.json()["detail"]
         assert "unfinished tasks" in detail["message"]
-        assert detail["blocking"][0]["task_id"] == str(task_id)
+        assert [row["task_id"] for row in detail["blocking"]] == [str(task_id)]
+        assert detail["blocking"][0]["project_id"] == str(sibling_id)
 
         finish = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
         assert finish.status_code == 200, finish.text
@@ -258,6 +287,15 @@ async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
         published = await client.post(f"/api/v1/products/versions/{version_id}:publish")
         assert published.status_code == 200, published.text
         assert published.json()["status"] == "published"
+
+        async with AsyncSessionLocal() as db:
+            statuses = {
+                row.id: row.status
+                for row in (
+                    await db.execute(select(Project).where(Project.id.in_([project_id, sibling_id])))
+                ).scalars()
+            }
+        assert statuses == {project_id: "completed", sibling_id: "completed"}
 
         # Idempotent: publishing again returns the current state, not an error.
         again = await client.post(f"/api/v1/products/versions/{version_id}:publish")
@@ -269,8 +307,8 @@ async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
         assert locked.status_code == 409
     finally:
         async with AsyncSessionLocal() as db:
-            await db.execute(delete(ProjectTask).where(ProjectTask.id == task_id))
-            await db.execute(delete(PlanningItem).where(PlanningItem.id == item_id))
-            await db.execute(delete(Project).where(Project.id == project_id))
+            await db.execute(delete(ProjectTask).where(ProjectTask.id.in_([completed_task_id, task_id])))
+            await db.execute(delete(PlanningItem).where(PlanningItem.id.in_([item_id, sibling_item_id])))
+            await db.execute(delete(Project).where(Project.id.in_([project_id, sibling_id])))
             await db.commit()
         await _cleanup_product(product_id)

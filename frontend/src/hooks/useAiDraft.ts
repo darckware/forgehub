@@ -4,7 +4,26 @@ import { apiClient, getToken } from "@/lib/api";
 export type AiDraftTargetKind =
   | "concept" | "system_elements" | "planning_items" | "tasks" | "review" | "tech_stack" | "context_summary";
 
-export interface TechStackDraftItem { layer: "frontend" | "backend" | "database" | "deploy_infra"; decision: string | null; rationale: string | null }
+export interface TechStackDraftItem {
+  layer:
+    | "frontend"
+    | "mobile"
+    | "backend"
+    | "database"
+    | "cache"
+    | "messaging"
+    | "auth"
+    | "storage"
+    | "search"
+    | "api_gateway"
+    | "deploy_infra"
+    | "cicd"
+    | "observability"
+    | "testing"
+    | "documentation";
+  decision: string | null;
+  rationale: string | null;
+}
 export interface ConceptDraft {
   name: string; problem_statement: string; vision: string | null; scope_summary: string | null;
   project_description: string | null; tech_stack: TechStackDraftItem[]; documentation_markdown: string | null;

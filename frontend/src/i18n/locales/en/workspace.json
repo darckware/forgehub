@@ -17,6 +17,7 @@
     "openTerminals": "Open terminals",
     "loadingTerminals": "Loading sessions...",
     "orphanedSession": "orphaned",
+    "deleteChat": "Delete session {{label}}",
     "deleteTerminal": "Terminate {{label}}",
     "hideInternalBrowser": "Hide internal browser",
     "openInternalBrowser": "Open internal browser",
@@ -50,6 +51,9 @@
     "terminateTerminal": "Terminate {{label}} and close its tab",
     "confirmTerminateTerminal": "Terminate the {{label}} terminal session and its running process?",
     "terminateTerminalFailed": "Failed to terminate the terminal session.",
+    "terminateChat": "Terminate and delete session {{label}}",
+    "confirmTerminateChat": "Are you sure you want to permanently delete the chat session {{label}} and all its messages?",
+    "terminateChatFailed": "Failed to terminate and delete chat session.",
     "noAgentAvailable": "No agent with a Hermes profile available to chat with yet.",
     "noTabsOpen": "No tabs open",
     "noTabsOpenHelp": "Start a conversation or open a terminal using the buttons above."

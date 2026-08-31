@@ -72,10 +72,15 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     labelKey: "nav.section.factory2",
     entries: [
-      // Cockpit first -- it's the overview/entry point across every phase
-      // below, not a phase itself. The rest follows the pipeline order:
-      // 1 Conception, 2 Screens/Business Rules, 2.1 Database Modeling,
-      // 3 Projects/Planning/Tasks, 4 Governance, 5 Version Closure.
+      // Monitoramento da Software Factory:
+      // 0. Cockpit de Execução
+      // Pipeline Sequencial da Software Factory (1 a 6):
+      // 1. Concepção & Contexto
+      // 2. Telas & Regras de Negócio
+      // 3. Banco de Dados & ERD
+      // 4. Central de Projetos & Backlog
+      // 5. Gate de Governança
+      // 6. Fechamento de Versão
       { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
       { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
@@ -113,12 +118,6 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/crons", labelKey: "nav.crons", icon: Clock, module: "crons" },
       { type: "link", to: "/systems-hub", labelKey: "nav.systemsHub", icon: Boxes, module: "agents" },
       { type: "link", to: "/foundation", labelKey: "nav.foundation", icon: Landmark, module: "foundation" },
-    ],
-  },
-  {
-    type: "section",
-    labelKey: "nav.section.integrations",
-    entries: [
       { type: "link", to: "/obsidian", labelKey: "nav.knowledgeBase", icon: Gem, module: "obsidian" },
     ],
   },

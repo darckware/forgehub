@@ -138,6 +138,15 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             # own credential instead of only the shared bridge token.
             "/api/v1/governance/", "/api/v1/channels/",
         )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
+        factory_read_path = request.method == "GET" and path.startswith((
+            "/api/v1/projects",
+            "/api/v1/tasks",
+            "/api/v1/planning-items",
+            "/api/v1/project-scopes/",
+            "/api/v1/blueprint-revisions/",
+        ))
+        factory_task_command = request.method == "PATCH" and path.startswith("/api/v1/tasks/")
+        agent_command_path = agent_command_path or factory_read_path or factory_task_command
         if token and token.startswith("agt_") and agent_command_path:
             from sqlalchemy import select
             from app.db.base import AsyncSessionLocal

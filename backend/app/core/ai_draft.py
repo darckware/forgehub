@@ -26,8 +26,10 @@ _TARGET_KIND_INSTRUCTIONS: dict[AiDraftTargetKind, str] = {
         "serviço) e proponha os campos estruturados de uma Concepção de produto no ForgeHub. Responda "
         "com um bloco JSON cercado (```json ... ```) no formato:\n"
         '{"name": str, "problem_statement": str, "vision": str|null, "scope_summary": str|null, '
-        '"project_description": str|null, "tech_stack": [{"layer": "frontend"|"backend"|"database"|'
-        '"deploy_infra", "decision": str, "rationale": str|null}], "documentation_markdown": str|null}\n'
+        '"project_description": str|null, "tech_stack": [{"layer": "frontend"|"mobile"|"backend"|'
+        '"database"|"cache"|"messaging"|"auth"|"storage"|"search"|"api_gateway"|"deploy_infra"|'
+        '"cicd"|"observability"|"testing"|"documentation", "decision": str, "rationale": str|null}], '
+        '"documentation_markdown": str|null}\n'
         "documentation_markdown deve ser um rascunho de documentação em Markdown apropriado ao tipo de "
         "iniciativa descrita no contexto -- um sistema com telas pede uma estrutura tipo PRD; uma "
         "automação ou um serviço sem interface pede gatilho, entradas/saídas, dependências e tratamento "
@@ -93,8 +95,9 @@ _TARGET_KIND_INSTRUCTIONS: dict[AiDraftTargetKind, str] = {
         "certa para o tipo de iniciativa (uma automação sem interface não tem entrada \"frontend\"; um "
         "serviço interno sem exposição pública pode não precisar de \"deploy_infra\" além do padrão "
         "já registrado). Responda com um bloco JSON cercado no formato:\n"
-        '{"tech_stack": [{"layer": "frontend"|"backend"|"database"|"deploy_infra", "decision": str, '
-        '"rationale": str}]}\n'
+        '{"tech_stack": [{"layer": "frontend"|"mobile"|"backend"|"database"|"cache"|"messaging"|'
+        '"auth"|"storage"|"search"|"api_gateway"|"deploy_infra"|"cicd"|"observability"|"testing"|'
+        '"documentation", "decision": str, "rationale": str}]}\n'
         "rationale deve justificar a escolha com base no guia consultado (ex.: citar o tipo de "
         "iniciativa que o guia associa àquela tecnologia), nunca uma frase genérica. Inclua APENAS as "
         "camadas para as quais você tem uma decisão real -- omita a camada inteira do array em vez de "

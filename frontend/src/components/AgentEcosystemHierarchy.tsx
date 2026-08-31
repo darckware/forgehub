@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bot, ChevronDown, ChevronRight, FolderTree, Network, Pencil, Trash2, Upload } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, FolderTree, Network, Pencil, Trash2, Upload, Wrench } from "lucide-react";
 import { AgentAvatar, validateAgentAvatar } from "@/components/AgentAvatar";
 import { AgentProfileFileChips } from "@/components/AgentProfileFileChips";
 import { AgentRosterTable, type AgentSortKey, type SortDirection } from "@/components/AgentRosterTable";
@@ -16,6 +16,7 @@ import {
 } from "@/hooks/useAgent";
 import { useFoundationCrons, type CronJob } from "@/hooks/useFoundationCrons";
 import { useFoundationAllScripts, type FoundationScript } from "@/hooks/useFoundationScripts";
+import { useTools, type AgentTool } from "@/hooks/useTools";
 import { ApiError } from "@/lib/api";
 
 const VALID_SORT_KEYS = new Set<AgentSortKey>([
@@ -103,9 +104,9 @@ function AgentPhotoEditor({ agent }: { agent: Agent }) {
   );
 }
 
-function AgentDetails({ agent, skills, telegram, crons, scripts, onDelete, onDeleteSubAgent }: {
+function AgentDetails({ agent, skills, telegram, crons, scripts, tools, onDelete, onDeleteSubAgent }: {
   agent: Agent; skills: Skill[]; telegram?: AgentTelegramStatus; crons: CronJob[];
-  scripts: FoundationScript[]; onDelete: (agent: Agent) => void;
+  scripts: FoundationScript[]; tools: AgentTool[]; onDelete: (agent: Agent) => void;
   onDeleteSubAgent: (agent: Agent, subAgent: SubAgent) => void;
 }) {
   const { t } = useTranslation("agent");
@@ -139,6 +140,22 @@ function AgentDetails({ agent, skills, telegram, crons, scripts, onDelete, onDel
             <p className="min-w-0"><span className="font-medium">{subAgent.name}</span><span className="text-muted-foreground"> — {subAgent.description || subAgent.permission_scope || t("hierarchy.scopedWorker")}</span></p>
             <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 text-destructive" aria-label={t("list.deleteSubAgentTooltip")} onClick={() => onDeleteSubAgent(agent, subAgent)}><Trash2 className="h-3.5 w-3.5" /></Button>
           </div>)}</div>
+        </CollapsibleSection>
+        <CollapsibleSection label={t("hierarchy.tools")} count={tools.length} emptyLabel={t("hierarchy.noTools")}>
+          <div className="space-y-1.5">{tools.map((tool) => (
+            <div key={tool.id} className="flex items-start justify-between gap-2 rounded-md bg-background/60 p-2 text-xs">
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <code className="font-semibold text-foreground">{tool.name}</code>
+                  <Badge variant="outline" className="text-[10px] uppercase">{tool.category}</Badge>
+                  <Badge variant={tool.status === "active" ? "success" : tool.status === "deprecated" ? "warning" : "outline"} className="text-[10px]">{tool.status}</Badge>
+                </div>
+                {tool.description && <p className="line-clamp-2 text-[11px] text-muted-foreground">{tool.description}</p>}
+                {tool.file_path && <code className="block truncate text-[10px] text-muted-foreground/80">{tool.file_path}</code>}
+              </div>
+              <Link to={`/tools?agent=${agent.id}`} className={buttonVariants({ variant: "ghost", size: "icon" })} title={t("hierarchy.viewInToolsPanel")}><Wrench className="h-3.5 w-3.5" /></Link>
+            </div>
+          ))}</div>
         </CollapsibleSection>
         <CollapsibleSection label={t("hierarchy.crons")} count={crons.length}>
           <div className="space-y-1">{crons.map((job) => <div key={job.id} className="rounded-md bg-background/60 p-2 text-xs">
@@ -185,8 +202,10 @@ export function AgentEcosystemHierarchy({ agents: allAgents, skills, focusedAgen
   const telegramByAgent = new Map((telegramStatus?.agents ?? []).map((entry) => [entry.agent_id, entry]));
   const { data: cronData } = useFoundationCrons();
   const { data: scriptData } = useFoundationAllScripts();
+  const { data: allTools = [] } = useTools();
   const cronsFor = (slug: string | null | undefined) => slug ? (cronData?.jobs ?? []).filter((job) => job.profile === slug) : [];
   const scriptsFor = (slug: string | null | undefined) => slug ? (scriptData ?? []).filter((script) => script.location === slug) : [];
+  const toolsFor = (agentId: string) => allTools.filter((tool) => tool.agent_id === agentId);
   const handleSort = (key: AgentSortKey) => {
     const next = new URLSearchParams(searchParams);
     next.set("sort", key);
@@ -212,6 +231,7 @@ export function AgentEcosystemHierarchy({ agents: allAgents, skills, focusedAgen
           approvedSkillCount={approvedSkillCount}
           renderDetails={(agent) => <AgentDetails agent={agent} skills={skillsFor(agent.id)}
             telegram={telegramByAgent.get(agent.id)} crons={cronsFor(agent.profile_slug)} scripts={scriptsFor(agent.profile_slug)}
+            tools={toolsFor(agent.id)}
             onDelete={(target) => { deleteAgent.reset(); setDeleting({ kind: "agent", agent: target }); }}
             onDeleteSubAgent={(target, subAgent) => { deleteSubAgent.reset(); setDeleting({ kind: "sub-agent", agent: target, subAgent }); }} />}
         />

@@ -43,6 +43,8 @@ export interface Screen {
 export interface BusinessRule {
   content: string;
   updated_at: string | null;
+  file_path?: string | null;
+  abs_path?: string | null;
 }
 
 export interface DeriveDatabaseResult {
@@ -114,5 +116,23 @@ export function useDeriveDatabase() {
     onSuccess: (data) => {
       client.invalidateQueries({ queryKey: ["blueprint-graph", data.revision_id] });
     },
+  });
+}
+
+export function useDatabaseDoc(scopeId?: string) {
+  return useQuery({
+    queryKey: ["database-doc", scopeId],
+    queryFn: () => apiClient.get<BusinessRule>(`/api/v1/project-scopes/${scopeId}/database-doc`),
+    enabled: Boolean(scopeId),
+  });
+}
+
+export function useSaveDatabaseDoc() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scopeId, content }: { scopeId: string; content: string }) =>
+      apiClient.put<BusinessRule>(`/api/v1/project-scopes/${scopeId}/database-doc`, { content }),
+    onSuccess: (_, variables) =>
+      client.invalidateQueries({ queryKey: ["database-doc", variables.scopeId] }),
   });
 }
