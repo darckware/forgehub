@@ -18,7 +18,12 @@ import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { useChattableAgents } from "@/hooks/useAgent";
 import { usePromptTemplate, useStreamAgentDraft } from "@/hooks/useAiDraft";
 import { useDeleteProduct, useUpdateProduct } from "@/hooks/useProduct";
-import { PROJECT_SOLUTION_TYPES, PROJECT_SOLUTION_TYPE_LABELS } from "@/hooks/useProject";
+import {
+  PROJECT_SOLUTION_TYPES,
+  PROJECT_SOLUTION_TYPE_LABELS,
+  useDeleteProject,
+  useProjects,
+} from "@/hooks/useProject";
 import {
   useAuthorizeDeliveryPlanning,
   useConcept,
@@ -333,12 +338,17 @@ function ProjectPlanningPanel({
   conceptId: string | undefined; conceptStatus: string | undefined;
   workingDirectoryPath: string;
 }) {
+  const { t } = useTranslation("conception");
+  const queryClient = useQueryClient();
   const authorize = useAuthorizeDeliveryPlanning();
   const sync = useSyncArtifactsToProject();
+  const deleteProject = useDeleteProject();
+  const { data: allProjects } = useProjects();
   const [specs, setSpecs] = useState<ProjectSpecForm[]>([{ ...EMPTY_PROJECT_SPEC }]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [results, setResults] = useState<DeliveryPlanningProjectResult[] | null>(null);
+  const [pendingDeleteProject, setPendingDeleteProject] = useState<{ id: string; name: string } | null>(null);
 
   if (!conceptId) {
     return <p className="text-sm text-muted-foreground">Salve a ideia primeiro para poder criar o projeto.</p>;
@@ -376,6 +386,23 @@ function ProjectPlanningPanel({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleDeleteProject = (projectId: string, projectName: string) => {
+    setPendingDeleteProject({ id: projectId, name: projectName });
+  };
+
+  const confirmDeleteProject = () => {
+    if (!pendingDeleteProject) return;
+    deleteProject.mutate(pendingDeleteProject.id, {
+      onSuccess: () => {
+        if (results) {
+          setResults((prev) => prev ? prev.filter((r) => r.project_id !== pendingDeleteProject.id) : null);
+        }
+        queryClient.invalidateQueries({ queryKey: ["projects"] });
+        setPendingDeleteProject(null);
+      },
+    });
   };
 
   return (
@@ -422,22 +449,39 @@ function ProjectPlanningPanel({
       {results && (
         <div className="space-y-2 rounded-md border p-3">
           <p className="text-sm font-medium">Projetos:</p>
-          {results.map((p) => (
-            <div key={p.project_id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span>
-                <Badge variant="outline" className="mr-2">{p.solution_type}</Badge>
-                <Link to={`/projects/${p.project_id}`} className="text-primary hover:underline">abrir projeto</Link>
-                {" "}({p.scope_items_created} itens de escopo, {p.tasks_created} tasks)
-              </span>
-              <Button
-                size="sm" variant="outline" disabled={sync.isPending}
-                onClick={() => sync.mutate({ conceptId, projectId: p.project_id })}
-              >
-                {sync.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                Sincronizar docs para o repositório
-              </Button>
-            </div>
-          ))}
+          {results.map((p) => {
+            const projectInfo = allProjects?.find((proj) => proj.id === p.project_id);
+            const projectName = projectInfo?.name || p.solution_type;
+            return (
+              <div key={p.project_id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span>
+                  <Badge variant="outline" className="mr-2">{p.solution_type}</Badge>
+                  <Link to={`/projects/${p.project_id}`} className="text-primary hover:underline">
+                    {projectName}
+                  </Link>
+                  {" "}({p.scope_items_created} itens de escopo, {p.tasks_created} tasks)
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm" variant="outline" disabled={sync.isPending}
+                    onClick={() => sync.mutate({ conceptId, projectId: p.project_id })}
+                  >
+                    {sync.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    Sincronizar docs para o repositório
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    title={t("developmentRequests.delete")}
+                    onClick={() => handleDeleteProject(p.project_id, projectName)}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
           {sync.isSuccess && (
             <p className="text-xs text-muted-foreground">
               Gravado: {sync.data.files_written.join(", ") || "(nenhum documento gerado ainda)"}
@@ -445,6 +489,15 @@ function ProjectPlanningPanel({
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={pendingDeleteProject !== null}
+        title={`Excluir projeto "${pendingDeleteProject?.name ?? ""}"?`}
+        description="Isso excluirá o projeto permanentemente junto com suas tarefas e configurações. Esta ação não pode ser desfeita."
+        confirmLabel="Excluir"
+        loading={deleteProject.isPending}
+        onConfirm={confirmDeleteProject}
+        onCancel={() => setPendingDeleteProject(null)}
+      />
     </div>
   );
 }
