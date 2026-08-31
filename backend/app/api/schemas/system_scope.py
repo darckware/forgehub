@@ -120,16 +120,27 @@ class ConceptDocumentSummary(BaseModel):
     filename: str
     size: int
     updated_at: datetime
+    category: str | None = None
+    description: str | None = None
 
 
 class ConceptDocumentOut(BaseModel):
     filename: str
     content: str
     updated_at: datetime
+    category: str | None = None
+    description: str | None = None
 
 
 class ConceptDocumentWrite(BaseModel):
     content: str
+    category: str | None = None
+    description: str | None = None
+
+
+class ConceptDocumentMetadataUpdate(BaseModel):
+    category: str | None = None
+    description: str | None = None
 
 
 class ConceptDeliveryMetadataUpdate(BaseModel):

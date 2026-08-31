@@ -2,7 +2,25 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { FileText, Lightbulb, Loader2, Plus, Rocket, Sparkles, Trash2, Upload } from "lucide-react";
+import {
+  BookOpen,
+  Database,
+  FileText,
+  Filter,
+  Image as ImageIcon,
+  Layout,
+  Layers,
+  Lightbulb,
+  Loader2,
+  Network,
+  Palette,
+  Plus,
+  Rocket,
+  Sparkles,
+  Trash2,
+  Upload,
+  Wrench,
+} from "lucide-react";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,6 +55,7 @@ import {
   useSyncArtifactsToProject,
   useAllTechStackOptions,
   useUpdateConceptDeliveryMetadata,
+  useUpdateConceptDocumentMetadata,
   useUpdateDevelopmentRequest,
   useUploadConceptDocument,
   type DeliveryPlanningProjectResult,
@@ -122,26 +141,30 @@ const EMPTY_FORM = {
  * approval-gated artifact generation (PRD/Spec/...) writes to, so both show
  * up together once a concept is approved. */
 const DOCUMENT_CATEGORIES = [
-  { id: "prd", label: "PRD / Requisitos", defaultFilename: "PRD.md", description: "Documento de Requisitos do Produto" },
-  { id: "design_system", label: "Design System / UI", defaultFilename: "DESIGN_SYSTEM.md", description: "Guia de Estilos, Tokens e Componentes UI" },
-  { id: "database", label: "Modelagem de Dados", defaultFilename: "DATABASE_SPEC.md", description: "Modelagem, Schemas e Tabelas do Banco" },
-  { id: "screens", label: "Telas / Wireframes", defaultFilename: "SCREENS.md", description: "Especificação e Protótipos de Telas" },
-  { id: "architecture", label: "Arquitetura / SPEC", defaultFilename: "SPEC.md", description: "Especificação Técnica e Arquitetura" },
-  { id: "api", label: "APIs / Integrações", defaultFilename: "API_SPEC.md", description: "Contratos de Endpoints e Integrações" },
-  { id: "other", label: "Outros Documentos", defaultFilename: "DOC.md", description: "Documentação Geral de Referência" },
+  { id: "prd", label: "PRD / Requisitos", icon: FileText, defaultFilename: "PRD.md", description: "Documento de Requisitos do Produto (PRD)", color: "text-blue-500 bg-blue-500/10 border-blue-500/20" },
+  { id: "design_system", label: "Design System / UI", icon: Palette, defaultFilename: "DESIGN_SYSTEM.md", description: "Guia de Estilos, Tokens e Componentes UI", color: "text-purple-500 bg-purple-500/10 border-purple-500/20" },
+  { id: "database", label: "Modelagem de Banco de Dados", icon: Database, defaultFilename: "DATABASE_SPEC.md", description: "Modelagem, Schemas e Tabelas do Banco", color: "text-emerald-500 bg-emerald-500/10 border-emerald-500/20" },
+  { id: "architecture", label: "Arquitetura / SPEC", icon: Layers, defaultFilename: "SPEC.md", description: "Especificação Técnica e Arquitetura do Sistema", color: "text-amber-500 bg-amber-500/10 border-amber-500/20" },
+  { id: "screens", label: "Telas / Wireframes", icon: Layout, defaultFilename: "SCREENS.md", description: "Especificação e Protótipos de Telas", color: "text-indigo-500 bg-indigo-500/10 border-indigo-500/20" },
+  { id: "api", label: "APIs / Integrações", icon: Network, defaultFilename: "API_SPEC.md", description: "Contratos de Endpoints e Integrações", color: "text-cyan-500 bg-cyan-500/10 border-cyan-500/20" },
+  { id: "other", label: "Outros Documentos", icon: BookOpen, defaultFilename: "DOC.md", description: "Documentação Geral de Referência", color: "text-slate-500 bg-slate-500/10 border-slate-500/20" },
 ] as const;
 
 type DocCategoryKey = (typeof DOCUMENT_CATEGORIES)[number]["id"];
 
 function inferDocCategory(filename: string): DocCategoryKey {
   const lower = filename.toLowerCase();
-  if (lower.includes("prd") || lower.includes("requisito")) return "prd";
-  if (lower.includes("design") || lower.includes("theme") || lower.includes("style")) return "design_system";
-  if (lower.includes("data") || lower.includes("db") || lower.includes("banco") || lower.includes("model")) return "database";
-  if (lower.includes("screen") || lower.includes("tela") || lower.includes("wireframe") || lower.includes("paste_")) return "screens";
+  if (lower.includes("prd") || lower.includes("requisito") || lower.includes("requirements")) return "prd";
+  if (lower.includes("design") || lower.includes("theme") || lower.includes("style") || lower.includes("ui")) return "design_system";
+  if (lower.includes("data") || lower.includes("db") || lower.includes("banco") || lower.includes("model") || lower.includes("erd")) return "database";
+  if (lower.includes("screen") || lower.includes("tela") || lower.includes("wireframe") || lower.includes("paste_") || lower.includes("mockup")) return "screens";
   if (lower.includes("spec") || lower.includes("tech") || lower.includes("arch") || lower.includes("arquitetura")) return "architecture";
-  if (lower.includes("api") || lower.includes("endpoint") || lower.includes("contrato")) return "api";
+  if (lower.includes("api") || lower.includes("endpoint") || lower.includes("contrato") || lower.includes("openapi") || lower.includes("swagger")) return "api";
   return "other";
+}
+
+function getCategoryConfig(key?: string | null) {
+  return DOCUMENT_CATEGORIES.find((c) => c.id === key) ?? DOCUMENT_CATEGORIES[6];
 }
 
 function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined }) {
@@ -151,25 +174,21 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
   const document = useConceptDocument(conceptId, selectedFilename ?? undefined);
   const saveDocument = useSaveConceptDocument();
   const uploadDocument = useUploadConceptDocument();
+  const updateDocMetadata = useUpdateConceptDocumentMetadata();
   const deleteDocument = useDeleteConceptDocument();
   const [editedContent, setEditedContent] = useState("");
   const [newFilename, setNewFilename] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<DocCategoryKey>("prd");
   const [creating, setCreating] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<string>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [fileDescriptions, setFileDescriptions] = useState<Record<string, string>>({
-    "PRD.md": "Documento de Requisitos do Produto (PRD)",
-    "SPEC.md": "Especificação Técnica e Arquitetura do Sistema",
-    "STACK.md": "Decisão das Tecnologias e Frameworks",
-    "DESIGN_SYSTEM.md": "Guia de Estilos, Design System e Componentes UI",
-    "DATABASE_SPEC.md": "Modelagem de Dados e Esquema de Tabelas",
-    "SCREENS.md": "Especificação de Telas e Navegação",
-    "API_SPEC.md": "Contratos de Endpoints e Integrações",
-  });
+  const [localDescriptions, setLocalDescriptions] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (document.data) setEditedContent(document.data.content);
+    if (document.data) {
+      setEditedContent(document.data.content);
+    }
   }, [document.data]);
 
   useEffect(() => {
@@ -194,12 +213,13 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
           const extension = file.type.split("/")[1] || "png";
           const pastedFile = new File([file], `paste_${timestamp}.${extension}`, { type: file.type });
 
-          const result = await uploadDocument.mutateAsync({ conceptId, file: pastedFile });
+          const result = await uploadDocument.mutateAsync({
+            conceptId,
+            file: pastedFile,
+            category: "screens",
+            description: "Mockup / Imagem de Tela Colada",
+          });
           setSelectedFilename(result.filename);
-          setFileDescriptions((prev) => ({
-            ...prev,
-            [result.filename]: "Mockup / Imagem de Tela Colada",
-          }));
           break;
         }
       }
@@ -219,10 +239,13 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
     const filename = /\.(md|markdown|txt|json)$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
     const cat = DOCUMENT_CATEGORIES.find((c) => c.id === selectedCategory);
     const initialContent = `# ${cat?.label ?? "Documento"}\n\n${cat?.description ?? ""}\n\n## Detalhes\n\n`;
-    const result = await saveDocument.mutateAsync({ conceptId, filename, content: initialContent });
-    if (cat?.description) {
-      setFileDescriptions((prev) => ({ ...prev, [result.filename]: cat.description }));
-    }
+    const result = await saveDocument.mutateAsync({
+      conceptId,
+      filename,
+      content: initialContent,
+      category: selectedCategory,
+      description: cat?.description ?? "",
+    });
     setNewFilename("");
     setCreating(false);
     setSelectedFilename(result.filename);
@@ -231,19 +254,44 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
   const addTemplateDocument = async (category: typeof DOCUMENT_CATEGORIES[number]) => {
     const filename = category.defaultFilename;
     const initialContent = `# ${category.label}\n\n${category.description}\n\n## 1. Visão Geral\n\n## 2. Especificação Detalhada\n\n`;
-    const result = await saveDocument.mutateAsync({ conceptId, filename, content: initialContent });
-    setFileDescriptions((prev) => ({ ...prev, [result.filename]: category.description }));
+    const result = await saveDocument.mutateAsync({
+      conceptId,
+      filename,
+      content: initialContent,
+      category: category.id,
+      description: category.description,
+    });
     setSelectedFilename(result.filename);
-  };
-
-  const updateDescription = (filename: string, desc: string) => {
-    setFileDescriptions((prev) => ({ ...prev, [filename]: desc }));
   };
 
   const isImageFile = (filename: string | null) => {
     if (!filename) return false;
     return /\.(png|jpg|jpeg|webp|svg|gif)$/i.test(filename);
   };
+
+  const handleCategoryChange = (filename: string, newCat: string) => {
+    updateDocMetadata.mutate({
+      conceptId,
+      filename,
+      category: newCat,
+    });
+  };
+
+  const handleDescriptionBlur = (filename: string, desc: string) => {
+    updateDocMetadata.mutate({
+      conceptId,
+      filename,
+      description: desc,
+    });
+  };
+
+  const allDocs = documents.data ?? [];
+  const filteredDocs = activeFilter === "all"
+    ? allDocs
+    : allDocs.filter((doc) => {
+        const cat = doc.category || inferDocCategory(doc.filename);
+        return cat === activeFilter;
+      });
 
   return (
     <div className="space-y-4">
@@ -252,6 +300,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
         <span className="text-xs font-semibold text-muted-foreground mr-1">Catalogar Modelo:</span>
         {DOCUMENT_CATEGORIES.map((cat) => {
           const alreadyExists = documents.data?.some((d) => d.filename.toLowerCase() === cat.defaultFilename.toLowerCase());
+          const Icon = cat.icon;
           return (
             <Button
               key={cat.id}
@@ -267,14 +316,48 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                 }
               }}
             >
-              {alreadyExists ? <FileText className="h-3.5 w-3.5 text-primary" /> : <Plus className="h-3.5 w-3.5" />}
+              <Icon className={`h-3.5 w-3.5 ${alreadyExists ? "text-primary" : ""}`} />
               {cat.label}
             </Button>
           );
         })}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[340px_1fr] focus:outline-none" tabIndex={0}>
+      {/* Filtros Rápidos por Classificação */}
+      <div className="flex flex-wrap items-center gap-1.5 pb-1">
+        <span className="text-[11px] font-medium text-muted-foreground mr-1 flex items-center gap-1">
+          <Filter className="h-3 w-3" /> Filtrar:
+        </span>
+        <Button
+          type="button"
+          variant={activeFilter === "all" ? "default" : "ghost"}
+          size="sm"
+          className="h-6 text-[11px] px-2"
+          onClick={() => setActiveFilter("all")}
+        >
+          Todos ({allDocs.length})
+        </Button>
+        {DOCUMENT_CATEGORIES.map((cat) => {
+          const count = allDocs.filter((d) => (d.category || inferDocCategory(d.filename)) === cat.id).length;
+          if (count === 0 && activeFilter !== cat.id) return null;
+          const Icon = cat.icon;
+          return (
+            <Button
+              key={cat.id}
+              type="button"
+              variant={activeFilter === cat.id ? "default" : "outline"}
+              size="sm"
+              className="h-6 text-[11px] px-2 gap-1"
+              onClick={() => setActiveFilter(cat.id)}
+            >
+              <Icon className="h-3 w-3" />
+              {cat.label} ({count})
+            </Button>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-[380px_1fr] focus:outline-none" tabIndex={0}>
         <div className="space-y-3 border-r pr-4">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("wizard.documentation.filesTitle")}</p>
@@ -285,7 +368,13 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                   const file = e.target.files?.[0];
                   e.target.value = "";
                   if (!file) return;
-                  const result = await uploadDocument.mutateAsync({ conceptId, file });
+                  const cat = selectedCategory || inferDocCategory(file.name);
+                  const result = await uploadDocument.mutateAsync({
+                    conceptId,
+                    file,
+                    category: cat,
+                    description: DOCUMENT_CATEGORIES.find((c) => c.id === cat)?.description ?? "",
+                  });
                   setSelectedFilename(result.filename);
                 }}
               />
@@ -303,7 +392,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
           {creating && (
             <div className="space-y-2 rounded-lg border p-2 bg-muted/30">
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Categoria do Documento</Label>
+                <Label className="text-[11px] font-semibold text-muted-foreground">Classificação do Documento</Label>
                 <Select value={selectedCategory} onChange={(e) => {
                   const catKey = e.target.value as DocCategoryKey;
                   setSelectedCategory(catKey);
@@ -333,35 +422,52 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
           )}
 
           {documents.isLoading && <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>}
-          {documents.data?.length === 0 && !creating && <p className="text-xs text-muted-foreground">{t("wizard.documentation.empty")}</p>}
-          <div className="space-y-2">
-            {documents.data?.map((doc) => {
-              const catKey = inferDocCategory(doc.filename);
-              const catObj = DOCUMENT_CATEGORIES.find((c) => c.id === catKey);
-              const isImg = isImageFile(doc.filename);
+          {filteredDocs.length === 0 && !creating && (
+            <p className="text-xs text-muted-foreground">
+              {activeFilter === "all" ? t("wizard.documentation.empty") : "Nenhum documento nesta classificação."}
+            </p>
+          )}
+          <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+            {filteredDocs.map((doc) => {
+              const catKey = (doc.category || inferDocCategory(doc.filename)) as DocCategoryKey;
+              const catObj = getCategoryConfig(catKey);
+              const Icon = catObj.icon;
+              const desc = localDescriptions[doc.filename] ?? doc.description ?? "";
+
               return (
                 <div
                   key={doc.filename}
                   onClick={() => setSelectedFilename(doc.filename)}
-                  className={`rounded-lg border p-2 text-xs space-y-1.5 cursor-pointer transition-colors ${selectedFilename === doc.filename ? "border-primary bg-primary/5 shadow-sm" : "hover:bg-accent/40"}`}
+                  className={`rounded-lg border p-2.5 text-xs space-y-2 cursor-pointer transition-colors ${selectedFilename === doc.filename ? "border-primary bg-primary/5 shadow-sm" : "hover:bg-accent/40"}`}
                 >
-                  <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center justify-between gap-1.5">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <FileText className={`h-3.5 w-3.5 shrink-0 ${isImg ? "text-amber-500" : "text-primary"}`}/>
-                      <span className="font-semibold truncate">{doc.filename}</span>
+                      <Icon className={`h-4 w-4 shrink-0 ${catObj.color.split(" ")[0]}`}/>
+                      <span className="font-semibold truncate" title={doc.filename}>{doc.filename}</span>
                     </div>
-                    <Badge variant={isImg ? "secondary" : "outline"} className="text-[9px] px-1 py-0 h-4">
-                      {catObj?.label || (doc.filename.endsWith(".md") ? "Markdown" : "Asset")}
-                    </Badge>
+
+                    {/* Dropdown de Classificação Direta */}
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <Select
+                        className="h-6 text-[10px] py-0 px-1 font-medium w-36"
+                        value={catKey}
+                        onChange={(e) => handleCategoryChange(doc.filename, e.target.value)}
+                      >
+                        {DOCUMENT_CATEGORIES.map((c) => (
+                          <option key={c.id} value={c.id}>{c.label}</option>
+                        ))}
+                      </Select>
+                    </div>
                   </div>
 
-                  {/* Campo de Descrição / Catálogo do Arquivo */}
+                  {/* Campo de Descrição / Propósito do Arquivo */}
                   <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
                     <Input
                       className="h-6 text-[11px] px-2 bg-background/80 placeholder:text-muted-foreground/60"
-                      placeholder="Descreva o propósito (ex: PRD, Design System, Telas...)"
-                      value={fileDescriptions[doc.filename] ?? ""}
-                      onChange={(e) => updateDescription(doc.filename, e.target.value)}
+                      placeholder="Descreva o propósito deste documento..."
+                      value={desc}
+                      onChange={(e) => setLocalDescriptions((prev) => ({ ...prev, [doc.filename]: e.target.value }))}
+                      onBlur={(e) => handleDescriptionBlur(doc.filename, e.target.value)}
                     />
                   </div>
                 </div>
@@ -372,52 +478,109 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
 
         <div className="space-y-2">
           {!selectedFilename ? (
-            <div className="flex flex-col items-center justify-center h-72 border rounded-lg border-dashed text-muted-foreground space-y-1 text-center p-4">
-              <FileText className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm font-medium">{t("wizard.documentation.selectHint")}</p>
-              <p className="text-xs text-muted-foreground max-w-sm">
-                Selecione um documento catalogado ao lado ou use os botões rápidos no topo para criar PRD, Design System, Modelagem de Dados ou Telas. Pressione Ctrl+V / Cmd+V para colar imagens de telas diretamente.
+            <div className="flex flex-col items-center justify-center h-80 border rounded-lg border-dashed text-muted-foreground space-y-2 text-center p-6">
+              <FileText className="h-10 w-10 text-muted-foreground/40" />
+              <p className="text-sm font-semibold">{t("wizard.documentation.selectHint")}</p>
+              <p className="text-xs text-muted-foreground max-w-md">
+                Selecione um documento catalogado ao lado para visualizar e editar, ou use os botões rápidos no topo para criar <strong>PRD</strong>, <strong>Design System</strong>, <strong>Modelagem de Banco</strong>, <strong>SPEC de Arquitetura</strong>, <strong>Telas</strong> ou <strong>APIs</strong>.
+              </p>
+              <p className="text-[11px] text-muted-foreground/80 bg-muted/40 px-3 py-1.5 rounded-full border">
+                💡 Dica: Você pode colar prints de tela diretamente com <kbd className="font-mono bg-muted px-1 rounded">Ctrl+V</kbd> / <kbd className="font-mono bg-muted px-1 rounded">Cmd+V</kbd>.
               </p>
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between pb-2 border-b">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold">{selectedFilename}</p>
-                    <Badge variant="outline" className="text-[10px]">
-                      {DOCUMENT_CATEGORIES.find((c) => c.id === inferDocCategory(selectedFilename))?.label || "Geral"}
-                    </Badge>
+              {(() => {
+                const currentDoc = documents.data?.find((d) => d.filename === selectedFilename) ?? document.data;
+                const currentCatKey = (currentDoc?.category || inferDocCategory(selectedFilename)) as DocCategoryKey;
+                const currentCatObj = getCategoryConfig(currentCatKey);
+                const CurrentIcon = currentCatObj.icon;
+                const currentDesc = localDescriptions[selectedFilename] ?? currentDoc?.description ?? "";
+
+                return (
+                  <div className="space-y-3 pb-2 border-b">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <CurrentIcon className={`h-5 w-5 ${currentCatObj.color.split(" ")[0]}`} />
+                        <div>
+                          <p className="text-sm font-bold">{selectedFilename}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {currentDesc || currentCatObj.description}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Seletor de Categoria no Cabeçalho */}
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-xs text-muted-foreground">Classificação:</Label>
+                          <Select
+                            className="h-7 text-xs font-medium w-48"
+                            value={currentCatKey}
+                            onChange={(e) => handleCategoryChange(selectedFilename, e.target.value)}
+                          >
+                            {DOCUMENT_CATEGORIES.map((c) => (
+                              <option key={c.id} value={c.id}>{c.label}</option>
+                            ))}
+                          </Select>
+                        </div>
+
+                        {!isImageFile(selectedFilename) && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={saveDocument.isPending || document.isLoading}
+                            onClick={() => saveDocument.mutate({
+                              conceptId,
+                              filename: selectedFilename,
+                              content: editedContent,
+                              category: currentCatKey,
+                              description: currentDesc,
+                            })}
+                          >
+                            {saveDocument.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>}
+                            {t("wizard.documentation.save")}
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            deleteDocument.mutate({ conceptId, filename: selectedFilename });
+                            setSelectedFilename(null);
+                          }}
+                          disabled={deleteDocument.isPending}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive"/>
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {fileDescriptions[selectedFilename] || "Sem descrição informada"}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  {!isImageFile(selectedFilename) && (
-                    <Button type="button" size="sm" disabled={saveDocument.isPending || document.isLoading} onClick={() => saveDocument.mutate({ conceptId, filename: selectedFilename, content: editedContent })}>
-                      {saveDocument.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>}
-                      {t("wizard.documentation.save")}
-                    </Button>
-                  )}
-                  <Button type="button" size="sm" variant="outline" onClick={() => { deleteDocument.mutate({ conceptId, filename: selectedFilename }); setSelectedFilename(null); }} disabled={deleteDocument.isPending}>
-                    <Trash2 className="h-3.5 w-3.5 text-destructive"/>
-                  </Button>
-                </div>
-              </div>
+                );
+              })()}
+
               {document.isLoading ? (
                 <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>
               ) : isImageFile(selectedFilename) ? (
-                <div className="flex flex-col items-center justify-center p-4 border rounded-lg bg-muted/10 min-h-[300px]">
-                  <p className="text-xs text-muted-foreground mb-2">Visualização de Imagem / Mockup</p>
+                <div className="flex flex-col items-center justify-center p-4 border rounded-lg bg-muted/10 min-h-[340px]">
+                  <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                    <ImageIcon className="h-3.5 w-3.5 text-amber-500" /> Visualização do Asset / Mockup de Tela
+                  </p>
                   <img
                     src={`/api/v1/product-concepts/${conceptId}/documents/${selectedFilename}`}
                     alt={selectedFilename}
-                    className="max-h-96 max-w-full rounded border shadow-sm object-contain"
+                    className="max-h-[500px] max-w-full rounded border shadow-sm object-contain bg-background"
                   />
                 </div>
               ) : (
-                <Textarea rows={18} className="font-mono text-xs" value={editedContent} onChange={(e) => setEditedContent(e.target.value)} />
+                <Textarea
+                  rows={20}
+                  className="font-mono text-xs leading-relaxed"
+                  value={editedContent}
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  placeholder="Conteúdo do documento em Markdown..."
+                />
               )}
             </>
           )}
@@ -432,8 +595,6 @@ type ProjectSpecForm = DeliveryPlanningProjectSpec & { version: string };
 const EMPTY_PROJECT_SPEC: ProjectSpecForm = {
   solution_type: "web_app", project_name: "", version: "0.1.0", project_type: "creation",
 };
-
-const PROJECT_TYPES = ["creation", "maintenance"] as const;
 
 /** Project(s) section -- turns an approved Concept into one Project per
  * requested application type (2026-08-01 decision: one Project per type,
@@ -459,6 +620,16 @@ const PROJECT_TYPES = ["creation", "maintenance"] as const;
  * :authorize-delivery-planning call is fired per group, sequentially, so
  * each distinct version a project asks for still gets its own call while
  * specs that share a version still batch together exactly like before. */
+function getNextVersion(currentVersion?: string): string {
+  if (!currentVersion) return "0.1.1";
+  const clean = currentVersion.replace(/^v/, "").trim();
+  const parts = clean.split(".").map((x) => parseInt(x, 10));
+  if (parts.length === 3 && !parts.some(isNaN)) {
+    return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+  }
+  return `${clean}.1`;
+}
+
 function ProjectPlanningPanel({
   productId, conceptId, workingDirectoryPath,
 }: {
@@ -473,28 +644,58 @@ function ProjectPlanningPanel({
   const deleteProject = useDeleteProject();
   const { data: allProjects } = useProjects();
   const { data: productVersions } = useProductVersions(productId);
+
+  const [actionType, setActionType] = useState<"creation" | "maintenance">("creation");
   const [specs, setSpecs] = useState<ProjectSpecForm[]>([{ ...EMPTY_PROJECT_SPEC }]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [maintenanceVersion, setMaintenanceVersion] = useState<string>("0.1.1");
+  const [maintenanceProjectName, setMaintenanceProjectName] = useState<string>("");
+
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [results, setResults] = useState<DeliveryPlanningProjectResult[] | null>(null);
   const [pendingDeleteProject, setPendingDeleteProject] = useState<{ id: string; name: string } | null>(null);
 
+  const versionIds = new Set((productVersions || []).map((v) => v.id));
+  const productProjects = (allProjects || []).filter((p) => p.product_version_id && versionIds.has(p.product_version_id));
+
+  // Auto-select first existing project when entering maintenance if none is selected
+  useEffect(() => {
+    if (actionType === "maintenance" && productProjects.length > 0 && !selectedProjectId) {
+      const first = productProjects[0];
+      setSelectedProjectId(first.id);
+      setMaintenanceProjectName(first.name);
+      const v = productVersions?.find((x) => x.id === first.product_version_id);
+      setMaintenanceVersion(getNextVersion(v?.version));
+    }
+  }, [actionType, productProjects, selectedProjectId, productVersions]);
+
   if (!conceptId) {
     return <p className="text-sm text-muted-foreground">Salve a ideia primeiro para poder criar o projeto.</p>;
   }
+
+  const handleSelectExistingProject = (projId: string) => {
+    setSelectedProjectId(projId);
+    const p = productProjects.find((x) => x.id === projId);
+    if (p) {
+      setMaintenanceProjectName(p.name);
+      const v = productVersions?.find((x) => x.id === p.product_version_id);
+      setMaintenanceVersion(getNextVersion(v?.version));
+    }
+  };
 
   const updateSpec = (index: number, patch: Partial<ProjectSpecForm>) =>
     setSpecs((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
   const addSpec = () => setSpecs((prev) => [...prev, { ...EMPTY_PROJECT_SPEC }]);
   const removeSpec = (index: number) => setSpecs((prev) => prev.filter((_, i) => i !== index));
 
-  const submit = async () => {
+  const submitCreation = async () => {
     const projects = specs.filter((s) => s.project_name.trim());
     if (!projects.length) return;
     const groups = new Map<string, DeliveryPlanningProjectSpec[]>();
     for (const { version, ...spec } of projects) {
       const key = version.trim() || "0.1.0";
-      const withSharedFields = { ...spec, working_directory_path: workingDirectoryPath || undefined };
+      const withSharedFields = { ...spec, project_type: "creation" as const, working_directory_path: workingDirectoryPath || undefined };
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(withSharedFields);
     }
@@ -507,6 +708,36 @@ function ProjectPlanningPanel({
         allResults.push(...res.projects);
       }
       setResults(allResults);
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      if (productId) {
+        queryClient.invalidateQueries({ queryKey: ["products", productId, "versions"] });
+      }
+    } catch (e) {
+      setSubmitError((e as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitMaintenance = async () => {
+    const selectedProj = productProjects.find((p) => p.id === selectedProjectId);
+    if (!selectedProj) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await authorize.mutateAsync({
+        conceptId,
+        version: maintenanceVersion.trim() || "0.1.1",
+        projects: [
+          {
+            project_name: maintenanceProjectName.trim() || selectedProj.name,
+            solution_type: selectedProj.solution_type || "web_app",
+            project_type: "maintenance",
+            working_directory_path: workingDirectoryPath || undefined,
+          },
+        ],
+      });
+      setResults(res.projects);
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       if (productId) {
         queryClient.invalidateQueries({ queryKey: ["products", productId, "versions"] });
@@ -535,27 +766,26 @@ function ProjectPlanningPanel({
     });
   };
 
-  const versionIds = new Set((productVersions || []).map((v) => v.id));
-  const productProjects = (allProjects || []).filter((p) => p.product_version_id && versionIds.has(p.product_version_id));
+  const selectedExistingProject = productProjects.find((p) => p.id === selectedProjectId);
+  const selectedProjectVersion = productVersions?.find((v) => v.id === selectedExistingProject?.product_version_id);
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Cria um Project por tipo de aplicação selecionado, cada um com sua própria versão do produto.
-        Cada Project recebe só as tarefas da sua camada (telas para web/mobile, APIs para
-        backend, etc.). Repetir a mesma versão + tipo é idempotente -- não duplica.
+        Defina se este escopo de concepção é um <strong>Novo Projeto</strong> ou uma <strong>Manutenção</strong> de projeto existente.
       </p>
 
+      {/* Projetos Existentes no Produto */}
       {productProjects.length > 0 && (
-        <div className="space-y-2 rounded-md border p-3">
-          <p className="text-sm font-medium">Projetos existentes:</p>
+        <div className="space-y-2 rounded-md border p-3 bg-muted/20">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Projetos Existentes no Produto ({productProjects.length})</p>
           {productProjects.map((p) => {
             const versionObj = productVersions?.find((v) => v.id === p.product_version_id);
             const resultInfo = results?.find((r) => r.project_id === p.id);
             return (
               <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border-b last:border-0 pb-2 last:pb-0">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline">{p.solution_type || "geral"}</Badge>
+                  <Badge variant="outline">{p.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[p.solution_type] : "Geral"}</Badge>
                   {versionObj && <Badge variant="secondary">v{versionObj.version}</Badge>}
                   <Link to={`/projects/${p.id}`} className="text-primary font-medium hover:underline">
                     {p.name}
@@ -570,6 +800,7 @@ function ProjectPlanningPanel({
                   <Button
                     size="sm" variant="outline" disabled={sync.isPending}
                     onClick={() => sync.mutate({ conceptId, projectId: p.id })}
+                    title="Sincronizar documentos da concepção para o projeto"
                   >
                     {sync.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                     Sincronizar docs
@@ -588,47 +819,180 @@ function ProjectPlanningPanel({
             );
           })}
           {sync.isSuccess && (
-            <p className="text-xs text-muted-foreground pt-1">
+            <p className="text-xs text-emerald-600 font-medium pt-1">
               Gravado: {sync.data.files_written.join(", ") || "(nenhum documento gerado ainda)"}
             </p>
           )}
         </div>
       )}
 
-      <div className="space-y-2">
-        <Label>Adicionar novo projeto</Label>
-        {specs.map((spec, i) => (
-          <div key={i} className="space-y-2 rounded-md border p-2">
-            <div className="grid grid-cols-[160px_1fr_32px] gap-2 items-center">
-              <Select value={spec.solution_type} onChange={(e) => updateSpec(i, { solution_type: e.target.value as ProjectSpecForm["solution_type"] })}>
-                {PROJECT_SOLUTION_TYPES.map((t) => <option key={t} value={t}>{PROJECT_SOLUTION_TYPE_LABELS[t]}</option>)}
-              </Select>
-              <Input placeholder="Nome do projeto" value={spec.project_name} onChange={(e) => updateSpec(i, { project_name: e.target.value })} />
-              <Button variant="ghost" size="icon" onClick={() => removeSpec(i)} disabled={specs.length === 1}>
-                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-              </Button>
+      {/* Seletor Prévio de Modalidade: Novo Projeto vs Manutenção */}
+      <div className="space-y-2 pt-1">
+        <Label className="text-sm font-semibold">Definição do Escopo</Label>
+        <div className="grid grid-cols-2 gap-3 max-w-md">
+          <button
+            type="button"
+            onClick={() => setActionType("creation")}
+            className={`flex items-center gap-2.5 p-3 rounded-lg border text-left transition-all ${
+              actionType === "creation"
+                ? "border-primary bg-primary/10 text-primary ring-1 ring-primary font-semibold"
+                : "border-input bg-background hover:bg-muted/40 text-muted-foreground"
+            }`}
+          >
+            <Rocket className="h-4 w-4 shrink-0" />
+            <div>
+              <p className="text-xs font-bold">Novo Projeto</p>
+              <p className="text-[10px] opacity-80">Criar nova aplicação ou camada</p>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Versão</Label>
-                <Input placeholder="0.1.0" value={spec.version} onChange={(e) => updateSpec(i, { version: e.target.value })} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActionType("maintenance")}
+            className={`flex items-center gap-2.5 p-3 rounded-lg border text-left transition-all ${
+              actionType === "maintenance"
+                ? "border-primary bg-primary/10 text-primary ring-1 ring-primary font-semibold"
+                : "border-input bg-background hover:bg-muted/40 text-muted-foreground"
+            }`}
+          >
+            <Wrench className="h-4 w-4 shrink-0" />
+            <div>
+              <p className="text-xs font-bold">Manutenção</p>
+              <p className="text-[10px] opacity-80">Evoluir projeto existente</p>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* CASO 1: NOVO PROJETO */}
+      {actionType === "creation" && (
+        <div className="space-y-3 rounded-lg border p-3.5 bg-muted/10">
+          <Label className="text-xs font-semibold text-foreground">Definir Novos Projetos / Camadas</Label>
+          {specs.map((spec, i) => (
+            <div key={i} className="space-y-2 rounded-md border bg-background p-2.5">
+              <div className="grid grid-cols-[160px_1fr_32px] gap-2 items-center">
+                <Select value={spec.solution_type} onChange={(e) => updateSpec(i, { solution_type: e.target.value as ProjectSpecForm["solution_type"] })}>
+                  {PROJECT_SOLUTION_TYPES.map((t) => <option key={t} value={t}>{PROJECT_SOLUTION_TYPE_LABELS[t]}</option>)}
+                </Select>
+                <Input placeholder="Nome do projeto (ex: Portal Web Factory)" value={spec.project_name} onChange={(e) => updateSpec(i, { project_name: e.target.value })} />
+                <Button variant="ghost" size="icon" onClick={() => removeSpec(i)} disabled={specs.length === 1}>
+                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                </Button>
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Versão Inicial</Label>
+                  <Input placeholder="0.1.0" value={spec.version} onChange={(e) => updateSpec(i, { version: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Tipo</Label>
+                  <Input value="Nova Implementação (Criação)" disabled className="bg-muted text-muted-foreground text-xs" />
+                </div>
+              </div>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button variant="outline" size="sm" onClick={addSpec}><Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar tipo de aplicação</Button>
+          </div>
+          <div className="pt-2">
+            <Button disabled={submitting || specs.every((s) => !s.project_name.trim())} onClick={submitCreation}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Rocket className="mr-2 h-4 w-4" />Criar Novo Projeto
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* CASO 2: MANUTENÇÃO DE PROJETO EXISTENTE */}
+      {actionType === "maintenance" && (
+        <div className="space-y-4 rounded-lg border p-3.5 bg-muted/10">
+          <Label className="text-xs font-semibold text-foreground">Selecionar Projeto Existente para Manutenção</Label>
+
+          {productProjects.length === 0 ? (
+            <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400 space-y-2">
+              <p className="font-semibold">Nenhum projeto existente encontrado para este produto.</p>
+              <p>Para realizar manutenção, o produto precisa ter ao menos um projeto já criado. Alterne para a opção <strong>Novo Projeto</strong> acima para criar o projeto inicial.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Tipo</Label>
-                <Select value={spec.project_type ?? "creation"} onChange={(e) => updateSpec(i, { project_type: e.target.value as ProjectSpecForm["project_type"] })}>
-                  {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t === "creation" ? "Criação" : "Manutenção"}</option>)}
+                <Label className="text-xs text-muted-foreground">Projeto a receber a manutenção:</Label>
+                <Select
+                  value={selectedProjectId}
+                  onChange={(e) => handleSelectExistingProject(e.target.value)}
+                >
+                  {productProjects.map((p) => {
+                    const v = productVersions?.find((x) => x.id === p.product_version_id);
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[p.solution_type] : "Geral"} · v{v?.version || "0.1.0"})
+                      </option>
+                    );
+                  })}
                 </Select>
               </div>
+
+              {selectedExistingProject && (
+                <div className="rounded-md border bg-background p-3 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-bold text-foreground">{selectedExistingProject.name}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {selectedExistingProject.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[selectedExistingProject.solution_type] : "Geral"} · Versão Atual: v{selectedProjectVersion?.version || "0.1.0"}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 bg-amber-500/10">
+                      Modo: Manutenção
+                    </Badge>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Nome / Identificação do Projeto</Label>
+                      <Input
+                        value={maintenanceProjectName}
+                        onChange={(e) => setMaintenanceProjectName(e.target.value)}
+                        placeholder="Nome do projeto"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Nova Versão da Manutenção (Patch / Minor)</Label>
+                      <Input
+                        value={maintenanceVersion}
+                        onChange={(e) => setMaintenanceVersion(e.target.value)}
+                        placeholder="0.1.1"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-2">
+                    <Button
+                      disabled={submitting || !maintenanceProjectName.trim() || !maintenanceVersion.trim()}
+                      onClick={submitMaintenance}
+                    >
+                      {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      <Wrench className="mr-2 h-4 w-4" />Autorizar Manutenção do Projeto
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={sync.isPending}
+                      onClick={() => sync.mutate({ conceptId, projectId: selectedExistingProject.id })}
+                    >
+                      {sync.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                      Sincronizar Docs c/ Projeto
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
-        <Button variant="outline" size="sm" onClick={addSpec}><Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar tipo de aplicação</Button>
-      </div>
-      <Button disabled={submitting || specs.every((s) => !s.project_name.trim())} onClick={submit}>
-        {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        <Rocket className="mr-2 h-4 w-4" />Criar Projeto
-      </Button>
-      {submitError && <p className="text-sm text-destructive">Falha ao criar: {submitError}</p>}
+          )}
+        </div>
+      )}
+
+      {submitError && <p className="text-sm text-destructive">Falha ao processar: {submitError}</p>}
+
       <ConfirmDialog
         open={pendingDeleteProject !== null}
         title={`Excluir projeto "${pendingDeleteProject?.name ?? ""}"?`}

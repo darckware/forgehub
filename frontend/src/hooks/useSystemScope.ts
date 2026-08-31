@@ -138,8 +138,20 @@ export function useUpdateConceptDeliveryMetadata() {
     onSuccess: (data) => client.invalidateQueries({ queryKey: ["concept", data.concept.product_id] }),
   });
 }
-export interface ConceptDocumentSummary { filename: string; size: number; updated_at: string; }
-export interface ConceptDocument { filename: string; content: string; updated_at: string; }
+export interface ConceptDocumentSummary {
+  filename: string;
+  size: number;
+  updated_at: string;
+  category?: string | null;
+  description?: string | null;
+}
+export interface ConceptDocument {
+  filename: string;
+  content: string;
+  updated_at: string;
+  category?: string | null;
+  description?: string | null;
+}
 export function useConceptDocuments(conceptId?: string) {
   return useQuery({
     queryKey: ["concept-documents", conceptId],
@@ -157,8 +169,37 @@ export function useConceptDocument(conceptId?: string, filename?: string) {
 export function useSaveConceptDocument() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ conceptId, filename, content }: { conceptId: string; filename: string; content: string }) =>
-      apiClient.put<ConceptDocument>(`/api/v1/product-concepts/${conceptId}/documents/${encodeURIComponent(filename)}`, { content }),
+    mutationFn: ({ conceptId, filename, content, category, description }: {
+      conceptId: string;
+      filename: string;
+      content: string;
+      category?: string | null;
+      description?: string | null;
+    }) =>
+      apiClient.put<ConceptDocument>(`/api/v1/product-concepts/${conceptId}/documents/${encodeURIComponent(filename)}`, {
+        content,
+        category: category ?? undefined,
+        description: description ?? undefined,
+      }),
+    onSuccess: (_, variables) => {
+      client.invalidateQueries({ queryKey: ["concept-documents", variables.conceptId] });
+      client.invalidateQueries({ queryKey: ["concept-document", variables.conceptId, variables.filename] });
+    },
+  });
+}
+export function useUpdateConceptDocumentMetadata() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conceptId, filename, category, description }: {
+      conceptId: string;
+      filename: string;
+      category?: string | null;
+      description?: string | null;
+    }) =>
+      apiClient.patch<ConceptDocument>(`/api/v1/product-concepts/${conceptId}/documents/${encodeURIComponent(filename)}/metadata`, {
+        category: category ?? undefined,
+        description: description ?? undefined,
+      }),
     onSuccess: (_, variables) => {
       client.invalidateQueries({ queryKey: ["concept-documents", variables.conceptId] });
       client.invalidateQueries({ queryKey: ["concept-document", variables.conceptId, variables.filename] });
@@ -168,9 +209,16 @@ export function useSaveConceptDocument() {
 export function useUploadConceptDocument() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ conceptId, file }: { conceptId: string; file: File }) => {
+    mutationFn: ({ conceptId, file, category, description }: {
+      conceptId: string;
+      file: File;
+      category?: string | null;
+      description?: string | null;
+    }) => {
       const form = new FormData();
       form.append("file", file);
+      if (category) form.append("category", category);
+      if (description) form.append("description", description);
       return apiClient.postForm<ConceptDocument>(`/api/v1/product-concepts/${conceptId}/documents:upload`, form);
     },
     onSuccess: (_, variables) => client.invalidateQueries({ queryKey: ["concept-documents", variables.conceptId] }),

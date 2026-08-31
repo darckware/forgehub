@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,7 @@ from app.api.schemas.system_scope import (
     ConceptDecision,
     ConceptDeliveryMetadataUpdate,
     ConceptDetailOut,
+    ConceptDocumentMetadataUpdate,
     ConceptDocumentOut,
     ConceptDocumentSummary,
     ConceptDocumentWrite,
@@ -70,7 +71,7 @@ from app.core.concept_artifacts import (
     build_tech_spec_markdown,
 )
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
-from app.core.governed_approval import approved_concept_request, canonical_hash, request_concept_approval
+from app.core.governed_approval import canonical_hash, request_concept_approval
 from app.core.markdown_docs import resolve_doc_path
 from app.db.models.artifact import Artifact, ArtifactStatus, ArtifactType, ArtifactVersion, ArtifactVersionStatus
 from app.db.models.backlog import PlanningItem
@@ -630,6 +631,39 @@ def _validate_doc_filename(filename: str) -> None:
         raise HTTPException(422, "Filename must be a valid document/asset file name (no folders)")
 
 
+def _infer_doc_category(filename: str) -> str:
+    lower = filename.lower()
+    if any(k in lower for k in ["prd", "requisito", "requirements"]):
+        return "prd"
+    if any(k in lower for k in ["design", "theme", "style", "ui"]):
+        return "design_system"
+    if any(k in lower for k in ["data", "db", "banco", "model", "erd"]):
+        return "database"
+    if any(k in lower for k in ["screen", "tela", "wireframe", "paste_", "mockup"]):
+        return "screens"
+    if any(k in lower for k in ["spec", "tech", "arch", "arquitetura"]):
+        return "architecture"
+    if any(k in lower for k in ["api", "endpoint", "contrato", "openapi", "swagger"]):
+        return "api"
+    return "other"
+
+
+def _read_docs_metadata(docs_dir: Path) -> dict[str, dict]:
+    meta_path = docs_dir / "_metadata.json"
+    if meta_path.is_file():
+        try:
+            return json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _write_docs_metadata(docs_dir: Path, meta: dict[str, dict]) -> None:
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = docs_dir / "_metadata.json"
+    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 async def _concept_docs_dir(db: AsyncSession, concept_id: uuid.UUID) -> Path:
     concept = await _concept(db, concept_id)
     product = await db.get(Product, concept.product_id)
@@ -645,14 +679,20 @@ async def list_concept_documents(concept_id: uuid.UUID, db: AsyncSession = Depen
     docs_dir = await _concept_docs_dir(db, concept_id)
     if not docs_dir.is_dir():
         return []
+    metadata = _read_docs_metadata(docs_dir)
     summaries = []
     for path in sorted(docs_dir.iterdir()):
-        if not path.is_file() or not _DOC_FILENAME_RE.match(path.name):
+        if not path.is_file() or path.name == "_metadata.json" or not _DOC_FILENAME_RE.match(path.name):
             continue
         stat = path.stat()
+        file_meta = metadata.get(path.name, {})
+        category = file_meta.get("category") or _infer_doc_category(path.name)
+        description = file_meta.get("description")
         summaries.append(ConceptDocumentSummary(
             filename=path.name, size=stat.st_size,
             updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+            category=category,
+            description=description,
         ))
     return summaries
 
@@ -662,12 +702,16 @@ async def get_concept_document(concept_id: uuid.UUID, filename: str, db: AsyncSe
     _validate_doc_filename(filename)
     docs_dir = await _concept_docs_dir(db, concept_id)
     target = docs_dir / filename
-    if not target.is_file():
+    if not target.is_file() or filename == "_metadata.json":
         raise HTTPException(404, "Document not found")
+    metadata = _read_docs_metadata(docs_dir)
+    file_meta = metadata.get(filename, {})
     stat = target.stat()
     return ConceptDocumentOut(
         filename=filename, content=target.read_text(encoding="utf-8", errors="replace"),
         updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        category=file_meta.get("category") or _infer_doc_category(filename),
+        description=file_meta.get("description"),
     )
 
 
@@ -683,9 +727,55 @@ async def write_concept_document(
     target = docs_dir / filename
     target.write_text(payload.content, encoding="utf-8")
     stat = target.stat()
+
+    metadata = _read_docs_metadata(docs_dir)
+    file_meta = metadata.get(filename, {})
+    if payload.category is not None:
+        file_meta["category"] = payload.category
+    elif "category" not in file_meta:
+        file_meta["category"] = _infer_doc_category(filename)
+    if payload.description is not None:
+        file_meta["description"] = payload.description
+    metadata[filename] = file_meta
+    _write_docs_metadata(docs_dir, metadata)
+
     return ConceptDocumentOut(
         filename=filename, content=payload.content,
         updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        category=file_meta.get("category"),
+        description=file_meta.get("description"),
+    )
+
+
+@router.patch("/product-concepts/{concept_id}/documents/{filename}/metadata", response_model=ConceptDocumentOut)
+async def update_concept_document_metadata(
+    concept_id: uuid.UUID, filename: str, payload: ConceptDocumentMetadataUpdate, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    _validate_doc_filename(filename)
+    await authorize_action(db, principal, "planning.concept.edit", product_id=(await _concept(db, concept_id)).product_id)
+    docs_dir = await _concept_docs_dir(db, concept_id)
+    target = docs_dir / filename
+    if not target.is_file() or filename == "_metadata.json":
+        raise HTTPException(404, "Document not found")
+    metadata = _read_docs_metadata(docs_dir)
+    file_meta = metadata.get(filename, {})
+    if payload.category is not None:
+        file_meta["category"] = payload.category
+    if payload.description is not None:
+        file_meta["description"] = payload.description
+    metadata[filename] = file_meta
+    _write_docs_metadata(docs_dir, metadata)
+    stat = target.stat()
+    content = ""
+    if target.suffix.lower() in [".md", ".markdown", ".txt", ".json"]:
+        content = target.read_text(encoding="utf-8", errors="replace")
+    return ConceptDocumentOut(
+        filename=filename,
+        content=content,
+        updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        category=file_meta.get("category"),
+        description=file_meta.get("description"),
     )
 
 
@@ -694,6 +784,8 @@ async def upload_concept_document(
     concept_id: uuid.UUID, db: AsyncSession = Depends(get_db),
     principal: ActorPrincipal = Depends(get_actor_principal),
     file: UploadFile = File(...),
+    category: str | None = Form(None),
+    description: str | None = Form(None),
 ):
     filename = Path(file.filename or "").name
     _validate_doc_filename(filename)
@@ -701,15 +793,28 @@ async def upload_concept_document(
     docs_dir = await _concept_docs_dir(db, concept_id)
     docs_dir.mkdir(parents=True, exist_ok=True)
     raw = await file.read()
-    if len(raw) > 5 * 1024 * 1024:
-        raise HTTPException(413, "Document exceeds the 5MB limit")
-    content = raw.decode("utf-8", errors="replace")
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Document exceeds the 10MB limit")
     target = docs_dir / filename
-    target.write_text(content, encoding="utf-8")
+    target.write_bytes(raw)
     stat = target.stat()
+
+    metadata = _read_docs_metadata(docs_dir)
+    cat = category or _infer_doc_category(filename)
+    file_meta = {"category": cat, "description": description or ""}
+    metadata[filename] = file_meta
+    _write_docs_metadata(docs_dir, metadata)
+
+    try:
+        content = raw.decode("utf-8")
+    except Exception:
+        content = ""
+
     return ConceptDocumentOut(
         filename=filename, content=content,
         updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        category=cat,
+        description=description,
     )
 
 
@@ -724,6 +829,10 @@ async def delete_concept_document(
     target = docs_dir / filename
     if target.is_file():
         target.unlink()
+    metadata = _read_docs_metadata(docs_dir)
+    if filename in metadata:
+        del metadata[filename]
+        _write_docs_metadata(docs_dir, metadata)
 
 
 @router.post("/product-concepts/{concept_id}/sync-artifacts-to-project/{project_id}", response_model=ArtifactSyncOut)

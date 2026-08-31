@@ -2,7 +2,6 @@ import { useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Gauge,
-  Sparkles,
   Layers,
   CheckCircle2,
   Filter,
@@ -14,18 +13,18 @@ import {
   TrendingUp,
   Users,
   Database,
-  PlayCircle,
-  ChevronRight,
   ExternalLink,
+  Clock,
+  ArrowRight,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AgentTelemetryPanel } from "@/components/AgentTelemetryPanel";
 import { useProducts } from "@/hooks/useProduct";
-import { useProjects } from "@/hooks/useProject";
+import { useProjects, PROJECT_SOLUTION_TYPE_LABELS, type Project } from "@/hooks/useProject";
 import { usePlanningItems } from "@/hooks/useBacklog";
-import { useTasks } from "@/hooks/useTask";
+import { useTasks, type ProjectTask } from "@/hooks/useTask";
 import { useAgentTelemetry, useCockpit, type Cockpit, type PhaseKey } from "@/hooks/useFactory";
 
 const PHASE_LABEL: Record<PhaseKey, string> = {
@@ -45,6 +44,192 @@ const PHASE_BADGE_VARIANT: Record<string, "success" | "warning" | "outline" | "d
 
 function formatCost(cost: number): string {
   return cost.toLocaleString("pt-BR", { style: "currency", currency: "USD" });
+}
+
+function formatDateTime(dateStr?: string | null): string {
+  if (!dateStr) return "—";
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+interface FactoryPhaseItem {
+  id: number;
+  key: string;
+  name: string;
+  shortName: string;
+  description: string;
+  route: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+  activeBorder: string;
+  badgeBg: string;
+}
+
+const FACTORY_PHASES: FactoryPhaseItem[] = [
+  {
+    id: 1,
+    key: "conception",
+    name: "1. Concepção & Contexto",
+    shortName: "1. Concepção",
+    description: "Abertura de escopo vinculado ao Produto, Stack e Assets.",
+    route: "/conception",
+    icon: Lightbulb,
+    color: "text-emerald-600 border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/60",
+    activeBorder: "border-emerald-500 bg-emerald-500/15 ring-2 ring-emerald-500/40",
+    badgeBg: "bg-emerald-500 text-white",
+  },
+  {
+    id: 2,
+    key: "screens",
+    name: "2. Telas & Regras de Negócio",
+    shortName: "2. Telas & Regras",
+    description: "Protótipos visuais e regras de negócio de tela.",
+    route: "/screen-inspector",
+    icon: Layout,
+    color: "text-emerald-600 border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/60",
+    activeBorder: "border-emerald-500 bg-emerald-500/15 ring-2 ring-emerald-500/40",
+    badgeBg: "bg-emerald-500 text-white",
+  },
+  {
+    id: 3,
+    key: "database",
+    name: "3. Banco de Dados & ERD",
+    shortName: "3. Banco & ERD",
+    description: "Modelagem relacional e schemas de dados.",
+    route: "/concept-erd",
+    icon: Database,
+    color: "text-emerald-600 border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/60",
+    activeBorder: "border-emerald-500 bg-emerald-500/15 ring-2 ring-emerald-500/40",
+    badgeBg: "bg-emerald-500 text-white",
+  },
+  {
+    id: 4,
+    key: "projects",
+    name: "4. Central de Projetos & Backlog",
+    shortName: "4. Projetos",
+    description: "1 Projeto → N Planejamentos → N Tarefas.",
+    route: "/projects",
+    icon: FolderKanban,
+    color: "text-sky-600 border-sky-500/30 bg-sky-500/5 hover:border-sky-500/60",
+    activeBorder: "border-sky-500 bg-sky-500/15 ring-2 ring-sky-500/40",
+    badgeBg: "bg-sky-500 text-white",
+  },
+  {
+    id: 5,
+    key: "governance",
+    name: "5. Gate de Governança",
+    shortName: "5. Governança",
+    description: "Homologação e seleção do Agente Executor.",
+    route: "/governance",
+    icon: ShieldCheck,
+    color: "text-amber-600 border-amber-500/30 bg-amber-500/5 hover:border-amber-500/60",
+    activeBorder: "border-amber-500 bg-amber-500/15 ring-2 ring-amber-500/40",
+    badgeBg: "bg-amber-500 text-white",
+  },
+  {
+    id: 6,
+    key: "version_closure",
+    name: "6. Fechamento de Versão",
+    shortName: "6. Fechamento",
+    description: "Auditoria 100% e trava definitiva de produção.",
+    route: "/version-closure",
+    icon: CheckCircle2,
+    color: "text-purple-600 border-purple-500/30 bg-purple-500/5 hover:border-purple-500/60",
+    activeBorder: "border-purple-500 bg-purple-500/15 ring-2 ring-purple-500/40",
+    badgeBg: "bg-purple-500 text-white",
+  },
+];
+
+interface ProjectPhaseEvolution {
+  currentPhaseId: number;
+  currentPhaseName: string;
+  lifecycleStatus: {
+    key: "conception" | "planning" | "execution" | "completed";
+    label: string;
+    variant: "outline" | "default" | "secondary" | "destructive";
+    className: string;
+  };
+  phaseStartedAt: string;
+}
+
+function computeProjectPhaseEvolution(
+  project: Project,
+  allTasks: ProjectTask[] = [],
+  allPlanningItems: any[] = []
+): ProjectPhaseEvolution {
+  const projectTasks = allTasks.filter((t) => t.project_id === project.id);
+  const projectPlannings = allPlanningItems.filter((p) => p.project_id === project.id);
+  const inProgressTasks = projectTasks.filter((t) => t.status === "in_progress");
+  const doneTasks = projectTasks.filter((t) => t.status === "done" || t.status === "deployed");
+  const totalTasks = projectTasks.length;
+
+  // 1. Finalizado (Version Closure)
+  if (project.status === "completed" || (totalTasks > 0 && doneTasks.length === totalTasks && inProgressTasks.length === 0)) {
+    return {
+      currentPhaseId: 6,
+      currentPhaseName: "6. Fechamento de Versão",
+      lifecycleStatus: {
+        key: "completed",
+        label: "Finalizado",
+        variant: "outline",
+        className: "border-purple-500/40 text-purple-600 bg-purple-500/10 font-bold",
+      },
+      phaseStartedAt: project.updated_at || project.created_at || "",
+    };
+  }
+
+  // 2. Em Execução (Liberado no Governance com tarefas ativas)
+  if (inProgressTasks.length > 0 || project.status === "active") {
+    return {
+      currentPhaseId: 5,
+      currentPhaseName: "5. Gate de Governança",
+      lifecycleStatus: {
+        key: "execution",
+        label: "Em Execução",
+        variant: "outline",
+        className: "border-amber-500/40 text-amber-600 bg-amber-500/10 font-bold animate-pulse",
+      },
+      phaseStartedAt: project.updated_at || project.created_at || "",
+    };
+  }
+
+  // 3. Planejamento (Central de Projetos, Tarefas & Backlog)
+  if (totalTasks > 0 || projectPlannings.length > 0 || project.status === "planned") {
+    return {
+      currentPhaseId: 4,
+      currentPhaseName: "4. Central de Projetos",
+      lifecycleStatus: {
+        key: "planning",
+        label: "Planejamento",
+        variant: "outline",
+        className: "border-sky-500/40 text-sky-600 bg-sky-500/10 font-bold",
+      },
+      phaseStartedAt: project.created_at || "",
+    };
+  }
+
+  // 4. Concepção inicial
+  return {
+    currentPhaseId: 1,
+    currentPhaseName: "1. Concepção & Contexto",
+    lifecycleStatus: {
+      key: "conception",
+      label: "Concepção",
+      variant: "outline",
+      className: "border-emerald-500/40 text-emerald-600 bg-emerald-500/10 font-bold",
+    },
+    phaseStartedAt: project.created_at || "",
+  };
 }
 
 function TeamBadge({ projectId, teamSize }: { projectId: string; teamSize: number }) {
@@ -137,6 +322,7 @@ export default function CockpitPage() {
   const [tab, setTab] = useState("pipeline");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [selectedPhaseId, setSelectedPhaseId] = useState<number | null>(null); // null = All phases
 
   const { data: products } = useProducts();
   const { data: projects } = useProjects();
@@ -191,6 +377,37 @@ export default function CockpitPage() {
   const progressPercent =
     relevantTasks.length > 0 ? Math.round((doneTasks.length / relevantTasks.length) * 100) : 0;
 
+  // Project phase count mapping (automatically computes each project's phase)
+  const projectEvolutionMap = useMemo(() => {
+    const map = new Map<string, ProjectPhaseEvolution>();
+    productProjects.forEach((proj) => {
+      map.set(proj.id, computeProjectPhaseEvolution(proj, tasks ?? [], planningItems ?? []));
+    });
+    return map;
+  }, [productProjects, tasks, planningItems]);
+
+  const phaseProjectCounts = useMemo(() => {
+    const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+    productProjects.forEach((proj) => {
+      const evo = projectEvolutionMap.get(proj.id);
+      if (evo && evo.currentPhaseId in counts) {
+        counts[evo.currentPhaseId]++;
+      }
+    });
+    return counts;
+  }, [productProjects, projectEvolutionMap]);
+
+  // Filter projects by active phase
+  const selectedPhase = FACTORY_PHASES.find((p) => p.id === selectedPhaseId);
+
+  const displayedProjects = useMemo(() => {
+    if (!selectedPhaseId) return productProjects;
+    return productProjects.filter((proj) => {
+      const evo = projectEvolutionMap.get(proj.id);
+      return evo?.currentPhaseId === selectedPhaseId;
+    });
+  }, [productProjects, selectedPhaseId, projectEvolutionMap]);
+
   return (
     <div className="space-y-6 p-6">
       {/* Header com Filtros de Contexto */}
@@ -198,10 +415,10 @@ export default function CockpitPage() {
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
             <Gauge className="h-6 w-6 text-primary" />
-            6. Cockpit de Execução
+            Cockpit de Execução
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Acompanhamento em tempo real da esteira de desenvolvimento, ondas de tarefas e agentes em execução.
+            Acompanhamento em tempo real da esteira de desenvolvimento, ondas de tarefas e transição automática de fases.
           </p>
         </div>
 
@@ -241,22 +458,17 @@ export default function CockpitPage() {
               ))}
             </select>
           </div>
-
-          <Badge variant="outline" className="flex items-center gap-1 border-primary/30 text-primary py-1 px-2.5 font-semibold text-xs">
-            <Sparkles className="h-3.5 w-3.5" />
-            AI-SDLC 7 Fases
-          </Badge>
         </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="pipeline">Pipeline & Esteira (7 Fases)</TabsTrigger>
+          <TabsTrigger value="pipeline">Pipeline & Esteira (6 Fases)</TabsTrigger>
           <TabsTrigger value="tarefas">Execução de Tarefas ({relevantTasks.length})</TabsTrigger>
           <TabsTrigger value="telemetria">Telemetria & Agentes</TabsTrigger>
         </TabsList>
 
-        {/* ABA 1: PIPELINE COMPLETO 7 FASES */}
+        {/* ABA 1: PIPELINE COMPLETO 6 FASES */}
         <TabsContent value="pipeline" className="mt-4 space-y-6">
           <Card className="border-primary/20 shadow-sm">
             <CardHeader className="pb-3">
@@ -264,10 +476,10 @@ export default function CockpitPage() {
                 <div>
                   <CardTitle className="text-sm font-semibold flex items-center gap-2">
                     <Layers className="h-4 w-4 text-primary" />
-                    Fluxo Sequencial da Software Factory
+                    Fluxo Sequencial da Software Factory (1 a 6)
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Navegue diretamente por cada fase do ciclo de vida de desenvolvimento governado.
+                    Clique em qualquer fase para filtrar os projetos correspondentes. A esteira evolui automaticamente.
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
@@ -283,169 +495,187 @@ export default function CockpitPage() {
               </div>
             </CardHeader>
 
-            <CardContent>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-                {/* 1. Concepção & Contexto */}
-                <Link
-                  to="/conception"
-                  className="group rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex flex-col justify-between hover:border-emerald-500/60 hover:shadow-md transition-all"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-emerald-600">
-                      <span className="flex items-center gap-1.5">
-                        <Lightbulb className="h-3.5 w-3.5" />
-                        1. Concepção
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">
-                      Abertura de escopo vinculado ao Produto e Stack.
-                    </p>
-                  </div>
-                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-emerald-600 group-hover:translate-x-0.5 transition-transform">
-                    <span>Acessar</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </div>
-                </Link>
+            <CardContent className="space-y-4">
+              {/* Grid das 6 Fases Sequenciais */}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                {FACTORY_PHASES.map((phase) => {
+                  const Icon = phase.icon;
+                  const isSelected = selectedPhaseId === phase.id;
+                  const count = phaseProjectCounts[phase.id] ?? 0;
 
-                {/* 2. Telas & Regras */}
-                <Link
-                  to="/screen-inspector"
-                  className="group rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex flex-col justify-between hover:border-emerald-500/60 hover:shadow-md transition-all"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-emerald-600">
-                      <span className="flex items-center gap-1.5">
-                        <Layout className="h-3.5 w-3.5" />
-                        2. Telas & Regras
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">
-                      Protótipos visuais e regras de negócio de tela.
-                    </p>
-                  </div>
-                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-emerald-600 group-hover:translate-x-0.5 transition-transform">
-                    <span>Acessar</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </div>
-                </Link>
+                  return (
+                    <div
+                      key={phase.id}
+                      onClick={() => setSelectedPhaseId(isSelected ? null : phase.id)}
+                      className={`group rounded-xl border p-3.5 flex flex-col justify-between cursor-pointer transition-all duration-200 ${
+                        isSelected ? phase.activeBorder : phase.color
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs font-bold">
+                          <span className="flex items-center gap-1.5">
+                            <Icon className="h-3.5 w-3.5" />
+                            {phase.shortName}
+                          </span>
+                          <Badge
+                            className={`text-[9px] px-1.5 py-0 font-bold ${
+                              isSelected
+                                ? "bg-primary text-primary-foreground"
+                                : count > 0
+                                ? "bg-primary/20 text-primary border border-primary/30"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {count} {count === 1 ? "proj" : "projs"}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground line-clamp-2">
+                          {phase.description}
+                        </p>
+                      </div>
 
-                {/* 3. Banco de Dados & ERD */}
-                <Link
-                  to="/concept-erd"
-                  className="group rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex flex-col justify-between hover:border-emerald-500/60 hover:shadow-md transition-all"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-emerald-600">
-                      <span className="flex items-center gap-1.5">
-                        <Database className="h-3.5 w-3.5" />
-                        3. Banco & ERD
-                      </span>
+                      <div className="pt-3 flex items-center justify-between text-[10px] font-semibold">
+                        <span className="text-muted-foreground group-hover:text-foreground">
+                          {isSelected ? "Ativa (Clique p/ limpar)" : "Filtrar fase"}
+                        </span>
+                        <Link
+                          to={phase.route}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:underline flex items-center gap-0.5 text-primary font-bold"
+                          title={`Ir para tela ${phase.name}`}
+                        >
+                          <span>Acessar</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      </div>
                     </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">
-                      Modelagem relacional e schemas de dados.
-                    </p>
-                  </div>
-                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-emerald-600 group-hover:translate-x-0.5 transition-transform">
-                    <span>Acessar</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </div>
-                </Link>
+                  );
+                })}
+              </div>
 
-                {/* 4. Central de Projetos & Backlog */}
-                <Link
-                  to="/projects"
-                  className="group rounded-xl border border-sky-500/30 bg-sky-500/5 p-3.5 flex flex-col justify-between hover:border-sky-500/60 hover:shadow-md transition-all"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-sky-600">
-                      <span className="flex items-center gap-1.5">
-                        <FolderKanban className="h-3.5 w-3.5" />
-                        4. Projetos
-                      </span>
-                      <Badge className="bg-sky-500 text-white text-[9px] px-1 py-0">
-                        {productProjects.length}
-                      </Badge>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">
-                      1 Projeto → N Planejamentos → N Tarefas.
-                    </p>
+              {/* Painel Interativo de Acompanhamento de Projetos com Transição de Fase */}
+              <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
+                  <div className="flex items-center gap-2">
+                    {selectedPhase ? (
+                      <selectedPhase.icon className={`h-4 w-4 ${selectedPhase.color.split(" ")[0]}`} />
+                    ) : (
+                      <Layers className="h-4 w-4 text-primary" />
+                    )}
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
+                      {selectedPhase
+                        ? `Acompanhamento: ${selectedPhase.name}`
+                        : "Acompanhamento: Todos os Projetos na Esteira"}
+                    </h3>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {displayedProjects.length} {displayedProjects.length === 1 ? "projeto" : "projetos"}
+                    </Badge>
                   </div>
-                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-sky-600 group-hover:translate-x-0.5 transition-transform">
-                    <span>Acessar</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </div>
-                </Link>
 
-                {/* 5. Gate de Governança */}
-                <Link
-                  to="/governance"
-                  className="group rounded-xl border border-amber-500/30 bg-amber-500/5 p-3.5 flex flex-col justify-between hover:border-amber-500/60 hover:shadow-md transition-all"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-amber-600">
-                      <span className="flex items-center gap-1.5">
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                        5. Governança
-                      </span>
-                      <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-600 px-1 py-0">
-                        {relevantPlanningItems.length}
-                      </Badge>
+                  {selectedPhase && (
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setSelectedPhaseId(null)}
+                        className="text-xs text-muted-foreground hover:text-foreground underline"
+                      >
+                        Ver todas as fases
+                      </button>
+                      <Link
+                        to={selectedPhase.route}
+                        className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
+                      >
+                        Acessar Módulo Completo <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
                     </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">
-                      Homologação e seleção do Agente Executor.
-                    </p>
-                  </div>
-                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-amber-600 group-hover:translate-x-0.5 transition-transform">
-                    <span>Acessar</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </div>
-                </Link>
-
-                {/* 6. Cockpit de Execução */}
-                <div
-                  className="rounded-xl border-2 border-primary bg-primary/10 p-3.5 flex flex-col justify-between shadow-sm"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-primary">
-                      <span className="flex items-center gap-1.5">
-                        <Gauge className="h-3.5 w-3.5" />
-                        6. Cockpit
-                      </span>
-                      <Badge className="bg-primary text-primary-foreground text-[9px] px-1 py-0">
-                        Atual
-                      </Badge>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">
-                      Visão em tempo real das ondas de tarefas.
-                    </p>
-                  </div>
-                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-primary">
-                    <span>Monitorando</span>
-                    <PlayCircle className="h-3.5 w-3.5" />
-                  </div>
+                  )}
                 </div>
 
-                {/* 7. Fechamento de Versão */}
-                <Link
-                  to="/version-closure"
-                  className="group rounded-xl border border-purple-500/30 bg-purple-500/5 p-3.5 flex flex-col justify-between hover:border-purple-500/60 hover:shadow-md transition-all"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-purple-600">
-                      <span className="flex items-center gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        7. Fechamento
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">
-                      Auditoria 100% e trava definitiva de produção.
-                    </p>
+                {displayedProjects.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-muted-foreground">
+                    Nenhum projeto associado a esta fase no momento.
                   </div>
-                  <div className="pt-3 flex items-center justify-between text-[10px] font-semibold text-purple-600 group-hover:translate-x-0.5 transition-transform">
-                    <span>Acessar</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
+                ) : (
+                  <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                    {displayedProjects.map((proj) => {
+                      const evo = projectEvolutionMap.get(proj.id) || computeProjectPhaseEvolution(proj, tasks ?? [], planningItems ?? []);
+                      const projTasks = (tasks ?? []).filter((t) => t.project_id === proj.id);
+                      const projDoneTasks = projTasks.filter((t) => t.status === "done" || t.status === "deployed");
+                      const projProgress = projTasks.length > 0 ? Math.round((projDoneTasks.length / projTasks.length) * 100) : 0;
+                      const isFocused = activeProject?.id === proj.id;
+                      const phaseConfig = FACTORY_PHASES.find((f) => f.id === evo.currentPhaseId) || FACTORY_PHASES[0];
+
+                      return (
+                        <div
+                          key={proj.id}
+                          onClick={() => setSelectedProjectId(proj.id)}
+                          className={`rounded-lg border p-3 text-xs space-y-2 cursor-pointer transition-colors bg-background ${
+                            isFocused ? "border-primary ring-1 ring-primary shadow-sm" : "hover:border-primary/50"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-bold truncate text-foreground text-sm" title={proj.name}>
+                                {proj.name}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {proj.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[proj.solution_type] : "Aplicação"}
+                              </p>
+                            </div>
+                            {/* Status do Ciclo de Vida: Conception | Planejamento | Em Execução | Finalizado */}
+                            <Badge variant={evo.lifecycleStatus.variant} className={`text-[10px] px-1.5 py-0.5 shrink-0 ${evo.lifecycleStatus.className}`}>
+                              {evo.lifecycleStatus.label}
+                            </Badge>
+                          </div>
+
+                          {/* Fase Atual Automática da Esteira */}
+                          <div className="flex items-center justify-between text-[11px] bg-muted/40 px-2 py-1 rounded">
+                            <span className="text-muted-foreground">Fase Atual:</span>
+                            <span className="font-semibold text-primary">
+                              {evo.currentPhaseName}
+                            </span>
+                          </div>
+
+                          {/* Data/Hora de Inicialização */}
+                          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground pt-1 border-t">
+                            <Clock className="h-3 w-3 shrink-0 text-primary/70" />
+                            <span>Inicializado em:</span>
+                            <span className="font-medium text-foreground">
+                              {formatDateTime(evo.phaseStartedAt || proj.created_at)}
+                            </span>
+                          </div>
+
+                          {/* Progresso de Tarefas do Projeto */}
+                          <div className="space-y-1 pt-0.5">
+                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                              <span>Tarefas: {projDoneTasks.length}/{projTasks.length}</span>
+                              <span className="font-bold text-foreground">{projProgress}%</span>
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className="h-full bg-primary transition-all duration-300"
+                                style={{ width: `${projProgress}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Botão de Ação Direta */}
+                          <div className="pt-1 flex items-center justify-between border-t">
+                            <span className="text-[10px] text-muted-foreground">
+                              {isFocused ? "Em foco" : "Clique p/ focar"}
+                            </span>
+                            <Link
+                              to={phaseConfig.route}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5"
+                            >
+                              Acessar Fase Atual →
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                </Link>
+                )}
               </div>
             </CardContent>
           </Card>
