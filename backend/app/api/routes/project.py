@@ -46,7 +46,7 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.backlog import PlanningItem
-from app.db.models.task import ProjectTask, TaskExecution, TaskAssignment
+from app.db.models.task import ProjectTask, TaskExecution
 from app.db.models.execution import ExecutionWave, ExecutionWorkPackage
 from app.db.models.orchestration import ProjectLoopPolicy, TaskExecutionReview
 from app.db.models.system_scope import ProjectScope, ProjectScopeItem

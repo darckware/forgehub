@@ -70,7 +70,7 @@ from app.core.concept_artifacts import (
     build_tech_spec_markdown,
 )
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
-from app.core.governed_approval import approved_concept_request, canonical_hash, request_concept_approval
+from app.core.governed_approval import canonical_hash, request_concept_approval
 from app.core.markdown_docs import resolve_doc_path
 from app.db.models.artifact import Artifact, ArtifactStatus, ArtifactType, ArtifactVersion, ArtifactVersionStatus
 from app.db.models.backlog import PlanningItem
