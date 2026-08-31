@@ -143,9 +143,9 @@
   },
   "runtimes": {
     "hermes": "Hermes",
-    "claude": "Claude Code",
-    "codex": "Codex CLI",
-    "agy": "Gemini CLI (Agy)",
+    "claude": "claude",
+    "codex": "codex",
+    "agy": "agy",
     "openclaw": "OpenClaw"
   },
   "homePath": {
