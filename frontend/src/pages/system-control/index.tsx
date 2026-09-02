@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Archive, ChevronDown, ChevronRight, ExternalLink, GitBranch, GitCommit, Loader2, MessageSquare, RefreshCw, RotateCcw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, ExternalLink, GitBranch, GitCommit, Loader2, MessageSquare, RefreshCw, RotateCcw, Sparkles, SquareTerminal, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -70,7 +70,7 @@ export default function SystemControlPage() {
   const deleteBackup = useDeleteBackup();
   const [deletingBackup, setDeletingBackup] = useState<string | null>(null);
 
-  const { data: scan, isLoading: scanLoading, isFetching: scanFetching, isError: scanError } = useCleanupScan();
+  const { data: scan, isLoading: scanLoading, isFetching: scanFetching, isError: scanError, refetch: refetchScan } = useCleanupScan();
   const runCleanup = useRunCleanup();
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
@@ -455,6 +455,17 @@ export default function SystemControlPage() {
               <Button
                 size="sm"
                 variant="outline"
+                onClick={() => void refetchScan()}
+                disabled={scanLoading || scanFetching}
+                className="gap-2"
+                title="Rescan and refresh cleanup candidates"
+              >
+                <RefreshCw className={`h-4 w-4 ${scanFetching ? "animate-spin" : ""}`} />
+                Reset
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
                 onClick={() => setConfirmingEmptyTrash(true)}
                 disabled={!trashStatus || trashStatus.item_count === 0 || emptyTrash.isPending}
                 className="gap-2 text-destructive hover:text-destructive"
@@ -517,9 +528,20 @@ export default function SystemControlPage() {
             onCancel={() => setConfirmingEmptyTrash(false)}
           />
           {runCleanup.isSuccess && (
-            <div className="space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
-              <p>Weekly ecosystem cleanup completed with policy <span className="font-mono">{runCleanup.data.policy}</span>.</p>
-              <pre className="whitespace-pre-wrap">{runCleanup.data.output}</pre>
+            <div className="relative space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
+              <button
+                type="button"
+                aria-label="Dismiss banner"
+                title="Dismiss"
+                onClick={() => runCleanup.reset()}
+                className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:bg-emerald-500/20 hover:text-foreground transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+              <p className="pr-6 font-medium text-emerald-600 dark:text-emerald-400">
+                Weekly ecosystem cleanup completed with policy <span className="font-mono">{runCleanup.data.policy}</span>.
+              </p>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">{runCleanup.data.output}</pre>
             </div>
           )}
           {runCleanup.isError && (

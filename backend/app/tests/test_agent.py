@@ -29,6 +29,7 @@ from app.db.models.agent import (
     Agent,
     AgentCapacity,
     AgentCostRate,
+    AgentServiceCredential,
     AgentSkill,
     Skill,
     SubAgent,
@@ -45,6 +46,7 @@ _MY_TABLES = [
     SubAgentSkill.__table__,
     AgentCostRate.__table__,
     AgentCapacity.__table__,
+    AgentServiceCredential.__table__,
 ]
 
 
@@ -165,6 +167,41 @@ async def test_create_agent_duplicate_name_rejected(client, cleanup_agent_ids):
 
     second = await client.post("/api/v1/agents", json={"name": name})
     assert second.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_issue_list_and_revoke_agent_service_credential(
+    client, cleanup_agent_ids
+):
+    create_agent = await client.post(
+        "/api/v1/agents", json={"name": _unique_name("credential-agent")}
+    )
+    assert create_agent.status_code == 201, create_agent.text
+    agent_id = create_agent.json()["id"]
+    cleanup_agent_ids.append(agent_id)
+
+    issue = await client.post(
+        f"/api/v1/agents/{agent_id}/credentials",
+        json={"label": "Regression test"},
+    )
+    assert issue.status_code == 201, issue.text
+    credential = issue.json()
+    assert credential["token"].startswith("agt_")
+
+    listed = await client.get(f"/api/v1/agents/{agent_id}/credentials")
+    assert listed.status_code == 200, listed.text
+    assert [row["id"] for row in listed.json()] == [credential["id"]]
+
+    revoked = await client.delete(
+        f"/api/v1/agents/{agent_id}/credentials/{credential['id']}"
+    )
+    assert revoked.status_code == 204, revoked.text
+
+    listed_after_revoke = await client.get(
+        f"/api/v1/agents/{agent_id}/credentials"
+    )
+    assert listed_after_revoke.status_code == 200, listed_after_revoke.text
+    assert listed_after_revoke.json() == []
 
 
 @pytest.mark.asyncio

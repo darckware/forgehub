@@ -57,7 +57,7 @@ Env:
                        agent on every tool, so it never has to name itself
 """
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -257,11 +257,10 @@ async def send_agent_message(
             "requires_response": requires_response,
             # Default Tipo for every MCP-created message is Task (2026-07-28,
             # Marcelo: "criação MCP padrão é task") -- a plain note with no
-            # to_agent still lands as Task here, but the backend's own
-            # _reconcile_task_origin (demand.py) silently downgrades any
-            # Task with no target_agent_id to Backlog, so this never needs a
-            # branch for the no-to_agent case. Tipo is mandatory now (no
-            # None/"demand" values left, see FORGEHUB_MESSAGE.md).
+            # to_agent is self-addressed by the backend when this runtime's
+            # From agent resolves to a registered agent. If the sender also
+            # cannot be resolved, reconciliation safely leaves the item in
+            # Incubation. Tipo is mandatory now (no None/"demand" values).
             "origin_type": "task",
         "channel": channel,
         "channel_ref": channel_ref,
@@ -1103,6 +1102,83 @@ async def revoke_agent_skill(agent: str, skill: str) -> str:
 
 
 @mcp.tool()
+async def issue_agent_credential(
+    agent: str,
+    label: str = "MCP Service Token",
+    expires_in_days: int | None = None,
+) -> str:
+    """Generate and issue a new, active API Service Credential (agt_...) for an agent on demand.
+
+    Args:
+        agent: the agent's name, profile_slug, or UUID.
+        label: purpose or description of this credential.
+        expires_in_days: optional number of days until expiration (None = never expires).
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        expires_at = None
+        if expires_in_days is not None:
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_in_days)).isoformat()
+        res = await _call(
+            "POST",
+            f"/api/v1/agents/{agent_id}/credentials",
+            json={"label": label, "expires_at": expires_at},
+        )
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return (
+        f"Successfully issued new credential for agent {roster_row.get('name')!r}:\n"
+        f"Credential ID: {res.get('id')}\n"
+        f"Label: {res.get('label')}\n"
+        f"Token: {res.get('token')}\n"
+        f"Expires: {res.get('expires_at') or 'never'}\n\n"
+        f"Note: This token ('agt_...') is only shown once upon creation."
+    )
+
+
+@mcp.tool()
+async def list_agent_credentials(agent: str) -> str:
+    """List active service credentials issued for an agent.
+
+    Args:
+        agent: the agent's name, profile_slug, or UUID.
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        creds = await _call("GET", f"/api/v1/agents/{agent_id}/credentials")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    if not creds:
+        return f"No active credentials found for agent {roster_row.get('name')!r}."
+
+    lines = [f"Active Credentials for {roster_row.get('name')} ({len(creds)}):"]
+    for c in creds:
+        lines.append(
+            f"- ID: {c.get('id')} | Label: {c.get('label')} | Created: {c.get('created_at')} | Expires: {c.get('expires_at') or 'never'}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def revoke_agent_credential(agent: str, credential_id: str) -> str:
+    """Revoke an agent's service credential by ID.
+
+    Args:
+        agent: the agent's name, profile_slug, or UUID.
+        credential_id: UUID of the credential to revoke.
+    """
+    try:
+        agent_id, roster_row = await _resolve_agent_id(agent)
+        await _call("DELETE", f"/api/v1/agents/{agent_id}/credentials/{credential_id}")
+    except ForgeHubError as exc:
+        return str(exc)
+
+    return f"Successfully revoked credential {credential_id!r} for agent {roster_row.get('name')!r}."
+
+
+@mcp.tool()
 async def list_agent_tools(
     agent: str | None = None,
     category: str | None = None,
@@ -1483,10 +1559,11 @@ async def execute_database_query(
         database: database name ('forgehub', 'foundation', 'forgerouter').
     """
     try:
+        clean_sql = query.strip().rstrip(";")
         res = await _call(
             "POST",
             "/api/v1/database/query",
-            json={"query": query, "instance": instance, "database": database},
+            json={"sql": clean_sql, "instance": instance, "db": database},
         )
     except ForgeHubError as exc:
         return str(exc)
@@ -1504,7 +1581,12 @@ async def execute_database_query(
         "-" * 50,
     ]
     for r in rows[:50]:
-        lines.append(" | ".join(str(r.get(c, "")) for c in columns))
+        if isinstance(r, list):
+            lines.append(" | ".join(str(val) for val in r))
+        elif isinstance(r, dict):
+            lines.append(" | ".join(str(r.get(c, "")) for c in columns))
+        else:
+            lines.append(str(r))
     if len(rows) > 50:
         lines.append(f"... and {len(rows) - 50} more rows.")
 

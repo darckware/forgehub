@@ -9,6 +9,19 @@ O `forgehub-messages` é o canal canônico de comunicação entre agentes. Ele u
 `company.agent_demands`, a mesma tela Messages e o mesmo ciclo de dispatch do ForgeHub; não é uma
 fila paralela.
 
+Na tela de composição, `De (agente)` é obrigatório e define o agente remetente. `Para` aceita outro
+agente ou pode permanecer em branco, caso em que o backend grava o próprio remetente como
+`target_agent_id`. O tipo é obrigatório e possui somente duas opções:
+
+- `Task`: trabalho executável; exige remetente e destinatário. Quando `Para` está vazio, o remetente
+  executa a própria Task. Sem `scheduled_at`, o backend agenda a execução para o instante atual;
+- `Incubation`: trabalho estacionado sob responsabilidade de um agente até ser promovido ou
+  descartado. Não carrega vínculo de Task em `origin_id`.
+
+Chamadores externos que enviem uma `Task` sem `target_agent_id`, mas com `from_agent_id` válido,
+recebem a mesma semântica da tela: o destino passa a ser o próprio remetente. Uma Task sem remetente
+continua inválida para execução e é reconciliada como incubação somente quando houver um agente dono.
+
 Uma Task endereçada e pronta para execução não espera o próximo ciclo periódico. Depois que a
 transação da mensagem é confirmada, o backend aciona um gatilho em memória que acorda imediatamente
 o único worker de dispatch. O worker relê a Task do PostgreSQL e aplica os limites existentes
@@ -54,6 +67,17 @@ mcp_servers:
 
 Perfis sincronizados normalmente deixam `Agent.home_path` vazio. A leitura do Telegram deve usar
 o caminho efetivo do runtime; para Hermes, o fallback é `/root/.hermes/profiles/<profile_slug>`.
+
+## Credenciais de serviço dos agentes
+
+O catálogo MCP unificado expõe `issue_agent_credential`, `list_agent_credentials` e
+`revoke_agent_credential`. A emissão devolve um token com prefixo `agt_` uma única vez; o banco
+persiste somente o SHA-256 do token. A listagem nunca recupera o segredo e mostra apenas metadados
+ativos. A revogação preenche `revoked_at`, removendo imediatamente a credencial das listagens e da
+autenticação válida. Expiração é opcional e armazenada com timezone.
+
+Nunca copie um token emitido para documentação, logs, mensagens ou Foundation. Entregue-o somente
+ao armazenamento protegido do runtime consumidor e revogue-o quando deixar de ser necessário.
 
 ## Portas dos gateways
 

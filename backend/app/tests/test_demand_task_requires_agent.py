@@ -1,13 +1,15 @@
-"""A Tipo=Task message always has an agent to run it -- and when it doesn't,
-it is silently downgraded to Backlog rather than rejected (2026-07-27,
-Marcelo: "toda task chegando em Incoming precisa ser executada pelo seu
-agente" -- then, refining the first cut which returned 400 -- "não seria
-melhor sem agente ficar no backlog... para não ser executado").
+"""A Tipo=Task message always persists both the sender and its executor.
+
+When a valid From agent leaves To blank, the backend targets that same
+agent: the Task is self-assigned. A Task that still lacks either agent at
+the reconciliation boundary is downgraded to Incubation rather than run
+without an owner.
 
 Two mechanisms, both covered here:
-  - `_reconcile_task_origin` reclassifies any create/update that would leave
-    a Task message with no target_agent_id as Backlog instead (origin_id
-    cleared too -- Backlog never carries one).
+  - `create_demand_and_notify` resolves a blank target to the sender before
+    `_reconcile_task_origin` enforces the two-agent-record invariant.
+  - `_reconcile_task_origin` reclassifies any remaining incomplete Task as
+    Incubation (origin_id cleared too -- Incubation never carries one).
   - Task + target + never dispatched + never scheduled gets scheduled_at
     auto-set to now, so the background loop actually runs it instead of it
     sitting inert in Incoming forever.
@@ -81,7 +83,7 @@ async def test_create_task_without_any_agent_is_refused(client: AsyncClient):
     """Behaviour change, 2026-08-13 (incubation invariant 1). This used to
     land as an ownerless Backlog row; it is now refused outright.
 
-    A Task with no agent still downgrades to incubation, but incubation
+    A Task with no agent reconciles to incubation, but incubation
     requires an owner, and "marcelo" resolves to no Agent -- so there is
     nobody to ever decide this thought's fate. Storing it anyway is exactly
     how #8971 sat parked for four days with nobody responsible for it."""
@@ -93,13 +95,10 @@ async def test_create_task_without_any_agent_is_refused(client: AsyncClient):
     assert "owning agent" in response.json()["detail"]
 
 
-async def test_create_task_without_target_is_downgraded_to_incubation(
+async def test_create_task_without_target_defaults_target_to_sender(
     client: AsyncClient, sender_agent_id
 ):
-    """Not rejected, not lost -- lands as incubation owned by its sender.
-
-    The downgrade itself is unchanged (2026-07-27/28); what is new is that
-    the sender becomes the owner, so the item has someone to decide it."""
+    """A blank To means the From agent is assigning the Task to itself."""
     response = await client.post(
         "/api/v1/demands",
         json={
@@ -109,14 +108,14 @@ async def test_create_task_without_target_is_downgraded_to_incubation(
     )
     assert response.status_code == 201, response.text
     demand = response.json()
-    assert demand["origin_type"] == "incubation"
+    assert demand["origin_type"] == "task"
     assert demand["origin_id"] is None
-    assert demand["target_agent_id"] is None
-    assert demand["scheduled_at"] is None  # never auto-scheduled once incubating
-    # The author owns their own thought when it is addressed to nobody.
-    assert demand["incubation_owner_id"] == str(sender_agent_id)
-    assert demand["incubation_state"] == "incubating"
-    assert demand["matures_at"] is not None
+    assert demand["from_agent_id"] == str(sender_agent_id)
+    assert demand["target_agent_id"] == str(sender_agent_id)
+    assert demand["scheduled_at"] is not None
+    assert demand["incubation_owner_id"] is None
+    assert demand["incubation_state"] is None
+    assert demand["matures_at"] is None
     await client.delete(f"/api/v1/demands/{demand['id']}")
 
 

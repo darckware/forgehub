@@ -1,377 +1,33 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
-  Archive,
   ArrowLeft,
-  CalendarRange,
-  CheckCircle2,
-  ClipboardList,
-  FolderTree,
-  GitPullRequestArrow,
+  CheckSquare,
   ListTodo,
   Loader2,
-  Lock,
   Hash,
   Pencil,
   Plus,
+  Settings,
   SquareTerminal,
-  Trash2,
-  Unlock,
-  XCircle,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ProjectFileBrowser } from "@/components/ProjectFileBrowser";
-import { useBackupListing, useDeleteBackup, useRunBackup } from "@/hooks/useSystemControl";
 import {
-  useApproveProjectPlan,
-  useChangeRequests,
-  useCreateChangeRequest,
-  useCreatePlanBaseline,
-  useCreateProjectPlan,
-  useCreateStructureNode,
-  useDeleteChangeRequest,
-  useDeleteStructureNode,
-  usePlanBaselines,
   useProject,
-  useProjectPlans,
-  useStructureNodes,
-  useUpdateChangeRequest,
   useUpdateProject,
-  useUpdateStructureNode,
-  type ChangeRequest,
   type ProjectCreateInput,
-  type StructureNode,
 } from "@/hooks/useProject";
 import { useProductVersion } from "@/hooks/useProduct";
-import { useTasksByChangeRequest } from "@/hooks/useTask";
-import { useDeletePlanningItem } from "@/hooks/useBacklog";
+import { usePlanningItems } from "@/hooks/useBacklog";
+import { useTasks, type ProjectTask } from "@/hooks/useTask";
 import { EntityDocsCard } from "@/components/EntityDocsCard";
-import { ProjectMcpServerManager } from "@/components/mcp/ProjectMcpServerManager";
-import { useProjectMcpServers } from "@/hooks/useProjectMcp";
 import { ProjectForm } from "./ProjectForm";
-import { StructureNodeForm } from "./StructureNodeForm";
-import { ProjectPlanForm } from "./ProjectPlanForm";
-import { ChangeRequestForm } from "./ChangeRequestForm";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-
-const CHANGE_REQUEST_STATUS_VARIANT: Record<string, "outline" | "success" | "destructive" | "secondary"> = {
-  pending: "outline",
-  approved: "success",
-  rejected: "destructive",
-  applied: "secondary",
-};
-
-const CHANGE_REQUEST_IMPACT_KEYS: Record<string, string> = {
-  affects_scope: "detail.changeRequestImpact.scope",
-  affects_schedule: "detail.changeRequestImpact.schedule",
-  affects_cost: "detail.changeRequestImpact.cost",
-  adds_features: "detail.changeRequestImpact.addsFeatures",
-  removes_features: "detail.changeRequestImpact.removesFeatures",
-  introduces_critical_bug_fix: "detail.changeRequestImpact.criticalBugFix",
-  changes_agents: "detail.changeRequestImpact.agents",
-  changes_skills: "detail.changeRequestImpact.skills",
-  changes_architecture: "detail.changeRequestImpact.architecture",
-  changes_security: "detail.changeRequestImpact.security",
-};
-
-function changeRequestImpactKeys(cr: ChangeRequest): string[] {
-  return Object.entries(CHANGE_REQUEST_IMPACT_KEYS)
-    .filter(([key]) => Boolean(cr[key as keyof ChangeRequest]))
-    .map(([, key]) => key);
-}
-
-// ---------------------------------------------------------------------------
-// ChangeRequestCard — single CR row with inline edit, deliberation actions,
-// task count, and create-task shortcut.
-// ---------------------------------------------------------------------------
-
-interface ChangeRequestCardProps {
-  cr: ChangeRequest;
-  baselines: import("@/hooks/useProject").PlanBaseline[];
-  isEditing: boolean;
-  onEdit: () => void;
-  onCancelEdit: () => void;
-  onSaveEdit: (values: import("@/hooks/useProject").ChangeRequestUpdateInput) => void;
-  onApprove: () => void;
-  onReject: () => void;
-  onMarkApplied: () => void;
-  onDelete: () => void;
-  isMutating: boolean;
-}
-
-function ChangeRequestCard({
-  cr,
-  baselines,
-  isEditing,
-  onEdit,
-  onCancelEdit,
-  onSaveEdit,
-  onApprove,
-  onReject,
-  onMarkApplied,
-  onDelete,
-  isMutating,
-}: ChangeRequestCardProps) {
-  const { t } = useTranslation("project");
-  const { data: derivedTasks } = useTasksByChangeRequest(cr.id);
-  const taskCount = derivedTasks?.length ?? 0;
-
-  return (
-    <li className="rounded-md border border-border p-3 text-sm">
-      {isEditing ? (
-        <ChangeRequestForm
-          baselines={baselines}
-          initialValues={{
-            title: cr.title,
-            justification: cr.justification ?? "",
-            plan_baseline_id: cr.plan_baseline_id ?? "",
-            requested_by: cr.requested_by ?? "",
-            affects_scope: cr.affects_scope,
-            affects_schedule: cr.affects_schedule,
-            affects_cost: cr.affects_cost,
-            adds_features: cr.adds_features,
-            removes_features: cr.removes_features,
-            introduces_critical_bug_fix: cr.introduces_critical_bug_fix,
-            changes_agents: cr.changes_agents,
-            changes_skills: cr.changes_skills,
-            changes_architecture: cr.changes_architecture,
-            changes_security: cr.changes_security,
-          }}
-          onSubmit={(values) => onSaveEdit(values)}
-          onCancel={onCancelEdit}
-          isSubmitting={isMutating}
-          submitLabel={t("detail.saveChanges")}
-        />
-      ) : (
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{cr.title}</span>
-              <Badge
-                variant={CHANGE_REQUEST_STATUS_VARIANT[cr.status] ?? "outline"}
-                className="capitalize"
-              >
-                {t(`enums.changeRequestStatus.${cr.status}`, cr.status)}
-              </Badge>
-              {taskCount > 0 && (
-                <Badge variant="secondary" className="gap-1 text-[10px]">
-                  <ListTodo className="h-3 w-3" />
-                  {t("detail.changeRequestCard.taskCount", { count: taskCount })}
-                </Badge>
-              )}
-            </div>
-            {cr.justification && (
-              <p className="text-muted-foreground">{cr.justification}</p>
-            )}
-            <div className="flex flex-wrap gap-1">
-              {changeRequestImpactKeys(cr).map((key) => (
-                <Badge key={key} variant="secondary" className="text-[10px]">
-                  {t(key)}
-                </Badge>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-              {cr.schedule_delta_days != null && (
-                <span>{t("detail.changeRequestCard.scheduleDelta", { days: cr.schedule_delta_days })}</span>
-              )}
-              {cr.cost_delta != null && (
-                <span>{t("detail.changeRequestCard.costDelta", { cost: cr.cost_delta })}</span>
-              )}
-              {cr.requested_by && (
-                <span>{t("detail.changeRequestCard.requestedBy", { name: cr.requested_by })}</span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-1">
-            {/* Deliberation actions */}
-            {cr.status === "pending" && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled={isMutating}
-                  aria-label={t("detail.changeRequestCard.approveAria", { title: cr.title })}
-                  onClick={onApprove}
-                >
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled={isMutating}
-                  aria-label={t("detail.changeRequestCard.rejectAria", { title: cr.title })}
-                  onClick={onReject}
-                >
-                  <XCircle className="h-4 w-4 text-destructive" />
-                </Button>
-              </>
-            )}
-            {cr.status === "approved" && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={isMutating}
-                onClick={onMarkApplied}
-              >
-                {t("detail.changeRequestCard.markApplied")}
-              </Button>
-            )}
-
-            {/* Edit */}
-            {cr.status !== "applied" && (
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={isMutating}
-                aria-label={t("detail.changeRequestCard.editAria", { title: cr.title })}
-                onClick={onEdit}
-              >
-                <Pencil className="h-4 w-4" />
-              </Button>
-            )}
-
-            {/* Delete */}
-            {cr.status !== "applied" && (
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={isMutating}
-                aria-label={t("detail.changeRequestCard.deleteAria", { title: cr.title })}
-                onClick={onDelete}
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-    </li>
-  );
-}
-
-function formatBytes(bytes: number | null | undefined): string {
-  if (bytes == null) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  const mb = kb / 1024;
-  if (mb < 1024) return `${mb.toFixed(1)} MB`;
-  return `${(mb / 1024).toFixed(1)} GB`;
-}
-
-/** This project's own backup archives -- kept in their own directory,
- * separate from Hermes's and every other project's (see System Control's
- * Backups card / backend/app/api/routes/system_control.py). Only rendered
- * when the project has backup_enabled. */
-function ProjectBackups({
-  projectId,
-  projectName,
-  workingDirectoryPath,
-}: {
-  projectId: string;
-  projectName: string;
-  workingDirectoryPath: string | null | undefined;
-}) {
-  const { t } = useTranslation("project");
-  const target = `project:${projectId}`;
-  const { data: listing, isLoading } = useBackupListing(target);
-  const runBackup = useRunBackup();
-  const deleteBackup = useDeleteBackup();
-  const [deletingBackup, setDeletingBackup] = useState<string | null>(null);
-
-  return (
-    <div className="space-y-2 border-t border-border pt-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">{t("detail.backups.title", { name: projectName })}</span>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-2"
-          onClick={() => runBackup.mutate({ target })}
-          disabled={runBackup.isPending}
-        >
-          {runBackup.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
-          {t("detail.backups.backupNow")}
-        </Button>
-      </div>
-      {listing?.path && (
-        <p className="font-mono text-xs text-muted-foreground">
-          {workingDirectoryPath ?? t("detail.backups.noWorkingDirectorySet")} → {listing.path}
-        </p>
-      )}
-      {runBackup.isError && (
-        <p className="text-xs text-destructive">
-          {(runBackup.error as Error)?.message ?? t("detail.backups.backupFailed")}
-        </p>
-      )}
-      {deleteBackup.isError && (
-        <p className="text-xs text-destructive">
-          {(deleteBackup.error as Error)?.message ?? t("detail.backups.deleteBackupFailed")}
-        </p>
-      )}
-      <ConfirmDialog
-        open={deletingBackup !== null}
-        title={t("detail.backups.deleteDialogTitle", { name: deletingBackup ?? "" })}
-        description={t("detail.backups.deleteDialogDescription")}
-        loading={deleteBackup.isPending}
-        onConfirm={() => {
-          if (deletingBackup) {
-            deleteBackup.mutate({ target, filename: deletingBackup }, { onSuccess: () => setDeletingBackup(null) });
-          }
-        }}
-        onCancel={() => setDeletingBackup(null)}
-      />
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("detail.backups.loadingArchives")}
-        </div>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("detail.backups.archiveColumn")}</TableHead>
-              <TableHead>{t("detail.backups.sizeColumn")}</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(listing?.entries ?? []).map((entry) => (
-              <TableRow key={entry.path}>
-                <TableCell className="font-mono text-xs">{entry.name}</TableCell>
-                <TableCell>{formatBytes(entry.size)}</TableCell>
-                <TableCell>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive"
-                    aria-label={t("detail.backups.deleteArchiveAria", { name: entry.name })}
-                    onClick={() => setDeletingBackup(entry.name)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {(listing?.entries ?? []).length === 0 && (
-              <TableRow>
-                <TableCell colSpan={3} className="text-xs text-muted-foreground">
-                  {t("detail.backups.noBackupArchives")}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      )}
-    </div>
-  );
-}
 
 export default function ProjectDetailPage() {
   const { t } = useTranslation("project");
@@ -379,35 +35,31 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate();
   const { data: project, isLoading, isError, error } = useProject(id);
   const { data: productVersion } = useProductVersion(project?.product_version_id ?? undefined);
-  const { data: structureNodes } = useStructureNodes(id);
-  const { data: projectMcpServers, isLoading: projectMcpLoading } = useProjectMcpServers(id);
   const updateProject = useUpdateProject(id ?? "");
-  const createStructureNode = useCreateStructureNode(id ?? "");
-  const updateStructureNode = useUpdateStructureNode(id ?? "");
-  const deleteStructureNode = useDeleteStructureNode(id ?? "");
-  const { data: plans } = useProjectPlans(id);
-  const { data: baselines } = usePlanBaselines(id);
-  const { data: changeRequests } = useChangeRequests(id);
-  const createProjectPlan = useCreateProjectPlan(id ?? "");
-  const approveProjectPlan = useApproveProjectPlan(id ?? "");
-  const createPlanBaseline = useCreatePlanBaseline(id ?? "");
-  const createChangeRequest = useCreateChangeRequest(id ?? "");
-  const updateChangeRequest = useUpdateChangeRequest(id ?? "");
-  const deleteChangeRequest = useDeleteChangeRequest(id ?? "");
-  const deletePlanningItem = useDeletePlanningItem();
+  const { data: allPlanningItems, isLoading: isLoadingPlanning } = usePlanningItems();
+  const { data: allTasks } = useTasks();
+
   const [editingPath, setEditingPath] = useState(false);
   const [pathDraft, setPathDraft] = useState("");
   const [showEditForm, setShowEditForm] = useState(false);
-  const [showNodeForm, setShowNodeForm] = useState(false);
-  const [showPlanForm, setShowPlanForm] = useState(false);
-  const [showBaselineForm, setShowBaselineForm] = useState(false);
-  const [baselineNameDraft, setBaselineNameDraft] = useState("");
-  const [showCrForm, setShowCrForm] = useState(false);
-  const [editingCrId, setEditingCrId] = useState<string | null>(null);
-  const [pendingDeletePlanningId, setPendingDeletePlanningId] = useState<string | null>(null);
-  const [pendingDeleteCrId, setPendingDeleteCrId] = useState<string | null>(null);
 
-  const latestPlan = plans?.[0];
+  // Filter planning items and tasks for this specific project
+  const projectPlanningItems = useMemo(() => {
+    if (!id || !allPlanningItems) return [];
+    return allPlanningItems.filter((item) => item.project_id === id);
+  }, [id, allPlanningItems]);
+
+  const tasksByPlanningItem = useMemo(() => {
+    const map = new Map<string, ProjectTask[]>();
+    for (const task of allTasks ?? []) {
+      if (task.planning_item_id) {
+        const existing = map.get(task.planning_item_id) || [];
+        existing.push(task);
+        map.set(task.planning_item_id, existing);
+      }
+    }
+    return map;
+  }, [allTasks]);
 
   function handleUpdate(values: ProjectCreateInput) {
     updateProject.mutate(
@@ -441,36 +93,47 @@ export default function ProjectDetailPage() {
 
       {!isLoading && !isError && project && (
         <>
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
-              {project.description && (
-                <p className="mt-1 max-w-2xl text-muted-foreground">{project.description}</p>
-              )}
+              <div className="flex items-center gap-2">
+                <Settings className="h-5 w-5 text-primary" />
+                <h1 className="text-2xl font-bold tracking-tight">Configurações do Projeto: {project.name}</h1>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {project.description || "Gerencie configurações de repositório, diretório de trabalho e especificações do projeto."}
+              </p>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-sm capitalize">
+              <Badge variant="outline" className="text-xs capitalize">
                 {t(`enums.projectStatus.${project.status}`, project.status)}
               </Badge>
               <Button
                 variant="outline"
                 size="sm"
+                className="text-xs"
                 onClick={() => setShowEditForm((v) => !v)}
               >
-                <Pencil className="mr-2 h-4 w-4" />
-                {t("shared.edit")}
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                {showEditForm ? t("shared.cancel") : t("shared.edit")}
               </Button>
               <Button
                 variant="outline"
                 size="sm"
+                className="text-xs"
                 onClick={() => navigate("/workspace", { state: { openChannel: { projectId: project.id } } })}
               >
-                <Hash className="mr-2 h-4 w-4" />
+                <Hash className="mr-1.5 h-3.5 w-3.5" />
                 {t("detail.openChannel")}
               </Button>
+              <Link
+                to={`/projects?view=project_detail&project_id=${project.id}`}
+                className={buttonVariants({ variant: "default", size: "sm" }) + " text-xs gap-1.5"}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Voltar à Central de Backlog
+              </Link>
             </div>
           </div>
-
 
           {showEditForm && (
             <Card>
@@ -505,169 +168,129 @@ export default function ProjectDetailPage() {
           )}
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+            {/* Card de Planejamentos e Tarefas do Projeto */}
+            <Card className="flex flex-col">
+              <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <div>
-                  <CardTitle className="flex items-center gap-2 text-xl">
-                    <ClipboardList className="h-5 w-5" />
-                    {t("detail.projectPlanTitle")}
-                  </CardTitle>
-                  <CardDescription>{t("detail.projectPlanDescription")}</CardDescription>
-                </div>
-                {!latestPlan && (
-                  <Button variant="outline" size="sm" onClick={() => setShowPlanForm((v) => !v)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    {t("detail.createPlanButton")}
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {showPlanForm && (
-                  <div className="rounded-md border border-border p-4">
-                    <ProjectPlanForm
-                      onSubmit={(values) =>
-                        createProjectPlan.mutate(values, { onSuccess: () => setShowPlanForm(false) })
-                      }
-                      onCancel={() => setShowPlanForm(false)}
-                      isSubmitting={createProjectPlan.isPending}
-                    />
-                    {createProjectPlan.isError && (
-                      <p className="mt-3 text-sm text-destructive">
-                        {(createProjectPlan.error as Error)?.message}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {latestPlan ? (
-                  <dl className="space-y-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{latestPlan.name}</span>
-                      <Badge
-                        variant={latestPlan.status === "baselined" ? "success" : "outline"}
-                        className="capitalize"
-                      >
-                        {t(`enums.projectPlanStatus.${latestPlan.status}`, latestPlan.status)}
-                      </Badge>
-                    </div>
-                    {latestPlan.scope_summary && (
-                      <div>
-                        <dt className="font-medium text-muted-foreground">{t("detail.scopeLabel")}</dt>
-                        <dd>{latestPlan.scope_summary}</dd>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <CalendarRange className="h-4 w-4" />
-                      <span>
-                        {latestPlan.estimated_start_date ?? t("detail.noStartDate")} →{" "}
-                        {latestPlan.estimated_end_date ?? t("detail.noTargetDate")}
+                  <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                    <ListTodo className="h-4 w-4 text-primary" />
+                    Itens de Planejamento & Backlog
+                    {projectPlanningItems && (
+                      <span className="text-xs font-normal text-muted-foreground">
+                        ({projectPlanningItems.length})
                       </span>
-                    </div>
-                    {latestPlan.estimated_cost != null && (
-                      <div>
-                        <dt className="font-medium text-muted-foreground">{t("detail.estimatedCostLabel")}</dt>
-                        <dd>{latestPlan.estimated_cost}</dd>
-                      </div>
                     )}
-
-                    {latestPlan.status === "draft" && (
-                      <Button
-                        size="sm"
-                        disabled={approveProjectPlan.isPending}
-                        onClick={() => approveProjectPlan.mutate(latestPlan.id)}
-                      >
-                        {t("detail.approvePlanButton")}
-                      </Button>
-                    )}
-
-                    {latestPlan.status === "approved" && !showBaselineForm && (
-                      <Button size="sm" onClick={() => setShowBaselineForm(true)}>
-                        {t("detail.freezeBaselineButton")}
-                      </Button>
-                    )}
-
-                    {showBaselineForm && (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          value={baselineNameDraft}
-                          onChange={(e) => setBaselineNameDraft(e.target.value)}
-                          placeholder={t("detail.baselineNamePlaceholder")}
-                        />
-                        <Button
-                          size="sm"
-                          disabled={!baselineNameDraft || createPlanBaseline.isPending}
-                          onClick={() =>
-                            createPlanBaseline.mutate(
-                              { project_plan_id: latestPlan.id, name: baselineNameDraft },
-                              {
-                                onSuccess: () => {
-                                  setShowBaselineForm(false);
-                                  setBaselineNameDraft("");
-                                },
-                              }
-                            )
-                          }
-                        >
-                          {t("shared.save")}
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => setShowBaselineForm(false)}>
-                          {t("shared.cancel")}
-                        </Button>
-                      </div>
-                    )}
-
-                    {(approveProjectPlan.isError || createPlanBaseline.isError) && (
-                      <p className="text-sm text-destructive">
-                        {((approveProjectPlan.error ?? createPlanBaseline.error) as Error)?.message}
-                      </p>
-                    )}
-
-                    {baselines && baselines.length > 0 && (
-                      <div className="space-y-2 pt-2">
-                        <dt className="font-medium text-muted-foreground">{t("detail.baselineHistoryLabel")}</dt>
-                        <ul className="space-y-1">
-                          {baselines.map((baseline) => (
-                            <li
-                              key={baseline.id}
-                              className="rounded-md border border-border p-2 text-xs"
-                            >
-                              <span className="font-medium">{baseline.name}</span>{" "}
-                              <span className="text-muted-foreground">
-                                {t("detail.frozenAt", { date: new Date(baseline.frozen_at).toLocaleString() })}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </dl>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Planejamentos e features vinculados a este projeto.
+                  </CardDescription>
+                </div>
+                <Link
+                  to={`/projects?view=project_detail&project_id=${project.id}`}
+                  className={buttonVariants({ variant: "outline", size: "sm" }) + " text-xs gap-1.5 h-8"}
+                >
+                  <ListTodo className="h-3.5 w-3.5" />
+                  Gerenciar Backlog
+                </Link>
+              </CardHeader>
+              <CardContent className="flex-1 space-y-3">
+                {isLoadingPlanning ? (
+                  <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando planejamentos...
+                  </div>
+                ) : !projectPlanningItems || projectPlanningItems.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-4 text-center">
+                    <p className="text-xs italic text-muted-foreground">
+                      Nenhum item de planejamento cadastrado para este projeto.
+                    </p>
+                    <Link
+                      to={`/projects?view=project_detail&project_id=${project.id}`}
+                      className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium"
+                    >
+                      <Plus className="h-3 w-3" /> Criar planejamento na Central de Backlog
+                    </Link>
+                  </div>
                 ) : (
-                  !showPlanForm && (
-                    <p className="text-sm text-muted-foreground">{t("detail.noPlanYet")}</p>
-                  )
+                  <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {projectPlanningItems.map((item) => {
+                      const tasks = tasksByPlanningItem.get(item.id) ?? [];
+                      const doneTasks = tasks.filter((t) => t.status === "done" || t.status === "deployed").length;
+                      return (
+                        <div
+                          key={item.id}
+                          className="flex flex-col gap-1 rounded-md border p-2.5 text-xs hover:bg-accent/40 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Badge variant="outline" className="text-[10px] capitalize shrink-0 font-normal">
+                                {item.item_type}
+                              </Badge>
+                              <span className="font-semibold truncate text-foreground">{item.title}</span>
+                            </div>
+                            <Badge variant="secondary" className="text-[10px] capitalize shrink-0">
+                              {item.status}
+                            </Badge>
+                          </div>
+                          {item.description && (
+                            <p className="text-muted-foreground line-clamp-1 text-[11px]">{item.description}</p>
+                          )}
+                          <div className="flex items-center justify-between pt-1 text-[11px] text-muted-foreground border-t mt-1">
+                            <span className="flex items-center gap-1">
+                              <CheckSquare className="h-3 w-3 text-emerald-500" />
+                              {tasks.length === 0
+                                ? "Sem tarefas vinculadas"
+                                : `${doneTasks}/${tasks.length} tarefas concluídas`}
+                            </span>
+                            {item.output_path && (
+                              <span className="font-mono text-[10px] truncate max-w-[140px]" title={item.output_path}>
+                                {item.output_path}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-xl">{t("detail.productVersionTitle")}</CardTitle>
-                <CardDescription>{t("detail.productVersionDescription")}</CardDescription>
+            {/* Card da Versão do Produto */}
+            <Card className="flex flex-col">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                  <Badge variant="outline" className="h-5 w-5 rounded-full p-0 flex items-center justify-center text-[10px]">v</Badge>
+                  {t("detail.productVersionTitle")}
+                </CardTitle>
+                <CardDescription className="text-xs">{t("detail.productVersionDescription")}</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1 space-y-3">
                 {project.product_version_id ? (
                   productVersion ? (
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="font-medium">{productVersion.version}</span>
-                      <Badge variant="outline" className="capitalize">
-                        {t(`enums.productVersionStatus.${productVersion.status}`, productVersion.status)}
-                      </Badge>
+                    <div className="rounded-md border p-3 bg-muted/20 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-foreground">Versão {productVersion.version}</span>
+                        <Badge variant="outline" className="capitalize text-[10px]">
+                          {t(`enums.productVersionStatus.${productVersion.status}`, productVersion.status)}
+                        </Badge>
+                      </div>
+                      {productVersion.release_notes && (
+                        <div className="text-muted-foreground pt-1 border-t text-[11px]">
+                          <p className="font-medium text-foreground mb-0.5">Notas da versão:</p>
+                          <p className="line-clamp-3">{productVersion.release_notes}</p>
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">{t("detail.loadingVersion")}</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {t("detail.loadingVersion")}
+                    </div>
                   )
                 ) : (
-                  <p className="text-sm italic text-muted-foreground">{t("detail.noProductVersionLinked")}</p>
+                  <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground italic">
+                    {t("detail.noProductVersionLinked")}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -750,58 +373,6 @@ export default function ProjectDetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-xl">{t("detail.mcpServersTitle")}</CardTitle>
-              <CardDescription>{t("detail.mcpServersDescription")}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ProjectMcpServerManager
-                projectId={project.id}
-                servers={projectMcpServers}
-                isLoading={projectMcpLoading}
-                workingDirectoryPath={project.working_directory_path ?? null}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-xl">{t("detail.githubBackupsTitle")}</CardTitle>
-              <CardDescription>{t("detail.githubBackupsDescription")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-muted-foreground">{t("detail.githubRepoLabel")}</span>
-                {project.github_repo_url ? (
-                  <a
-                    href={project.github_repo_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="truncate font-mono text-xs text-primary hover:underline"
-                  >
-                    {project.github_repo_url}
-                  </a>
-                ) : (
-                  <span className="italic text-muted-foreground">{t("detail.notSet")}</span>
-                )}
-              </div>
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-muted-foreground">{t("detail.backupLabel")}</span>
-                <Badge variant={project.backup_enabled ? "success" : "outline"}>
-                  {project.backup_enabled ? t("detail.backupEnabledBadge") : t("detail.backupDisabledBadge")}
-                </Badge>
-              </div>
-              {project.backup_enabled && (
-                <ProjectBackups
-                  projectId={project.id}
-                  projectName={project.name}
-                  workingDirectoryPath={project.working_directory_path}
-                />
-              )}
-            </CardContent>
-          </Card>
-
           {project.working_directory_path && (
             <Card>
               <CardHeader>
@@ -816,191 +387,6 @@ export default function ProjectDetailPage() {
             </Card>
           )}
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <FolderTree className="h-5 w-5" />
-                  {t("detail.structureTitle")}
-                </CardTitle>
-                <CardDescription>{t("detail.structureDescription")}</CardDescription>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => setShowNodeForm((v) => !v)}>
-                <Plus className="mr-2 h-4 w-4" />
-                {t("detail.addNodeButton")}
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {showNodeForm && (
-                <div className="rounded-md border border-border p-4">
-                  <StructureNodeForm
-                    siblingNodes={structureNodes ?? []}
-                    onSubmit={(values) =>
-                      createStructureNode.mutate(
-                        {
-                          ...values,
-                          parent_node_id: values.parent_node_id || undefined,
-                          path: values.path || undefined,
-                          description: values.description || undefined,
-                        },
-                        { onSuccess: () => setShowNodeForm(false) }
-                      )
-                    }
-                    onCancel={() => setShowNodeForm(false)}
-                    isSubmitting={createStructureNode.isPending}
-                    submitLabel={t("detail.createNodeLabel")}
-                  />
-                  {createStructureNode.isError && (
-                    <p className="mt-3 text-sm text-destructive">
-                      {(createStructureNode.error as Error)?.message}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {!structureNodes || structureNodes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("detail.noStructureNodes")}</p>
-              ) : (
-                <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                  {structureNodes.map((node: StructureNode) => (
-                    <li
-                      key={node.id}
-                      className="flex items-center justify-between rounded-md border border-border p-2 text-sm"
-                    >
-                      <div>
-                        <span className="font-medium">{node.name}</span>{" "}
-                        <Badge variant="outline" className="ml-1 capitalize">
-                          {t(`enums.structureNodeType.${node.node_type}`, node.node_type)}
-                        </Badge>
-                        {node.path && (
-                          <p className="font-mono text-xs text-muted-foreground">{node.path}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {node.is_locked && (
-                          <Badge variant="outline" className="gap-1">
-                            <Lock className="h-3 w-3" />
-                            {t("detail.lockedBadge")}
-                          </Badge>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          disabled={updateStructureNode.isPending}
-                          onClick={() =>
-                            updateStructureNode.mutate({
-                              nodeId: node.id,
-                              payload: { is_locked: !node.is_locked },
-                            })
-                          }
-                          aria-label={
-                            node.is_locked
-                              ? t("detail.unlockAria", { name: node.name })
-                              : t("detail.lockAria", { name: node.name })
-                          }
-                        >
-                          {node.is_locked ? (
-                            <Unlock className="h-4 w-4" />
-                          ) : (
-                            <Lock className="h-4 w-4" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          disabled={node.is_locked || deleteStructureNode.isPending}
-                          onClick={() => deleteStructureNode.mutate(node.id)}
-                          aria-label={t("detail.deleteNodeAria", { name: node.name })}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {(updateStructureNode.isError || deleteStructureNode.isError) && (
-                <p className="text-sm text-destructive">
-                  {((updateStructureNode.error ?? deleteStructureNode.error) as Error)?.message}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <GitPullRequestArrow className="h-5 w-5" />
-                  {t("detail.changeRequestsTitle")}
-                </CardTitle>
-                <CardDescription>{t("detail.changeRequestsDescription")}</CardDescription>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => setShowCrForm((v) => !v)}>
-                <Plus className="mr-2 h-4 w-4" />
-                {t("detail.newChangeRequestButton")}
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {showCrForm && (
-                <div className="rounded-md border border-border p-4">
-                  <ChangeRequestForm
-                    baselines={baselines ?? []}
-                    onSubmit={(values) =>
-                      createChangeRequest.mutate(values, { onSuccess: () => setShowCrForm(false) })
-                    }
-                    onCancel={() => setShowCrForm(false)}
-                    isSubmitting={createChangeRequest.isPending}
-                  />
-                  {createChangeRequest.isError && (
-                    <p className="mt-3 text-sm text-destructive">
-                      {(createChangeRequest.error as Error)?.message}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {!changeRequests || changeRequests.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("detail.noChangeRequests")}</p>
-              ) : (
-                <ul className="max-h-96 space-y-3 overflow-y-auto pr-1">
-                  {changeRequests.map((cr) => (
-                    <ChangeRequestCard
-                      key={cr.id}
-                      cr={cr}
-                      baselines={baselines ?? []}
-                      isEditing={editingCrId === cr.id}
-                      onEdit={() => setEditingCrId(cr.id)}
-                      onCancelEdit={() => setEditingCrId(null)}
-                      onSaveEdit={(values) =>
-                        updateChangeRequest.mutate(
-                          { id: cr.id, payload: values },
-                          { onSuccess: () => setEditingCrId(null) }
-                        )
-                      }
-                      onApprove={() =>
-                        updateChangeRequest.mutate({ id: cr.id, payload: { status: "approved" } })
-                      }
-                      onReject={() =>
-                        updateChangeRequest.mutate({ id: cr.id, payload: { status: "rejected" } })
-                      }
-                      onMarkApplied={() =>
-                        updateChangeRequest.mutate({ id: cr.id, payload: { status: "applied" } })
-                      }
-                      onDelete={() => setPendingDeleteCrId(cr.id)}
-                      isMutating={updateChangeRequest.isPending || deleteChangeRequest.isPending}
-                    />
-                  ))}
-                </ul>
-              )}
-              {(updateChangeRequest.isError || deleteChangeRequest.isError) && (
-                <p className="text-sm text-destructive">
-                  {((updateChangeRequest.error ?? deleteChangeRequest.error) as Error)?.message}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
           <EntityDocsCard entityType="project" entityId={project.id} />
 
           <div>
@@ -1011,31 +397,6 @@ export default function ProjectDetailPage() {
           </div>
         </>
       )}
-
-      <ConfirmDialog
-        open={pendingDeletePlanningId !== null}
-        title={t("detail.deletePlanningItemTitle")}
-        description={t("detail.deletePlanningItemDescription")}
-        confirmLabel={t("shared.delete")}
-        onConfirm={() => {
-          if (pendingDeletePlanningId)
-            deletePlanningItem.mutate({ id: pendingDeletePlanningId, cascadeTasks: true });
-          setPendingDeletePlanningId(null);
-        }}
-        onCancel={() => setPendingDeletePlanningId(null)}
-      />
-
-      <ConfirmDialog
-        open={pendingDeleteCrId !== null}
-        title={t("detail.deleteChangeRequestTitle")}
-        description={t("detail.deleteChangeRequestDescription")}
-        confirmLabel={t("shared.delete")}
-        onConfirm={() => {
-          if (pendingDeleteCrId) deleteChangeRequest.mutate(pendingDeleteCrId);
-          setPendingDeleteCrId(null);
-        }}
-        onCancel={() => setPendingDeleteCrId(null)}
-      />
     </div>
   );
 }

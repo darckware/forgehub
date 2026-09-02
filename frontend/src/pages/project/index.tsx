@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
-  ExternalLink,
   FolderKanban,
   FolderOpen,
   Layout,
@@ -16,6 +15,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings,
   Trash2,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -33,11 +33,9 @@ import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  useCreateProject,
   useDeleteProject,
   useProjects,
   type Project,
-  type ProjectCreateInput,
 } from "@/hooks/useProject";
 import { useProducts } from "@/hooks/useProduct";
 import {
@@ -57,7 +55,6 @@ import {
   type TaskCreateInput,
 } from "@/hooks/useTask";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { ProjectForm } from "./ProjectForm";
 import { PlanningItemForm } from "../backlog/PlanningItemForm";
 import { TaskForm } from "../task/TaskForm";
 import { ExecutionWaveBoard } from "@/components/ExecutionWaveBoard";
@@ -89,16 +86,25 @@ const STATUS_CATEGORIES = {
   all: "Todos",
   open: "Abertos",
   in_progress: "Em Execução",
+  blocked: "Bloqueados",
+  error: "Com Erro",
   done: "Finalizados",
-  blocked_error: "Com Bloqueio / Erro",
 } as const;
 
 type StatusCategoryKey = keyof typeof STATUS_CATEGORIES;
 
-function getStatusCategory(status: string): StatusCategoryKey {
-  if (status === "done") return "done";
-  if (status === "in_progress") return "in_progress";
-  if (status === "blocked" || status === "rejected") return "blocked_error";
+function getStatusCategory(
+  item: PlanningItem,
+  tasks: ProjectTask[] = []
+): StatusCategoryKey {
+  // Se alguma tarefa associada falhou, o planejamento tem erro
+  if (tasks.some((t) => t.health === "failed" || t.executions?.some((ex) => ex.status === "failed"))) {
+    return "error";
+  }
+  if (item.status === "blocked") return "blocked";
+  if (item.status === "rejected") return "error";
+  if (item.status === "done") return "done";
+  if (item.status === "in_progress") return "in_progress";
   return "open";
 }
 
@@ -125,11 +131,9 @@ export default function ProjectCentralPage() {
   const { data: allPlanningItems, isLoading: isLoadingPlanning } = usePlanningItems();
   const { data: allTasks, isLoading: isLoadingTasks } = useTasks();
 
-  const createProject = useCreateProject();
   const deleteProject = useDeleteProject();
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
-  const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
 
   // Sync selected project with list or search params
@@ -183,23 +187,6 @@ export default function ProjectCentralPage() {
     return allTasks.filter((task) => task.project_id === selectedProjectId);
   }, [selectedProjectId, allTasks]);
 
-  function handleCreateProject(values: ProjectCreateInput) {
-    createProject.mutate(
-      {
-        ...values,
-        description: values.description || undefined,
-        working_directory_path: values.working_directory_path || undefined,
-      },
-      {
-        onSuccess: (newProj) => {
-          setShowCreateProjectModal(false);
-          setSelectedProjectId(newProj.id);
-          setSearchParams({ view: "project_detail", project_id: newProj.id });
-        },
-      }
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Top Header */}
@@ -220,7 +207,7 @@ export default function ProjectCentralPage() {
               to={`/projects/${activeProject.id}`}
               className="inline-flex items-center gap-1.5 text-xs rounded-md border border-input bg-background px-3 py-1.5 font-medium hover:bg-accent"
             >
-              <Pencil className="h-4 w-4 text-primary" />
+              <Settings className="h-4 w-4 text-primary" />
               Configurações do Projeto
             </Link>
           )}
@@ -233,28 +220,6 @@ export default function ProjectCentralPage() {
           </Link>
         </div>
       </div>
-
-      {/* Modal de Criação de Projeto */}
-      {showCreateProjectModal && (
-        <Card className="border-primary/40 bg-card shadow-lg">
-          <CardHeader className="p-4 border-b">
-            <CardTitle className="text-base font-semibold">{t("list.createCardTitle")}</CardTitle>
-            <CardDescription className="text-xs">{t("list.createCardDescription")}</CardDescription>
-          </CardHeader>
-          <CardContent className="p-4">
-            <ProjectForm
-              onSubmit={handleCreateProject}
-              onCancel={() => setShowCreateProjectModal(false)}
-              isSubmitting={createProject.isPending}
-            />
-            {createProject.isError && (
-              <p className="mt-3 text-xs text-destructive">
-                {t("list.createError", { message: (createProject.error as Error)?.message })}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {/* Navegação entre Abas Principais */}
       <Tabs
@@ -334,7 +299,17 @@ export default function ProjectCentralPage() {
                     {activeProject && (
                       <div className="flex flex-wrap items-center gap-2 pt-1 sm:pt-4 text-xs">
                         <Badge variant={PROJECT_STATUS_VARIANT[activeProject.status] ?? "outline"} className="text-xs">
-                          {t(`enums.projectStatus.${activeProject.status}`, activeProject.status)}
+                          {activeProject.status === "planned"
+                            ? "Planejado"
+                            : activeProject.status === "active"
+                            ? "Ativo"
+                            : activeProject.status === "on_hold"
+                            ? "Em espera"
+                            : activeProject.status === "completed"
+                            ? "Concluído"
+                            : activeProject.status === "cancelled"
+                            ? "Cancelado"
+                            : activeProject.status}
                         </Badge>
                         {activeProduct && activeVersion && (
                           <span className="rounded-md border bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
@@ -357,8 +332,8 @@ export default function ProjectCentralPage() {
                         to={`/projects/${activeProject.id}`}
                         className={buttonVariants({ variant: "outline", size: "sm" }) + " text-xs gap-1.5"}
                       >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Detalhes do Projeto
+                        <Settings className="h-3.5 w-3.5" />
+                        Configurações do Projeto
                       </Link>
                     </div>
                   )}
@@ -386,14 +361,14 @@ export default function ProjectCentralPage() {
                 <div>
                   <h3 className="text-sm font-semibold flex items-center gap-2">
                     <CheckSquare className="h-4 w-4 text-primary" />
-                    Quadro de Tarefas e Ondas de Execução ({activeProject.name})
+                    Quadro de Execução de Tarefas ({activeProject.name})
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Acompanhe o estado de execução das tarefas do projeto.
                   </p>
                 </div>
               </div>
-              <ExecutionWaveBoard />
+              <ExecutionWaveBoard projectId={activeProject.id} />
             </div>
           ) : (
             <Card>
@@ -462,9 +437,10 @@ export default function ProjectCentralPage() {
                       <div className="flex items-center gap-1">
                         <Link
                           to={`/projects/${proj.id}`}
-                          className={buttonVariants({ variant: "ghost", size: "sm" }) + " text-xs h-7"}
+                          className={buttonVariants({ variant: "ghost", size: "sm" }) + " text-xs h-7 gap-1"}
                         >
-                          Detalhes
+                          <Settings className="h-3 w-3" />
+                          Configurações
                         </Link>
                         <Button
                           variant="ghost"
@@ -544,7 +520,8 @@ function ProjectPlanningAndTasksManager({
   // Filter planning items by status category and search term
   const filteredPlanningItems = useMemo(() => {
     return planningItems.filter((item) => {
-      if (statusFilter !== "all" && getStatusCategory(item.status) !== statusFilter) {
+      const itemTasks = tasksByPlanningItem.get(item.id) ?? [];
+      if (statusFilter !== "all" && getStatusCategory(item, itemTasks) !== statusFilter) {
         return false;
       }
       if (searchTerm.trim()) {
@@ -555,7 +532,7 @@ function ProjectPlanningAndTasksManager({
       }
       return true;
     });
-  }, [planningItems, statusFilter, searchTerm]);
+  }, [planningItems, tasksByPlanningItem, statusFilter, searchTerm]);
 
   // Status counts
   const counts = useMemo(() => {
@@ -563,15 +540,17 @@ function ProjectPlanningAndTasksManager({
       all: planningItems.length,
       open: 0,
       in_progress: 0,
+      blocked: 0,
+      error: 0,
       done: 0,
-      blocked_error: 0,
     };
     for (const item of planningItems) {
-      const cat = getStatusCategory(item.status);
+      const itemTasks = tasksByPlanningItem.get(item.id) ?? [];
+      const cat = getStatusCategory(item, itemTasks);
       res[cat] = (res[cat] || 0) + 1;
     }
     return res;
-  }, [planningItems]);
+  }, [planningItems, tasksByPlanningItem]);
 
   const toggleExpand = (id: string) => {
     setExpandedItemIds((prev) => {
@@ -683,21 +662,30 @@ function ProjectPlanningAndTasksManager({
           </Button>
           <Button
             size="sm"
+            variant={statusFilter === "blocked" ? "default" : "outline"}
+            className="h-8 text-xs gap-1.5"
+            onClick={() => setStatusFilter("blocked")}
+          >
+            <span className="h-2 w-2 rounded-full bg-amber-600" />
+            Bloqueados <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.blocked}</Badge>
+          </Button>
+          <Button
+            size="sm"
+            variant={statusFilter === "error" ? "default" : "outline"}
+            className="h-8 text-xs gap-1.5"
+            onClick={() => setStatusFilter("error")}
+          >
+            <span className="h-2 w-2 rounded-full bg-rose-500" />
+            Com Erro <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.error}</Badge>
+          </Button>
+          <Button
+            size="sm"
             variant={statusFilter === "done" ? "default" : "outline"}
             className="h-8 text-xs gap-1.5"
             onClick={() => setStatusFilter("done")}
           >
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             Finalizados <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.done}</Badge>
-          </Button>
-          <Button
-            size="sm"
-            variant={statusFilter === "blocked_error" ? "default" : "outline"}
-            className="h-8 text-xs gap-1.5"
-            onClick={() => setStatusFilter("blocked_error")}
-          >
-            <span className="h-2 w-2 rounded-full bg-rose-500" />
-            Com Bloqueio / Erro <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.blocked_error}</Badge>
           </Button>
         </div>
 

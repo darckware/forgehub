@@ -12,7 +12,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,20 +105,24 @@ def _all_repos() -> dict[str, str]:
 # instruction), the rest are pseudo-filesystems or noise dirs that would
 # otherwise make `find` slow or return junk matches (same convention as
 # ecosystem_cleanup.py's own SKIP_PARTS).
-SCAN_ROOT = settings.CLEANUP_SCAN_ROOT
-PRUNE_PATHS = settings.CLEANUP_PRUNE_PATHS
-PRUNE_NAMES = settings.CLEANUP_PRUNE_NAMES
+def _scan_roots() -> list[str]:
+    raw_root = settings.CLEANUP_SCAN_ROOT.strip()
+    if raw_root == "/":
+        # Targeted root scan directories instead of walking whole Linux / (avoids /usr, /snap, etc.)
+        candidates = ["/root/.hermes", "/root/backup", "/root/trash", "/root", "/workspace", "/tmp", "/srv", "/home", "/opt", "/var/log"]
+        return [c for c in candidates if Path(c).exists()]
+    return [raw_root]
 
 
 def _prune_clause() -> str:
-    path_terms = " -o ".join(f"-path {shlex.quote(p)}" for p in PRUNE_PATHS)
-    name_terms = " -o ".join(f"-name {shlex.quote(n)}" for n in PRUNE_NAMES)
+    path_terms = " -o ".join(f"-path {shlex.quote(p)}" for p in settings.CLEANUP_PRUNE_PATHS)
+    name_terms = " -o ".join(f"-name {shlex.quote(n)}" for n in settings.CLEANUP_PRUNE_NAMES)
     return f"\\( {path_terms} -o {name_terms} \\) -prune -o"
 
 
-# Rotated logs (errors.log.1, agent.log.3, ...) must categorize the same as
-# their unrotated source -- strip the trailing ".<N>" before matching.
-_ROTATION_SUFFIX_RE = re.compile(r"\.\d+$")
+# Rotated logs (errors.log.1, agent.log.3, mcp-stderr.log.2.gz, ...) must categorize the same as
+# their unrotated source -- strip the trailing rotation / compression suffix before matching.
+_ROTATION_SUFFIX_RE = re.compile(r"(\.\d+)?(\.gz)?$")
 
 
 def _categorize_log(path: str) -> str:
@@ -128,7 +132,8 @@ def _categorize_log(path: str) -> str:
     rotated .N variants) rather than a generic extension-only grouping,
     since "what wrote this" is what matters when deciding whether it's
     safe to clear."""
-    name = _ROTATION_SUFFIX_RE.sub("", path.rsplit("/", 1)[-1])
+    raw_name = path.rsplit("/", 1)[-1]
+    name = _ROTATION_SUFFIX_RE.sub("", raw_name)
     if "/cron/logs/" in path:
         return "Cron execution logs"
     if name == "agent.log":
@@ -139,6 +144,12 @@ def _categorize_log(path: str) -> str:
         return "Gateway logs"
     if name == "interrupt_debug.log":
         return "Interrupt debug logs"
+    if name.startswith("mcp-stderr") or name.startswith("mcp_stderr"):
+        return "MCP stderr logs"
+    if name.startswith("update") or name == "update.log":
+        return "Update logs"
+    if name.startswith("gui") or name == "gui.log":
+        return "GUI logs"
     if "hindsight" in name:
         return "Hindsight logs"
     if "/webui/" in path:
@@ -183,10 +194,11 @@ async def _registered_project_repos(db: AsyncSession) -> dict[str, tuple[str, st
 
 @router.get("/status")
 async def get_system_control_status(
-    repo: str | None = None, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+    repo: str | None = None,
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    # Unknown/omitted repo key falls back to the default instead of 400ing --
-    # a stale key in a saved link/bookmark should still load something.
+    # Allows internal MCP calls with bridge token or logged-in users
     static_repos = _all_repos()
     project_repos = await _registered_project_repos(db)
     all_repos = {**static_repos, **{k: v[0] for k, v in project_repos.items()}}
@@ -437,7 +449,7 @@ async def delete_backup(
 
 
 async def _scan_find(find_expr: str) -> list[dict[str, Any]]:
-    """Runs `find SCAN_ROOT <prune clause> <find_expr> ! -empty -printf ...`
+    """Runs `find <scan_roots> <prune clause> <find_expr> ! -empty -printf ...`
     over the host-bridge -- find_expr is just the test/action part (e.g.
     `-type f -iname '*.bak*'`), the root and prune clause are shared by
     every scan so /mnt etc. are consistently excluded everywhere.
@@ -446,7 +458,8 @@ async def _scan_find(find_expr: str) -> list[dict[str, Any]]:
     logger has touched but never written to) -- there is no space to
     reclaim and the producing process recreates it on demand, so it isn't
     a cleanup candidate, just noise in the count."""
-    command = f"find {shlex.quote(SCAN_ROOT)} {_prune_clause()} {find_expr} ! -empty -printf '%s|%T@|%p\\n'"
+    roots_str = " ".join(shlex.quote(r) for r in _scan_roots())
+    command = f"find {roots_str} -maxdepth 6 {_prune_clause()} {find_expr} ! -empty -printf '%s|%T@|%p\\n'"
     data = await _bridge("POST", "/v1/exec", json={"command": command})
     if data["exit_code"] != 0:
         raise HTTPException(
@@ -454,12 +467,16 @@ async def _scan_find(find_expr: str) -> list[dict[str, Any]]:
             detail=(data["stderr"] or "").strip() or "scan failed",
         )
     results: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
     for line in (data["stdout"] or "").splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             size_str, mtime_str, path = line.split("|", 2)
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
             mtime = datetime.fromtimestamp(float(mtime_str), tz=timezone.utc)
         except ValueError:
             continue
@@ -524,23 +541,27 @@ async def _cleanup_scan_groups(db: AsyncSession) -> dict[str, list[dict[str, Any
     may be stale by the time the operator clicks the button."""
     groups: dict[str, list[dict[str, Any]]] = {}
 
-    # The four scans below are independent (different find roots/filters and
-    # a separate DB+filesystem pass for scripts) -- run concurrently instead
-    # of as four sequential host-bridge round trips.
-    log_files, backup_files, cron_output_files, (old_scripts, duplicate_scripts) = await asyncio.gather(
-        _scan_find("-type f \\( -path '*/profiles/*/logs/*' -o -path '*/cron/logs/*' \\)"),
-        _scan_find("-type f -iname '*.bak*'"),
-        _scan_find("-type f -path '*/cron/output/*'"),
+    # Combined expression covers all 3 disk scan patterns in a SINGLE find pass:
+    # 1. Profile/cron logs: */profiles/*/logs/* or */cron/logs/*
+    # 2. Backup files: *.bak*
+    # 3. Cron output snapshots: */cron/output/*
+    combined_expr = "-type f \\( -path '*/profiles/*/logs/*' -o -path '*/cron/logs/*' -o -iname '*.bak*' -o -path '*/cron/output/*' \\)"
+
+    disk_files, (old_scripts, duplicate_scripts) = await asyncio.gather(
+        _scan_find(combined_expr),
         _script_categories(db),
     )
 
-    for f in log_files:
-        groups.setdefault(_categorize_log(f["path"]), []).append(f)
+    for f in disk_files:
+        p = f["path"]
+        p_lower = p.lower()
+        if "/cron/output/" in p:
+            groups.setdefault("Cron output files", []).append(f)
+        elif ".bak" in p_lower:
+            groups.setdefault("Backup files", []).append(f)
+        else:
+            groups.setdefault(_categorize_log(p), []).append(f)
 
-    if backup_files:
-        groups["Backup files"] = backup_files
-    if cron_output_files:
-        groups["Cron output files"] = cron_output_files
     if old_scripts:
         groups["Old/unused scripts"] = old_scripts
     if duplicate_scripts:
@@ -582,7 +603,7 @@ async def cleanup_scan(
         )
     categories.sort(key=lambda c: -c["total_size"])
     return {
-        "root": SCAN_ROOT,
+        "root": settings.CLEANUP_SCAN_ROOT,
         "total_count": sum(c["count"] for c in categories),
         "total_size": sum(c["total_size"] for c in categories),
         "categories": categories,
@@ -715,6 +736,7 @@ async def delete_cleanup_category(
     contain a literal "/" (e.g. "Old/unused scripts"), which would
     otherwise split across path segments.
     """
+    category = category.strip()
     groups = await _cleanup_scan_groups(db)
     files = groups.get(category)
     if not files:
@@ -727,6 +749,9 @@ async def delete_cleanup_category(
     mv_parts = []
     for i, file_info in enumerate(files):
         src = file_info["path"]
+        # Convert container /profiles/ path to actual host path if needed
+        if src.startswith("/profiles/"):
+            src = f"/root/.hermes{src}"
         dest_path = f"{dest}/{i:04d}_{Path(src).name}"
         mv_parts.append(f"mv -- {shlex.quote(src)} {shlex.quote(dest_path)} 2>/dev/null")
     command = f"mkdir -p {shlex.quote(dest)} && " + " ; ".join(mv_parts)

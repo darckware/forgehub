@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,9 +14,6 @@ import {
   type TaskCreateInput,
   useTasks,
 } from "@/hooks/useTask";
-import { usePlanningItems } from "@/hooks/useBacklog";
-import { useChangeRequests, useProjects } from "@/hooks/useProject";
-import { usePolicies } from "@/hooks/useGovernance";
 
 interface TaskFormProps {
   defaultValues?: Partial<TaskCreateInput>;
@@ -25,10 +21,6 @@ interface TaskFormProps {
   onCancel?: () => void;
   isSubmitting?: boolean;
   submitLabel?: string;
-  // Pre-selects the "Project" filter below (e.g. arriving from a planning
-  // item's or CR's "New task" button) -- purely local UI state, never part
-  // of the submitted payload (a task has no project_id column of its own,
-  // see projectTaskSchema's docstring in useTask.ts).
   projectId?: string;
 }
 
@@ -38,7 +30,6 @@ export function TaskForm({
   onCancel,
   isSubmitting,
   submitLabel,
-  projectId,
 }: TaskFormProps) {
   const { t } = useTranslation("task");
   const resolvedSubmitLabel = submitLabel ?? t("form.submit");
@@ -63,17 +54,7 @@ export function TaskForm({
     },
   });
 
-  // "Project" is a filter, not a field: it narrows the Planning item /
-  // Change request choices below to the selected project, but a task
-  // traces to its project only indirectly (through whichever of those two
-  // it's linked to) -- there's nothing to submit here.
-  const [projectFilter, setProjectFilter] = useState(projectId ?? "");
-
-  const { data: projects, isLoading: isLoadingProjects } = useProjects();
-  const { data: planningItems, isLoading: isLoadingPlanningItems } = usePlanningItems(projectFilter || undefined);
-  const { data: changeRequests, isLoading: isLoadingCRs } = useChangeRequests(projectFilter || undefined);
   const { data: allTasks, isLoading: isLoadingTasks } = useTasks();
-  const { data: policies } = usePolicies();
 
   return (
     <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -92,82 +73,6 @@ export function TaskForm({
         />
         {errors.description && (
           <p className="text-sm text-destructive">{errors.description.message}</p>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="plan_brief">Plano/abordagem (opcional)</Label>
-        <Textarea className="resize-none"
-          id="plan_brief"
-          placeholder="Como abordar, critérios de aceite, contexto para o agente que for executar..."
-          {...register("plan_brief")}
-        />
-        {errors.plan_brief && (
-          <p className="text-sm text-destructive">{errors.plan_brief.message}</p>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="project_filter">{t("form.projectLabel")}</Label>
-          <Select
-            id="project_filter"
-            disabled={isLoadingProjects}
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-          >
-            <option value="">
-              {isLoadingProjects ? t("form.loadingProjects") : t("form.allProjects")}
-            </option>
-            {projects?.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-          <p className="text-xs text-muted-foreground">{t("form.projectHint")}</p>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="planning_item_id">{t("form.planningItemLabel")}</Label>
-          <Select
-            id="planning_item_id"
-            disabled={isLoadingPlanningItems}
-            {...register("planning_item_id")}
-          >
-            <option value="">
-              {isLoadingPlanningItems ? t("form.loadingGeneric") : t("form.selectPlanningItem")}
-            </option>
-            {planningItems?.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.title}
-              </option>
-            ))}
-          </Select>
-          {errors.planning_item_id && (
-            <p className="text-sm text-destructive">{errors.planning_item_id.message}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="change_request_id">{t("form.changeRequestLabel")}</Label>
-        <Select
-          id="change_request_id"
-          disabled={isLoadingCRs}
-          {...register("change_request_id")}
-        >
-          <option value="">
-            {isLoadingCRs ? t("form.loadingGeneric") : t("form.selectChangeRequest")}
-          </option>
-          {changeRequests?.map((cr) => (
-            <option key={cr.id} value={cr.id}>
-              [{cr.status}] {cr.title}
-            </option>
-          ))}
-        </Select>
-        {errors.change_request_id && (
-          <p className="text-sm text-destructive">{errors.change_request_id.message}</p>
         )}
       </div>
 
@@ -204,7 +109,11 @@ export function TaskForm({
           <Select id="status" {...register("status")}>
             {TASK_STATUSES.filter((status) => status !== "ready").map((status) => (
               <option key={status} value={status}>
-                {t(`enums.taskStatus.${status}`, status.replace("_", " "))}
+                {t(`enums.taskStatuses.${status}`, {
+                  defaultValue: t(`enums.taskStatus.${status}`, {
+                    defaultValue: status === "in_progress" ? "Em andamento" : status === "planned" ? "Planejada" : status === "blocked" ? "Bloqueada" : status === "done" ? "Concluída" : status === "deployed" ? "Implantada" : status === "cancelled" ? "Cancelada" : status === "assigned" ? "Atribuída" : status,
+                  }),
+                })}
               </option>
             ))}
           </Select>
@@ -222,21 +131,6 @@ export function TaskForm({
           </Select>
           {errors.priority && <p className="text-sm text-destructive">{errors.priority.message}</p>}
         </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="policy_id">{t("form.policyLabel")}</Label>
-        <Select id="policy_id" {...register("policy_id")}>
-          <option value="">{t("form.noPolicy")}</option>
-          {(policies ?? []).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
-        {errors.policy_id && (
-          <p className="text-sm text-destructive">{errors.policy_id.message}</p>
-        )}
       </div>
 
       <div className="flex justify-end gap-2 pt-2">

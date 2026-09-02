@@ -626,6 +626,7 @@ export default function BacklogPage() {
           </CardHeader>
           <CardContent>
             <PlanningItemForm
+              defaultValues={{ project_id: filterProjectId || (projects?.[0]?.id ?? "") }}
               onSubmit={handleCreate}
               onCancel={() => setShowForm(false)}
               isSubmitting={createPlanningItem.isPending}

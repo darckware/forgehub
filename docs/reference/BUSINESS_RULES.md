@@ -47,6 +47,15 @@ Convention used throughout the codebase: rules that are single-column constraint
 | 3 | Every execution must have evidence | Schema + route re-check: `evidence_ref` required once status is `verified`/`completed`, `api/schemas/task.py` + `update_task_execution` |
 | 4 | Every task completion must be auditable | **Implemented this session**: `AuditEvent` auto-written on `ProjectTask`→`done` and `TaskExecution`→`verified`/`completed`, `api/routes/task.py` |
 
+### 4.1 Messages: remetente, destino e tipo
+
+| # | Regra | Enforcement |
+|---|---|---|
+| 1 | A composição manual exige um agente em `De`; o tipo é obrigatório e limitado a `task` ou `incubation` | UI: `DemandFormPanel`; schema/modelo: `DEMAND_ORIGIN_TYPES` e validação de `origin_type` |
+| 2 | Em uma `Task`, `Para` vazio significa execução pelo próprio agente de `De` | `create_demand_and_notify` preenche `target_agent_id = from_agent_id` antes de reconciliar a origem |
+| 3 | Uma `Task` precisa de remetente e destinatário persistidos; se nenhum horário for informado, `scheduled_at` recebe o instante atual | `_reconcile_task_origin` + `create_demand_and_notify`, `api/routes/demand.py` |
+| 4 | `Incubation` representa trabalho estacionado, nunca carrega `origin_id` e precisa de `incubation_owner_id` | `_reconcile_task_origin` + `_resolve_incubation_owner`, `api/routes/demand.py` |
+
 ## 5. Skill Rules (SPEC §6.5)
 
 | # | Rule | Enforcement |

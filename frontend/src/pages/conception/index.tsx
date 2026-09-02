@@ -4,16 +4,20 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   BookOpen,
+  Boxes,
   Database,
   FileText,
   Filter,
+  FolderGit2,
   Image as ImageIcon,
+  Info,
   Layout,
   Layers,
   Lightbulb,
   Loader2,
   Network,
   Palette,
+  Pencil,
   Plus,
   Rocket,
   Sparkles,
@@ -29,6 +33,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { CopyButton } from "@/components/CopyButton";
 import { TechStackOptionPicker } from "@/components/TechStackOptionPicker";
@@ -769,227 +774,388 @@ function ProjectPlanningPanel({
   const selectedExistingProject = productProjects.find((p) => p.id === selectedProjectId);
   const selectedProjectVersion = productVersions?.find((v) => v.id === selectedExistingProject?.product_version_id);
 
+  const [activeTab, setActiveTab] = useState<string>(productProjects.length > 0 ? "existing" : "manage");
+
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Defina se este escopo de concepção é um <strong>Novo Projeto</strong> ou uma <strong>Manutenção</strong> de projeto existente.
-      </p>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+          <TabsList className="bg-muted/60 p-1">
+            <TabsTrigger value="existing" className="gap-2 px-3 py-1.5 text-xs font-semibold">
+              <FolderGit2 className="h-4 w-4" />
+              Projetos Existentes
+              {productProjects.length > 0 && (
+                <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] font-bold">
+                  {productProjects.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="manage" className="gap-2 px-3 py-1.5 text-xs font-semibold">
+              <Boxes className="h-4 w-4" />
+              {actionType === "creation" ? "Criar Novo Projeto" : "Manutenção de Projeto"}
+            </TabsTrigger>
+          </TabsList>
 
-      {/* Projetos Existentes no Produto */}
-      {productProjects.length > 0 && (
-        <div className="space-y-2 rounded-md border p-3 bg-muted/20">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Projetos Existentes no Produto ({productProjects.length})</p>
-          {productProjects.map((p) => {
-            const versionObj = productVersions?.find((v) => v.id === p.product_version_id);
-            const resultInfo = results?.find((r) => r.project_id === p.id);
-            return (
-              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border-b last:border-0 pb-2 last:pb-0">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">{p.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[p.solution_type] : "Geral"}</Badge>
-                  {versionObj && <Badge variant="secondary">v{versionObj.version}</Badge>}
-                  <Link to={`/projects/${p.id}`} className="text-primary font-medium hover:underline">
-                    {p.name}
-                  </Link>
-                  {resultInfo && (
-                    <span className="text-xs text-muted-foreground">
-                      ({resultInfo.scope_items_created} escopos, {resultInfo.tasks_created} tasks)
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm" variant="outline" disabled={sync.isPending}
-                    onClick={() => sync.mutate({ conceptId, projectId: p.id })}
-                    title="Sincronizar documentos da concepção para o projeto"
-                  >
-                    {sync.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                    Sincronizar docs
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    title={t("developmentRequests.delete")}
-                    onClick={() => handleDeleteProject(p.id, p.name)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-          {sync.isSuccess && (
-            <p className="text-xs text-emerald-600 font-medium pt-1">
-              Gravado: {sync.data.files_written.join(", ") || "(nenhum documento gerado ainda)"}
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground hidden sm:block">
+            {activeTab === "existing"
+              ? "Visualize e sincronize a documentação dos projetos vinculados."
+              : "Defina novos projetos ou realize a manutenção evolutiva."}
+          </p>
         </div>
-      )}
 
-      {/* Seletor Prévio de Modalidade: Novo Projeto vs Manutenção */}
-      <div className="space-y-2 pt-1">
-        <Label className="text-sm font-semibold">Definição do Escopo</Label>
-        <div className="grid grid-cols-2 gap-3 max-w-md">
-          <button
-            type="button"
-            onClick={() => setActionType("creation")}
-            className={`flex items-center gap-2.5 p-3 rounded-lg border text-left transition-all ${
-              actionType === "creation"
-                ? "border-primary bg-primary/10 text-primary ring-1 ring-primary font-semibold"
-                : "border-input bg-background hover:bg-muted/40 text-muted-foreground"
-            }`}
-          >
-            <Rocket className="h-4 w-4 shrink-0" />
-            <div>
-              <p className="text-xs font-bold">Novo Projeto</p>
-              <p className="text-[10px] opacity-80">Criar nova aplicação ou camada</p>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActionType("maintenance")}
-            className={`flex items-center gap-2.5 p-3 rounded-lg border text-left transition-all ${
-              actionType === "maintenance"
-                ? "border-primary bg-primary/10 text-primary ring-1 ring-primary font-semibold"
-                : "border-input bg-background hover:bg-muted/40 text-muted-foreground"
-            }`}
-          >
-            <Wrench className="h-4 w-4 shrink-0" />
-            <div>
-              <p className="text-xs font-bold">Manutenção</p>
-              <p className="text-[10px] opacity-80">Evoluir projeto existente</p>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      {/* CASO 1: NOVO PROJETO */}
-      {actionType === "creation" && (
-        <div className="space-y-3 rounded-lg border p-3.5 bg-muted/10">
-          <Label className="text-xs font-semibold text-foreground">Definir Novos Projetos / Camadas</Label>
-          {specs.map((spec, i) => (
-            <div key={i} className="space-y-2 rounded-md border bg-background p-2.5">
-              <div className="grid grid-cols-[160px_1fr_32px] gap-2 items-center">
-                <Select value={spec.solution_type} onChange={(e) => updateSpec(i, { solution_type: e.target.value as ProjectSpecForm["solution_type"] })}>
-                  {PROJECT_SOLUTION_TYPES.map((t) => <option key={t} value={t}>{PROJECT_SOLUTION_TYPE_LABELS[t]}</option>)}
-                </Select>
-                <Input placeholder="Nome do projeto (ex: Portal Web Factory)" value={spec.project_name} onChange={(e) => updateSpec(i, { project_name: e.target.value })} />
-                <Button variant="ghost" size="icon" onClick={() => removeSpec(i)} disabled={specs.length === 1}>
-                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                </Button>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Versão Inicial</Label>
-                  <Input placeholder="0.1.0" value={spec.version} onChange={(e) => updateSpec(i, { version: e.target.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Tipo</Label>
-                  <Input value="Nova Implementação (Criação)" disabled className="bg-muted text-muted-foreground text-xs" />
-                </div>
-              </div>
-            </div>
-          ))}
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Button variant="outline" size="sm" onClick={addSpec}><Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar tipo de aplicação</Button>
-          </div>
-          <div className="pt-2">
-            <Button disabled={submitting || specs.every((s) => !s.project_name.trim())} onClick={submitCreation}>
-              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              <Rocket className="mr-2 h-4 w-4" />Criar Novo Projeto
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* CASO 2: MANUTENÇÃO DE PROJETO EXISTENTE */}
-      {actionType === "maintenance" && (
-        <div className="space-y-4 rounded-lg border p-3.5 bg-muted/10">
-          <Label className="text-xs font-semibold text-foreground">Selecionar Projeto Existente para Manutenção</Label>
-
+        {/* ABA 1: PROJETOS EXISTENTES NO PRODUTO */}
+        <TabsContent value="existing" className="pt-3 space-y-4">
           {productProjects.length === 0 ? (
-            <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400 space-y-2">
-              <p className="font-semibold">Nenhum projeto existente encontrado para este produto.</p>
-              <p>Para realizar manutenção, o produto precisa ter ao menos um projeto já criado. Alterne para a opção <strong>Novo Projeto</strong> acima para criar o projeto inicial.</p>
+            <div className="rounded-lg border border-dashed p-8 text-center bg-muted/10 space-y-3">
+              <FolderGit2 className="h-8 w-8 mx-auto text-muted-foreground/60" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">Nenhum projeto existente no produto</p>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                  Este produto ainda não possui projetos vinculados. Use a aba ao lado para criar o primeiro projeto.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs font-medium"
+                onClick={() => {
+                  setActionType("creation");
+                  setActiveTab("manage");
+                }}
+              >
+                <Rocket className="h-3.5 w-3.5 text-primary" />
+                Criar Primeiro Projeto
+              </Button>
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Projeto a receber a manutenção:</Label>
-                <Select
-                  value={selectedProjectId}
-                  onChange={(e) => handleSelectExistingProject(e.target.value)}
-                >
-                  {productProjects.map((p) => {
-                    const v = productVersions?.find((x) => x.id === p.product_version_id);
-                    return (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[p.solution_type] : "Geral"} · v{v?.version || "0.1.0"})
-                      </option>
-                    );
-                  })}
-                </Select>
+            <div className="space-y-2.5">
+              <div className="rounded-lg border bg-card divide-y">
+                {productProjects.map((p) => {
+                  const versionObj = productVersions?.find((v) => v.id === p.product_version_id);
+                  const resultInfo = results?.find((r) => r.project_id === p.id);
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex flex-wrap items-center justify-between gap-3 p-3 transition-colors hover:bg-muted/20"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Badge variant="outline" className="shrink-0 text-xs">
+                          {p.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[p.solution_type] : "Geral"}
+                        </Badge>
+                        {versionObj && (
+                          <Badge variant="secondary" className="shrink-0 text-xs font-mono">
+                            v{versionObj.version}
+                          </Badge>
+                        )}
+                        <Link
+                          to={`/projects/${p.id}`}
+                          className="font-medium text-sm text-foreground hover:text-primary hover:underline truncate"
+                        >
+                          {p.name}
+                        </Link>
+                        {resultInfo && (
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            ({resultInfo.scope_items_created} escopos, {resultInfo.tasks_created} tasks)
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs gap-1.5"
+                          disabled={sync.isPending}
+                          onClick={() => sync.mutate({ conceptId, projectId: p.id })}
+                          title="Sincronizar documentos da concepção para o projeto"
+                        >
+                          {sync.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                          Sincronizar docs
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs gap-1.5 text-amber-600 dark:text-amber-400 hover:text-amber-700 hover:bg-amber-500/10 border-amber-500/30"
+                          onClick={() => {
+                            setSelectedProjectId(p.id);
+                            setMaintenanceProjectName(p.name);
+                            const v = productVersions?.find((x) => x.id === p.product_version_id);
+                            setMaintenanceVersion(getNextVersion(v?.version));
+                            setActionType("maintenance");
+                            setActiveTab("manage");
+                          }}
+                          title="Abrir manutenção para este projeto"
+                        >
+                          <Wrench className="h-3.5 w-3.5" />
+                          Evoluir
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          title={t("developmentRequests.delete")}
+                          onClick={() => handleDeleteProject(p.id, p.name)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
-              {selectedExistingProject && (
-                <div className="rounded-md border bg-background p-3 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
-                    <div className="space-y-0.5">
-                      <p className="text-xs font-bold text-foreground">{selectedExistingProject.name}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {selectedExistingProject.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[selectedExistingProject.solution_type] : "Geral"} · Versão Atual: v{selectedProjectVersion?.version || "0.1.0"}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 bg-amber-500/10">
-                      Modo: Manutenção
-                    </Badge>
-                  </div>
+              {sync.isSuccess && (
+                <div className="p-2.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                  Documentos sincronizados com sucesso: {sync.data.files_written.join(", ") || "(nenhum documento gerado ainda)"}
+                </div>
+              )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Nome / Identificação do Projeto</Label>
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/40 border border-border/60 text-xs text-muted-foreground">
+                <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                <div className="space-y-1 leading-relaxed">
+                  <p>
+                    <strong className="text-foreground">Sincronizar docs:</strong> Copia os documentos gerados na Concepção (PRD, especificações técnicas, design system e telas) diretamente para a pasta <code className="px-1 py-0.5 rounded bg-muted font-mono text-[11px]">docs/</code> no repositório de trabalho do projeto, disponibilizando o contexto completo para os agentes de desenvolvimento.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ABA 2: CRIAR / MANUTENÇÃO DE PROJETOS */}
+        <TabsContent value="manage" className="pt-3 space-y-4">
+          {/* Seletor de Modalidade: Novo Projeto vs Manutenção */}
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tipo de Ação</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
+              <button
+                type="button"
+                onClick={() => setActionType("creation")}
+                className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                  actionType === "creation"
+                    ? "border-primary bg-primary/10 text-primary ring-1 ring-primary font-semibold"
+                    : "border-input bg-card hover:bg-muted/40 text-muted-foreground"
+                }`}
+              >
+                <div className={`p-2 rounded-md ${actionType === "creation" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                  <Rocket className="h-4 w-4 shrink-0" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold">Novo Projeto</p>
+                  <p className="text-[11px] opacity-80">Criar nova aplicação ou camada</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActionType("maintenance")}
+                className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                  actionType === "maintenance"
+                    ? "border-primary bg-primary/10 text-primary ring-1 ring-primary font-semibold"
+                    : "border-input bg-card hover:bg-muted/40 text-muted-foreground"
+                }`}
+              >
+                <div className={`p-2 rounded-md ${actionType === "maintenance" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                  <Wrench className="h-4 w-4 shrink-0" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold">Manutenção</p>
+                  <p className="text-[11px] opacity-80">Evoluir projeto existente</p>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* CASO 1: NOVO PROJETO */}
+          {actionType === "creation" && (
+            <div className="space-y-3.5 rounded-lg border p-4 bg-muted/10">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs font-semibold text-foreground">Definir Novos Projetos / Camadas</Label>
+                <span className="text-[11px] text-muted-foreground">Cada camada gera um projeto versionado independente.</span>
+              </div>
+
+              <div className="space-y-2.5">
+                {specs.map((spec, i) => (
+                  <div key={i} className="space-y-2.5 rounded-lg border bg-card p-3 shadow-sm">
+                    <div className="grid grid-cols-1 sm:grid-cols-[170px_1fr_auto] gap-2.5 items-center">
+                      <Select
+                        value={spec.solution_type}
+                        onChange={(e) => updateSpec(i, { solution_type: e.target.value as ProjectSpecForm["solution_type"] })}
+                        className="text-xs font-medium"
+                      >
+                        {PROJECT_SOLUTION_TYPES.map((t) => (
+                          <option key={t} value={t}>{PROJECT_SOLUTION_TYPE_LABELS[t]}</option>
+                        ))}
+                      </Select>
                       <Input
-                        value={maintenanceProjectName}
-                        onChange={(e) => setMaintenanceProjectName(e.target.value)}
-                        placeholder="Nome do projeto"
+                        placeholder="Nome do projeto (ex: Portal Web Factory)"
+                        value={spec.project_name}
+                        onChange={(e) => updateSpec(i, { project_name: e.target.value })}
+                        className="text-xs"
                       />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeSpec(i)}
+                        disabled={specs.length === 1}
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Nova Versão da Manutenção (Patch / Minor)</Label>
-                      <Input
-                        value={maintenanceVersion}
-                        onChange={(e) => setMaintenanceVersion(e.target.value)}
-                        placeholder="0.1.1"
-                      />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-border/50">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-medium text-muted-foreground">Versão Inicial</Label>
+                        <Input
+                          placeholder="0.1.0"
+                          value={spec.version}
+                          onChange={(e) => updateSpec(i, { version: e.target.value })}
+                          className="h-8 text-xs font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-medium text-muted-foreground">Tipo de Operação</Label>
+                        <Input
+                          value="Nova Implementação (Criação)"
+                          disabled
+                          className="h-8 bg-muted/60 text-muted-foreground text-xs"
+                        />
+                      </div>
                     </div>
                   </div>
+                ))}
+              </div>
 
-                  <div className="flex flex-wrap items-center gap-2 pt-2">
-                    <Button
-                      disabled={submitting || !maintenanceProjectName.trim() || !maintenanceVersion.trim()}
-                      onClick={submitMaintenance}
-                    >
-                      {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      <Wrench className="mr-2 h-4 w-4" />Autorizar Manutenção do Projeto
-                    </Button>
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addSpec}
+                  className="gap-1.5 text-xs"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Adicionar tipo de aplicação
+                </Button>
+              </div>
 
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={sync.isPending}
-                      onClick={() => sync.mutate({ conceptId, projectId: selectedExistingProject.id })}
+              <div className="pt-2 border-t border-border/60">
+                <Button
+                  type="button"
+                  disabled={submitting || specs.every((s) => !s.project_name.trim())}
+                  onClick={submitCreation}
+                  className="gap-2 font-semibold"
+                >
+                  {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  <Rocket className="h-4 w-4" />
+                  Criar Novo Projeto
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* CASO 2: MANUTENÇÃO DE PROJETO EXISTENTE */}
+          {actionType === "maintenance" && (
+            <div className="space-y-4 rounded-lg border p-4 bg-muted/10">
+              <Label className="text-xs font-semibold text-foreground">Selecionar Projeto Existente para Manutenção</Label>
+
+              {productProjects.length === 0 ? (
+                <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400 space-y-2">
+                  <p className="font-semibold">Nenhum projeto existente encontrado para este produto.</p>
+                  <p>Para realizar manutenção, o produto precisa ter ao menos um projeto já criado. Alterne para a opção <strong>Novo Projeto</strong> acima para criar o projeto inicial.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Projeto a receber a manutenção:</Label>
+                    <Select
+                      value={selectedProjectId}
+                      onChange={(e) => handleSelectExistingProject(e.target.value)}
+                      className="text-xs"
                     >
-                      {sync.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                      Sincronizar Docs c/ Projeto
-                    </Button>
+                      {productProjects.map((p) => {
+                        const v = productVersions?.find((x) => x.id === p.product_version_id);
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[p.solution_type] : "Geral"} · v{v?.version || "0.1.0"})
+                          </option>
+                        );
+                      })}
+                    </Select>
                   </div>
+
+                  {selectedExistingProject && (
+                    <div className="rounded-lg border bg-card p-3.5 space-y-3 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-bold text-foreground">{selectedExistingProject.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {selectedExistingProject.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[selectedExistingProject.solution_type] : "Geral"} · Versão Atual: v{selectedProjectVersion?.version || "0.1.0"}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 bg-amber-500/10 font-semibold">
+                          Modo: Manutenção
+                        </Badge>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-medium text-muted-foreground">Nome / Identificação do Projeto</Label>
+                          <Input
+                            value={maintenanceProjectName}
+                            onChange={(e) => setMaintenanceProjectName(e.target.value)}
+                            placeholder="Nome do projeto"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-medium text-muted-foreground">Nova Versão da Manutenção (Patch / Minor)</Label>
+                          <Input
+                            value={maintenanceVersion}
+                            onChange={(e) => setMaintenanceVersion(e.target.value)}
+                            placeholder="0.1.1"
+                            className="text-xs font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50">
+                        <Button
+                          type="button"
+                          disabled={submitting || !maintenanceProjectName.trim() || !maintenanceVersion.trim()}
+                          onClick={submitMaintenance}
+                          className="gap-1.5 font-semibold text-xs"
+                        >
+                          {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                          <Wrench className="h-4 w-4" />
+                          Autorizar Manutenção do Projeto
+                        </Button>
+
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={sync.isPending}
+                          onClick={() => sync.mutate({ conceptId, projectId: selectedExistingProject.id })}
+                          className="text-xs gap-1.5"
+                        >
+                          {sync.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                          Sincronizar Docs c/ Projeto
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
-        </div>
-      )}
+        </TabsContent>
+      </Tabs>
 
       {submitError && <p className="text-sm text-destructive">Falha ao processar: {submitError}</p>}
 
@@ -1496,24 +1662,36 @@ export default function ConceptionPage() {
           tabIndex={0}
           onClick={() => startEdit(item)}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") startEdit(item); }}
-          className={`w-full cursor-pointer rounded-lg border p-4 text-left transition-colors hover:border-primary/50 ${selectedProduct === item.product_id ? "border-primary bg-primary/5" : ""}`}
+          className={`w-full cursor-pointer rounded-lg border p-4 text-left transition-colors hover:border-primary/50 hover:bg-muted/10 ${selectedProduct === item.product_id ? "border-primary bg-primary/5" : ""}`}
         >
           <div className="flex items-start justify-between gap-2">
-            <p className="font-medium text-base">{item.title}</p>
+            <p className="font-medium text-base text-foreground">{item.title}</p>
             <div className="flex shrink-0 items-center gap-1">
               <Badge variant="outline">{item.status}</Badge>
               <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                title={t("developmentRequests.edit")}
+                onClick={(e) => { e.stopPropagation(); startEdit(item); }}
+              >
+                <Pencil className="h-3 w-3" />
+                Editar
+              </Button>
+              <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7"
+                className="h-7 w-7 text-muted-foreground hover:text-destructive"
                 title={t("developmentRequests.delete")}
                 onClick={(e) => { e.stopPropagation(); setPendingDelete({ productId: item.product_id, title: item.title }); }}
-              ><Trash2 className="h-3.5 w-3.5 text-destructive"/></Button>
+              >
+                <Trash2 className="h-3.5 w-3.5 text-destructive"/>
+              </Button>
             </div>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
           <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-            <span>{item.priority}</span>
+            <span className="uppercase font-mono font-medium">{item.priority}</span>
           </div>
         </div>)}
       </CardContent></Card>

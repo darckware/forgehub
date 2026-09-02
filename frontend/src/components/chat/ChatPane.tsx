@@ -438,7 +438,16 @@ function AgentPickerButton({
         title={selected?.name ?? t("agentPicker.selectAgent")}
         onClick={() => setOpen((v) => !v)}
       >
-        <Bot className="h-4 w-4" />
+        {selected ? (
+          <AgentAvatar
+            name={selected.name}
+            avatarDataUrl={selected.avatar_data_url}
+            size="sm"
+            className="h-5 w-5 text-[9px]"
+          />
+        ) : (
+          <Bot className="h-4 w-4" />
+        )}
       </Button>
       {open && (
         <div className="absolute right-0 top-full z-10 mt-1 max-h-72 w-56 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md">
@@ -455,7 +464,12 @@ function AgentPickerButton({
                 a.id === selectedAgentId && "bg-accent text-accent-foreground"
               )}
             >
-              <Bot className="h-3.5 w-3.5 shrink-0" />
+              <AgentAvatar
+                name={a.name}
+                avatarDataUrl={a.avatar_data_url}
+                size="sm"
+                className="h-5 w-5 text-[9px]"
+              />
               <span className="truncate">{a.name}</span>
             </button>
           ))}
@@ -801,8 +815,16 @@ export function AgentSelectorPill({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-full bg-background px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+        className="flex items-center gap-1.5 rounded-full bg-background px-2.5 py-1 text-sm hover:bg-accent hover:text-accent-foreground"
       >
+        {selected && (
+          <AgentAvatar
+            name={selected.name}
+            avatarDataUrl={selected.avatar_data_url}
+            size="sm"
+            className="h-4 w-4 text-[8px]"
+          />
+        )}
         <span className="max-w-[8rem] truncate">{selected?.name ?? t("agentPicker.agentFallback")}</span>
         <ChevronDown className="h-3.5 w-3.5" />
       </button>
@@ -819,6 +841,12 @@ export function AgentSelectorPill({
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
             >
               <Check className={cn("h-3.5 w-3.5 shrink-0", a.id !== selectedAgentId && "opacity-0")} />
+              <AgentAvatar
+                name={a.name}
+                avatarDataUrl={a.avatar_data_url}
+                size="sm"
+                className="h-5 w-5 text-[9px]"
+              />
               <span className="flex-1 truncate">{a.name}</span>
               {renderStatus?.(a)}
             </button>
@@ -1273,7 +1301,12 @@ export const AgentMentionPicker = forwardRef<
           onClick={() => onSelect(agent)}
           onMouseEnter={() => setActiveIndex(index)}
         >
-          <Bot className="h-3.5 w-3.5 shrink-0" />
+          <AgentAvatar
+            name={agent.name}
+            avatarDataUrl={agent.avatar_data_url}
+            size="sm"
+            className="h-5 w-5 text-[9px]"
+          />
           <span className="truncate">{agent.name}</span>
         </button>
       ))}
@@ -1688,21 +1721,32 @@ function MessageBubble({
           )}
           <Markdown content={message.content} />
         </div>
-        {onEdit && (
+        <div className="mt-1 flex items-center gap-1.5 opacity-0 transition-opacity group-hover/msg:opacity-100">
           <button
             type="button"
-            aria-label={t("messageBubble.editMessage")}
-            title={t("messageBubble.editMessage")}
-            disabled={editDisabled}
-            onClick={() => {
-              setEditText(message.content);
-              setIsEditing(true);
-            }}
-            className="mt-1 flex items-center gap-1 rounded-full px-1 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover/msg:opacity-100 hover:text-foreground disabled:opacity-50"
+            aria-label={t("messageBubble.copyMessage")}
+            title={t("messageBubble.copyMessage")}
+            onClick={handleCopyMessage}
+            className="flex items-center gap-1 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
-            <Pencil className="h-3 w-3" />
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
-        )}
+          {onEdit && (
+            <button
+              type="button"
+              aria-label={t("messageBubble.editMessage")}
+              title={t("messageBubble.editMessage")}
+              disabled={editDisabled}
+              onClick={() => {
+                setEditText(message.content);
+                setIsEditing(true);
+              }}
+              className="flex items-center gap-1 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
       <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-primary/15 text-primary shadow-sm">
         {user?.avatar_data_url ? (
@@ -3921,9 +3965,7 @@ export function ChatPane({
               m.role === "assistant" && prev?.role === "user" && isPlainTextReply(prev.content);
             const canRegenerate =
               i === list.length - 1 && m.role === "assistant" && !isCommandReply && pendingQueue.length === 0;
-            const isLastUserMessage =
-              m.role === "user" && !list.slice(i + 1).some((later) => later.role === "user");
-            const canEdit = isLastUserMessage && pendingQueue.length === 0 && !isPlainTextReply(m.content);
+            const canEdit = m.role === "user" && !isPlainTextReply(m.content);
             const respondingAgent = m.responding_agent_id
               ? chatableAgents.find((a) => a.id === m.responding_agent_id)
               : selectedAgent;
@@ -4023,10 +4065,27 @@ export function ChatPane({
                     attachment_data_urls: item.attachmentDataUrls ? JSON.stringify(item.attachmentDataUrls) : undefined,
                     created_at: new Date().toISOString(),
                   }}
+                  onEdit={item.status === "queued" ? (newContent) => {
+                    const trimmed = newContent.trim();
+                    if (!trimmed) return;
+                    setQueue((q) => q.map((it) => it.id === item.id ? { ...it, content: trimmed } : it));
+                  } : undefined}
                 />
               )}
               {item.status === "queued" && showDetails && (
-                <p className="pl-1 text-xs italic text-muted-foreground">{t("queue.queued")}</p>
+                <div className="flex items-center gap-2 pl-1">
+                  <p className="text-xs italic text-muted-foreground">{t("queue.queued")}</p>
+                  <button
+                    type="button"
+                    title={t("queue.cancelPrompt")}
+                    aria-label={t("queue.cancelPrompt")}
+                    onClick={() => setQueue((q) => q.filter((it) => it.id !== item.id))}
+                    className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:bg-destructive/10 hover:text-destructive transition-colors"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                    {t("queue.cancel")}
+                  </button>
+                </div>
               )}
               {item.status === "processing" && showDetails && (
                 <div className="flex max-w-[85%] flex-col gap-1">
@@ -4149,28 +4208,58 @@ export function ChatPane({
           {pendingQueue.length > 1 && (
             <div className="space-y-1 rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 text-xs">
               {pendingQueue.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-pressed={revealedQueueIds.has(item.id)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded text-left text-muted-foreground hover:text-foreground",
-                    revealedQueueIds.has(item.id) && "text-foreground"
+                <div key={item.id} className="flex w-full items-center gap-2 group">
+                  <button
+                    type="button"
+                    aria-pressed={revealedQueueIds.has(item.id)}
+                    className={cn(
+                      "flex flex-1 min-w-0 items-center gap-2 rounded text-left text-muted-foreground hover:text-foreground",
+                      revealedQueueIds.has(item.id) && "text-foreground"
+                    )}
+                    onClick={() => toggleQueueItemRevealed(item.id)}
+                  >
+                    {item.status === "processing" ? (
+                      <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                    ) : (
+                      <span className="h-2 w-2 shrink-0 rounded-full border border-current" />
+                    )}
+                    <span className="flex-1 truncate">{item.content || item.attachmentName}</span>
+                    {revealedQueueIds.has(item.id) ? (
+                      <ChevronDown className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-3 w-3 shrink-0" />
+                    )}
+                  </button>
+                  {item.status === "queued" && (
+                    <button
+                      type="button"
+                      title={t("queue.cancelPrompt")}
+                      aria-label={t("queue.cancelPrompt")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQueue((q) => q.filter((it) => it.id !== item.id));
+                      }}
+                      className="rounded p-0.5 text-muted-foreground opacity-60 hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-opacity shrink-0"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   )}
-                  onClick={() => toggleQueueItemRevealed(item.id)}
-                >
-                  {item.status === "processing" ? (
-                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                  ) : (
-                    <span className="h-2 w-2 shrink-0 rounded-full border border-current" />
+                  {item.status === "processing" && (
+                    <button
+                      type="button"
+                      title={t("queue.stop")}
+                      aria-label={t("queue.stop")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStopGenerating(item);
+                        setQueue((q) => q.filter((it) => it.id !== item.id));
+                      }}
+                      className="rounded p-0.5 text-destructive hover:bg-destructive/10 shrink-0"
+                    >
+                      <Square className="h-3.5 w-3.5 fill-current" />
+                    </button>
                   )}
-                  <span className="flex-1 truncate">{item.content || item.attachmentName}</span>
-                  {revealedQueueIds.has(item.id) ? (
-                    <ChevronDown className="h-3 w-3 shrink-0" />
-                  ) : (
-                    <ChevronRight className="h-3 w-3 shrink-0" />
-                  )}
-                </button>
+                </div>
               ))}
             </div>
           )}
@@ -4404,6 +4493,24 @@ export function ChatPane({
                 >
                   <Sparkles className="h-4 w-4" />
                 </Button>
+                {pendingQueue.some((it) => it.status === "processing") && (
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    className="h-8 w-8 rounded-full shrink-0"
+                    aria-label={t("queue.stop")}
+                    title={t("queue.stop")}
+                    onClick={() => {
+                      const processing = pendingQueue.find((it) => it.status === "processing");
+                      if (processing) {
+                        handleStopGenerating(processing);
+                        setQueue((q) => q.filter((it) => it.id !== processing.id));
+                      }
+                    }}
+                  >
+                    <Square className="h-4 w-4 fill-current" />
+                  </Button>
+                )}
                 <Button
                   variant={isRecording ? "destructive" : "ghost"}
                   size="icon"

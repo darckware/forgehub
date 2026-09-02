@@ -197,6 +197,7 @@ No `CheckConstraint` exists yet on `pipeline_stages.status` / `project_pipelines
 | Table | Column | Type | Required | Notes |
 |---|---|---|---|---|
 | `agents` | id, name (unique, required), agent_type (CHECK coordinator\|executor\|hybrid, default `executor`), status (CHECK active\|inactive\|retired, default `active`), is_active, profile_slug/layer/runtime_tier/telegram_required/has_profile/mission/source_path (all nullable — populated only by the Hermes Foundation sync) | — | | |
+| `agent_service_credentials` | id, agent_id (FK, CASCADE), label, token_hash (SHA-256, unique), expires_at, revoked_at | — | | token bruto `agt_...` é retornado somente na emissão; listagem expõe apenas metadados e somente credenciais não revogadas |
 | `sub_agents` | id, agent_id (FK, required, CASCADE), name (unique per agent), status (same CHECK set), permission_scope | — | | |
 | `skills` | id, name + version (unique pair, required), origin (CHECK internal\|third_party\|foundation), risk_level (CHECK low\|medium\|high\|critical), permissions (Text, **required**), is_approved, security_reviewed (bool, default false) | — | | |
 | `agent_skills` / `sub_agent_skills` | id, agent_id/sub_agent_id (FK), skill_id (FK) | — | | unique pair association tables |

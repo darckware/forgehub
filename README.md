@@ -25,6 +25,8 @@ O invariante central do domínio: nenhuma feature, bug, task, skill, execução 
 
 Toda comunicação e execução de tasks entre agentes acontece por um único canal — **Messages** (`company.agent_demands`) — acessível pela tela do produto, por um MCP server dedicado (`forgehub-messages`) ou pelo script `send_agent_message.sh`. Não há mais integração com ferramentas externas de board de tarefas (Kanboard foi descontinuado e removido do código em 2026-07-28).
 
+Na composição manual, **De (agente)** identifica obrigatoriamente o agente responsável pela mensagem. **Para** pode ficar em branco: nesse caso, o trabalho é endereçado ao próprio agente de **De**. O tipo é sempre explícito e limitado a `Task` ou `Incubation`; uma `Task` sem destinatário informado usa o remetente como destinatário e recebe agendamento imediato quando nenhum horário é escolhido.
+
 ## Principais Funcionalidades
 
 - **Governança de produto e pipeline** — cadastro de produtos, versões e projetos; definição de estágios de pipeline com artefatos obrigatórios e gates de aprovação antes de avançar o trabalho.
@@ -32,7 +34,7 @@ Toda comunicação e execução de tasks entre agentes acontece por um único ca
 - **Cockpit Produto → Projeto** — árvore agregada com as cinco fases da Fábrica de Software (Conceito, System Map, Backlog/Planejamento, Tasks, Governance) e custo por projeto.
 - **Canal Messages (agente ↔ agente e execução de task)** — todo dispatch de task passa pelo mesmo canal de mensagens, com timeout de despacho, teto de concorrência, reprocessamento manual de falhas e feedback opcional por Telegram.
 - **Incubação** — mensagens sem execução imediata ficam "estacionadas" até o agente dono decidir recebê-las (viram Task) ou descartá-las, com prazo de maturação automático.
-- **Registro de agentes** — agentes executores/coordenadores, sub-agentes, skills, arquivos de perfil (SOUL.md/IDENTITY.md/...), servidores MCP por runtime e status do canal Telegram.
+- **Registro de agentes** — agentes executores/coordenadores, sub-agentes, skills, credenciais de serviço revogáveis, arquivos de perfil (SOUL.md/IDENTITY.md/...), servidores MCP por runtime e status do canal Telegram.
 - **Trilha de auditoria e governança** — aprovações e eventos de auditoria como entidades de primeira classe, com referência polimórfica (entity_type/entity_id).
 - **Inbox/Docs/Chat** — canal de intake convertível em task/doc/artefato/planning item; área de documentação em Markdown; chat com streaming SSE para os agentes Hermes.
 - **Ferramentas operacionais** — cron jobs, scripts, exploração de banco de dados, status do Hindsight (memória), controle de Git/sistema e inventário de servidores (com cofre de chaves SSH cifrado).

@@ -78,16 +78,11 @@ const DISPATCH_STATUS_LABEL: Record<string, string> = {
  * instead of leaving it generic. With no From agent picked, requires_response
  * still marks the item (the "AR" badge), there's just nobody to relay to.
  *
- * Tipo itself is required on compose (not edit -- see handleSubmit), and
- * defaults to Task there (the dominant case) with Send at defaulted to
- * now -- both pre-filled so the target agent (autofocused on open) is the
- * one thing left to fill in before Send is enabled. Edit mode never
- * applies these defaults, it always reflects the existing demand's actual
- * values. Two things become mandatory together: Tipo=Task requires a
- * target agent (there's no point linking to a task with nobody to act on
- * it), and setting a scheduled send time requires one too (the background
- * loop needs to know who to dispatch to once it fires -- see
- * AgentDemand.scheduled_at's docstring backend-side).
+ * Tipo is always explicit: compose starts as Incubation until a From agent
+ * is selected, then the operator may choose Task. Send at defaults to now.
+ * From is the required anchor and receives initial focus; To may stay blank,
+ * which means the same agent executes its own Task. Edit mode reflects the
+ * persisted values without applying compose defaults.
  *
  * The disabled "Execução" field shows AgentDemand.task_execution_at --
  * when the work this message stands for actually finished running. Shown
@@ -281,11 +276,6 @@ export function DemandFormPanel({
     if (targetAgentId && targetAgentId === fromAgentId) setTargetAgentId("");
   }, [fromAgentId, targetAgentId]);
 
-  /** Tipos que realmente colocam trabalho em movimento. Só Task dispara:
-   * Backlog é trabalho estacionado e Nota é FYI, então nenhum dos dois
-   * precisa de destinatário nem de horário de envio. */
-  const dispatches = originChoice === "task";
-
   const isPending = createDemand.isPending || updateDemand.isPending || uploadAttachment.isPending;
   const canSubmit = subject.trim().length > 0 && body.trim().length > 0 && !isPending;
 
@@ -310,34 +300,17 @@ export function DemandFormPanel({
     // link -- that's fine, it just clears the number, matching "this
     // field isn't editable here".
     const parsedOriginNumber = originChoice === "task" ? linkedOriginNumber : undefined;
-    const scheduledAtIso = !dispatches
-      ? // Backlog e Nota não disparam -- mandar um horário de envio para
-        // eles só encheria a coluna de um agendamento que nenhum loop vai
-        // honrar (run_scheduled_dispatch_pass exige target_agent_id).
-        undefined
-      : alreadyDispatched
-      ? // Nunca reenviado numa mensagem já despachada: o backend recusa
-        // alterar (update_demand), e mesmo um "mesmo valor" seria recusado --
-        // <input type="datetime-local"> só tem precisão de minuto, então o
-        // round-trip perde os segundos do scheduled_at original e chegaria
-        // lá como um valor diferente, quebrando qualquer edição de
-        // assunto/corpo nessas mensagens.
-        undefined
+    const scheduledAtIso = alreadyDispatched
+      ? undefined
       : isScheduledAtFallback && scheduledAt === isoToDatetimeLocal(demand?.created_at)
-        ? undefined // untouched fallback display -- nothing to send, keep it null
+        ? undefined
         : scheduledAt
           ? new Date(scheduledAt).toISOString()
           : isEdit && demand?.scheduled_at
             ? null
             : undefined;
-    // "To" em branco = para o próprio remetente. Resolvido aqui, na
-    // composição, e não no backend: assim a linha gravada diz explicitamente
-    // a quem a tarefa pertence, em vez de deixar um NULL que cada consumidor
-    // (árvore de pastas, loop de despacho, relay de Retorno) teria que
-    // reinterpretar por conta própria -- e o loop agendado só despacha o que
-    // tem target_agent_id, então uma tarefa para si mesma nunca rodaria.
-    // Só para Tipos que disparam; Backlog fica sem destinatário mesmo.
-    const effectiveTargetAgentId = dispatches ? targetAgentId || fromAgentId : targetAgentId;
+    // "To" em branco = para o próprio remetente (From).
+    const effectiveTargetAgentId = targetAgentId || fromAgentId;
     try {
       if (isEdit) {
         await updateDemand.mutateAsync({
@@ -394,19 +367,15 @@ export function DemandFormPanel({
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
         <div className="flex items-end gap-2">
-          {/* Escondido para Backlog/Nota: não disparam, então um horário de
-              envio ali seria um controle sem efeito. */}
-          {dispatches && (
-            <div className="w-56 space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">{t("form.scheduledAt")}</label>
-              <Input
-                type="datetime-local"
-                value={scheduledAt}
-                disabled={alreadyDispatched}
-                onChange={(e) => setScheduledAt(e.target.value)}
-              />
-            </div>
-          )}
+          <div className="w-56 space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">{t("form.scheduledAt")}</label>
+            <Input
+              type="datetime-local"
+              value={scheduledAt}
+              disabled={alreadyDispatched}
+              onChange={(e) => setScheduledAt(e.target.value)}
+            />
+          </div>
           <div className="w-20 space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t("form.originId")}</label>
             <Input disabled value={originIdDisplay} placeholder="#" />
@@ -427,16 +396,7 @@ export function DemandFormPanel({
           <div className="flex-1 space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t("form.toAgent")}</label>
             <Select value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
-              {/* Em branco = para o próprio remetente (ver
-                  effectiveTargetAgentId em handleSubmit), então o rótulo
-                  precisa dizer isso -- "Nenhum agente" faria parecer que a
-                  mensagem não vai a lugar nenhum. */}
-              <option value="">{t(dispatches ? "form.toAgentSelf" : "form.noAgent")}</option>
-              {/* O próprio De some da lista (2026-07-27, Marcelo: "não faz
-                  sentido colocar o mesmo agente (from) e (to) ... quando
-                  escolher um agente do from ele será filtrado no to") --
-                  redundante escolher explicitamente o mesmo agente nos
-                  dois campos quando o Para em branco já significa isso. */}
+              <option value="">{t("form.toAgentSelf")}</option>
               {(agents ?? [])
                 .filter((agent) => agent.id !== fromAgentId)
                 .map((agent) => (
@@ -474,7 +434,7 @@ export function DemandFormPanel({
           <div className="flex-1 space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t("form.type")}</label>
             <Select value={originChoice} onChange={(e) => setOriginChoice(e.target.value as OriginChoice)}>
-              {/* Só aparece com um agente escolhido (De ou Para) -- ver
+              {/* Só aparece com um agente escolhido em De -- ver
                   hasAgent acima. Sem isso o próprio formulário deixaria
                   montar uma Task que o backend rebaixaria a Backlog na
                   hora de salvar. */}

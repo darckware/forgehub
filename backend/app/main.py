@@ -189,23 +189,17 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         # /agents/{id} (decrypts the ForgeRouter key for admins) stay
         # behind their own JWT-based dependency untouched by this bypass.
         is_agents_path = path == "/api/v1/agents" or path.startswith("/api/v1/agents/")
-        agents_bridge_path = is_agents_path and request.method == "GET" and (
-            path == "/api/v1/agents" or path.endswith("/skills")
+        agents_bridge_path = is_agents_path and (
+            (request.method == "GET" and (path == "/api/v1/agents" or path.endswith("/skills") or "/credentials" in path))
+            or (request.method in ("POST", "DELETE") and "/credentials" in path)
+            or (request.method == "POST" and path.endswith("/skills"))
+            or (request.method == "DELETE" and "/skills/" in path)
         )
         if agents_bridge_path:
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
                 return await call_next(request)
-        # Same trust boundary again (2026-08-15) -- these five dynamic-segment
-        # demand actions each already do their own x-bridge-token check *and*
-        # an ownership check against a caller-supplied agent slug
-        # (receive_incubation/drop_incubation/reprocess_demand pre-date this
-        # carve-out and were silently unreachable by a bridge-token-only
-        # caller until now, 401'd here before ever reaching the route's own
-        # check -- found while wiring update_demand_as_agent/
-        # archive_demand_as_agent for the MCP's CRUD gap). _PUBLIC_API_PATHS
-        # can't cover these, same reason as channels_bridge_path: dynamic
-        # {demand_id} segment, exact-match set only.
+        # Same trust boundary again (2026-08-15) -- dynamic demand actions
         demands_bridge_action = path.startswith("/api/v1/demands/") and (
             path.endswith("/incubation:receive")
             or path.endswith("/incubation:drop")
@@ -214,6 +208,20 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             or path.endswith("/agent-archive")
         )
         if demands_bridge_action:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
+
+        # System operations via bridge token (system-control, backups, audit, deploy, database query)
+        is_system_bridge_path = (
+            path.startswith("/api/v1/system-control/")
+            or path.startswith("/api/v1/deploy/")
+            or path.startswith("/api/v1/backups")
+            or path.startswith("/api/v1/audit/")
+            or path == "/api/v1/servers"
+            or path == "/api/v1/database/query"
+        )
+        if is_system_bridge_path:
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
                 return await call_next(request)

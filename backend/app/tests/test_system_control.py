@@ -100,19 +100,19 @@ class FakeBridgeClient:
                 return _git_ok("abc1234\nSome Author\nMon Jan 1\nA commit")
             if "status --short" in command:
                 return _git_ok("")
-            if "find " in command and "/profiles/*/logs/" in command:
-                return _git_ok(
-                    "1024|1700000000.0|/root/.hermes/profiles/athos/logs/agent.log\n"
-                    "2048|1700000001.0|/root/.hermes/profiles/athos/logs/errors.log\n"
-                    "999|1700000005.0|/root/.hermes/profiles/daedalus/logs/errors.log.1\n"
-                    "512|1700000002.0|/root/.hermes/profiles/athos/cron/logs/some_script.log\n"
-                )
-            if "find " in command and "*.bak*" in command:
-                return _git_ok("256|1700000003.0|/root/.hermes/profiles/aegis/.env.bak.20260519-005445\n")
-            if "find " in command and "cron/output" in command:
-                return _git_ok(
-                    "128|1700000004.0|/root/.hermes/profiles/athos/cron/output/42335b7194a4/2026-05-22_15-07-11.md\n"
-                )
+            if "find " in command:
+                lines = []
+                if "/profiles/*/logs/" in command or "*.bak*" in command or "cron/output" in command:
+                    lines.extend([
+                        "1024|1700000000.0|/root/.hermes/profiles/athos/logs/agent.log",
+                        "2048|1700000001.0|/root/.hermes/profiles/athos/logs/errors.log",
+                        "999|1700000005.0|/root/.hermes/profiles/daedalus/logs/errors.log.1",
+                        "512|1700000002.0|/root/.hermes/profiles/athos/cron/logs/some_script.log",
+                        "256|1700000003.0|/root/.hermes/profiles/aegis/.env.bak.20260519-005445",
+                        "128|1700000004.0|/root/.hermes/profiles/athos/cron/output/42335b7194a4/2026-05-22_15-07-11.md",
+                    ])
+                if lines:
+                    return _git_ok("\n".join(lines) + "\n")
             if "rm -rf --" in command and "deleted_items" in command:
                 return _git_ok("deleted_items: 3\nremaining_items: 0")
             return _git_ok("")

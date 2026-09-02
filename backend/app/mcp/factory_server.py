@@ -238,15 +238,212 @@ async def report_governance_blocker(
 
 
 @mcp.tool()
-async def get_product_evolution_history(product_id: str) -> dict[str, Any]:
-    """Get Product versions plus every Project that belongs to those versions."""
-    product = await _factory_call("GET", f"/api/v1/products/{product_id}")
-    projects = await _factory_call("GET", "/api/v1/projects")
-    version_ids = {version.get("id") for version in product.get("versions", [])}
-    product_projects = [
-        project for project in projects if project.get("product_version_id") in version_ids
-    ]
-    return {"product": product, "projects": product_projects}
+async def create_conception_idea(
+    name: str,
+    problem_statement: str,
+    vision: str | None = None,
+    scope_summary: str | None = None,
+    project_description: str | None = None,
+    working_directory_path: str | None = None,
+    requested_by: str | None = None,
+) -> dict[str, Any]:
+    """Capture a new conception idea (Phase 1), creating a Product, Concept and Blueprint."""
+    payload: dict[str, Any] = {
+        "name": name,
+        "problem_statement": problem_statement,
+        "vision": vision,
+        "scope_summary": scope_summary,
+        "project_description": project_description,
+        "working_directory_path": working_directory_path,
+        "requested_by": requested_by,
+    }
+    result = await _factory_call("POST", "/api/v1/conception/ideas", json=payload)
+    return {"success": True, "result": result}
+
+
+@mcp.tool()
+async def save_concept_document(
+    concept_id: str,
+    filename: str,
+    content: str,
+    category: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Save or attach a markdown/documentation file to a Concept (Phase 1 - Documentation)."""
+    payload: dict[str, Any] = {
+        "content": content,
+        "category": category,
+        "description": description,
+    }
+    doc = await _factory_call("PUT", f"/api/v1/product-concepts/{concept_id}/documents/{filename}", json=payload)
+    return {"success": True, "document": doc}
+
+
+@mcp.tool()
+async def authorize_project_delivery(
+    concept_id: str,
+    version: str,
+    projects: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Authorize projects and create versioned project deliverables from an approved concept."""
+    payload: dict[str, Any] = {
+        "version": version,
+        "projects": projects,
+    }
+    result = await _factory_call("POST", f"/api/v1/product-concepts/{concept_id}:authorize-delivery-planning", json=payload)
+    return {"success": True, "authorized": result}
+
+
+@mcp.tool()
+async def ensure_project_scope(project_id: str) -> dict[str, Any]:
+    """Ensure that an active Project Scope exists for the given project."""
+    scope = await _factory_call("POST", f"/api/v1/projects/{project_id}/ensure-scope")
+    return {"success": True, "project_scope": scope}
+
+
+@mcp.tool()
+async def add_project_screen(
+    project_scope_id: str,
+    name: str,
+    description: str | None = None,
+    route: str | None = None,
+    attributes: list[dict[str, Any]] | None = None,
+    actions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Add a screen specification to the project scope (Phase 2 - Designer & Wireframes)."""
+    payload: dict[str, Any] = {
+        "name": name,
+        "description": description,
+        "spec": {
+            "route": route,
+            "attributes": attributes or [],
+            "actions": actions or [],
+        },
+    }
+    screen = await _factory_call("POST", f"/api/v1/project-scopes/{project_scope_id}/screens", json=payload)
+    return {"success": True, "screen": screen}
+
+
+@mcp.tool()
+async def save_screen_prototype_html(
+    project_scope_id: str,
+    screen_element_id: str,
+    html_content: str,
+) -> dict[str, Any]:
+    """Save an interactive HTML prototype or business rule for a screen."""
+    payload: dict[str, Any] = {"content": html_content}
+    rule = await _factory_call(
+        "PUT",
+        f"/api/v1/project-scopes/{project_scope_id}/screens/{screen_element_id}/business-rule",
+        json=payload,
+    )
+    return {"success": True, "prototype": rule}
+
+
+@mcp.tool()
+async def derive_database_model(project_scope_id: str) -> dict[str, Any]:
+    """Derive ERD database tables and fields automatically from the project screens."""
+    result = await _factory_call("POST", f"/api/v1/project-scopes/{project_scope_id}/derive-database")
+    return {"success": True, "derived_database": result}
+
+
+@mcp.tool()
+async def create_database_table(
+    project_scope_id: str,
+    name: str,
+    description: str | None = None,
+    initial_columns: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Create a database table element and its columns in the project scope."""
+    payload: dict[str, Any] = {
+        "name": name,
+        "description": description,
+        "initial_columns": initial_columns or [{"name": "id", "sql_type": "uuid", "is_pk": True}],
+    }
+    table = await _factory_call("POST", f"/api/v1/project-scopes/{project_scope_id}/tables", json=payload)
+    return {"success": True, "table": table}
+
+
+@mcp.tool()
+async def create_planning_item(
+    project_id: str,
+    title: str,
+    item_type: str = "feature",
+    description: str | None = None,
+    priority: str = "medium",
+) -> dict[str, Any]:
+    """Create a new canonical planning item for a project backlog (Phase 3)."""
+    payload: dict[str, Any] = {
+        "project_id": project_id,
+        "title": title,
+        "item_type": item_type,
+        "description": description,
+        "priority": priority,
+    }
+    item = await _factory_call("POST", "/api/v1/planning-items", json=payload)
+    return {"success": True, "planning_item": item}
+
+
+@mcp.tool()
+async def create_project_task(
+    planning_item_id: str,
+    title: str,
+    description: str | None = None,
+    priority: str = "medium",
+    due_date: str | None = None,
+) -> dict[str, Any]:
+    """Create an execution task linked to a planning item (Phase 4 - Tarefas)."""
+    payload: dict[str, Any] = {
+        "planning_item_id": planning_item_id,
+        "title": title,
+        "description": description,
+        "priority": priority,
+        "due_date": due_date,
+    }
+    task = await _factory_call("POST", "/api/v1/tasks", json=payload)
+    return {"success": True, "task": task}
+
+
+@mcp.tool()
+async def release_planning_for_execution(
+    planning_item_id: str,
+    agent_id: str,
+) -> dict[str, Any]:
+    """Release a planning item through Governance Gate into active execution with assigned agent (Phase 5)."""
+    payload: dict[str, Any] = {
+        "status": "in_progress",
+        "assigned_agent_id": agent_id,
+    }
+    item = await _factory_call("PUT", f"/api/v1/planning-items/{planning_item_id}", json=payload)
+    return {"success": True, "planning_item": item}
+
+
+@mcp.tool()
+async def create_product_version(
+    product_id: str,
+    version: str,
+    release_notes: str | None = None,
+) -> dict[str, Any]:
+    """Create a new ProductVersion for version tracking and closure (Phase 7)."""
+    payload: dict[str, Any] = {
+        "version": version,
+        "status": "planned",
+        "release_notes": release_notes,
+    }
+    ver = await _factory_call("POST", f"/api/v1/products/{product_id}/versions", json=payload)
+    return {"success": True, "version": ver}
+
+
+@mcp.tool()
+async def close_version_and_publish(
+    version_id: str,
+    release_notes: str | None = None,
+) -> dict[str, Any]:
+    """Publish a product version and lock its projects permanently (Phase 7 - Fechamento de Versão)."""
+    if release_notes:
+        await _factory_call("PUT", f"/api/v1/products/versions/{version_id}", json={"release_notes": release_notes})
+    version = await _factory_call("POST", f"/api/v1/products/versions/{version_id}:publish")
+    return {"success": True, "published_version": version}
 
 
 if __name__ == "__main__":

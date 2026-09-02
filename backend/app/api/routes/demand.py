@@ -252,11 +252,12 @@ def _reconcile_task_origin(
     not, is the safe default for "caller didn't say" -- never silently
     promotes something to trackable/dispatchable work it never asked to be.
 
-    Task is work to execute -- unlike Backlog (parked, possibly not even
-    assigned yet), it must always have **both** a target agent (who runs
-    it) and a From agent (who it's for) on the record. Missing target: a
-    Task chegando em Incoming precisa ser executada pelo seu agente
-    (2026-07-27). Missing From: "se o agente não tem (to), não tem
+    Task is work to execute -- unlike Incubation (parked), it must always
+    have **both** a target agent (who runs it) and a From agent (who it's
+    for) on the record. The create path resolves a blank target to the From
+    agent before calling this function, giving the UI's “Itself” option its
+    persisted meaning. A target still missing at this boundary is invalid.
+    Missing From: "se o agente não tem (to), não tem
     retorno. Preciso ter agente (from) no tipo task. Isso é regra"
     (2026-07-28, Marcelo -- a Task addressed to someone but from no known
     agent has nobody for its `dispatch_result`/return message to belong
@@ -357,19 +358,12 @@ async def create_demand_and_notify(
         if auto_matched is not None:
             from_agent_id = auto_matched.id
 
-    if payload.scheduled_at is not None and target_agent_id is None:
-        raise HTTPException(400, "scheduled_at requires target_agent_id")
+    if target_agent_id is None and from_agent_id is not None and (origin_type == "task" or payload.scheduled_at is not None):
+        target_agent_id = from_agent_id
+
     origin_type, origin_id = _reconcile_task_origin(origin_type, origin_id, target_agent_id, from_agent_id)
     scheduled_at = payload.scheduled_at
     if origin_type == "task" and target_agent_id is not None and scheduled_at is None:
-        # A Task is work to execute, not filed for later -- unlike Backlog/
-        # Nota it must actually run. Defaulting Send-at to now here (not just
-        # in the compose form) is what closes the gap for every other writer
-        # of this endpoint: the bridge-token /submit path (an agent, or the
-        # MCP's send_agent_message without to_agent's scheduling logic) and
-        # any future caller that forgets to set it. See
-        # AgentDemand.scheduled_at's docstring for how the background loop
-        # actually dispatches it.
         scheduled_at = datetime.now(timezone.utc)
     if payload.project_id is not None:
         await _get_project_or_404(db, payload.project_id)
@@ -903,8 +897,11 @@ async def update_demand(
                 400, "This message was already dispatched -- its scheduled send time can't be changed"
             )
         new_target_agent_id = data.get("target_agent_id", demand.target_agent_id)
+        if new_target_agent_id is None and demand.from_agent_id is not None:
+            new_target_agent_id = demand.from_agent_id
+            demand.target_agent_id = new_target_agent_id
         if data["scheduled_at"] is not None and new_target_agent_id is None:
-            raise HTTPException(400, "scheduled_at requires target_agent_id")
+            raise HTTPException(400, "scheduled_at requires target_agent_id or from_agent_id")
         demand.scheduled_at = data["scheduled_at"]
     if "status" in data:
         demand.status = data["status"]

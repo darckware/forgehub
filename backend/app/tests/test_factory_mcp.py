@@ -5,11 +5,27 @@ from app.mcp import factory_server
 
 def test_unified_mcp_registers_messages_and_factory_catalog():
     tools = factory_server.mcp._tool_manager._tools
-    assert len(tools) == 44
+    assert len(tools) == 59
     assert "send_agent_message" in tools
     assert "list_my_incubation" in tools
     assert "get_project_context" in tools
     assert "report_governance_blocker" in tools
+    assert "create_conception_idea" in tools
+    assert "save_concept_document" in tools
+    assert "authorize_project_delivery" in tools
+    assert "ensure_project_scope" in tools
+    assert "add_project_screen" in tools
+    assert "save_screen_prototype_html" in tools
+    assert "derive_database_model" in tools
+    assert "create_database_table" in tools
+    assert "create_planning_item" in tools
+    assert "create_project_task" in tools
+    assert "release_planning_for_execution" in tools
+    assert "create_product_version" in tools
+    assert "close_version_and_publish" in tools
+    assert "issue_agent_credential" in tools
+    assert "list_agent_credentials" in tools
+    assert "revoke_agent_credential" in tools
     assert "list_agents" in tools
     assert "get_agent_profile" in tools
     assert "update_agent_profile" in tools

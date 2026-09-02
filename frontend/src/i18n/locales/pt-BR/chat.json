@@ -196,6 +196,8 @@
   },
   "queue": {
     "queued": "📥 Na fila…",
+    "cancel": "Cancelar",
+    "cancelPrompt": "Cancelar este prompt da fila",
     "stop": "Parar",
     "runningCommand": "Executando comando",
     "agentIsTyping": "{{name}} está digitando",

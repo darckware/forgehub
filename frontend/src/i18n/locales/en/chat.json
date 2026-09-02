@@ -196,6 +196,8 @@
   },
   "queue": {
     "queued": "📥 Queued…",
+    "cancel": "Cancel",
+    "cancelPrompt": "Cancel this queued prompt",
     "stop": "Stop",
     "runningCommand": "Running command",
     "agentIsTyping": "{{name}} is typing",

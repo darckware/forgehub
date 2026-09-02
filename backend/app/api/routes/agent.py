@@ -39,9 +39,12 @@ app/core/agent_mcp.py. ForgeHub keeps no copy of that configuration -- it
 edits the runtime's own file, which is what the runtime actually reads.
 """
 import asyncio
+import hashlib
 import json
+import secrets
 import shlex
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -74,6 +77,8 @@ from app.api.schemas.agent import (
     AgentProfileFileUpdateIn,
     AgentRuntimeSyncAgentOut,
     AgentRuntimeSyncOut,
+    AgentServiceCredentialCreateIn,
+    AgentServiceCredentialOut,
     AgentSkillCreate,
     AgentSkillOut,
     AgentTelegramStatusListOut,
@@ -112,6 +117,7 @@ from app.db.models.agent import (
     Agent,
     AgentCapacity,
     AgentCostRate,
+    AgentServiceCredential,
     AgentSkill,
     Skill,
     SubAgent,
@@ -1385,6 +1391,95 @@ async def delete_agent_mcp_server(
     except agent_mcp.McpConfigError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return await list_agent_mcp_servers(agent_id, db)
+
+
+# ---------------------------------------------------------------------------
+# Agent Service Credentials (Tokens for MCP and automated API access)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{agent_id}/credentials",
+    response_model=AgentServiceCredentialOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def issue_agent_service_credential(
+    agent_id: uuid.UUID,
+    payload: AgentServiceCredentialCreateIn = AgentServiceCredentialCreateIn(),
+    db: AsyncSession = Depends(get_db),
+) -> AgentServiceCredentialOut:
+    """Generate and issue a fresh, active Service Credential (agt_...) for an agent."""
+    agent = await _get_agent_or_404(db, agent_id)
+    raw_token = f"agt_{secrets.token_urlsafe(32)}"
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    credential = AgentServiceCredential(
+        agent_id=agent.id,
+        label=payload.label,
+        token_hash=token_hash,
+        expires_at=payload.expires_at,
+    )
+    db.add(credential)
+    await db.commit()
+    await db.refresh(credential)
+
+    return AgentServiceCredentialOut(
+        id=credential.id,
+        agent_id=credential.agent_id,
+        label=credential.label,
+        token=raw_token,
+        expires_at=credential.expires_at,
+        created_at=credential.created_at,
+    )
+
+
+@router.get(
+    "/{agent_id}/credentials",
+    response_model=list[AgentServiceCredentialOut],
+)
+async def list_agent_service_credentials(
+    agent_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[AgentServiceCredentialOut]:
+    """List active service credentials for an agent (tokens themselves are not stored in plaintext)."""
+    agent = await _get_agent_or_404(db, agent_id)
+    result = await db.execute(
+        select(AgentServiceCredential)
+        .where(
+            AgentServiceCredential.agent_id == agent.id,
+            AgentServiceCredential.revoked_at.is_(None),
+        )
+        .order_by(AgentServiceCredential.created_at.desc())
+    )
+    return [
+        AgentServiceCredentialOut(
+            id=c.id,
+            agent_id=c.agent_id,
+            label=c.label,
+            token=None,
+            expires_at=c.expires_at,
+            created_at=c.created_at,
+        )
+        for c in result.scalars().all()
+    ]
+
+
+@router.delete(
+    "/{agent_id}/credentials/{credential_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_agent_service_credential(
+    agent_id: uuid.UUID,
+    credential_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Revoke an agent's service credential."""
+    agent = await _get_agent_or_404(db, agent_id)
+    credential = await db.get(AgentServiceCredential, credential_id)
+    if not credential or credential.agent_id != agent.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+    credential.revoked_at = datetime.now(timezone.utc)
+    await db.commit()
 
 
 # ---------------------------------------------------------------------------

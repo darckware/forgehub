@@ -711,3 +711,24 @@ class HermesSyncResultOut(BaseModel):
     skills: SyncCounts
     agent_skills: SyncCounts
     warnings: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Agent Service Credentials
+# ---------------------------------------------------------------------------
+
+
+class AgentServiceCredentialCreateIn(BaseModel):
+    label: str = Field(default="MCP Service Token", min_length=1, max_length=150)
+    expires_at: datetime | None = None
+
+
+class AgentServiceCredentialOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    agent_id: uuid.UUID
+    label: str
+    token: str | None = None
+    expires_at: datetime | None
+    created_at: datetime

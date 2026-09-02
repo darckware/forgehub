@@ -164,8 +164,20 @@ export default function VersionClosurePage() {
     return projectTasks.filter((t) => !TERMINAL_STATUSES.has(t.status));
   }, [projectTasks]);
 
+  // Planejamentos finalizados: cada item deve possuir tarefas e todas devem estar concluídas ou status 'done'
+  const completedPlanningCount = useMemo(() => {
+    return projectPlanningItems.filter((item) => {
+      const tasks = tasksByPlanningItem.get(item.id) || [];
+      const itemPending = tasks.filter((t) => !TERMINAL_STATUSES.has(t.status));
+      return (tasks.length > 0 && itemPending.length === 0) || item.status === "done";
+    }).length;
+  }, [projectPlanningItems, tasksByPlanningItem]);
+
+  const isAllPlanningComplete = projectPlanningItems.length > 0 && completedPlanningCount === projectPlanningItems.length;
   const isAllTasksComplete = projectTasks.length > 0 && pendingTasks.length === 0;
-  const canExecuteClosure = activeVersion ? versionReadiness.eligible : isAllTasksComplete;
+  const canExecuteClosure = activeVersion
+    ? versionReadiness.eligible && isAllPlanningComplete
+    : isAllTasksComplete && isAllPlanningComplete;
   const closureTasks = activeVersion ? versionReadiness.tasks : projectTasks;
   const closureCompletedTasks = activeVersion ? versionReadiness.completed : completedTasks;
   const closurePendingTasks = activeVersion ? versionReadiness.pending : pendingTasks;
@@ -270,7 +282,7 @@ export default function VersionClosurePage() {
                 )}
 
                 <span className="rounded-md border bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
-                  Planejamentos: <strong className="text-foreground">{projectPlanningItems.length}</strong>
+                  Planejamentos: <strong className="text-foreground">{completedPlanningCount}/{projectPlanningItems.length} finalizados</strong>
                 </span>
 
                 <span className="rounded-md border bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
@@ -506,6 +518,12 @@ export default function VersionClosurePage() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Versão de Produção:</span>
                     <strong className="font-mono text-primary">v{activeVersion?.version ?? "1.0.0"}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Planejamentos Concluídos:</span>
+                    <strong className={completedPlanningCount === projectPlanningItems.length && projectPlanningItems.length > 0 ? "text-emerald-600" : "text-amber-500"}>
+                      {completedPlanningCount} de {projectPlanningItems.length}
+                    </strong>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Tarefas Concluídas:</span>
