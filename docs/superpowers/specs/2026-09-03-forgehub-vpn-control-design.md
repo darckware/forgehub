@@ -14,18 +14,16 @@ on public ICMP, SSH, HTTP, or HTTPS listeners.
 
 ## Network boundaries
 
-Cloudflare and Tailscale have separate responsibilities:
+Tailscale is an independent private administration plane. Its coordination, peer discovery,
+WireGuard transport, and DERP fallback do not use the VPS Cloudflare Tunnel and do not depend on
+Cloudflare configuration. The two Tailscale nodes establish their own outbound coordination and
+data paths. A direct peer path is optional; DERP relay operation is healthy.
 
-- Cloudflare Tunnel is the application presentation and recovery plane. `cloudflared` establishes
-  outbound connections from the VPS, so a later production-hardening phase can close public inbound
-  ports while keeping approved applications reachable through Cloudflare.
-- Tailscale is the private administration plane. The two nodes establish outbound coordination and
-  data paths through Tailscale. A direct peer path is optional; DERP relay operation is healthy.
-- The existing Cloudflare One client on Windows remains the notebook's corporate network layer.
-  This feature does not edit its organization, enrollment, DNS, routes, or split-tunnel policy.
-- A `cloudflared` tunnel is not presented as a proxy for Tailscale packets. The UI reports the
-  observed Tailscale path (`direct` or `DERP`) rather than claiming Cloudflare mediation that cannot
-  be verified from Tailscale state.
+Cloudflare remains an existing, separate part of the environment. The Cloudflare One client on
+Windows and `cloudflared` on the VPS are outside this feature. No VPN component routes Tailscale
+traffic through Cloudflare, calls a Cloudflare API, reads Cloudflare state, or depends on a
+Cloudflare hostname. The feature does not edit Cloudflare organization, enrollment, DNS, routes,
+split-tunnel policy, tunnels, or applications.
 
 The development implementation does not change UFW, Cloudflare, DNS, public listeners, or the
 Tailscale policy file. Closing public ingress is a separate production-hardening change after a
@@ -48,8 +46,7 @@ are never returned to the browser.
 
 Add an administrator-only sidebar entry named **VPN** with route `/vpn`. The page contains:
 
-1. A topology summary that labels Cloudflare as the application plane and Tailscale as the private
-   administration plane.
+1. A Tailscale topology summary that explicitly identifies this VPN as independent from Cloudflare.
 2. One status card per node showing hostname, Tailscale IPv4, online state, daemon state, last seen,
    traffic counters, and restricted posture.
 3. A connection card showing `direct`, `DERP <region>`, `idle`, or `unavailable`, plus the last
@@ -106,8 +103,8 @@ The adapter invokes subprocesses with argument arrays, fixed timeouts, bounded o
   waits for the peer to return, and never falls back to the public IP.
 
 If the remote node is offline, remote restart is unavailable because there is no safe path to it.
-Recovery then belongs to the separately configured Cloudflare/provider recovery plane. The UI must
-say this directly instead of offering an action that cannot work.
+Recovery then requires the VPS provider console or another separately approved out-of-band channel.
+The UI must say this directly instead of offering an action that cannot work.
 
 ## Operational audit
 
