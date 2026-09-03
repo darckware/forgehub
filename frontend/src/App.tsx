@@ -1,5 +1,6 @@
 import { Navigate, Routes, Route, useLocation } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { RequireAdmin } from "@/components/auth/RequireAdmin";
 import { useAuthStore } from "@/store/authStore";
 import LoginPage from "@/pages/auth/LoginPage";
 import Dashboard from "@/pages/Dashboard";
@@ -53,6 +54,7 @@ import ConceptionPage from "@/pages/conception";
 import SystemMapPage from "@/pages/system-map";
 import ProjectScopePage from "@/pages/project-scope";
 import CockpitPage from "@/pages/cockpit";
+import VpnPage from "@/pages/vpn";
 
 import ScreenInspectorPage from "@/pages/screen-inspector";
 import ConceptErdViewerPage from "@/pages/concept-erd";
@@ -122,6 +124,7 @@ export default function App() {
         <Route path="docs" element={<DocsPage />} />
         <Route path="deploy" element={<DeployPage />} />
         <Route path="servers" element={<ServersPage />} />
+        <Route path="vpn" element={<RequireAdmin><VpnPage /></RequireAdmin>} />
         <Route path="users" element={<UsersPage />} />
         <Route path="profiles" element={<ProfilesPage />} />
         

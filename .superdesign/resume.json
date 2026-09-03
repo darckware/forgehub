@@ -57,6 +57,55 @@
         }
       },
       "updatedAt": "2026-08-29T16:33:00-03:00"
+    },
+    "/vpn": {
+      "targetKind": "new-ui",
+      "projectId": "5c3ea9c0-d0dd-489a-9f6c-36c33873154a",
+      "activeDraftId": "b1dab810-8778-4ca5-9778-59d31c5d61de",
+      "designSystemPath": ".superdesign/design-system.md",
+      "referenceIds": ["frontend-public-favicon.svg"],
+      "brandAssets": {
+        "logo": {
+          "assetKey": "frontend-public-favicon.svg",
+          "url": "https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/5c3ea9c0-d0dd-489a-9f6c-36c33873154a/brand-assets/frontend-public-favicon.svg/favicon.svg",
+          "sourcePath": "frontend/public/favicon.svg"
+        }
+      },
+      "contextFiles": [
+        ".superdesign/design-system.md",
+        "frontend/src/index.css",
+        "frontend/src/components/layout/Sidebar.tsx",
+        "frontend/src/components/ui/confirm-dialog.tsx",
+        "docs/superpowers/specs/2026-09-03-forgehub-vpn-control-design.md",
+        "frontend/src/hooks/useVpn.ts",
+        "frontend/src/pages/vpn/index.tsx"
+      ],
+      "fingerprints": {
+        ".superdesign/design-system.md": "660cb035c20715d6079a272d807b29578fbbc41b35f32ff3f01df8d696f82c18",
+        "frontend/src/index.css": "029a48f29957e9bd236e6e117c18cc08c3992a1009042d12752017df0c1ecabf",
+        "frontend/src/components/layout/Sidebar.tsx": "e846638aa3d762ad657f3ba96a46410fb23c7b9103e55b8775665c0b0e21578a",
+        "frontend/src/components/ui/confirm-dialog.tsx": "57c44541061c16ca418e89e592d4c7d975a006bc9758de45805d56e247d0513d",
+        "docs/superpowers/specs/2026-09-03-forgehub-vpn-control-design.md": "26bdd74b884377c2cfcd2f52688c6848174bf0178b9c12b4c49265f8c39cc87f",
+        "frontend/src/hooks/useVpn.ts": "703573e33d4722b68f27cb446ea0e820f12b88140c439c152307139225e84862",
+        "frontend/src/pages/vpn/index.tsx": "f2d1421d768886f01bf9af3e58944e90a698b89616533c9fff3ffd8ed33fd483"
+      },
+      "components": [
+        {
+          "name": "Sidebar",
+          "id": "54f8295f-79e9-4bbc-b422-a74a3d550f91",
+          "sourcePath": "frontend/src/components/layout/Sidebar.tsx",
+          "logoAssetKey": "frontend-public-favicon.svg"
+        }
+      ],
+      "drafts": {
+        "b1dab810-8778-4ca5-9778-59d31c5d61de": {
+          "title": "ForgeHub — Controle VPN",
+          "visualDirection": "calm mission-control VPN topology with guarded node actions and audit history",
+          "parentDraftId": "85f71cfa-b2e5-4cb3-a89d-af05778598cf",
+          "currentVersion": 1
+        }
+      },
+      "updatedAt": "2026-09-03T16:40:00-03:00"
     }
   }
 }

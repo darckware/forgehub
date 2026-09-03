@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { UserSettingsMenu } from "@/components/layout/UserSettingsMenu";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { CommandPalette } from "@/components/layout/CommandPalette";
-import { NAV_SECTIONS, type NavGroupEntry, type NavLinkEntry } from "@/components/layout/navSections";
+import { NAV_SECTIONS, isNavEntryVisible, type NavGroupEntry, type NavLinkEntry } from "@/components/layout/navSections";
 import { Logo, LogoMark } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/authStore";
@@ -136,6 +136,7 @@ export function Sidebar() {
     setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const renderLink = (entry: NavLinkEntry) => {
+    if (!isNavEntryVisible(entry, user?.is_admin === true)) return null;
     // Only "Messages" carries a badge today -- generalize (a `badgeCount`
     // field on NavLinkEntry) if a second nav item ever needs one.
     const badgeCount = entry.to === "/demands" ? unreadDemandsCount : 0;
@@ -172,7 +173,7 @@ export function Sidebar() {
   };
 
   const renderGroup = (entry: NavGroupEntry) => {
-    const visibleItems = entry.items; // PermissionGate handles hiding inside
+    const visibleItems = entry.items.filter((item) => isNavEntryVisible(item, user?.is_admin === true));
     if (visibleItems.length === 0) return null;
 
     if (effectiveCollapsed) {
@@ -215,7 +216,7 @@ export function Sidebar() {
         </button>
         {!isGroupCollapsed && (
           <div className="ml-3 space-y-1 border-l border-border pl-2 pt-1">
-            {entry.items.map((item) => (
+            {visibleItems.map((item) => (
               <PermissionGate key={item.to} module={item.module}>
                 <NavLink
                   to={item.to}

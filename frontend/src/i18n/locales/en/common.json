@@ -1,5 +1,10 @@
 {
   "cancel": "Cancel",
+  "accessDenied": {
+    "title": "Access denied",
+    "description": "This area requires an administrator account.",
+    "back": "Back to dashboard"
+  },
   "confirmDialog": {
     "defaultTitle": "Confirm deletion",
     "defaultConfirm": "Delete"
@@ -44,6 +49,7 @@
     "auditor": "Auditor",
     "deployControl": "Deploy Control",
     "servers": "Servers",
+    "vpn": "VPN",
     "agentActivity": "Agent Activity",
     "database": "Database",
     "databaseSchema": "Schema",

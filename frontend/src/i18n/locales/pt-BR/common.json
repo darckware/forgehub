@@ -1,5 +1,10 @@
 {
   "cancel": "Cancelar",
+  "accessDenied": {
+    "title": "Acesso negado",
+    "description": "Esta área exige uma conta administradora.",
+    "back": "Voltar ao painel"
+  },
   "confirmDialog": {
     "defaultTitle": "Confirmar exclusão",
     "defaultConfirm": "Excluir"
@@ -44,6 +49,7 @@
     "auditor": "Auditor",
     "deployControl": "Controle de Deploy",
     "servers": "Servidores",
+    "vpn": "VPN",
     "agentActivity": "Atividade dos Agentes",
     "database": "Banco de Dados",
     "databaseSchema": "Esquema",
