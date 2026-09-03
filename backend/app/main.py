@@ -66,6 +66,7 @@ from app.api.routes import (
     toolversions,
     users,
     vault,
+    vpn,
     workspace_browser,
 )
 
@@ -300,6 +301,7 @@ app.include_router(profiles.router)
 app.include_router(server.router)
 app.include_router(remote_access.router)
 app.include_router(system_control.router)
+app.include_router(vpn.router)
 app.include_router(forgerouter.router)
 app.include_router(orchestration.router)
 app.include_router(system_scope.router)
