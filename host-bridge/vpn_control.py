@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import subprocess
 from typing import Any, Callable
@@ -14,6 +15,7 @@ ALLOWED_ACTIONS = {
     "local": frozenset({"connect", "disconnect", "restart", "test"}),
     "remote": frozenset({"restart", "test"}),
 }
+PRIVATE_KEY_ROOTS = ("/root/.ssh", "/root/agents", "/root/.hermes/profiles")
 
 
 class VpnPolicyError(ValueError):
@@ -110,8 +112,28 @@ def _default_runner(argv: list[str], timeout: float):
 
 
 class VpnControl:
-    def __init__(self, runner: Callable[..., Any] = _default_runner) -> None:
+    def __init__(
+        self,
+        runner: Callable[..., Any] = _default_runner,
+        remote_user: str | None = None,
+        remote_key_path: str | None = None,
+        remote_host_key_alias: str | None = None,
+    ) -> None:
         self.runner = runner
+        self.remote_user = remote_user or os.environ.get("FORGEHUB_VPN_REMOTE_USER", "aegis")
+        configured_key_path = remote_key_path or os.environ.get(
+            "FORGEHUB_VPN_REMOTE_KEY_PATH",
+            "/root/agents/aegis/server-management/ssh_keys/95_111_252_124_key",
+        )
+        self.remote_key_path = os.path.realpath(configured_key_path)
+        if not any(
+            self.remote_key_path == root or self.remote_key_path.startswith(f"{root}/")
+            for root in PRIVATE_KEY_ROOTS
+        ):
+            raise VpnPolicyError("invalid_key_path")
+        self.remote_host_key_alias = remote_host_key_alias or os.environ.get(
+            "FORGEHUB_VPN_REMOTE_HOST_KEY_ALIAS", "95.111.252.124"
+        )
 
     def status(self) -> dict[str, Any]:
         result = self.runner(["tailscale", "status", "--json"], 10.0)
@@ -146,6 +168,29 @@ class VpnControl:
         elif action == "restart" and node == "local":
             argv = ["systemctl", "restart", "tailscaled"]
             timeout = 30.0
+        elif action == "restart" and node == "remote":
+            status = self.status()
+            remote_ip = status["remote"].get("tailscale_ipv4")
+            if not remote_ip:
+                return {"success": False, "code": "peer_offline", "summary": "Remote peer is unavailable."}
+            argv = [
+                "ssh",
+                "-i",
+                self.remote_key_path,
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=8",
+                "-o",
+                f"HostKeyAlias={self.remote_host_key_alias}",
+                f"{self.remote_user}@{remote_ip}",
+                "sudo",
+                "-n",
+                "systemctl",
+                "restart",
+                "tailscaled",
+            ]
+            timeout = 20.0
         elif action == "test":
             status = self.status()
             remote_ip = status["remote"].get("tailscale_ipv4")

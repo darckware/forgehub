@@ -165,3 +165,98 @@ def test_local_connect_uses_restricted_posture_flags():
             30.0,
         )
     ]
+
+
+def test_remote_restart_uses_only_live_tailscale_ip_and_fixed_ssh_command():
+    runner = RecordingRunner()
+    control = VpnControl(
+        runner=runner,
+        remote_user="aegis",
+        remote_key_path="/root/.ssh/vps-key",
+        remote_host_key_alias="vmi3547248-public",
+    )
+
+    result = control.action("remote", "restart")
+
+    assert result["success"] is True
+    assert runner.calls[-1] == (
+        [
+            "ssh",
+            "-i",
+            "/root/.ssh/vps-key",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=8",
+            "-o",
+            "HostKeyAlias=vmi3547248-public",
+            "aegis@100.105.235.114",
+            "sudo",
+            "-n",
+            "systemctl",
+            "restart",
+            "tailscaled",
+        ],
+        20.0,
+    )
+
+
+def test_remote_restart_fails_closed_when_private_peer_is_absent():
+    class OfflineRunner(RecordingRunner):
+        def __call__(self, argv: list[str], timeout: float):
+            self.calls.append((argv, timeout))
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": json.dumps(
+                        {
+                            "BackendState": "Running",
+                            "Self": {"HostName": "NotebookSTI-wsl", "Online": True},
+                            "Peer": {},
+                        }
+                    ),
+                    "stderr": "",
+                },
+            )()
+
+    runner = OfflineRunner()
+
+    result = VpnControl(runner=runner).action("remote", "restart")
+
+    assert result == {
+        "success": False,
+        "code": "peer_offline",
+        "summary": "Remote peer is unavailable.",
+    }
+    assert len(runner.calls) == 1
+
+
+def test_remote_key_path_must_stay_inside_approved_roots():
+    with pytest.raises(VpnPolicyError, match="invalid_key_path"):
+        VpnControl(runner=RecordingRunner(), remote_key_path="/tmp/untrusted-key")
+
+
+def test_login_url_is_replaced_by_stable_needs_login_error():
+    class LoginRunner(RecordingRunner):
+        def __call__(self, argv: list[str], timeout: float):
+            self.calls.append((argv, timeout))
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 1,
+                    "stdout": "To authenticate, visit https://login.tailscale.com/a/secret-value",
+                    "stderr": "",
+                },
+            )()
+
+    result = VpnControl(runner=LoginRunner()).action("local", "connect")
+
+    assert result == {
+        "success": False,
+        "code": "needs_login",
+        "summary": "Tailscale authorization is required on the host.",
+    }
+    assert "login.tailscale.com" not in json.dumps(result)

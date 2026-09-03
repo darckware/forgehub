@@ -48,6 +48,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import httpx
 import yaml
@@ -56,6 +57,8 @@ import websockets
 from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from vpn_control import VpnControl, VpnPolicyError
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
 HERMES_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
@@ -241,6 +244,7 @@ UPLOAD_DIR = Path(tempfile.gettempdir()) / "forgehub-chat-uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="ForgeHub chat bridge")
+_vpn_control = VpnControl()
 
 
 def _check_token(x_bridge_token: str | None) -> None:
@@ -3211,6 +3215,35 @@ async def remote_access_status(x_bridge_token: str | None = Header(default=None)
     _check_token(x_bridge_token)
     running = _tunnel_proc is not None and _tunnel_proc.returncode is None
     return {"status": "running" if running else "stopped", "url": _tunnel_url if running else None}
+
+
+# ---------------------------------------------------------------------------
+# VPN control -- fixed Tailscale operations only. This deliberately does not
+# reuse /v1/exec: callers choose a logical node/action, never a command line.
+# ---------------------------------------------------------------------------
+
+
+class VpnActionRequest(BaseModel):
+    action: Literal["connect", "disconnect", "restart", "test"]
+
+
+@app.get("/v1/vpn/status")
+async def vpn_status(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    return await asyncio.to_thread(_vpn_control.status)
+
+
+@app.post("/v1/vpn/nodes/{node}/actions")
+async def vpn_action(
+    node: str,
+    req: VpnActionRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(x_bridge_token)
+    try:
+        return await asyncio.to_thread(_vpn_control.action, node, req.action)
+    except VpnPolicyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
