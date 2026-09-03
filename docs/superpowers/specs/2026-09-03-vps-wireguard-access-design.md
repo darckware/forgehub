@@ -1,9 +1,12 @@
 # VPS WireGuard Access Design
 
-**Status:** Proposed  
+**Status:** Superseded by `2026-09-03-vps-tailscale-access-design.md`
 **Date:** 2026-09-03  
 **Owner:** Marcelo  
 **Target:** `vmi3547248`
+
+This proposal was superseded before implementation. No WireGuard package, key, interface, or
+firewall rule was created from this design.
 
 ## Objective
 
