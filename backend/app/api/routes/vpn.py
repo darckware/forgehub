@@ -66,6 +66,7 @@ def normalize_status(payload: dict[str, Any], *, checked_at: datetime | None = N
         connection=VpnConnection.model_validate(raw_connection),
         checked_at=checked_at or datetime.now(timezone.utc),
         source_error=source_error,
+        sources=payload.get("sources", []),
     )
 
 
@@ -83,7 +84,15 @@ async def _bridge_call(method: str, path: str, payload: dict | None = None) -> d
     except httpx.HTTPError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "VPN bridge is unavailable") from exc
     if response.status_code != 200:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "VPN bridge rejected the operation")
+        mapped_status = response.status_code if response.status_code in {409, 502, 504} else 502
+        detail: object = "VPN bridge rejected the operation"
+        try:
+            bridge_error = response.json().get("detail")
+            if isinstance(bridge_error, dict):
+                detail = sanitize_summary(bridge_error.get("summary"))
+        except (ValueError, AttributeError):
+            pass
+        raise HTTPException(mapped_status, detail)
     try:
         data = response.json()
     except ValueError as exc:
@@ -142,7 +151,10 @@ async def run_vpn_action(
         event.summary = sanitize_summary(result.get("summary"))
     except HTTPException as exc:
         event.status = "failed"
-        event.result_code = "bridge_error"
+        event.result_code = {
+            status.HTTP_409_CONFLICT: "peer_offline",
+            status.HTTP_504_GATEWAY_TIMEOUT: "timeout",
+        }.get(exc.status_code, "bridge_error")
         event.summary = sanitize_summary(exc.detail)
         event.completed_at = datetime.now(timezone.utc)
         await db.commit()

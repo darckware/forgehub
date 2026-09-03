@@ -13,6 +13,22 @@ VpnNodeState = Literal["online", "offline", "needs_login", "unavailable"]
 VpnPathKind = Literal["direct", "derp", "idle", "unavailable"]
 
 
+class VpnPosture(BaseModel):
+    accept_dns: bool
+    accept_routes: bool
+    advertise_exit_node: bool
+    tailscale_ssh: bool
+    exit_node: bool
+    restricted: bool
+
+
+class VpnSourceStatus(BaseModel):
+    name: Literal["status", "systemd", "preferences"]
+    status: Literal["fresh", "unavailable"]
+    checked_at: datetime
+    error_code: str | None = None
+
+
 class VpnNode(BaseModel):
     role: VpnNodeRole
     hostname: str | None = None
@@ -23,6 +39,8 @@ class VpnNode(BaseModel):
     last_seen: str | None = None
     rx_bytes: int = 0
     tx_bytes: int = 0
+    daemon_state: str = "unavailable"
+    posture: VpnPosture | None = None
 
 
 class VpnConnection(BaseModel):
@@ -38,6 +56,7 @@ class VpnStatus(BaseModel):
     connection: VpnConnection
     checked_at: datetime
     source_error: str | None = None
+    sources: list[VpnSourceStatus] = Field(default_factory=list)
 
 
 class VpnActionRequest(BaseModel):

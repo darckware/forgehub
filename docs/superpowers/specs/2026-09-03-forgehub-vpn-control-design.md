@@ -1,6 +1,6 @@
 # ForgeHub VPN Control Design
 
-**Status:** Approved for implementation  
+**Status:** Implemented on `feature/vpn-control`; pending integration
 **Date:** 2026-09-03  
 **Owner:** Marcelo  
 **Scope:** Development-mode operational control for the existing Tailscale link

@@ -1,0 +1,75 @@
+{
+  "title": "Controle VPN",
+  "subtitle": "Estado e operações seguras da conexão privada Tailscale.",
+  "loading": "Carregando estado da VPN...",
+  "refresh": "Atualizar",
+  "cancel": "Cancelar",
+  "independence": {
+    "title": "Cloudflare e Tailscale são camadas independentes.",
+    "description": "Este controle não altera firewall, portas públicas, rotas, DNS ou exit node. O Cloudflare continua responsável pelos serviços publicados; o Tailscale mantém o caminho privado entre as duas pontas."
+  },
+  "degraded": {
+    "title": "Leitura parcial",
+    "description": "Parte da telemetria não pôde ser atualizada. Os dados disponíveis continuam visíveis; tente atualizar antes de executar uma ação."
+  },
+  "unavailable": {
+    "title": "Controle VPN indisponível",
+    "description": "Não foi possível consultar o serviço local do Tailscale. Verifique o host bridge e tente novamente."
+  },
+  "topology": {
+    "title": "Topologia privada",
+    "tailnet": "Tailnet",
+    "latency": "Latência medida: {{value}} ms",
+    "notMeasured": "Conectividade ainda não medida"
+  },
+  "path": {
+    "direct": "Conexão direta",
+    "derp": "Relay DERP {{relay}}",
+    "idle": "Sem tráfego ativo",
+    "unavailable": "Caminho indisponível"
+  },
+  "nodes": { "title": "Nós VPN" },
+  "node": { "local": "Host local", "remote": "VPS remoto" },
+  "nodeName": { "local": "NotebookSTI-wsl", "remote": "vmi3547248" },
+  "state": {
+    "online": "Online",
+    "offline": "Offline",
+    "needs_login": "Requer login",
+    "unavailable": "Indisponível"
+  },
+  "nodeDetails": {
+    "daemon": "Daemon",
+    "lastSeen": "Última atividade",
+    "received": "Recebido",
+    "sent": "Enviado",
+    "remoteRestartUnavailable": "O reinício remoto exige que o peer privado esteja alcançável. Para recuperação, use o console do provedor; nenhum fallback pelo IP público será usado."
+  },
+  "daemon": { "active": "Ativo", "observed": "Peer observado", "inactive": "Inativo", "unavailable": "Indisponível" },
+  "posture": { "title": "Postura restrita", "restricted": "Protegida", "unavailable": "Não verificada", "summary": "DNS: {{dns}} · rotas: {{routes}} · SSH Tailscale: {{ssh}}" },
+  "common": { "enabled": "ativado", "disabled": "desativado" },
+  "button": {
+    "connect": "Conectar {{hostname}}",
+    "disconnect": "Desconectar {{hostname}}",
+    "restart": "Reiniciar Tailscale em {{hostname}}",
+    "test": "Testar conexão com {{hostname}}"
+  },
+  "action": { "connect": "Conectar", "disconnect": "Desconectar", "restart": "Reiniciar", "test": "Testar" },
+  "confirm": {
+    "connect": { "title": "Conectar VPN", "description": "Conectar o Tailscale em {{hostname}}?", "confirm": "Conectar" },
+    "disconnect": { "title": "Desconectar VPN", "description": "Desconectar {{hostname}} interromperá o caminho privado até uma nova conexão.", "confirm": "Desconectar" },
+    "restart": { "title": "Reiniciar Tailscale", "description": "Reiniciar o serviço Tailscale em {{hostname}}? A conectividade pode oscilar por alguns segundos.", "confirm": "Reiniciar" },
+    "test": { "title": "Testar conexão VPN", "description": "Executar um teste privado entre {{hostname}} e o peer remoto?", "confirm": "Testar conexão" }
+  },
+  "history": {
+    "title": "Histórico de operações",
+    "loading": "Carregando histórico...",
+    "empty": "Nenhuma operação VPN registrada.",
+    "time": "Horário",
+    "actor": "Operador",
+    "target": "Alvo",
+    "action": "Ação",
+    "result": "Resultado",
+    "summary": "Detalhe"
+  },
+  "operationStatus": { "running": "Em andamento", "succeeded": "Concluída", "failed": "Falhou" }
+}

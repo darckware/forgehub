@@ -3241,9 +3241,17 @@ async def vpn_action(
 ) -> dict:
     _check_token(x_bridge_token)
     try:
-        return await asyncio.to_thread(_vpn_control.action, node, req.action)
+        result = await asyncio.to_thread(_vpn_control.action, node, req.action)
     except VpnPolicyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result.get("success") is True:
+        return result
+    code = result.get("code")
+    status_code = 409 if code == "peer_offline" else 504 if code == "timeout" else 502
+    raise HTTPException(
+        status_code=status_code,
+        detail={"code": code or "command_failed", "summary": result.get("summary", "VPN operation failed.")},
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ import {
   Users,
   Wrench,
   Network,
+  ShieldEllipsis,
 } from "lucide-react";
 
 export interface NavLinkEntry {
@@ -40,6 +41,7 @@ export interface NavLinkEntry {
   icon: React.ComponentType<{ className?: string }>;
   module?: string;
   hiddenInSidebar?: boolean;
+  adminOnly?: boolean;
 }
 
 export interface NavGroupEntry {
@@ -53,6 +55,10 @@ export interface NavSectionEntry {
   type: "section";
   labelKey: string;
   entries: (NavLinkEntry | NavGroupEntry)[];
+}
+
+export function isNavEntryVisible(entry: { adminOnly?: boolean }, isAdmin: boolean): boolean {
+  return !entry.adminOnly || isAdmin;
 }
 
 export const NAV_SECTIONS: NavSectionEntry[] = [
@@ -136,6 +142,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/auditor", labelKey: "nav.auditor", icon: ClipboardCheck, module: "auditor" },
       { type: "link", to: "/deploy", labelKey: "nav.deployControl", icon: Server, module: "deploy" },
       { type: "link", to: "/servers", labelKey: "nav.servers", icon: Network, module: "servers" },
+      { type: "link", to: "/vpn", labelKey: "nav.vpn", icon: ShieldEllipsis, module: "vpn", adminOnly: true },
       {
         type: "group",
         labelKey: "nav.database",

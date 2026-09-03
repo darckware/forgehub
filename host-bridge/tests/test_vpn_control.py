@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from vpn_control import VpnControl, VpnPolicyError, parse_ping, parse_status  # noqa: E402
+from vpn_control import VpnControl, VpnPolicyError, parse_ping, parse_prefs, parse_status  # noqa: E402
 
 
 def _status(*, relay: str = "fra", cur_addr: str = "", online: bool = True) -> str:
@@ -88,6 +88,28 @@ def test_parse_ping_normalizes_derp_and_direct_without_raw_output():
         "relay": "fra",
         "latency_ms": 210.0,
     }
+
+
+def test_parse_prefs_reports_only_restricted_posture_fields():
+    assert parse_prefs(
+        json.dumps(
+            {
+                "CorpDNS": False,
+                "RouteAll": False,
+                "AdvertiseRoutes": [],
+                "RunSSH": False,
+                "ExitNodeID": "",
+                "ControlURL": "https://controlplane.tailscale.com",
+            }
+        )
+    ) == {
+        "accept_dns": False,
+        "accept_routes": False,
+        "advertise_exit_node": False,
+        "tailscale_ssh": False,
+        "exit_node": False,
+        "restricted": True,
+    }
     assert parse_ping("pong from vmi3547248 via 203.0.113.10:41641 in 34ms") == {
         "success": True,
         "kind": "direct",
@@ -114,7 +136,53 @@ class RecordingRunner:
                     "stderr": "",
                 },
             )()
+        if argv[:3] == ["tailscale", "debug", "prefs"]:
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": json.dumps(
+                        {
+                            "CorpDNS": False,
+                            "RouteAll": False,
+                            "AdvertiseRoutes": [],
+                            "RunSSH": False,
+                            "ExitNodeID": "",
+                        }
+                    ),
+                    "stderr": "",
+                },
+            )()
+        if argv == ["systemctl", "is-active", "tailscaled"]:
+            return type("Result", (), {"returncode": 0, "stdout": "active\n", "stderr": ""})()
         return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+
+def test_status_includes_daemon_and_restricted_local_posture():
+    runner = RecordingRunner()
+
+    result = VpnControl(runner=runner).status()
+
+    assert result["local"]["daemon_state"] == "active"
+    assert result["local"]["posture"]["restricted"] is True
+    assert result["remote"]["daemon_state"] == "observed"
+    assert [call[0] for call in runner.calls[:3]] == [
+        ["tailscale", "status", "--json"],
+        ["systemctl", "is-active", "tailscaled"],
+        ["tailscale", "debug", "prefs"],
+    ]
+
+
+def test_status_maps_missing_binary_to_stable_error():
+    def missing_binary(_argv: list[str], _timeout: float):
+        raise FileNotFoundError
+
+    result = VpnControl(runner=missing_binary).status()
+
+    assert result["error"]["code"] == "binary_missing"
+    assert "traceback" not in json.dumps(result).lower()
+    assert "/usr/" not in json.dumps(result)
 
 
 def test_remote_test_resolves_live_private_ip_and_uses_fixed_ping_command():
@@ -179,7 +247,7 @@ def test_remote_restart_uses_only_live_tailscale_ip_and_fixed_ssh_command():
     result = control.action("remote", "restart")
 
     assert result["success"] is True
-    assert runner.calls[-1] == (
+    assert (
         [
             "ssh",
             "-i",
@@ -198,7 +266,8 @@ def test_remote_restart_uses_only_live_tailscale_ip_and_fixed_ssh_command():
             "tailscaled",
         ],
         20.0,
-    )
+    ) in runner.calls
+    assert runner.calls[-3][0] == ["tailscale", "status", "--json"]
 
 
 def test_remote_restart_fails_closed_when_private_peer_is_absent():
@@ -230,7 +299,7 @@ def test_remote_restart_fails_closed_when_private_peer_is_absent():
         "code": "peer_offline",
         "summary": "Remote peer is unavailable.",
     }
-    assert len(runner.calls) == 1
+    assert all(call[0][0] != "ssh" for call in runner.calls)
 
 
 def test_remote_key_path_must_stay_inside_approved_roots():

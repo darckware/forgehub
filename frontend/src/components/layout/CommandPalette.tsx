@@ -4,13 +4,14 @@ import { useTranslation } from "react-i18next";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
-import type { NavGroupEntry, NavSectionEntry } from "@/components/layout/navSections";
+import { isNavEntryVisible, type NavGroupEntry, type NavSectionEntry } from "@/components/layout/navSections";
 
 interface FlatEntry {
   to: string;
   label: string;
   section: string;
   module?: string;
+  adminOnly?: boolean;
   icon: React.ComponentType<{ className?: string }>;
 }
 
@@ -22,7 +23,7 @@ function flattenSections(sections: NavSectionEntry[], t: (key: string) => string
     const sectionLabel = t(section.labelKey);
     for (const entry of section.entries) {
       if (entry.type === "link") {
-        out.push({ to: entry.to, label: t(entry.labelKey), section: sectionLabel, module: entry.module, icon: entry.icon });
+        out.push({ to: entry.to, label: t(entry.labelKey), section: sectionLabel, module: entry.module, adminOnly: entry.adminOnly, icon: entry.icon });
       } else {
         const groupLabel = t(entry.labelKey);
         for (const item of (entry as NavGroupEntry).items) {
@@ -31,6 +32,7 @@ function flattenSections(sections: NavSectionEntry[], t: (key: string) => string
             label: `${groupLabel} / ${t(item.labelKey)}`,
             section: sectionLabel,
             module: item.module,
+            adminOnly: item.adminOnly,
             icon: item.icon,
           });
         }
@@ -74,13 +76,15 @@ export function CommandPalette({
   const allEntries = React.useMemo(() => flattenSections(sections, t), [sections, t]);
 
   const visibleEntries = React.useMemo(() => {
-    const withPerm = allEntries.filter((entry) => canView(entry.module));
+    const withPerm = allEntries.filter(
+      (entry) => isNavEntryVisible(entry, user?.is_admin === true) && canView(entry.module),
+    );
     if (!query.trim()) return withPerm;
     const q = query.trim().toLowerCase();
     return withPerm.filter(
       (entry) => entry.label.toLowerCase().includes(q) || entry.section.toLowerCase().includes(q)
     );
-  }, [allEntries, canView, query]);
+  }, [allEntries, canView, query, user?.is_admin]);
 
   React.useEffect(() => {
     setActiveIndex(0);

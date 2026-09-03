@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 
@@ -107,6 +108,27 @@ def parse_ping(raw: str) -> dict[str, Any]:
     }
 
 
+def parse_prefs(raw: str) -> dict[str, bool]:
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError("invalid_response") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("invalid_response")
+    advertise_routes = payload.get("AdvertiseRoutes")
+    advertises_exit = isinstance(advertise_routes, list) and any(
+        route in {"0.0.0.0/0", "::/0"} for route in advertise_routes
+    )
+    posture = {
+        "accept_dns": payload.get("CorpDNS") is True,
+        "accept_routes": payload.get("RouteAll") is True,
+        "advertise_exit_node": advertises_exit,
+        "tailscale_ssh": payload.get("RunSSH") is True,
+        "exit_node": bool(payload.get("ExitNodeID")),
+    }
+    return {**posture, "restricted": not any(posture.values())}
+
+
 def _default_runner(argv: list[str], timeout: float):
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
 
@@ -136,16 +158,73 @@ class VpnControl:
         )
 
     def status(self) -> dict[str, Any]:
-        result = self.runner(["tailscale", "status", "--json"], 10.0)
+        checked_at = datetime.now(timezone.utc).isoformat()
+        try:
+            result = self.runner(["tailscale", "status", "--json"], 10.0)
+        except FileNotFoundError:
+            return {
+                "backend_state": "Unavailable",
+                "local": _node({}, role="local", backend_state="Unavailable"),
+                "remote": _node({}, role="remote", backend_state="Unavailable"),
+                "connection": {"kind": "unavailable", "relay": None},
+                "sources": [{"name": "status", "status": "unavailable", "checked_at": checked_at, "error_code": "binary_missing"}],
+                "error": {"code": "binary_missing", "summary": "VPN status executable is unavailable."},
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "backend_state": "Unavailable",
+                "local": _node({}, role="local", backend_state="Unavailable"),
+                "remote": _node({}, role="remote", backend_state="Unavailable"),
+                "connection": {"kind": "unavailable", "relay": None},
+                "sources": [{"name": "status", "status": "unavailable", "checked_at": checked_at, "error_code": "timeout"}],
+                "error": {"code": "timeout", "summary": "VPN status check timed out."},
+            }
         if result.returncode != 0:
             return {
                 "backend_state": "Unavailable",
                 "local": _node({}, role="local", backend_state="Unavailable"),
                 "remote": _node({}, role="remote", backend_state="Unavailable"),
                 "connection": {"kind": "unavailable", "relay": None},
+                "sources": [{"name": "status", "status": "unavailable", "checked_at": checked_at, "error_code": "daemon_unavailable"}],
                 "error": {"code": "daemon_unavailable", "summary": "Tailscale status is unavailable."},
             }
-        return parse_status(result.stdout[:8192])
+        try:
+            status = parse_status(result.stdout[:8192])
+        except ValueError:
+            return {
+                "backend_state": "Unavailable",
+                "local": _node({}, role="local", backend_state="Unavailable"),
+                "remote": _node({}, role="remote", backend_state="Unavailable"),
+                "connection": {"kind": "unavailable", "relay": None},
+                "sources": [{"name": "status", "status": "unavailable", "checked_at": checked_at, "error_code": "invalid_response"}],
+                "error": {"code": "invalid_response", "summary": "VPN status returned invalid data."},
+            }
+
+        sources = [{"name": "status", "status": "fresh", "checked_at": checked_at, "error_code": None}]
+        try:
+            daemon = self.runner(["systemctl", "is-active", "tailscaled"], 5.0)
+            daemon_state = daemon.stdout.strip()[:30] or ("active" if daemon.returncode == 0 else "inactive")
+            sources.append({"name": "systemd", "status": "fresh", "checked_at": checked_at, "error_code": None})
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            daemon_state = "unavailable"
+            sources.append({"name": "systemd", "status": "unavailable", "checked_at": checked_at, "error_code": "probe_failed"})
+
+        try:
+            prefs = self.runner(["tailscale", "debug", "prefs"], 5.0)
+            if prefs.returncode != 0:
+                raise ValueError("invalid_response")
+            posture = parse_prefs(prefs.stdout[:8192])
+            sources.append({"name": "preferences", "status": "fresh", "checked_at": checked_at, "error_code": None})
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            posture = None
+            sources.append({"name": "preferences", "status": "unavailable", "checked_at": checked_at, "error_code": "probe_failed"})
+
+        status["local"]["daemon_state"] = daemon_state
+        status["local"]["posture"] = posture
+        status["remote"]["daemon_state"] = "observed" if status["remote"]["online"] else "unavailable"
+        status["remote"]["posture"] = None
+        status["sources"] = sources
+        return status
 
     def action(self, node: str, action: str) -> dict[str, Any]:
         if node not in ALLOWED_ACTIONS or action not in ALLOWED_ACTIONS[node]:
@@ -203,6 +282,8 @@ class VpnControl:
 
         try:
             result = self.runner(argv, timeout)
+        except FileNotFoundError:
+            return {"success": False, "code": "binary_missing", "summary": "VPN operation executable is unavailable."}
         except subprocess.TimeoutExpired:
             return {"success": False, "code": "timeout", "summary": "VPN operation timed out."}
         if result.returncode != 0:
@@ -212,4 +293,9 @@ class VpnControl:
             return {"success": False, "code": code, "summary": summary}
         if action == "test":
             return parse_ping(result.stdout[:8192])
+        if action == "restart":
+            fresh = self.status()
+            target = fresh[node]
+            if target.get("state") != "online":
+                return {"success": False, "code": "peer_offline", "summary": "VPN node did not return online."}
         return {"success": True, "code": "ok", "summary": "VPN operation completed."}
