@@ -1,22 +1,22 @@
 # VPS Tailscale Access Design
 
-**Status:** Proposed  
+**Status:** Approved for implementation
 **Date:** 2026-09-03  
 **Owner:** Marcelo  
 **Target:** `vmi3547248`
 
 ## Objective
 
-Create a private administration path between Marcelo's Windows/WSL notebook and the VPS before
+Create a private administration path between Marcelo's Ubuntu WSL environment and the VPS before
 installing the remote Hermes/ForgeHub environment. The path must not open a new inbound port, alter
-the notebook's corporate Cloudflare One enrollment, provide an Internet exit node, or take control
-of system DNS.
+the Windows host's corporate Cloudflare One enrollment, provide an Internet exit node, or take
+control of system DNS.
 
 ## Scope
 
-This phase installs and validates Tailscale on the VPS and pairs a Tailscale client on the Windows
-host. It does not install Hermes, copy agent profiles, activate gateways, move cron jobs, deploy
-ForgeHub, change Telegram ownership, or federate ForgeHub instances.
+This phase installs and validates Tailscale on the VPS and in Ubuntu WSL. It does not install a
+Tailscale client on Windows, install Hermes, copy agent profiles, activate gateways, move cron jobs,
+deploy ForgeHub, change Telegram ownership, or federate ForgeHub instances.
 
 ## Verified baseline
 
@@ -31,19 +31,19 @@ ForgeHub, change Telegram ownership, or federate ForgeHub instances.
 - `cloudflared` is active on the VPS, but it is not part of this private-network path.
 - `vpn.darckware.net` is currently a Cloudflare-proxied published TCP application route and is not
   a usable Tailscale endpoint in that form.
-- Windows service inspection from the current sandbox is unavailable, so the Windows client state
-  must be verified during the client-side pilot.
+- The local execution environment is Ubuntu on WSL 2 and does not currently have Tailscale.
 
 ## Topology
 
-The VPS and Windows host join a personal tailnet as separate devices. Tailscale runs on Windows,
-not as a second node inside WSL. WSL traffic is tested through the Windows host route.
+The VPS and Ubuntu WSL join a personal tailnet as separate devices. Tailscale runs inside WSL and
+is not installed as a second node on the Windows host. Windows applications do not receive a
+tailnet route; browser access to remote services uses a loopback forward owned by WSL.
 
 | Property | Value |
 |---|---|
 | VPS node name | `vmi3547248` |
-| Notebook node | Windows host only |
-| DNS acceptance | Disabled on both nodes for the pilot |
+| Notebook node | Ubuntu WSL only (`NotebookSTI`) |
+| DNS acceptance | Disabled on both tailnet nodes for the pilot |
 | Exit node | Disabled |
 | Subnet routes | None |
 | Funnel/Serve publication | Disabled |
@@ -57,17 +57,17 @@ explicitly outside this phase.
 
 ## Cloudflare coexistence
 
-Cloudflare One remains connected first and retains the notebook's default route and DNS. Tailscale
-must not use an exit node, accept tailnet DNS, or advertise routes. The pilot relies on the
-Cloudflare client's normal exclusion of the `100.64.0.0/10` CGNAT range; no corporate Cloudflare
-policy is changed by this work.
+Cloudflare One remains connected on Windows and retains the Windows default route and DNS.
+Tailscale changes only the WSL network namespace and must not use an exit node, accept tailnet DNS,
+or advertise routes. Its encrypted control and peer traffic exits through the normal WSL-to-Windows
+network path. No corporate Cloudflare policy is changed by this work.
 
 The pilot stops if corporate Internet access, DNS, private resources, posture, or policy behavior
-changes. Compatibility is proven only on the actual Windows host; documentation-level
-compatibility is not treated as operational evidence.
+changes. Compatibility is proven on the actual WSL/Windows pair; documentation-level compatibility
+is not treated as operational evidence.
 
-Tailscale must be installed on the Windows host only. Installing it simultaneously on Windows and
-inside WSL would create two tailnet nodes and can cause nested encapsulation and MTU problems.
+Tailscale must be installed in Ubuntu WSL only. Installing it later on Windows at the same time
+would create two tailnet nodes and can cause nested encapsulation and MTU problems.
 
 ## Authentication and authorization
 
@@ -76,8 +76,8 @@ inside WSL would create two tailnet nodes and can cause nested encapsulation and
   operator completes authentication in the browser.
 - Do not paste reusable auth keys, OAuth secrets, or session cookies into chat, Git, Foundation,
   Hindsight, or logs.
-- After enrollment, identify the VPS by node identity and restrict access so only Marcelo's
-  notebook identity can reach it.
+- After enrollment, identify the VPS by node identity and restrict access so only the `NotebookSTI`
+  WSL node can reach it.
 - Do not enable Tailscale SSH until the base IP path is verified. Initial SSH continues to use the
   existing `aegis` account and key over the Tailscale IP.
 
@@ -102,6 +102,16 @@ published-application route. The address is intentionally unreachable to devices
 tailnet. HTTPS certificate handling for ForgeHub is a later phase; this alias initially provides
 name-to-private-IP resolution only.
 
+## Windows browser access
+
+Windows does not join the tailnet in this design. To open ForgeHub VPS in the Windows browser, WSL
+creates a loopback-only forward from a dedicated local port to the ForgeHub service on the VPS
+Tailscale address. Windows reaches the WSL loopback through WSL's localhost forwarding behavior.
+
+The forward must bind only to `127.0.0.1`, never `0.0.0.0`, and must not become a public listener on
+the notebook. The initial validation uses a temporary foreground SSH forward. A persistent local
+proxy is considered only in the later ForgeHub deployment phase.
+
 ## Validation
 
 VPS evidence:
@@ -112,16 +122,16 @@ VPS evidence:
 4. `tailscale netcheck` completes without requiring a new inbound firewall rule.
 5. UFW contains no new public application port from this phase.
 
-Windows and WSL evidence, with Cloudflare One connected first:
+WSL and Windows-host evidence, with Cloudflare One connected throughout:
 
 1. Corporate Internet, DNS, and authorized company resources work before and after Tailscale starts.
-2. The Windows Tailscale client authenticates into the personal tailnet without changing the
+2. The WSL Tailscale client authenticates into the personal tailnet without changing the Windows
    Cloudflare Zero Trust organization.
-3. `tailscale ping` to the assigned VPS Tailscale IPv4 address succeeds and reports whether the
+3. `tailscale ping` from WSL to the assigned VPS Tailscale IPv4 address succeeds and reports whether the
    path is direct or relayed.
-4. SSH to the `aegis` account at the assigned VPS Tailscale IPv4 address succeeds from Windows.
-5. WSL reaches the VPS Tailscale IP and can use the required ForgeHub/SSH path through Windows.
-6. Stopping Tailscale removes the private path without disturbing Cloudflare One connectivity.
+4. SSH to the `aegis` account at the assigned VPS Tailscale IPv4 address succeeds from WSL.
+5. A loopback-only WSL forward lets the Windows browser reach a test HTTP service over the tailnet.
+6. Stopping Tailscale in WSL removes the private path without disturbing Cloudflare One connectivity.
 
 The private access phase is not complete until both VPS and Windows/WSL evidence pass.
 
@@ -131,17 +141,18 @@ The private access phase is not complete until both VPS and Windows/WSL evidence
 - If VPS enrollment is not completed, stop after presenting the one-time browser authorization URL.
 - If Tailscale connects but no peer path exists, inspect `tailscale status`, `tailscale ping`, and
   `tailscale netcheck`; relay operation is acceptable and no public port is opened as a workaround.
-- If Cloudflare One connectivity changes, stop Tailscale on Windows and restore the pre-test state.
+- If Cloudflare One connectivity changes, stop Tailscale in WSL and restore the pre-test state.
 - Do not change corporate Cloudflare split-tunnel, DNS, enrollment, or MDM policies.
-- Do not install a second Tailscale node inside WSL to work around Windows routing.
+- Do not install a second Tailscale node on Windows to work around browser routing.
 - Do not close public SSH while diagnosing the pilot.
 
 ## Rollback
 
-Rollback runs `tailscale down` on the new nodes and disables `tailscaled` on the VPS. It leaves the
-package installed to preserve a low-risk retry path and does not remove existing Cloudflare, SSH,
-Docker, DNS, or firewall configuration. The VPS can then be removed from the personal tailnet via
-the Tailscale admin console. Package removal and DNS deletion require separate explicit approval.
+Rollback runs `tailscale down` in WSL and on the VPS, disables `tailscaled` on the VPS, and removes
+the temporary loopback forward if one is active. It leaves the packages installed to preserve a
+low-risk retry path and does not remove existing Cloudflare, SSH, Docker, DNS, or firewall
+configuration. Both new nodes can then be removed from the personal tailnet via the Tailscale admin
+console. Package removal and DNS deletion require separate explicit approval.
 
 ## Follow-up phases
 
