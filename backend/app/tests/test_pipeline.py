@@ -157,7 +157,7 @@ async def project_id():
                         {"keys": [
                             f"progress:{kind}:{checkpoint_id}"
                             for checkpoint_id in checkpoint_ids
-                            for kind in ("blocked", "failed", "paused", "heartbeat_lost", "resumed")
+                            for kind in ("blocked", "failed", "paused", "heartbeat_lost")
                         ]},
                     )
                     await conn.execute(

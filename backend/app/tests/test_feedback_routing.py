@@ -99,10 +99,8 @@ async def _notifications_for(demand_id) -> list[Notification]:
         )
 
 
-async def test_assistant_gets_a_system_notification(agent):
-    """The Assistant sits on every screen outside the Workspace, so there is
-    no conversation to answer into -- and the user may be on another page by
-    the time the run ends."""
+async def test_successful_assistant_task_is_recorded_without_an_alert(agent):
+    """A normal completion remains in Messages and does not ring the bell."""
     demand_id = await _finished(agent, channel="assistant")
 
     async with AsyncSessionLocal() as session:
@@ -110,10 +108,9 @@ async def test_assistant_gets_a_system_notification(agent):
         assert await deliver_feedback(session, d) is True
         await session.commit()
 
-    notes = await _notifications_for(demand_id)
-    assert len(notes) == 1
-    assert notes[0].severity == "success"
-    assert "concluída" in notes[0].message
+    assert await _notifications_for(demand_id) == []
+    async with AsyncSessionLocal() as session:
+        assert (await session.get(AgentDemand, demand_id)).feedback_sent_at is not None
 
 
 async def test_workspace_feedback_returns_to_the_conversation(agent):
@@ -136,6 +133,7 @@ async def test_workspace_feedback_returns_to_the_conversation(agent):
         assert len(replies) == 1
         assert replies[0].responding_agent_id == agent
         assert "concluída" in replies[0].content
+    assert await _notifications_for(demand_id) == []
 
 
 async def test_a_failure_is_told_apart_from_a_success(agent):
@@ -179,7 +177,7 @@ async def test_delivery_happens_once(agent):
         assert d.feedback_sent_at is not None
         assert await deliver_feedback(session, d) is False
 
-    assert len(await _notifications_for(demand_id)) == 1
+    assert await _notifications_for(demand_id) == []
 
 
 async def test_an_agents_own_request_is_left_to_its_reply_path(agent):
@@ -194,10 +192,8 @@ async def test_an_agents_own_request_is_left_to_its_reply_path(agent):
     assert await _notifications_for(demand_id) == []
 
 
-async def test_telegram_without_a_chat_still_reports_in_app(agent, monkeypatch):
-    """We never guess a Telegram destination: without the chat that asked,
-    the bridge would answer the home channel -- the wrong conversation. The
-    in-app notification still happens, so the outcome isn't lost."""
+async def test_telegram_without_a_chat_does_not_create_a_success_alert(agent, monkeypatch):
+    """A requested return without an address stays owed without bell noise."""
     demand_id = await _finished(
         agent,
         channel="telegram",
@@ -207,11 +203,12 @@ async def test_telegram_without_a_chat_still_reports_in_app(agent, monkeypatch):
 
     async with AsyncSessionLocal() as session:
         d = await session.get(AgentDemand, demand_id)
-        assert await deliver_feedback(session, d) is True
+        assert await deliver_feedback(session, d) is False
         await session.commit()
 
-    notes = await _notifications_for(demand_id)
-    assert len(notes) == 1
+    assert await _notifications_for(demand_id) == []
+    async with AsyncSessionLocal() as session:
+        assert (await session.get(AgentDemand, demand_id)).feedback_sent_at is None
 
 
 async def test_telegram_answers_the_chat_that_asked(agent, monkeypatch):
@@ -237,14 +234,15 @@ async def test_telegram_answers_the_chat_that_asked(agent, monkeypatch):
         await session.commit()
 
     assert sent["target"] == "-100123456", "must answer the asking chat, not the home channel"
+    assert await _notifications_for(demand_id) == []
 
 
 async def test_telegram_metadata_alone_does_not_authorize_external_feedback(agent, monkeypatch):
     """The message text, not transport metadata alone, opts into Telegram.
 
     This covers stale/bad rows such as channel_ref="telegram": they finish
-    with an in-app notification instead of retrying an invalid external
-    destination forever.
+    without retrying an invalid external destination forever or creating a
+    routine success alert.
     """
     async def _unexpected_delivery(*args, **kwargs):
         raise AssertionError("Telegram delivery must not run without an explicit request")
@@ -265,7 +263,7 @@ async def test_telegram_metadata_alone_does_not_authorize_external_feedback(agen
     async with AsyncSessionLocal() as session:
         demand = await session.get(AgentDemand, demand_id)
         assert demand.feedback_sent_at is not None
-    assert len(await _notifications_for(demand_id)) == 1
+    assert await _notifications_for(demand_id) == []
 
 
 async def test_the_sweep_picks_up_what_inline_delivery_missed(agent):
@@ -286,11 +284,8 @@ async def test_a_failed_delivery_does_not_poison_the_next_sweep(agent, monkeypat
     """Reproduces a real production stall: three terminal messages sat with
     feedback owed for days while every sweep crashed on the first one.
 
-    The in-app notification is added *before* the channel send, so the run is
-    recorded even when Telegram is down -- but then `feedback_sent_at` stays
-    NULL and the same message is picked up again. Re-inserting its event_key
-    raised a UNIQUE violation that aborted the whole pass, so every *other*
-    owed outcome in that sweep was lost too, not just this one."""
+    The failed external return remains owed while the execution itself stays
+    in Messages. Retrying it must not block later outcomes in the sweep."""
     class _DownClient:
         def __init__(self, *a, **k): pass
         async def __aenter__(self): return self
@@ -304,17 +299,19 @@ async def test_a_failed_delivery_does_not_poison_the_next_sweep(agent, monkeypat
         agent,
         channel="telegram",
         channel_ref="1085550644",
+        status="failed",
         body="Quando terminar, responda no Telegram.",
     )
     async with AsyncSessionLocal() as session:
         await run_feedback_pass(session)
-        await session.commit()
 
     async with AsyncSessionLocal() as session:
         assert (await session.get(AgentDemand, stuck)).feedback_sent_at is None, (
             "a send that never went out must stay visibly owed"
         )
-    assert len(await _notifications_for(stuck)) == 1
+    notes = await _notifications_for(stuck)
+    assert len(notes) == 1
+    assert notes[0].severity == "error"
 
     # The next sweep must survive the still-owed message and keep delivering
     # the ones behind it.
@@ -324,7 +321,7 @@ async def test_a_failed_delivery_does_not_poison_the_next_sweep(agent, monkeypat
 
     async with AsyncSessionLocal() as session:
         assert (await session.get(AgentDemand, reachable)).feedback_sent_at is not None
-    assert len(await _notifications_for(stuck)) == 1, "same outcome, same event, one record"
+    assert len(await _notifications_for(stuck)) == 1
 
 
 async def test_telegram_answers_through_the_receiving_agents_bot(agent, monkeypatch):

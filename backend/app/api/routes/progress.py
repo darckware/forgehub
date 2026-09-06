@@ -156,16 +156,17 @@ async def _record_checkpoint(
 
 
 async def _notify_checkpoint(checkpoint_id: uuid.UUID, checkpoint_type: str, message: str | None) -> None:
-    if checkpoint_type not in STOP_TYPES | {"resumed"}:
+    # A normal start, progress, completion or recovery remains in the
+    # execution timeline. Only stopped states require attention in the bell.
+    if checkpoint_type not in STOP_TYPES:
         return
     try:
         async with AsyncSessionLocal() as db:
             key = f"progress:{checkpoint_type}:{checkpoint_id}"
             if (await db.execute(select(Notification.id).where(Notification.event_key == key))).scalar_one_or_none():
                 return
-            severity = "success" if checkpoint_type == "resumed" else "warning"
             db.add(Notification(
-                source="system", severity=severity,
+                source="system", severity="warning",
                 title=f"Execution {checkpoint_type.replace('_', ' ')}",
                 message=message or f"Progress checkpoint {checkpoint_id}", summary=None,
                 event_key=key, occurred_at=datetime.now(timezone.utc),

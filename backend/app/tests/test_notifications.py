@@ -128,6 +128,133 @@ async def test_cleanup_keep_days_requires_days(client: AsyncClient):
     assert resp.status_code == 400
 
 
+async def test_cron_ingestion_is_silent_on_success_and_alerts_on_failure(monkeypatch):
+    """Routine execution is operational history, not an alert.
+
+    Only a failed cron run belongs in the notification inbox.
+    """
+    from app.api.routes import notifications as notifications_routes
+
+    suffix = uuid.uuid4().hex[:8]
+    run_at = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()
+    ok_id = f"test-ok-{suffix}"
+    failed_id = f"test-failed-{suffix}"
+    monkeypatch.setattr(
+        notifications_routes,
+        "_load_all_cron_jobs",
+        lambda: [
+            {
+                "id": ok_id,
+                "name": ok_id,
+                "last_run_at": run_at,
+                "last_status": "ok",
+                "script": "ok.sh",
+            },
+            {
+                "id": failed_id,
+                "name": failed_id,
+                "last_run_at": run_at,
+                "last_status": "error",
+                "last_error": "boom",
+                "failure_streak": 3,
+                "script": "failed.sh",
+            },
+        ],
+    )
+
+    async with AsyncSessionLocal() as session:
+        inserted = await notifications_routes._ingest_cron_notifications(session)
+
+    async with AsyncSessionLocal() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(Notification).where(Notification.job_id.in_([ok_id, failed_id]))
+                )
+            ).scalars().all()
+        )
+    try:
+        assert inserted == 1
+        assert [row.job_id for row in rows] == [failed_id]
+        assert rows[0].severity == "error"
+    finally:
+        await _delete_notifications([row.id for row in rows])
+
+
+async def test_cron_failure_alert_waits_for_persistence_and_deduplicates_incident(monkeypatch):
+    """Recoverable failures alert at streak three, once per job and cause."""
+    from app.api.routes import notifications as notifications_routes
+
+    job_id = f"test-incident-{uuid.uuid4().hex[:8]}"
+
+    def _job(streak: int, minute: int) -> dict:
+        return {
+            "id": job_id,
+            "name": job_id,
+            "last_run_at": (
+                datetime.now(timezone.utc) + timedelta(minutes=minute)
+            ).isoformat(),
+            "last_status": "error",
+            "last_error": "temporary dependency unavailable",
+            "failure_streak": streak,
+        }
+
+    try:
+        monkeypatch.setattr(notifications_routes, "_load_all_cron_jobs", lambda: [_job(2, 1)])
+        async with AsyncSessionLocal() as session:
+            assert await notifications_routes._ingest_cron_notifications(session) == 0
+
+        monkeypatch.setattr(notifications_routes, "_load_all_cron_jobs", lambda: [_job(3, 2)])
+        async with AsyncSessionLocal() as session:
+            assert await notifications_routes._ingest_cron_notifications(session) == 1
+
+        monkeypatch.setattr(notifications_routes, "_load_all_cron_jobs", lambda: [_job(4, 3)])
+        async with AsyncSessionLocal() as session:
+            assert await notifications_routes._ingest_cron_notifications(session) == 0
+
+        async with AsyncSessionLocal() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(Notification).where(Notification.job_id == job_id)
+                    )
+                ).scalars().all()
+            )
+        assert len(rows) == 1
+    finally:
+        async with AsyncSessionLocal() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(Notification.id).where(Notification.job_id == job_id)
+                    )
+                ).scalars().all()
+            )
+        await _delete_notifications(rows)
+
+
+async def test_resumed_execution_does_not_create_a_success_notification():
+    """Recovery closes the incident without producing a second bell event."""
+    from app.api.routes.progress import _notify_checkpoint
+
+    checkpoint_id = uuid.uuid4()
+    event_key = f"progress:resumed:{checkpoint_id}"
+    await _notify_checkpoint(checkpoint_id, "resumed", "execution recovered")
+
+    async with AsyncSessionLocal() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(Notification).where(Notification.event_key == event_key)
+                )
+            ).scalars().all()
+        )
+    try:
+        assert rows == []
+    finally:
+        await _delete_notifications([row.id for row in rows])
+
+
 async def test_cleanup_suppresses_reingestion(client: AsyncClient, monkeypatch):
     """Runs purged by cleanup must not be re-ingested from jobs.json as new
     unread notifications: cleanup advances the NotificationIngestState
@@ -150,7 +277,9 @@ async def test_cleanup_suppresses_reingestion(client: AsyncClient, monkeypatch):
             "id": job_id,
             "name": job_id,
             "last_run_at": run_at,
-            "last_status": "ok",
+            "last_status": "error",
+            "last_error": "test failure",
+            "failure_streak": 3,
             "script": "test.sh",
         }
 
@@ -177,7 +306,7 @@ async def test_cleanup_suppresses_reingestion(client: AsyncClient, monkeypatch):
         assert resp.status_code == 200, resp.text
         assert await _my_row_ids() == []
 
-        # A fresh run (after the watermark) must still ingest normally.
+        # A fresh actionable failure (after the watermark) must still ingest normally.
         monkeypatch.setattr(
             notifications_routes, "_load_all_cron_jobs", lambda: [_fake_job(fresh_run_at)]
         )

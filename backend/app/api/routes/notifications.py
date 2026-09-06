@@ -2,7 +2,7 @@
 
 Provides:
 - GET  /api/v1/notifications            list (newest first) + unread count;
-                                        ingests the current cron run outcomes
+                                        ingests actionable cron failures
                                         from the live jobs.json stores first,
                                         so listing is always up to date without
                                         a separate sync step
@@ -14,15 +14,15 @@ Provides:
                                         (and re-shown as unread) on the next
                                         listing
 
-Ingestion maps every cron to its notifications: each distinct run
-(job_id + last_run_at) becomes exactly one row, deduped by `event_key`, so
-the history accumulates across runs even though jobs.json only holds the
-latest run per job. Failures ingest as severity 'error' (with last_error as
-the message), successful runs as 'success'. Each row also carries a
+Ingestion maps persistent cron failures to notifications. Recoverable jobs
+alert from the third consecutive failure, and recurring runs with the same
+job and cause share one incident key. Successful runs remain operational
+history and do not generate notifications. Each failure row also carries a
 `summary` of what the run did, extracted from the scheduler's per-run
 output file (output/<job_id>/<timestamp>.md — the '## Response' or
 '## Script Error' section) when one matches the run time.
 """
+import hashlib
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -50,6 +50,8 @@ from app.db.models.notification import (
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
+CRON_FAILURE_ALERT_THRESHOLD = 3
+
 
 def _parse_run_at(raw: str) -> datetime | None:
     try:
@@ -59,6 +61,16 @@ def _parse_run_at(raw: str) -> datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def _cron_incident_key(job: dict, job_key: str) -> str:
+    """Stable key for one job/cause incident across repeated executions."""
+    cause = " ".join(
+        str(job.get("last_error") or job.get("last_status") or "unknown").split()
+    )
+    fingerprint = hashlib.sha256(cause.casefold().encode("utf-8")).hexdigest()[:16]
+    profile = job.get("profile") or "default"
+    return f"cron-incident:{profile}:{job_key}:{fingerprint}"
 
 
 SUMMARY_MAX_CHARS = 2000
@@ -144,8 +156,11 @@ def _find_run_summary(job_id: str | None, profile: str | None, run_at_raw: str) 
 
 
 async def _ingest_cron_notifications(db: AsyncSession) -> int:
-    """Upsert one notification per cron run currently visible in the
-    jobs.json stores. Returns the number of newly inserted rows."""
+    """Upsert one alert per persistent cron incident visible in jobs.json.
+
+    Successful executions are intentionally silent: the notification inbox
+    is reserved for outcomes that require attention.
+    """
     candidates: dict[str, dict] = {}
     for job in _load_all_cron_jobs():
         run_at_raw = job.get("last_run_at")
@@ -157,11 +172,19 @@ async def _ingest_cron_notifications(db: AsyncSession) -> int:
             continue
         status = job.get("last_status") or "unknown"
         failed = status not in ("ok", "success")
-        event_key = f"cron:{job_key}:{run_at_raw}"
+        if not failed:
+            continue
+        try:
+            failure_streak = int(job.get("failure_streak") or 1)
+        except (TypeError, ValueError):
+            failure_streak = 1
+        if failure_streak < CRON_FAILURE_ALERT_THRESHOLD:
+            continue
+        event_key = _cron_incident_key(job, str(job_key))
         candidates[event_key] = {
-            "severity": "error" if failed else "success",
+            "severity": "error",
             "title": job.get("name") or str(job_key),
-            "message": job.get("last_error") if failed else None,
+            "message": job.get("last_error"),
             "summary": _find_run_summary(job.get("id"), job.get("profile"), run_at_raw),
             "job_id": job.get("id"),
             "job_name": job.get("name"),

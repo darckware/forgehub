@@ -391,9 +391,10 @@ class AgentDemand(Base, TimestampMixin):
     # Telegram chat_id.
     channel: Mapped[str | None] = mapped_column(String(20), nullable=True)
     channel_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # When the outcome was delivered back to that channel. NULL means the
-    # feedback is still owed -- which is what lets a sweep find deliveries
-    # that never happened, instead of them being lost silently.
+    # When the requested outcome return was completed. For ForgeHub contexts
+    # whose canonical Messages record is itself the destination, this marks
+    # the outcome as handled without creating an extra alert. NULL means a
+    # requested channel delivery is still owed, which lets a sweep recover it.
     feedback_sent_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

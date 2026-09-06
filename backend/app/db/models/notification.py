@@ -2,15 +2,14 @@
 
 Replaces the previous client-only notification handling (the bell dropdown
 read cron failures live from jobs.json and tracked "seen" in localStorage).
-Every cron run outcome is ingested as one row here, so the history survives
-page reloads and is shared across browsers/users, read state is tracked
-server-side (`read_at`), and old rows can be purged via the cleanup endpoint
-(delete all / keep last N days).
+Actionable cron incidents are persisted here, so alerts survive page reloads
+and are shared across browsers/users, read state is tracked server-side
+(`read_at`), and old rows can be purged via the cleanup endpoint.
 
 Each notification maps back to the cron that produced it via
-`job_id`/`job_name`/`profile`/`script_name`. `event_key` is the dedupe key
-(`cron:<job_id>:<last_run_at>`) so re-ingesting the same jobs.json snapshot
-never duplicates a run. `NotificationIngestState` keeps a per-source
+`job_id`/`job_name`/`profile`/`script_name`. `event_key` identifies the job
+and normalized failure cause so repeated runs of one incident do not flood
+the inbox. `NotificationIngestState` keeps a per-source
 suppression watermark so runs purged via cleanup are never re-ingested
 (jobs.json still lists each job's latest run after the rows are deleted).
 
@@ -31,7 +30,7 @@ NOTIFICATION_SEVERITIES = ("info", "success", "warning", "error")
 
 
 class Notification(Base, TimestampMixin):
-    """One recorded notification (currently: one cron run outcome).
+    """One recorded actionable notification.
 
     `occurred_at` is when the underlying event happened (the cron's
     last_run_at), not when the row was ingested — cleanup retention and
@@ -61,7 +60,7 @@ class Notification(Base, TimestampMixin):
     # Digest of what the run did — extracted from the job's output file
     # (## Response / ## Script Error section), when one exists for the run
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Cron mapping — which job/run produced this notification
+    # Cron mapping — which job produced this notification
     job_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     job_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     profile: Mapped[str | None] = mapped_column(String(100), nullable=True)

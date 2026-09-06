@@ -1,9 +1,9 @@
-"""Delivering an execution's outcome back to where it was asked for.
+"""Deliver an execution result without turning routine work into an alert.
 
-Messages executes everything, but until now the result stayed inside
-Messages: someone who asked from the Workspace, from the Assistant panel or
-from Telegram had no way of learning that their task finished. This module
-is the return path.
+Messages remains the canonical execution history. This module returns the
+result to a concrete Workspace or explicitly requested Telegram context;
+failed outcomes also create an actionable in-app alert. Normal completion
+never increments the notification bell merely because execution finished.
 
 Two rules decided with Marcelo (2026-08-13):
 
@@ -22,10 +22,10 @@ reaching an agent), and what the delivery for ForgeHub's own surfaces goes
 through. It is the safety net, not a replacement for that rule: an item
 whose agent is expected to answer still gets its own reply the usual way.
 
-Delivery is idempotent by `feedback_sent_at`: it is stamped in the same
-transaction as the delivery, so a re-run can never send the same outcome
-twice, and a NULL stamp on a terminal message is exactly the signal that
-feedback is still owed.
+Delivery is idempotent by `feedback_sent_at`: it is stamped only after the
+requested return path succeeds (or when Messages itself is the complete
+origin context), so a re-run cannot send the same outcome twice and a NULL
+stamp continues to mean that requested feedback is owed.
 """
 import logging
 import re
@@ -106,17 +106,7 @@ def _body(demand: AgentDemand, limit: int = 1500) -> str:
 
 
 async def _deliver_notification(db: AsyncSession, demand: AgentDemand, *, title: str) -> None:
-    """The Assistant's return path, and the fallback for every channel.
-
-    The Assistant lives on every screen outside the Workspace, so there is no
-    conversation to answer into -- and by the time a run finishes the user
-    may well be on another page entirely. A notification is the only thing
-    that reaches them wherever they are.
-
-    Severity mirrors the outcome so a failure can be told apart from a
-    success without opening it -- the bell holds thousands of routine info
-    rows, and an error that looks like all of them is invisible.
-    """
+    """Create an actionable alert for a failed task outcome."""
     # Terminal-state-scoped: a message can only be delivered once per
     # outcome, and a reprocessed one that fails again is a new event.
     event_key = f"demand-feedback:{demand.id}:{demand.dispatch_attempts}"
@@ -136,7 +126,7 @@ async def _deliver_notification(db: AsyncSession, demand: AgentDemand, *, title:
     db.add(
         Notification(
             source="system",
-            severity="success" if demand.dispatch_status == "completed" else "error",
+            severity="error",
             title=title,
             message=_outcome_line(demand),
             summary=_body(demand, limit=600) or None,
@@ -244,11 +234,10 @@ async def _deliver_workspace(db: AsyncSession, demand: AgentDemand) -> bool:
 async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
     """Sends one message's outcome back to its channel. Caller commits.
 
-    Returns True when something was delivered. Never raises: a channel being
-    unreachable must not roll back the execution result that is already
-    recorded, nor stop the other messages in the same sweep. What it does
-    instead is leave `feedback_sent_at` NULL, so the delivery stays visibly
-    owed rather than silently lost.
+    Returns True when the requested return was handled. Never raises: a
+    channel being unreachable must not roll back the execution result that
+    is already recorded, nor stop the other messages in the same sweep. It
+    leaves `feedback_sent_at` NULL, so the delivery stays visibly owed.
     """
     if demand.dispatch_status not in DEMAND_TERMINAL_DISPATCH_STATUSES:
         return False
@@ -257,12 +246,12 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
 
     now = datetime.now(timezone.utc)
     title = f"Task {'concluída' if demand.dispatch_status == 'completed' else 'falhou'}: {demand.subject}"
+    failed = demand.dispatch_status != "completed"
 
     try:
         if demand.channel == "telegram":
-            # Notify in the app as well: the Telegram send can fail, and this
-            # is the record that the run finished either way.
-            await _deliver_notification(db, demand, title=title)
+            if failed:
+                await _deliver_notification(db, demand, title=title)
             # Telegram feedback is opt-in from the message itself. Channel
             # metadata records where a request came from, but it is not
             # permission to push the result back out of ForgeHub. In
@@ -275,33 +264,38 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
             if not requested:
                 logger.info(
                     "Feedback for #%s has Telegram metadata but no explicit Telegram "
-                    "reply request; notified in-app only",
+                    "reply request; result remains in Messages",
                     demand.number,
                 )
             elif not delivered:
                 logger.warning(
                     "Feedback for #%s has channel=telegram but no chat to answer -- "
-                    "notified in-app only", demand.number,
+                    "requested return remains owed", demand.number,
                 )
+                return False
         elif demand.channel == "workspace":
-            await _deliver_notification(db, demand, title=title)
+            if failed:
+                await _deliver_notification(db, demand, title=title)
             if not await _deliver_workspace(db, demand):
                 logger.warning(
-                    "Feedback for #%s has no valid Workspace address; notified in-app only",
+                    "Feedback for #%s has no valid Workspace address; requested return remains owed",
                     demand.number,
                 )
+                return False
         elif demand.channel in ("assistant", "factory"):
-            await _deliver_notification(db, demand, title=title)
+            if failed:
+                await _deliver_notification(db, demand, title=title)
         elif demand.channel == "agent":
             # An agent asked: the existing requires_response/reply_to_id path
             # already routes the answer back as a real message. Duplicating
             # it here would put the same outcome in the agent's inbox twice.
             return False
         else:
-            # No channel recorded (filed before this existed, or by a writer
-            # that doesn't set one). Still notify: an unattributed outcome is
-            # better than a silent one.
-            await _deliver_notification(db, demand, title=title)
+            # Old or unattributed failures still require attention. Routine
+            # successful execution remains visible in Messages without
+            # creating notification noise.
+            if failed:
+                await _deliver_notification(db, demand, title=title)
     except httpx.HTTPError as exc:
         logger.warning("Feedback delivery for #%s failed: %s", demand.number, exc)
         return False
@@ -334,7 +328,11 @@ async def run_feedback_pass(db: AsyncSession) -> int:
     for demand in owed:
         if await deliver_feedback(db, demand):
             sent += 1
-    if sent:
+    # A failed channel delivery may still have produced an actionable task
+    # failure alert. Commit the pass whenever it inspected owed outcomes;
+    # `feedback_sent_at` remains NULL for every return that did not get out.
+    if owed:
         await db.commit()
+    if sent:
         logger.info("Feedback: delivered %d outcome(s) to their channels", sent)
     return sent
