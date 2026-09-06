@@ -16,6 +16,7 @@ class ServerCreate(BaseModel):
     # the key_passphrase_stored boolean instead).
     key_passphrase: str | None = None
     access_enabled: bool = True
+    environment: Literal["vps", "semed"] = "semed"
     description: str | None = None
 
 
@@ -32,6 +33,7 @@ class ServerUpdate(BaseModel):
     # "omitted" and "explicitly null" stay distinguishable.
     key_passphrase: str | None = None
     access_enabled: bool | None = None
+    environment: Literal["vps", "semed"] | None = None
     description: str | None = None
 
 
@@ -53,6 +55,7 @@ class ServerOut(BaseModel):
     # ForgeHub-side access switch: false parks the server (no probe, no
     # terminal) without touching any key -- see Server.access_enabled.
     access_enabled: bool = True
+    environment: str = "semed"
     description: str | None
     created_at: datetime
     updated_at: datetime

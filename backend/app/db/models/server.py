@@ -92,6 +92,10 @@ class Server(Base, TimestampMixin):
     access_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=sa_true()
     )
+    # Target environment / responsibility group (e.g. 'vps' vs 'semed')
+    environment: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="semed", server_default="semed"
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     @property

@@ -22,6 +22,7 @@ export interface Server {
    * terminal -- while the key, the vaulted copy and the server itself are all
    * left exactly as they were. */
   access_enabled: boolean;
+  environment?: "vps" | "semed" | string;
   description: string | null;
   created_at: string;
   updated_at: string;
@@ -42,6 +43,7 @@ export interface ServerCreate {
    * send "" to clear it. */
   key_passphrase?: string | null;
   access_enabled?: boolean;
+  environment?: "vps" | "semed" | string;
   description?: string | null;
 }
 
@@ -123,6 +125,7 @@ export const serverFormSchema = z.object({
     .max(65535, "Port must be between 1 and 65535"),
   ssh_key_path: z.string().trim().max(500).optional(),
   key_passphrase: z.string().optional(),
+  environment: z.enum(["vps", "semed"]).default("semed"),
   description: z.string().optional(),
 });
 

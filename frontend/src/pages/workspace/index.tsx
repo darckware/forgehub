@@ -305,56 +305,81 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
         <ChevronDown className="h-3 w-3 opacity-60" />
       </Button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md">
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md">
           {(servers ?? []).length === 0 && (
             <p className="px-3 py-3 text-xs italic text-muted-foreground">
               {t("toolbar.noServersRegistered")}
             </p>
           )}
-          {(servers ?? []).map((s) => {
-            const result = probe.statuses[s.id];
-            const checking = probe.checkingIds.has(s.id);
-            // A parked server is not offered at all: the row is still listed,
-            // so it is clear the server exists and is simply switched off,
-            // rather than silently missing from the menu.
-            const parked = !s.access_enabled;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                disabled={parked}
-                className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-                title={parked ? t("toolbar.sshAccessOff") : result?.detail}
-                onClick={() => {
-                  onLaunch(s.name, buildSshCommand(s));
-                  setOpen(false);
-                }}
-              >
-                <span className="flex w-full items-center gap-1.5">
-                  <SshRowSignals server={s} checking={checking} status={result?.status} />
-                  <span className="text-sm font-medium">{s.name}</span>
-                  <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {parked
-                      ? t("toolbar.sshOff")
-                      : checking
-                        ? "…"
-                        : result?.status === "online"
-                          ? t("toolbar.sshOnline")
-                          : result?.status === "auth_failed" || result?.status === "no_key" || result?.status === "key_missing"
-                            ? t("toolbar.sshKeyProblem")
-                            : result?.status === "probe_error"
-                              ? t("toolbar.sshCheckFailed")
-                          : result
-                            ? t("toolbar.sshOffline")
-                            : ""}
+          {(() => {
+            const vpsList = (servers ?? []).filter((s) => s.environment === "vps");
+            const semedList = (servers ?? []).filter((s) => s.environment !== "vps");
+
+            const renderServerButton = (s: Server) => {
+              const result = probe.statuses[s.id];
+              const checking = probe.checkingIds.has(s.id);
+              const parked = !s.access_enabled;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  disabled={parked}
+                  className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                  title={parked ? t("toolbar.sshAccessOff") : result?.detail}
+                  onClick={() => {
+                    onLaunch(s.name, buildSshCommand(s));
+                    setOpen(false);
+                  }}
+                >
+                  <span className="flex w-full items-center gap-1.5">
+                    <SshRowSignals server={s} checking={checking} status={result?.status} />
+                    <span className="text-sm font-medium">{s.name}</span>
+                    <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {parked
+                        ? t("toolbar.sshOff")
+                        : checking
+                          ? "…"
+                          : result?.status === "online"
+                            ? t("toolbar.sshOnline")
+                            : result?.status === "auth_failed" || result?.status === "no_key" || result?.status === "key_missing"
+                              ? t("toolbar.sshKeyProblem")
+                              : result?.status === "probe_error"
+                                ? t("toolbar.sshCheckFailed")
+                            : result
+                              ? t("toolbar.sshOffline")
+                              : ""}
+                    </span>
                   </span>
-                </span>
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  {s.remote_user}@{s.ip_address}
-                </span>
-              </button>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {s.remote_user}@{s.ip_address}
+                  </span>
+                </button>
+              );
+            };
+
+            return (
+              <>
+                {vpsList.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-500 bg-emerald-500/10">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      VPS / Produção (Darckware)
+                    </div>
+                    {vpsList.map(renderServerButton)}
+                  </div>
+                )}
+                {semedList.length > 0 && (
+                  <div className={vpsList.length > 0 ? "mt-1 border-t border-border pt-1" : ""}>
+                    <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-500 bg-blue-500/10">
+                      <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                      SEMED (Cliente / Cloudflare)
+                    </div>
+                    {semedList.map(renderServerButton)}
+                  </div>
+                )}
+              </>
             );
-          })}
+          })()}
         </div>
       )}
     </div>

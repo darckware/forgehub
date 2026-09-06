@@ -359,6 +359,18 @@ export default function ServersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [servers]);
 
+  const [environmentFilter, setEnvironmentFilter] = useState<"all" | "vps" | "semed">("all");
+
+  const vpsServers = (servers ?? []).filter((s) => s.environment === "vps");
+  const semedServers = (servers ?? []).filter((s) => s.environment !== "vps");
+
+  const filteredServers =
+    environmentFilter === "all"
+      ? (servers ?? [])
+      : environmentFilter === "vps"
+        ? vpsServers
+        : semedServers;
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
@@ -386,10 +398,41 @@ export default function ServersPage() {
         </div>
       </div>
 
+      {/* Tabs para classificação / separação de responsabilidades */}
+      <div className="flex items-center gap-2 border-b border-border pb-2">
+        <Button
+          variant={environmentFilter === "all" ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => setEnvironmentFilter("all")}
+          className="text-xs font-medium"
+        >
+          Todos ({servers?.length ?? 0})
+        </Button>
+        <Button
+          variant={environmentFilter === "vps" ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => setEnvironmentFilter("vps")}
+          className="text-xs font-medium gap-1.5"
+        >
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          VPS / Produção ({vpsServers.length})
+        </Button>
+        <Button
+          variant={environmentFilter === "semed" ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => setEnvironmentFilter("semed")}
+          className="text-xs font-medium gap-1.5"
+        >
+          <span className="h-2 w-2 rounded-full bg-blue-500" />
+          SEMED (Cliente / Cloudflare) ({semedServers.length})
+        </Button>
+      </div>
+
       <div className="overflow-hidden rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
+              <th className="px-4 py-2">Grupo</th>
               <th className="px-4 py-2">Name</th>
               <th className="px-4 py-2">IP</th>
               <th className="px-4 py-2">User</th>
@@ -402,19 +445,19 @@ export default function ServersPage() {
           <tbody className="divide-y divide-border">
             {isLoading && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={8} className="px-4 py-6 text-center text-muted-foreground">
                   <Loader2 className="mx-auto h-4 w-4 animate-spin" />
                 </td>
               </tr>
             )}
-            {!isLoading && (servers ?? []).length === 0 && (
+            {!isLoading && filteredServers.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center italic text-muted-foreground">
-                  No servers registered.
+                <td colSpan={8} className="px-4 py-6 text-center italic text-muted-foreground">
+                  Nenhum servidor encontrado neste grupo.
                 </td>
               </tr>
             )}
-            {(servers ?? []).map((s) => (
+            {filteredServers.map((s) => (
               <Fragment key={s.id}>
               <tr
                 className={`cursor-pointer hover:bg-accent/30 ${s.access_enabled ? "" : "opacity-50"} ${
@@ -423,6 +466,11 @@ export default function ServersPage() {
                 onClick={() => setExpandedId((prev) => (prev === s.id ? null : s.id))}
                 title="Show the services published by this server"
               >
+                <td className="px-4 py-2">
+                  <Badge variant="outline" className={`text-[10px] ${s.environment === "vps" ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5" : "border-blue-500/40 text-blue-600 bg-blue-500/5"}`}>
+                    {s.environment === "vps" ? "VPS" : "SEMED"}
+                  </Badge>
+                </td>
                 <td className="px-4 py-2 font-mono font-medium">{s.name}</td>
                 <td className="px-4 py-2 font-mono">{s.ip_address}</td>
                 <td className="px-4 py-2 font-mono">{s.remote_user}</td>

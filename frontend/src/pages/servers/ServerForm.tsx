@@ -309,6 +309,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       remote_user: initial?.remote_user ?? "",
       ssh_port: initial?.ssh_port ?? 22,
       ssh_key_path: initial?.ssh_key_path ?? "",
+      environment: (initial?.environment as "vps" | "semed") ?? "semed",
       description: initial?.description ?? "",
     },
   });
@@ -321,6 +322,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       remote_user: values.remote_user,
       ssh_port: values.ssh_port,
       ssh_key_path: values.ssh_key_path?.trim() || null,
+      environment: values.environment,
       description: values.description?.trim() || null,
     };
     // Only send the passphrase when the field was actually touched: an
@@ -377,10 +379,23 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
             </div>
           </div>
 
-          <div className="space-y-1">
-            <Label>Remote user</Label>
-            <Input {...register("remote_user")} placeholder="aegis" />
-            {errors.remote_user && <p className="text-[11px] text-destructive">{errors.remote_user.message}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Remote user</Label>
+              <Input {...register("remote_user")} placeholder="aegis" />
+              {errors.remote_user && <p className="text-[11px] text-destructive">{errors.remote_user.message}</p>}
+            </div>
+            <div className="space-y-1">
+              <Label>Classificação / Grupo</Label>
+              <select
+                {...register("environment")}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="vps">VPS / Produção (Darckware)</option>
+                <option value="semed">SEMED (Cliente / Cloudflare)</option>
+              </select>
+              {errors.environment && <p className="text-[11px] text-destructive">{errors.environment.message}</p>}
+            </div>
           </div>
 
           <div className="space-y-1">
