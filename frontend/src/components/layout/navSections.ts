@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   Bell,
   BookOpen,
   Bot,
@@ -142,6 +143,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/auditor", labelKey: "nav.auditor", icon: ClipboardCheck, module: "auditor" },
       { type: "link", to: "/deploy", labelKey: "nav.deployControl", icon: Server, module: "deploy" },
       { type: "link", to: "/servers", labelKey: "nav.servers", icon: Network, module: "servers" },
+      { type: "link", to: "/irregularities", labelKey: "nav.irregularities", icon: AlertTriangle, module: "servers" },
       { type: "link", to: "/vpn", labelKey: "nav.vpn", icon: ShieldEllipsis, module: "vpn", adminOnly: true },
       {
         type: "group",
