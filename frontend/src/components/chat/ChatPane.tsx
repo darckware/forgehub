@@ -2012,6 +2012,8 @@ export function ChatPane({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const lastSendGestureRef = useRef<{ signature: string; timestamp: number } | null>(null);
 
@@ -2177,8 +2179,13 @@ export function ChatPane({
   useEffect(() => {
     if (!messages) return;
     const isInitialForSession = scrolledSessionRef.current !== sessionId;
-    messagesEndRef.current?.scrollIntoView({ behavior: isInitialForSession ? "auto" : "smooth" });
-    if (isInitialForSession) scrolledSessionRef.current = sessionId;
+    if (isInitialForSession) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      scrolledSessionRef.current = sessionId;
+      isNearBottomRef.current = true;
+    } else if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, queue, sessionId, revealedQueueIds]);
 
   // Auto-grow the composer with its content -- the single-line height is
@@ -3953,7 +3960,16 @@ export function ChatPane({
         </AnimatePresence>
         {/* ── end voice overlay ───────────────────────────────────── */}
 
-        <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        <div
+          ref={messagesContainerRef}
+          onScroll={() => {
+            const el = messagesContainerRef.current;
+            if (!el) return;
+            const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+            isNearBottomRef.current = distance < 80;
+          }}
+          className="flex-1 space-y-3 overflow-y-auto p-4"
+        >
           {visibleMessages.length === 0 && (
             <p className="py-12 text-center text-sm italic text-muted-foreground">
               {emptyStateText ?? languageTexts.emptyState(selectedAgent?.name ?? "agent")}

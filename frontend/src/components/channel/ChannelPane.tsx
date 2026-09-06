@@ -588,6 +588,23 @@ function ChannelRoom({
     improvePrompt,
   } = useChannelRoomViewModel(channelId, agents, t("channels.attachmentReadError"));
 
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrolledChannelRef = useRef<string | null>(null);
+  const isNearBottomRef = useRef(true);
+
+  useEffect(() => {
+    if (!allMessages) return;
+    const isInitial = scrolledChannelRef.current !== channelId;
+    if (isInitial) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      scrolledChannelRef.current = channelId;
+      isNearBottomRef.current = true;
+    } else if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [allMessages, runningAgents, activeTurn, channelId]);
+
   // Auto-grow the composer with its content, same as ChatPane's own
   // composer -- the channel's used to stay a fixed single-line box no
   // matter how long the message got, clipping/scrolling the text inside a
@@ -626,7 +643,16 @@ function ChannelRoom({
           }
         />
         <TabsContent value="transcript" className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <div
+            ref={messagesContainerRef}
+            onScroll={() => {
+              const el = messagesContainerRef.current;
+              if (!el) return;
+              const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+              isNearBottomRef.current = distance < 80;
+            }}
+            className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+          >
             {allMessages.map((m) => (
               <div key={m.id}>
                 {m.author_type === "agent" && (
@@ -746,6 +772,7 @@ function ChannelRoom({
                 </div>
               )
             )}
+            <div ref={messagesEndRef} />
           </div>
           {sendError && (
             <div className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
