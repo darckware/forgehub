@@ -35,7 +35,7 @@ export function useUpdateIrregularityStatus() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: "acknowledged" | "resolved" }) =>
-      apiClient.patch<Irregularity>(`/api/v1/irregularities/${id}`, { body: { status } }),
+      apiClient.patch<Irregularity>(`/api/v1/irregularities/${id}`, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["irregularities"] });
     },
