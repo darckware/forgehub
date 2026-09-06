@@ -69,6 +69,7 @@ from app.api.routes import (
     vault,
     vpn,
     workspace_browser,
+    workstation,
 )
 
 
@@ -267,6 +268,7 @@ app.include_router(execution.router)
 app.include_router(factory.router)
 app.include_router(backlog.router)
 app.include_router(client.router)
+app.include_router(workstation.router)
 app.include_router(task.router)
 app.include_router(task.responsibility_router)
 app.include_router(agent.router)
