@@ -5378,7 +5378,7 @@ async def hindsight_status(x_bridge_token: str | None = Header(default=None)) ->
             "latest_errors": latest_errors[-12:] if latest_errors else [],
         },
         "analysis": {
-            "storage_source": "Active memory lives in foundation_postgres schema hindsight; ForgeHub should only mirror operational metadata and control state.",
+            "storage_source": "Active memory lives in hindsight_postgres database foundation, schema hindsight; ForgeHub only mirrors operational metadata and control state.",
             "database_control_recommendation": "Track daemon health, schema growth, async job status, profile coverage, and policy drift in ForgeHub. Keep raw memory content inside Hindsight unless you need export or indexing.",
             "current_risk": "Profiles without profile-scoped hindsight/config.json inherit defaults or environment and can silently drift from athos.",
         },

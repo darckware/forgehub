@@ -1542,7 +1542,7 @@ async def build_agent_activity(
             label="Working now",
         )
 
-    database_key = "database:company_postgres/company"
+    database_key = "database:forgehub_postgres/company"
     topology_relations = list(relation_by_pair.values())
     topology_relations.extend(
         ActivityTopologyRelationOut(
@@ -1692,7 +1692,7 @@ async def build_agent_activity(
             ActivityResourceOut(
                 key=database_key,
                 kind="database",
-                label="company_postgres",
+                label="forgehub_postgres",
                 detail="company",
                 status="available",
             )

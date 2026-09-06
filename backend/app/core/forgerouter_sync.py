@@ -1,7 +1,7 @@
 """Read access to ForgeRouter's own agent registry.
 
 ForgeRouter (the ecosystem's exclusive LLM gateway) issues and tracks one
-API key per connected agent in its own database -- `foundation_postgres`
+API key per connected agent in its own database -- `forgerouter_postgres`
 (port 5432) -> database `forgerouter` -> schema `ai_router`, table
 `agents` (see /root/.hermes/foundation/governance/POSTGRESQL_TOPOLOGY.md
 and FORGEROUTER_DOCUMENTATION.md §ai_router.agents). That key is already
@@ -16,7 +16,7 @@ hermes_sync.read_profile_forgerouter_api_key, which only covers
 Hermes-profile agents by reading their config.yaml directly).
 
 Read-only, same trust boundary as api/routes/database.py's existing
-generic `foundation_postgres`/`forgerouter` connection (settings.db_url_for)
+dedicated `forgerouter_postgres`/`forgerouter` connection (settings.db_url_for)
 -- this module just narrows that to one query.
 """
 from dataclasses import dataclass
@@ -57,7 +57,9 @@ class ForgeRouterActivityEvent:
 
 async def _read_ai_router_agents(kind: str) -> list[ForgeRouterAgentKey]:
     url = settings.db_url_for(
-        settings.FOUNDATION_POSTGRES_HOST, settings.FOUNDATION_POSTGRES_PORT, "forgerouter"
+        settings.FORGEROUTER_POSTGRES_HOST, settings.FORGEROUTER_POSTGRES_PORT, "forgerouter",
+        user=settings.FORGEROUTER_POSTGRES_USER,
+        password=settings.FORGEROUTER_POSTGRES_PASSWORD or settings.POSTGRES_PASSWORD,
     )
     engine = create_async_engine(url, pool_pre_ping=True)
     try:
@@ -112,7 +114,9 @@ async def read_recent_forgerouter_activity(since_seconds: int = 120, limit: int 
     (a raw/anonymous call) and the caller should treat it as unmapped rather
     than guessing."""
     url = settings.db_url_for(
-        settings.FOUNDATION_POSTGRES_HOST, settings.FOUNDATION_POSTGRES_PORT, "forgerouter"
+        settings.FORGEROUTER_POSTGRES_HOST, settings.FORGEROUTER_POSTGRES_PORT, "forgerouter",
+        user=settings.FORGEROUTER_POSTGRES_USER,
+        password=settings.FORGEROUTER_POSTGRES_PASSWORD or settings.POSTGRES_PASSWORD,
     )
     engine = create_async_engine(url, pool_pre_ping=True)
     try:

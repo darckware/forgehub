@@ -36,9 +36,9 @@
 - **Retrospectiva**: sprint retro para ajustar débito técnico e performance.
 
 ## Infraestrutura
-- **Banco de dados**: instância compartilhada `company_postgres` (porta `5433`), database `forgehub`, schema `company` — o ForgeHub não roda Postgres próprio. Ver `docs/reference/DB_README.md`.
+- **Banco de dados**: instância dedicada `forgehub_postgres` (porta `5433`), database `forgehub`, schema `company`. ForgeRouter e Hindsight/Foundation usam instâncias separadas. Ver `docs/reference/DB_README.md`.
 - **Docker Compose**
-  - `backend` service – FastAPI app, conecta em `company_postgres:5433/forgehub`
+  - `backend` service – FastAPI app, conecta em `forgehub_postgres:5432/forgehub` pela rede Docker
   - `frontend` service – Vite dev server, proxy to backend
 - **Env vars** (`.env`)
   - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_SCHEMA`

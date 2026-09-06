@@ -1,7 +1,7 @@
 services:
-  postgres_company:
+  forgehub_postgres:
     image: pgvector/pgvector:pg16
-    container_name: ${CONTAINER_NAME:-company_postgres}
+    container_name: ${CONTAINER_NAME:-forgehub_postgres}
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-foundation_company}
@@ -10,7 +10,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5433}:5432"
     volumes:
-      - /root/.hermes/database/data/postgres-company/pgdata:/var/lib/postgresql/data
+      - forgehub_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-foundation} -d ${POSTGRES_DB:-foundation_company}"]
       interval: 10s
@@ -23,8 +23,11 @@ services:
       # other container ever joined it) and was removed on 2026-07-03.
       foundation_network:
         aliases:
-          - forgecompany_postgres
-          - postgres_company
+          - forgehub_postgres
+
+volumes:
+  forgehub_postgres_data:
+    name: forgehub_postgres_data
 
 networks:
   # Renamed from hermes_foundation_pg_default on 2026-07-03 (created manually,
@@ -32,14 +35,4 @@ networks:
   foundation_network:
     external: true
 
-# Observação: este compose reconstrói a definição do container `company_postgres`,
-# que já existe e está rodando desde a migração ForgeCompany (2026-06-11), mas cujo
-# docker-compose.yml original (em /root/ForgeCompany/database/postgres-company/) foi
-# perdido no rename ForgeCompany -> Forgehub. Os databases reais hospedados aqui hoje
-# é `forgehub` (criado manualmente após o container subir; o banco `kanboard` foi
-# descontinuado junto com o container, em 2026-08-13) — o valor
-# de POSTGRES_DB acima só importa na criação inicial do container e não precisa mudar.
-#
-# Antes de rodar `docker compose up -d` aqui, valide com `docker compose config` e
-# `docker compose up -d --no-recreate` / inspecione se o hash de config bate, para não
-# reiniciar à toa um banco em uso (Kanboard depende dele).
+# Compatibilidade: a topologia completa é gerenciada por ../docker-compose.yml.

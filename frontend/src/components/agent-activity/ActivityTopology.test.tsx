@@ -14,7 +14,7 @@ import { ActivityTopology } from "./ActivityTopology";
 
 const AGENT_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
-const RESOURCE_ID = "database:company_postgres/company";
+const RESOURCE_ID = "database:forgehub_postgres/company";
 const REQUEST_ID = "33333333-3333-4333-8333-333333333334";
 
 const agents = [
@@ -33,7 +33,7 @@ const projects = [
 ] satisfies ActivityProject[];
 
 const resources = [
-  { key: RESOURCE_ID, kind: "database", label: "company_postgres", detail: "company", status: "available" },
+  { key: RESOURCE_ID, kind: "database", label: "forgehub_postgres", detail: "company", status: "available" },
 ] satisfies ActivityResource[];
 
 const relations = [
@@ -95,10 +95,10 @@ describe("ActivityTopology", () => {
     expect(screen.getByRole("img")).toHaveAttribute("src", agents[0].avatar_data_url);
     expect(screen.getByRole("button", { name: /Aramis.*agent.*Running/i })).toBeVisible();
     expect(screen.getByRole("button", { name: /ForgeHub.*project.*active/i })).toBeVisible();
-    expect(screen.getByRole("button", { name: /company_postgres.*database.*available/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /forgehub_postgres.*database.*available/i })).toBeVisible();
     const relationList = screen.getByRole("list", { name: /topology relationships/i });
     expect(within(relationList).getByText(/Aramis.*ForgeHub.*Working now/i)).toBeVisible();
-    expect(within(relationList).getByText(/ForgeHub.*company_postgres.*Persists in company schema/i)).toBeVisible();
+    expect(within(relationList).getByText(/ForgeHub.*forgehub_postgres.*Persists in company schema/i)).toBeVisible();
   });
 
   it("exposes the canonical Software Factory context attached to a Message", () => {

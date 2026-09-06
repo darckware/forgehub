@@ -13,7 +13,7 @@ services:
       # via its container name on the shared foundation_network, on its
       # internal port. These override the env_file values
       # (docker-compose `environment:` wins over `env_file:`).
-      POSTGRES_HOST: company_postgres
+      POSTGRES_HOST: forgehub_postgres
       POSTGRES_PORT: "5432"
       # .env carries the host path (/root/messages) so ./dev.sh and pytest
       # write somewhere real; inside the container that same directory is
@@ -21,7 +21,10 @@ services:
       MESSAGE_ATTACHMENTS_ROOT: /messages
       # Same host-vs-container-network split as above, for the other
       # Postgres instance (Hindsight/Foundation data, port 5433->5432).
-      FOUNDATION_POSTGRES_HOST: foundation_postgres
+      FOUNDATION_POSTGRES_HOST: hindsight_postgres
+      FORGEROUTER_POSTGRES_HOST: forgerouter_postgres
+      FORGEROUTER_POSTGRES_PORT: "5432"
+      FORGEROUTER_POSTGRES_USER: proxyrouter_user
       # The real Hermes agents (Athos, Atlas, ...) only exist as host
       # processes -- this container reaches them through the chat bridge
       # (host-bridge/app.py) running directly on the host, via the
@@ -91,35 +94,6 @@ services:
     networks:
       # Same network as the backend — nginx proxies /api to
       # http://forgehub-backend:8000 by container name, so both must share it.
-      - foundation_network
-
-  hindsight:
-    image: ghcr.io/vectorize-io/hindsight:latest
-    container_name: hindsight
-    restart: unless-stopped
-    env_file:
-      - ./.env
-    environment:
-      HINDSIGHT_API_DATABASE_BACKEND: postgresql
-      HINDSIGHT_API_DATABASE_URL: postgresql://foundation:${POSTGRES_PASSWORD}@foundation_postgres:5432/foundation
-      HINDSIGHT_API_READ_DATABASE_URL: postgresql://foundation:${POSTGRES_PASSWORD}@foundation_postgres:5432/foundation
-      HINDSIGHT_API_MIGRATION_DATABASE_URL: postgresql://foundation:${POSTGRES_PASSWORD}@foundation_postgres:5432/foundation
-      HINDSIGHT_API_DATABASE_SCHEMA: hindsight
-      HINDSIGHT_API_HOST: 0.0.0.0
-      HINDSIGHT_API_PORT: "8888"
-      HINDSIGHT_API_LLM_PROVIDER: openai
-      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY}
-      HINDSIGHT_API_LLM_BASE_URL: http://forgerouter:2100/v1
-      HINDSIGHT_API_LLM_MODEL: forgerouter/auto
-      HINDSIGHT_API_LOG_LEVEL: info
-      HINDSIGHT_API_WORKER_ID: hindsight
-      HINDSIGHT_WAIT_FOR_DEPS: "false"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    ports:
-      - "8888:8888"
-      - "9999:9999"
-    networks:
       - foundation_network
 
 networks:

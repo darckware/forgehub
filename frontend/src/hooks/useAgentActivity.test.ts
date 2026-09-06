@@ -195,9 +195,9 @@ const ACTIVITY = {
   ],
   resources: [
     {
-      key: "database:company_postgres/company",
+      key: "database:forgehub_postgres/company",
       kind: "database",
-      label: "company_postgres",
+      label: "forgehub_postgres",
       detail: "company",
       status: "available",
     },
@@ -213,12 +213,12 @@ const ACTIVITY = {
       label: "Working now",
     },
     {
-      key: `persistence:${IDS.project}:database:company_postgres/company`,
+      key: `persistence:${IDS.project}:database:forgehub_postgres/company`,
       kind: "persistence",
       from_type: "project",
       from_id: IDS.project,
       to_type: "resource",
-      to_id: "database:company_postgres/company",
+      to_id: "database:forgehub_postgres/company",
       label: "Persists in company schema",
     },
   ],

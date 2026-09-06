@@ -45,7 +45,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Postgres connection (shared `company_postgres` instance, see docs/DB_README.md)
+    # ForgeHub PostgreSQL instance.
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5433
     POSTGRES_USER: str = "foundation"
@@ -74,12 +74,17 @@ class Settings(BaseSettings):
     FORGEROUTER_URL: str = "http://host.docker.internal:2100"
     FORGEROUTER_SSO_SECRET: str = ""
 
-    # Second PostgreSQL instance (Foundation runtime data).
-    # Inside Docker both instances share the foundation_network docker network.
-    FOUNDATION_POSTGRES_HOST: str = "foundation_postgres"
+    # Hindsight/Foundation PostgreSQL instance.
+    FOUNDATION_POSTGRES_HOST: str = "hindsight_postgres"
     FOUNDATION_POSTGRES_PORT: int = 5432
     FOUNDATION_POSTGRES_USER: str = "foundation"
     FOUNDATION_POSTGRES_PASSWORD: str = ""  # falls back to POSTGRES_PASSWORD when empty
+
+    # ForgeRouter PostgreSQL instance.
+    FORGEROUTER_POSTGRES_HOST: str = "forgerouter_postgres"
+    FORGEROUTER_POSTGRES_PORT: int = 5432
+    FORGEROUTER_POSTGRES_USER: str = "proxyrouter_user"
+    FORGEROUTER_POSTGRES_PASSWORD: str = ""  # falls back to POSTGRES_PASSWORD when empty
 
     # System Control (api/routes/system_control.py) -- see forgehub.config
     # for the operator-facing explanation of each of these.
@@ -180,12 +185,19 @@ class Settings(BaseSettings):
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
-    def db_url_for(self, host: str, port: int, db: str) -> str:
-        """Build a connection URL for an arbitrary host/port/db using the shared credentials."""
-        # Foundation instance may have its own password; fall back to main password.
-        password = self.FOUNDATION_POSTGRES_PASSWORD or self.POSTGRES_PASSWORD
-        user = self.FOUNDATION_POSTGRES_USER or self.POSTGRES_USER
-        return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db}"
+    def db_url_for(
+        self,
+        host: str,
+        port: int,
+        db: str,
+        *,
+        user: str | None = None,
+        password: str | None = None,
+    ) -> str:
+        """Build a connection URL for an arbitrary PostgreSQL instance."""
+        effective_password = password or self.FOUNDATION_POSTGRES_PASSWORD or self.POSTGRES_PASSWORD
+        effective_user = user or self.FOUNDATION_POSTGRES_USER or self.POSTGRES_USER
+        return f"postgresql+asyncpg://{effective_user}:{effective_password}@{host}:{port}/{db}"
 
 
 @lru_cache

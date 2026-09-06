@@ -34,7 +34,7 @@
     },
     "tables": {
       "label": "Tabelas",
-      "detail": "{{count}} grupos ativos; foundation_postgres/hindsight"
+      "detail": "{{count}} grupos ativos; hindsight_postgres/foundation"
     },
     "memoryUnits": {
       "label": "Unidades de Memória",
@@ -49,7 +49,7 @@
       "label": "Saúde do Esquema",
       "loading": "Carregando...",
       "indexed": "Indexado",
-      "detail": "Inventário somente leitura do foundation_postgres"
+      "detail": "Inventário somente leitura do hindsight_postgres"
     }
   },
   "recentErrors": "Erros Recentes do Hindsight",
@@ -78,7 +78,7 @@
   },
   "schemaInventory": {
     "title": "Inventário do Esquema",
-    "detail": "foundation_postgres / hindsight contém {{tables}} tabelas e {{asyncOps}} operações assíncronas.",
+    "detail": "hindsight_postgres / foundation contém {{tables}} tabelas e {{asyncOps}} operações assíncronas.",
     "table": "Tabela",
     "rows": "Linhas",
     "cols": "Colunas",

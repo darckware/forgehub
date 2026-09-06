@@ -490,7 +490,7 @@ async def test_build_activity_includes_membership_only_project(activity_world):
         assert any(
             relation.kind == "persistence"
             and relation.from_id == str(membership_project_id)
-            and relation.to_id == "database:company_postgres/company"
+            and relation.to_id == "database:forgehub_postgres/company"
             for relation in view.topology_relations
         )
     finally:
@@ -1022,9 +1022,9 @@ def test_agent_activity_contract_serializes_topology_objects():
         ],
         resources=[
             ActivityResourceOut(
-                key="database:company_postgres/company",
+                key="database:forgehub_postgres/company",
                 kind="database",
-                label="company_postgres",
+                label="forgehub_postgres",
                 detail="company",
                 status="available",
             )
@@ -1050,7 +1050,7 @@ def test_agent_activity_contract_serializes_topology_objects():
 
     assert payload["agents"][0]["avatar_data_url"].startswith("data:image/png")
     assert payload["projects"][0]["id"] == str(project_id)
-    assert payload["resources"][0]["key"] == "database:company_postgres/company"
+    assert payload["resources"][0]["key"] == "database:forgehub_postgres/company"
     assert payload["topology_relations"][0]["kind"] == "current_work"
 
 
@@ -1219,9 +1219,9 @@ async def test_agent_activity_get_requires_authority_and_returns_canonical_view(
     assert any(item["id"] == str(activity_world.project_id) for item in payload["projects"])
     assert payload["resources"] == [
         {
-            "key": "database:company_postgres/company",
+            "key": "database:forgehub_postgres/company",
             "kind": "database",
-            "label": "company_postgres",
+            "label": "forgehub_postgres",
             "detail": "company",
             "status": "available",
         }

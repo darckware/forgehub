@@ -1548,14 +1548,14 @@ async def list_managed_servers() -> str:
 @mcp.tool()
 async def execute_database_query(
     query: str,
-    instance: str = "company_postgres",
+    instance: str = "forgehub_postgres",
     database: str = "forgehub",
 ) -> str:
     """Execute a safe SQL query against one of ForgeHub's PostgreSQL databases and return tabular results.
 
     Args:
         query: SQL query (SELECT / introspection).
-        instance: database instance ('company_postgres' or 'foundation_postgres').
+        instance: database instance ('forgehub_postgres', 'forgerouter_postgres' or 'hindsight_postgres').
         database: database name ('forgehub', 'foundation', 'forgerouter').
     """
     try:

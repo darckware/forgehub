@@ -1,0 +1,72 @@
+services:
+  forgehub_postgres:
+    image: pgvector/pgvector:pg16
+    container_name: forgehub_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: forgehub
+      POSTGRES_USER: foundation
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - forgehub_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foundation -d forgehub"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - foundation_network
+
+  forgerouter_postgres:
+    image: pgvector/pgvector:pg16
+    container_name: forgerouter_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: forgerouter
+      POSTGRES_USER: proxyrouter_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - forgerouter_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proxyrouter_user -d forgerouter"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - foundation_network
+
+  hindsight_postgres:
+    image: pgvector/pgvector:pg16
+    container_name: hindsight_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: foundation
+      POSTGRES_USER: foundation
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - hindsight_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foundation -d foundation"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - foundation_network
+
+volumes:
+  forgehub_postgres_data:
+    name: forgehub_postgres_data
+  forgerouter_postgres_data:
+    name: forgerouter_postgres_data
+  hindsight_postgres_data:
+    name: hindsight_postgres_data
+
+networks:
+  foundation_network:
+    external: true

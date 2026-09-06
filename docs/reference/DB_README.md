@@ -2,24 +2,24 @@
 
 ## Decisão
 
-O ForgeHub **não roda um PostgreSQL próprio**. Ele conecta na instância compartilhada `company_postgres`, que já existe e também hospeda o banco do Kanboard (infraestrutura ainda ativa — a integração do ForgeHub *com* o Kanboard foi descontinuada e removida em 2026-07-28, mas o serviço/banco do Kanboard em si continua rodando nesse container).
+O ForgeHub usa uma instância PostgreSQL dedicada. Os dados internos do ForgeRouter e do Hindsight/Foundation ficam em instâncias separadas.
 
 | Campo | Valor |
 |---|---|
-| Instância | `company_postgres` |
+| Instância | `forgehub_postgres` |
 | Host / Porta | `localhost:5433` (container expõe `5433->5432`) |
 | Database | `forgehub` |
 | Schema da aplicação | `company` |
 | Owner | `foundation` |
 | Imagem | `pgvector/pgvector:pg16` |
 
-A outra instância, `foundation_postgres` (porta `5432`), é exclusiva de dados internos do ecossistema Hermes/Foundation (memória, roteamento do ForgeRouter, auditoria) e **não deve ser usada pelo ForgeHub**.
+As demais instâncias são `forgerouter_postgres` (`localhost:5434`, database `forgerouter`) e `hindsight_postgres` (`localhost:5432`, database `foundation`, schema `hindsight`). O banco descontinuado `kanboard` não faz parte da nova topologia.
 
 Fonte de verdade da topologia completa: `/root/.hermes/foundation/governance/POSTGRESQL_TOPOLOGY.md`.
 
-## Por que `company_postgres`
+## Separação por responsabilidade
 
-Regra de posicionamento do Foundation: dados de negócio/aplicação vão em `company_postgres`; dados canônicos do próprio ecossistema Hermes vão em `foundation_postgres`. O ForgeHub é uma aplicação de negócio (controle de produtos/projetos/pipelines), então cai em `company_postgres`.
+Dados de negócio do ForgeHub ficam em `forgehub_postgres`; roteamento de LLM fica em `forgerouter_postgres`; memória e dados canônicos do Foundation ficam em `hindsight_postgres`.
 
 ## Configuração local
 
@@ -40,13 +40,14 @@ DATABASE_URL=postgresql+asyncpg://foundation:foundation_local_dev_password@local
 
 Migrations (Alembic) devem criar as tabelas do domínio dentro do schema `company`, nunca em `public`.
 
-## Estado conhecido (validado em 18/06/2026)
+## Estado conhecido (validado em 03/09/2026)
 
-- Schema `company` já existe no banco `forgehub`, ainda sem tabelas.
-- `database/postgres-company/docker-compose.yml` (neste repo) gerencia o container `company_postgres`. Ele estava órfão (compose original perdido no rename ForgeCompany→Forgehub) e foi readotado via `docker compose up -d` em 18/06/2026 — o Docker recriou o container por uma pequena diferença de hash de config, mas os dados (bind mount) ficaram intactos: `forgehub`/`company` e `kanboard` (tasks) verificados depois.
+- `database/docker-compose.yml` gerencia as três instâncias e seus volumes Docker dedicados.
+- Os databases `forgehub`, `forgerouter` e `foundation` foram migrados por `pg_dump`/`pg_restore`.
+- Os containers antigos permanecem parados apenas durante a janela de rollback; seus bind mounts não são usados pela nova topologia.
 
 ## Regras
 
 - Não criar databases ou schemas adicionais sem atualizar este arquivo e `/root/.hermes/foundation/governance/POSTGRESQL_TOPOLOGY.md` + `/root/.hermes/foundation/services/inventory.md`.
 - Não usar o database administrativo `postgres` para dados de aplicação.
-- Não duplicar o mesmo domínio de negócio em `foundation_postgres`.
+- Não duplicar o mesmo domínio entre as três instâncias.

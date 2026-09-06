@@ -25,9 +25,9 @@ const project = {
 } satisfies ActivityProject;
 
 const resource = {
-  key: "database:company_postgres/company",
+  key: "database:forgehub_postgres/company",
   kind: "database",
-  label: "company_postgres",
+  label: "forgehub_postgres",
   detail: "company",
   status: "available",
 } satisfies ActivityResource;

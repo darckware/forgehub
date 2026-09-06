@@ -187,7 +187,7 @@ export default function HindsightPage() {
   const [clearLogConfirmOpen, setClearLogConfirmOpen] = useState(false);
   const { data: schemaTables, isLoading: schemaLoading } = useDatabaseTables(
     "hindsight",
-    "foundation_postgres",
+    "hindsight_postgres",
     "foundation"
   );
 
