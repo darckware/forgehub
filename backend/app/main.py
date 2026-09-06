@@ -58,6 +58,7 @@ from app.api.routes import (
     remote_access,
     server,
     system_control,
+    system_info,
     system_scope,
     systemstats,
     task,
@@ -285,6 +286,7 @@ app.include_router(chat.router)
 app.include_router(channel.router)
 app.include_router(terminal.router)
 app.include_router(toolversions.router)
+app.include_router(system_info.router)
 app.include_router(systemstats.router)
 app.include_router(workspace_browser.router)
 app.include_router(vault.router)

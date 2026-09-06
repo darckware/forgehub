@@ -2,6 +2,10 @@ services:
   forgehub-backend:
     build:
       context: ./backend
+      args:
+        FORGEHUB_VERSION: ${FORGEHUB_VERSION:-unknown}
+        FORGEHUB_GIT_SHA: ${FORGEHUB_GIT_SHA:-unknown}
+        FORGEHUB_BUILD_DATE: ${FORGEHUB_BUILD_DATE:-unknown}
     container_name: forgehub-backend
     restart: unless-stopped
     env_file:

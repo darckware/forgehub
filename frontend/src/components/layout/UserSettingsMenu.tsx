@@ -1,8 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Camera, Check, KeyRound, Laptop, LogOut, Loader2, Moon, Settings, Settings2, Sun, User as UserIcon } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Camera, Check, ExternalLink, Info, KeyRound, Laptop, LogOut, Loader2, Moon, Settings, Settings2, Sun, User as UserIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiClient } from "@/lib/api";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useTheme } from "@/lib/theme";
 import type { UiLanguage } from "@/i18n";
@@ -24,14 +26,94 @@ const LANGUAGE_OPTIONS: { value: UiLanguage; labelKey: string }[] = [
 
 /** Backdrop + centered panel, same pattern as components/ui/confirm-dialog.tsx. */
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    panelRef.current
+      ?.querySelector<HTMLElement>("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")
+      ?.focus();
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onClose();
+      }}
+    >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl">
-        <h2 className="mb-4 text-base font-semibold">{title}</h2>
+      <div ref={panelRef} className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl">
+        <h2 id={titleId} className="mb-4 text-base font-semibold">{title}</h2>
         {children}
       </div>
     </div>
+  );
+}
+
+interface SystemVersion {
+  app_version: string;
+  git_sha: string;
+  git_commit_url: string | null;
+  build_date: string;
+  postgres_version: string | null;
+  latest_migration_bundled: string | null;
+  github_repo_url: string;
+}
+
+function AboutModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation("common");
+  const version = useQuery({
+    queryKey: ["system-version"],
+    queryFn: () => apiClient.get<SystemVersion>("/api/v1/system/version"),
+  });
+
+  return (
+    <ModalShell title={t("userMenu.about")} onClose={onClose}>
+      {version.isPending && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {t("userMenu.versionLoading")}
+        </div>
+      )}
+      {version.isError && (
+        <p className="text-sm text-destructive" role="alert">
+          {t("userMenu.versionError")}
+        </p>
+      )}
+      {version.data && (
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+          <dt className="text-muted-foreground">{t("userMenu.appVersion")}</dt>
+          <dd className="font-mono">{version.data.app_version}</dd>
+          <dt className="text-muted-foreground">{t("userMenu.gitCommit")}</dt>
+          <dd className="min-w-0 break-all font-mono">
+            {version.data.git_commit_url ? (
+              <a className="inline-flex items-center gap-1 text-primary hover:underline" href={version.data.git_commit_url} target="_blank" rel="noreferrer">
+                {version.data.git_sha}<ExternalLink className="h-3 w-3" />
+              </a>
+            ) : version.data.git_sha}
+          </dd>
+          <dt className="text-muted-foreground">{t("userMenu.buildDate")}</dt>
+          <dd className="break-all font-mono text-xs">{version.data.build_date}</dd>
+          <dt className="text-muted-foreground">PostgreSQL</dt>
+          <dd className="break-words text-xs">{version.data.postgres_version ?? t("userMenu.unavailable")}</dd>
+          <dt className="text-muted-foreground">{t("userMenu.migration")}</dt>
+          <dd className="break-all font-mono text-xs">{version.data.latest_migration_bundled ?? t("userMenu.unavailable")}</dd>
+          <dt className="text-muted-foreground">{t("userMenu.repository")}</dt>
+          <dd>
+            <a className="inline-flex items-center gap-1 text-primary hover:underline" href={version.data.github_repo_url} target="_blank" rel="noreferrer">
+              GitHub<ExternalLink className="h-3 w-3" />
+            </a>
+          </dd>
+        </dl>
+      )}
+      <div className="mt-5 flex justify-end">
+        <Button variant="outline" size="sm" onClick={onClose}>{t("userMenu.close")}</Button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -254,7 +336,7 @@ export function UserSettingsMenu({
 }) {
   const { t } = useTranslation("common");
   const [open, setOpen] = useState(false);
-  const [modal, setModal] = useState<"account" | "password" | null>(null);
+  const [modal, setModal] = useState<"account" | "password" | "about" | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
   const { theme, setTheme } = useTheme();
@@ -368,6 +450,17 @@ export function UserSettingsMenu({
             <div className="my-1 border-t border-border" />
             <button
               type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setModal("about");
+                setOpen(false);
+              }}
+            >
+              <Info className="h-3.5 w-3.5" />
+              {t("userMenu.about")}
+            </button>
+            <button
+              type="button"
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               onClick={handleLogout}
             >
@@ -379,6 +472,7 @@ export function UserSettingsMenu({
       </div>
       {modal === "account" && <AccountModal onClose={() => setModal(null)} />}
       {modal === "password" && <ChangePasswordModal onClose={() => setModal(null)} />}
+      {modal === "about" && <AboutModal onClose={() => setModal(null)} />}
     </>
   );
 }
