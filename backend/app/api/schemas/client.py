@@ -65,3 +65,21 @@ class WorkstationTokenIssued(BaseModel):
     carries the raw token."""
     workstation: WorkstationOut
     device_token: str
+
+
+class IrregularityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    workstation_id: uuid.UUID
+    rule_key: str
+    severity: str
+    detail: str
+    status: str
+    detected_at: datetime
+    resolved_at: datetime | None
+    resolved_by_user_id: uuid.UUID | None
+
+
+class IrregularityResolve(BaseModel):
+    status: str  # "acknowledged" | "resolved"
