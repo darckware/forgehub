@@ -1,5 +1,6 @@
 services:
   forgehub-backend:
+    image: forgehub-backend:latest
     build:
       context: ./backend
       args:
@@ -86,6 +87,7 @@ services:
       - foundation_network
 
   forgehub-frontend:
+    image: forgehub-frontend:latest
     build:
       context: ./frontend
     container_name: forgehub-frontend
