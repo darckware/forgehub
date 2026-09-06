@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Plus, Minus, RotateCcw } from "lucide-react";
+import { Plus, Minus } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import { apiClient, getToken } from "@/lib/api";
 
@@ -105,7 +105,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    const webLinksAddon = new WebLinksAddon((event, uri) => {
+    const webLinksAddon = new WebLinksAddon((_event, uri) => {
       window.open(uri, "_blank", "noopener,noreferrer");
     });
     term.loadAddon(webLinksAddon);
