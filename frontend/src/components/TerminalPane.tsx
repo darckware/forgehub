@@ -1,10 +1,27 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Plus, Minus, RotateCcw } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import { apiClient, getToken } from "@/lib/api";
+
+const FONT_SIZE_STORAGE_KEY = "forgehub_terminal_font_size";
+const DEFAULT_FONT_SIZE = 14;
+const MIN_FONT_SIZE = 9;
+const MAX_FONT_SIZE = 32;
+
+function getStoredFontSize(): number {
+  try {
+    const raw = localStorage.getItem(FONT_SIZE_STORAGE_KEY);
+    if (!raw) return DEFAULT_FONT_SIZE;
+    const val = parseInt(raw, 10);
+    return isNaN(val) ? DEFAULT_FONT_SIZE : Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, val));
+  } catch {
+    return DEFAULT_FONT_SIZE;
+  }
+}
 
 // Falls back to the page's own origin, not a hardcoded localhost:8000 --
 // see the matching comment in lib/api.ts.
@@ -34,6 +51,48 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
   const containerRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const termRef = useRef<Terminal | null>(null);
+  const [fontSize, setFontSize] = useState<number>(getStoredFontSize);
+
+  const handleZoomIn = () => {
+    setFontSize((prev) => {
+      const next = Math.min(MAX_FONT_SIZE, prev + 1);
+      try {
+        localStorage.setItem(FONT_SIZE_STORAGE_KEY, next.toString());
+      } catch {}
+      if (termRef.current) {
+        termRef.current.options.fontSize = next;
+        fitAddonRef.current?.fit();
+      }
+      return next;
+    });
+  };
+
+  const handleZoomOut = () => {
+    setFontSize((prev) => {
+      const next = Math.max(MIN_FONT_SIZE, prev - 1);
+      try {
+        localStorage.setItem(FONT_SIZE_STORAGE_KEY, next.toString());
+      } catch {}
+      if (termRef.current) {
+        termRef.current.options.fontSize = next;
+        fitAddonRef.current?.fit();
+      }
+      return next;
+    });
+  };
+
+  const handleZoomReset = () => {
+    setFontSize(() => {
+      try {
+        localStorage.setItem(FONT_SIZE_STORAGE_KEY, DEFAULT_FONT_SIZE.toString());
+      } catch {}
+      if (termRef.current) {
+        termRef.current.options.fontSize = DEFAULT_FONT_SIZE;
+        fitAddonRef.current?.fit();
+      }
+      return DEFAULT_FONT_SIZE;
+    });
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -41,7 +100,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: getStoredFontSize(),
       theme: { background: "#0a0a0f" },
     });
     const fitAddon = new FitAddon();
@@ -302,5 +361,43 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     if (term) term.refresh(0, term.rows - 1);
   }, [active]);
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full group">
+      {/* Zoom / Font Size Controls */}
+      <div className="absolute right-3 top-2 z-10 flex items-center gap-1 rounded-md border border-border/60 bg-background/80 px-1 py-0.5 shadow-sm backdrop-blur-sm opacity-60 hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={handleZoomOut}
+          disabled={fontSize <= MIN_FONT_SIZE}
+          className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+          title="Diminuir zoom do terminal (-)"
+          aria-label="Diminuir zoom"
+        >
+          <Minus className="h-3.5 w-3.5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={handleZoomReset}
+          className="px-1.5 py-0.5 text-[11px] font-mono font-medium text-muted-foreground hover:text-foreground hover:bg-accent rounded"
+          title={`Tamanho atual: ${fontSize}px. Clique para restaurar o padrão (${DEFAULT_FONT_SIZE}px).`}
+        >
+          {fontSize}px
+        </button>
+
+        <button
+          type="button"
+          onClick={handleZoomIn}
+          disabled={fontSize >= MAX_FONT_SIZE}
+          className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+          title="Aumentar zoom do terminal (+)"
+          aria-label="Aumentar zoom"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div ref={containerRef} className="h-full w-full" />
+    </div>
+  );
 }
