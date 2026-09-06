@@ -55,19 +55,33 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     fitAddonRef.current = fitAddon;
     termRef.current = term;
 
+    // Auto copy on text selection (copy-on-select) so whatever text
+    // is selected with the mouse is immediately written to the clipboard
+    term.onSelectionChange(() => {
+      const selected = term.getSelection();
+      if (selected && selected.trim().length > 0) {
+        void navigator.clipboard?.writeText(selected).catch(() => {});
+      }
+    });
+
     // xterm.js's own keydown handling treats Ctrl+C/Ctrl+V as raw control
     // bytes (SIGINT / SYN) and calls preventDefault on them, which stops the
     // browser's native copy/paste from ever firing -- even though xterm
     // already has "copy"/"paste" DOM listeners wired up to do the right
     // thing with the selection/clipboard. Stepping out of the way for these
     // two combos (returning false skips xterm's own handling) lets the
-    // browser's native copy/paste reach those listeners instead. Cmd+C/V on
-    // Mac already bypass xterm's interception on their own, so this is a
-    // no-op there.
+    // browser's native copy/paste reach those listeners instead.
+    // We also explicitly write to clipboard on Ctrl+C / Cmd+C when there's a selection.
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown" || (!event.ctrlKey && !event.metaKey)) return true;
       const key = event.key.toLowerCase();
-      if (key === "c" && term.hasSelection()) return false;
+      if (key === "c" && term.hasSelection()) {
+        const text = term.getSelection();
+        if (text) {
+          void navigator.clipboard?.writeText(text).catch(() => {});
+        }
+        return false;
+      }
       if (key === "v") return false;
       return true;
     });
@@ -193,6 +207,19 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       }
     };
 
+    // Allow right-click context menu: if text is selected, right-click copies it;
+    // otherwise paste from clipboard into terminal
+    const handleContextMenu = (event: MouseEvent) => {
+      if (term.hasSelection()) {
+        event.preventDefault();
+        const text = term.getSelection();
+        if (text) {
+          void navigator.clipboard?.writeText(text).catch(() => {});
+        }
+      }
+    };
+    container.addEventListener("contextmenu", handleContextMenu);
+
     const handlePaste = (event: ClipboardEvent) => {
       const imageItem = Array.from(event.clipboardData?.items ?? []).find((item) =>
         item.type.startsWith("image/")
@@ -248,6 +275,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       inputDisposable.dispose();
+      container.removeEventListener("contextmenu", handleContextMenu);
       container.removeEventListener("paste", handlePaste, true);
       container.removeEventListener("dragover", handleDragOver);
       container.removeEventListener("drop", handleDrop);
