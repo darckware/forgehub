@@ -23,6 +23,7 @@ from app.core.security import decode_access_token
 from app.api.routes import (
     agent,
     agent_activity,
+    agent_report,
     ai_draft,
     artifact,
     audit,
@@ -99,6 +100,11 @@ _PUBLIC_API_PATHS = {
     "/api/v1/auth/token",
     "/api/v1/audit/run-internal",
     "/api/v1/demands/submit",
+    # Nexo Remote Agent ingestion -- authenticated by its own X-Device-Token
+    # header (hashed and matched against Workstation.device_token_hash, see
+    # agent_report.py), never a User/Agent JWT/agt_ principal. Same "this
+    # route does its own auth" trust boundary as /demands/submit above.
+    "/api/v1/agent-reports",
     # An agent's own cron/loop pulling its pending mail -- see
     # demand.py's list_pending_for_agent docstring.
     "/api/v1/demands/pending",
@@ -269,6 +275,7 @@ app.include_router(factory.router)
 app.include_router(backlog.router)
 app.include_router(client.router)
 app.include_router(workstation.router)
+app.include_router(agent_report.router)
 app.include_router(task.router)
 app.include_router(task.responsibility_router)
 app.include_router(agent.router)
