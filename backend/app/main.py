@@ -115,11 +115,6 @@ _PUBLIC_API_PATHS = {
     # Any Hermes agent logging a task directly (project_id + planning item
     # auto-created) -- see task.py's submit_task docstring.
     "/api/v1/tasks/submit",
-    # Nexo agent listing irregularities for monitoring -- same trust boundary
-    # as /agent-reports above (authenticated by X-Device-Token on
-    # agent_report.py routes, but irregularities listing is read-only status
-    # check).
-    "/api/v1/irregularities",
 }
 
 

@@ -46,7 +46,9 @@ async def test_list_and_resolve_irregularity():
         token = await _user_token()
         headers = {"Authorization": f"Bearer {token}"}
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
-            list_resp = await http.get("/api/v1/irregularities", params={"status_filter": "open"})
+            list_resp = await http.get(
+                "/api/v1/irregularities", params={"status_filter": "open"}, headers=headers
+            )
             assert list_resp.status_code == 200
             assert any(i["id"] == str(irregularity_id) for i in list_resp.json())
 
