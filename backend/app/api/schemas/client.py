@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 
 class ClientBase(BaseModel):
@@ -54,6 +54,7 @@ class WorkstationOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @computed_field
     @property
     def device_token_active(self) -> bool:
         return self.device_token_revoked_at is None
