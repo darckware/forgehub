@@ -30,6 +30,7 @@ from app.api.routes import (
     backlog,
     channel,
     chat,
+    client,
     cron_scripts,
     database,
     deploy,
@@ -265,6 +266,7 @@ app.include_router(progress.router)
 app.include_router(execution.router)
 app.include_router(factory.router)
 app.include_router(backlog.router)
+app.include_router(client.router)
 app.include_router(task.router)
 app.include_router(task.responsibility_router)
 app.include_router(agent.router)
