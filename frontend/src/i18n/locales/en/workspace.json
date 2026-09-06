@@ -74,7 +74,27 @@
   "terminal": {
     "authFailed": "Failed to authenticate terminal session.",
     "reconnecting": "Connection lost -- reconnecting in {{seconds}}s…",
-    "imageUploadFailed": "Image upload failed. Try again."
+    "imageUploadFailed": "Image upload failed. Try again.",
+    "copy": "Copy terminal selection or screen",
+    "copyHelp": "Copy the selection or screen. In interactive apps, use Shift + drag to select.",
+    "openLatestLink": "Open latest detected link",
+    "noLinkDetected": "No link detected in the terminal",
+    "help": {
+      "title": "Terminal instructions",
+      "selectShortcut": "Shift + drag",
+      "select": "Select text inside interactive applications",
+      "copy": "Copy the selection (or use the copy button to copy the screen)",
+      "paste": "Paste text into the terminal",
+      "linkButton": "↗ button",
+      "openLink": "Open the latest detected link",
+      "splitVertical": "Split the screen vertically with tmux",
+      "splitHorizontal": "Split the screen horizontally with tmux",
+      "changePane": "Move between tmux panes",
+      "zoomPane": "Maximize or restore the current pane",
+      "closePane": "Close the current tmux pane",
+      "closeTabButton": "Close tab",
+      "detach": "Detach the tab while its process keeps running"
+    }
   },
   "webAppPane": {
     "back": "Back",
