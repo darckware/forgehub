@@ -2,7 +2,8 @@
 
 **Data da coleta:** 2026-09-06  
 **Ambiente:** local  
-**Estado:** auditoria inicial; nenhuma restauração, compactação ou correção executada.  
+**Estado:** auditoria inicial; correção local de notificações implementada em branch isolada;
+nenhuma restauração, compactação ou mudança de VPS executada.
 **Plano:** [gestão de memória coletiva](../superpowers/plans/2026-09-06-collective-memory-governance.md)
 
 ## Resultado executivo
@@ -19,8 +20,8 @@ Claude continua sendo uma dependência para qualquer alteração de arquitetura 
 | P0 | Execução restart-safe | Estado dos jobs | Erro comum: `systemd-run --user --scope is unavailable` | Causa dominante dos erros atuais; ainda não corrigida | Validar serviço/sessão systemd e contrato da versão instalada do Hermes |
 | P0 | Retenção Hindsight | Job `523651ba9c5e` e diretório de scripts | Job habilitado; `/root/.hermes/profiles/athos/scripts/hindsight_prune.py` ausente | Cadastro incompleto confirmado | Recuperar ou implementar o script a partir de requisito aprovado; manter job sem execução até teste |
 | P1 | Backup semanal | Job `2f917a71a212` e `weekly_backup.sh` | Arquivos compactados passam em `zstd -t`, mas o `tar` não lê dois diretórios PostgreSQL atuais por permissão | Excludes apontam para topologia antiga; stderr oculto e pipeline encerra antes da retenção | Conciliar caminhos com o plano do Claude, corrigir excludes/log e testar restauração |
-| P1 | Notificações de cron | `backend/app/api/routes/notifications.py` | O ingestor cria notificação para sucesso e falha | Incompatível com alerta por exceção | Alterar produtor e testes para registrar somente condições acionáveis |
-| P1 | Feedback de Messages | `backend/app/core/feedback.py` | Conclusão normal pode criar notificação interna | Regra antiga diverge da orientação atual | Separar devolução de resultado de alerta e preservar idempotência |
+| P1 | Notificações de cron | `backend/app/api/routes/notifications.py` | Na branch isolada, sucesso é silencioso; falha persistente alerta a partir da terceira ocorrência e deduplica por job/causa | Correção implementada e testada; ainda não integrada/implantada | Revisar e integrar após aceite |
+| P1 | Feedback de Messages | `backend/app/core/feedback.py` | Na branch isolada, conclusão normal não cria alerta; retorno solicitado permanece no canal e não é marcado como entregue quando o endereço está ausente | Correção implementada e testada; ainda não integrada/implantada | Revisar e integrar após aceite |
 | P1 | Hindsight | Banco `foundation`, schema `hindsight` | 17.028 unidades, 2.179 documentos, banco com 407.804.951 bytes | Baseline de capacidade; não mede qualidade | Auditar duplicação/proveniência antes de qualquer prune |
 | P2 | Caminhos de conhecimento | Hooks e manifestos | Referências ativas ainda usam links antigos em `/root/.hermes` | Compatibilidade funciona, contexto está desatualizado | Cada runtime atualiza sua configuração após conciliação com o plano do Claude |
 | P2 | Documentação de cron | `docs/screens/crons.md` e código atual | Documento menciona truncamento; código atual preserva prompt completo | Documento desatualizado | Corrigir documentação junto da implementação validada |

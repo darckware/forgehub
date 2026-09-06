@@ -2,18 +2,20 @@
 
 **Data:** 2026-09-06
 
-**Status:** proposta para revisão de Marcelo; implementação não iniciada.
+**Status:** aprovado por Marcelo; implementação parcial em branch isolada, ainda não integrada
+nem implantada.
 
-**Escopo autorizado nesta etapa:** diagnóstico e planejamento. Não alterar configurações,
-memórias, cadastros, serviços ou dados da VPS; não despachar Messages.
+**Escopo autorizado nesta etapa:** diagnóstico, planejamento e correções locais independentes
+que não se sobreponham ao trabalho de arquitetura. Não alterar memórias privadas de outros
+agentes, serviços ou dados da VPS; não despachar Messages sem o projeto oficial correto.
 
 **Objetivo:** tornar verificável, sustentável e coerente o uso de memória por Hermes,
 Codex, Claude e Agy/Antigravity, recuperar dados/comandos de cron e revisar as rotinas
 relacionadas do ForgeHub, com alertas somente quando houver necessidade de atenção.
 
 **Restrições atuais de Marcelo:** cada agente externo corrige a própria configuração;
-a arquitetura local/VPS está sendo planejada pelo Claude e deve ser aguardada antes de
-qualquer implementação que a afete. Este documento não substitui nem altera esse trabalho.
+a arquitetura local/VPS foi versionada pelo Claude e deve ser conciliada antes de qualquer
+implementação que a afete. Este documento não substitui nem altera esse trabalho.
 Toda a documentação desta iniciativa fica em `docs/` do projeto ForgeHub.
 
 **Cartilha vinculada:** [autoconfiguração dos agentes externos](../../runbooks/EXTERNAL_AGENT_ECOSYSTEM_SELF_CONFIGURATION.md).
@@ -354,11 +356,17 @@ como P2. Reproduzir o defeito antes de corrigir, testar depois e registrar limit
 
 ## 13. Coordenação e conclusão desta etapa
 
-Entregas atuais: este plano e a cartilha, ambos dentro de `docs/`. Correções de código,
-restauração, mudanças de configuração, publicação coletiva e notificações a agentes
-permanecem não executadas.
+Entregas atuais: este plano, a cartilha, a auditoria-base e uma correção local isolada dos
+produtores de alerta. Na branch `aramis/collective-memory-governance`, o commit `d9ac33c`
+mantém execuções normais fora do sino, devolve resultados ao Workspace/Telegram quando
+solicitado, preserva retornos pendentes, alerta falhas de tarefa, consolida falhas persistentes
+de cron por job/causa a partir da terceira ocorrência e não notifica a retomada normal. A
+regressão focal passou com 25 testes. A branch ainda não foi integrada nem implantada.
 
-Antes da implementação: receber o planejamento local/VPS concluído pelo Claude, conciliar
-interfaces e arquivos envolvidos, incorporar a revisão de Marcelo e registrar as tarefas
-autorizadas na Software Factory. Cada externo executa sua própria adequação. Não alterar
-arquivos compartilhados em paralelo sem definição de responsabilidade e integração.
+Restauração de cron, manutenção/compactação de memória, alterações de configuração dos agentes,
+publicação coletiva e mudanças em serviços/VPS permanecem não executadas.
+
+Antes das próximas implementações: conciliar a arquitetura local/VPS versionada pelo Claude,
+confirmar interfaces e arquivos envolvidos e registrar as tarefas autorizadas na Software
+Factory quando existir o projeto oficial correto. Cada externo executa sua própria adequação.
+Não alterar arquivos compartilhados em paralelo sem definição de responsabilidade e integração.
