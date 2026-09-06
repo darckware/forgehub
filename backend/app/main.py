@@ -381,6 +381,11 @@ BACKGROUND_TEST_COMPLETION_POLL_INTERVAL_SECONDS = 15
 # periodic, non-urgent maintenance sweep (e.g. the Auditor's own checks).
 DEMAND_RETENTION_POLL_INTERVAL_SECONDS = 21600
 
+# How often workstations that stopped reporting are detected and marked
+# as unreachable. 5 minutes is sufficient for the 15-minute staleness
+# threshold.
+WORKSTATION_STALENESS_POLL_INTERVAL_SECONDS = 300
+
 _background_tasks: list[asyncio.Task[None]] = []
 
 
@@ -631,6 +636,22 @@ async def _active_turn_sweep_loop() -> None:
         await asyncio.sleep(ACTIVE_TURN_SWEEP_INTERVAL_SECONDS)
 
 
+async def _workstation_staleness_poll_loop() -> None:
+    """Detects workstations that stopped reporting and raises agent_unreachable
+    Irregularities. Own task like the other passes: this only touches our
+    database and must keep running independent of other sweeps."""
+    from app.core.workstation_staleness import run_workstation_staleness_sweep
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_workstation_staleness_sweep(db)
+        except Exception:
+            logger.exception("Workstation staleness poll failed")
+        await asyncio.sleep(WORKSTATION_STALENESS_POLL_INTERVAL_SECONDS)
+
+
 async def _start_background_tasks() -> None:
     """Start each independent maintenance loop exactly once."""
     global _background_tasks
@@ -651,6 +672,7 @@ async def _start_background_tasks() -> None:
         ("task-failure-poll", _task_failure_poll_loop),
         ("evidence-verification-poll", _evidence_verification_poll_loop),
         ("demand-retention-poll", _demand_retention_poll_loop),
+        ("workstation-staleness-poll", _workstation_staleness_poll_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]
 
