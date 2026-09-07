@@ -7,9 +7,9 @@ Endpoints:
   PUT    /api/v1/clients/{id}  -- update
   DELETE /api/v1/clients/{id}  -- delete
 
-Headscale tag provisioning (spec section 5) is deliberately NOT part of this
-task -- headscale_tag stays nullable and unset here; a later plan wires
-POST here to also call the Headscale ACL adapter.
+Creating, renaming, or deleting a client republishes the full Headscale
+policy. Database work stays uncommitted until publication succeeds so an
+operational bridge failure cannot leave a client change falsely accepted.
 """
 import uuid
 
@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.client import ClientCreate, ClientOut, ClientUpdate
+from app.core import headscale_client
 from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.client import SUPPORT_PLANS, Client
@@ -41,9 +42,18 @@ async def create_client(
     if payload.support_plan is not None and payload.support_plan not in SUPPORT_PLANS:
         raise HTTPException(400, f"support_plan must be one of {SUPPORT_PLANS}")
 
-    client = Client(**payload.model_dump())
+    client = Client(
+        **payload.model_dump(),
+        headscale_tag=f"tag:cliente-{headscale_client.slugify_client_name(payload.name)}",
+    )
     db.add(client)
-    await db.commit()
+    await db.flush()
+    try:
+        await headscale_client.rebuild_and_push_policy(db)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
     await db.refresh(client)
     return client
 
@@ -75,7 +85,17 @@ async def update_client(
 
     for field, value in updates.items():
         setattr(client, field, value)
-    await db.commit()
+    policy_changed = "name" in updates
+    if policy_changed:
+        client.headscale_tag = f"tag:cliente-{headscale_client.slugify_client_name(client.name)}"
+    await db.flush()
+    try:
+        if policy_changed:
+            await headscale_client.rebuild_and_push_policy(db)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
     await db.refresh(client)
     return client
 
@@ -90,4 +110,10 @@ async def delete_client(
     if not client:
         raise HTTPException(404, "Client not found")
     await db.delete(client)
-    await db.commit()
+    await db.flush()
+    try:
+        await headscale_client.rebuild_and_push_policy(db)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
