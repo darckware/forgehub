@@ -51,6 +51,7 @@ from app.api.routes import (
     news,
     notifications,
     orchestration,
+    peer_grant,
     pipeline,
     progress,
     prompt_commands,
@@ -277,6 +278,7 @@ app.include_router(factory.router)
 app.include_router(backlog.router)
 app.include_router(client.router)
 app.include_router(workstation.router)
+app.include_router(peer_grant.router)
 app.include_router(agent_report.router)
 app.include_router(irregularity.router)
 app.include_router(task.router)
