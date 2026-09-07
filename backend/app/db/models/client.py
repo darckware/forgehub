@@ -12,7 +12,7 @@ for the full rule table and lifecycle.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -75,6 +75,40 @@ class Workstation(Base, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint(f"os_kind IN {OS_KINDS}", name="ck_workstations_os_kind"),
+    )
+
+
+class WorkstationPeerGrant(Base, TimestampMixin):
+    """A historical permission for one same-client workstation pair.
+
+    Routes store pair IDs canonically. Revocation closes a row instead of
+    deleting it; the partial unique index permits a later grant to create a
+    new historical row while preventing two simultaneously-active grants.
+    """
+
+    __tablename__ = "workstation_peer_grants"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workstation_a_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.workstations.id", ondelete="CASCADE"), nullable=False
+    )
+    workstation_b_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.workstations.id", ondelete="CASCADE"), nullable=False
+    )
+    granted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.users.id", ondelete="SET NULL"), nullable=True
+    )
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_workstation_peer_grants_active_pair",
+            "workstation_a_id",
+            "workstation_b_id",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+        ),
     )
 
 
