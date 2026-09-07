@@ -164,28 +164,36 @@ confirm-dialog + pending-spinner convention already used ~70 places in this code
 
 ### 5.1 Client → Headscale tag, one-to-one
 
-Creating a `Client` also provisions its Headscale ACL tag: `POST /api/v1/clients` writes the
-`Client` row *and* calls a new `core/headscale_client.py` adapter (same shape as
-`core/forgerouter_sync.py`'s direct-connection pattern to an external service, or a thin HTTP
-client against Headscale's own API if a network path to it exists from the ForgeHub backend
-container) to add `tag:cliente-<slug>` to the policy's `tagOwners` and a
-`{"src": ["group:admins"], "dst": ["tag:cliente-<slug>"], "ip": ["*"]}` grant — no
-`tag → tag` grant is ever written by this path. This mirrors exactly the manually-maintained
-policy shape already in `infra/headscale/acl-policy.hujson` in the Nexo repo, just generated
-instead of hand-edited, and generalized past the two example tags that file will carry once the
-Nexo-side ACL change (agreed in conversation, not yet implemented) lands.
+**Integration mechanism, confirmed (2026-09-06) by reading Nexo's actual integration tests, not
+assumed:** every existing interaction with Headscale in this ecosystem — `TestAdminUserExists`,
+`createPreAuthKey`, `waitForNodeCount` in `test/integration/02_admin_user_test.go` and
+`04_enrollment_test.go` — goes through the `headscale` CLI binary (`headscale users list -o
+json`, `headscale preauthkeys create --tags ... -o json`, `headscale nodes list -o json`), never
+an HTTP/gRPC API call. In dev this runs via `docker exec <container> headscale ...`; in production
+(`infra/headscale/remoto-headscale.service`) Headscale runs as a bare systemd service on the VPS
+host, so the same CLI is invoked directly there. ForgeHub's backend runs inside its own Docker
+container with no path to either the Headscale container or the host's `headscale` binary — the
+exact same constraint `system_control.py` (git status) and `hindsight.py` (docker restart) already
+solved via the host-bridge's `/v1/exec`. `core/headscale_client.py` is therefore a host-bridge
+proxy adapter, not a direct-API or direct-exec client: it builds `headscale <subcommand> ... -o
+json` argument lists and posts them to `/v1/exec`, parses the JSON response, and never talks to
+Headscale over the network itself. (A direct-API path remains possible later if Headscale's gRPC
+port is ever deliberately exposed to ForgeHub's network — not the case today, and not blocking this
+spec.)
 
-**Open implementation question, to resolve in the plan, not here:** whether ForgeHub calls
-Headscale's API directly over the network (requires the two services to reach each other — same
-kind of question the `MULTI_ENVIRONMENT_INFRA_AND_IDENTITY.md` spec already had to answer for
-other cross-service calls) or via the host-bridge's existing `/v1/exec` (shelling out to the
-`headscale` CLI on whichever host runs it, the same pattern `system_control.py`/`hindsight.py`
-already use for other host-side operations this backend container can't reach directly). Given
-Headscale already has a exec-based interaction precedent in this ecosystem (`headscaleExec` in the
-Nexo Go test helpers shells out via `docker exec`), the host-bridge path is likely the pragmatic
-first cut; the direct-API path is cleaner long-term and worth revisiting once Headscale's
-production instance (`remoto.darckware.net`) is actually deployed (still not done, per Nexo's own
-`CLAUDE.md` status section).
+**Rendering strategy, confirmed:** Headscale in this deployment runs in file-mode policy
+(`policy.mode: file`, `infra/headscale/config.dev.yaml`/`config.prod.yaml.example`), reading
+`/etc/headscale/acl-policy.hujson`. ForgeHub never hand-edits or diffs that file — every
+tag-provisioning or peer-grant change **re-renders the entire policy from the current DB state**
+(every `Client.headscale_tag`, every active `WorkstationPeerGrant`) into one HuJSON document, then
+pushes it via `/v1/exec` (write the file to a host-bridge-writable path, then `headscale policy
+set --file <path>` to validate-and-apply in one step — Headscale's own subcommand for loading a
+new file-mode policy without a service restart). Full-render-and-push, not incremental patching,
+is deliberate: it makes "what the DB says is granted" and "what Headscale is actually enforcing"
+structurally unable to drift apart — there is no diff logic to have a bug in. Creating a `Client`
+still writes its `Client` row *and* triggers this same full re-render (its new `tag:cliente-<slug>`
+now appears in the rendered `tagOwners`/`grants`), mirroring the shape already hand-maintained in
+`infra/headscale/acl-policy.hujson` today, just generated instead of typed by hand.
 
 ### 5.2 Selective same-client peer access (default off, explicit grant, auditable)
 
@@ -198,14 +206,19 @@ so `(A,B)` and `(B,A)` are never two rows). Creating a grant:
    clients must be rejected (400), not merely discouraged, since that is the one invariant this
    whole feature exists to never violate.
 2. Writes the `WorkstationPeerGrant` row.
-3. Calls the same `core/headscale_client.py` adapter to add a scoped grant to the live policy —
-   not `tag → tag` (that would open every device in the client to every other device), but a
-   narrower rule addressed to the two devices' own Headscale node IPs or a per-device tag, so the
-   permission is exactly the pair, not the whole client group. (Headscale's grants support
-   `ip`/host-level `src`/`dst` beyond tags — the exact HuJSON shape is a plan-level detail, not a
-   spec-level one.)
-4. Revoking removes the live grant the same way, sets `revoked_at`, and does **not** delete the
-   row (audit trail — who granted, when, and who revoked, when).
+3. Triggers the same full policy re-render described in §5.1. The render step, for every currently
+   active `WorkstationPeerGrant`, resolves each workstation's live Headscale overlay IP via
+   `headscale nodes list -o json` (matched by the node's registered name against the
+   `Workstation`'s known hostname — the same lookup Nexo's own `tailscaleIP` test helper performs),
+   adds both IPs to the policy's `hosts` map under stable aliases (e.g.
+   `ws-<workstation_id>`), and adds one `{"src": ["ws-<a>"], "dst": ["ws-<b>"], "ip": ["*"]}` grant
+   per pair — never `tag → tag` (that would open every device in the client to every other device).
+   IPs are resolved fresh on every render rather than cached, since Headscale can reassign a node's
+   address on re-registration; nothing in ForgeHub's own DB stores an IP.
+4. Revoking sets `revoked_at` (never deletes the row — audit trail of who granted/revoked and
+   when) and triggers the same full re-render, which now omits that pair's `hosts` entries and
+   `grants` line since the query behind the render only ever includes grants with `revoked_at IS
+   NULL`.
 
 Every grant/revoke is written to the existing `audit`/`governance` domain (`db/models/audit.py`),
 per the Nexo final review's recommendation to make this kind of state-changing action reviewable,
