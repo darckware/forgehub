@@ -109,6 +109,7 @@ class Settings(BaseSettings):
     # Host path, written through the host-bridge, from which Headscale loads
     # the ForgeHub-managed file-mode ACL policy.
     HEADSCALE_ACL_POLICY_PATH: str = "/etc/headscale/acl-policy.hujson"
+    HEADSCALE_ADMIN_PRINCIPAL: str = "marcelo@"
     # Trash path passed by System Control to the authoritative Athos cleanup
     # script. The weekly foundation-clear cron invokes that same script with
     # /root/trash as its default, avoiding duplicated cleanup policies.
