@@ -1,3 +1,4 @@
 # Dev-only tooling, not needed in the runtime image.
 # pip install -r requirements.txt -r requirements-dev.txt
+mcp<2
 ruff==0.15.20

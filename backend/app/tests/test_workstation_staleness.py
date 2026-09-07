@@ -35,7 +35,7 @@ async def test_stale_workstation_raises_one_irregularity_and_dedupes():
             assert raised >= 1
 
         async with AsyncSessionLocal() as db:
-            raised_again = await run_workstation_staleness_sweep(db)
+            await run_workstation_staleness_sweep(db)
             # already-open irregularity for this workstation -- no duplicate
             rows = (await db.execute(
                 select(Irregularity).where(
