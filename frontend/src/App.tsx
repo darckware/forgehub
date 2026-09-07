@@ -40,6 +40,7 @@ import CronsPage from "@/pages/crons";
 import SystemControlPage from "@/pages/system-control";
 import DeployPage from "@/pages/deploy";
 import ServersPage from "@/pages/servers";
+import IrregularitiesPage from "@/pages/irregularities";
 import DatabaseLayout from "@/pages/database/DatabaseLayout";
 import DatabaseSchemaPage from "@/pages/database/SchemaPage";
 import DatabaseDiagramPage from "@/pages/database/DiagramPage";
@@ -124,6 +125,7 @@ export default function App() {
         <Route path="docs" element={<DocsPage />} />
         <Route path="deploy" element={<DeployPage />} />
         <Route path="servers" element={<ServersPage />} />
+        <Route path="irregularities" element={<IrregularitiesPage />} />
         <Route path="vpn" element={<RequireAdmin><VpnPage /></RequireAdmin>} />
         <Route path="users" element={<UsersPage />} />
         <Route path="profiles" element={<ProfilesPage />} />

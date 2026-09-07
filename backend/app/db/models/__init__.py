@@ -100,3 +100,4 @@ from app.db.models.channel import (  # noqa: F401
     ChatChannelArtifact,
     ChatChannelTask,
 )
+from app.db.models.client import Client, Irregularity, Workstation  # noqa: F401
