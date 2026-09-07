@@ -1,0 +1,84 @@
+{
+  "common": {
+    "cancel": "Cancelar",
+    "retry": "Tentar novamente",
+    "notProvided": "Não informado"
+  },
+  "supportPlans": {
+    "none": "Sem plano",
+    "4h": "4 horas",
+    "8h": "8 horas",
+    "12h": "12 horas"
+  },
+  "states": {
+    "loading": "Carregando...",
+    "loadError": "Não foi possível carregar os clientes.",
+    "clientLoadError": "Não foi possível carregar este cliente.",
+    "workstationsLoadError": "Não foi possível carregar as estações.",
+    "grantsLoadError": "Não foi possível carregar as conexões."
+  },
+  "list": {
+    "context": "Operações",
+    "title": "Clientes",
+    "description": "Gerencie clientes, contatos de suporte e suas estações monitoradas.",
+    "newClient": "Novo cliente",
+    "registry": "Cadastro de clientes",
+    "emptyTitle": "Nenhum cliente cadastrado",
+    "emptyDescription": "Cadastre o primeiro cliente para começar a vincular e monitorar estações.",
+    "columns": {
+      "client": "Cliente",
+      "contact": "Contato",
+      "supportPlan": "Plano de suporte",
+      "updated": "Atualizado"
+    }
+  },
+  "create": {
+    "title": "Novo cliente",
+    "description": "Crie o cadastro agora. As estações poderão ser vinculadas depois.",
+    "details": "Dados do cliente",
+    "requiredHint": "Campos marcados com asterisco são obrigatórios.",
+    "nameRequired": "Informe o nome do cliente.",
+    "nameHelp": "Use o nome empresarial ou operacional da organização.",
+    "submit": "Criar cliente",
+    "submitError": "Não foi possível criar o cliente.",
+    "fields": {
+      "name": "Nome do cliente",
+      "contactName": "Nome do contato",
+      "phone": "Telefone",
+      "email": "E-mail",
+      "supportPlan": "Plano de suporte",
+      "notes": "Observações"
+    }
+  },
+  "detail": {
+    "title": "Detalhes do cliente",
+    "back": "Voltar para clientes",
+    "info": {
+      "title": "Informações do cliente",
+      "contact": "Contato",
+      "email": "E-mail",
+      "phone": "Telefone",
+      "tag": "Tag Headscale"
+    },
+    "workstations": {
+      "title": "Estações",
+      "unnamed": "Estação",
+      "empty": "Este cliente ainda não possui estações vinculadas.",
+      "active": "Token ativo",
+      "revoked": "Token revogado"
+    },
+    "communication": {
+      "title": "Comunicação entre estações",
+      "description": "Cada alteração é auditada e publicada na política do Headscale.",
+      "empty": "Vincule pelo menos duas estações a este cliente para configurar a comunicação entre elas.",
+      "connected": "Conectadas",
+      "blocked": "Bloqueadas",
+      "toggleLabel": "Alternar comunicação entre {{a}} e {{b}}",
+      "changeError": "A política não foi alterada.",
+      "revokeTitle": "Revogar acesso",
+      "revokeDescription": "A comunicação entre {{a}} e {{b}} será interrompida após a publicação da política.",
+      "revokeConfirm": "Revogar acesso",
+      "audited": "Esta ação ficará registrada na auditoria."
+    }
+  }
+}

@@ -35,6 +35,15 @@ export function useClients() {
   });
 }
 
+export function useClient(clientId: string) {
+  return useQuery<Client>({
+    queryKey: [...CLIENTS_KEY, clientId],
+    queryFn: () => apiClient.get(`/api/v1/clients/${clientId}`),
+    enabled: Boolean(clientId),
+    staleTime: 30_000,
+  });
+}
+
 export function useCreateClient() {
   const qc = useQueryClient();
   return useMutation<Client, Error, ClientCreate>({

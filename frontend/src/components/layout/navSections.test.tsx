@@ -29,3 +29,14 @@ describe("VPN navigation policy", () => {
     expect(isNavEntryVisible(entry, true)).toBe(true);
   });
 });
+
+describe("Clients navigation policy", () => {
+  it("places Clients in Operations under the clients module", () => {
+    const operations = NAV_SECTIONS.find((section) => section.labelKey === "nav.section.operations");
+    const entry = operations?.entries.find(
+      (candidate) => candidate.type === "link" && candidate.to === "/clients",
+    );
+
+    expect(entry).toMatchObject({ labelKey: "nav.clients", module: "clients" });
+  });
+});

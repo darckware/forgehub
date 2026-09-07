@@ -5,6 +5,7 @@ import {
   BookOpen,
   Bot,
   Brain,
+  Building2,
   CheckCircle2,
   ClipboardCheck,
   Clock,
@@ -143,6 +144,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/auditor", labelKey: "nav.auditor", icon: ClipboardCheck, module: "auditor" },
       { type: "link", to: "/deploy", labelKey: "nav.deployControl", icon: Server, module: "deploy" },
       { type: "link", to: "/servers", labelKey: "nav.servers", icon: Network, module: "servers" },
+      { type: "link", to: "/clients", labelKey: "nav.clients", icon: Building2, module: "clients" },
       { type: "link", to: "/irregularities", labelKey: "nav.irregularities", icon: AlertTriangle, module: "clients" },
       { type: "link", to: "/vpn", labelKey: "nav.vpn", icon: ShieldEllipsis, module: "vpn", adminOnly: true },
       {

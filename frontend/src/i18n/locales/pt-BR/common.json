@@ -49,6 +49,7 @@
     "auditor": "Auditor",
     "deployControl": "Controle de Deploy",
     "servers": "Servidores",
+    "clients": "Clientes",
     "irregularities": "Irregularidades",
     "vpn": "VPN",
     "agentActivity": "Atividade dos Agentes",

@@ -1,0 +1,51 @@
+{
+  "common": { "cancel": "Cancel", "retry": "Try again", "notProvided": "Not provided" },
+  "supportPlans": { "none": "No plan", "4h": "4 hours", "8h": "8 hours", "12h": "12 hours" },
+  "states": {
+    "loading": "Loading...",
+    "loadError": "Clients could not be loaded.",
+    "clientLoadError": "This client could not be loaded.",
+    "workstationsLoadError": "Workstations could not be loaded.",
+    "grantsLoadError": "Connections could not be loaded."
+  },
+  "list": {
+    "context": "Operations",
+    "title": "Clients",
+    "description": "Manage clients, support contacts, and their monitored workstations.",
+    "newClient": "New client",
+    "registry": "Client registry",
+    "emptyTitle": "No clients registered",
+    "emptyDescription": "Create the first client to start linking and monitoring workstations.",
+    "columns": { "client": "Client", "contact": "Contact", "supportPlan": "Support plan", "updated": "Updated" }
+  },
+  "create": {
+    "title": "New client",
+    "description": "Create the record now. Workstations can be linked afterward.",
+    "details": "Client details",
+    "requiredHint": "Fields marked with an asterisk are required.",
+    "nameRequired": "Enter the client name.",
+    "nameHelp": "Use the organization's registered or operating name.",
+    "submit": "Create client",
+    "submitError": "The client could not be created.",
+    "fields": { "name": "Client name", "contactName": "Contact name", "phone": "Phone", "email": "Email", "supportPlan": "Support plan", "notes": "Notes" }
+  },
+  "detail": {
+    "title": "Client details",
+    "back": "Back to clients",
+    "info": { "title": "Client information", "contact": "Contact", "email": "Email", "phone": "Phone", "tag": "Headscale tag" },
+    "workstations": { "title": "Workstations", "unnamed": "Workstation", "empty": "This client has no linked workstations yet.", "active": "Active token", "revoked": "Revoked token" },
+    "communication": {
+      "title": "Workstation communication",
+      "description": "Every change is audited and published to the Headscale policy.",
+      "empty": "Link at least two workstations to this client to configure communication between them.",
+      "connected": "Connected",
+      "blocked": "Blocked",
+      "toggleLabel": "Toggle communication between {{a}} and {{b}}",
+      "changeError": "The policy was not changed.",
+      "revokeTitle": "Revoke access",
+      "revokeDescription": "Communication between {{a}} and {{b}} will stop after the policy is published.",
+      "revokeConfirm": "Revoke access",
+      "audited": "This action will be recorded in the audit log."
+    }
+  }
+}

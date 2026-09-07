@@ -11,7 +11,7 @@ export const UI_LANGUAGE_STORAGE_KEY = "forgehub-ui-language";
 
 export const SUPPORTED_UI_LANGUAGES = ["en", "pt-BR", "es"] as const;
 
-export const NAMESPACES = ["artifact", "auditor", "crons", "deploy", "forgerouter", "vpn"] as const;
+export const NAMESPACES = ["artifact", "auditor", "clients", "crons", "deploy", "forgerouter", "vpn"] as const;
 export type UiLanguage = (typeof SUPPORTED_UI_LANGUAGES)[number];
 
 function initialLanguage(): UiLanguage {

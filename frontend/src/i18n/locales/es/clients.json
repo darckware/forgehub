@@ -1,0 +1,51 @@
+{
+  "common": { "cancel": "Cancelar", "retry": "Intentar de nuevo", "notProvided": "No informado" },
+  "supportPlans": { "none": "Sin plan", "4h": "4 horas", "8h": "8 horas", "12h": "12 horas" },
+  "states": {
+    "loading": "Cargando...",
+    "loadError": "No se pudieron cargar los clientes.",
+    "clientLoadError": "No se pudo cargar este cliente.",
+    "workstationsLoadError": "No se pudieron cargar las estaciones.",
+    "grantsLoadError": "No se pudieron cargar las conexiones."
+  },
+  "list": {
+    "context": "Operaciones",
+    "title": "Clientes",
+    "description": "Administra clientes, contactos de soporte y sus estaciones monitoreadas.",
+    "newClient": "Nuevo cliente",
+    "registry": "Registro de clientes",
+    "emptyTitle": "No hay clientes registrados",
+    "emptyDescription": "Crea el primer cliente para comenzar a vincular y monitorear estaciones.",
+    "columns": { "client": "Cliente", "contact": "Contacto", "supportPlan": "Plan de soporte", "updated": "Actualizado" }
+  },
+  "create": {
+    "title": "Nuevo cliente",
+    "description": "Crea el registro ahora. Las estaciones se pueden vincular después.",
+    "details": "Datos del cliente",
+    "requiredHint": "Los campos con asterisco son obligatorios.",
+    "nameRequired": "Ingresa el nombre del cliente.",
+    "nameHelp": "Usa el nombre registrado u operativo de la organización.",
+    "submit": "Crear cliente",
+    "submitError": "No se pudo crear el cliente.",
+    "fields": { "name": "Nombre del cliente", "contactName": "Nombre del contacto", "phone": "Teléfono", "email": "Correo electrónico", "supportPlan": "Plan de soporte", "notes": "Observaciones" }
+  },
+  "detail": {
+    "title": "Detalles del cliente",
+    "back": "Volver a clientes",
+    "info": { "title": "Información del cliente", "contact": "Contacto", "email": "Correo electrónico", "phone": "Teléfono", "tag": "Etiqueta Headscale" },
+    "workstations": { "title": "Estaciones", "unnamed": "Estación", "empty": "Este cliente aún no tiene estaciones vinculadas.", "active": "Token activo", "revoked": "Token revocado" },
+    "communication": {
+      "title": "Comunicación entre estaciones",
+      "description": "Cada cambio se audita y se publica en la política de Headscale.",
+      "empty": "Vincula al menos dos estaciones a este cliente para configurar la comunicación entre ellas.",
+      "connected": "Conectadas",
+      "blocked": "Bloqueadas",
+      "toggleLabel": "Alternar comunicación entre {{a}} y {{b}}",
+      "changeError": "La política no fue modificada.",
+      "revokeTitle": "Revocar acceso",
+      "revokeDescription": "La comunicación entre {{a}} y {{b}} se interrumpirá después de publicar la política.",
+      "revokeConfirm": "Revocar acceso",
+      "audited": "Esta acción quedará registrada en la auditoría."
+    }
+  }
+}
