@@ -4,7 +4,7 @@ docs/architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md section 3.3."""
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.client import Irregularity, Workstation
@@ -24,8 +24,18 @@ async def run_workstation_staleness_sweep(db: AsyncSession) -> int:
     stale_workstations = (await db.execute(
         select(Workstation).where(
             Workstation.device_token_revoked_at.is_(None),
-            Workstation.last_report_at.is_not(None),
-            Workstation.last_report_at < cutoff,
+            or_(
+                Workstation.last_report_at < cutoff,
+                # A workstation whose agent never sent a single report (e.g.
+                # mistyped device token, never installed) has no
+                # last_report_at to compare against -- fall back to when its
+                # device token was issued, otherwise it stays permanently
+                # invisible to this sweep.
+                and_(
+                    Workstation.last_report_at.is_(None),
+                    Workstation.device_token_issued_at < cutoff,
+                ),
+            ),
         )
     )).scalars().all()
 
@@ -41,11 +51,19 @@ async def run_workstation_staleness_sweep(db: AsyncSession) -> int:
         if existing_open is not None:
             continue
 
+        if workstation.last_report_at is not None:
+            detail = f"no report since {workstation.last_report_at.isoformat()}"
+        else:
+            detail = (
+                f"no report ever received since token issued at "
+                f"{workstation.device_token_issued_at.isoformat()}"
+            )
+
         irregularity = Irregularity(
             workstation_id=workstation.id,
             rule_key="agent_unreachable",
             severity="critical",
-            detail=f"no report since {workstation.last_report_at.isoformat()}",
+            detail=detail,
             detected_at=datetime.now(timezone.utc),
         )
         db.add(irregularity)

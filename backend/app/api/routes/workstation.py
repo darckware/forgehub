@@ -24,7 +24,7 @@ from app.api.schemas.client import (
 )
 from app.core.deps import get_current_admin
 from app.db.base import get_db
-from app.db.models.client import Client, Workstation
+from app.db.models.client import OS_KINDS, Client, Workstation
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/workstations", tags=["workstations"])
@@ -59,6 +59,8 @@ async def create_workstation(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ):
+    if payload.os_kind not in OS_KINDS:
+        raise HTTPException(400, f"os_kind must be one of {OS_KINDS}")
     if not await db.get(Client, payload.client_id):
         raise HTTPException(404, "Client not found")
 

@@ -41,3 +41,64 @@ async def test_create_get_list_delete_client():
         finally:
             delete_resp = await client.delete(f"/api/v1/clients/{client_id}", headers=headers)
             assert delete_resp.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_create_client_rejects_invalid_support_plan():
+    token = await _admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    name = f"Test Client {uuid.uuid4()}"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/clients",
+            json={"name": name, "support_plan": "invalid"},
+            headers=headers,
+        )
+        assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_client_rejects_invalid_support_plan():
+    token = await _admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    name = f"Test Client {uuid.uuid4()}"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_resp = await client.post("/api/v1/clients", json={"name": name}, headers=headers)
+        assert create_resp.status_code == 201, create_resp.text
+        client_id = create_resp.json()["id"]
+
+        try:
+            update_resp = await client.put(
+                f"/api/v1/clients/{client_id}",
+                json={"support_plan": "invalid"},
+                headers=headers,
+            )
+            assert update_resp.status_code == 400, update_resp.text
+        finally:
+            delete_resp = await client.delete(f"/api/v1/clients/{client_id}", headers=headers)
+            assert delete_resp.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_update_client_rejects_explicit_null_name():
+    token = await _admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    name = f"Test Client {uuid.uuid4()}"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_resp = await client.post("/api/v1/clients", json={"name": name}, headers=headers)
+        assert create_resp.status_code == 201, create_resp.text
+        client_id = create_resp.json()["id"]
+
+        try:
+            update_resp = await client.put(
+                f"/api/v1/clients/{client_id}",
+                json={"name": None},
+                headers=headers,
+            )
+            assert update_resp.status_code == 400, update_resp.text
+        finally:
+            delete_resp = await client.delete(f"/api/v1/clients/{client_id}", headers=headers)
+            assert delete_resp.status_code == 204

@@ -19,13 +19,21 @@ class RuleFinding:
 def evaluate_report(report: AgentReportIn) -> list[RuleFinding]:
     findings: list[RuleFinding] = []
 
-    for disk in report.system.disk_usage:
-        if disk.used_percent > 90:
-            findings.append(RuleFinding(
-                rule_key="disk_space_low",
-                severity="warning",
-                detail=f"{disk.path} at {disk.used_percent:.1f}%",
-            ))
+    # Aggregated into one finding per report, not one per offending disk --
+    # otherwise N disks over threshold would create N findings for the same
+    # rule_key, and the ingestion route's per-rule_key dedup would silently
+    # drop every offender but the first one it flushes within the request.
+    disk_offenders = [
+        f"{disk.path} at {disk.used_percent:.1f}%"
+        for disk in report.system.disk_usage
+        if disk.used_percent > 90
+    ]
+    if disk_offenders:
+        findings.append(RuleFinding(
+            rule_key="disk_space_low",
+            severity="warning",
+            detail="; ".join(disk_offenders),
+        ))
 
     if report.backup.stale:
         findings.append(RuleFinding(

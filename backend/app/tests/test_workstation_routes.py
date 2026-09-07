@@ -73,3 +73,24 @@ async def test_create_workstation_issues_token_once_then_reissue_revoke():
         client = await db.get(Client, client_id)
         await db.delete(client)
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_create_workstation_rejects_invalid_os_kind():
+    token = await _admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    client_id = await _make_client()
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+            resp = await http.post(
+                "/api/v1/workstations",
+                json={"client_id": str(client_id), "os_kind": "invalid"},
+                headers=headers,
+            )
+            assert resp.status_code == 400, resp.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            client = await db.get(Client, client_id)
+            await db.delete(client)
+            await db.commit()

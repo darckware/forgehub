@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.schemas.client import ClientCreate, ClientOut, ClientUpdate
 from app.core.deps import get_current_admin
 from app.db.base import get_db
-from app.db.models.client import Client
+from app.db.models.client import SUPPORT_PLANS, Client
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/clients", tags=["clients"])
@@ -38,6 +38,9 @@ async def create_client(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ):
+    if payload.support_plan is not None and payload.support_plan not in SUPPORT_PLANS:
+        raise HTTPException(400, f"support_plan must be one of {SUPPORT_PLANS}")
+
     client = Client(**payload.model_dump())
     db.add(client)
     await db.commit()
@@ -63,7 +66,14 @@ async def update_client(
     client = await db.get(Client, client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "support_plan" in updates and updates["support_plan"] is not None and updates["support_plan"] not in SUPPORT_PLANS:
+        raise HTTPException(400, f"support_plan must be one of {SUPPORT_PLANS}")
+    if "name" in updates and updates["name"] is None:
+        raise HTTPException(400, "name cannot be null")
+
+    for field, value in updates.items():
         setattr(client, field, value)
     await db.commit()
     await db.refresh(client)

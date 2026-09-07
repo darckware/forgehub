@@ -58,6 +58,15 @@ async def ingest_agent_report(
                 )
             )).scalar_one_or_none()
             if existing_open is not None:
+                # Still deduplicated to one row per (workstation, rule_key)
+                # while open, but the row must not go stale: a later report
+                # naming a *different* offending disk/service under the
+                # same rule_key would otherwise leave the original detail
+                # text -- and thus the original offender -- permanently
+                # displayed, silently hiding the new information. No new
+                # Notification here on purpose: only first-creation notifies.
+                existing_open.detail = finding.detail
+                existing_open.detected_at = datetime.now(timezone.utc)
                 continue
 
             irregularity = Irregularity(
