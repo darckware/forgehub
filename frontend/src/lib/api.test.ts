@@ -69,4 +69,29 @@ describe("authenticated file downloads", () => {
       body: { detail: "Build is not ready" },
     } satisfies Partial<ApiError>);
   });
+
+  it("sanitizes attachment filenames to a basename without query data", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Blob(["zip"]), {
+        status: 200,
+        headers: {
+          "Content-Disposition": 'attachment; filename="..\\..\\secret.zip?token=leak"',
+        },
+      }),
+    );
+
+    const result = await apiClient.postDownload("/api/v1/package?build_id=sensitive");
+
+    expect(result.filename).toBe("secret.zip");
+  });
+
+  it("removes query strings from fallback download filenames", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Blob(["zip"]), { status: 200 }),
+    );
+
+    const result = await apiClient.postDownload("/api/v1/package.zip?build_id=sensitive");
+
+    expect(result.filename).toBe("package.zip");
+  });
 });

@@ -58,7 +58,15 @@ def _sha256_and_size(path: Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
-def _validated_artifact(build: NexoAgentBuild) -> tuple[Path, bytes]:
+def _read_artifact_bytes(path: Path) -> bytes:
+    try:
+        with path.open("rb") as source:
+            return source.read()
+    except OSError as exc:
+        raise NexoPackageError("Nexo build artifact could not be read") from exc
+
+
+def _validated_artifact(build: NexoAgentBuild) -> bytes:
     if (
         build.status != "ready"
         or build.artifact_path is None
@@ -72,13 +80,10 @@ def _validated_artifact(build: NexoAgentBuild) -> tuple[Path, bytes]:
         artifact_path, _ = nexo_builds.resolve_artifact_path(build.artifact_path)
     except nexo_builds.NexoBuildBridgeError as exc:
         raise NexoPackageError(exc.detail) from exc
-    digest, size = _sha256_and_size(artifact_path)
-    if digest != build.sha256 or size != build.artifact_size:
+    binary = _read_artifact_bytes(artifact_path)
+    if hashlib.sha256(binary).hexdigest() != build.sha256 or len(binary) != build.artifact_size:
         raise NexoPackageError("Nexo build artifact failed integrity verification")
-    try:
-        return artifact_path, artifact_path.read_bytes()
-    except OSError as exc:
-        raise NexoPackageError("Nexo build artifact could not be read") from exc
+    return binary
 
 
 def _validated_ingestion_url() -> str:
@@ -132,18 +137,38 @@ _WINDOWS_INSTALLER = rb"""$ErrorActionPreference = "Stop"
 $InstallDir = "C:\Program Files\Nexo"
 $ServiceName = "NexoRemoteAgent"
 $Nssm = (Get-Command nssm.exe -ErrorAction Stop).Source
+
+function Assert-NativeSuccess {
+    param([string]$Operation)
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Operation failed with exit code $LASTEXITCODE"
+    }
+}
+
+$ExistingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($null -ne $ExistingService) {
+    if ($ExistingService.Status -ne 'Stopped') {
+        & $Nssm stop $ServiceName | Out-Null
+        Assert-NativeSuccess "Stopping $ServiceName"
+        $ExistingService.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+    }
+    & $Nssm remove $ServiceName confirm | Out-Null
+    Assert-NativeSuccess "Removing $ServiceName"
+}
+
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 Copy-Item -LiteralPath ".\nexo-remote-agent.exe" -Destination "$InstallDir\nexo-remote-agent.exe" -Force
 Copy-Item -LiteralPath ".\agent.yaml" -Destination "$InstallDir\agent.yaml" -Force
-& icacls.exe "$InstallDir\agent.yaml" /inheritance:r /grant:r "SYSTEM:F" "Administrators:F"
-if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
-    & $Nssm stop $ServiceName confirm | Out-Null
-    & $Nssm remove $ServiceName confirm | Out-Null
-}
+& icacls.exe "$InstallDir\agent.yaml" /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F"
+Assert-NativeSuccess "Protecting agent.yaml"
 & $Nssm install $ServiceName "$InstallDir\nexo-remote-agent.exe"
+Assert-NativeSuccess "Installing $ServiceName"
 & $Nssm set $ServiceName AppParameters "-config `"$InstallDir\agent.yaml`""
+Assert-NativeSuccess "Configuring $ServiceName arguments"
 & $Nssm set $ServiceName Start SERVICE_AUTO_START
+Assert-NativeSuccess "Configuring $ServiceName startup"
 & $Nssm start $ServiceName
+Assert-NativeSuccess "Starting $ServiceName"
 """
 
 
@@ -169,7 +194,7 @@ def materialize_package(
     if not raw_token.startswith("nxw_") or len(raw_token) < 20:
         raise NexoPackageError("Workstation device token is invalid")
 
-    _artifact_path, binary = _validated_artifact(build)
+    binary = _validated_artifact(build)
     config = _agent_config(workstation.os_kind, raw_token)
     generated_at = datetime.now(timezone.utc)
     filename = (

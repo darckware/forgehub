@@ -162,7 +162,10 @@ async function apiErrorFromResponse(path: string, response: Response): Promise<A
 function filenameFromDisposition(path: string, response: Response): string {
   const disposition = response.headers.get("Content-Disposition") ?? "";
   const match = /filename="?([^";]+)"?/.exec(disposition);
-  return match?.[1] ?? path.split("/").pop() ?? "download";
+  const candidate = match?.[1] ?? path;
+  const withoutQuery = candidate.split(/[?#]/, 1)[0].replace(/\\/g, "/");
+  const basename = withoutQuery.split("/").pop()?.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  return basename && basename !== "." && basename !== ".." ? basename : "download";
 }
 
 async function downloadFromResponse(path: string, response: Response) {

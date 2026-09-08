@@ -15,13 +15,15 @@ from zipfile import ZipFile
 import pytest
 import pytest_asyncio
 import yaml
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
+from starlette.requests import ClientDisconnect
 
 from app.api.routes import nexo_installation
 from app.api.routes.workstation import hash_device_token
+from app.core import nexo_packages
 from app.core.config import settings
-from app.core.nexo_packages import PackageMetadata
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
 from app.db.models.client import Client, Workstation
@@ -438,60 +440,180 @@ async def test_package_requires_a_valid_https_ingestion_url(
 
 
 @pytest.mark.asyncio
-async def test_interrupted_stream_keeps_package_ready_and_removes_temporary_content(
+async def test_asgi_send_failure_keeps_package_ready_and_removes_temporary_content(
     package_context: dict,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workstation = package_context["workstations"]["linux"]
     build = package_context["builds"]["linux"]
-    generated_at = datetime.now(timezone.utc)
+    created_paths: list[Path] = []
+    real_temporary_directory = tempfile.TemporaryDirectory
+
+    def tracked_temporary_directory(*args, **kwargs):
+        directory = real_temporary_directory(*args, **kwargs)
+        created_paths.append(Path(directory.name))
+        return directory
+
+    monkeypatch.setattr(
+        nexo_installation.tempfile,
+        "TemporaryDirectory",
+        tracked_temporary_directory,
+    )
     async with AsyncSessionLocal() as db:
-        installation = WorkstationInstallation(
-            workstation_id=workstation.id,
-            build_id=build.id,
-            status="package_ready",
-            package_generated_at=generated_at,
+        admin = await db.get(User, package_context["admin_id"])
+        response = await nexo_installation.generate_workstation_installation_package(
+            workstation.id,
+            build.id,
+            db,
+            admin,
         )
-        db.add(installation)
-        await db.commit()
+    assert len(created_paths) == 1
+    assert created_paths[0].exists()
 
-    temporary_directory = tempfile.TemporaryDirectory(
-        prefix="forgehub-nexo-interrupted-test-"
-    )
-    temporary_path = Path(temporary_directory.name)
-    package_file = temporary_path / "synthetic.zip"
-    package_file.write_bytes(b"x" * (128 * 1024))
-    metadata = PackageMetadata(
-        path=package_file,
-        filename=package_file.name,
-        size=package_file.stat().st_size,
-        sha256=hashlib.sha256(package_file.read_bytes()).hexdigest(),
-        generated_at=generated_at,
-    )
-    stream = nexo_installation._stream_package(
-        temporary_directory,
-        metadata,
-        installation.id,
-        package_context["admin_id"],
-    )
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
 
-    assert len(await anext(stream)) == 64 * 1024
-    await stream.aclose()
+    async def failing_send(message):
+        if message["type"] == "http.response.body":
+            raise OSError("synthetic disconnected client")
 
-    assert not temporary_path.exists()
+    with pytest.raises(ClientDisconnect):
+        await response(
+            {"type": "http", "asgi": {"spec_version": "2.4"}},
+            receive,
+            failing_send,
+        )
+
+    assert not created_paths[0].exists()
     async with AsyncSessionLocal() as db:
-        persisted = await db.get(WorkstationInstallation, installation.id)
-        event_count = len(
-            list(
-                (
-                    await db.execute(
-                        select(WorkstationInstallationEvent).where(
-                            WorkstationInstallationEvent.installation_id
-                            == installation.id
-                        )
-                    )
-                ).scalars()
+        installation = (
+            await db.execute(
+                select(WorkstationInstallation).where(
+                    WorkstationInstallation.workstation_id == workstation.id
+                )
             )
+        ).scalar_one()
+        event_types = list(
+            (
+                await db.execute(
+                    select(WorkstationInstallationEvent.event_type).where(
+                        WorkstationInstallationEvent.installation_id
+                        == installation.id
+                    )
+                )
+            ).scalars()
         )
-        assert persisted.status == "package_ready"
-        assert persisted.downloaded_at is None
-        assert event_count == 0
+        assert installation.status == "package_ready"
+        assert installation.downloaded_at is None
+        assert event_types == ["package_generated"]
+
+
+@pytest.mark.asyncio
+async def test_locked_revalidation_refreshes_stale_identity_map_state(
+    package_context: dict,
+) -> None:
+    workstation_id = package_context["workstations"]["linux"].id
+    build_id = package_context["builds"]["linux"].id
+    revoked_at = datetime.now(timezone.utc)
+    response = None
+    async with AsyncSessionLocal() as request_db:
+        stale_workstation = await request_db.get(Workstation, workstation_id)
+        stale_build = await request_db.get(NexoAgentBuild, build_id)
+        assert stale_workstation.device_token_revoked_at is None
+        assert stale_build.status == "ready"
+
+        async with AsyncSessionLocal() as concurrent_db:
+            current_workstation = await concurrent_db.get(Workstation, workstation_id)
+            current_build = await concurrent_db.get(NexoAgentBuild, build_id)
+            current_workstation.device_token_revoked_at = revoked_at
+            current_build.status = "failed"
+            await concurrent_db.commit()
+
+        admin = await request_db.get(User, package_context["admin_id"])
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                response = await nexo_installation.generate_workstation_installation_package(
+                    workstation_id,
+                    build_id,
+                    request_db,
+                    admin,
+                )
+            assert exc_info.value.status_code == 409
+        finally:
+            if response is not None:
+                await response.body_iterator.aclose()
+
+    async with AsyncSessionLocal() as db:
+        workstation = await db.get(Workstation, workstation_id)
+        build = await db.get(NexoAgentBuild, build_id)
+        installation = (
+            await db.execute(
+                select(WorkstationInstallation).where(
+                    WorkstationInstallation.workstation_id == workstation_id
+                )
+            )
+        ).scalar_one_or_none()
+        assert workstation.device_token_revoked_at == revoked_at
+        assert build.status == "failed"
+        assert installation is None
+
+
+def test_materialization_uses_the_exact_bytes_that_passed_integrity_check(
+    package_context: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workstation = package_context["workstations"]["linux"]
+    build = package_context["builds"]["linux"]
+    artifact = package_context["artifact_root"] / build.artifact_path
+    expected_binary = artifact.read_bytes()
+    replacement = b"different-bytes-after-validated-read"
+    real_read = nexo_packages._read_artifact_bytes
+
+    def read_then_replace(path: Path) -> bytes:
+        content = real_read(path)
+        path.write_bytes(replacement)
+        return content
+
+    monkeypatch.setattr(nexo_packages, "_read_artifact_bytes", read_then_replace)
+    metadata = nexo_packages.materialize_package(
+        workstation,
+        build,
+        "nxw_synthetic-token-long-enough-for-test",
+        tmp_path / "package-output",
+    )
+
+    with ZipFile(metadata.path) as archive:
+        packaged_binary = archive.read("nexo-remote-agent")
+        manifest = json.loads(archive.read("manifest.json"))
+    assert packaged_binary == expected_binary
+    assert packaged_binary != replacement
+    assert hashlib.sha256(packaged_binary).hexdigest() == manifest["binary_sha256"]
+
+
+@pytest.mark.asyncio
+async def test_windows_installer_stops_before_copy_and_checks_native_failures(
+    client: AsyncClient,
+    package_context: dict,
+) -> None:
+    response = await client.post(
+        package_path(package_context, "windows"),
+        headers=package_context["admin_headers"],
+    )
+    assert response.status_code == 200
+    with ZipFile(BytesIO(response.content)) as archive:
+        script = archive.read("install.ps1").decode()
+
+    assert script.index("& $Nssm stop $ServiceName") < script.index("Copy-Item")
+    assert "WaitForStatus('Stopped'" in script
+    assert '"*S-1-5-18:F"' in script
+    assert '"*S-1-5-32-544:F"' in script
+    assert "SYSTEM:F" not in script
+    assert "Administrators:F" not in script
+    native_commands = [
+        line.strip()
+        for line in script.splitlines()
+        if line.strip().startswith("& ")
+    ]
+    assert len(native_commands) == 7
+    assert script.count("Assert-NativeSuccess") == len(native_commands) + 1

@@ -8,11 +8,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Literal
 
+from anyio import CancelScope
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.types import Receive, Scope, Send
 
 from app.api.schemas.nexo_installation import (
     NexoAgentBuildOut,
@@ -40,6 +42,21 @@ PLATFORMS: tuple[Literal["linux", "windows"], ...] = ("linux", "windows")
 # A live bridge request must time out before another request may reclaim its
 # database claim. The extra minute covers request/response and commit overhead.
 BUILD_CLAIM_LEASE_SECONDS = nexo_builds.BUILD_TIMEOUT_SECONDS + 60.0
+
+
+class SecretStreamingResponse(StreamingResponse):
+    """A stream that closes its content iterator on every ASGI exit path."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            close = getattr(self.body_iterator, "aclose", None)
+            if close is not None:
+                # A disconnect may cancel the response task. Shield the close
+                # so the iterator's secret-file cleanup still completes.
+                with CancelScope(shield=True):
+                    await close()
 
 
 def _project(build: NexoAgentBuild) -> NexoAgentBuildOut:
@@ -228,14 +245,14 @@ async def _stream_package(
 @router.post(
     "/api/v1/workstations/{workstation_id}/installation-package",
     tags=["workstations"],
-    response_class=StreamingResponse,
+    response_class=SecretStreamingResponse,
 )
 async def generate_workstation_installation_package(
     workstation_id: uuid.UUID,
     build_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
-) -> StreamingResponse:
+) -> SecretStreamingResponse:
     workstation = await db.get(Workstation, workstation_id)
     if workstation is None:
         raise HTTPException(status_code=404, detail="Workstation not found")
@@ -273,6 +290,7 @@ async def generate_workstation_installation_package(
                 select(Workstation)
                 .where(Workstation.id == workstation_id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if locked_workstation is None:
@@ -282,6 +300,7 @@ async def generate_workstation_installation_package(
                 select(NexoAgentBuild)
                 .where(NexoAgentBuild.id == build_id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if locked_build is None:
@@ -299,6 +318,7 @@ async def generate_workstation_installation_package(
                 select(WorkstationInstallation)
                 .where(WorkstationInstallation.workstation_id == workstation_id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         from_status = installation.status if installation is not None else None
@@ -339,7 +359,7 @@ async def generate_workstation_installation_package(
         temporary_directory.cleanup()
         raise
 
-    return StreamingResponse(
+    return SecretStreamingResponse(
         _stream_package(temporary_directory, metadata, installation.id, admin.id),
         media_type="application/zip",
         headers={
