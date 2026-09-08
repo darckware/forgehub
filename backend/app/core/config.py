@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     CHAT_BRIDGE_URL: str = "http://host.docker.internal:8910"
     CHAT_BRIDGE_TOKEN: str = ""
 
+    # Nexo Remote Agent artifacts are built by the host bridge and exposed to
+    # this backend beneath a separate, read-only mount root.
+    NEXO_ARTIFACT_ROOT: Path = Path("/tmp/forgehub-nexo-artifacts")
+    NEXO_INGESTION_URL: str = ""
+
     # ForgeRouter dashboard SSO (see api/routes/forgerouter.py). URL is the
     # backend-to-backend address; the browser reaches ForgeRouter directly
     # via VITE_FORGEROUTER_URL on the frontend side.
