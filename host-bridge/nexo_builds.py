@@ -8,6 +8,7 @@ host toolchain, so callers can select only a supported target platform.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -25,6 +26,7 @@ BUILD_TIMEOUT_SECONDS = 600
 MAX_LOG_EXCERPT_LENGTH = 2_000
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 _TRUSTED_GO_ENVIRONMENT_KEYS = ("PATH", "HOME", "TMPDIR", "GOCACHE")
+_METADATA_SUFFIX = ".metadata.json"
 
 
 class NexoBuildError(RuntimeError):
@@ -58,6 +60,7 @@ def trusted_build_environment(os_kind: str) -> dict[str, str]:
         for key in _TRUSTED_GO_ENVIRONMENT_KEYS
         if key in os.environ
     }
+    environment["GOENV"] = "off"
     environment.update(build_environment(os_kind))
     return environment
 
@@ -149,11 +152,10 @@ def _sha256_and_size(artifact_path: Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
-def _artifact_response(
+def _artifact_metadata(
     source: dict[str, str],
     os_kind: Literal["linux", "windows"],
     artifact_path: Path,
-    log_excerpt: str,
 ) -> dict[str, str | int]:
     if not artifact_path.is_file():
         raise NexoBuildError("Nexo artifact path is not a regular file")
@@ -161,11 +163,64 @@ def _artifact_response(
     return {
         **source,
         "os_kind": os_kind,
-        "artifact_path": str(artifact_path.relative_to(NEXO_ARTIFACT_ROOT)),
         "artifact_size": artifact_size,
         "sha256": sha256,
+    }
+
+
+def _metadata_path(artifact_path: Path) -> Path:
+    return artifact_path.parent / f"{artifact_path.name}{_METADATA_SUFFIX}"
+
+
+def _read_metadata(metadata_path: Path) -> dict[str, str | int]:
+    try:
+        metadata = json.loads(metadata_path.read_text())
+    except (OSError, ValueError) as exc:
+        raise NexoBuildError("Nexo artifact metadata is missing or invalid") from exc
+    required_fields = {"git_sha", "agent_version", "os_kind", "artifact_size", "sha256"}
+    if not isinstance(metadata, dict) or not required_fields <= metadata.keys():
+        raise NexoBuildError("Nexo artifact metadata is missing required fields")
+    return metadata
+
+
+def _artifact_response(metadata: dict[str, str | int], artifact_path: Path, log_excerpt: str) -> dict[str, str | int]:
+    actual_metadata = _artifact_metadata(
+        {"git_sha": str(metadata["git_sha"]), "agent_version": str(metadata["agent_version"])},
+        str(metadata["os_kind"]),
+        artifact_path,
+    )
+    for key in ("git_sha", "agent_version", "os_kind", "artifact_size", "sha256"):
+        if actual_metadata[key] != metadata[key]:
+            raise NexoBuildError("Nexo artifact does not match its immutable metadata")
+    return {
+        **actual_metadata,
+        "artifact_path": str(artifact_path.relative_to(NEXO_ARTIFACT_ROOT)),
         "log_excerpt": log_excerpt,
     }
+
+
+def _existing_artifact_response(
+    source: dict[str, str],
+    os_kind: Literal["linux", "windows"],
+    artifact_path: Path,
+) -> dict[str, str | int]:
+    metadata = _read_metadata(_metadata_path(artifact_path))
+    if metadata["git_sha"] != source["git_sha"] or metadata["os_kind"] != os_kind:
+        raise NexoBuildError("Nexo artifact metadata does not match the requested build")
+    return _artifact_response(metadata, artifact_path, "")
+
+
+def _write_metadata_temporary(metadata: dict[str, str | int], artifact_path: Path) -> Path:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{artifact_path.name}-metadata-",
+        suffix=".json",
+        dir=artifact_path.parent,
+    )
+    with os.fdopen(descriptor, "w") as temporary_file:
+        json.dump(metadata, temporary_file, sort_keys=True, separators=(",", ":"))
+        temporary_file.flush()
+        os.fsync(temporary_file.fileno())
+    return Path(temporary_name)
 
 
 def build_agent(os_kind: Literal["linux", "windows"]) -> dict[str, str | int]:
@@ -179,7 +234,7 @@ def build_agent(os_kind: Literal["linux", "windows"]) -> dict[str, str | int]:
         / artifact_name(os_kind, source["git_sha"])
     )
     if artifact_path.exists():
-        return _artifact_response(source, os_kind, artifact_path, "")
+        return _existing_artifact_response(source, os_kind, artifact_path)
 
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -209,15 +264,24 @@ def build_agent(os_kind: Literal["linux", "windows"]) -> dict[str, str | int]:
         if inspect_source() != source:
             raise NexoBuildError("Nexo source changed while the agent was being built")
 
+        metadata = _artifact_metadata(source, os_kind, temporary_path)
+        temporary_metadata_path = _write_metadata_temporary(metadata, artifact_path)
         try:
-            os.link(temporary_path, artifact_path)
-        except FileExistsError:
-            return _artifact_response(source, os_kind, artifact_path, "")
-        return _artifact_response(
-            source,
-            os_kind,
-            artifact_path,
-            _log_excerpt(result.stdout, result.stderr, budget=MAX_LOG_EXCERPT_LENGTH),
-        )
+            try:
+                os.link(temporary_path, artifact_path)
+            except FileExistsError:
+                return _existing_artifact_response(source, os_kind, artifact_path)
+
+            try:
+                os.link(temporary_metadata_path, _metadata_path(artifact_path))
+            except FileExistsError:
+                return _existing_artifact_response(source, os_kind, artifact_path)
+            return _artifact_response(
+                metadata,
+                artifact_path,
+                _log_excerpt(result.stdout, result.stderr, budget=MAX_LOG_EXCERPT_LENGTH),
+            )
+        finally:
+            temporary_metadata_path.unlink(missing_ok=True)
     finally:
         temporary_path.unlink(missing_ok=True)

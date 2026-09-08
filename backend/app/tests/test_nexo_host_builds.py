@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -226,6 +227,17 @@ def test_build_agent_reuses_existing_sha_platform_artifact(monkeypatch, tmp_path
     artifact_path = artifact_root / ("f" * 40) / "linux" / "nexo-remote-agent"
     artifact_path.parent.mkdir(parents=True)
     artifact_path.write_bytes(b"first-published-agent")
+    (artifact_path.parent / f"{artifact_path.name}.metadata.json").write_text(
+        json.dumps(
+            {
+                "git_sha": "f" * 40,
+                "agent_version": "v1.2.3",
+                "os_kind": "linux",
+                "artifact_size": len(b"first-published-agent"),
+                "sha256": hashlib.sha256(b"first-published-agent").hexdigest(),
+            }
+        )
+    )
     monkeypatch.setattr(nexo_builds, "NEXO_SOURCE_PATH", source_path)
     monkeypatch.setattr(nexo_builds, "NEXO_ARTIFACT_ROOT", artifact_root)
 
@@ -326,4 +338,48 @@ def test_build_agent_uses_only_the_trusted_go_environment(monkeypatch, tmp_path)
         "GOOS": "linux",
         "GOARCH": "amd64",
         "CGO_ENABLED": "0",
+        "GOENV": "off",
     }
+
+
+def test_build_agent_reuses_published_version_when_tags_change(monkeypatch, tmp_path):
+    """Moving a tag at one SHA must not relabel an already-published binary."""
+    import nexo_builds
+
+    source_path = tmp_path / "nexo"
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setattr(nexo_builds, "NEXO_SOURCE_PATH", source_path)
+    monkeypatch.setattr(nexo_builds, "NEXO_ARTIFACT_ROOT", artifact_root)
+    agent_version = "v1.0.0"
+    go_builds = 0
+
+    def fake_run(command, **kwargs):
+        nonlocal go_builds
+        if command[0] == "go":
+            go_builds += 1
+            Path(command[command.index("-o") + 1]).write_bytes(b"versioned-agent")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            output = "2" * 40
+        elif command[-1] == "--dirty":
+            output = agent_version
+        else:
+            output = ""
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(nexo_builds.subprocess, "run", fake_run)
+
+    first = build_agent("linux")
+    agent_version = "v1.1.0"
+    reused = build_agent("linux")
+
+    metadata_path = artifact_root / ("2" * 40) / "linux" / "nexo-remote-agent.metadata.json"
+    assert json.loads(metadata_path.read_text()) == {
+        "agent_version": "v1.0.0",
+        "artifact_size": len(b"versioned-agent"),
+        "git_sha": "2" * 40,
+        "os_kind": "linux",
+        "sha256": hashlib.sha256(b"versioned-agent").hexdigest(),
+    }
+    assert first["agent_version"] == reused["agent_version"] == "v1.0.0"
+    assert go_builds == 1
