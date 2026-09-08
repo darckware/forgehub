@@ -13,8 +13,11 @@ import os
 import re
 import subprocess
 import tempfile
+import fcntl
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Iterator, Literal
 
 
 NEXO_SOURCE_PATH = Path(os.environ.get("NEXO_SOURCE_PATH", "/root/project/nexo"))
@@ -223,6 +226,31 @@ def _write_metadata_temporary(metadata: dict[str, str | int], artifact_path: Pat
     return Path(temporary_name)
 
 
+@contextmanager
+def _artifact_lock(artifact_path: Path) -> Iterator[None]:
+    """Serialize publication and recovery for one SHA/platform artifact pair."""
+    lock_path = artifact_path.parent / f".{artifact_path.name}.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _quarantine_incomplete_publication(artifact_path: Path) -> None:
+    """Preserve an incomplete pair for inspection before a clean rebuild."""
+    marker = uuid.uuid4().hex
+    for path in (artifact_path, _metadata_path(artifact_path)):
+        if path.exists():
+            quarantine_path = path.parent / f".{path.name}.incomplete-{marker}"
+            try:
+                os.rename(path, quarantine_path)
+            except FileNotFoundError:
+                continue
+
+
 def build_agent(os_kind: Literal["linux", "windows"]) -> dict[str, str | int]:
     """Compile the fixed Nexo checkout for a single allowlisted platform."""
     os_kind = _require_os_kind(os_kind)
@@ -233,55 +261,62 @@ def build_agent(os_kind: Literal["linux", "windows"]) -> dict[str, str | int]:
         / os_kind
         / artifact_name(os_kind, source["git_sha"])
     )
-    if artifact_path.exists():
-        return _existing_artifact_response(source, os_kind, artifact_path)
-
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{artifact_name(os_kind, source['git_sha'])}-",
-        dir=artifact_path.parent,
-    )
-    os.close(descriptor)
-    temporary_path = Path(temporary_name)
-    command = build_command(os_kind, source["agent_version"], temporary_path)
-    try:
-        try:
-            result = subprocess.run(
-                command,
-                cwd=NEXO_SOURCE_PATH,
-                env=trusted_build_environment(os_kind),
-                capture_output=True,
-                text=True,
-                timeout=BUILD_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise _failure("Nexo agent build timed out", exc.output, exc.stderr) from exc
-        if result.returncode != 0:
-            raise _failure("Nexo agent build failed", result.stdout, result.stderr)
-        if not temporary_path.is_file():
-            raise NexoBuildError("Nexo agent build completed without an artifact")
-        if inspect_source() != source:
-            raise NexoBuildError("Nexo source changed while the agent was being built")
+    with _artifact_lock(artifact_path):
+        metadata_path = _metadata_path(artifact_path)
+        if artifact_path.exists() and metadata_path.exists():
+            try:
+                return _existing_artifact_response(source, os_kind, artifact_path)
+            except NexoBuildError:
+                _quarantine_incomplete_publication(artifact_path)
+        elif artifact_path.exists() or metadata_path.exists():
+            _quarantine_incomplete_publication(artifact_path)
 
-        metadata = _artifact_metadata(source, os_kind, temporary_path)
-        temporary_metadata_path = _write_metadata_temporary(metadata, artifact_path)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{artifact_name(os_kind, source['git_sha'])}-",
+            dir=artifact_path.parent,
+        )
+        os.close(descriptor)
+        temporary_path = Path(temporary_name)
+        command = build_command(os_kind, source["agent_version"], temporary_path)
         try:
             try:
-                os.link(temporary_path, artifact_path)
-            except FileExistsError:
-                return _existing_artifact_response(source, os_kind, artifact_path)
+                result = subprocess.run(
+                    command,
+                    cwd=NEXO_SOURCE_PATH,
+                    env=trusted_build_environment(os_kind),
+                    capture_output=True,
+                    text=True,
+                    timeout=BUILD_TIMEOUT_SECONDS,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise _failure("Nexo agent build timed out", exc.output, exc.stderr) from exc
+            if result.returncode != 0:
+                raise _failure("Nexo agent build failed", result.stdout, result.stderr)
+            if not temporary_path.is_file():
+                raise NexoBuildError("Nexo agent build completed without an artifact")
+            if inspect_source() != source:
+                raise NexoBuildError("Nexo source changed while the agent was being built")
 
+            metadata = _artifact_metadata(source, os_kind, temporary_path)
+            temporary_metadata_path = _write_metadata_temporary(metadata, artifact_path)
             try:
-                os.link(temporary_metadata_path, _metadata_path(artifact_path))
-            except FileExistsError:
-                return _existing_artifact_response(source, os_kind, artifact_path)
-            return _artifact_response(
-                metadata,
-                artifact_path,
-                _log_excerpt(result.stdout, result.stderr, budget=MAX_LOG_EXCERPT_LENGTH),
-            )
+                try:
+                    os.link(temporary_path, artifact_path)
+                except FileExistsError:
+                    return _existing_artifact_response(source, os_kind, artifact_path)
+
+                try:
+                    os.link(temporary_metadata_path, metadata_path)
+                except FileExistsError:
+                    return _existing_artifact_response(source, os_kind, artifact_path)
+                return _artifact_response(
+                    metadata,
+                    artifact_path,
+                    _log_excerpt(result.stdout, result.stderr, budget=MAX_LOG_EXCERPT_LENGTH),
+                )
+            finally:
+                temporary_metadata_path.unlink(missing_ok=True)
         finally:
-            temporary_metadata_path.unlink(missing_ok=True)
-    finally:
-        temporary_path.unlink(missing_ok=True)
+            temporary_path.unlink(missing_ok=True)

@@ -6,6 +6,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -383,3 +384,97 @@ def test_build_agent_reuses_published_version_when_tags_change(monkeypatch, tmp_
     }
     assert first["agent_version"] == reused["agent_version"] == "v1.0.0"
     assert go_builds == 1
+
+
+def test_build_agent_recovers_an_incomplete_publication_without_reusing_it(monkeypatch, tmp_path):
+    """A crash after binary publication must not permanently poison that SHA/platform."""
+    import nexo_builds
+
+    source_path = tmp_path / "nexo"
+    artifact_root = tmp_path / "artifacts"
+    artifact_path = artifact_root / ("3" * 40) / "linux" / "nexo-remote-agent"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"incomplete-agent")
+    monkeypatch.setattr(nexo_builds, "NEXO_SOURCE_PATH", source_path)
+    monkeypatch.setattr(nexo_builds, "NEXO_ARTIFACT_ROOT", artifact_root)
+
+    def fake_run(command, **kwargs):
+        if command[0] == "go":
+            Path(command[command.index("-o") + 1]).write_bytes(b"recovered-agent")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            output = "3" * 40
+        elif command[-1] == "--dirty":
+            output = "v1.2.3"
+        else:
+            output = ""
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(nexo_builds.subprocess, "run", fake_run)
+
+    result = build_agent("linux")
+
+    assert artifact_path.read_bytes() == b"recovered-agent"
+    assert result["sha256"] == hashlib.sha256(b"recovered-agent").hexdigest()
+    assert json.loads((artifact_path.parent / f"{artifact_path.name}.metadata.json").read_text())["sha256"] == result["sha256"]
+    quarantined = list(artifact_path.parent.glob(f".{artifact_path.name}.incomplete-*"))
+    assert len(quarantined) == 1
+    assert quarantined[0].read_bytes() == b"incomplete-agent"
+
+
+def test_concurrent_build_requests_publish_one_complete_pair(monkeypatch, tmp_path):
+    """A waiting request must reuse the first complete pair, never see a partial one."""
+    import nexo_builds
+
+    source_path = tmp_path / "nexo"
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setattr(nexo_builds, "NEXO_SOURCE_PATH", source_path)
+    monkeypatch.setattr(nexo_builds, "NEXO_ARTIFACT_ROOT", artifact_root)
+    compile_started = threading.Event()
+    release_compile = threading.Event()
+    second_compile_started = threading.Event()
+    go_builds = 0
+    build_lock = threading.Lock()
+    results: list[dict[str, str | int]] = []
+    errors: list[BaseException] = []
+
+    def fake_run(command, **kwargs):
+        nonlocal go_builds
+        if command[0] == "go":
+            with build_lock:
+                go_builds += 1
+                if go_builds == 2:
+                    second_compile_started.set()
+            compile_started.set()
+            assert release_compile.wait(timeout=1)
+            Path(command[command.index("-o") + 1]).write_bytes(b"concurrent-agent")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            output = "4" * 40
+        elif command[-1] == "--dirty":
+            output = "v1.2.3"
+        else:
+            output = ""
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    def invoke_build():
+        try:
+            results.append(build_agent("linux"))
+        except BaseException as exc:  # pragma: no cover - assertion below reports it
+            errors.append(exc)
+
+    monkeypatch.setattr(nexo_builds.subprocess, "run", fake_run)
+    first = threading.Thread(target=invoke_build)
+    second = threading.Thread(target=invoke_build)
+    first.start()
+    assert compile_started.wait(timeout=1)
+    second.start()
+    assert not second_compile_started.wait(timeout=0.1)
+    release_compile.set()
+    first.join(timeout=1)
+    second.join(timeout=1)
+
+    assert not errors
+    assert go_builds == 1
+    assert len(results) == 2
+    assert results[0]["sha256"] == results[1]["sha256"]
