@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Literal
 
@@ -45,18 +46,31 @@ BUILD_CLAIM_LEASE_SECONDS = nexo_builds.BUILD_TIMEOUT_SECONDS + 60.0
 
 
 class SecretStreamingResponse(StreamingResponse):
-    """A stream that closes its content iterator on every ASGI exit path."""
+    """A stream that removes secret content on every ASGI exit path."""
+
+    def __init__(
+        self,
+        *args,
+        secret_cleanup: Callable[[], None] | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._secret_cleanup = secret_cleanup or (lambda: None)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         try:
             await super().__call__(scope, receive, send)
         finally:
-            close = getattr(self.body_iterator, "aclose", None)
-            if close is not None:
-                # A disconnect may cancel the response task. Shield the close
-                # so the iterator's secret-file cleanup still completes.
-                with CancelScope(shield=True):
-                    await close()
+            # A disconnect may cancel the response task. Shield both iterator
+            # closure and response-owned cleanup; an unstarted async generator
+            # does not execute its own ``finally`` when closed.
+            with CancelScope(shield=True):
+                try:
+                    close = getattr(self.body_iterator, "aclose", None)
+                    if close is not None:
+                        await close()
+                finally:
+                    self._secret_cleanup()
 
 
 def _project(build: NexoAgentBuild) -> NexoAgentBuildOut:
@@ -199,47 +213,40 @@ async def refresh_nexo_agent_builds(
 
 
 async def _stream_package(
-    temporary_directory: tempfile.TemporaryDirectory[str],
     metadata: nexo_packages.PackageMetadata,
     installation_id: uuid.UUID,
     actor_user_id: uuid.UUID,
 ) -> AsyncIterator[bytes]:
     """Stream a package, recording delivery only after the final yield resumes."""
-    try:
-        with metadata.path.open("rb") as package:
-            while chunk := package.read(64 * 1024):
-                yield chunk
-        async with AsyncSessionLocal() as db:
-            installation = (
-                await db.execute(
-                    select(WorkstationInstallation)
-                    .where(WorkstationInstallation.id == installation_id)
-                    .with_for_update()
+    with metadata.path.open("rb") as package:
+        while chunk := package.read(64 * 1024):
+            yield chunk
+    async with AsyncSessionLocal() as db:
+        installation = (
+            await db.execute(
+                select(WorkstationInstallation)
+                .where(WorkstationInstallation.id == installation_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if (
+            installation is not None
+            and installation.status == "package_ready"
+            and installation.package_generated_at == metadata.generated_at
+        ):
+            delivered_at = datetime.now(timezone.utc)
+            installation.status = "downloaded"
+            installation.downloaded_at = delivered_at
+            db.add(
+                WorkstationInstallationEvent(
+                    installation_id=installation.id,
+                    event_type="downloaded",
+                    from_status="package_ready",
+                    to_status="downloaded",
+                    actor_user_id=actor_user_id,
                 )
-            ).scalar_one_or_none()
-            if (
-                installation is not None
-                and installation.status == "package_ready"
-                and installation.package_generated_at == metadata.generated_at
-            ):
-                delivered_at = datetime.now(timezone.utc)
-                installation.status = "downloaded"
-                installation.downloaded_at = delivered_at
-                db.add(
-                    WorkstationInstallationEvent(
-                        installation_id=installation.id,
-                        event_type="downloaded",
-                        from_status="package_ready",
-                        to_status="downloaded",
-                        actor_user_id=actor_user_id,
-                    )
-                )
-                await db.commit()
-    finally:
-        # Keep this in the iterator rather than a response background task:
-        # cancellation closes the iterator, removes the secret ZIP, and does
-        # not claim the package was delivered.
-        temporary_directory.cleanup()
+            )
+            await db.commit()
 
 
 @router.post(
@@ -360,13 +367,14 @@ async def generate_workstation_installation_package(
         raise
 
     return SecretStreamingResponse(
-        _stream_package(temporary_directory, metadata, installation.id, admin.id),
+        _stream_package(metadata, installation.id, admin.id),
         media_type="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="{metadata.filename}"',
             "Content-Length": str(metadata.size),
             "X-Content-Type-Options": "nosniff",
         },
+        secret_cleanup=temporary_directory.cleanup,
     )
 
 

@@ -440,6 +440,76 @@ async def test_package_requires_a_valid_https_ingestion_url(
 
 
 @pytest.mark.asyncio
+async def test_asgi_response_start_failure_removes_temporary_content(
+    package_context: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workstation = package_context["workstations"]["linux"]
+    build = package_context["builds"]["linux"]
+    created_directories: list[tempfile.TemporaryDirectory[str]] = []
+    real_temporary_directory = tempfile.TemporaryDirectory
+
+    def tracked_temporary_directory(*args, **kwargs):
+        directory = real_temporary_directory(*args, **kwargs)
+        created_directories.append(directory)
+        return directory
+
+    monkeypatch.setattr(
+        nexo_installation.tempfile,
+        "TemporaryDirectory",
+        tracked_temporary_directory,
+    )
+    async with AsyncSessionLocal() as db:
+        admin = await db.get(User, package_context["admin_id"])
+        response = await nexo_installation.generate_workstation_installation_package(
+            workstation.id,
+            build.id,
+            db,
+            admin,
+        )
+    assert len(created_directories) == 1
+    temporary_path = Path(created_directories[0].name)
+    assert temporary_path.exists()
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def failing_send(message):
+        assert message["type"] == "http.response.start"
+        raise OSError("synthetic response-start failure")
+
+    with pytest.raises(ClientDisconnect):
+        await response(
+            {"type": "http", "asgi": {"spec_version": "2.4"}},
+            receive,
+            failing_send,
+        )
+
+    assert not temporary_path.exists()
+    async with AsyncSessionLocal() as db:
+        installation = (
+            await db.execute(
+                select(WorkstationInstallation).where(
+                    WorkstationInstallation.workstation_id == workstation.id
+                )
+            )
+        ).scalar_one()
+        event_types = list(
+            (
+                await db.execute(
+                    select(WorkstationInstallationEvent.event_type).where(
+                        WorkstationInstallationEvent.installation_id
+                        == installation.id
+                    )
+                )
+            ).scalars()
+        )
+        assert installation.status == "package_ready"
+        assert installation.downloaded_at is None
+        assert event_types == ["package_generated"]
+
+
+@pytest.mark.asyncio
 async def test_asgi_send_failure_keeps_package_ready_and_removes_temporary_content(
     package_context: dict,
     monkeypatch: pytest.MonkeyPatch,
