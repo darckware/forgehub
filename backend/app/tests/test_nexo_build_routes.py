@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -12,6 +13,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
+from app.api.routes import nexo_installation
 from app.core import nexo_builds
 from app.core.config import settings
 from app.core.deps import get_current_admin
@@ -22,7 +24,13 @@ from app.main import app
 
 
 BUILD_TIMEOUT_SHA = "1234567890abcdef1234567890abcdef12345678"
-TEST_SHAS = {character * 40 for character in "abcdef"} | {BUILD_TIMEOUT_SHA}
+STALE_BUILD_SHA = "0123456789abcdef0123456789abcdef01234567"
+FRESH_BUILD_SHA = "fedcba9876543210fedcba9876543210fedcba98"
+TEST_SHAS = {character * 40 for character in "abcdef"} | {
+    BUILD_TIMEOUT_SHA,
+    STALE_BUILD_SHA,
+    FRESH_BUILD_SHA,
+}
 
 
 class FakeBridge:
@@ -369,3 +377,56 @@ async def test_concurrent_refresh_does_not_launch_duplicate_builds(
 
     assert first.status_code == second.status_code == 202
     assert build_calls == ["linux", "windows"]
+
+
+@pytest.mark.asyncio
+async def test_stale_building_claim_is_recovered(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    fake_bridge: FakeBridge,
+) -> None:
+    assert nexo_installation.BUILD_CLAIM_LEASE_SECONDS > nexo_builds.BUILD_TIMEOUT_SECONDS
+    fake_bridge.source(STALE_BUILD_SHA, "v5.0.0")
+    async with AsyncSessionLocal() as db:
+        db.add(
+            NexoAgentBuild(
+                git_sha=STALE_BUILD_SHA,
+                agent_version="v5.0.0",
+                os_kind="linux",
+                status="building",
+                started_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            )
+        )
+        await db.commit()
+
+    response = await client.post("/api/v1/nexo-agent-builds", headers=admin_headers)
+
+    assert response.status_code == 202, response.text
+    assert fake_bridge.build_calls == ["linux", "windows"]
+    assert [build["status"] for build in response.json()] == ["ready", "ready"]
+
+
+@pytest.mark.asyncio
+async def test_fresh_building_claim_is_not_duplicated(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    fake_bridge: FakeBridge,
+) -> None:
+    fake_bridge.source(FRESH_BUILD_SHA, "v5.1.0")
+    async with AsyncSessionLocal() as db:
+        db.add(
+            NexoAgentBuild(
+                git_sha=FRESH_BUILD_SHA,
+                agent_version="v5.1.0",
+                os_kind="linux",
+                status="building",
+                started_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    response = await client.post("/api/v1/nexo-agent-builds", headers=admin_headers)
+
+    assert response.status_code == 202, response.text
+    assert fake_bridge.build_calls == ["windows"]
+    assert [build["status"] for build in response.json()] == ["building", "ready"]

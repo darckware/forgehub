@@ -1,6 +1,6 @@
 """Administrative Nexo agent build catalog and installation endpoints."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,6 +22,9 @@ from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/nexo-agent-builds", tags=["nexo-agent-builds"])
 PLATFORMS: tuple[Literal["linux", "windows"], ...] = ("linux", "windows")
+# A live bridge request must time out before another request may reclaim its
+# database claim. The extra minute covers request/response and commit overhead.
+BUILD_CLAIM_LEASE_SECONDS = nexo_builds.BUILD_TIMEOUT_SECONDS + 60.0
 
 
 def _project(build: NexoAgentBuild) -> NexoAgentBuildOut:
@@ -65,11 +68,17 @@ async def _claim_build(
             .with_for_update()
         )
     ).scalar_one()
-    if build.status in {"ready", "building"}:
+    now = datetime.now(timezone.utc)
+    building_claim_is_fresh = (
+        build.status == "building"
+        and build.started_at is not None
+        and build.started_at > now - timedelta(seconds=BUILD_CLAIM_LEASE_SECONDS)
+    )
+    if build.status == "ready" or building_claim_is_fresh:
         await db.commit()
         return build, False
 
-    if build.status == "failed":
+    if build.status in {"failed", "building"}:
         build.status = "queued"
         build.artifact_path = None
         build.artifact_size = None
@@ -81,7 +90,7 @@ async def _claim_build(
 
     build.status = "building"
     build.agent_version = source.agent_version
-    build.started_at = datetime.now(timezone.utc)
+    build.started_at = now
     build.completed_at = None
     await db.commit()
     await db.refresh(build)
