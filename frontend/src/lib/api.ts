@@ -139,14 +139,47 @@ async function downloadFile(path: string): Promise<{ blob: Blob; filename: strin
   const res = await fetch(buildUrl(path), { headers: authHeader });
 
   if (!res.ok) {
-    throw new ApiError(`Request to ${path} failed with status ${res.status}`, res.status, undefined);
+    throw await apiErrorFromResponse(path, res);
   }
 
-  const disposition = res.headers.get("Content-Disposition") ?? "";
+  return downloadFromResponse(path, res);
+}
+
+async function apiErrorFromResponse(path: string, response: Response): Promise<ApiError> {
+  let parsedBody: unknown = undefined;
+  try {
+    parsedBody = await response.json();
+  } catch {
+    // response had no JSON body
+  }
+  return new ApiError(
+    `Request to ${path} failed with status ${response.status}`,
+    response.status,
+    parsedBody,
+  );
+}
+
+function filenameFromDisposition(path: string, response: Response): string {
+  const disposition = response.headers.get("Content-Disposition") ?? "";
   const match = /filename="?([^";]+)"?/.exec(disposition);
-  const filename = match?.[1] ?? path.split("/").pop() ?? "download";
-  const blob = await res.blob();
-  return { blob, filename };
+  return match?.[1] ?? path.split("/").pop() ?? "download";
+}
+
+async function downloadFromResponse(path: string, response: Response) {
+  return { blob: await response.blob(), filename: filenameFromDisposition(path, response) };
+}
+
+async function postDownload(path: string, body?: unknown): Promise<{ blob: Blob; filename: string }> {
+  const token = getToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(buildUrl(path), {
+    method: "POST",
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) throw await apiErrorFromResponse(path, response);
+  return downloadFromResponse(path, response);
 }
 
 export const apiClient = {
@@ -160,4 +193,5 @@ export const apiClient = {
     request<T>(path, { ...options, method: "PATCH", body }),
   delete: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "DELETE" }),
   downloadFile,
+  postDownload,
 };
