@@ -11,6 +11,7 @@ import hashlib
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -23,6 +24,7 @@ SUPPORTED_OS_KINDS = frozenset({"linux", "windows"})
 BUILD_TIMEOUT_SECONDS = 600
 MAX_LOG_EXCERPT_LENGTH = 2_000
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
+_TRUSTED_GO_ENVIRONMENT_KEYS = ("PATH", "HOME", "TMPDIR", "GOCACHE")
 
 
 class NexoBuildError(RuntimeError):
@@ -47,6 +49,17 @@ def build_environment(os_kind: str) -> dict[str, str]:
     """Return the complete, allowlisted Go target environment."""
     _require_os_kind(os_kind)
     return {"GOOS": os_kind, "GOARCH": "amd64", "CGO_ENABLED": "0"}
+
+
+def trusted_build_environment(os_kind: str) -> dict[str, str]:
+    """Provide Go only the host paths it needs, never bridge request secrets."""
+    environment = {
+        key: os.environ[key]
+        for key in _TRUSTED_GO_ENVIRONMENT_KEYS
+        if key in os.environ
+    }
+    environment.update(build_environment(os_kind))
+    return environment
 
 
 def build_command(os_kind: str, agent_version: str, artifact_path: Path) -> list[str]:
@@ -119,6 +132,8 @@ def inspect_source() -> dict[str, str]:
     agent_version = _run_git("describe", "--tags", "--always", "--dirty")
     if agent_version.endswith("-dirty"):
         raise NexoBuildError("Nexo source is dirty; catalog builds require a clean checkout")
+    if _run_git("status", "--porcelain", "--untracked-files=all"):
+        raise NexoBuildError("Nexo source is dirty; catalog builds require a clean checkout")
     if not agent_version:
         raise NexoBuildError("Nexo source returned an empty agent version")
     return {"git_sha": git_sha, "agent_version": agent_version}
@@ -134,6 +149,25 @@ def _sha256_and_size(artifact_path: Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
+def _artifact_response(
+    source: dict[str, str],
+    os_kind: Literal["linux", "windows"],
+    artifact_path: Path,
+    log_excerpt: str,
+) -> dict[str, str | int]:
+    if not artifact_path.is_file():
+        raise NexoBuildError("Nexo artifact path is not a regular file")
+    sha256, artifact_size = _sha256_and_size(artifact_path)
+    return {
+        **source,
+        "os_kind": os_kind,
+        "artifact_path": str(artifact_path.relative_to(NEXO_ARTIFACT_ROOT)),
+        "artifact_size": artifact_size,
+        "sha256": sha256,
+        "log_excerpt": log_excerpt,
+    }
+
+
 def build_agent(os_kind: Literal["linux", "windows"]) -> dict[str, str | int]:
     """Compile the fixed Nexo checkout for a single allowlisted platform."""
     os_kind = _require_os_kind(os_kind)
@@ -144,32 +178,46 @@ def build_agent(os_kind: Literal["linux", "windows"]) -> dict[str, str | int]:
         / os_kind
         / artifact_name(os_kind, source["git_sha"])
     )
-    artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    command = build_command(os_kind, source["agent_version"], artifact_path)
-    environment = {**os.environ, **build_environment(os_kind)}
-    try:
-        result = subprocess.run(
-            command,
-            cwd=NEXO_SOURCE_PATH,
-            env=environment,
-            capture_output=True,
-            text=True,
-            timeout=BUILD_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise _failure("Nexo agent build timed out", exc.output, exc.stderr) from exc
-    if result.returncode != 0:
-        raise _failure("Nexo agent build failed", result.stdout, result.stderr)
-    if not artifact_path.is_file():
-        raise NexoBuildError("Nexo agent build completed without an artifact")
+    if artifact_path.exists():
+        return _artifact_response(source, os_kind, artifact_path, "")
 
-    sha256, artifact_size = _sha256_and_size(artifact_path)
-    return {
-        **source,
-        "os_kind": os_kind,
-        "artifact_path": str(artifact_path.relative_to(NEXO_ARTIFACT_ROOT)),
-        "artifact_size": artifact_size,
-        "sha256": sha256,
-        "log_excerpt": _log_excerpt(result.stdout, result.stderr, budget=MAX_LOG_EXCERPT_LENGTH),
-    }
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{artifact_name(os_kind, source['git_sha'])}-",
+        dir=artifact_path.parent,
+    )
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    command = build_command(os_kind, source["agent_version"], temporary_path)
+    try:
+        try:
+            result = subprocess.run(
+                command,
+                cwd=NEXO_SOURCE_PATH,
+                env=trusted_build_environment(os_kind),
+                capture_output=True,
+                text=True,
+                timeout=BUILD_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise _failure("Nexo agent build timed out", exc.output, exc.stderr) from exc
+        if result.returncode != 0:
+            raise _failure("Nexo agent build failed", result.stdout, result.stderr)
+        if not temporary_path.is_file():
+            raise NexoBuildError("Nexo agent build completed without an artifact")
+        if inspect_source() != source:
+            raise NexoBuildError("Nexo source changed while the agent was being built")
+
+        try:
+            os.link(temporary_path, artifact_path)
+        except FileExistsError:
+            return _artifact_response(source, os_kind, artifact_path, "")
+        return _artifact_response(
+            source,
+            os_kind,
+            artifact_path,
+            _log_excerpt(result.stdout, result.stderr, budget=MAX_LOG_EXCERPT_LENGTH),
+        )
+    finally:
+        temporary_path.unlink(missing_ok=True)

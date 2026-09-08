@@ -74,7 +74,9 @@ def test_inspect_source_reads_revision_and_version_from_the_fixed_repository(mon
         calls.append(command)
         if command[-2:] == ["rev-parse", "HEAD"]:
             return subprocess.CompletedProcess(command, 0, "a" * 40 + "\n", "")
-        return subprocess.CompletedProcess(command, 0, "v1.2.3\n", "")
+        if command[-1] == "--dirty":
+            return subprocess.CompletedProcess(command, 0, "v1.2.3\n", "")
+        return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(nexo_builds.subprocess, "run", fake_run)
 
@@ -82,6 +84,7 @@ def test_inspect_source_reads_revision_and_version_from_the_fixed_repository(mon
     assert calls == [
         ["git", "-C", str(tmp_path / "nexo"), "rev-parse", "HEAD"],
         ["git", "-C", str(tmp_path / "nexo"), "describe", "--tags", "--always", "--dirty"],
+        ["git", "-C", str(tmp_path / "nexo"), "status", "--porcelain", "--untracked-files=all"],
     ]
 
 
@@ -101,6 +104,27 @@ def test_inspect_source_rejects_a_dirty_repository(monkeypatch, tmp_path):
         inspect_source()
 
 
+def test_inspect_source_rejects_untracked_files(monkeypatch, tmp_path):
+    """Untracked source could change an agent binary without changing its SHA."""
+    import nexo_builds
+
+    monkeypatch.setattr(nexo_builds, "NEXO_SOURCE_PATH", tmp_path / "nexo")
+
+    def fake_run(command, **kwargs):
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            output = "e" * 40
+        elif command[-1] == "--dirty":
+            output = "v1.2.3"
+        else:
+            output = "?? cmd/remote-agent/injected.go\n"
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(nexo_builds.subprocess, "run", fake_run)
+
+    with pytest.raises(NexoBuildError, match="dirty"):
+        inspect_source()
+
+
 def test_failed_build_redacts_and_bounds_compiler_output(monkeypatch, tmp_path):
     """Compiler diagnostics must not leak credentials into bridge responses or logs."""
     import nexo_builds
@@ -112,7 +136,12 @@ def test_failed_build_redacts_and_bounds_compiler_output(monkeypatch, tmp_path):
 
     def fake_run(command, **kwargs):
         if command[0] == "git":
-            output = "c" * 40 if command[-2:] == ["rev-parse", "HEAD"] else "v1.2.3"
+            if command[-2:] == ["rev-parse", "HEAD"]:
+                output = "c" * 40
+            elif command[-1] == "--dirty":
+                output = "v1.2.3"
+            else:
+                output = ""
             return subprocess.CompletedProcess(command, 0, output, "")
         return subprocess.CompletedProcess(
             command,
@@ -146,7 +175,12 @@ def test_build_agent_writes_a_hashed_artifact_under_the_fixed_root(monkeypatch, 
     def fake_run(command, **kwargs):
         calls.append((command, kwargs))
         if command[0] == "git":
-            output = "d" * 40 if command[-2:] == ["rev-parse", "HEAD"] else "v1.2.3"
+            if command[-2:] == ["rev-parse", "HEAD"]:
+                output = "d" * 40
+            elif command[-1] == "--dirty":
+                output = "v1.2.3"
+            else:
+                output = ""
             return subprocess.CompletedProcess(command, 0, output, "")
         artifact_path = Path(command[command.index("-o") + 1])
         artifact_path.write_bytes(b"agent-bytes")
@@ -166,17 +200,130 @@ def test_build_agent_writes_a_hashed_artifact_under_the_fixed_root(monkeypatch, 
         "sha256": hashlib.sha256(b"agent-bytes").hexdigest(),
         "log_excerpt": "build complete",
     }
-    command, kwargs = calls[-1]
-    assert command == [
+    command, kwargs = next((call, options) for call, options in calls if call[0] == "go")
+    assert command[:5] == [
         "go",
         "build",
         "-trimpath",
         "-ldflags",
         "-X main.Version=v1.2.3",
-        "-o",
-        str(artifact_path),
-        "./cmd/remote-agent",
     ]
+    assert command[-1] == "./cmd/remote-agent"
+    assert command[5] == "-o"
+    assert Path(command[6]).parent == artifact_path.parent
+    assert Path(command[6]) != artifact_path
     assert kwargs["cwd"] == source_path
     assert kwargs["timeout"] == 600
     assert "shell" not in kwargs
+
+
+def test_build_agent_reuses_existing_sha_platform_artifact(monkeypatch, tmp_path):
+    """A second request for the same SHA/platform must never replace its binary."""
+    import nexo_builds
+
+    source_path = tmp_path / "nexo"
+    artifact_root = tmp_path / "artifacts"
+    artifact_path = artifact_root / ("f" * 40) / "linux" / "nexo-remote-agent"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"first-published-agent")
+    monkeypatch.setattr(nexo_builds, "NEXO_SOURCE_PATH", source_path)
+    monkeypatch.setattr(nexo_builds, "NEXO_ARTIFACT_ROOT", artifact_root)
+
+    def fake_run(command, **kwargs):
+        if command[0] == "go":
+            pytest.fail("an existing immutable artifact must be reused")
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            output = "f" * 40
+        elif command[-1] == "--dirty":
+            output = "v1.2.3"
+        else:
+            output = ""
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(nexo_builds.subprocess, "run", fake_run)
+
+    result = build_agent("linux")
+
+    assert artifact_path.read_bytes() == b"first-published-agent"
+    assert result["artifact_size"] == len(b"first-published-agent")
+    assert result["sha256"] == hashlib.sha256(b"first-published-agent").hexdigest()
+
+
+def test_build_agent_revalidates_source_before_publishing(monkeypatch, tmp_path):
+    """A source change during compilation must not be published under the old SHA."""
+    import nexo_builds
+
+    source_path = tmp_path / "nexo"
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setattr(nexo_builds, "NEXO_SOURCE_PATH", source_path)
+    monkeypatch.setattr(nexo_builds, "NEXO_ARTIFACT_ROOT", artifact_root)
+    build_started = False
+
+    def fake_run(command, **kwargs):
+        nonlocal build_started
+        if command[0] == "go":
+            build_started = True
+            Path(command[command.index("-o") + 1]).write_bytes(b"changed-source-agent")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            output = ("b" if build_started else "a") * 40
+        elif command[-1] == "--dirty":
+            output = "v1.2.3"
+        else:
+            output = ""
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(nexo_builds.subprocess, "run", fake_run)
+
+    with pytest.raises(NexoBuildError, match="changed"):
+        build_agent("linux")
+
+    assert not (artifact_root / ("a" * 40) / "linux" / "nexo-remote-agent").exists()
+
+
+def test_build_agent_uses_only_the_trusted_go_environment(monkeypatch, tmp_path):
+    """Inherited bridge secrets and Go control flags must not influence compiler execution."""
+    import nexo_builds
+
+    source_path = tmp_path / "nexo"
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setattr(nexo_builds, "NEXO_SOURCE_PATH", source_path)
+    monkeypatch.setattr(nexo_builds, "NEXO_ARTIFACT_ROOT", artifact_root)
+    monkeypatch.setenv("PATH", "/trusted/bin")
+    monkeypatch.setenv("HOME", "/trusted/home")
+    monkeypatch.setenv("TMPDIR", "/trusted/tmp")
+    monkeypatch.setenv("GOCACHE", "/trusted/cache")
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "bridge-secret")
+    monkeypatch.setenv("GOFLAGS", "-mod=vendor")
+    monkeypatch.setenv("GOWORK", "/tmp/unsafe.work")
+    monkeypatch.setenv("GOENV", "/tmp/unsafe.env")
+    monkeypatch.setenv("GOTOOLCHAIN", "go1.99.0")
+    captured_environment: dict[str, str] | None = None
+
+    def fake_run(command, **kwargs):
+        nonlocal captured_environment
+        if command[0] == "git":
+            if command[-2:] == ["rev-parse", "HEAD"]:
+                output = "1" * 40
+            elif command[-1] == "--dirty":
+                output = "v1.2.3"
+            else:
+                output = ""
+            return subprocess.CompletedProcess(command, 0, output, "")
+        captured_environment = kwargs["env"]
+        Path(command[command.index("-o") + 1]).write_bytes(b"isolated-agent")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(nexo_builds.subprocess, "run", fake_run)
+
+    build_agent("linux")
+
+    assert captured_environment == {
+        "PATH": "/trusted/bin",
+        "HOME": "/trusted/home",
+        "TMPDIR": "/trusted/tmp",
+        "GOCACHE": "/trusted/cache",
+        "GOOS": "linux",
+        "GOARCH": "amd64",
+        "CGO_ENABLED": "0",
+    }
