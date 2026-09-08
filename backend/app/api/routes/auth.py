@@ -4,7 +4,7 @@ Validates username/password against the Users table.  Falls back to the
 DEV_USER settings credentials for the bootstrap login (before the admin
 row is persisted) so the very first login always works.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.schemas.user import PermissionMap, TokenOut, UserOut
 from app.core.config import settings
 from app.core.deps import get_current_user
+from app.core.recaptcha import verify_recaptcha
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.base import get_db
 from app.db.models.profile import MODULES, SENSITIVE_ACTIONS, ProfileActionPermission, ProfilePermission
@@ -63,8 +64,15 @@ async def _build_action_permissions(user: User, db: AsyncSession) -> dict[str, b
 @router.post("/token", response_model=TokenOut)
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
+    recaptcha_token: str | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> TokenOut:
+    if not await verify_recaptcha(recaptcha_token):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="reCAPTCHA verification failed",
+        )
+
     result = await db.execute(select(User).where(User.username == form_data.username))
     user: User | None = result.scalar_one_or_none()
 

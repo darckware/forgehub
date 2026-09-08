@@ -90,6 +90,11 @@ services:
     image: forgehub-frontend:latest
     build:
       context: ./frontend
+      args:
+        # Public reCAPTCHA v2 site key -- empty until the key pair is
+        # provisioned for forgehub.darckware.net (see CLAUDE.md); the login
+        # screen keeps working unchanged until then.
+        VITE_RECAPTCHA_SITE_KEY: ${RECAPTCHA_SITE_KEY:-}
     container_name: forgehub-frontend
     restart: unless-stopped
     ports:

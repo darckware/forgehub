@@ -93,7 +93,22 @@ async def _lifespan(_app: FastAPI):
         await _stop_background_tasks()
 
 
-app = FastAPI(title="ForgeHub (ForgeHub) API", version="0.1.0", lifespan=_lifespan)
+# docs_url/redoc_url/openapi_url are off in every environment except an
+# explicit dev/homolog opt-in (settings.ENVIRONMENT) -- this API is
+# reachable from the public internet (forgehub.darckware.net), and the
+# schema they'd publish includes every /api/v1/* route's shape. Fail-closed
+# by design: unset/"production"/anything unrecognized all disable them.
+_DOCS_ENABLED_ENVIRONMENTS = {"development", "dev", "homolog", "homologacao", "staging"}
+_docs_enabled = settings.ENVIRONMENT.strip().lower() in _DOCS_ENABLED_ENVIRONMENTS
+
+app = FastAPI(
+    title="ForgeHub (ForgeHub) API",
+    version="0.1.0",
+    lifespan=_lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 # Routes not covered by their own Depends(get_current_user)/get_current_admin
 # -- just the login endpoint itself, which is how a client gets a token in

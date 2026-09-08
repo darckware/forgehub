@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import ReCAPTCHA from "react-google-recaptcha";
 import { motion } from "framer-motion";
 import {
   Loader2,
@@ -219,6 +220,11 @@ const PILLARS = [
   },
 ];
 
+// Unset until the key pair is provisioned for this domain (see CLAUDE.md's
+// reCAPTCHA note) -- the widget below only renders once a site key exists,
+// so login keeps working exactly as before in the meantime.
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -229,19 +235,23 @@ export default function LoginPage() {
   // Pre-fills from the last choice (defaults true -- see authStore's
   // getRememberMe docstring for why an unset preference isn't "false").
   const [rememberMe, setRememberMeChecked] = useState(getRememberMe);
+  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
+  const recaptchaRef = useRef<ReCAPTCHA>(null);
   const login = useLogin();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (RECAPTCHA_SITE_KEY && !recaptchaToken) return;
     try {
       // Set before the login mutation so setAuth's persisted write (inside
       // useLogin's onSuccess) already lands in the right storage -- no
       // second write or page reload needed for the choice to take effect.
       setRememberMe(rememberMe);
-      await login.mutateAsync({ username, password });
+      await login.mutateAsync({ username, password, recaptchaToken });
       navigate(from, { replace: true });
     } catch {
-      // error shown below
+      recaptchaRef.current?.reset();
+      setRecaptchaToken(null);
     }
   };
 
@@ -365,13 +375,25 @@ export default function LoginPage() {
                   Stay logged in
                 </label>
 
+                {RECAPTCHA_SITE_KEY && (
+                  <div className="flex justify-center">
+                    <ReCAPTCHA
+                      ref={recaptchaRef}
+                      sitekey={RECAPTCHA_SITE_KEY}
+                      theme="dark"
+                      onChange={(token) => setRecaptchaToken(token)}
+                      onExpired={() => setRecaptchaToken(null)}
+                    />
+                  </div>
+                )}
+
                 {login.error && (
                   <p className="text-xs text-destructive">{login.error.message}</p>
                 )}
 
                 <Button
                   type="submit"
-                  disabled={login.isPending || !username || !password}
+                  disabled={login.isPending || !username || !password || (Boolean(RECAPTCHA_SITE_KEY) && !recaptchaToken)}
                   className="mt-2 gap-2"
                 >
                   {login.isPending ? (

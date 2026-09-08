@@ -58,6 +58,22 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
+    # Deployment environment label -- controls whether FastAPI's own
+    # auto-generated docs (/docs, /redoc, /openapi.json) are served (see
+    # app/main.py). Fail-closed default: an unset/unrecognized value (e.g.
+    # "production", or nothing at all) disables them. Only "development",
+    # "dev", "homolog"/"homologacao" or "staging" turn them on -- this host
+    # is reachable from the public internet (forgehub.darckware.net), and
+    # the schema would publish every route's shape.
+    ENVIRONMENT: str = "production"
+
+    # Google reCAPTCHA v2 (login screen, see api/routes/auth.py +
+    # core/recaptcha.py). Empty = feature off (fail-open, same convention as
+    # darckware's app/core/recaptcha.py) -- set once a key pair is
+    # provisioned in the Google reCAPTCHA admin console for
+    # forgehub.darckware.net.
+    RECAPTCHA_SECRET_KEY: str = ""
+
     # Temporary single hardcoded dev user — placeholder until a real
     # Users/Auth domain exists (out of scope for this foundation step).
     DEV_USER_USERNAME: str = "admin"
