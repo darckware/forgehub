@@ -34,3 +34,50 @@ class NexoAgentBuildOut(BaseModel):
 class NexoBuildCatalogOut(BaseModel):
     source: NexoSource
     builds: list[NexoAgentBuildOut]
+
+
+NexoOsKind = Literal["linux", "windows"]
+NexoInstallationStatus = Literal[
+    "package_ready", "downloaded", "online", "outdated", "error"
+]
+NexoInstallationEventType = Literal[
+    "package_generated", "downloaded", "first_report", "version_mismatch", "error"
+]
+
+
+class NexoInstallationOut(BaseModel):
+    """Current installation state joined to its safe display metadata."""
+
+    id: uuid.UUID
+    workstation_id: uuid.UUID
+    client_id: uuid.UUID
+    build_id: uuid.UUID
+    client_name: str
+    workstation_hostname: str | None
+    os_kind: NexoOsKind
+    status: NexoInstallationStatus
+    expected_version: str
+    detected_version: str | None
+    package_generated_at: datetime
+    downloaded_at: datetime | None
+    online_at: datetime | None
+    last_report_at: datetime | None
+    last_error: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NexoInstallationEventOut(BaseModel):
+    id: uuid.UUID
+    event_type: NexoInstallationEventType
+    from_status: NexoInstallationStatus | None
+    to_status: NexoInstallationStatus
+    detail: str | None
+    actor_user_id: uuid.UUID | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class NexoInstallationDetailOut(NexoInstallationOut):
+    events: list[NexoInstallationEventOut]

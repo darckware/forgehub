@@ -20,13 +20,18 @@ from starlette.types import Receive, Scope, Send
 from app.api.schemas.nexo_installation import (
     NexoAgentBuildOut,
     NexoBuildCatalogOut,
+    NexoInstallationDetailOut,
+    NexoInstallationEventOut,
+    NexoInstallationOut,
+    NexoInstallationStatus,
+    NexoOsKind,
     NexoSource,
 )
 from app.api.routes.workstation import _generate_device_token, hash_device_token
 from app.core import nexo_builds, nexo_packages
 from app.core.deps import get_current_admin
 from app.db.base import AsyncSessionLocal, get_db
-from app.db.models.client import Workstation
+from app.db.models.client import Client, Workstation
 from app.db.models.nexo_installation import (
     NexoAgentBuild,
     WorkstationInstallation,
@@ -210,6 +215,114 @@ async def refresh_nexo_agent_builds(
 
     builds = [await _refresh_platform(db, source, os_kind) for os_kind in PLATFORMS]
     return [_project(build) for build in builds]
+
+
+def _project_installation(
+    installation: WorkstationInstallation,
+    workstation: Workstation,
+    client: Client,
+    build: NexoAgentBuild,
+) -> NexoInstallationOut:
+    return NexoInstallationOut(
+        id=installation.id,
+        workstation_id=workstation.id,
+        client_id=client.id,
+        build_id=build.id,
+        client_name=client.name,
+        workstation_hostname=workstation.hostname,
+        os_kind=workstation.os_kind,
+        status=installation.status,
+        expected_version=build.agent_version,
+        detected_version=workstation.last_seen_agent_version,
+        package_generated_at=installation.package_generated_at,
+        downloaded_at=installation.downloaded_at,
+        online_at=installation.online_at,
+        last_report_at=workstation.last_report_at,
+        last_error=installation.last_error,
+        created_at=installation.created_at,
+        updated_at=installation.updated_at,
+    )
+
+
+def _installation_projection_query():
+    return (
+        select(WorkstationInstallation, Workstation, Client, NexoAgentBuild)
+        .join(Workstation, Workstation.id == WorkstationInstallation.workstation_id)
+        .join(Client, Client.id == Workstation.client_id)
+        .join(NexoAgentBuild, NexoAgentBuild.id == WorkstationInstallation.build_id)
+    )
+
+
+@router.get(
+    "/api/v1/nexo-installations",
+    response_model=list[NexoInstallationOut],
+    tags=["nexo-installations"],
+)
+async def list_nexo_installations(
+    client_id: uuid.UUID | None = None,
+    workstation_id: uuid.UUID | None = None,
+    os_kind: NexoOsKind | None = None,
+    status: NexoInstallationStatus | None = None,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> list[NexoInstallationOut]:
+    query = _installation_projection_query()
+    if client_id is not None:
+        query = query.where(Client.id == client_id)
+    if workstation_id is not None:
+        query = query.where(Workstation.id == workstation_id)
+    if os_kind is not None:
+        query = query.where(Workstation.os_kind == os_kind)
+    if status is not None:
+        query = query.where(WorkstationInstallation.status == status)
+    query = query.order_by(
+        Client.name.asc(),
+        Workstation.hostname.asc().nulls_last(),
+        WorkstationInstallation.id.asc(),
+    )
+    rows = (await db.execute(query)).all()
+    return [_project_installation(*row) for row in rows]
+
+
+@router.get(
+    "/api/v1/nexo-installations/{installation_id}",
+    response_model=NexoInstallationDetailOut,
+    tags=["nexo-installations"],
+)
+async def get_nexo_installation(
+    installation_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> NexoInstallationDetailOut:
+    row = (
+        await db.execute(
+            _installation_projection_query().where(
+                WorkstationInstallation.id == installation_id
+            )
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Nexo installation not found")
+
+    events = list(
+        (
+            await db.execute(
+                select(WorkstationInstallationEvent)
+                .where(
+                    WorkstationInstallationEvent.installation_id == installation_id
+                )
+                .order_by(
+                    WorkstationInstallationEvent.created_at.asc(),
+                    WorkstationInstallationEvent.id.asc(),
+                )
+            )
+        ).scalars()
+    )
+    projection = _project_installation(*row)
+    return NexoInstallationDetailOut(
+        **projection.model_dump(),
+        events=[NexoInstallationEventOut.model_validate(event) for event in events],
+    )
 
 
 async def _stream_package(
