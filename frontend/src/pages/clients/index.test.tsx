@@ -22,6 +22,11 @@ const mocks = vi.hoisted(() => ({
   useNexoBuilds: vi.fn(),
   useNexoInstallations: vi.fn(),
   generatePackage: vi.fn(),
+  resetPackage: vi.fn(),
+  refetchBuilds: vi.fn(),
+  refetchInstallations: vi.fn(),
+  packagePending: false,
+  packageError: null as Error | null,
 }));
 
 vi.mock("@/hooks/useClients", async (importOriginal) => {
@@ -62,10 +67,10 @@ vi.mock("@/hooks/useNexoInstallations", async (importOriginal) => {
     useNexoInstallations: mocks.useNexoInstallations,
     useGenerateNexoPackage: () => ({
       mutate: mocks.generatePackage,
-      reset: vi.fn(),
-      isPending: false,
-      isError: false,
-      error: null,
+      reset: mocks.resetPackage,
+      isPending: mocks.packagePending,
+      isError: Boolean(mocks.packageError),
+      error: mocks.packageError,
     }),
   };
 });
@@ -166,12 +171,17 @@ describe("Clients pages", () => {
     mocks.createGrant.mockReset();
     mocks.revokeGrant.mockReset();
     mocks.generatePackage.mockReset();
+    mocks.resetPackage.mockReset();
+    mocks.refetchBuilds.mockReset();
+    mocks.refetchInstallations.mockReset();
+    mocks.packagePending = false;
+    mocks.packageError = null;
     mocks.useClients.mockReturnValue({ data: [CLIENT], isLoading: false, isError: false, error: null });
     mocks.useClient.mockReturnValue({ data: CLIENT, isLoading: false, isError: false, error: null });
     mocks.useWorkstations.mockReturnValue({ data: WORKSTATIONS, isLoading: false, isError: false, error: null });
     mocks.usePeerGrants.mockReturnValue({ data: [GRANT], isLoading: false, isError: false, error: null });
-    mocks.useNexoBuilds.mockReturnValue({ data: BUILDS, isLoading: false, isError: false, error: null });
-    mocks.useNexoInstallations.mockReturnValue({ data: [INSTALLATION], isLoading: false, isError: false, error: null });
+    mocks.useNexoBuilds.mockReturnValue({ data: BUILDS, isLoading: false, isError: false, error: null, refetch: mocks.refetchBuilds });
+    mocks.useNexoInstallations.mockReturnValue({ data: [INSTALLATION], isLoading: false, isError: false, error: null, refetch: mocks.refetchInstallations });
   });
 
   it("links the registry to a dedicated creation page without rendering a modal", () => {
@@ -229,6 +239,8 @@ describe("Clients pages", () => {
       "href",
       "/nexo-agents?client_id=client-1&workstation_id=ws-a",
     );
+    expect(screen.queryByRole("link", { name: /ver histórico.*finance-02/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Não gerado")).toHaveLength(2);
   });
 
   it("requires confirmation before generating a workstation package", () => {
@@ -243,5 +255,108 @@ describe("Clients pages", () => {
       { workstationId: "ws-a", buildId: "build-linux" },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
+  });
+
+  it("prefers the current-source ready build and falls back only within the workstation OS", () => {
+    mocks.useNexoBuilds.mockReturnValue({
+      data: {
+        ...BUILDS,
+        builds: [
+          { ...BUILDS.builds[0], id: "old-linux", git_sha: "c".repeat(40), agent_version: "0.9.0" },
+          { ...BUILDS.builds[0], id: "current-windows", os_kind: "windows", git_sha: BUILDS.source.git_sha },
+          { ...BUILDS.builds[0], id: "current-linux", git_sha: BUILDS.source.git_sha },
+        ],
+      },
+      isLoading: false, isError: false, error: null, refetch: mocks.refetchBuilds,
+    });
+    const current = renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+
+    fireEvent.click(screen.getByRole("button", { name: /gerar e baixar.*finance-01/i }));
+    fireEvent.click(screen.getByRole("button", { name: /confirmar geração/i }));
+    expect(mocks.generatePackage).toHaveBeenCalledWith(
+      { workstationId: "ws-a", buildId: "current-linux" },
+      expect.any(Object),
+    );
+    current.unmount();
+
+    mocks.generatePackage.mockReset();
+    mocks.useNexoBuilds.mockReturnValue({
+      data: { ...BUILDS, builds: [
+        { ...BUILDS.builds[0], id: "old-linux", git_sha: "c".repeat(40) },
+        { ...BUILDS.builds[0], id: "current-windows", os_kind: "windows", git_sha: BUILDS.source.git_sha },
+      ] },
+      isLoading: false, isError: false, error: null, refetch: mocks.refetchBuilds,
+    });
+    renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+    fireEvent.click(screen.getByRole("button", { name: /gerar e baixar.*finance-01/i }));
+    fireEvent.click(screen.getByRole("button", { name: /confirmar geração/i }));
+    expect(mocks.generatePackage).toHaveBeenCalledWith(
+      { workstationId: "ws-a", buildId: "old-linux" },
+      expect.any(Object),
+    );
+  });
+
+  it("distinguishes loading, unavailable, and failed build lookup states", () => {
+    mocks.useNexoBuilds.mockReturnValue({ data: undefined, isLoading: true, isError: false, error: null, refetch: mocks.refetchBuilds });
+    const loading = renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+    expect(screen.getByRole("button", { name: /gerar e baixar.*finance-01/i })).toBeDisabled();
+    expect(screen.getAllByText(/carregando builds/i).length).toBeGreaterThan(0);
+    loading.unmount();
+
+    mocks.useNexoBuilds.mockReturnValue({ data: { ...BUILDS, builds: [] }, isLoading: false, isError: false, error: null, refetch: mocks.refetchBuilds });
+    const unavailable = renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+    expect(screen.getAllByText(/build pronta é necessária/i).length).toBeGreaterThan(0);
+    unavailable.unmount();
+
+    mocks.useNexoBuilds.mockReturnValue({ data: undefined, isLoading: false, isError: true, error: new Error("offline"), refetch: mocks.refetchBuilds });
+    renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+    expect(screen.getAllByText(/não foi possível carregar as builds/i).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /tentar novamente/i }));
+    expect(mocks.refetchBuilds).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps installation loading and failure distinct from an uninstalled workstation", () => {
+    mocks.useNexoInstallations.mockReturnValue({ data: undefined, isLoading: true, isError: false, error: null, refetch: mocks.refetchInstallations });
+    const loading = renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+    expect(screen.getAllByText("Desconhecido")).toHaveLength(3);
+    expect(screen.queryByText("Não gerado")).not.toBeInTheDocument();
+    loading.unmount();
+
+    mocks.useNexoInstallations.mockReturnValue({ data: undefined, isLoading: false, isError: true, error: new Error("offline"), refetch: mocks.refetchInstallations });
+    renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+    expect(screen.getByRole("alert")).toHaveTextContent(/status da instalação Nexo/i);
+    fireEvent.click(screen.getByRole("button", { name: /tentar novamente/i }));
+    expect(mocks.refetchInstallations).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a cross-OS build and prevents duplicate generation while pending", () => {
+    mocks.useNexoBuilds.mockReturnValue({ data: { ...BUILDS, builds: [{ ...BUILDS.builds[0], os_kind: "windows" }] }, isLoading: false, isError: false, error: null, refetch: mocks.refetchBuilds });
+    const crossOs = renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+    expect(screen.getByRole("button", { name: /gerar e baixar.*finance-01/i })).toBeDisabled();
+    crossOs.unmount();
+
+    mocks.packagePending = true;
+    mocks.useNexoBuilds.mockReturnValue({ data: BUILDS, isLoading: false, isError: false, error: null, refetch: mocks.refetchBuilds });
+    renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+    expect(screen.getByRole("button", { name: /gerar e baixar.*finance-01/i })).toBeDisabled();
+  });
+
+  it("keeps one stable generation error region and clears it when dismissed", () => {
+    mocks.packageError = new Error("download failed");
+    const view = renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+    fireEvent.click(screen.getByRole("button", { name: /gerar e baixar.*finance-01/i }));
+
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByTestId("client-package-feedback")).toHaveClass("min-h-16");
+    fireEvent.click(screen.getByRole("button", { name: /cancelar/i }));
+    expect(mocks.resetPackage).toHaveBeenCalled();
+
+    mocks.packageError = null;
+    view.rerender(
+      <MemoryRouter initialEntries={["/clients/client-1"]}>
+        <Routes><Route path="/clients/:id" element={<ClientDetailPage />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

@@ -169,21 +169,24 @@ export default function ClientDetailPage() {
                     <Badge variant={variant} className="gap-1"><StatusIcon className="h-3.5 w-3.5" aria-hidden="true" />{t(`detail.installation.states.${status}`)}</Badge>
                   </div>
                   <div className="flex flex-wrap items-center gap-1 lg:justify-end">
-                    <Button size="sm" variant="outline" className="gap-1.5" aria-label={t("detail.installation.generateFor", { workstation: workstationName(item) })} disabled={!build || builds.isLoading || generatePackage.isPending} onClick={() => { if (build) { generatePackage.reset(); setPackageNotice(""); setPackageTarget({ workstation: item, build }); } }}>
+                    <Button size="sm" variant="outline" className="gap-1.5" aria-label={t("detail.installation.generateFor", { workstation: workstationName(item) })} aria-describedby={!build ? `nexo-build-help-${item.id}` : undefined} disabled={!build || builds.isLoading || generatePackage.isPending} onClick={() => { if (build) { generatePackage.reset(); setPackageNotice(""); setPackageTarget({ workstation: item, build }); } }}>
                       <Download className="h-3.5 w-3.5" aria-hidden="true" />{t("detail.installation.generate")}
                     </Button>
-                    <Link aria-label={t("detail.installation.historyFor", { workstation: workstationName(item) })} className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" to={`/nexo-agents?client_id=${encodeURIComponent(id)}&workstation_id=${encodeURIComponent(item.id)}`}>
+                    {installation && <Link aria-label={t("detail.installation.historyFor", { workstation: workstationName(item) })} className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" to={`/nexo-agents?client_id=${encodeURIComponent(id)}&workstation_id=${encodeURIComponent(item.id)}`}>
                       <History className="h-3.5 w-3.5" aria-hidden="true" />{t("detail.installation.history")}
-                    </Link>
+                    </Link>}
                   </div>
-                  {!build && !builds.isLoading && <p className="text-xs text-muted-foreground lg:col-start-3 lg:text-right">{t("detail.installation.buildRequired")}</p>}
+                  {!build && <p id={`nexo-build-help-${item.id}`} className="text-xs text-muted-foreground lg:col-start-3 lg:text-right">{builds.isLoading ? t("detail.installation.buildLoading") : builds.isError ? t("detail.installation.buildLoadError") : t("detail.installation.buildRequired")}</p>}
                 </li>
               );
             })}
           </ul>
         )}
-        <div className="min-h-10 border-t border-border px-5 py-3 text-sm" role={installations.isError || builds.isError || generatePackage.isError ? "alert" : "status"}>
-          {installations.isError || builds.isError ? t("detail.installation.loadError") : generatePackage.isError ? t("detail.installation.generateError") : packageNotice}
+        <div className="flex min-h-12 flex-wrap items-center gap-2 border-t border-border px-5 py-3 text-sm" role={installations.isError || builds.isError ? "alert" : "status"}>
+          {installations.isError && <span>{t("detail.installation.loadError")}</span>}
+          {builds.isError && <span>{t("detail.installation.buildLoadError")}</span>}
+          {(installations.isError || builds.isError) && <Button size="sm" variant="outline" onClick={() => { if (installations.isError) void installations.refetch(); if (builds.isError) void builds.refetch(); }}>{t("common.retry")}</Button>}
+          {!installations.isError && !builds.isError && packageNotice}
         </div>
       </section>
 
@@ -242,8 +245,7 @@ export default function ClientDetailPage() {
         icon="warning"
         loading={generatePackage.isPending}
         dismissDisabled={generatePackage.isPending}
-        error={generatePackage.isError ? t("detail.installation.generateError") : null}
-        onCancel={() => setPackageTarget(null)}
+        onCancel={() => { generatePackage.reset(); setPackageTarget(null); }}
         onConfirm={() => {
           if (!packageTarget || generatePackage.isPending) return;
           generatePackage.mutate(
@@ -251,7 +253,11 @@ export default function ClientDetailPage() {
             { onSuccess: () => { setPackageTarget(null); setPackageNotice(t("detail.installation.generated")); } },
           );
         }}
-      />
+      >
+        <div data-testid="client-package-feedback" className="min-h-16 text-sm" role={generatePackage.isError ? "alert" : "status"}>
+          {generatePackage.isError ? t("detail.installation.generateError") : generatePackage.isPending ? t("detail.installation.generating") : null}
+        </div>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={Boolean(revokePair)}
