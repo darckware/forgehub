@@ -1,6 +1,6 @@
 # Pendências — Nexo, Headscale e Darckware
 
-> **Atualizado em:** 2026-09-10  
+> **Atualizado em:** 2026-09-10
 > **Escopo:** acompanhamento da entrega descrita em
 > [`architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md`](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md).
 
@@ -111,6 +111,21 @@ O contrato de build foi validado com bridge e artefatos sintéticos. Ainda falta
 uma build Linux/Windows contra o repositório Nexo real e o host bridge implantado, confirmando
 permissões e retenção em `/root/forgehub-data/nexo-agent-artifacts`.
 
+### Verificação sintética integrada do ciclo completo
+
+Os cinco testes focados executados abaixo são independentes e não constituem o E2E integrado exigido
+pelo plano. Ainda falta uma única execução sintética que, com os mesmos registros descartáveis,
+solicite ambas as builds, gere e inspecione ambos os ZIPs, use o token recém-gerado para enviar o
+relatório, confirme a transição para `online` e garanta a limpeza. Essa verificação não foi executada
+nesta revisão e não deve usar estação, token ou artefato de produção.
+
+### Persistência de falha de empacotamento
+
+O contrato reserva o estado de instalação `error`, o evento `error` e `last_error`, porém o endpoint
+atual devolve o erro HTTP e limpa o temporário antes de criar ou atualizar a instalação. Falta
+implementar e testar a persistência segura dessa falha conforme a especificação. Até lá, `error` não
+é emitido pelo fluxo de produção e não deve ser tratado como estado operacional observável.
+
 ## Evidências verificadas em 2026-09-10
 
 Na revisão `7d653d1` antes desta atualização documental:
@@ -122,11 +137,12 @@ Na revisão `7d653d1` antes desta atualização documental:
   conhecidos de flags futuras do React Router;
 - build de produção: **concluído**, 5.238 módulos transformados em 49,03 s; permaneceram avisos de
   chunk grande e import misto do Mermaid;
-- fluxo sintético focado (catálogo das duas plataformas, ZIP Linux/Windows, rotação e primeiro
-  relatório): **5 testes aprovados** em 4,99 s, com fixtures isoladas e limpeza automática.
+- seleção de cinco testes sintéticos independentes (catálogo das duas plataformas, ZIP Linux/Windows,
+  rotação e primeiro relatório): **5 testes aprovados** em 4,99 s, com fixtures isoladas e limpeza
+  automática de cada teste.
 
-Esse último resultado valida os contratos sintéticos, mas não equivale a uma execução única contra o
-host bridge, repositório Nexo ou estações reais.
+Esse último resultado valida contratos isolados; não é uma execução E2E integrada nem uma validação
+contra host bridge, repositório Nexo ou estações reais.
 
 ## Fora do escopo desta entrega
 

@@ -37,7 +37,9 @@ abandonada é recuperada após o lease interno.
 ## Gerar e instalar um pacote
 
 1. Na página `/nexo-agents` filtre cliente/estação ou abra a página do cliente.
-2. Escolha uma build `ready` da mesma plataforma da estação.
+2. Confirme a build indicada automaticamente. Em `/nexo-agents`, a tela usa a build `ready` da
+   revisão de origem atual e da mesma plataforma. Na página do cliente, ela prefere essa mesma build
+   e, se não existir, usa outra build `ready` da plataforma como fallback visível.
 3. Acione **Gerar e baixar pacote** e confirme a rotação da credencial.
 4. Guarde o ZIP como segredo e transfira-o por canal autorizado.
 5. Linux: extraia o ZIP e execute `install.sh` como `root`.
@@ -75,11 +77,15 @@ Cada geração substitui imediatamente o hash do token da estação. O token em 
 | `downloaded` | A resposta do ZIP terminou; instalação ainda não foi comprovada. | Instale/inicie o serviço e aguarde o relatório autenticado. |
 | `online` | Chegou relatório válido da geração atual com a versão esperada. | Nenhuma; acompanhe o heartbeat. |
 | `outdated` | Chegou relatório válido, mas a versão difere da build esperada. | Confirme a build correta e gere/instale um novo pacote. |
-| `error` | Não há geração atual utilizável após falha de empacotamento. | Corrija causa/configuração e gere novo pacote. |
 
 Em build `failed`, corrija o host bridge ou a origem e atualize o catálogo. Se já existir outra build
 `ready`, ela continua disponível. Em `downloaded` sem relatório, valide serviço, rede, URL HTTPS e
 relógio da estação antes de girar novamente o token.
+
+O modelo reserva o estado `error`, mas o fluxo de produção atual não o persiste: uma falha de
+empacotamento devolve erro HTTP e preserva a instalação anterior, se houver. Corrija a causa indicada
+e tente gerar novamente. A persistência auditável de `error`/`last_error` permanece pendente e não
+deve ser presumida na operação.
 
 ## Verificação técnica reproduzível
 
@@ -112,7 +118,9 @@ npm test -- --run src/pages/nexo-agents/index.test.tsx \
 npm run build
 ```
 
-Os testes usam estações/tokens sintéticos e limpeza explícita. Uma validação de implantação ainda deve
+Os testes usam estações/tokens sintéticos e limpeza explícita, mas os cinco testes focados são fluxos
+independentes: não foi executado um E2E único ligando a build, o token emitido pelo pacote e o primeiro
+relatório. Essa verificação integrada permanece pendente. Uma validação de implantação também deve
 executar uma build Linux/Windows no host bridge real, gerar pacotes para estações de teste dedicadas,
 verificar os checksums, enviar relatório autenticado e remover os registros de teste. Não use uma
 estação ou token de produção para smoke test.
