@@ -71,6 +71,8 @@ Este arquivo define como humanos e agentes devem interpretar a documentação do
 
 ## Planejamento de memória e rotinas — 2026-09-06
 
+- [Registro central de pendências do Nexo, Headscale e Darckware](PENDENCIAS.md).
+- [Runbook de pacotes e monitoramento do Nexo Remote Agent](runbooks/NEXO_AGENT_PACKAGES.md).
 - [Plano de memória, recuperação de crons e coerência do ForgeHub](superpowers/plans/2026-09-06-collective-memory-governance.md).
 - [Cartilha de autoconfiguração dos agentes externos](runbooks/EXTERNAL_AGENT_ECOSYSTEM_SELF_CONFIGURATION.md).
 - [Baseline P0 de memória, crons e notificações](audits/2026-09-06-memory-cron-notification-baseline.md).
