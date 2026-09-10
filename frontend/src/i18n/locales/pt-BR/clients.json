@@ -67,6 +67,20 @@
       "active": "Token ativo",
       "revoked": "Token revogado"
     },
+    "installation": {
+      "generate": "Gerar e baixar",
+      "generateFor": "Gerar e baixar pacote para {{workstation}}",
+      "history": "Ver histórico",
+      "historyFor": "Ver histórico de {{workstation}}",
+      "buildRequired": "Uma build pronta é necessária para este sistema operacional.",
+      "loadError": "Não foi possível carregar o status da instalação Nexo.",
+      "generateError": "Não foi possível gerar o pacote de instalação.",
+      "generated": "Pacote gerado e download iniciado.",
+      "confirmTitle": "Gerar pacote para {{workstation}}?",
+      "confirmDescription": "A versão {{version}} será empacotada e o token anterior deixará de funcionar.",
+      "confirm": "Confirmar geração",
+      "states": { "none": "Não gerado", "unknown": "Desconhecido", "package_ready": "Pacote pronto", "downloaded": "Baixado", "online": "Online", "outdated": "Desatualizado", "error": "Erro" }
+    },
     "communication": {
       "title": "Comunicação entre estações",
       "description": "Cada alteração é auditada e publicada na política do Headscale.",

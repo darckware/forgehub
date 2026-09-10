@@ -34,6 +34,20 @@
     "back": "Back to clients",
     "info": { "title": "Client information", "contact": "Contact", "email": "Email", "phone": "Phone", "tag": "Headscale tag" },
     "workstations": { "title": "Workstations", "unnamed": "Workstation", "empty": "This client has no linked workstations yet.", "active": "Active token", "revoked": "Revoked token" },
+    "installation": {
+      "generate": "Generate and download",
+      "generateFor": "Generate and download package for {{workstation}}",
+      "history": "View history",
+      "historyFor": "View history for {{workstation}}",
+      "buildRequired": "A ready build is required for this operating system.",
+      "loadError": "Nexo installation status could not be loaded.",
+      "generateError": "The installation package could not be generated.",
+      "generated": "Package generated and download started.",
+      "confirmTitle": "Generate package for {{workstation}}?",
+      "confirmDescription": "Version {{version}} will be packaged and the previous workstation token will stop working.",
+      "confirm": "Confirm generation",
+      "states": { "none": "Not generated", "unknown": "Unknown", "package_ready": "Package ready", "downloaded": "Downloaded", "online": "Online", "outdated": "Outdated", "error": "Error" }
+    },
     "communication": {
       "title": "Workstation communication",
       "description": "Every change is audited and published to the Headscale policy.",

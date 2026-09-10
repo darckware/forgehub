@@ -6,6 +6,7 @@ import "@/i18n";
 import type { Client } from "@/hooks/useClients";
 import type { Workstation } from "@/hooks/useWorkstations";
 import type { PeerGrant } from "@/hooks/usePeerGrants";
+import type { NexoBuildCatalog, NexoInstallation } from "@/hooks/useNexoInstallations";
 import ClientsPage from ".";
 import NewClientPage from "./new";
 import ClientDetailPage from "./[id]";
@@ -18,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   usePeerGrants: vi.fn(),
   createGrant: vi.fn(),
   revokeGrant: vi.fn(),
+  useNexoBuilds: vi.fn(),
+  useNexoInstallations: vi.fn(),
+  generatePackage: vi.fn(),
 }));
 
 vi.mock("@/hooks/useClients", async (importOriginal) => {
@@ -47,6 +51,22 @@ vi.mock("@/hooks/usePeerGrants", async (importOriginal) => {
     usePeerGrants: mocks.usePeerGrants,
     useCreatePeerGrant: () => ({ mutate: mocks.createGrant, isPending: false, error: null }),
     useRevokePeerGrant: () => ({ mutate: mocks.revokeGrant, isPending: false, error: null }),
+  };
+});
+
+vi.mock("@/hooks/useNexoInstallations", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/useNexoInstallations")>();
+  return {
+    ...actual,
+    useNexoBuilds: mocks.useNexoBuilds,
+    useNexoInstallations: mocks.useNexoInstallations,
+    useGenerateNexoPackage: () => ({
+      mutate: mocks.generatePackage,
+      reset: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    }),
   };
 });
 
@@ -92,6 +112,44 @@ const GRANT: PeerGrant = {
   revoked_at: null,
 };
 
+const INSTALLATION: NexoInstallation = {
+  id: "installation-1",
+  workstation_id: "ws-a",
+  client_id: CLIENT.id,
+  build_id: "build-linux",
+  client_name: CLIENT.name,
+  workstation_hostname: "finance-01",
+  os_kind: "linux",
+  status: "online",
+  expected_version: "1.0.0",
+  detected_version: "1.0.0",
+  package_generated_at: "2026-09-07T11:00:00Z",
+  downloaded_at: "2026-09-07T11:01:00Z",
+  online_at: "2026-09-07T12:00:00Z",
+  last_report_at: "2026-09-07T12:00:00Z",
+  last_error: null,
+  created_at: "2026-09-07T11:00:00Z",
+  updated_at: "2026-09-07T12:00:00Z",
+};
+
+const BUILDS: NexoBuildCatalog = {
+  source: { git_sha: "a".repeat(40), agent_version: "1.0.0" },
+  builds: [{
+    id: "build-linux",
+    git_sha: "a".repeat(40),
+    agent_version: "1.0.0",
+    os_kind: "linux",
+    status: "ready",
+    artifact_size: 1024,
+    sha256: "b".repeat(64),
+    build_log_excerpt: null,
+    started_at: "2026-09-07T10:00:00Z",
+    completed_at: "2026-09-07T10:01:00Z",
+    created_at: "2026-09-07T10:00:00Z",
+    updated_at: "2026-09-07T10:01:00Z",
+  }],
+};
+
 function renderAt(path: string, element: React.ReactNode, routePath = "*") {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -107,10 +165,13 @@ describe("Clients pages", () => {
     mocks.createClient.mockReset();
     mocks.createGrant.mockReset();
     mocks.revokeGrant.mockReset();
+    mocks.generatePackage.mockReset();
     mocks.useClients.mockReturnValue({ data: [CLIENT], isLoading: false, isError: false, error: null });
     mocks.useClient.mockReturnValue({ data: CLIENT, isLoading: false, isError: false, error: null });
     mocks.useWorkstations.mockReturnValue({ data: WORKSTATIONS, isLoading: false, isError: false, error: null });
     mocks.usePeerGrants.mockReturnValue({ data: [GRANT], isLoading: false, isError: false, error: null });
+    mocks.useNexoBuilds.mockReturnValue({ data: BUILDS, isLoading: false, isError: false, error: null });
+    mocks.useNexoInstallations.mockReturnValue({ data: [INSTALLATION], isLoading: false, isError: false, error: null });
   });
 
   it("links the registry to a dedicated creation page without rendering a modal", () => {
@@ -158,5 +219,29 @@ describe("Clients pages", () => {
     expect(screen.getByRole("dialog", { name: /Revogar acesso/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Revogar acesso/i }));
     expect(mocks.revokeGrant).toHaveBeenCalledWith("grant-1", expect.objectContaining({ onSuccess: expect.any(Function) }));
+  });
+
+  it("shows installation state and links to filtered history", () => {
+    renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+
+    expect(screen.getByText("Online")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /ver histórico.*finance-01/i })).toHaveAttribute(
+      "href",
+      "/nexo-agents?client_id=client-1&workstation_id=ws-a",
+    );
+  });
+
+  it("requires confirmation before generating a workstation package", () => {
+    renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
+
+    fireEvent.click(screen.getByRole("button", { name: /gerar e baixar.*finance-01/i }));
+    expect(mocks.generatePackage).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toHaveTextContent("token anterior deixará de funcionar");
+
+    fireEvent.click(screen.getByRole("button", { name: /confirmar geração/i }));
+    expect(mocks.generatePackage).toHaveBeenCalledWith(
+      { workstationId: "ws-a", buildId: "build-linux" },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
   });
 });
