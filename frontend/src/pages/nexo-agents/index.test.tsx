@@ -39,6 +39,28 @@ beforeEach(async () => {
 afterEach(() => { queryClient?.clear(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("Nexo agents administration", () => {
+  it.each([["ready", "Pronto"], ["failed", "Falhou"], ["building", "Compilando"], ["queued", "Na fila"]])("pairs the %s build state with an icon and visible text", async (status, label) => {
+    payloads["/api/v1/nexo-agent-builds"] = { source: { git_sha: build.git_sha, agent_version: "1.2" }, builds: [{ ...build, status }] };
+    renderPage();
+    const state = await screen.findByText(label);
+    expect(state.querySelector("svg[aria-hidden='true']")).not.toBeNull();
+    expect(state).toHaveAttribute("role", "status");
+  });
+  it("shows only the checksum prefix while retaining the full value", async () => {
+    renderPage();
+    const checksum = await screen.findByTitle(build.sha256);
+    expect(checksum.textContent).toBe("bbbbbbbbbbbb…");
+    expect(checksum).toHaveAttribute("aria-label", build.sha256);
+  });
+  it("keeps common locale topology, types and interpolation variables aligned", async () => {
+    const locales = await Promise.all([import("@/i18n/locales/en/common.json"), import("@/i18n/locales/pt-BR/common.json"), import("@/i18n/locales/es/common.json")]);
+    const shape = (value: object, prefix = ""): string[] => Object.entries(value).flatMap(([key, item]) => typeof item === "object" ? shape(item, `${prefix}${key}.`) : [`${prefix}${key}:${typeof item}:${typeof item === "string" ? (item.match(/\{\{[^}]+\}\}/g) ?? []).sort().join() : ""}`]).sort();
+    expect(shape(locales[1].default)).toEqual(shape(locales[0].default));
+    expect(shape(locales[2].default)).toEqual(shape(locales[0].default));
+    await i18n.changeLanguage("es");
+    expect(i18n.t("sidebar.search", { ns: "common" })).toBe("Buscar");
+    expect(i18n.t("accessDenied.title", { ns: "common" })).toBe("Acceso denegado");
+  });
   it("blocks duplicate package generation and dismissal while saving", async () => {
     let complete!: (result: { blob: Blob; filename: string }) => void;
     vi.mocked(apiClient.postDownload).mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
@@ -102,10 +124,14 @@ describe("Nexo agents administration", () => {
     expect(within(screen.getByRole("table")).getByText("desk-02")).toBeInTheDocument();
   });
   it("restores client and workstation filters from the URL", async () => {
-    renderPage("/nexo-agents?client=client-1&workstation=ws-1");
+    renderPage("/nexo-agents?client_id=client-1&workstation_id=ws-1&os_kind=linux");
     expect(await screen.findByText("desk-01", { selector: "td p" })).toBeInTheDocument();
     expect(screen.getByLabelText("Cliente")).toHaveValue("client-1");
     expect(screen.getByLabelText("Estação")).toHaveValue("ws-1");
+    expect(screen.getByLabelText("Sistema operacional")).toHaveValue("linux");
+    fireEvent.change(screen.getByLabelText("Estação"), { target: { value: "ws-2" } });
+    expect(screen.getByTestId("location")).toHaveTextContent("workstation_id=ws-2");
+    fireEvent.change(screen.getByLabelText("Estação"), { target: { value: "ws-1" } });
     expect(within(screen.getByRole("table")).queryByText("desk-02")).not.toBeInTheDocument();
   });
   it("confirms token rotation before generating and saving the server filename", async () => {
@@ -142,6 +168,8 @@ describe("Nexo agents administration", () => {
     const dialog = screen.getByRole("dialog");
     expect(await within(dialog).findByText("Primeiro reporte")).toBeInTheDocument();
     expect(within(dialog).getByText("Pacote gerado")).toBeInTheDocument();
+    expect(within(dialog).getAllByRole("button")).toHaveLength(1);
+    expect(within(dialog).getByRole("button", { name: "Fechar" })).toHaveFocus();
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();

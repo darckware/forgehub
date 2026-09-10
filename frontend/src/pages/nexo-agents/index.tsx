@@ -19,6 +19,15 @@ const stateStyle: Record<string, { icon: typeof Circle; variant: BadgeProps["var
   package_ready: { icon: Package, variant: "secondary" }, downloaded: { icon: Download, variant: "outline" },
   online: { icon: CheckCircle2, variant: "success" }, outdated: { icon: AlertTriangle, variant: "warning" }, error: { icon: AlertTriangle, variant: "destructive" },
 };
+const buildStateStyle: Record<string, { icon: typeof Circle; variant: BadgeProps["variant"] }> = {
+  loading: { icon: Loader2, variant: "outline" },
+  missing: { icon: Circle, variant: "outline" },
+  queued: { icon: Clock, variant: "outline" },
+  building: { icon: Loader2, variant: "outline" },
+  ready: { icon: CheckCircle2, variant: "success" },
+  failed: { icon: AlertTriangle, variant: "destructive" },
+  unknown: { icon: AlertTriangle, variant: "warning" },
+};
 interface Row { id: string; clientId: string; clientName: string; hostname: string; os: string; installation?: NexoInstallation }
 
 export default function NexoAgentsPage() {
@@ -50,10 +59,10 @@ export default function NexoAgentsPage() {
     return [...result.values()].sort((a, b) => a.clientName.localeCompare(b.clientName, i18n.resolvedLanguage) || a.hostname.localeCompare(b.hostname, i18n.resolvedLanguage));
   }, [installations.data, workstations.data, clientNames, i18n.resolvedLanguage]);
   const rowStatus = (row: Row) => row.installation?.status ?? (installations.isError ? "unknown" : "none");
-  const filtered = rows.filter((row) => (!params.get("client") || row.clientId === params.get("client")) && (!params.get("workstation") || row.id === params.get("workstation")) && (!params.get("os") || row.os === params.get("os")) && (!params.get("status") || rowStatus(row) === params.get("status")));
+  const filtered = rows.filter((row) => (!params.get("client_id") || row.clientId === params.get("client_id")) && (!params.get("workstation_id") || row.id === params.get("workstation_id")) && (!params.get("os_kind") || row.os === params.get("os_kind")) && (!params.get("status") || rowStatus(row) === params.get("status")));
   const setFilter = (key: string, value: string) => setParams((previous) => { const next = new URLSearchParams(previous); if (value) next.set(key, value); else next.delete(key); return next; });
-  const clearFilters = () => setParams((previous) => { const next = new URLSearchParams(previous); ["client", "workstation", "os", "status"].forEach((key) => next.delete(key)); return next; });
-  const hasFilters = ["client", "workstation", "os", "status"].some((key) => params.has(key));
+  const clearFilters = () => setParams((previous) => { const next = new URLSearchParams(previous); ["client_id", "workstation_id", "os_kind", "status"].forEach((key) => next.delete(key)); return next; });
+  const hasFilters = ["client_id", "workstation_id", "os_kind", "status"].some((key) => params.has(key));
   const loading = (installations.isLoading || workstations.isLoading) && rows.length === 0;
   const partial = installations.isError || workstations.isError || clients.isError;
   const forbidden = [installations.error, workstations.error, clients.error, builds.error].some((error) => error instanceof ApiError && error.status === 403);
@@ -81,10 +90,12 @@ export default function NexoAgentsPage() {
           {platforms.map((os) => {
             const build = builds.data?.builds.find((item) => item.os_kind === os && item.git_sha === builds.data?.source.git_sha);
             const lastReady = readyBuild(os);
+            const buildStatus = builds.isLoading ? "loading" : builds.isError && !builds.data ? "unknown" : build?.status ?? "missing";
+            const { icon: BuildIcon, variant: buildVariant } = buildStateStyle[buildStatus];
             return <div key={os} className="min-h-24 border-l border-border pl-3 text-xs">
-              <div className="flex items-center gap-2"><h3 className="font-semibold">{t(`os.${os}`)}</h3><Badge variant={build?.status === "failed" ? "destructive" : build?.status === "ready" ? "success" : "outline"}>{t(`builds.states.${builds.isLoading ? "loading" : builds.isError && !builds.data ? "unknown" : build?.status ?? "missing"}`)}</Badge></div>
+              <div className="flex items-center gap-2"><h3 className="font-semibold">{t(`os.${os}`)}</h3><Badge role="status" variant={buildVariant} className="gap-1"><BuildIcon aria-hidden="true" className={`h-3.5 w-3.5 ${buildStatus === "loading" || buildStatus === "building" ? "motion-safe:animate-spin" : ""}`} />{t(`builds.states.${buildStatus}`)}</Badge></div>
               <p className="mt-2 text-muted-foreground">{t("builds.lastReady")}: {lastReady ? date(lastReady.completed_at) : t("builds.none")}</p>
-              {lastReady && <p className="mt-1 break-all font-mono text-muted-foreground">{lastReady.agent_version} · {lastReady.sha256}</p>}
+              {lastReady && <p className="mt-1 break-all font-mono text-muted-foreground">{lastReady.agent_version} · {lastReady.sha256 && <span title={lastReady.sha256} aria-label={lastReady.sha256}>{lastReady.sha256.slice(0, 12)}…</span>}</p>}
               {build?.build_log_excerpt && build.status === "failed" && <p className="mt-2 break-words text-destructive">{build.build_log_excerpt}</p>}
             </div>;
           })}
@@ -98,10 +109,10 @@ export default function NexoAgentsPage() {
         <div className="space-y-3 p-4">
           <h2 id="nexo-registry" className="text-sm font-semibold">{t("registry")}</h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="space-y-1 text-xs font-medium" htmlFor="nexo-client"><span>{t("filters.client")}</span><Select id="nexo-client" value={params.get("client") ?? ""} onChange={(event) => setFilter("client", event.target.value)}><option value="">{t("filters.all")}</option>{params.get("client") && !clientNames.has(params.get("client")!) && <option value={params.get("client")!}>{params.get("client")}</option>}{[...clientNames].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</Select></label>
-            <label className="space-y-1 text-xs font-medium" htmlFor="nexo-os"><span>{t("filters.os")}</span><Select id="nexo-os" value={params.get("os") ?? ""} onChange={(event) => setFilter("os", event.target.value)}><option value="">{t("filters.all")}</option>{platforms.map((os) => <option key={os} value={os}>{t(`os.${os}`)}</option>)}</Select></label>
+            <label className="space-y-1 text-xs font-medium" htmlFor="nexo-client"><span>{t("filters.client")}</span><Select id="nexo-client" value={params.get("client_id") ?? ""} onChange={(event) => setFilter("client_id", event.target.value)}><option value="">{t("filters.all")}</option>{params.get("client_id") && !clientNames.has(params.get("client_id")!) && <option value={params.get("client_id")!}>{params.get("client_id")}</option>}{[...clientNames].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</Select></label>
+            <label className="space-y-1 text-xs font-medium" htmlFor="nexo-os"><span>{t("filters.os")}</span><Select id="nexo-os" value={params.get("os_kind") ?? ""} onChange={(event) => setFilter("os_kind", event.target.value)}><option value="">{t("filters.all")}</option>{platforms.map((os) => <option key={os} value={os}>{t(`os.${os}`)}</option>)}</Select></label>
             <label className="space-y-1 text-xs font-medium" htmlFor="nexo-status"><span>{t("filters.status")}</span><Select id="nexo-status" value={params.get("status") ?? ""} onChange={(event) => setFilter("status", event.target.value)}><option value="">{t("filters.all")}</option>{states.map((state) => <option key={state} value={state}>{t(`states.${state}`)}</option>)}</Select></label>
-            <label className="space-y-1 text-xs font-medium" htmlFor="nexo-workstation"><span>{t("filters.workstation")}</span><Select id="nexo-workstation" value={params.get("workstation") ?? ""} onChange={(event) => setFilter("workstation", event.target.value)}><option value="">{t("filters.all")}</option>{params.get("workstation") && !rows.some((row) => row.id === params.get("workstation")) && <option value={params.get("workstation")!}>{params.get("workstation")}</option>}{rows.map((row) => <option key={row.id} value={row.id}>{row.hostname}</option>)}</Select></label>
+            <label className="space-y-1 text-xs font-medium" htmlFor="nexo-workstation"><span>{t("filters.workstation")}</span><Select id="nexo-workstation" value={params.get("workstation_id") ?? ""} onChange={(event) => setFilter("workstation_id", event.target.value)}><option value="">{t("filters.all")}</option>{params.get("workstation_id") && !rows.some((row) => row.id === params.get("workstation_id")) && <option value={params.get("workstation_id")!}>{params.get("workstation_id")}</option>}{rows.map((row) => <option key={row.id} value={row.id}>{row.hostname}</option>)}</Select></label>
           </div>
           <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span role="status">{t("count", { count: filtered.length, total: rows.length })}</span>{hasFilters && <Button size="sm" variant="ghost" onClick={clearFilters}>{t("filters.clear")}</Button>}</div>
           <div className="min-h-10 text-sm" role={partial ? "alert" : "status"}>{partial ? <div className="flex flex-wrap items-center gap-2"><AlertTriangle className="h-4 w-4" aria-hidden="true" /><span>{t("partial")}</span><Button size="sm" variant="outline" onClick={retryRegistry}>{t("retry")}</Button></div> : notice}</div>
@@ -132,7 +143,7 @@ export default function NexoAgentsPage() {
     <ConfirmDialog open={Boolean(target)} title={t("confirmation.title", { workstation: target?.row.hostname })} description={t("confirmation.description", { version: target?.build.agent_version })} confirmLabel={t("confirmation.confirm")} cancelLabel={t("cancel")} icon="warning" loading={generate.isPending} dismissDisabled={generate.isPending} onCancel={() => setTarget(null)} onConfirm={() => { if (!target || generate.isPending) return; generate.mutate({ workstationId: target.row.id, buildId: target.build.id }, { onSuccess: () => { setTarget(null); setNotice(t("generated")); } }); }}>
       <div data-testid="generation-feedback" className="min-h-16 text-sm" role={generate.isError ? "alert" : "status"}>{generate.isError ? t("generationError") : generate.isPending ? t("generating") : null}</div>
     </ConfirmDialog>
-    <ConfirmDialog open={Boolean(historyId)} title={t("history.title", { workstation: history.data?.workstation_hostname ?? rows.find((row) => row.installation?.id === historyId)?.hostname ?? "" })} description={t("history.description")} variant="default" icon="wrench" confirmLabel={t("close")} cancelLabel={t("back")} onCancel={() => setHistoryId(null)} onConfirm={() => setHistoryId(null)}>
+    <ConfirmDialog open={Boolean(historyId)} title={t("history.title", { workstation: history.data?.workstation_hostname ?? rows.find((row) => row.installation?.id === historyId)?.hostname ?? "" })} description={t("history.description")} variant="default" icon="wrench" readOnly cancelLabel={t("close")} onCancel={() => setHistoryId(null)} onConfirm={() => setHistoryId(null)}>
       <div className="min-h-48 text-sm">
         {history.isLoading ? <p role="status">{t("history.loading")}</p> : history.isError ? <div role="alert"><p>{t("history.error")}</p><Button size="sm" variant="outline" className="mt-3" onClick={() => history.refetch()}>{t("retry")}</Button></div> : !history.data?.events.length ? <p>{t("history.empty")}</p> : <ol className="ml-2 border-l border-border pl-4">{history.data.events.map((event) => {
           const Icon = event.event_type === "package_generated" ? Package : event.event_type === "downloaded" ? Download : event.event_type === "first_report" ? Activity : AlertTriangle;
