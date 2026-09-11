@@ -292,7 +292,7 @@ async def test_package_rejects_non_ready_build(
 
 
 @pytest.mark.asyncio
-async def test_materialization_failure_does_not_rotate_token_or_create_installation(
+async def test_materialization_failure_without_usable_generation_records_error(
     client: AsyncClient, package_context: dict
 ) -> None:
     workstation_id = package_context["workstations"]["linux"].id
@@ -319,7 +319,109 @@ async def test_materialization_failure_does_not_rotate_token_or_create_installat
             )
         ).scalar_one_or_none()
         assert workstation.device_token_hash == old_hash
-        assert installation is None
+        assert installation is not None
+        assert installation.build_id == package_context["builds"]["linux"].id
+        assert installation.status == "error"
+        assert installation.downloaded_at is None
+        assert installation.online_at is None
+        assert installation.last_error == "Nexo package could not be generated"
+        events = list(
+            (
+                await db.execute(
+                    select(WorkstationInstallationEvent).where(
+                        WorkstationInstallationEvent.installation_id
+                        == installation.id
+                    )
+                )
+            ).scalars()
+        )
+        assert len(events) == 1
+        assert events[0].event_type == "error"
+        assert events[0].from_status is None
+        assert events[0].to_status == "error"
+        assert events[0].detail == "Nexo package could not be generated"
+        assert events[0].actor_user_id == package_context["admin_id"]
+
+
+@pytest.mark.asyncio
+async def test_materialization_failure_preserves_existing_usable_generation(
+    client: AsyncClient,
+    package_context: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = package_path(package_context, "linux")
+    delivered = await client.post(path, headers=package_context["admin_headers"])
+    assert delivered.status_code == 200
+
+    workstation_id = package_context["workstations"]["linux"].id
+    async with AsyncSessionLocal() as db:
+        workstation = await db.get(Workstation, workstation_id)
+        installation = (
+            await db.execute(
+                select(WorkstationInstallation).where(
+                    WorkstationInstallation.workstation_id == workstation_id
+                )
+            )
+        ).scalar_one()
+        original_token_hash = workstation.device_token_hash
+        original_build_id = installation.build_id
+        original_generated_at = installation.package_generated_at
+        original_downloaded_at = installation.downloaded_at
+
+    leaked_token = "nxw_must-not-be-persisted-or-returned"
+    leaked_path = "/srv/private/nexo/packages/workstation.zip"
+
+    def fail_materialization(*args, **kwargs):
+        raise nexo_packages.NexoPackageError(
+            f"failed for {leaked_token} at {leaked_path}"
+        )
+
+    monkeypatch.setattr(nexo_packages, "materialize_package", fail_materialization)
+    failed = await client.post(path, headers=package_context["admin_headers"])
+
+    assert failed.status_code == 409
+    assert failed.json() == {"detail": "Nexo package could not be generated"}
+    async with AsyncSessionLocal() as db:
+        workstation = await db.get(Workstation, workstation_id)
+        installation = (
+            await db.execute(
+                select(WorkstationInstallation).where(
+                    WorkstationInstallation.workstation_id == workstation_id
+                )
+            )
+        ).scalar_one()
+        events = list(
+            (
+                await db.execute(
+                    select(WorkstationInstallationEvent)
+                    .where(
+                        WorkstationInstallationEvent.installation_id
+                        == installation.id
+                    )
+                    .order_by(WorkstationInstallationEvent.created_at)
+                )
+            ).scalars()
+        )
+        assert workstation.device_token_hash == original_token_hash
+        assert installation.build_id == original_build_id
+        assert installation.status == "downloaded"
+        assert installation.package_generated_at == original_generated_at
+        assert installation.downloaded_at == original_downloaded_at
+        assert installation.last_error == "Nexo package could not be generated"
+        assert [event.event_type for event in events] == [
+            "package_generated",
+            "downloaded",
+            "error",
+        ]
+        error_event = events[-1]
+        assert error_event.from_status == error_event.to_status == "downloaded"
+        assert error_event.detail == "Nexo package could not be generated"
+        assert error_event.actor_user_id == package_context["admin_id"]
+        persisted = " ".join(
+            filter(None, [installation.last_error, error_event.detail])
+        )
+        assert leaked_token not in persisted
+        assert leaked_path not in persisted
 
 
 @pytest.mark.asyncio

@@ -48,6 +48,7 @@ PLATFORMS: tuple[Literal["linux", "windows"], ...] = ("linux", "windows")
 # A live bridge request must time out before another request may reclaim its
 # database claim. The extra minute covers request/response and commit overhead.
 BUILD_CLAIM_LEASE_SECONDS = nexo_builds.BUILD_TIMEOUT_SECONDS + 60.0
+PACKAGE_GENERATION_ERROR = "Nexo package could not be generated"
 
 
 class SecretStreamingResponse(StreamingResponse):
@@ -362,6 +363,71 @@ async def _stream_package(
             await db.commit()
 
 
+async def _record_package_generation_failure(
+    db: AsyncSession,
+    *,
+    workstation_id: uuid.UUID,
+    build_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+) -> None:
+    """Persist a sanitized failure without invalidating a usable generation."""
+    locked_workstation = (
+        await db.execute(
+            select(Workstation)
+            .where(Workstation.id == workstation_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if locked_workstation is None:
+        await db.rollback()
+        return
+
+    installation = (
+        await db.execute(
+            select(WorkstationInstallation)
+            .where(WorkstationInstallation.workstation_id == workstation_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    attempted_at = datetime.now(timezone.utc)
+    from_status = installation.status if installation is not None else None
+    if installation is None:
+        installation = WorkstationInstallation(
+            workstation_id=workstation_id,
+            build_id=build_id,
+            status="error",
+            package_generated_at=attempted_at,
+            last_error=PACKAGE_GENERATION_ERROR,
+        )
+        db.add(installation)
+        await db.flush()
+    elif installation.status == "error":
+        installation.build_id = build_id
+        installation.package_generated_at = attempted_at
+        installation.downloaded_at = None
+        installation.online_at = None
+        installation.last_error = PACKAGE_GENERATION_ERROR
+    else:
+        # package_ready/downloaded/online/outdated still identify a usable
+        # token and build. Keep that evidence intact and attach only the
+        # sanitized diagnostic to the failed attempt.
+        installation.last_error = PACKAGE_GENERATION_ERROR
+
+    db.add(
+        WorkstationInstallationEvent(
+            installation_id=installation.id,
+            event_type="error",
+            from_status=from_status,
+            to_status=installation.status,
+            detail=PACKAGE_GENERATION_ERROR,
+            actor_user_id=actor_user_id,
+        )
+    )
+    await db.commit()
+
+
 @router.post(
     "/api/v1/workstations/{workstation_id}/installation-package",
     tags=["workstations"],
@@ -399,9 +465,21 @@ async def generate_workstation_installation_package(
         )
     except nexo_packages.NexoPackageError as exc:
         temporary_directory.cleanup()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await _record_package_generation_failure(
+            db,
+            workstation_id=workstation_id,
+            build_id=build_id,
+            actor_user_id=admin.id,
+        )
+        raise HTTPException(status_code=409, detail=PACKAGE_GENERATION_ERROR) from exc
     except Exception:
         temporary_directory.cleanup()
+        await _record_package_generation_failure(
+            db,
+            workstation_id=workstation_id,
+            build_id=build_id,
+            actor_user_id=admin.id,
+        )
         raise
 
     try:
