@@ -14,7 +14,12 @@ from app.db.models.demand import AgentDemand
 @pytest.mark.parametrize("runtime", ["claude", "codex", "agy", "hermes"])
 @pytest.mark.parametrize("path", [None, "", "   ", "relative/project"])
 async def test_dispatch_requires_explicit_absolute_directory(runtime, path, monkeypatch):
-    agent = Agent(id=uuid.uuid4(), name="Guard test", runtime_type=runtime)
+    agent = Agent(
+        id=uuid.uuid4(),
+        name="Guard test",
+        runtime_type=runtime,
+        profile_slug="guard-test" if runtime == "hermes" else None,
+    )
     monkeypatch.setattr(routes, "_get_agent_or_404", AsyncMock(return_value=agent))
     dispatch = AsyncMock(return_value={"run_id": "must-not-start"})
     monkeypatch.setattr(routes, "dispatch_agent_run", dispatch)
@@ -33,7 +38,12 @@ def test_incubation_with_sender_cannot_execute_before_promotion():
 
 @pytest.mark.parametrize("runtime", ["claude", "codex", "agy", "hermes"])
 async def test_dispatch_preserves_requested_directory(runtime, monkeypatch):
-    agent = Agent(id=uuid.uuid4(), name="Guard test", runtime_type=runtime)
+    agent = Agent(
+        id=uuid.uuid4(),
+        name="Guard test",
+        runtime_type=runtime,
+        profile_slug="guard-test" if runtime == "hermes" else None,
+    )
     monkeypatch.setattr(routes, "_get_agent_or_404", AsyncMock(return_value=agent))
     dispatch = AsyncMock(return_value={"run_id": "isolated-run"})
     monkeypatch.setattr(routes, "dispatch_agent_run", dispatch)
