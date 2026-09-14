@@ -94,6 +94,14 @@ Referência: [seção 8 da especificação](architecture/NEXO_CLIENT_MONITORING_
 
 ## Pendente — operacional
 
+### Ambiente dedicado para validação real
+
+Foi decidido em 14/09 validar primeiro em ambiente dedicado, sem alterar a stack ForgeHub ativa
+nem o Headscale de produção. A estação informada é `100.107.175.100`; a sondagem SSH na porta 22
+com usuário `root` foi recusada por `Permission denied (publickey,password)`. Falta confirmar o
+usuário autorizado e uma chave já disponível no ambiente do agente. Nenhuma instalação ou comando
+de alteração foi executado nesse host.
+
 ### Sincronização Git
 
 O estado da branch e do remoto deve ser verificado novamente antes da integração. Este documento não
@@ -147,6 +155,7 @@ Checkout integrado `develop`, revisão de código `ec81c3f`. Testes backend exec
 
 - `/tmp/forgehub-pending-venv/bin/python -m pytest app/tests/test_nexo_build_routes.py app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py app/tests/test_nexo_report_reconciliation.py app/tests/test_nexo_installation_models.py app/tests/test_nexo_installation_routes.py -q --tb=short -x`: **42 aprovados em 9,06 s**.
 - `/tmp/forgehub-pending-venv/bin/python -m pytest app/tests/test_nexo_host_builds.py -q --tb=short -x`: **13 aprovados em 0,19 s**.
+- `/tmp/forgehub-pending-venv/bin/python -m pytest app/tests/test_agent_report_ingestion.py app/tests/test_workstation_routes.py -q --tb=short -x`: **8 aprovados em 3,69 s**.
 - `/tmp/forgehub-pending-venv/bin/ruff check app`: **aprovado**.
 - `npm test -- --run src/pages/nexo-agents/index.test.tsx src/pages/clients/index.test.tsx src/lib/api.test.ts src/components/ui/confirm-dialog.test.tsx src/components/layout/navSections.test.tsx`: **44 aprovados em 5 arquivos**, com avisos conhecidos do React Router.
 - `npm run build`: **aprovado**, 5.255 módulos transformados, etapa Vite em 40,10 s; avisos de chunks grandes e import estático/dinâmico do Mermaid permanecem.
@@ -155,6 +164,21 @@ Esses testes usam bridge/artefatos simulados. Não comprovam build real do agent
 estação, política Headscale real ou atualização dos serviços ativos.
 Consulta Docker mostrou containers `forgehub-backend` e `forgehub-frontend` criados em 08/09,
 ambos com tag `latest`; não houve deploy nesta verificação.
+
+### Compilação direta do código Nexo atual
+
+Origem `/root/project/nexo`, base `c874e3d` com alterações locais preservadas. Usando
+`GOCACHE=/tmp/nexo-go-cache`, `GOMODCACHE=/tmp/nexo-go-mod` e o compilador
+`/tmp/nexo-go-toolchain/bin/go`:
+
+- `go test -count=1 ./cmd/remote-agent ./internal/agentconfig`: **ambos aprovados** (0,041 s e 0,010 s), com acesso a sockets locais; o sandbox bloqueou inicialmente o servidor HTTPS de teste.
+- `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/nexo-resume-linux ./cmd/remote-agent`: **aprovado**, formato ELF x86-64 confirmado.
+- `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/nexo-resume-windows.exe ./cmd/remote-agent`: **aprovado**, formato PE32+ x86-64 confirmado.
+
+SHA-256 Linux: `7e0f355ec5cd0741bb4761643b11c19c0adf592e74890459023eaf44e78b91fc`.
+SHA-256 Windows: `1a6c011935261b9d33efc790879b1c478883a5a98fc338a69d80322c4f70538f`.
+São compilações diretas de uma origem com alterações locais, sem publicação no catálogo,
+empacotamento pelo bridge ou execução dos binários em estações.
 
 ## Evidências verificadas em 2026-09-13
 
