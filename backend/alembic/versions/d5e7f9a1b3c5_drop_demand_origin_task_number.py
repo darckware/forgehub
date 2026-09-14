@@ -19,7 +19,8 @@ import sqlalchemy as sa
 revision: str = 'd5e7f9a1b3c5'
 down_revision: Union[str, Sequence[str], None] = 'c4d6e8f0a1b3'
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+# The other historical branch creates the column and dispatch constraints.
+depends_on: Union[str, Sequence[str], None] = 'e0a2199046cf'
 
 
 def upgrade() -> None:
