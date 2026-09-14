@@ -34,6 +34,23 @@
     "back": "Volver a clientes",
     "info": { "title": "Información del cliente", "contact": "Contacto", "email": "Correo electrónico", "phone": "Teléfono", "tag": "Etiqueta Headscale" },
     "workstations": { "title": "Estaciones", "unnamed": "Estación", "empty": "Este cliente aún no tiene estaciones vinculadas.", "active": "Token activo", "revoked": "Token revocado" },
+    "installation": {
+      "generate": "Generar y descargar",
+      "generateFor": "Generar y descargar paquete para {{workstation}}",
+      "history": "Ver historial",
+      "historyFor": "Ver historial de {{workstation}}",
+      "buildRequired": "Se requiere una compilación lista para este sistema operativo.",
+      "buildLoading": "Cargando compilaciones disponibles...",
+      "buildLoadError": "No se pudieron cargar las compilaciones disponibles.",
+      "loadError": "No se pudo cargar el estado de instalación de Nexo.",
+      "generateError": "No se pudo generar el paquete de instalación.",
+      "generated": "Paquete generado y descarga iniciada.",
+      "generating": "Generando paquete...",
+      "confirmTitle": "¿Generar paquete para {{workstation}}?",
+      "confirmDescription": "La versión {{version}} se empaquetará y el token anterior de la estación dejará de funcionar.",
+      "confirm": "Confirmar generación",
+      "states": { "none": "No generado", "unknown": "Desconocido", "package_ready": "Paquete listo", "downloaded": "Descargado", "online": "En línea", "outdated": "Desactualizado", "error": "Error" }
+    },
     "communication": {
       "title": "Comunicación entre estaciones",
       "description": "Cada cambio se audita y se publica en la política de Headscale.",

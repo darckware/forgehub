@@ -5,6 +5,19 @@ import { ConfirmDialog } from "./confirm-dialog";
 
 
 describe("ConfirmDialog", () => {
+  it("provides a single focused dismissal for read-only details", () => {
+    const onCancel = vi.fn();
+    const onConfirm = vi.fn();
+    render(<ConfirmDialog open readOnly title="Histórico" cancelLabel="Fechar" closeLabel="Fechar histórico" onCancel={onCancel} onConfirm={onConfirm} />);
+    const close = screen.getByRole("button", { name: "Fechar" });
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Tab" });
+    expect(close).toHaveFocus();
+    fireEvent.click(close);
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
   it("keeps a failed destructive action visible with an actionable error", () => {
     render(
       <ConfirmDialog

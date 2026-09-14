@@ -1,0 +1,101 @@
+{
+  "title": "Nexo agents",
+  "description": "Generate each workstation’s package and follow its first report. A download does not confirm installation.",
+  "registry": "Installations",
+  "notReported": "No report",
+  "forbidden": "Only administrators can manage Nexo agents.",
+  "count": "{{count}} of {{total}} workstations",
+  "partial": "Some data could not be refreshed.",
+  "retry": "Try again",
+  "loading": "Loading installations…",
+  "loadError": "Workstations could not be loaded. Try again.",
+  "noResults": "No workstations match the filters.",
+  "empty": "No workstations registered.",
+  "openClients": "Open clients",
+  "expected": "Expected",
+  "detected": "Detected",
+  "packageTime": "Package",
+  "reportTime": "Report",
+  "generate": "Generate and download",
+  "generated": "Package generated. Download started.",
+  "generationError": "The package could not be generated or downloaded. The token may have been replaced. Confirm a new generation to try again.",
+  "generating": "Generating and downloading the package…",
+  "cancel": "Cancel",
+  "close": "Close",
+  "back": "Back",
+  "os": {
+    "linux": "Linux",
+    "windows": "Windows"
+  },
+  "filters": {
+    "client": "Client",
+    "os": "Operating system",
+    "status": "Status",
+    "workstation": "Workstation",
+    "all": "All",
+    "clear": "Clear filters"
+  },
+  "columns": {
+    "workstation": "Workstation",
+    "client": "Client",
+    "os": "System",
+    "status": "Status",
+    "versions": "Versions",
+    "times": "Latest events",
+    "actions": "Actions"
+  },
+  "states": {
+    "none": "No package",
+    "unknown": "State unavailable",
+    "package_ready": "Package ready",
+    "downloaded": "Downloaded",
+    "online": "Online",
+    "outdated": "Outdated",
+    "error": "Error"
+  },
+  "builds": {
+    "title": "Source and builds",
+    "sourceUnknown": "Source not yet checked",
+    "refresh": "Refresh builds",
+    "lastReady": "Last ready build",
+    "none": "None",
+    "loadError": "Builds could not be loaded.",
+    "retry": "Try loading builds again",
+    "pending": "Building the platforms. Wait for completion.",
+    "refreshError": "A platform could not be built. Check the details and refresh builds to try again.",
+    "refreshed": "Builds refreshed.",
+    "required": "Refresh builds to make this platform available.",
+    "packageVersion": "Package: {{version}}",
+    "states": {
+      "loading": "Loading",
+      "unknown": "Unavailable",
+      "missing": "Not built",
+      "queued": "Queued",
+      "building": "Building",
+      "ready": "Ready",
+      "failed": "Failed"
+    }
+  },
+  "confirmation": {
+    "title": "Generate a package for {{workstation}}?",
+    "description": "The previous token will stop working. Install the new package (version {{version}}) on this workstation to resume reports.",
+    "confirm": "Confirm generation"
+  },
+  "history": {
+    "open": "History",
+    "title": "History for {{workstation}}",
+    "description": "Delivery and report events, preserved across package generations.",
+    "loading": "Loading history…",
+    "error": "History could not be loaded.",
+    "empty": "No events recorded.",
+    "actor": "Administrator: {{id}}",
+    "agent": "Agent report",
+    "events": {
+      "package_generated": "Package generated",
+      "downloaded": "Download completed",
+      "first_report": "First report",
+      "version_mismatch": "Version mismatch",
+      "error": "Failure recorded"
+    }
+  }
+}

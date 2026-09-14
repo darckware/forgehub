@@ -31,6 +31,11 @@ describe("VPN navigation policy", () => {
 });
 
 describe("Clients navigation policy", () => {
+  it("places administrator-only Nexo agents under Operations and clients", () => {
+    const section = NAV_SECTIONS.find((item) => item.labelKey === "nav.section.operations");
+    const entry = section?.entries.find((item) => item.type === "link" && item.to === "/nexo-agents");
+    expect(entry).toMatchObject({ labelKey: "nav.nexoAgents", module: "clients", adminOnly: true });
+  });
   it("places Clients in Operations under the clients module", () => {
     const operations = NAV_SECTIONS.find((section) => section.labelKey === "nav.section.operations");
     const entry = operations?.entries.find(

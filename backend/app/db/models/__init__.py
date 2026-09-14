@@ -101,3 +101,8 @@ from app.db.models.channel import (  # noqa: F401
     ChatChannelTask,
 )
 from app.db.models.client import Client, Irregularity, Workstation, WorkstationPeerGrant  # noqa: F401
+from app.db.models.nexo_installation import (  # noqa: F401
+    NexoAgentBuild,
+    WorkstationInstallation,
+    WorkstationInstallationEvent,
+)

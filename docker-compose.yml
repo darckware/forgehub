@@ -35,6 +35,7 @@ services:
       # (host-bridge/app.py) running directly on the host, via the
       # extra_hosts entry below.
       CHAT_BRIDGE_URL: http://host.docker.internal:8910
+      NEXO_ARTIFACT_ROOT: /nexo-artifacts
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -63,6 +64,9 @@ services:
       # upload handler). Kept out of /docs on purpose -- these are message
       # payloads, not documents in the browsable Docs tree.
       - /root/messages:/messages
+      # Read-only shared binaries produced by the host bridge under its
+      # host-side NEXO_ARTIFACT_ROOT default.
+      - /root/forgehub-data/nexo-agent-artifacts:/nexo-artifacts:ro
       # Read-write: the WHOLE host filesystem, backing multiple
       # user-configurable "áreas de criação" (docs_creation_areas table,
       # api/routes/docs.py's /areas endpoints) -- any absolute host path

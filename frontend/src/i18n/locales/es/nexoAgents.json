@@ -1,0 +1,101 @@
+{
+  "title": "Agentes Nexo",
+  "description": "Genera el paquete de cada estación y sigue su primer reporte. Una descarga no confirma la instalación.",
+  "registry": "Instalaciones",
+  "notReported": "Sin reporte",
+  "forbidden": "Solo los administradores pueden gestionar agentes Nexo.",
+  "count": "{{count}} de {{total}} estaciones",
+  "partial": "Algunos datos no se pudieron actualizar.",
+  "retry": "Reintentar",
+  "loading": "Cargando instalaciones…",
+  "loadError": "No se pudieron cargar las estaciones. Inténtalo de nuevo.",
+  "noResults": "Ninguna estación coincide con los filtros.",
+  "empty": "No hay estaciones registradas.",
+  "openClients": "Abrir clientes",
+  "expected": "Esperada",
+  "detected": "Detectada",
+  "packageTime": "Paquete",
+  "reportTime": "Reporte",
+  "generate": "Generar y descargar",
+  "generated": "Paquete generado. Descarga iniciada.",
+  "generationError": "No se pudo generar o descargar el paquete. El token puede haber sido sustituido. Confirma una nueva generación para reintentar.",
+  "generating": "Generando y descargando el paquete…",
+  "cancel": "Cancelar",
+  "close": "Cerrar",
+  "back": "Volver",
+  "os": {
+    "linux": "Linux",
+    "windows": "Windows"
+  },
+  "filters": {
+    "client": "Cliente",
+    "os": "Sistema operativo",
+    "status": "Estado",
+    "workstation": "Estación",
+    "all": "Todos",
+    "clear": "Limpiar filtros"
+  },
+  "columns": {
+    "workstation": "Estación",
+    "client": "Cliente",
+    "os": "Sistema",
+    "status": "Estado",
+    "versions": "Versiones",
+    "times": "Últimos eventos",
+    "actions": "Acciones"
+  },
+  "states": {
+    "none": "Sin paquete",
+    "unknown": "Estado no disponible",
+    "package_ready": "Paquete listo",
+    "downloaded": "Descargado",
+    "online": "En línea",
+    "outdated": "Desactualizado",
+    "error": "Error"
+  },
+  "builds": {
+    "title": "Código fuente y builds",
+    "sourceUnknown": "Código fuente aún no consultado",
+    "refresh": "Actualizar builds",
+    "lastReady": "Último build listo",
+    "none": "Ninguno",
+    "loadError": "No se pudieron cargar los builds.",
+    "retry": "Reintentar la carga de builds",
+    "pending": "Compilando las plataformas. Espera a que termine.",
+    "refreshError": "No se pudo compilar una plataforma. Revisa los detalles y actualiza los builds para reintentar.",
+    "refreshed": "Builds actualizados.",
+    "required": "Actualiza los builds para habilitar esta plataforma.",
+    "packageVersion": "Paquete: {{version}}",
+    "states": {
+      "loading": "Cargando",
+      "unknown": "No disponible",
+      "missing": "Sin compilar",
+      "queued": "En cola",
+      "building": "Compilando",
+      "ready": "Listo",
+      "failed": "Fallido"
+    }
+  },
+  "confirmation": {
+    "title": "¿Generar un paquete para {{workstation}}?",
+    "description": "El token anterior dejará de funcionar. Instala el nuevo paquete (versión {{version}}) en esta estación para reanudar los reportes.",
+    "confirm": "Confirmar generación"
+  },
+  "history": {
+    "open": "Historial",
+    "title": "Historial de {{workstation}}",
+    "description": "Eventos de entrega y reportes, conservados entre generaciones de paquetes.",
+    "loading": "Cargando historial…",
+    "error": "No se pudo cargar el historial.",
+    "empty": "No hay eventos registrados.",
+    "actor": "Administrador: {{id}}",
+    "agent": "Reporte del agente",
+    "events": {
+      "package_generated": "Paquete generado",
+      "downloaded": "Descarga completada",
+      "first_report": "Primer reporte",
+      "version_mismatch": "Versión diferente",
+      "error": "Fallo registrado"
+    }
+  }
+}

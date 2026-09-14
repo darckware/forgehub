@@ -1,89 +1,93 @@
 # Pendências — Nexo, Headscale e Darckware
 
-> **Atualizado em:** 2026-09-13  
+> **Atualizado em:** 2026-09-13
 > **Escopo:** acompanhamento da entrega descrita em
 > [`architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md`](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md).
 
-Este documento é o registro central do estado dessa entrega. Ele não substitui a especificação nem
-os planos de implementação: resume o que está concluído, o que ainda exige trabalho e o que pertence
-a outro projeto ou fase. Um item só deve migrar para **Concluído** quando houver código integrado e
-evidência verificável; existência em uma especificação ou plano não prova implementação.
+Este é o registro central do estado da entrega. Ele não substitui especificações nem planos: um item
+só migra para **Concluído** quando existe código e evidência verificável.
+
+## Fronteira entre os sistemas
+
+- **Darckware** será a fonte canônica do cadastro do cliente e abriga site, CRM, área administrativa
+  e área do cliente.
+- **ForgeHub** gerencia a operação de projetos, serviços e desenvolvimento, além de estações e
+  instalações Nexo. Essas entidades devem se associar ao cliente por uma referência estável do
+  Darckware, sem recriar um segundo cadastro mestre. Quando necessário, o ForgeHub poderá manter
+  apenas uma projeção de exibição, sincronizada e somente leitura.
+- **ForgeRouter** permanece como proxy de LLMs e não é alterado por esta entrega.
+
+A migração do cadastro atual e o vínculo externo ainda **não estão implementados**. A integração deve
+continuar por API server-to-server; acoplamento direto entre bancos permanece fora do escopo.
 
 ## Concluído
 
 ### Fundação de monitoramento Nexo
 
-- Domínio `Client`, `Workstation` e `Irregularity`, incluindo migrations no schema `company`.
-- Ciclo de emissão e revogação do token do dispositivo.
-- Ingestão autenticada dos relatórios do Nexo Remote Agent e avaliação das regras de irregularidade.
-- Detecção de estações sem comunicação (`agent_unreachable`).
+- Domínio `Client`, `Workstation` e `Irregularity`, com migrations no schema `company`.
+- Emissão/revogação do token, ingestão autenticada, regras de irregularidade e detecção de estações
+  sem comunicação.
 - APIs e telas internas de clientes, estações e irregularidades.
 
-Referências:
-
-- Plano: [`superpowers/plans/2026-09-06-nexo-client-monitoring-foundation-implementation.md`](superpowers/plans/2026-09-06-nexo-client-monitoring-foundation-implementation.md).
-- Integração na branch `develop`: commit `1e19a07`.
-- Migration principal: `backend/alembic/versions/e9ae96a2c664_add_client_workstation_irregularity.py`.
+Referências: [plano da fundação](superpowers/plans/2026-09-06-nexo-client-monitoring-foundation-implementation.md),
+commit integrado `1e19a07` e migration `e9ae96a2c664`.
 
 ### Administração de rede Nexo
 
-- Modelo auditável de concessão e revogação de comunicação entre estações do mesmo cliente.
-- Renderização determinística da política Headscale com negação por padrão.
-- Adapter de publicação pelo host bridge, sincronização do ciclo de vida do cliente e rollback da
-  alteração de banco quando a publicação da política falha.
-- APIs, hooks e telas de administração de clientes e pares de estações.
+- Concessão/revogação auditável de comunicação entre estações do mesmo cliente.
+- Política Headscale determinística, publicação pelo host bridge e rollback em falha.
+- APIs, hooks e telas administrativas.
 
-Referências:
+Referências: [plano de administração de rede](superpowers/plans/2026-09-06-nexo-network-administration-implementation.md)
+e migration `40e6bb284f7b`.
 
-- Plano: [`superpowers/plans/2026-09-06-nexo-network-administration-implementation.md`](superpowers/plans/2026-09-06-nexo-network-administration-implementation.md).
-- Commits principais: `e1b73e1`, `8b2ac33`, `4081499`, `d248b6c`, `b879dff` e `26b5eb3`.
-- Migration: `backend/alembic/versions/40e6bb284f7b_add_workstation_peer_grants.py`.
+## Implementado em branch — integração pendente
+
+### Instalador, distribuição e monitoramento da instalação
+
+Implementação disponível em `feature/nexo-installer-monitoring`, revisão `27679d9`; ainda não
+integrada em `develop`. As evidências abaixo referem-se a esse worktree.
+
+- Builds Linux e Windows catalogadas por revisão Git e plataforma, com artefatos persistentes e
+  verificação de tamanho/SHA-256.
+- Fronteira allowlisted no host bridge, sem comando, ref ou caminho arbitrário enviado pelo browser.
+- ZIP temporário por estação com binário, `agent.yaml`, instalador, manifesto e instruções; o token
+  em claro existe somente dentro do pacote e é substituído a cada nova geração.
+- Estados atuais e histórico imutável de instalação, promovendo para `online` apenas após relatório
+  autenticado da geração vigente.
+- Área `/nexo-agents` e ações contextuais na página do cliente, com textos em inglês, português e
+  espanhol.
+
+Referências: [especificação](superpowers/specs/2026-09-08-nexo-installer-monitoring-design.md),
+[plano](superpowers/plans/2026-09-08-nexo-installer-monitoring-implementation.md) e
+[runbook operacional](runbooks/NEXO_AGENT_PACKAGES.md).
 
 ## Pendente — funcional
 
-### Instalador e distribuição do Nexo Remote Agent
-
-Existe especificação e plano, e a implementação está na branch `feature/nexo-installer-monitoring`
-(revisão `27679d9`, worktree `.worktrees/nexo-installer-monitoring`). Ela ainda não está integrada
-em `develop`, por isso a entrega permanece pendente nesta branch.
-
-A implementação inclui builds Linux/Windows por revisão Git, artefatos verificados por SHA-256,
-ZIP por estação com `agent.yaml`, rotação de token, histórico de instalação e registro seguro de
-falhas. Em 2026-09-13 foram reexecutados no worktree:
-
-- `POSTGRES_HOST=127.0.0.1 timeout 60s .venv/bin/python -m pytest app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py -q --tb=short`: **16 testes aprovados em 4,96 s**, carregando o `.env` raiz;
-- `.venv/bin/ruff check app/api/routes/nexo_installation.py app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py`: **aprovado**.
-
-O teste integrado gera e inspeciona os ZIPs das duas plataformas e confirma `online` por relatório
-Linux autenticado com o token do pacote; Windows é verificado até `downloaded`. Bridge e binários
-são sintéticos. Permanecem integração da branch, builds reais, instalação nas duas plataformas,
-validação de permissões/retenção e deploy.
-
-Referências: [especificação](superpowers/specs/2026-09-08-nexo-installer-monitoring-design.md) e
-[plano](superpowers/plans/2026-09-08-nexo-installer-monitoring-implementation.md).
-
 ### Relatórios
 
-Ainda não há plano de implementação nem biblioteca de geração de documento escolhida para a seção 7.
-Falta:
-
-- definir o formato e a tecnologia de geração do documento;
-- gerar o relatório mensal por cliente;
-- gerar relatório sob demanda por ocorrência ou intervalo;
-- armazenar os relatórios e permitir revisão antes do envio;
-- expor os relatórios por uma API somente leitura e restrita ao cliente correto.
+Ainda é necessário definir formato e tecnologia, gerar relatórios mensais e sob demanda, armazenar e
+revisar os documentos e expor leitura com isolamento correto por cliente.
 
 Referência: [seção 7 da especificação](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md#7-report-generation).
 
-### Integração com a área do cliente Darckware
+### Identidade canônica e integração Darckware
 
-O ForgeHub ainda precisa expor a API client-scoped prevista para irregularidades e relatórios. O
-projeto Darckware precisa de uma especificação própria para:
+Falta especificar e implementar:
 
-- vincular uma conta/empresa Darckware ao `Client` correspondente no ForgeHub;
-- consumir a API com credencial de serviço de escopo mínimo;
-- exibir irregularidades e relatórios na área autenticada `/cliente/`;
-- preservar isolamento entre clientes, inclusive retornando `404` para recursos de outro tenant.
+- uma chave externa estável e única que associe projetos, serviços, desenvolvimento, estações e
+  instalações do ForgeHub ao cliente canônico do Darckware;
+- migração/deduplicação idempotente dos clientes já existentes, sem criar registros mestres iguais
+  nos dois bancos;
+- regras de unicidade, reconciliação, desativação e tratamento de vínculo ausente ou conflitante;
+- projeção local opcional, sincronizada e somente leitura, limitada aos campos necessários à
+  operação e exibição;
+- API server-to-server client-scoped para irregularidades e relatórios, com credencial mínima,
+  isolamento entre tenants e `404` para recursos de outro cliente;
+- consumo dessa API pela área autenticada `/cliente/` do Darckware.
+
+Não se deve introduzir foreign key entre bancos, leitura direta do banco Darckware pelo ForgeHub nem
+um segundo fluxo de cadastro mestre no ForgeHub.
 
 Referência: [seção 8 da especificação](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md#8-client-facing-display-lives-in-the-darckware-sites-existing-client-area-not-here).
 
@@ -91,80 +95,85 @@ Referência: [seção 8 da especificação](architecture/NEXO_CLIENT_MONITORING_
 
 ### Sincronização Git
 
-Na verificação local de 2026-09-13, `develop` está **27 commits à frente e 1 commit atrás** da
-referência local `origin/develop` (`git rev-list --left-right --count develop...origin/develop`).
-Não houve fetch; esse resultado não comprova o estado atual do servidor remoto. É necessário reconciliar o commit remoto, preservar as alterações locais e somente
-então publicar a revisão integrada. Não há autorização implícita neste documento para merge, rebase
-ou push.
+O estado da branch e do remoto deve ser verificado novamente antes da integração. Este documento não
+autoriza merge, rebase ou push.
 
 ### Validação com Headscale real
 
-Os testes automatizados isolam o host bridge e não validam uma instância Headscale real. Falta
-executar, em ambiente autorizado:
+Os testes automatizados isolam o host bridge. Ainda falta validar, em ambiente autorizado, tags,
+publicação/leitura de política, concessão/revogação, tráfego efetivo e rollback contra Headscale real.
 
-- provisionamento de tag de cliente;
-- publicação e leitura da política real;
-- concessão, revogação e nova concessão entre duas estações registradas;
-- confirmação efetiva do tráfego permitido/bloqueado;
-- verificação dos registros de auditoria e do comportamento de rollback.
+### Deploy, migrations e smoke test real
 
-O próprio plano registra que o host usado na implementação não possuía um binário Headscale acessível
-para esse teste.
+A migration Nexo `5a8c1e7d9f20` está aplicada no banco local de testes, mas isso não prova o estado do
+ambiente-alvo. Antes da implantação ainda é necessário reconciliar Git, comparar `alembic current`
+com `alembic heads`, aplicar migrations pelo processo autorizado, construir/implantar a revisão e
+executar health checks e smoke tests autenticados.
 
-### Migrations e deploy
+### Build real pelo host bridge
 
-As migrations `e9ae96a2c664` e `40e6bb284f7b` existem no repositório, mas esta revisão documental não
-comprovou que o banco do ambiente-alvo está em `head` nem que a revisão atual está implantada. Falta:
+O contrato de build foi validado com bridge e artefatos sintéticos. Ainda falta executar e registrar
+uma build Linux/Windows contra o repositório Nexo real e o host bridge implantado, confirmando
+permissões e retenção em `/root/forgehub-data/nexo-agent-artifacts`.
 
-1. reconciliar a branch com o remoto;
-2. comparar `alembic current` com `alembic heads` no ambiente-alvo;
-3. aplicar as migrations pendentes pelo processo autorizado;
-4. construir e implantar a revisão identificada;
-5. executar health checks e smoke tests autenticados das telas e APIs de clientes, irregularidades e
-   administração de rede;
-6. registrar revisão implantada, resultado e estratégia de rollback.
+## Pendências técnicas resolvidas na branch Nexo
 
-## Evidências automatizadas disponíveis
+### Verificação sintética integrada do ciclo completo
 
-Os seguintes testes estão versionados e cobrem a entrega concluída:
+O teste `test_synthetic_build_package_and_authenticated_report_flow`, incluído em `27679d9`,
+solicita builds Linux/Windows, gera e inspeciona os dois ZIPs e usa o token do pacote Linux para
+comprovar a transição para `online` e o histórico. A instalação Windows permanece `downloaded`;
+o teste não comprova execução do agente Windows. Os registros descartáveis são removidos em
+`finally`. Bridge e binários são sintéticos; a validação real continua pendente.
 
-- `backend/app/tests/test_client.py`
-- `backend/app/tests/test_client_routes.py`
-- `backend/app/tests/test_workstation_routes.py`
-- `backend/app/tests/test_agent_report_ingestion.py`
-- `backend/app/tests/test_workstation_staleness.py`
-- `backend/app/tests/test_irregularity_routes.py`
-- `backend/app/tests/test_workstation_peer_grant.py`
-- `backend/app/tests/test_headscale_client.py`
-- `backend/app/tests/test_peer_grant_routes.py`
-- `frontend/src/pages/clients/index.test.tsx`
+### Persistência de falha de empacotamento
 
-O commit `870e44a` registra a revisão final da fundação de monitoramento, incluindo correções de
-deduplicação, atualização de irregularidades, detecção de estações que nunca reportaram, validações de
-rota e limpeza dos dados criados pelos testes.
+A revisão `27679d9` registra `error`, `last_error` e evento auditável quando não existe geração
+utilizável. Se há uma geração utilizável, preserva seu estado, build, datas e token e acrescenta
+somente o diagnóstico e evento de falha. Mensagens persistidas e respostas de erro de domínio são
+genéricas, sem token ou caminho privado. Ambos os cenários têm testes de regressão.
 
-Na tentativa de reexecutar a suíte focada em 2026-09-08, os testes não foram iniciados porque o
-`backend/.venv/bin/python` aponta para um interpretador indisponível no contexto de execução. Portanto,
-este documento não afirma uma nova passagem da suíte nessa data. A próxima validação deve registrar o
-comando, a revisão Git, o total de testes aprovados e eventuais falhas.
+## Evidências verificadas em 2026-09-13
+
+Worktree `feature/nexo-installer-monitoring`, revisão `27679d9`:
+
+- `POSTGRES_HOST=127.0.0.1 timeout 60s .venv/bin/python -m pytest app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py -q --tb=short`: **16 aprovados em 4,96 s**, com o `.env` raiz carregado.
+- `.venv/bin/ruff check app/api/routes/nexo_installation.py app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py`: **aprovado**.
+- A primeira tentativa no sandbox falhou antes dos testes por bloqueio de socket; a execução com
+  acesso ao PostgreSQL local produziu o resultado acima.
+
+Não foram reexecutados build frontend, migration ou validações contra infraestrutura real nesta
+revisão. As evidências anteriores abaixo mantêm sua data e revisão originais.
+
+## Evidências verificadas em 2026-09-10
+
+Na revisão `7d653d1` antes desta atualização documental:
+
+- `alembic current`: `5a8c1e7d9f20 (head)`;
+- suíte backend relevante: **61 testes aprovados** em 12,59 s;
+- Ruff em `backend/app`: **todos os checks aprovados**;
+- suíte frontend focada: **40 testes aprovados** em 4 arquivos; permaneceram somente dois avisos já
+  conhecidos de flags futuras do React Router;
+- build de produção: **concluído**, 5.238 módulos transformados em 49,03 s; permaneceram avisos de
+  chunk grande e import misto do Mermaid;
+- seleção de cinco testes sintéticos independentes (catálogo das duas plataformas, ZIP Linux/Windows,
+  rotação e primeiro relatório): **5 testes aprovados** em 4,99 s, com fixtures isoladas e limpeza
+  automática de cada teste.
+
+Esse último resultado valida contratos isolados; não é uma execução E2E integrada nem uma validação
+contra host bridge, repositório Nexo ou estações reais.
 
 ## Fora do escopo desta entrega
 
-- Rotação ou expiração automática de tokens de dispositivo.
-- Editor de política HuJSON bruta do Headscale.
-- Reconciliação de franquia de horas entre `Client.support_plan` e os contratos do Darckware.
-- Implementação da interface `/cliente/` no repositório ForgeHub; ela pertence ao projeto Darckware.
-- Conexão direta entre os bancos ForgeHub e Darckware ou acesso do navegador do cliente diretamente ao
-  ForgeHub.
-
-Referência: [seção 9 da especificação](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md#9-explicitly-deferred-not-part-of-this-spec).
+- Atualização remota, reinstalação, desinstalação ou execução de comandos nas estações.
+- Editor de política HuJSON bruta e validação com Headscale real.
+- Geração de relatórios/PDF e implementação da interface `/cliente/` do Darckware.
+- Migração do cadastro mestre de clientes para Darckware.
+- Conexão direta entre os bancos ForgeHub e Darckware ou acesso do navegador do cliente diretamente
+  ao ForgeHub.
+- Mudanças no ForgeRouter.
 
 ## Critério para atualização
 
-Ao concluir uma pendência, mover o item para **Concluído** e anexar:
-
-- revisão ou commit integrado;
-- migration aplicada, quando houver;
-- comando e resultado dos testes;
-- evidência de deploy/smoke test, quando o item afetar runtime;
-- referência à especificação ou ao plano executado.
+Ao concluir uma pendência, mover o item para **Concluído** e anexar revisão/commit, migration quando
+aplicável, comando e resultado dos testes e evidência de deploy/smoke test quando afetar runtime.

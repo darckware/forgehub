@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from app.api.schemas.agent_report import AgentReportIn
 from app.core.irregularity_rules import SUPPORTED_SCHEMA_VERSION, evaluate_report
+from app.core.nexo_installation_state import reconcile_installation_report
 from app.db.base import AsyncSessionLocal
 from app.db.models.client import Irregularity, Workstation
 from app.db.models.notification import Notification
@@ -37,12 +38,15 @@ async def ingest_agent_report(
 
     async with AsyncSessionLocal() as db:
         workstation = (await db.execute(
-            select(Workstation).where(Workstation.device_token_hash == token_hash)
+            select(Workstation)
+            .where(Workstation.device_token_hash == token_hash)
+            .with_for_update()
         )).scalar_one_or_none()
         if workstation is None or workstation.device_token_revoked_at is not None:
             raise HTTPException(401, "invalid or revoked device token")
 
-        workstation.last_report_at = datetime.now(timezone.utc)
+        reported_at = datetime.now(timezone.utc)
+        workstation.last_report_at = reported_at
         if report.hostname:
             workstation.hostname = report.hostname
         if report.agent_version:
@@ -88,6 +92,7 @@ async def ingest_agent_report(
                 occurred_at=datetime.now(timezone.utc),
             ))
 
+        await reconcile_installation_report(db, workstation, report.agent_version, reported_at)
         await db.commit()
 
     return {"accepted": True, "findings": len(findings)}

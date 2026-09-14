@@ -12,6 +12,8 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   closeLabel?: string;
+  /** Read-only details use one dismissal action and no confirmation. */
+  readOnly?: boolean;
   variant?: "destructive" | "default";
   icon?: "trash" | "warning" | "wrench";
   loading?: boolean;
@@ -30,6 +32,7 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel,
   closeLabel,
+  readOnly = false,
   variant = "destructive",
   icon,
   loading = false,
@@ -158,7 +161,7 @@ export function ConfirmDialog({
                 </p>
               )}
             </div>
-            {closeLabel && (
+            {closeLabel && !readOnly && (
               <Button
                 type="button"
                 size="icon"
@@ -192,7 +195,7 @@ export function ConfirmDialog({
             >
               {cancelLabel}
             </Button>
-            <Button
+            {!readOnly && <Button
               type="button"
               variant={variant}
               onClick={onConfirm}
@@ -202,7 +205,7 @@ export function ConfirmDialog({
             >
               {loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />}
               {confirmLabel}
-            </Button>
+            </Button>}
           </div>
         </div>
       </div>

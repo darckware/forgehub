@@ -79,10 +79,10 @@ Ambos são propostas para revisão, sem implementação iniciada. O desenho loca
 responsabilidade do Claude; a integração aguarda a conclusão desse planejamento. Cada agente
 externo será responsável pela adequação da própria configuração conforme a cartilha aprovada.
 
-## Pendências de entrega
+## Pendências de entrega e operação Nexo
 
-- [Pendências — Nexo, Headscale e Darckware](PENDENCIAS.md) — registro central do que está concluído,
-  pendente e fora do escopo, com evidências e referências para os planos correspondentes.
+- [Registro central de pendências do Nexo, Headscale e Darckware](PENDENCIAS.md).
+- [Runbook de pacotes e monitoramento do Nexo Remote Agent](runbooks/NEXO_AGENT_PACKAGES.md).
 
 ## Hierarquia de autoridade
 

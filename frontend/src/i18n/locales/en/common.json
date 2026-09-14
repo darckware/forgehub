@@ -50,6 +50,7 @@
     "deployControl": "Deploy Control",
     "servers": "Servers",
     "clients": "Clients",
+    "nexoAgents": "Nexo agents",
     "irregularities": "Irregularities",
     "vpn": "VPN",
     "agentActivity": "Agent Activity",
