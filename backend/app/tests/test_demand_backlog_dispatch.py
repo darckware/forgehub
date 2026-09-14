@@ -1,10 +1,8 @@
-"""Backlog work is only dispatchable once it has a registered sender.
+"""Incubation work is not executable until it becomes a Task.
 
 `backlog` is parked work: not a task yet, nobody has taken it on. Dispatching
-one with no `from_agent_id` produces a run with no agent on the record to
-answer for it -- a `requires_response` reply has nowhere to route back to, and
-the execution ends up owned by a free-text label ("marcelo") that resolves to
-no agent at all.
+An incubation is parked work awaiting an explicit receive/promotion decision.
+It must not start merely because it has an owner or sender.
 
 Both entry points are covered: the manual route refuses with a 400 the operator
 can act on, and the scheduled loop simply never picks the item up (skipped, not
@@ -91,14 +89,14 @@ async def scenario():
         await session.commit()
 
 
-async def test_backlog_without_sender_is_refused(client: AsyncClient, scenario):
+async def test_incubation_without_sender_is_refused(client: AsyncClient, scenario):
     response = await client.post(
         f"/api/v1/demands/{scenario['orphan_id']}/dispatch",
         json={"target_agent_id": str(scenario["target_id"])},
     )
     assert response.status_code == 400, response.text
     detail = response.json()["detail"]
-    assert "Backlog" in detail and "From" in detail
+    assert "Incubation" in detail and "Promote" in detail
 
     async with AsyncSessionLocal() as session:
         demand = await session.get(AgentDemand, scenario["orphan_id"])
@@ -107,35 +105,43 @@ async def test_backlog_without_sender_is_refused(client: AsyncClient, scenario):
         assert demand.agent_run_id is None
 
 
-async def test_scheduled_loop_skips_backlog_without_sender(scenario):
+async def test_scheduled_loop_skips_incubation(scenario, monkeypatch):
     """The orphan is due and addressed, so only the rule keeps it parked --
-    and it must stay NULL, not become 'failed': nothing was attempted."""
-    from app.api.routes.demand import run_scheduled_dispatch_pass
+    and it must stay NULL, not become 'failed': nothing was attempted.
+
+    Freeze the scheduler before any real shared-database messages. Without
+    this isolation, running the test suite can dispatch production work.
+    """
+    from app.api.routes import demand as demand_routes
+
+    class TestDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2001, 1, 1, tzinfo=timezone.utc)
+            return value if tz is not None else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(demand_routes, "datetime", TestDateTime)
 
     async with AsyncSessionLocal() as session:
-        await run_scheduled_dispatch_pass(session)
+        orphan = await session.get(AgentDemand, scenario["orphan_id"])
+        orphan.scheduled_at = TestDateTime(2000, 12, 31, tzinfo=timezone.utc)
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        await demand_routes.run_scheduled_dispatch_pass(session)
 
     async with AsyncSessionLocal() as session:
         demand = await session.get(AgentDemand, scenario["orphan_id"])
         assert demand.dispatch_status is None
 
 
-async def test_backlog_with_sender_passes_the_rule(client: AsyncClient, scenario, monkeypatch):
-    """With a registered From the item is dispatchable like any other -- the
-    rule is about ownership, not about backlog being frozen forever."""
-    from app.api.routes import demand as demand_routes
-
-    async def fake_dispatch(*args, **kwargs):
-        return {"run_id": "fake-run-id"}
-
-    monkeypatch.setattr(demand_routes, "dispatch_agent_run", fake_dispatch)
-
+async def test_incubation_with_sender_is_refused_until_promotion(client: AsyncClient, scenario):
     response = await client.post(
         f"/api/v1/demands/{scenario['owned_id']}/dispatch",
         json={"target_agent_id": str(scenario["target_id"])},
     )
-    assert response.status_code == 200, response.text
-    assert response.json()["dispatch_status"] == "dispatched"
+    assert response.status_code == 400, response.text
+    assert "Incubation" in response.json()["detail"]
 
 
 async def test_non_backlog_without_sender_still_dispatches(client: AsyncClient, scenario, monkeypatch):
@@ -155,6 +161,7 @@ async def test_non_backlog_without_sender_still_dispatches(client: AsyncClient, 
             body="do it",
             origin_type="task",
             target_agent_id=scenario["target_id"],
+            working_path="/root/project/test-fixture",
         )
         session.add(task)
         await session.commit()

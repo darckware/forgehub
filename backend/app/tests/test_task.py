@@ -530,7 +530,10 @@ async def test_successful_dispatch_commits_and_writes_audit_event(
     does, since there's no live host-bridge in this test environment."""
     from app.api.routes import demand as demand_routes
 
-    async def fake_dispatch(*args, **kwargs):
+    dispatched_paths: list[str] = []
+
+    async def fake_dispatch(_run_id, _agent, _prompt, project_path):
+        dispatched_paths.append(project_path)
         return {"run_id": "fake-run-id"}
 
     monkeypatch.setattr(demand_routes, "dispatch_agent_run", fake_dispatch)
@@ -538,6 +541,9 @@ async def test_successful_dispatch_commits_and_writes_audit_event(
     async with AsyncSessionLocal() as db:
         agent = Agent(name=f"Dispatch Test Agent {uuid.uuid4().hex[:8]}", agent_type="executor")
         db.add(agent)
+        planning_item = await db.get(PlanningItem, planning_item_id)
+        project = await db.get(Project, planning_item.project_id)
+        project.working_directory_path = "/root/project/task-dispatch-test"
         await db.commit()
         await db.refresh(agent)
         agent_id = agent.id
@@ -556,6 +562,7 @@ async def test_successful_dispatch_commits_and_writes_audit_event(
         assert dispatched.status_code == 200, dispatched.text
         assert dispatched.json()["dispatch_status"] == "dispatched"
         assert dispatched.json()["task_status"] == "in_progress"
+        assert dispatched_paths == ["/root/project/task-dispatch-test"]
 
         async with AsyncSessionLocal() as db:
             events = list((await db.execute(select(AuditEvent).where(
@@ -567,6 +574,36 @@ async def test_successful_dispatch_commits_and_writes_audit_event(
             assert "dispatched to Dispatch Test Agent" in (events[0].payload or {}).get("description", "")
             await db.execute(text("DELETE FROM company.audit_events WHERE id = :id"), {"id": events[0].id})
             await db.commit()
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("DELETE FROM company.agent_demands WHERE origin_id = :id"), {"id": task_id})
+            await db.execute(delete(Agent).where(Agent.id == agent_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_requires_a_configured_project_working_directory(
+    client: AsyncClient, created_ids, planning_item_id
+):
+    """A Task route must surface missing execution context before any run starts."""
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"No path Agent {uuid.uuid4().hex[:8]}", agent_type="executor")
+        db.add(agent)
+        await db.commit()
+        agent_id = agent.id
+
+    response = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Task without project directory")
+    )
+    assert response.status_code == 201, response.text
+    task_id = response.json()["id"]
+    created_ids["project_tasks"].append(task_id)
+    try:
+        dispatched = await client.post(
+            f"/api/v1/tasks/{task_id}/dispatch", json={"target_agent_id": str(agent_id)}
+        )
+        assert dispatched.status_code == 409, dispatched.text
+        assert "absolute working directory" in dispatched.json()["detail"]
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(text("DELETE FROM company.agent_demands WHERE origin_id = :id"), {"id": task_id})

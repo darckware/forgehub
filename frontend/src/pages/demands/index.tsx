@@ -103,6 +103,9 @@ function isOutboxItem(d: Demand): boolean {
   return (
     (Boolean(d.from_agent_id && d.target_agent_id) || d.origin_type === "task") &&
     !selfDirected &&
+    d.origin_type !== "incubation" &&
+    d.dispatch_status !== "dispatched" &&
+    d.dispatch_status !== "running" &&
     d.dispatch_status !== "completed" &&
     d.dispatch_status !== "failed"
   );
@@ -121,7 +124,7 @@ function isOutboxItem(d: Demand): boolean {
  * item é. Com o Tipo criado (2026-07-26), ele passa a filtrar pelo próprio
  * Tipo, que é o que o nome do grupo sempre prometeu. */
 function isIncubationItem(d: Demand): boolean {
-  return d.status !== "archived" && d.origin_type === "incubation";
+  return d.status !== "archived" && d.origin_type === "incubation" && d.dispatch_status === null;
 }
 
 /** Finalizado: o despacho terminou e produziu resposta (2026-07-26). Fecha o
@@ -295,7 +298,7 @@ function SendToOutgoingForm({ demand, onDone }: { demand: Demand; onDone: () => 
    *  would have nowhere to route back to. The backend refuses it (400) --
    *  saying so here means the operator learns it before clicking, and learns
    *  what to do about it. */
-  const blockedIncubation = demand.origin_type === "incubation" && !demand.from_agent_id;
+  const blockedIncubation = demand.origin_type === "incubation";
 
   function handleSend() {
     if (!targetAgentId || blockedIncubation) return;
@@ -756,10 +759,10 @@ export default function DemandsPage() {
       // badge it doesn't belong to.
       if (folder.agentId === null)
         return all.filter(
-          (d) => d.status !== "archived" && ((!d.target_agent_id && !d.from_agent_id) || isIncomingItem(d, d.target_agent_id ?? ""))
+          (d) => d.status !== "archived" && d.origin_type !== "incubation" && ((d.dispatch_status === null && !d.target_agent_id && !d.from_agent_id) || isIncomingItem(d, d.target_agent_id ?? ""))
         );
       if (folder.agentId === NO_AGENT_ID)
-        return all.filter((d) => d.status !== "archived" && !d.target_agent_id && !d.from_agent_id);
+        return all.filter((d) => d.status !== "archived" && d.origin_type !== "incubation" && d.dispatch_status === null && !d.target_agent_id && !d.from_agent_id);
       return all.filter((d) => isIncomingItem(d, folder.agentId!));
     }
     if (folder.kind === "outbox") {
@@ -820,7 +823,7 @@ export default function DemandsPage() {
     return counts;
   }, [visible]);
   const adminInboxCount = useMemo(
-    () => visible.filter((d) => d.status !== "archived" && !d.target_agent_id && !d.from_agent_id).length,
+    () => visible.filter((d) => d.status !== "archived" && d.origin_type !== "incubation" && d.dispatch_status === null && !d.target_agent_id && !d.from_agent_id).length,
     [visible]
   );
   /** Root badge for the Incoming tree -- must match exactly what selecting

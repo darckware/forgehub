@@ -52,6 +52,7 @@ from app.db.models.demand import (
     DEMAND_RETENTION_DAYS,
     DEMAND_STATUSES,
     DISPATCH_MAX_ATTEMPTS,
+    DISPATCH_TRANSIENT_RETRY_DELAYS_SECONDS,
     DISPATCH_TIMEOUT_MINUTES,
     INCUBATION_DEFAULT_MATURATION_DAYS,
     AgentDemand,
@@ -81,6 +82,12 @@ ATTACHMENTS_SUBDIR = "anexos/demandas"
 # outside the container writes somewhere real.
 MESSAGES_ROOT = Path(settings.MESSAGE_ATTACHMENTS_ROOT)
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+# A response timeout or a local failure after accepting a bridge response
+# cannot prove that the host did not start the run. This safe text is also
+# the reprocess guard for a run that requires reconciliation.
+RECONCILIATION_REQUIRED_ERROR = (
+    "Dispatch outcome is uncertain; reconcile the known run before retrying."
+)
 
 
 async def _get_demand_or_404(db: AsyncSession, demand_id: uuid.UUID) -> AgentDemand:
@@ -666,11 +673,21 @@ async def reprocess_demand(
         )
     if demand.target_agent_id is None:
         raise HTTPException(400, "This message has no target agent to dispatch to")
+    if (
+        demand.agent_run_id is not None
+        and demand.dispatch_error == RECONCILIATION_REQUIRED_ERROR
+    ):
+        raise HTTPException(
+            409,
+            "This message has an uncertain prior run. Reconcile that run before authorizing another attempt.",
+        )
 
     demand.dispatch_status = None
     demand.agent_run_id = None
     demand.dispatch_deadline_at = None
+    demand.dispatch_error = None
     demand.notice_sent = False
+    demand.feedback_sent_at = None
     demand.scheduled_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(demand)
@@ -1294,10 +1311,17 @@ async def _execute_dispatch(
             independent = False
 
     prompt = build_thread_prompt(demand, command_text)
-    # Use working_path from demand if provided, otherwise fall back to AGENT_RUNTIME_PATHS
-    project_path = demand.working_path or settings.AGENT_RUNTIME_PATHS.get(agent.runtime_type, "/root")
+    # This path belongs to the host running the agent, not the API container.
+    # Existence/access are validated by the bridge; never guess another cwd.
+    project_path = (demand.working_path or "").strip()
+    if not project_path or not Path(project_path).is_absolute():
+        raise AgentRunDispatchError("An explicit absolute working directory is required")
 
     run_id = str(uuid.uuid4())
+    # Retain the caller-generated identity before the bridge call. A read
+    # timeout can occur after acceptance, and the scheduler needs this id to
+    # reconcile rather than dispatch the same work again.
+    demand.agent_run_id = run_id
     run = await dispatch_agent_run(run_id, agent, prompt, project_path)
 
     demand.target_agent_id = target_agent_id
@@ -1337,12 +1361,11 @@ def _assert_dispatchable(demand: AgentDemand) -> None:
     this check exists for Backlog specifically because that Tipo doesn't
     require an agent by default.
     """
-    if demand.origin_type == "incubation" and demand.from_agent_id is None:
+    if demand.origin_type == "incubation":
         raise HTTPException(
             status_code=400,
             detail=(
-                "A Backlog item cannot be dispatched without a registered sender (From). "
-                "Set From to an agent, or promote it to Task first."
+                "An Incubation item cannot be dispatched. Promote it to Task first."
             ),
         )
 
@@ -1570,10 +1593,8 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             AgentDemand.target_agent_id.isnot(None),
             # Backlog with no registered sender stays parked -- see
             # _assert_dispatchable. Skipped, not failed: nothing was tried.
-            or_(
-                AgentDemand.origin_type.is_distinct_from("incubation"),
-                AgentDemand.from_agent_id.isnot(None),
-            ),
+            AgentDemand.origin_type == "task",
+            AgentDemand.status != "archived",
         )
         # Oldest first: with a concurrency cap, what is left out of this pass
         # waits for the next one, and a due message must not be overtaken by
@@ -1589,7 +1610,7 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     # sessions never overlap). An agent that is busy is *skipped*, not
     # stopped -- the queue keeps moving for everyone else, and the skipped
     # message is picked up by a later pass once its agent is free.
-    selected: list[AgentDemand] = []
+    selected: list[tuple[uuid.UUID, uuid.UUID]] = []
     deferred = 0
     for demand in due:
         if len(selected) >= slots:
@@ -1598,24 +1619,27 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
         if demand.target_agent_id in busy:
             deferred += 1
             continue
-        selected.append(demand)
+        selected.append((demand.id, demand.target_agent_id))
         busy.add(demand.target_agent_id)
     if deferred:
         logger.info(
             "Dispatch queue: %d due, %d starting, %d deferred (cap %d, one run per agent)",
             len(due), len(selected), deferred, slots,
         )
-    for demand in selected:
-        # Captured up front: db.rollback() expires every attribute on
-        # objects in the session, so demand.id after a rollback needs a
-        # fresh lazy-load -- which needs an awaited context this except
-        # block doesn't have, and raises MissingGreenlet instead of
-        # logging the actual dispatch failure.
-        demand_id = demand.id
+    for demand_id, target_agent_id in selected:
+        # Work only from immutable identifiers between items. A rollback
+        # expires every ORM object in the session; retaining the original
+        # query rows here made one failed dispatch crash before the next
+        # message could even be loaded.
+        demand = await db.get(AgentDemand, demand_id)
+        if demand is None or demand.dispatch_status is not None:
+            continue
+        known_run_id: str | None = None
         try:
-            await _execute_dispatch(db, demand, demand.target_agent_id, demand.command_text)
+            await _execute_dispatch(db, demand, target_agent_id, demand.command_text)
+            known_run_id = demand.agent_run_id
             await db.commit()
-        except AgentRunDispatchError:
+        except AgentRunDispatchError as exc:
             # Not transient -- e.g. the target agent has no runtime_type
             # configured for CLI dispatch, so this can never succeed as-is.
             # Retrying it silently every 30s forever would both waste the
@@ -1626,20 +1650,67 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             # processed" gap this marks "failed" to close. A genuinely
             # dispatchable agent can still be retried by hand via the
             # reading pane's Dispatch button once fixed.
+            # Explicit runner rejections are known not to have accepted the
+            # reserved id created by _execute_dispatch.
+            demand.agent_run_id = None
             await _fail_dispatch(
                 db,
                 demand,
-                "Target agent can't run this automatically (no CLI runtime_type configured) "
-                "-- needs manual handling.",
+                str(exc),
                 title=f"Dispatch failed: {demand.subject}",
             )
+            await deliver_feedback(db, demand)
             await db.commit()
             logger.exception("Scheduled dispatch permanently failed for demand %s", demand_id)
-        except Exception:
-            # Transient (e.g. the host-bridge unreachable) -- leave
-            # dispatch_status NULL so the next poll retries it.
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+            # These failures occur before a request is accepted by the bridge,
+            # so bounded retry cannot duplicate a started run.
             await db.rollback()
             logger.exception("Scheduled dispatch failed for demand %s", demand_id)
+            retry = await db.get(AgentDemand, demand_id)
+            if retry is None or retry.dispatch_status is not None:
+                continue
+            retry.dispatch_attempts = (retry.dispatch_attempts or 0) + 1
+            retry.dispatch_error = "Host bridge temporarily unavailable"
+            if retry.dispatch_attempts >= DISPATCH_MAX_ATTEMPTS:
+                await _fail_dispatch(
+                    db,
+                    retry,
+                    retry.dispatch_error,
+                    title=f"Dispatch failed: {retry.subject}",
+                )
+                await deliver_feedback(db, retry)
+            else:
+                delay_index = min(
+                    retry.dispatch_attempts - 1,
+                    len(DISPATCH_TRANSIENT_RETRY_DELAYS_SECONDS) - 1,
+                )
+                retry.scheduled_at = datetime.now(timezone.utc) + timedelta(
+                    seconds=DISPATCH_TRANSIENT_RETRY_DELAYS_SECONDS[delay_index]
+                )
+            await db.commit()
+        except Exception:
+            # Read/write timeouts, HTTP status errors, and local failures after
+            # the bridge call are ambiguous: a retry could duplicate work.
+            # Persist the caller-generated id where available and require
+            # reconciliation instead of returning this row to the scheduler.
+            known_run_id = known_run_id or demand.agent_run_id
+            await db.rollback()
+            logger.exception("Scheduled dispatch outcome uncertain for demand %s", demand_id)
+            retry = await db.get(AgentDemand, demand_id)
+            if retry is None or retry.dispatch_status is not None:
+                continue
+            retry.dispatch_attempts = (retry.dispatch_attempts or 0) + 1
+            if known_run_id is not None:
+                retry.agent_run_id = known_run_id
+            await _fail_dispatch(
+                db,
+                retry,
+                RECONCILIATION_REQUIRED_ERROR,
+                title=f"Dispatch outcome uncertain: {retry.subject}",
+            )
+            await deliver_feedback(db, retry)
+            await db.commit()
 
 
 @router.post("/{demand_id}/dispatch", response_model=DemandOut)
@@ -1834,6 +1905,9 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
             triggered_demand_id=locked.id,
         ))
 
+    if locked.dispatch_status == "failed":
+        await deliver_feedback(db, locked)
+        return None
     if not locked.requires_response or locked.from_agent_id is None:
         return None
 

@@ -58,6 +58,7 @@ from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File, For
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from agent_runtime import resolve_runtime_executable, validate_working_directory
 from vpn_control import VpnControl, VpnPolicyError
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
@@ -1412,7 +1413,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
                 codex_overrides += ["-c", override]
         return (
             [
-                "/root/.npm-global/bin/codex",
+                resolve_runtime_executable("codex", env=agent_env),
                 "exec",
                 "--json",
                 "--sandbox",
@@ -1487,8 +1488,11 @@ async def start_agent_run(
         uuid.UUID(req.run_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="run_id must be a UUID") from exc
-    project_dir = _validate_project_path(req.project_path)
-    command, env = _agent_run_command(req, project_dir)
+    try:
+        project_dir = validate_working_directory(req.project_path)
+        command, env = _agent_run_command(req, project_dir)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     with _agent_runs_lock:
         if req.run_id in _agent_runs:

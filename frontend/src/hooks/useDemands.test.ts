@@ -13,6 +13,11 @@ function row(overrides: Partial<Demand>): Demand {
 }
 
 describe("isIncomingItem", () => {
+  it("keeps self-addressed incubation out of Incoming and its badge", () => {
+    const item = row({ origin_type: "incubation", from_agent_id: "agent-b", target_agent_id: "agent-b" });
+    expect(isIncomingItem(item, "agent-b")).toBe(false);
+    expect(computeInboxTotalCount([item])).toBe(0);
+  });
   it("counts self-addressed work as Incoming while it hasn't started (2026-08-15)", () => {
     expect(
       isIncomingItem(row({ target_agent_id: "agent-b", from_agent_id: "agent-b", dispatch_status: null }), "agent-b")

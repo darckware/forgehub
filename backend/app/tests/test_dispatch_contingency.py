@@ -18,6 +18,7 @@ What these protect:
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
@@ -29,6 +30,13 @@ from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent
 from app.db.models.demand import DISPATCH_MAX_ATTEMPTS, AgentDemand
 from app.db.models.notification import Notification
+
+
+class FrozenDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        value = cls(2001, 1, 1, tzinfo=timezone.utc)
+        return value if tz is not None else value.replace(tzinfo=None)
 
 
 @pytest_asyncio.fixture
@@ -224,3 +232,276 @@ async def test_a_finished_run_frees_its_agent(agent):
 
     async with AsyncSessionLocal() as session:
         assert agent not in await _agents_already_running(session)
+
+
+async def test_connect_failure_isolated_from_next_agent_and_backed_off(monkeypatch):
+    """One broken runtime must not expire the remaining queue or hot-loop."""
+    from app.api.routes import demand as demand_routes
+
+    suffix = uuid.uuid4().hex[:8]
+    due = FrozenDateTime(2000, 12, 31, tzinfo=timezone.utc)
+    agent_ids: list[uuid.UUID] = []
+    demand_ids: list[uuid.UUID] = []
+    async with AsyncSessionLocal() as session:
+        agents = [
+            Agent(name=f"Broken runtime {suffix}", agent_type="executor", runtime_type="codex"),
+            Agent(name=f"Healthy runtime {suffix}", agent_type="executor", runtime_type="hermes", profile_slug=f"healthy-{suffix}"),
+        ]
+        session.add_all(agents)
+        await session.flush()
+        agent_ids = [item.id for item in agents]
+        demands = [
+            AgentDemand(
+                from_agent="tester", from_agent_id=agents[0].id, target_agent_id=agents[0].id,
+                subject=f"first fails {suffix}", body="fail", origin_type="task", scheduled_at=due,
+                working_path="/root/project/test-fixture",
+            ),
+            AgentDemand(
+                from_agent="tester", from_agent_id=agents[1].id, target_agent_id=agents[1].id,
+                subject=f"second runs {suffix}", body="run", origin_type="task", scheduled_at=due + timedelta(seconds=1),
+                working_path="/root/project/test-fixture",
+            ),
+        ]
+        session.add_all(demands)
+        await session.commit()
+        demand_ids = [item.id for item in demands]
+
+    calls: list[uuid.UUID] = []
+
+    async def fake_dispatch(_run_id, target, _prompt, _path):
+        calls.append(target.id)
+        if target.id == agent_ids[0]:
+            request = httpx.Request("POST", "http://bridge/v1/agent-runs")
+            raise httpx.ConnectError("bridge unavailable", request=request)
+        return {"run_id": "healthy-run"}
+
+    monkeypatch.setattr(demand_routes, "datetime", FrozenDateTime)
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", fake_dispatch)
+    async def no_notice(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(demand_routes, "_send_notice", no_notice)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            await demand_routes.run_scheduled_dispatch_pass(session)
+
+        async with AsyncSessionLocal() as session:
+            failed = await session.get(AgentDemand, demand_ids[0])
+            healthy = await session.get(AgentDemand, demand_ids[1])
+            assert calls == agent_ids
+            assert failed.dispatch_status is None
+            assert failed.dispatch_attempts == 1
+            assert failed.dispatch_error == "Host bridge temporarily unavailable"
+            assert failed.scheduled_at > FrozenDateTime.now(timezone.utc)
+            assert healthy.dispatch_status == "dispatched"
+            assert healthy.dispatch_attempts == 1
+
+        # A second poll before the retry deadline must not launch either
+        # the backed-off message or the already running healthy message.
+        async with AsyncSessionLocal() as session:
+            await demand_routes.run_scheduled_dispatch_pass(session)
+        assert calls == agent_ids
+    finally:
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(Notification).where(Notification.event_key.like(f"demand-dispatch-failed:%{suffix}%")))
+            await session.execute(delete(AgentDemand).where(AgentDemand.id.in_(demand_ids)))
+            await session.execute(delete(Agent).where(Agent.id.in_(agent_ids)))
+            await session.commit()
+
+
+async def test_transient_start_failure_becomes_terminal_after_three_attempts(agent, monkeypatch):
+    from app.api.routes import demand as demand_routes
+
+    due = FrozenDateTime(2000, 12, 31, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as session:
+        item = AgentDemand(
+            from_agent="tester",
+            from_agent_id=agent,
+            target_agent_id=agent,
+            subject=f"bounded retry {uuid.uuid4().hex[:8]}",
+            working_path="/root/project/test-fixture",
+            body="fail safely",
+            origin_type="task",
+            scheduled_at=due,
+        )
+        session.add(item)
+        await session.commit()
+        demand_id = item.id
+
+    async def unavailable(*_args, **_kwargs):
+        request = httpx.Request("POST", "http://bridge/v1/agent-runs")
+        raise httpx.ConnectError("bridge unavailable", request=request)
+
+    monkeypatch.setattr(demand_routes, "datetime", FrozenDateTime)
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", unavailable)
+
+    try:
+        for expected_attempts in (1, 2, 3):
+            async with AsyncSessionLocal() as session:
+                queued = await session.get(AgentDemand, demand_id)
+                queued.scheduled_at = due
+                await session.commit()
+            async with AsyncSessionLocal() as session:
+                await demand_routes.run_scheduled_dispatch_pass(session)
+            async with AsyncSessionLocal() as session:
+                queued = await session.get(AgentDemand, demand_id)
+                assert queued.dispatch_attempts == expected_attempts
+
+        async with AsyncSessionLocal() as session:
+            queued = await session.get(AgentDemand, demand_id)
+            notices = (
+                await session.execute(
+                    select(Notification).where(
+                        Notification.event_key == f"demand-dispatch-failed:{demand_id}:3"
+                    )
+                )
+            ).scalars().all()
+            assert queued.dispatch_status == "failed"
+            assert queued.dispatch_error == "Host bridge temporarily unavailable"
+            assert len(notices) == 1
+    finally:
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                delete(Notification).where(
+                    Notification.event_key.like(f"demand-dispatch-failed:{demand_id}%")
+                )
+            )
+            await session.execute(delete(AgentDemand).where(AgentDemand.id == demand_id))
+            await session.commit()
+
+
+async def test_response_timeout_is_failed_without_automatic_retry(client: AsyncClient, agent, monkeypatch):
+    """A read timeout can happen after the bridge accepted the run, so retrying
+    would start the same work twice. The generated run id stays available for
+    reconciliation instead."""
+    from app.api.routes import demand as demand_routes
+
+    due = FrozenDateTime(2000, 12, 31, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as session:
+        item = AgentDemand(
+            from_agent="tester", from_agent_id=agent, target_agent_id=agent,
+            subject=f"ambiguous timeout {uuid.uuid4().hex[:8]}", body="do once",
+            origin_type="task", scheduled_at=due,
+            working_path="/root/project/test-fixture",
+        )
+        session.add(item)
+        await session.commit()
+        demand_id = item.id
+
+    calls: list[str] = []
+
+    async def accepted_but_timed_out(run_id, *_args):
+        calls.append(run_id)
+        raise httpx.ReadTimeout(
+            "bridge response timed out",
+            request=httpx.Request("POST", "http://bridge/v1/agent-runs"),
+        )
+
+    monkeypatch.setattr(demand_routes, "datetime", FrozenDateTime)
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", accepted_but_timed_out)
+    monkeypatch.setattr(demand_routes, "_send_notice", lambda *_args: None)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            await demand_routes.run_scheduled_dispatch_pass(session)
+        async with AsyncSessionLocal() as session:
+            item = await session.get(AgentDemand, demand_id)
+            assert item.dispatch_status == "failed"
+            assert item.agent_run_id == calls[0]
+            assert item.dispatch_attempts == 1
+            assert "reconcile" in item.dispatch_error.lower()
+            assert item.scheduled_at == due
+
+        async with AsyncSessionLocal() as session:
+            await demand_routes.run_scheduled_dispatch_pass(session)
+        assert calls == [calls[0]]
+
+        # A manual reprocess cannot erase the retained identity and turn an
+        # uncertain execution back into a second automatic start.
+        response = await client.post(f"/api/v1/demands/{demand_id}:reprocess")
+        assert response.status_code == 409, response.text
+        assert "reconcile" in response.json()["detail"].lower()
+    finally:
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(Notification).where(Notification.event_key.like(f"demand-dispatch-failed:{demand_id}%")))
+            await session.execute(delete(AgentDemand).where(AgentDemand.id == demand_id))
+            await session.commit()
+
+
+async def test_exception_after_bridge_response_is_failed_without_automatic_retry(agent, monkeypatch):
+    """A local exception after an accepted response is equally ambiguous and
+    must retain the accepted run identity instead of reissuing it."""
+    from app.api.routes import demand as demand_routes
+
+    due = FrozenDateTime(2000, 12, 31, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as session:
+        item = AgentDemand(
+            from_agent="tester", from_agent_id=agent, target_agent_id=agent,
+            subject=f"post-response failure {uuid.uuid4().hex[:8]}", body="do once",
+            origin_type="task", scheduled_at=due,
+            working_path="/root/project/test-fixture",
+        )
+        session.add(item)
+        await session.commit()
+        demand_id = item.id
+
+    calls: list[str] = []
+
+    async def accepted(run_id, *_args):
+        calls.append(run_id)
+        return {"run_id": run_id}
+
+    async def fail_after_response(*_args):
+        raise RuntimeError("commit-side failure after bridge acceptance")
+
+    monkeypatch.setattr(demand_routes, "datetime", FrozenDateTime)
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", accepted)
+    monkeypatch.setattr(demand_routes, "_send_notice", fail_after_response)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            await demand_routes.run_scheduled_dispatch_pass(session)
+        async with AsyncSessionLocal() as session:
+            item = await session.get(AgentDemand, demand_id)
+            assert item.dispatch_status == "failed"
+            assert item.agent_run_id == calls[0]
+            assert item.dispatch_attempts == 1
+            assert "reconcile" in item.dispatch_error.lower()
+    finally:
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(Notification).where(Notification.event_key.like(f"demand-dispatch-failed:{demand_id}%")))
+            await session.execute(delete(AgentDemand).where(AgentDemand.id == demand_id))
+            await session.commit()
+
+
+async def test_reprocess_resets_failure_feedback_for_the_next_authorized_attempt(client: AsyncClient, agent):
+    demand_id = await _dispatched(agent, deadline_in=timedelta(minutes=-1))
+    async with AsyncSessionLocal() as session:
+        first = await session.get(AgentDemand, demand_id)
+        first.channel = "agent"
+        await session.commit()
+        await run_dispatch_timeout_pass(session)
+
+    async with AsyncSessionLocal() as session:
+        first_replies = list((await session.execute(
+            select(AgentDemand).where(AgentDemand.reply_to_id == demand_id)
+        )).scalars())
+        assert len(first_replies) == 1
+        assert (await session.get(AgentDemand, demand_id)).feedback_sent_at is not None
+
+    response = await client.post(f"/api/v1/demands/{demand_id}:reprocess")
+    assert response.status_code == 200, response.text
+    assert response.json()["feedback_sent_at"] is None
+
+    async with AsyncSessionLocal() as session:
+        retry = await session.get(AgentDemand, demand_id)
+        retry.dispatch_status = "running"
+        retry.dispatch_attempts = 2
+        retry.dispatch_deadline_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        await session.commit()
+        await run_dispatch_timeout_pass(session)
+        replies = list((await session.execute(
+            select(AgentDemand).where(AgentDemand.reply_to_id == demand_id)
+        )).scalars())
+        assert len(replies) == 2

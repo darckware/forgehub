@@ -1009,6 +1009,10 @@ async def _dispatch_task_by_id(
         })
 
     project_id = await _resolve_task_project_id(db, task)
+    project = await db.get(Project, project_id)
+    # Task execution belongs in the explicitly configured Project checkout.
+    # demand.py validates it and never falls back to a host-global cwd.
+    working_path = project.working_directory_path if project is not None else None
 
     # Alvo: o informado, senão o agente da atribuição ativa da task, senão
     # (layered task-execution governance, Fase 2) o dono padrão resolvido
@@ -1090,6 +1094,7 @@ async def _dispatch_task_by_id(
         status="new",
         target_agent_id=target_agent_id,
         project_id=project_id,
+        working_path=working_path,
         origin_type="task",
         origin_id=task.id,
         task_execution_id=execution.id,

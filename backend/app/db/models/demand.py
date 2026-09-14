@@ -94,6 +94,10 @@ DISPATCH_TIMEOUT_MINUTES = 45
 # problem), so this bounds how often someone can re-run the same thing
 # without fixing its cause.
 DISPATCH_MAX_ATTEMPTS = 3
+# Transient start failures stay queued, but are spaced out so a broken
+# runtime cannot hammer the host bridge every scheduler tick. The third
+# failed start becomes terminal under DISPATCH_MAX_ATTEMPTS.
+DISPATCH_TRANSIENT_RETRY_DELAYS_SECONDS = (60, 300)
 
 # --- Plano de retenção (2026-08-15, Marcelo: "as messages precisam ter um
 # plano de limpeza podendo ficar até 60 dias") ---
@@ -221,8 +225,8 @@ class AgentDemand(Base, TimestampMixin):
     # an existing thread).
     command_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Working directory the recipient agent's run is started in (its cwd),
-    # per message. NULL falls back to settings.AGENT_RUNTIME_PATHS for that
-    # runtime_type, then "/root" -- see _execute_dispatch.
+    # per message. Dispatch requires an explicit absolute path and never
+    # falls back to a runtime or home directory -- see _execute_dispatch.
     #
     # Exists because the per-runtime default is a *home* directory, not a
     # workspace: dispatching to Porthus started Claude Code in /root/.claude,

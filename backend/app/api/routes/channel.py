@@ -1367,6 +1367,13 @@ async def dispatch_channel_message(
 
     sender_id = message.author_agent_id or channel.orchestrator_agent_id or agent.id
     sender = await db.get(Agent, sender_id)
+    # The channel's explicit checkout wins. A project-backed channel may use
+    # its Project checkout when the channel leaves this unset. Missing remains
+    # missing, so demand.py can return a clear error instead of guessing.
+    working_path = channel.working_directory_path
+    if working_path is None and channel.project_id is not None:
+        project = await db.get(Project, channel.project_id)
+        working_path = project.working_directory_path if project is not None else None
     demand = AgentDemand(
         # AgentDemand.from_agent is a compact display snapshot (VARCHAR(50));
         # agent names themselves may legitimately be longer.
@@ -1377,6 +1384,7 @@ async def dispatch_channel_message(
         status="new",
         target_agent_id=payload.agent_id,
         project_id=channel.project_id,
+        working_path=working_path,
         # This explicit action creates executable work even when it is not
         # linked to a pre-existing ProjectTask. `origin_id` is optional;
         # classifying an ad-hoc handoff as incubation made dispatch reject it.

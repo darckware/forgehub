@@ -69,6 +69,11 @@ async def dispatch_agent_run(
             json=body,
             headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
         )
+        if response.status_code in (400, 401, 403, 404, 422):
+            raise AgentRunDispatchError(
+                "Agent runner rejected the request; check working directory, runtime "
+                "configuration and access permissions before retrying"
+            )
         response.raise_for_status()
         return response.json()
 
