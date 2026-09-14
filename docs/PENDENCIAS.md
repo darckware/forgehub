@@ -1,6 +1,6 @@
 # Pendências — Nexo, Headscale e Darckware
 
-> **Atualizado em:** 2026-09-13
+> **Atualizado em:** 2026-09-14
 > **Escopo:** acompanhamento da entrega descrita em
 > [`architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md`](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md).
 
@@ -41,12 +41,13 @@ commit integrado `1e19a07` e migration `e9ae96a2c664`.
 Referências: [plano de administração de rede](superpowers/plans/2026-09-06-nexo-network-administration-implementation.md)
 e migration `40e6bb284f7b`.
 
-## Implementado em branch — integração pendente
+## Integrado — validação operacional pendente
 
 ### Instalador, distribuição e monitoramento da instalação
 
-Implementação disponível em `feature/nexo-installer-monitoring`, revisão `27679d9`; ainda não
-integrada em `develop`. As evidências abaixo referem-se a esse worktree.
+Implementação de `feature/nexo-installer-monitoring` integrada em `develop` pelo merge `ec81c3f`,
+incluindo a revisão funcional `27679d9` e a documentação `be1a98d`. A verificação de 14/09 abaixo
+foi executada no checkout integrado; build real, instalação e deploy continuam pendentes.
 
 - Builds Linux e Windows catalogadas por revisão Git e plataforma, com artefatos persistentes e
   verificação de tamanho/SHA-256.
@@ -116,7 +117,13 @@ O contrato de build foi validado com bridge e artefatos sintéticos. Ainda falta
 uma build Linux/Windows contra o repositório Nexo real e o host bridge implantado, confirmando
 permissões e retenção em `/root/forgehub-data/nexo-agent-artifacts`.
 
-## Pendências técnicas resolvidas na branch Nexo
+Na inspeção de 14/09, `/root/project/nexo` estava em `c874e3d` com alterações locais em código,
+testes e documentação. O catálogo exige checkout limpo em `inspect_source()`; essas alterações
+precisam ser reconciliadas antes da build catalogada. Não foram descartadas nem incluídas em um
+commit por esta verificação. O compilador `go` também não estava no `PATH` desta sessão;
+há um toolchain em `/tmp/nexo-go-toolchain`, cuja existência não comprova a configuração do serviço.
+
+## Pendências técnicas resolvidas e integradas
 
 ### Verificação sintética integrada do ciclo completo
 
@@ -132,6 +139,22 @@ A revisão `27679d9` registra `error`, `last_error` e evento auditável quando n
 utilizável. Se há uma geração utilizável, preserva seu estado, build, datas e token e acrescenta
 somente o diagnóstico e evento de falha. Mensagens persistidas e respostas de erro de domínio são
 genéricas, sem token ou caminho privado. Ambos os cenários têm testes de regressão.
+
+## Evidências verificadas em 2026-09-14
+
+Checkout integrado `develop`, revisão de código `ec81c3f`. Testes backend executados com
+`source /tmp/forgehub-pending-test-env`, apontando para o PostgreSQL dedicado de testes:
+
+- `/tmp/forgehub-pending-venv/bin/python -m pytest app/tests/test_nexo_build_routes.py app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py app/tests/test_nexo_report_reconciliation.py app/tests/test_nexo_installation_models.py app/tests/test_nexo_installation_routes.py -q --tb=short -x`: **42 aprovados em 9,06 s**.
+- `/tmp/forgehub-pending-venv/bin/python -m pytest app/tests/test_nexo_host_builds.py -q --tb=short -x`: **13 aprovados em 0,19 s**.
+- `/tmp/forgehub-pending-venv/bin/ruff check app`: **aprovado**.
+- `npm test -- --run src/pages/nexo-agents/index.test.tsx src/pages/clients/index.test.tsx src/lib/api.test.ts src/components/ui/confirm-dialog.test.tsx src/components/layout/navSections.test.tsx`: **44 aprovados em 5 arquivos**, com avisos conhecidos do React Router.
+- `npm run build`: **aprovado**, 5.255 módulos transformados, etapa Vite em 40,10 s; avisos de chunks grandes e import estático/dinâmico do Mermaid permanecem.
+
+Esses testes usam bridge/artefatos simulados. Não comprovam build real do agente, instalação em
+estação, política Headscale real ou atualização dos serviços ativos.
+Consulta Docker mostrou containers `forgehub-backend` e `forgehub-frontend` criados em 08/09,
+ambos com tag `latest`; não houve deploy nesta verificação.
 
 ## Evidências verificadas em 2026-09-13
 
