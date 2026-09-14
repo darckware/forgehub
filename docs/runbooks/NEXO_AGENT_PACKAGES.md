@@ -73,6 +73,7 @@ Cada geração substitui imediatamente o hash do token da estação. O token em 
 
 | Estado | Significado | Ação do operador |
 |---|---|---|
+| `error` | A geração falhou e não há geração utilizável registrada. | Corrija a configuração ou artefato e gere novamente. |
 | `package_ready` | A credencial foi rotacionada, mas a entrega não terminou. | Gere outro pacote; não reutilize o download interrompido. |
 | `downloaded` | A resposta do ZIP terminou; instalação ainda não foi comprovada. | Instale/inicie o serviço e aguarde o relatório autenticado. |
 | `online` | Chegou relatório válido da geração atual com a versão esperada. | Nenhuma; acompanhe o heartbeat. |
@@ -82,10 +83,10 @@ Em build `failed`, corrija o host bridge ou a origem e atualize o catálogo. Se 
 `ready`, ela continua disponível. Em `downloaded` sem relatório, valide serviço, rede, URL HTTPS e
 relógio da estação antes de girar novamente o token.
 
-O modelo reserva o estado `error`, mas o fluxo de produção atual não o persiste: uma falha de
-empacotamento devolve erro HTTP e preserva a instalação anterior, se houver. Corrija a causa indicada
-e tente gerar novamente. A persistência auditável de `error`/`last_error` permanece pendente e não
-deve ser presumida na operação.
+Falhas de empacotamento registram um evento `error` e `last_error` com diagnóstico genérico.
+Sem geração utilizável anterior, a instalação fica em `error`. Se existe uma geração utilizável,
+seu estado, build, datas e token são preservados; o evento registra a tentativa malsucedida.
+Uma geração posterior bem-sucedida limpa `last_error` e segue para `package_ready`.
 
 ## Verificação técnica reproduzível
 
@@ -102,6 +103,7 @@ POSTGRES_HOST=127.0.0.1 .venv/bin/python -m pytest \
   app/tests/test_nexo_host_builds.py \
   app/tests/test_nexo_build_routes.py \
   app/tests/test_nexo_package_routes.py \
+  app/tests/test_nexo_package_e2e.py \
   app/tests/test_nexo_report_reconciliation.py \
   app/tests/test_nexo_installation_routes.py \
   app/tests/test_agent_report_ingestion.py \
@@ -118,12 +120,15 @@ npm test -- --run src/pages/nexo-agents/index.test.tsx \
 npm run build
 ```
 
-Os testes usam estações/tokens sintéticos e limpeza explícita, mas os cinco testes focados são fluxos
-independentes: não foi executado um E2E único ligando a build, o token emitido pelo pacote e o primeiro
-relatório. Essa verificação integrada permanece pendente. Uma validação de implantação também deve
-executar uma build Linux/Windows no host bridge real, gerar pacotes para estações de teste dedicadas,
-verificar os checksums, enviar relatório autenticado e remover os registros de teste. Não use uma
-estação ou token de produção para smoke test.
+O teste integrado `test_nexo_package_e2e.py` usa as duas builds sintéticas, inspeciona os ZIPs e
+confirma o primeiro relatório Linux com o token extraído do pacote. A instalação Windows é
+verificada até `downloaded`. Em 2026-09-13, esse teste e a suíte de pacotes passaram juntos:
+**16 testes aprovados** na revisão `27679d9`.
+
+A validação de implantação ainda deve executar builds Linux/Windows no host bridge real, gerar
+pacotes para estações de teste dedicadas, verificar checksums, instalar/iniciar os agentes e
+confirmar relatórios autenticados das duas plataformas. Remova os registros de teste ao terminar.
+Não use estação ou token de produção para smoke test.
 
 ## Fronteira de dados do cliente
 

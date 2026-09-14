@@ -1,6 +1,6 @@
 # Pendências — Nexo, Headscale e Darckware
 
-> **Atualizado em:** 2026-09-10
+> **Atualizado em:** 2026-09-13
 > **Escopo:** acompanhamento da entrega descrita em
 > [`architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md`](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md).
 
@@ -41,7 +41,12 @@ commit integrado `1e19a07` e migration `e9ae96a2c664`.
 Referências: [plano de administração de rede](superpowers/plans/2026-09-06-nexo-network-administration-implementation.md)
 e migration `40e6bb284f7b`.
 
+## Implementado em branch — integração pendente
+
 ### Instalador, distribuição e monitoramento da instalação
+
+Implementação disponível em `feature/nexo-installer-monitoring`, revisão `27679d9`; ainda não
+integrada em `develop`. As evidências abaixo referem-se a esse worktree.
 
 - Builds Linux e Windows catalogadas por revisão Git e plataforma, com artefatos persistentes e
   verificação de tamanho/SHA-256.
@@ -111,20 +116,34 @@ O contrato de build foi validado com bridge e artefatos sintéticos. Ainda falta
 uma build Linux/Windows contra o repositório Nexo real e o host bridge implantado, confirmando
 permissões e retenção em `/root/forgehub-data/nexo-agent-artifacts`.
 
+## Pendências técnicas resolvidas na branch Nexo
+
 ### Verificação sintética integrada do ciclo completo
 
-Os cinco testes focados executados abaixo são independentes e não constituem o E2E integrado exigido
-pelo plano. Ainda falta uma única execução sintética que, com os mesmos registros descartáveis,
-solicite ambas as builds, gere e inspecione ambos os ZIPs, use o token recém-gerado para enviar o
-relatório, confirme a transição para `online` e garanta a limpeza. Essa verificação não foi executada
-nesta revisão e não deve usar estação, token ou artefato de produção.
+O teste `test_synthetic_build_package_and_authenticated_report_flow`, incluído em `27679d9`,
+solicita builds Linux/Windows, gera e inspeciona os dois ZIPs e usa o token do pacote Linux para
+comprovar a transição para `online` e o histórico. A instalação Windows permanece `downloaded`;
+o teste não comprova execução do agente Windows. Os registros descartáveis são removidos em
+`finally`. Bridge e binários são sintéticos; a validação real continua pendente.
 
 ### Persistência de falha de empacotamento
 
-O contrato reserva o estado de instalação `error`, o evento `error` e `last_error`, porém o endpoint
-atual devolve o erro HTTP e limpa o temporário antes de criar ou atualizar a instalação. Falta
-implementar e testar a persistência segura dessa falha conforme a especificação. Até lá, `error` não
-é emitido pelo fluxo de produção e não deve ser tratado como estado operacional observável.
+A revisão `27679d9` registra `error`, `last_error` e evento auditável quando não existe geração
+utilizável. Se há uma geração utilizável, preserva seu estado, build, datas e token e acrescenta
+somente o diagnóstico e evento de falha. Mensagens persistidas e respostas de erro de domínio são
+genéricas, sem token ou caminho privado. Ambos os cenários têm testes de regressão.
+
+## Evidências verificadas em 2026-09-13
+
+Worktree `feature/nexo-installer-monitoring`, revisão `27679d9`:
+
+- `POSTGRES_HOST=127.0.0.1 timeout 60s .venv/bin/python -m pytest app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py -q --tb=short`: **16 aprovados em 4,96 s**, com o `.env` raiz carregado.
+- `.venv/bin/ruff check app/api/routes/nexo_installation.py app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py`: **aprovado**.
+- A primeira tentativa no sandbox falhou antes dos testes por bloqueio de socket; a execução com
+  acesso ao PostgreSQL local produziu o resultado acima.
+
+Não foram reexecutados build frontend, migration ou validações contra infraestrutura real nesta
+revisão. As evidências anteriores abaixo mantêm sua data e revisão originais.
 
 ## Evidências verificadas em 2026-09-10
 
