@@ -241,6 +241,40 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
     """
     if demand.dispatch_status not in DEMAND_TERMINAL_DISPATCH_STATUSES:
         return False
+    if demand.dispatch_status == "failed" and demand.from_agent_id is not None:
+        # This app disables autoflush. Preserve the caller's terminal state
+        # and directory before refreshing under the delivery lock.
+        await db.flush()
+        demand = (await db.execute(
+            select(AgentDemand).where(AgentDemand.id == demand.id)
+            .with_for_update().execution_options(populate_existing=True)
+        )).scalar_one()
+        if demand.feedback_sent_at is None:
+            marker = f"failure-feedback:{demand.id}:{demand.dispatch_attempts}"
+            existing = (await db.execute(select(AgentDemand.id).where(
+                AgentDemand.reply_to_id == demand.id,
+                AgentDemand.command_text == marker,
+            ))).scalar_one_or_none()
+            if existing is None:
+                db.add(AgentDemand(
+                    from_agent="Messages",
+                    from_agent_id=demand.target_agent_id,
+                    target_agent_id=demand.from_agent_id,
+                    subject=f"Falha na tarefa #{demand.number}",
+                    body=(
+                        f"A tarefa #{demand.number} precisa de decisão do solicitante.\n"
+                        f"Diretório: {demand.working_path or 'não informado'}\n"
+                        f"Tentativa: {demand.dispatch_attempts}\n"
+                        "Consulte o erro e o resultado na tarefa original antes de corrigir, "
+                        "autorizar nova tentativa ou informar quem solicitou.\n"
+                        "Alterações parciais não foram verificadas automaticamente."
+                    ),
+                    origin_type="task", reply_to_id=demand.id,
+                    command_text=marker, requires_response=False,
+                    dispatch_status="completed", channel="agent",
+                    feedback_sent_at=datetime.now(timezone.utc),
+                ))
+                await db.flush()
     if demand.feedback_sent_at is not None:
         return False
 
@@ -289,7 +323,8 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
             # An agent asked: the existing requires_response/reply_to_id path
             # already routes the answer back as a real message. Duplicating
             # it here would put the same outcome in the agent's inbox twice.
-            return False
+            if not failed or demand.from_agent_id is None:
+                return False
         else:
             # Old or unattributed failures still require attention. Routine
             # successful execution remains visible in Messages without
@@ -319,7 +354,8 @@ async def run_feedback_pass(db: AsyncSession) -> int:
                 AgentDemand.dispatch_status.in_(DEMAND_TERMINAL_DISPATCH_STATUSES),
                 AgentDemand.feedback_sent_at.is_(None),
                 # An agent's answer already routes back on its own path.
-                AgentDemand.channel.is_distinct_from("agent"),
+                (AgentDemand.channel.is_distinct_from("agent"))
+                | ((AgentDemand.dispatch_status == "failed") & AgentDemand.from_agent_id.isnot(None)),
             )
         )
     ).scalars().all()

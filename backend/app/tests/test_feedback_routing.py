@@ -99,6 +99,29 @@ async def _notifications_for(demand_id) -> list[Notification]:
         )
 
 
+async def test_failed_agent_request_receives_one_linked_feedback(agent):
+    demand_id = await _finished(agent, channel="agent", status="failed")
+    async with AsyncSessionLocal() as session:
+        item = await session.get(AgentDemand, demand_id)
+        item.working_path = "/root/project/example"
+        item.dispatch_error = "Execution unavailable"
+        await deliver_feedback(session, item)
+        await session.commit()
+        await deliver_feedback(session, item)
+        await session.commit()
+        replies = list((await session.execute(
+            select(AgentDemand).where(AgentDemand.reply_to_id == demand_id)
+        )).scalars())
+        assert len(replies) == 1
+        assert replies[0].target_agent_id == agent
+        assert replies[0].requires_response is False
+        assert replies[0].scheduled_at is None
+        assert replies[0].dispatch_status == "completed"
+        assert "/root/project/example" in replies[0].body
+        assert item.dispatch_status == "failed"
+        assert item.feedback_sent_at is not None
+
+
 async def test_successful_assistant_task_is_recorded_without_an_alert(agent):
     """A normal completion remains in Messages and does not ring the bell."""
     demand_id = await _finished(agent, channel="assistant")

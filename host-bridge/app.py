@@ -59,6 +59,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from nexo_builds import build_agent, inspect_source
+from agent_runtime import resolve_runtime_executable, validate_working_directory
 from vpn_control import VpnControl, VpnPolicyError
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
@@ -1441,7 +1442,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
                 codex_overrides += ["-c", override]
         return (
             [
-                "/root/.npm-global/bin/codex",
+                resolve_runtime_executable("codex", env=agent_env),
                 "exec",
                 "--json",
                 "--sandbox",
@@ -1516,8 +1517,11 @@ async def start_agent_run(
         uuid.UUID(req.run_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="run_id must be a UUID") from exc
-    project_dir = _validate_project_path(req.project_path)
-    command, env = _agent_run_command(req, project_dir)
+    try:
+        project_dir = validate_working_directory(req.project_path)
+        command, env = _agent_run_command(req, project_dir)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     with _agent_runs_lock:
         if req.run_id in _agent_runs:
@@ -1572,9 +1576,14 @@ async def start_agent_run(
 @app.get("/v1/agent-runs/health")
 async def agent_runner_health(x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)
+    try:
+        resolve_runtime_executable("codex")
+        codex_health = {"available": True}
+    except RuntimeError:
+        codex_health = {"available": False, "reason": "runtime executable unavailable"}
     adapters = {
         "claude": {"available": Path("/root/.local/bin/claude").exists()},
-        "codex": {"available": Path("/root/.npm-global/bin/codex").exists()},
+        "codex": codex_health,
         "agy": {"available": Path("/root/.local/bin/agy").exists()},
         "hermes": {"available": Path("/usr/local/bin/hermes").exists()},
         "openclaw": {"available": Path("/root/.npm-global/bin/openclaw").exists()},

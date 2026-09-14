@@ -56,6 +56,11 @@ Permissions, deletion/retention, billing, and legal policy remain owned by their
 
 ## Dataset navigation
 
+- Messages groups are mutually exclusive lifecycle stages. Incubation is
+  excluded from Incoming and Outgoing; dispatched/running rows leave both
+  queues. Archived rows leave all active stages. List and badge predicates
+  must agree. This follows the operator's September 2026 lifecycle decision.
+
 - Admin tables use the API's bounded pagination when available; otherwise the owning screen must document its bounded dataset.
 - Committed search/filter/sort/page state belongs in URL parameters unless it is sensitive or explicitly transient.
 - Loading, empty, no-results, partial degradation, and failure states preserve the owning surface's geometry.

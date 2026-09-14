@@ -18,10 +18,15 @@ async def client():
         yield ac
 
 
-async def test_login_then_me_reissues_a_fresh_access_token(client: AsyncClient):
+async def test_login_then_me_reissues_a_fresh_access_token(client: AsyncClient, monkeypatch):
+    async def accepted_captcha(token):
+        return token == "synthetic-captcha"
+
+    monkeypatch.setattr("app.api.routes.auth.verify_recaptcha", accepted_captcha)
     resp = await client.post(
         "/api/v1/auth/token",
-        data={"username": settings.DEV_USER_USERNAME, "password": settings.DEV_USER_PASSWORD},
+        data={"username": settings.DEV_USER_USERNAME, "password": settings.DEV_USER_PASSWORD,
+              "recaptcha_token": "synthetic-captcha"},
     )
     assert resp.status_code == 200, resp.text
     original_token = resp.json()["access_token"]

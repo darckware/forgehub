@@ -10,6 +10,7 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
@@ -187,7 +188,10 @@ async def test_ad_hoc_channel_dispatch_is_executable_without_project_task(
     from app.api.routes import demand as demand_routes
     from app.db.models.demand import AgentDemand
 
+    dispatched_paths: list[str] = []
+
     async def fake_dispatch(run_id, agent, prompt, project_path):
+        dispatched_paths.append(project_path)
         return {"run_id": run_id, "status": "queued"}
 
     async def fake_notice(_message):
@@ -199,9 +203,13 @@ async def test_ad_hoc_channel_dispatch_is_executable_without_project_task(
         client,
         member_agent_ids=[str(_STUB_AGENT_IDS[0])],
         orchestrator_agent_id=str(_STUB_AGENT_IDS[0]),
+        working_directory_path="/root/project/channel-dispatch-test",
     )
     channel_id = uuid.UUID(result["channel"]["id"])
     async with AsyncSessionLocal() as session:
+        agent = await session.get(Agent, _STUB_AGENT_IDS[0])
+        original_runtime = agent.runtime_type
+        agent.runtime_type = "claude"
         message = ChatChannelMessage(
             channel_id=channel_id,
             author_type="human",
@@ -217,6 +225,7 @@ async def test_ad_hoc_channel_dispatch_is_executable_without_project_task(
         json={"agent_id": str(_STUB_AGENT_IDS[0])},
     )
     assert response.status_code == 200, response.text
+    assert dispatched_paths == ["/root/project/channel-dispatch-test"]
     demand_id = uuid.UUID(response.json()["triggered_demand_id"])
     try:
         async with AsyncSessionLocal() as session:
@@ -227,10 +236,98 @@ async def test_ad_hoc_channel_dispatch_is_executable_without_project_task(
             assert demand.dispatch_status == "dispatched"
     finally:
         async with AsyncSessionLocal() as session:
+            agent = await session.get(Agent, _STUB_AGENT_IDS[0])
+            agent.runtime_type = original_runtime
             demand = await session.get(AgentDemand, demand_id)
             if demand is not None:
                 await session.delete(demand)
                 await session.commit()
+
+
+async def test_ambiguous_channel_dispatch_retains_message_demand_link(client: AsyncClient, monkeypatch):
+    """A channel retry must stay attached to the one run that may have started."""
+    from app.api.routes import demand as demand_routes
+    from app.db.models.demand import AgentDemand
+
+    async def accepted_but_timed_out(run_id, *_args):
+        raise httpx.ReadTimeout(
+            "bridge response timed out",
+            request=httpx.Request("POST", "http://bridge/v1/agent-runs"),
+        )
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", accepted_but_timed_out)
+    result = await _create_channel(
+        client,
+        member_agent_ids=[str(_STUB_AGENT_IDS[0])],
+        orchestrator_agent_id=str(_STUB_AGENT_IDS[0]),
+        working_directory_path="/root/project/channel-dispatch-test",
+    )
+    channel_id = uuid.UUID(result["channel"]["id"])
+    async with AsyncSessionLocal() as session:
+        agent = await session.get(Agent, _STUB_AGENT_IDS[0])
+        original_runtime = agent.runtime_type
+        agent.runtime_type = "claude"
+        message = ChatChannelMessage(
+            channel_id=channel_id, author_type="human", author_label="Marcelo", content="Run once",
+        )
+        session.add(message)
+        await session.commit()
+        message_id = message.id
+
+    try:
+        first = await client.post(
+            f"/api/v1/channels/{channel_id}/messages/{message_id}:dispatch-task",
+            json={"agent_id": str(_STUB_AGENT_IDS[0])},
+        )
+        assert first.status_code == 502, first.text
+        async with AsyncSessionLocal() as session:
+            message = await session.get(ChatChannelMessage, message_id)
+            demand = await session.get(AgentDemand, message.triggered_demand_id)
+            assert demand.agent_run_id is not None
+            assert "reconcile" in demand.dispatch_error.lower()
+
+        repeat = await client.post(
+            f"/api/v1/channels/{channel_id}/messages/{message_id}:dispatch-task",
+            json={"agent_id": str(_STUB_AGENT_IDS[0])},
+        )
+        assert repeat.status_code == 400, repeat.text
+    finally:
+        async with AsyncSessionLocal() as session:
+            agent = await session.get(Agent, _STUB_AGENT_IDS[0])
+            agent.runtime_type = original_runtime
+            message = await session.get(ChatChannelMessage, message_id)
+            if message is not None and message.triggered_demand_id is not None:
+                demand = await session.get(AgentDemand, message.triggered_demand_id)
+                if demand is not None:
+                    await session.delete(demand)
+            await session.delete(message)
+            await session.commit()
+
+
+async def test_channel_dispatch_requires_configured_working_directory(client: AsyncClient):
+    result = await _create_channel(
+        client,
+        member_agent_ids=[str(_STUB_AGENT_IDS[0])],
+        orchestrator_agent_id=str(_STUB_AGENT_IDS[0]),
+    )
+    channel_id = uuid.UUID(result["channel"]["id"])
+    async with AsyncSessionLocal() as session:
+        message = ChatChannelMessage(
+            channel_id=channel_id,
+            author_type="human",
+            author_label="Marcelo",
+            content="This has no execution directory",
+        )
+        session.add(message)
+        await session.commit()
+        message_id = message.id
+
+    response = await client.post(
+        f"/api/v1/channels/{channel_id}/messages/{message_id}:dispatch-task",
+        json={"agent_id": str(_STUB_AGENT_IDS[0])},
+    )
+    assert response.status_code == 409, response.text
+    assert "absolute working directory" in response.json()["detail"]
 
 
 async def test_create_channel_with_project_suggests_but_does_not_force_members(client: AsyncClient):

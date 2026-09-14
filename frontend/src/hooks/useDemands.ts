@@ -167,6 +167,7 @@ export type Demand = z.infer<typeof demandSchema>;
  * obedecer o total do grupo de entrada... tem que haver sync"). */
 export function isIncomingItem(d: Demand, agentId: string): boolean {
   return (
+    d.origin_type !== "incubation" &&
     d.status !== "archived" &&
     d.target_agent_id === agentId &&
     d.target_agent_id === d.from_agent_id &&
@@ -192,9 +193,9 @@ export function isIncomingItem(d: Demand, agentId: string): boolean {
 export function computeInboxTotalCount(demands: Demand[]): number {
   let total = 0;
   for (const d of demands) {
-    if (d.status === "archived") continue;
+    if (d.status === "archived" || d.origin_type === "incubation") continue;
     if (!d.target_agent_id) {
-      if (!d.from_agent_id) total += 1;
+      if (!d.from_agent_id && d.dispatch_status === null) total += 1;
     } else if (isIncomingItem(d, d.target_agent_id)) {
       total += 1;
     }
