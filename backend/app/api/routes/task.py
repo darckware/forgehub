@@ -44,7 +44,6 @@ import hashlib
 import uuid
 from datetime import datetime, timezone
 
-import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -977,7 +976,12 @@ async def _dispatch_task_by_id(
     # Import local: demand.py já importa o modelo ProjectTask, e um import
     # route->route no topo deste módulo criaria um ciclo assim que aquele
     # módulo precisar de qualquer coisa daqui.
-    from app.api.routes.demand import _execute_dispatch, _demand_preview
+    from app.api.routes.demand import (
+        RECONCILIATION_REQUIRED_ERROR,
+        _execute_dispatch,
+        _demand_preview,
+        recover_dispatch_outcome,
+    )
     from app.core.agent_runs import AgentRunDispatchError
 
     task = await _get_task_or_404(db, task_id)
@@ -986,6 +990,33 @@ async def _dispatch_task_by_id(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Task is already {task.status} and cannot be dispatched",
+        )
+
+    # A second POST after an ambiguous bridge outcome must continue to point
+    # at its durable demand/execution, while a completed demand remains free
+    # to create the task's intended next attempt.
+    uncertain = (
+        await db.execute(
+            select(AgentDemand)
+            .where(
+                AgentDemand.origin_type == "task",
+                AgentDemand.origin_id == task.id,
+                AgentDemand.agent_run_id.isnot(None),
+                AgentDemand.dispatch_error == RECONCILIATION_REQUIRED_ERROR,
+            )
+            .order_by(AgentDemand.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if uncertain is not None:
+        return TaskInboxDispatchOut(
+            task_id=task.id,
+            task_status=task.status,
+            demand_id=uncertain.id,
+            demand_number=uncertain.number,
+            target_agent_id=uncertain.target_agent_id,
+            dispatch_status=uncertain.dispatch_status,
+            agent_run_id=uncertain.agent_run_id,
         )
 
     # Same rule as execution.py's _preflight (Execution Wave/Work Package
@@ -1120,12 +1151,23 @@ async def _dispatch_task_by_id(
         )
     )
 
+    known_run_id: str | None = None
+    dispatch_id = demand.id
     try:
         demand = await _execute_dispatch(db, demand, target_agent_id, payload.command_text)
+        known_run_id = demand.agent_run_id
     except AgentRunDispatchError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Host-bridge dispatch failed: {exc}") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await recover_dispatch_outcome(
+            db, dispatch_id, known_run_id=known_run_id or demand.agent_run_id, scheduled=False
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Host-bridge dispatch outcome is uncertain; reconcile the known run before retrying",
+        ) from exc
 
     # Regra 6.4.1 estendida: despachar tira a task de planned/ready/assigned.
     # Estados posteriores (in_progress, blocked) não regridem.

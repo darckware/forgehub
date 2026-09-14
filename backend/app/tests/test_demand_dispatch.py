@@ -13,6 +13,7 @@ never reach the network call, plus the target_agent_id assignment path.
 """
 import uuid
 
+import httpx
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
@@ -222,7 +223,9 @@ async def test_dispatch_unknown_agent_404s(client: AsyncClient, dispatchable_age
     # be dispatchable at all -- see _assert_dispatchable -- so this needs
     # a real from_agent_id to reach the target-agent lookup this test is
     # actually about, rather than 400ing on that guard first.
-    demand = await _create_demand(client, from_agent_id=str(dispatchable_agent))
+    demand = await _create_demand(
+        client, from_agent_id=str(dispatchable_agent), origin_type="task"
+    )
     try:
         resp = await client.post(
             f"/api/v1/demands/{demand['id']}/dispatch",
@@ -238,7 +241,9 @@ async def test_dispatch_agent_without_runtime_type_rejected(
 ):
     # See test_dispatch_unknown_agent_404s -- Backlog needs a real sender
     # to clear _assert_dispatchable before reaching this test's own check.
-    demand = await _create_demand(client, from_agent_id=str(dispatchable_agent))
+    demand = await _create_demand(
+        client, from_agent_id=str(dispatchable_agent), origin_type="task"
+    )
     try:
         resp = await client.post(
             f"/api/v1/demands/{demand['id']}/dispatch",
@@ -269,13 +274,93 @@ async def test_dispatch_hermes_agent_without_profile_rejected(
 
     See test_dispatch_unknown_agent_404s -- Backlog needs a real sender to
     clear _assert_dispatchable before reaching this test's own check."""
-    demand = await _create_demand(client, from_agent_id=str(dispatchable_agent))
+    demand = await _create_demand(
+        client, from_agent_id=str(dispatchable_agent), origin_type="task"
+    )
     try:
         resp = await client.post(
             f"/api/v1/demands/{demand['id']}/dispatch",
             json={"target_agent_id": str(hermes_agent_without_profile)},
         )
         assert resp.status_code == 409
+    finally:
+        await _delete_demand(demand["id"])
+
+
+async def test_manual_ambiguous_start_persists_known_run_and_refuses_reprocess(
+    client: AsyncClient, dispatchable_agent, monkeypatch
+):
+    """A ReadTimeout can happen after bridge acceptance, so it must not authorize a new run."""
+    from app.api.routes import demand as demand_routes
+
+    async def accepted_but_timed_out(run_id, *_args):
+        raise httpx.ReadTimeout(
+            "bridge response timed out",
+            request=httpx.Request("POST", "http://bridge/v1/agent-runs"),
+        )
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", accepted_but_timed_out)
+    demand = await _create_demand(
+        client,
+        origin_type="task",
+        target_agent_id=str(dispatchable_agent),
+        working_path="/root/project/test-fixture",
+    )
+    try:
+        response = await client.post(
+            f"/api/v1/demands/{demand['id']}/dispatch",
+            json={"target_agent_id": str(dispatchable_agent)},
+        )
+        assert response.status_code == 502, response.text
+
+        async with AsyncSessionLocal() as session:
+            persisted = await session.get(AgentDemand, uuid.UUID(demand["id"]))
+            assert persisted.dispatch_status == "failed"
+            assert persisted.agent_run_id is not None
+            assert "reconcile" in persisted.dispatch_error.lower()
+
+        repeated = await client.post(
+            f"/api/v1/demands/{demand['id']}/dispatch",
+            json={"target_agent_id": str(dispatchable_agent)},
+        )
+        assert repeated.status_code == 409, repeated.text
+        retry = await client.post(f"/api/v1/demands/{demand['id']}:reprocess")
+        assert retry.status_code == 409, retry.text
+    finally:
+        await _delete_demand(demand["id"])
+
+
+async def test_manual_post_acceptance_local_failure_retains_reserved_run(
+    client: AsyncClient, dispatchable_agent, monkeypatch
+):
+    """A local failure after a successful response cannot erase the accepted run ID."""
+    from app.api.routes import demand as demand_routes
+
+    async def accepted(run_id, *_args):
+        return {"run_id": run_id}
+
+    async def fail_after_acceptance(_message):
+        raise RuntimeError("notice persistence failed after bridge acceptance")
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", accepted)
+    monkeypatch.setattr(demand_routes, "_send_notice", fail_after_acceptance)
+    demand = await _create_demand(
+        client,
+        origin_type="task",
+        target_agent_id=str(dispatchable_agent),
+        working_path="/root/project/test-fixture",
+    )
+    try:
+        response = await client.post(
+            f"/api/v1/demands/{demand['id']}/dispatch",
+            json={"target_agent_id": str(dispatchable_agent)},
+        )
+        assert response.status_code == 502, response.text
+        async with AsyncSessionLocal() as session:
+            persisted = await session.get(AgentDemand, uuid.UUID(demand["id"]))
+            assert persisted.dispatch_status == "failed"
+            assert persisted.agent_run_id is not None
+            assert "reconcile" in persisted.dispatch_error.lower()
     finally:
         await _delete_demand(demand["id"])
 

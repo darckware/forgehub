@@ -1,5 +1,7 @@
 import os
 import sys
+import asyncio
+import importlib
 from pathlib import Path
 
 import pytest
@@ -61,3 +63,18 @@ def test_runtime_executable_rejects_missing_explicit_path() -> None:
             "codex",
             env={"FORGEHUB_CODEX_BIN": "/missing/codex", "PATH": os.devnull},
         )
+
+
+def test_health_uses_codex_resolver_and_sanitizes_resolution_failure(monkeypatch) -> None:
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge_app = importlib.import_module("app")
+
+    def unavailable(runtime: str, *, env=None) -> str:
+        assert runtime == "codex"
+        raise RuntimeError("/private/host/codex is missing")
+
+    monkeypatch.setattr(bridge_app, "resolve_runtime_executable", unavailable)
+    result = asyncio.run(bridge_app.agent_runner_health("test-token"))
+
+    codex = result["capabilities"]["adapters"]["codex"]
+    assert codex == {"available": False, "reason": "runtime executable unavailable"}

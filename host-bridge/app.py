@@ -1547,9 +1547,14 @@ async def start_agent_run(
 @app.get("/v1/agent-runs/health")
 async def agent_runner_health(x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)
+    try:
+        resolve_runtime_executable("codex")
+        codex_health = {"available": True}
+    except RuntimeError:
+        codex_health = {"available": False, "reason": "runtime executable unavailable"}
     adapters = {
         "claude": {"available": Path("/root/.local/bin/claude").exists()},
-        "codex": {"available": Path("/root/.npm-global/bin/codex").exists()},
+        "codex": codex_health,
         "agy": {"available": Path("/root/.local/bin/agy").exists()},
         "hermes": {"available": Path("/usr/local/bin/hermes").exists()},
         "openclaw": {"available": Path("/root/.npm-global/bin/openclaw").exists()},

@@ -23,7 +23,12 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
-from app.api.routes.demand import _dispatch_slots, run_dispatch_timeout_pass
+from app.api.routes.demand import (
+    RECONCILIATION_REQUIRED_ERROR,
+    _dispatch_slots,
+    run_dispatch_completion_pass,
+    run_dispatch_timeout_pass,
+)
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
@@ -111,9 +116,56 @@ async def test_a_hung_run_is_failed_when_its_deadline_passes(agent):
     async with AsyncSessionLocal() as session:
         d = await session.get(AgentDemand, demand_id)
         assert d.dispatch_status == "failed"
-        assert "45 minutes" in d.dispatch_error
+        assert d.dispatch_error == RECONCILIATION_REQUIRED_ERROR
         # Cleared, so the sweep can't re-fail an already-terminal row.
         assert d.dispatch_deadline_at is None
+
+
+async def test_deadline_expiry_requires_reconciliation_before_reprocess(client: AsyncClient, agent):
+    """Removing the reconciliation marker would let a possibly-live run be replaced."""
+    demand_id = await _dispatched(agent, deadline_in=timedelta(minutes=-1))
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        demand.agent_run_id = str(uuid.uuid4())
+        await session.commit()
+        await run_dispatch_timeout_pass(session)
+
+    response = await client.post(f"/api/v1/demands/{demand_id}:reprocess")
+
+    assert response.status_code == 409, response.text
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        assert demand.agent_run_id is not None
+        assert demand.dispatch_error == RECONCILIATION_REQUIRED_ERROR
+
+
+async def test_lost_known_run_requires_reconciliation_before_reprocess(client: AsyncClient, agent, monkeypatch):
+    """A bridge 404 cannot prove that the old run never performed work."""
+    from app.api.routes import demand as demand_routes
+
+    demand_id = await _dispatched(agent, deadline_in=timedelta(minutes=30), status="dispatched")
+    run_id = str(uuid.uuid4())
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        demand.agent_run_id = run_id
+        await session.commit()
+
+    async def lost_run(_run_id):
+        request = httpx.Request("GET", "http://bridge/v1/agent-runs/lost")
+        response = httpx.Response(404, request=request)
+        raise httpx.HTTPStatusError("not found", request=request, response=response)
+
+    monkeypatch.setattr(demand_routes, "poll_agent_run", lost_run)
+    async with AsyncSessionLocal() as session:
+        await run_dispatch_completion_pass(session)
+
+    response = await client.post(f"/api/v1/demands/{demand_id}:reprocess")
+
+    assert response.status_code == 409, response.text
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        assert demand.agent_run_id == run_id
+        assert demand.dispatch_error == RECONCILIATION_REQUIRED_ERROR
 
 
 async def test_a_run_inside_its_deadline_is_left_alone(agent):

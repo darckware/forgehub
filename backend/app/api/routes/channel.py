@@ -1351,7 +1351,7 @@ async def dispatch_channel_message(
     triggered_demand_id. The result narration back into the channel
     happens in demand.py's _finalize_dispatch once the run completes
     (poll-driven, same as every other dispatch)."""
-    from app.api.routes.demand import _execute_dispatch
+    from app.api.routes.demand import _execute_dispatch, recover_dispatch_outcome
     from app.core.agent_runs import AgentRunDispatchError
     from app.db.models.demand import AgentDemand
     from app.db.models.governance import AuditEvent
@@ -1398,17 +1398,27 @@ async def dispatch_channel_message(
     )
     db.add(demand)
     await db.flush()
+    message.triggered_demand_id = demand.id
 
+    known_run_id: str | None = None
+    dispatch_id = demand.id
     try:
         demand = await _execute_dispatch(db, demand, payload.agent_id, None)
+        known_run_id = demand.agent_run_id
     except AgentRunDispatchError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except httpx.HTTPError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=502, detail=f"Host-bridge dispatch failed: {exc}") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await recover_dispatch_outcome(
+            db, dispatch_id, known_run_id=known_run_id or demand.agent_run_id, scheduled=False
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Host-bridge dispatch outcome is uncertain; reconcile the known run before retrying",
+        ) from exc
 
-    message.triggered_demand_id = demand.id
     db.add(AuditEvent(
         entity_type="chat_channel_message",
         entity_id=message.id,

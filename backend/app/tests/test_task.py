@@ -20,6 +20,7 @@ and `company.planning_items` concurrently. Specifically:
 """
 import uuid
 
+import httpx
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -539,7 +540,11 @@ async def test_successful_dispatch_commits_and_writes_audit_event(
     monkeypatch.setattr(demand_routes, "dispatch_agent_run", fake_dispatch)
 
     async with AsyncSessionLocal() as db:
-        agent = Agent(name=f"Dispatch Test Agent {uuid.uuid4().hex[:8]}", agent_type="executor")
+        agent = Agent(
+            name=f"Dispatch Test Agent {uuid.uuid4().hex[:8]}",
+            agent_type="executor",
+            runtime_type="claude",
+        )
         db.add(agent)
         planning_item = await db.get(PlanningItem, planning_item_id)
         project = await db.get(Project, planning_item.project_id)
@@ -577,6 +582,63 @@ async def test_successful_dispatch_commits_and_writes_audit_event(
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(text("DELETE FROM company.agent_demands WHERE origin_id = :id"), {"id": task_id})
+            await db.execute(delete(Agent).where(Agent.id == agent_id))
+            await db.commit()
+
+
+async def test_ambiguous_task_dispatch_reuses_the_persisted_inbox_demand(
+    client: AsyncClient, created_ids, planning_item_id, monkeypatch
+):
+    """A retry must follow the original potentially-running task execution."""
+    from app.api.routes import demand as demand_routes
+    from app.db.models.demand import AgentDemand
+
+    async def accepted_but_timed_out(run_id, *_args):
+        raise httpx.ReadTimeout(
+            "bridge response timed out",
+            request=httpx.Request("POST", "http://bridge/v1/agent-runs"),
+        )
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", accepted_but_timed_out)
+    async with AsyncSessionLocal() as db:
+        agent = Agent(
+            name=f"Ambiguous Task Agent {uuid.uuid4().hex[:8]}",
+            agent_type="executor", runtime_type="claude",
+        )
+        db.add(agent)
+        planning_item = await db.get(PlanningItem, planning_item_id)
+        project = await db.get(Project, planning_item.project_id)
+        project.working_directory_path = "/root/project/task-dispatch-test"
+        await db.commit()
+        agent_id = agent.id
+
+    created = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Ambiguous task dispatch")
+    )
+    assert created.status_code == 201, created.text
+    task_id = uuid.UUID(created.json()["id"])
+    created_ids["project_tasks"].append(task_id)
+    try:
+        first = await client.post(
+            f"/api/v1/tasks/{task_id}/dispatch", json={"target_agent_id": str(agent_id)}
+        )
+        assert first.status_code == 502, first.text
+        async with AsyncSessionLocal() as db:
+            demand = (
+                await db.execute(select(AgentDemand).where(AgentDemand.origin_id == task_id))
+            ).scalar_one()
+            original_demand_id = demand.id
+            assert demand.task_execution_id is not None
+            assert demand.agent_run_id is not None
+
+        repeat = await client.post(
+            f"/api/v1/tasks/{task_id}/dispatch", json={"target_agent_id": str(agent_id)}
+        )
+        assert repeat.status_code == 200, repeat.text
+        assert uuid.UUID(repeat.json()["demand_id"]) == original_demand_id
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AgentDemand).where(AgentDemand.origin_id == task_id))
             await db.execute(delete(Agent).where(Agent.id == agent_id))
             await db.commit()
 

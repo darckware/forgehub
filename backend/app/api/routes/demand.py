@@ -1317,15 +1317,22 @@ async def _execute_dispatch(
     if not project_path or not Path(project_path).is_absolute():
         raise AgentRunDispatchError("An explicit absolute working directory is required")
 
-    run_id = str(uuid.uuid4())
-    # Retain the caller-generated identity before the bridge call. A read
-    # timeout can occur after acceptance, and the scheduler needs this id to
-    # reconcile rather than dispatch the same work again.
-    demand.agent_run_id = run_id
-    run = await dispatch_agent_run(run_id, agent, prompt, project_path)
+    if not agent.runtime_type:
+        raise AgentRunDispatchError(f"Agent '{agent.name}' has no runtime_type for CLI dispatch")
+    if agent.runtime_type == "hermes" and not agent.profile_slug:
+        raise AgentRunDispatchError(f"Agent '{agent.name}' has no profile_slug for hermes dispatch")
 
+    run_id = str(uuid.uuid4())
+    # This is the external-start boundary. Persist the caller-generated
+    # identity before asking the bridge to start it: a read timeout or any
+    # later local failure cannot prove that the bridge did not accept it.
+    # The commit also makes newly-created task/channel associations durable.
     demand.target_agent_id = target_agent_id
     demand.command_text = command_text
+    demand.agent_run_id = run_id
+    await db.commit()
+    run = await dispatch_agent_run(run_id, agent, prompt, project_path)
+
     demand.agent_run_id = run["run_id"]
     demand.dispatch_status = "dispatched"
     # Contingency bookkeeping (2026-08-13): every dispatch carries a deadline
@@ -1341,6 +1348,32 @@ async def _execute_dispatch(
         await _send_notice(f"*Disparo para {agent.name}*\n\n{prompt}")
         demand.notice_sent = True
 
+    return demand
+
+
+async def recover_dispatch_outcome(
+    db: AsyncSession,
+    demand_id: uuid.UUID,
+    *,
+    known_run_id: str | None,
+    scheduled: bool,
+) -> AgentDemand | None:
+    """Persist a potentially accepted start behind the reconciliation guard."""
+    await db.rollback()
+    demand = await db.get(AgentDemand, demand_id)
+    if demand is None or demand.dispatch_status is not None:
+        return demand
+    demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
+    if known_run_id is not None:
+        demand.agent_run_id = known_run_id
+    await _fail_dispatch(
+        db,
+        demand,
+        RECONCILIATION_REQUIRED_ERROR,
+        title=f"Dispatch outcome uncertain: {demand.subject}",
+    )
+    await deliver_feedback(db, demand)
+    await db.commit()
     return demand
 
 
@@ -1473,7 +1506,7 @@ async def run_dispatch_timeout_pass(db: AsyncSession) -> int:
         await _fail_dispatch(
             db,
             demand,
-            f"No response within {DISPATCH_TIMEOUT_MINUTES} minutes -- the run never reported back.",
+            RECONCILIATION_REQUIRED_ERROR,
             title=f"Dispatch timed out: {demand.subject}",
         )
         # Terminal now, so whoever asked has to hear about it -- a timeout is
@@ -1695,22 +1728,10 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             # Persist the caller-generated id where available and require
             # reconciliation instead of returning this row to the scheduler.
             known_run_id = known_run_id or demand.agent_run_id
-            await db.rollback()
             logger.exception("Scheduled dispatch outcome uncertain for demand %s", demand_id)
-            retry = await db.get(AgentDemand, demand_id)
-            if retry is None or retry.dispatch_status is not None:
-                continue
-            retry.dispatch_attempts = (retry.dispatch_attempts or 0) + 1
-            if known_run_id is not None:
-                retry.agent_run_id = known_run_id
-            await _fail_dispatch(
-                db,
-                retry,
-                RECONCILIATION_REQUIRED_ERROR,
-                title=f"Dispatch outcome uncertain: {retry.subject}",
+            await recover_dispatch_outcome(
+                db, demand_id, known_run_id=known_run_id, scheduled=True
             )
-            await deliver_feedback(db, retry)
-            await db.commit()
 
 
 @router.post("/{demand_id}/dispatch", response_model=DemandOut)
@@ -1725,6 +1746,14 @@ async def dispatch_demand(
     governance model this implements."""
     demand = await _get_demand_or_404(db, demand_id)
     _assert_dispatchable(demand)
+    if (
+        demand.agent_run_id is not None
+        and demand.dispatch_error == RECONCILIATION_REQUIRED_ERROR
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This message has an uncertain prior run. Reconcile that run before authorizing another attempt.",
+        )
 
     if payload.reply_to_sender:
         if payload.target_agent_id is not None:
@@ -1737,12 +1766,23 @@ async def dispatch_demand(
             raise HTTPException(400, "target_agent_id or reply_to_sender is required")
         target_agent_id = payload.target_agent_id
 
+    known_run_id: str | None = None
+    dispatch_id = demand.id
     try:
         demand = await _execute_dispatch(db, demand, target_agent_id, payload.command_text)
+        known_run_id = demand.agent_run_id
     except AgentRunDispatchError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Host-bridge dispatch failed: {exc}") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await recover_dispatch_outcome(
+            db, dispatch_id, known_run_id=known_run_id or demand.agent_run_id, scheduled=False
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Host-bridge dispatch outcome is uncertain; reconcile the known run before retrying",
+        ) from exc
 
     await db.commit()
     await db.refresh(demand)
@@ -1990,15 +2030,12 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
             if exc.response.status_code != 404:
                 logger.warning("Dispatch completion poll failed for demand %s: %s", demand_id, exc)
                 continue
-            demand.dispatch_status = "failed"
-            db.add(Notification(
-                source="system",
-                severity="warning",
+            await _fail_dispatch(
+                db,
+                demand,
+                RECONCILIATION_REQUIRED_ERROR,
                 title=f"Dispatch lost: {subject}",
-                message="The host-bridge no longer knows this run (restarted?) -- its result can't be recovered. Re-dispatch by hand if it still matters.",
-                event_key=f"demand-dispatch-lost:{demand_id}",
-                occurred_at=datetime.now(timezone.utc),
-            ))
+            )
             await db.commit()
             continue
         except httpx.HTTPError as exc:
