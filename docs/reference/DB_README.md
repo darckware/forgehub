@@ -15,7 +15,7 @@ O ForgeHub usa uma instância PostgreSQL dedicada. Os dados internos do ForgeRou
 
 As demais instâncias são `forgerouter_postgres` (`localhost:5434`, database `forgerouter`) e `hindsight_postgres` (`localhost:5432`, database `foundation`, schema `hindsight`). O banco descontinuado `kanboard` não faz parte da nova topologia.
 
-Fonte de verdade da topologia completa: `/root/.hermes/foundation/governance/POSTGRESQL_TOPOLOGY.md`.
+Fonte de verdade da topologia completa: `/root/.hermes/foundation/36_governance/POSTGRESQL_TOPOLOGY.md`.
 
 ## Separação por responsabilidade
 
@@ -48,6 +48,6 @@ Migrations (Alembic) devem criar as tabelas do domínio dentro do schema `compan
 
 ## Regras
 
-- Não criar databases ou schemas adicionais sem atualizar este arquivo e `/root/.hermes/foundation/governance/POSTGRESQL_TOPOLOGY.md` + `/root/.hermes/foundation/services/inventory.md`.
+- Não criar databases ou schemas adicionais sem atualizar este arquivo e `/root/.hermes/foundation/36_governance/POSTGRESQL_TOPOLOGY.md` + `/root/.hermes/foundation/services/inventory.md`.
 - Não usar o database administrativo `postgres` para dados de aplicação.
 - Não duplicar o mesmo domínio entre as três instâncias.

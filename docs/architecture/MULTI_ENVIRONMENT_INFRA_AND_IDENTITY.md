@@ -2,7 +2,7 @@
 
 **Status:** proposed, not yet implemented
 **Owner:** Athos (governance) / Daedalus (implementation)
-**Policy this spec implements:** `/root/.hermes/foundation/governance/MULTI_ENVIRONMENT_OPERATING_RULE.md`
+**Policy this spec implements:** `/root/.hermes/foundation/36_governance/MULTI_ENVIRONMENT_OPERATING_RULE.md`
 **Context:** ForgeHub now runs as more than one independent deployment — this host (`Local`) and
 a first production VPS (`vmi3547248`, see `/root/.hermes/foundation/HANDOVER_VPS.md`), each with
 its own `forgehub` database. Future client VPS deployments will follow the same pattern. This spec

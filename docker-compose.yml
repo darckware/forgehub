@@ -45,7 +45,10 @@ services:
       # Obsidian may edit the same host Markdown as a complementary client.
       - /root/.hermes/knowledge_base:/vault
       - /root/.hermes/profiles:/profiles
-      - /root/.hermes/foundation/governance:/governance:ro
+      # Governance docs now live under the canonical foundation root.
+      # Keep /governance as a compatibility mount only if older code still
+      # needs it; otherwise prefer /foundation-root everywhere.
+      - /root/.hermes/foundation:/governance:ro
       - /root/.hermes/foundation/agents:/foundation-agents:ro
       # Read-write: backs the Foundation rules browser/editor
       # (api/routes/foundation_docs.py) -- this is the actual rule set the

@@ -79,6 +79,11 @@ Ambos são propostas para revisão, sem implementação iniciada. O desenho loca
 responsabilidade do Claude; a integração aguarda a conclusão desse planejamento. Cada agente
 externo será responsável pela adequação da própria configuração conforme a cartilha aprovada.
 
+## Pendências de entrega
+
+- [Pendências — Nexo, Headscale e Darckware](PENDENCIAS.md) — registro central do que está concluído,
+  pendente e fora do escopo, com evidências e referências para os planos correspondentes.
+
 ## Hierarquia de autoridade
 
 Quando houver conflito, use esta ordem:

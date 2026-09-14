@@ -9,6 +9,7 @@ import { apiClient, getToken } from "@/lib/api";
 import {
   copyTerminalText,
   findLastHttpUrl,
+  prepareTerminalContextMenu,
   terminalBufferToText,
 } from "@/lib/terminalInteraction";
 
@@ -296,15 +297,15 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       }
     };
 
-    // Allow right-click context menu: if text is selected, right-click copies it;
-    // otherwise paste from clipboard into terminal
+    // Prevent native browser context menu so the terminal's native/tmux menu is displayed;
+    // if text is selected, right-click copies it to clipboard
     const handleContextMenu = (event: MouseEvent) => {
-      if (term.hasSelection()) {
-        event.preventDefault();
-        const text = term.getSelection();
-        if (text) {
-          void navigator.clipboard?.writeText(text).catch(() => {});
-        }
+      const selectedText = prepareTerminalContextMenu(
+        event,
+        term.hasSelection() ? term.getSelection() : "",
+      );
+      if (selectedText) {
+        void navigator.clipboard?.writeText(selectedText).catch(() => {});
       }
     };
     container.addEventListener("contextmenu", handleContextMenu);

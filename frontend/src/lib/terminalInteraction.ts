@@ -33,6 +33,14 @@ export function terminalBufferToText(buffer: TerminalBufferLike): string {
   return logicalLines.join("\n").trimEnd();
 }
 
+export function prepareTerminalContextMenu(
+  event: Pick<MouseEvent, "preventDefault">,
+  selectedText: string,
+): string | null {
+  event.preventDefault();
+  return selectedText || null;
+}
+
 export async function copyTerminalText(text: string): Promise<boolean> {
   if (!text) return false;
 

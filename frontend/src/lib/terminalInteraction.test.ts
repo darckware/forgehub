@@ -2,11 +2,26 @@ import { describe, expect, it, vi } from "vitest";
 import {
   copyTerminalText,
   findLastHttpUrl,
+  prepareTerminalContextMenu,
   terminalBufferToText,
   type TerminalBufferLike,
 } from "./terminalInteraction";
 
 describe("terminal interaction helpers", () => {
+  it("suppresses the browser menu and returns selected terminal text", () => {
+    const event = new MouseEvent("contextmenu", { cancelable: true });
+
+    expect(prepareTerminalContextMenu(event, "selected output")).toBe("selected output");
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("suppresses the browser menu without requesting a copy when nothing is selected", () => {
+    const event = new MouseEvent("contextmenu", { cancelable: true });
+
+    expect(prepareTerminalContextMenu(event, "")).toBeNull();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("finds the last URL even when ANSI/OSC sequences surround it", () => {
     const output = [
       "first https://example.test/old",

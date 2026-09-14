@@ -162,6 +162,20 @@ confirm-dialog + pending-spinner convention already used ~70 places in this code
 
 ## 5. Nexo network administration
 
+### Upstream reference — Headscale
+
+Reference supplied for Nexo on 2026-09-13: [juanfont/headscale](https://github.com/juanfont/headscale),
+the open-source, self-hosted implementation of the Tailscale control server.
+Use its [stable documentation](https://headscale.net/stable/) and the configuration examples at
+the deployed release's Git tag when validating the integration; `main` may contain unreleased changes.
+
+For Nexo, this reference informs overlay coordination and network administration (§5.1–§5.2).
+The Remote Agent's collection/reporting and ForgeHub's installation tracking remain the application
+responsibilities described elsewhere in this specification. Headscale documents a single-tailnet
+scope; the client isolation required here must be verified through our policy and real traffic tests.
+The reference itself does not establish compatibility of the CLI commands below with the deployed
+version or close the outstanding real-Headscale validation in [the delivery tracker](../PENDENCIAS.md).
+
 ### 5.1 Client → Headscale tag, one-to-one
 
 **Integration mechanism, confirmed (2026-09-06) by reading Nexo's actual integration tests, not
