@@ -460,7 +460,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
           >
             <HelpCircle className="h-3.5 w-3.5" />
           </summary>
-          <div className="absolute right-0 top-8 z-20 w-80 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-xl">
+          <div className="absolute right-0 top-8 z-20 w-80 rounded-lg border border-border bg-card p-3 text-card-foreground shadow-xl">
             <p className="mb-2 text-xs font-semibold">{t("terminal.help.title")}</p>
             <div className="space-y-1.5 text-[11px] leading-4">
               {[
