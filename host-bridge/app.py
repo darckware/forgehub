@@ -3399,19 +3399,25 @@ def _install_hint(out: str, login_user: str) -> str:
         return f" — hint: '{login_user}' logged in but sudo failed; it needs passwordless sudo (or use 'root')."
     if "could not resolve" in low or "connection refused" in low or "timed out" in low or "no route to host" in low:
         return " — hint: the host is unreachable on this SSH port."
+    if "command not found" in low:
+        return " — hint: a required command (e.g. sshpass, ssh, ssh-copy-id) is not installed on this host."
     return ""
 
 
 async def _run_step(
     args: list[str], timeout: float, env: dict | None = None, input_text: str | None = None
 ) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdin=asyncio.subprocess.PIPE if input_text is not None else None,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=env,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE if input_text is not None else None,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
+        )
+    except FileNotFoundError:
+        cmd_name = args[0] if args else "command"
+        return 127, f"command not found: {cmd_name}"
     try:
         out, _ = await asyncio.wait_for(
             proc.communicate(input_text.encode() if input_text is not None else None), timeout=timeout
