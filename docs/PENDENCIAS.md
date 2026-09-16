@@ -1,6 +1,6 @@
 # Pendências — Nexo, Headscale e Darckware
 
-> **Atualizado em:** 2026-09-14
+> **Atualizado em:** 2026-09-16
 > **Escopo:** acompanhamento da entrega descrita em
 > [`architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md`](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md).
 
@@ -65,13 +65,6 @@ Referências: [especificação](superpowers/specs/2026-09-08-nexo-installer-moni
 
 ## Pendente — funcional
 
-### Relatórios
-
-Ainda é necessário definir formato e tecnologia, gerar relatórios mensais e sob demanda, armazenar e
-revisar os documentos e expor leitura com isolamento correto por cliente.
-
-Referência: [seção 7 da especificação](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md#7-report-generation).
-
 ### Identidade canônica e integração Darckware
 
 Falta especificar e implementar:
@@ -97,10 +90,16 @@ Referência: [seção 8 da especificação](architecture/NEXO_CLIENT_MONITORING_
 ### Ambiente dedicado para validação real
 
 Foi decidido em 14/09 validar primeiro em ambiente dedicado, sem alterar a stack ForgeHub ativa
-nem o Headscale de produção. A estação informada é `100.107.175.100`; a sondagem SSH na porta 22
-com usuário `root` foi recusada por `Permission denied (publickey,password)`. Falta confirmar o
-usuário autorizado e uma chave já disponível no ambiente do agente. Nenhuma instalação ou comando
-de alteração foi executado nesse host.
+nem o Headscale de produção. A estação informada é `100.107.175.100`; `root` foi recusado por
+`Permission denied (publickey,password)`, mas a chave dedicada existente funciona com o usuário
+operacional `aegis`. Em 15/09, a sondagem direta e o endpoint do host bridge (`/v1/servers/check-status`)
+retornaram estado `active` usando essa conta/chave. As builds reais Linux/Windows já foram produzidas,
+mas ainda não há uma estação Nexo registrada para esse host; instalação e smoke test continuam pendentes.
+Na sondagem de 16/09, o host informou `srv-sup`, usuário `aegis` e `passwordless_sudo=no`; portanto,
+a instalação do pacote ainda requer uma chave/conta root autorizada ou sudo operacional para essa conta.
+Em seguida, a estação Linux `8530f620-45b6-4482-bf9c-0bcd87d6a7fc` foi criada para a SEMED, o pacote
+da revisão `0724d69` foi gerado e transferido para `/home/aegis/nexo-semed-srv-sup/`; o estado atual
+da instalação é `package_ready`, aguardando execução do instalador como root.
 
 ### Sincronização Git
 
@@ -109,29 +108,51 @@ autoriza merge, rebase ou push.
 
 ### Validação com Headscale real
 
-Os testes automatizados isolam o host bridge. Ainda falta validar, em ambiente autorizado, tags,
-publicação/leitura de política, concessão/revogação, tráfego efetivo e rollback contra Headscale real.
+Os testes automatizados isolam o host bridge. Em 16/09, o Headscale 0.29.3 foi instalado com a
+unidade `remoto-headscale`, configuração validada e serviço ativo em `127.0.0.1:18080`; o health
+check retornou `{"status":"pass"}`. O fluxo administrativo criou os clientes `SEMED` e `GATLING`
+e publicou as tags `tag:cliente-semed` e `tag:cliente-gatling` na política do Headscale, com leitura
+posterior consistente.
+
+Ainda falta validar, em ambiente autorizado, concessão/revogação, tráfego efetivo e rollback contra
+estações reais. Após a configuração do Cloudflare em 16/09, `remoto.darckware.net` passou a resolver
+pelos endereços do proxy, `GET /health` retornou HTTP 200 com `{"status":"pass"}` e a rota de
+ingestão respondeu HTTP 401 sem token, confirmando encaminhamento público e autenticação ativa.
 
 ### Deploy, migrations e smoke test real
 
-A migration Nexo `5a8c1e7d9f20` está aplicada no banco local de testes, mas isso não prova o estado do
-ambiente-alvo. Antes da implantação ainda é necessário reconciliar Git, comparar `alembic current`
-com `alembic heads`, aplicar migrations pelo processo autorizado, construir/implantar a revisão e
-executar health checks e smoke tests autenticados.
+A migration Nexo `5a8c1e7d9f20` está aplicada no backend ativo desta stack. Ainda é necessário
+reconciliar Git, comparar `alembic current` com `alembic heads` no ambiente-alvo, aplicar migrations
+pelo processo autorizado quando aplicável, e executar health checks e smoke tests autenticados na
+estação real.
 
 ### Build real pelo host bridge
 
-O contrato de build foi validado com bridge e artefatos sintéticos. Ainda falta executar e registrar
-uma build Linux/Windows contra o repositório Nexo real e o host bridge implantado, confirmando
-permissões e retenção em `/root/forgehub-data/nexo-agent-artifacts`.
+Concluída em 15/09 contra o checkout Nexo limpo `0724d691f6c7586a0d696c1da120f69a20816561`,
+usando o bridge implantado e publicação em `/root/forgehub-data/nexo-agent-artifacts`:
 
-Na inspeção de 14/09, `/root/project/nexo` estava em `c874e3d` com alterações locais em código,
-testes e documentação. O catálogo exige checkout limpo em `inspect_source()`; essas alterações
-precisam ser reconciliadas antes da build catalogada. Não foram descartadas nem incluídas em um
-commit por esta verificação. O compilador `go` também não estava no `PATH` desta sessão;
-há um toolchain em `/tmp/nexo-go-toolchain`, cuja existência não comprova a configuração do serviço.
+- Linux: 8.421.872 bytes, SHA-256 `7bbbc8a01e3ab649dca9448944ebf98c39e37edcd0410d47aca97108e6495e9a`, ELF x86-64.
+- Windows: 8.655.872 bytes, SHA-256 `b7577d8720354272fbaae76c3be54201f64786fc78458b2107efba009d2630e6`, PE32+ x86-64.
+
+O serviço não encontrava `go` no `PATH`; isso foi corrigido incluindo o toolchain validado
+`/tmp/nexo-go-toolchain/bin` na unidade systemd do host bridge. A build e a retenção dos artefatos
+foram confirmadas pelo endpoint allowlisted e por verificação independente de tamanho, formato,
+checksum e metadados. Instalação em estação e smoke test autenticado continuam pendentes.
+
+O catálogo ativo foi atualizado com as duas builds em estado `ready`, ambas na revisão `0724d69`.
 
 ## Pendências técnicas resolvidas e integradas
+
+### Relatórios de acompanhamento e credenciais de leitura de clientes (Seções 7 e 8 Nexo)
+
+Implementado em 16/09 e integrado em `develop`:
+- **Modelos e migração:** Tabelas `client_reports` e `client_read_credentials` na schema `company` (`backend/alembic/versions/6c9e8a2d4b70_add_client_reports.py`), com checks de período e unicidade para relatórios mensais por cliente.
+- **Geração e imutabilidade:** Renderização em HTML autônomo com snapshot JSON completo das estações, irregularidades no período e estatísticas de suporte; CSS inline autônomo e auditável.
+- **Gestão administrativa:** Endpoints administrativos para geração sob demanda (`POST /api/v1/clients/{id}/reports`), geração mensal (`POST /api/v1/clients/{id}/reports/monthly`), revisão auditável (`PATCH /api/v1/client-reports/{id}/review`), download e emissão de credenciais de leitura (`POST /api/v1/clients/{id}/read-credentials`).
+- **API client-scoped para integração externa:** Rota tenant-scoped autenticada via token `clr_` (`/api/v1/client-access/clients/{id}/reports`, `/download`, `/irregularities`), com isolamento estrito e retorno `404` para clientes não proprietários da credencial.
+- **Frontend e i18n:** Componente `ClientReportsPanel` integrado na página de detalhes do cliente (`/clients/[id]`), com internacionalização completa em `pt-BR`, `en` e `es`.
+- **Resiliência do System Control:** Tratamento gracioso para falhas de git e adição do repositório `forgehub` em `KNOWN_REPOS`, corrigindo o erro 500 no endpoint `/api/v1/system-control/status` e na ferramenta MCP `get_system_status`.
+- **Deploy e validação real:** Migração `6c9e8a2d4b70` aplicada no banco de dados de produção (`forgehub_postgres`). Containers `forgehub-backend` e `forgehub-frontend` reconstruídos e iniciados com sucesso. Endpoints de saúde e ciclo de vida de relatórios validados ao vivo.
 
 ### Verificação sintética integrada do ciclo completo
 
