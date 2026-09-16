@@ -15,6 +15,7 @@ interface ToolUpdateState {
   // fully independently (no shared lock on the backend/bridge), so the UI
   // must track them independently too.
   updatingTools: Set<MonitoredTool>;
+  installingTools: Set<MonitoredTool>;
   updateOutputs: Partial<Record<MonitoredTool, ToolUpdateOutput>>;
   // Which tool's detail panel is open -- an accordion (one at a time) is
   // fine here, unlike the two above; it's just which result you're
@@ -23,6 +24,9 @@ interface ToolUpdateState {
   startUpdate: (tool: MonitoredTool) => void;
   finishUpdate: (result: ToolUpdateOutput) => void;
   failUpdate: (tool: MonitoredTool, error: string) => void;
+  startInstall: (tool: MonitoredTool) => void;
+  finishInstall: (result: ToolUpdateOutput) => void;
+  failInstall: (tool: MonitoredTool, error: string) => void;
   setExpandedTool: (tool: MonitoredTool | null) => void;
   dismissUpdate: (tool: MonitoredTool) => void;
   clearUpdateDetails: () => void;
@@ -30,6 +34,7 @@ interface ToolUpdateState {
 
 export const useToolUpdateStore = create<ToolUpdateState>((set) => ({
   updatingTools: new Set(),
+  installingTools: new Set(),
   updateOutputs: {},
   expandedTool: null,
   startUpdate: (tool) =>
@@ -53,6 +58,31 @@ export const useToolUpdateStore = create<ToolUpdateState>((set) => ({
       updatingTools.delete(tool);
       return {
         updatingTools,
+        updateOutputs: { ...s.updateOutputs, [tool]: { tool, output: "", error } },
+        expandedTool: tool,
+      };
+    }),
+  startInstall: (tool) =>
+    set((s) => ({
+      installingTools: new Set(s.installingTools).add(tool),
+      updateOutputs: { ...s.updateOutputs, [tool]: undefined },
+    })),
+  finishInstall: (result) =>
+    set((s) => {
+      const installingTools = new Set(s.installingTools);
+      installingTools.delete(result.tool);
+      return {
+        installingTools,
+        updateOutputs: { ...s.updateOutputs, [result.tool]: result },
+        expandedTool: result.tool,
+      };
+    }),
+  failInstall: (tool, error) =>
+    set((s) => {
+      const installingTools = new Set(s.installingTools);
+      installingTools.delete(tool);
+      return {
+        installingTools,
         updateOutputs: { ...s.updateOutputs, [tool]: { tool, output: "", error } },
         expandedTool: tool,
       };

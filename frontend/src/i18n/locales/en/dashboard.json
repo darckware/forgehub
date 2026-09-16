@@ -22,6 +22,10 @@
     "notChecked": "Not checked",
     "updateAria": "Update {{tool}}",
     "update": "Update",
+    "notInstalled": "Not installed",
+    "install": "Install",
+    "installAria": "Install {{tool}}",
+    "installing": "Installing...",
     "details": "Details",
     "closeDetails": "Close and clear details",
     "closeDetailsAria": "Close and clear {{tool}} details"

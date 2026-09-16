@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   type MonitoredTool,
   useCheckToolVersions,
+  useRunToolInstall,
   useRunToolUpdate,
   useSetToolSyncSetting,
   useToolSyncSetting,
@@ -49,8 +50,10 @@ export function ToolVersionsCard() {
   const checkVersions = useCheckToolVersions();
   const setSyncSetting = useSetToolSyncSetting();
   const runToolUpdate = useRunToolUpdate();
+  const runToolInstall = useRunToolInstall();
   const {
     updatingTools,
+    installingTools,
     expandedTool,
     updateOutputs,
     setExpandedTool,
@@ -62,6 +65,10 @@ export function ToolVersionsCard() {
 
   const handleUpdate = (tool: MonitoredTool) => {
     void runToolUpdate(tool);
+  };
+
+  const handleInstall = (tool: MonitoredTool) => {
+    void runToolInstall(tool);
   };
 
   return (
@@ -123,6 +130,8 @@ export function ToolVersionsCard() {
             const isExpanded = expandedTool === tool;
             const updateOut = updateOutputs[tool] ?? null;
             const isUpdating = updatingTools.has(tool);
+            const isInstalling = installingTools.has(tool);
+            const isBusy = isUpdating || isInstalling;
             const errorText = version?.last_error;
             return (
               <div key={tool} className="rounded-md">
@@ -142,7 +151,7 @@ export function ToolVersionsCard() {
                     <div>
                       <div className="text-sm font-medium">{meta.label}</div>
                       <div className="text-xs text-muted-foreground">
-                        {version?.installed_version ?? (errorText ? t("toolVersions.error") : t("toolVersions.unknown"))}
+                        {version?.installed_version ?? (errorText ? t("toolVersions.error") : version ? t("toolVersions.notInstalled") : t("toolVersions.unknown"))}
                       </div>
                     </div>
                   </div>
@@ -161,6 +170,8 @@ export function ToolVersionsCard() {
                           {t("toolVersions.checkFailed")}
                         </Badge>
                       </button>
+                    ) : version ? (
+                      <Badge variant="secondary">{t("toolVersions.notInstalled")}</Badge>
                     ) : (
                       <Badge variant="outline">{t("toolVersions.notChecked")}</Badge>
                     )}
@@ -172,12 +183,29 @@ export function ToolVersionsCard() {
                         variant="outline"
                         aria-label={t("toolVersions.updateAria", { tool: meta.label })}
                         onClick={() => handleUpdate(tool)}
-                        disabled={isUpdating}
+                        disabled={isBusy}
                       >
                         {isUpdating ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
                           t("toolVersions.update")
+                        )}
+                      </Button>
+                    )}
+                    {version && !version.installed_version && !errorText && (
+                      <Button
+                        id={`tool-install-${tool}`}
+                        data-testid={`tool-install-${tool}`}
+                        size="sm"
+                        variant="outline"
+                        aria-label={t("toolVersions.installAria", { tool: meta.label })}
+                        onClick={() => handleInstall(tool)}
+                        disabled={isBusy}
+                      >
+                        {isInstalling ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          t("toolVersions.install")
                         )}
                       </Button>
                     )}

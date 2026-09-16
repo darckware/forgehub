@@ -1,6 +1,6 @@
 # Pendências — Nexo, Headscale e Darckware
 
-> **Atualizado em:** 2026-09-16
+> **Atualizado em:** 2026-09-17
 > **Escopo:** acompanhamento da entrega descrita em
 > [`architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md`](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md).
 
@@ -142,6 +142,15 @@ checksum e metadados. Instalação em estação e smoke test autenticado continu
 O catálogo ativo foi atualizado com as duas builds em estado `ready`, ambas na revisão `0724d69`.
 
 ## Pendências técnicas resolvidas e integradas
+
+### Verificação e instalação de ferramentas de desenvolvimento (Tool Versions)
+
+Implementado em 17/09:
+- **Diagnóstico e host bridge:** Identificado que ferramentas CLI monitoradas não instaladas no host (ex: `pi`, `opencode`, `openclaw`) reportavam "Check failed" devido a caminhos fixos que disparavam erro no bridge. Ajustado `host-bridge/app.py` com busca dinâmica (`shutil.which` e caminhos fallback), retornando `installed_version: null` e a versão mais recente do npm sem erro para ferramentas não instaladas. Adicionado endpoint `POST /v1/tool-versions/install` com timeout estendido para instalação remota segura via npm.
+- **Backend API:** Adicionado schema `ToolInstallResult` em `backend/app/api/schemas/toolversions.py` e endpoint `POST /api/v1/tool-versions/{tool}/install` em `backend/app/api/routes/toolversions.py`. Testes automatizados implementados em `backend/app/tests/test_toolversions.py`.
+- **Frontend e UX:** Atualizados `ToolVersionsCard.tsx`, `useToolVersions.ts`, `toolUpdate.ts` e arquivos de tradução (`pt-BR` e `en`) para exibir badge "Não instalado" e botão "Instalar" com feedback visual de carregamento (spinner) e tratamento de erros assíncronos. Testes unitários implementados em `ToolVersionsCard.test.tsx`.
+- **Validação e implantação:** Testes unitários e de integração aprovados no backend (pytest no container `forgehub-backend`) e frontend (vitest e build de produção Vite). Bridge recarregado via systemd e artefatos de frontend sincronizados no container de produção.
+
 
 ### Relatórios de acompanhamento e credenciais de leitura de clientes (Seções 7 e 8 Nexo)
 

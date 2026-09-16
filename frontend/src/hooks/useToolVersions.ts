@@ -83,6 +83,25 @@ export function useRunToolUpdate() {
   );
 }
 
+export function useRunToolInstall() {
+  const queryClient = useQueryClient();
+  const { startInstall, finishInstall, failInstall } = useToolUpdateStore();
+
+  return useCallback(
+    async (tool: MonitoredTool) => {
+      startInstall(tool);
+      try {
+        const result = await apiClient.post<ToolUpdateResult>(`${RESOURCE}/${tool}/install`);
+        finishInstall({ tool, output: result.output, error: result.error ?? null });
+        queryClient.invalidateQueries({ queryKey: toolVersionKeys.list });
+      } catch (err) {
+        failInstall(tool, String(err));
+      }
+    },
+    [queryClient, startInstall, finishInstall, failInstall],
+  );
+}
+
 export function useToolSyncSetting() {
   return useQuery({
     queryKey: toolVersionKeys.sync,

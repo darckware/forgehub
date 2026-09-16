@@ -3795,10 +3795,22 @@ class ToolVersionResult(BaseModel):
 
 def _run(cmd: list[str], timeout: int = 30) -> tuple[int, str, str]:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        run_env = os.environ.copy()
+        run_env.setdefault("HERMES_HOME", "/root/.hermes")
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=run_env)
         return proc.returncode, proc.stdout, proc.stderr
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         return 1, "", str(exc)
+
+
+def _find_tool_binary(name: str, candidates: list[str]) -> str | None:
+    found = shutil.which(name)
+    if found and os.path.isfile(found) and os.access(found, os.X_OK):
+        return found
+    for cand in candidates:
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
 
 
 # npm registry lookups are a real network call; the installed CLI's "latest
@@ -3820,7 +3832,10 @@ def _npm_latest_version(package: str) -> str | None:
 
 
 def _check_hermes() -> ToolVersionResult:
-    code, out, err = _run(["/root/.local/bin/hermes", "--version"])
+    bin_path = _find_tool_binary("hermes", ["/root/.local/bin/hermes", "/usr/local/lib/hermes-agent/venv/bin/hermes", "/usr/local/bin/hermes"])
+    if not bin_path:
+        return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=None)
+    code, out, err = _run([bin_path, "--version"])
     if code != 0:
         return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=err.strip()[:500])
     installed_m = re.search(r"Hermes Agent v(\S+)", out)
@@ -3833,7 +3848,7 @@ def _check_hermes() -> ToolVersionResult:
     # update is available without installing anything") whose own output
     # keeps the actionable status on its own line, so the same capture regex
     # against it yields a clean, bounded value instead.
-    check_code, check_out, check_err = _run(["/root/.local/bin/hermes", "update", "--check"], timeout=30)
+    check_code, check_out, check_err = _run([bin_path, "update", "--check"], timeout=30)
     if check_code != 0:
         return ToolVersionResult(
             installed_version=installed, latest_version=None, update_available=False, error=check_err.strip()[:500] or None
@@ -3846,13 +3861,21 @@ def _check_hermes() -> ToolVersionResult:
     )
 
 
-def _check_npm_backed(binary: str, version_pattern: str, npm_package: str) -> ToolVersionResult:
-    code, out, err = _run([binary, "--version"])
+def _check_npm_backed(tool_name: str, candidates: list[str], version_pattern: str, npm_package: str) -> ToolVersionResult:
+    bin_path = _find_tool_binary(tool_name, candidates)
+    latest = _npm_latest_version(npm_package)
+    if not bin_path:
+        return ToolVersionResult(
+            installed_version=None,
+            latest_version=latest,
+            update_available=False,
+            error=None,
+        )
+    code, out, err = _run([bin_path, "--version"])
     if code != 0:
-        return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=err.strip()[:500])
+        return ToolVersionResult(installed_version=None, latest_version=latest, update_available=False, error=err.strip()[:500])
     installed_m = re.search(version_pattern, out)
     installed = installed_m.group(1) if installed_m else out.strip() or None
-    latest = _npm_latest_version(npm_package)
     return ToolVersionResult(
         installed_version=installed,
         latest_version=latest,
@@ -3866,11 +3889,14 @@ def _check_antigravity(run_update: bool = True) -> ToolVersionResult:
     no separate --check/--dry-run flag). `run_update=False` skips re-running
     it and only reports the installed version, for callers that already just
     ran a real update themselves and don't want to trigger a second one."""
+    bin_path = _find_tool_binary("agy", ["/usr/local/bin/agy", "/root/.local/bin/agy"])
+    if not bin_path:
+        return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=None)
     if run_update:
-        code, out, err = _run(["/root/.local/bin/agy", "update"], timeout=180)
+        code, out, err = _run([bin_path, "update"], timeout=180)
     else:
         code, out, err = 0, "", ""
-    version_code, version_out, _ = _run(["/root/.local/bin/agy", "--version"])
+    version_code, version_out, _ = _run([bin_path, "--version"])
     installed = version_out.strip() if version_code == 0 else None
     if run_update and code != 0:
         return ToolVersionResult(installed_version=installed, latest_version=None, update_available=False, error=err.strip()[:500])
@@ -3884,34 +3910,30 @@ def _check_antigravity(run_update: bool = True) -> ToolVersionResult:
 
 TOOL_CHECKS = {
     "hermes": _check_hermes,
-    "claude": lambda: _check_npm_backed("/root/.local/bin/claude", r"^(\S+)\s*\(Claude Code\)", "@anthropic-ai/claude-code"),
-    "codex": lambda: _check_npm_backed("/root/.npm-global/bin/codex", r"codex-cli (\S+)", "@openai/codex"),
+    "claude": lambda: _check_npm_backed("claude", ["/usr/local/bin/claude", "/root/.local/bin/claude"], r"^(\S+)\s*\(Claude Code\)", "@anthropic-ai/claude-code"),
+    "codex": lambda: _check_npm_backed("codex", ["/usr/local/bin/codex", "/root/.npm-global/bin/codex"], r"codex-cli (\S+)", "@openai/codex"),
     "antigravity": _check_antigravity,
-    # pi and opencode both print a bare version string ("0.80.2") with no
-    # surrounding label, and both are also published to the npm registry
-    # under a different name than their binary (pi: @earendil-works/
-    # pi-coding-agent; opencode: opencode-ai) -- same npm-diff strategy as
-    # claude/codex above, just with a simpler capture pattern.
-    "pi": lambda: _check_npm_backed("/root/.npm-global/bin/pi", r"(\d+\.\d+\.\d+)", "@earendil-works/pi-coding-agent"),
-    "opencode": lambda: _check_npm_backed("/root/.opencode/bin/opencode", r"(\d+\.\d+\.\d+)", "opencode-ai"),
-    # `openclaw --version` prints "OpenClaw 2026.7.1-2 (0790d9f)" -- a label
-    # prefix and a trailing commit hash, unlike pi/opencode's bare version
-    # string -- and is published to npm under its own binary name (unlike
-    # pi/codex above), so the capture group only needs to isolate the
-    # middle token.
-    "openclaw": lambda: _check_npm_backed("/root/.npm-global/bin/openclaw", r"OpenClaw (\S+)", "openclaw"),
+    "pi": lambda: _check_npm_backed("pi", ["/usr/local/bin/pi", "/root/.npm-global/bin/pi"], r"(\d+\.\d+\.\d+)", "@earendil-works/pi-coding-agent"),
+    "opencode": lambda: _check_npm_backed("opencode", ["/usr/local/bin/opencode", "/root/.opencode/bin/opencode"], r"(\d+\.\d+\.\d+)", "opencode-ai"),
+    "openclaw": lambda: _check_npm_backed("openclaw", ["/usr/local/bin/openclaw", "/root/.npm-global/bin/openclaw"], r"OpenClaw (\S+)", "openclaw"),
 }
 
 TOOL_UPDATE_COMMANDS = {
     "hermes": ["/root/.local/bin/hermes", "update", "--yes"],
-    "claude": ["/root/.local/bin/claude", "update"],
-    "codex": ["/root/.npm-global/bin/codex", "update"],
-    "antigravity": ["/root/.local/bin/agy", "update"],
-    # Both have a built-in self-update subcommand that no-ops cleanly (exit
-    # 0, no prompt) when already current.
-    "pi": ["/root/.npm-global/bin/pi", "update"],
-    "opencode": ["/root/.opencode/bin/opencode", "upgrade"],
-    "openclaw": ["/root/.npm-global/bin/openclaw", "update", "--yes"],
+    "claude": ["claude", "update"],
+    "codex": ["codex", "update"],
+    "antigravity": ["agy", "update"],
+    "pi": ["npm", "install", "-g", "@earendil-works/pi-coding-agent@latest"],
+    "opencode": ["npm", "install", "-g", "opencode-ai@latest"],
+    "openclaw": ["npm", "install", "-g", "openclaw@latest"],
+}
+
+TOOL_INSTALL_COMMANDS = {
+    "claude": ["npm", "install", "-g", "@anthropic-ai/claude-code"],
+    "codex": ["npm", "install", "-g", "@openai/codex"],
+    "pi": ["npm", "install", "-g", "@earendil-works/pi-coding-agent"],
+    "opencode": ["npm", "install", "-g", "opencode-ai"],
+    "openclaw": ["npm", "install", "-g", "openclaw"],
 }
 
 
@@ -3972,6 +3994,29 @@ async def update_tool(req: ToolUpdateRequest, x_bridge_token: str | None = Heade
     loop = asyncio.get_event_loop()
     code, out, err = await loop.run_in_executor(None, runner)
     return ToolUpdateResponse(success=code == 0, output=out[-4000:], error=(err[-2000:] or None) if code != 0 else None)
+
+
+class ToolInstallRequest(BaseModel):
+    tool: str
+
+
+class ToolInstallResponse(BaseModel):
+    success: bool
+    output: str
+    error: str | None = None
+
+
+@app.post("/v1/tool-versions/install", response_model=ToolInstallResponse)
+async def install_tool(req: ToolInstallRequest, x_bridge_token: str | None = Header(default=None)) -> ToolInstallResponse:
+    """Run the tool's installation command on the host."""
+    _check_token(x_bridge_token)
+    cmd = TOOL_INSTALL_COMMANDS.get(req.tool)
+    if cmd is None:
+        raise HTTPException(status_code=400, detail=f"No install command for tool: {req.tool}")
+    runner = lambda: _run(cmd, timeout=600)  # noqa: E731
+    loop = asyncio.get_event_loop()
+    code, out, err = await loop.run_in_executor(None, runner)
+    return ToolInstallResponse(success=code == 0, output=out[-4000:], error=(err[-2000:] or None) if code != 0 else None)
 
 
 # ---------------------------------------------------------------------------

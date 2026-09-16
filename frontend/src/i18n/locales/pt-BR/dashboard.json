@@ -22,6 +22,10 @@
     "notChecked": "Não verificado",
     "updateAria": "Atualizar {{tool}}",
     "update": "Atualizar",
+    "notInstalled": "Não instalado",
+    "install": "Instalar",
+    "installAria": "Instalar {{tool}}",
+    "installing": "Instalando...",
     "details": "Detalhes",
     "closeDetails": "Fechar e limpar detalhes",
     "closeDetailsAria": "Fechar e limpar detalhes de {{tool}}"

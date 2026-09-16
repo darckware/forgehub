@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.toolversions import (
+    ToolInstallResult,
     ToolSyncSettingOut,
     ToolSyncSettingUpdate,
     ToolUpdateResult,
@@ -172,6 +173,35 @@ async def update_tool(tool: str, db: AsyncSession = Depends(get_db)) -> ToolUpda
         success=update_result["success"],
         output=update_result["output"],
         error=update_result.get("error"),
+        status=ToolVersionOut.model_validate(row),
+    )
+
+
+@router.post("/{tool}/install", response_model=ToolInstallResult)
+async def install_tool(tool: str, db: AsyncSession = Depends(get_db)) -> ToolInstallResult:
+    """Run the tool's installation command on the host, then refresh and
+    return its status row."""
+    if tool not in MONITORED_TOOLS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown tool: {tool}")
+
+    async with httpx.AsyncClient(timeout=650.0) as client:
+        resp = await client.post(
+            f"{settings.CHAT_BRIDGE_URL}/v1/tool-versions/install",
+            json={"tool": tool},
+            headers=_bridge_headers(),
+        )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Chat bridge error: {resp.text[:500]}"
+        )
+    install_result = resp.json()
+
+    rows = await refresh_all_tool_versions(db, no_mutate=(tool,))
+    row = next(r for r in rows if r.tool == tool)
+    return ToolInstallResult(
+        success=install_result["success"],
+        output=install_result["output"],
+        error=install_result.get("error"),
         status=ToolVersionOut.model_validate(row),
     )
 
