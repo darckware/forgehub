@@ -11,6 +11,7 @@ import { useClient } from "@/hooks/useClients";
 import { useCreatePeerGrant, usePeerGrants, useRevokePeerGrant, type PeerGrant } from "@/hooks/usePeerGrants";
 import { useGenerateNexoPackage, useNexoBuilds, useNexoInstallations, type NexoBuild, type NexoInstallationStatus } from "@/hooks/useNexoInstallations";
 import { useWorkstations, type Workstation } from "@/hooks/useWorkstations";
+import { ClientReportsPanel } from "./client-reports";
 import { cn } from "@/lib/utils";
 
 interface WorkstationPair {
@@ -234,6 +235,10 @@ export default function ClientDetailPage() {
           </ul>
         )}
         {mutationError && <p className="border-t border-border px-5 py-3 text-sm text-destructive" role="alert">{t("detail.communication.changeError")}</p>}
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <ClientReportsPanel clientId={id} />
       </section>
 
       <ConfirmDialog

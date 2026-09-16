@@ -97,5 +97,32 @@
       "revokeConfirm": "Revogar acesso",
       "audited": "Esta ação ficará registrada na auditoria."
     }
+  },
+  "reports": {
+    "title": "Relatórios de Acompanhamento",
+    "description": "Documentos imutáveis gerados a partir do histórico de monitoramento e incidentes.",
+    "onDemandTitle": "Relatório Sob Demanda",
+    "monthlyTitle": "Relatório Mensal",
+    "periodStart": "Início do período",
+    "periodEnd": "Fim do período",
+    "monthLabel": "Mês encerrado",
+    "generateOnDemand": "Gerar relatório sob demanda",
+    "generateMonthly": "Gerar relatório mensal",
+    "kindMonthly": "Mensal",
+    "kindOnDemand": "Sob Demanda",
+    "reviewed": "Revisado",
+    "draft": "Rascunho",
+    "generatedAt": "Gerado em",
+    "download": "Baixar HTML",
+    "markReviewed": "Confirmar revisão",
+    "unreview": "Retirar revisão",
+    "unreviewTitle": "Retirar revisão do relatório?",
+    "unreviewDescription": "Ao retirar a revisão, o documento deixará de estar acessível via API externa para o cliente.",
+    "unreviewConfirm": "Retirar revisão",
+    "empty": "Nenhum relatório gerado para este cliente até o momento.",
+    "loadError": "Não foi possível carregar os relatórios.",
+    "generateError": "Não foi possível gerar o relatório sob demanda.",
+    "monthlyError": "Não foi possível gerar o relatório mensal. Certifique-se de selecionar um mês já encerrado.",
+    "downloadError": "Não foi possível baixar o relatório."
   }
 }

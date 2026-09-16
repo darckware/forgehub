@@ -22,6 +22,7 @@ from app.core import headscale_client
 from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.client import SUPPORT_PLANS, Client
+from app.db.models.client_report import ClientReport
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/clients", tags=["clients"])
@@ -109,6 +110,8 @@ async def delete_client(
     client = await db.get(Client, client_id)
     if not client:
         raise HTTPException(404, "Client not found")
+    if (await db.execute(select(ClientReport.id).where(ClientReport.client_id == client_id).limit(1))).scalar_one_or_none() is not None:
+        raise HTTPException(409, "Client has retained reports")
     await db.delete(client)
     await db.flush()
     try:

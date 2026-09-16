@@ -64,5 +64,32 @@
       "revokeConfirm": "Revoke access",
       "audited": "This action will be recorded in the audit log."
     }
+  },
+  "reports": {
+    "title": "Follow-up Reports",
+    "description": "Immutable documents generated from monitoring and irregularity history.",
+    "onDemandTitle": "On-demand Report",
+    "monthlyTitle": "Monthly Report",
+    "periodStart": "Period start",
+    "periodEnd": "Period end",
+    "monthLabel": "Closed month",
+    "generateOnDemand": "Generate on-demand report",
+    "generateMonthly": "Generate monthly report",
+    "kindMonthly": "Monthly",
+    "kindOnDemand": "On-demand",
+    "reviewed": "Reviewed",
+    "draft": "Draft",
+    "generatedAt": "Generated at",
+    "download": "Download HTML",
+    "markReviewed": "Confirm review",
+    "unreview": "Withdraw review",
+    "unreviewTitle": "Withdraw report review?",
+    "unreviewDescription": "Withdrawing the review will remove external client access to this document.",
+    "unreviewConfirm": "Withdraw review",
+    "empty": "No reports generated for this client yet.",
+    "loadError": "Could not load reports.",
+    "generateError": "Could not generate on-demand report.",
+    "monthlyError": "Could not generate monthly report. Ensure you select a closed month.",
+    "downloadError": "Could not download report."
   }
 }
