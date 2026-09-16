@@ -394,3 +394,24 @@ async def test_cleanup_run_uses_authoritative_athos_policy(client: AsyncClient, 
     ]
     cleanup_call = next(c for c in FakeBridgeClient.calls if c[1].endswith("/v1/exec"))
     assert cleanup_call[2]["timeout_seconds"] == 600
+
+
+async def test_status_graceful_when_git_fails(client: AsyncClient, monkeypatch):
+    """When a repo is not a git repository or git fails, status endpoint falls back gracefully without 500."""
+    from app.api.routes import system_control as sc
+
+    class FailingGitBridge(FakeBridgeClient):
+        async def request(self, method, url, headers=None, json=None, params=None, **kwargs):
+            if url.endswith("/v1/exec") and "git -C" in (json or {}).get("command", ""):
+                return FakeResponse({"exit_code": 128, "stdout": "", "stderr": "fatal: not a git repository"}, status_code=200)
+            return await super().request(method, url, headers=headers, json=json, params=params, **kwargs)
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FailingGitBridge)
+
+    resp = await client.get("/api/v1/system-control/status", params={"repo": "hermes"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["git"]["branch"] == "detached"
+    assert body["git"]["head"] == ""
+

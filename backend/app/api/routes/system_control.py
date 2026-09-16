@@ -79,6 +79,7 @@ class CommitRequest(BaseModel):
 # (2026-07-11).
 KNOWN_REPOS: dict[str, str] = {
     "hermes": settings.HERMES_SOURCE_PATH,
+    "forgehub": "/root/project/forgehub",
 }
 DEFAULT_REPO = settings.GIT_CONTROL_DEFAULT_REPO
 BACKUP_DIR = settings.BACKUP_ROOT
@@ -204,12 +205,32 @@ async def get_system_control_status(
     all_repos = {**static_repos, **{k: v[0] for k, v in project_repos.items()}}
     repo_key = repo if repo in all_repos else DEFAULT_REPO
     repo_root = all_repos[repo_key]
-    branch = await _run_git(repo_root, "branch", "--show-current")
-    head = await _run_git(repo_root, "rev-parse", "HEAD")
-    short_head = await _run_git(repo_root, "rev-parse", "--short", "HEAD")
-    last_commit = await _run_git(repo_root, "log", "-1", "--pretty=format:%H%n%an%n%ad%n%s")
-    status_short = await _run_git(repo_root, "status", "--short")
-    status_lines = [line for line in status_short.splitlines() if line.strip()]
+    branch = "detached"
+    head = ""
+    short_head = ""
+    last_commit = ""
+    status_lines: list[str] = []
+    try:
+        branch = await _run_git(repo_root, "branch", "--show-current")
+        head = await _run_git(repo_root, "rev-parse", "HEAD")
+        short_head = await _run_git(repo_root, "rev-parse", "--short", "HEAD")
+        last_commit = await _run_git(repo_root, "log", "-1", "--pretty=format:%H%n%an%n%ad%n%s")
+        status_short = await _run_git(repo_root, "status", "--short")
+        status_lines = [line for line in status_short.splitlines() if line.strip()]
+    except HTTPException:
+        if repo is None and repo_key != "forgehub" and "forgehub" in all_repos:
+            try:
+                fallback_root = all_repos["forgehub"]
+                branch = await _run_git(fallback_root, "branch", "--show-current")
+                head = await _run_git(fallback_root, "rev-parse", "HEAD")
+                short_head = await _run_git(fallback_root, "rev-parse", "--short", "HEAD")
+                last_commit = await _run_git(fallback_root, "log", "-1", "--pretty=format:%H%n%an%n%ad%n%s")
+                status_short = await _run_git(fallback_root, "status", "--short")
+                status_lines = [line for line in status_short.splitlines() if line.strip()]
+                repo_key = "forgehub"
+                repo_root = fallback_root
+            except HTTPException:
+                pass
     try:
         await _bridge("POST", "/v1/fs/mkdir", json={"path": BACKUP_DIR})
     except HTTPException:
