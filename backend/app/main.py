@@ -32,6 +32,8 @@ from app.api.routes import (
     channel,
     chat,
     client,
+    client_access,
+    client_report,
     cron_scripts,
     database,
     deploy,
@@ -149,7 +151,8 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if request.method == "OPTIONS" or not path.startswith("/api/v1/") or path in _PUBLIC_API_PATHS:
+        client_access_path = request.method == "GET" and path.startswith("/api/v1/client-access/clients/")
+        if request.method == "OPTIONS" or not path.startswith("/api/v1/") or path in _PUBLIC_API_PATHS or client_access_path:
             return await call_next(request)
         auth_header = request.headers.get("authorization", "")
         token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
@@ -293,6 +296,8 @@ app.include_router(execution.router)
 app.include_router(factory.router)
 app.include_router(backlog.router)
 app.include_router(client.router)
+app.include_router(client_report.router)
+app.include_router(client_access.router)
 app.include_router(workstation.router)
 app.include_router(peer_grant.router)
 app.include_router(agent_report.router)
@@ -408,6 +413,10 @@ DEMAND_RETENTION_POLL_INTERVAL_SECONDS = 21600
 # as unreachable. 5 minutes is sufficient for the 15-minute staleness
 # threshold.
 WORKSTATION_STALENESS_POLL_INTERVAL_SECONDS = 300
+
+# Reports are monthly documents; an hourly pass gives restarts and transient
+# database failures another chance without delaying ordinary app startup.
+CLIENT_REPORT_POLL_INTERVAL_SECONDS = 3600
 
 _background_tasks: list[asyncio.Task[None]] = []
 
@@ -675,6 +684,18 @@ async def _workstation_staleness_poll_loop() -> None:
         await asyncio.sleep(WORKSTATION_STALENESS_POLL_INTERVAL_SECONDS)
 
 
+async def _client_report_poll_loop() -> None:
+    from app.core.client_reports import run_monthly_report_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            await run_monthly_report_pass(AsyncSessionLocal)
+        except Exception:
+            logger.exception("Client report poll failed")
+        await asyncio.sleep(CLIENT_REPORT_POLL_INTERVAL_SECONDS)
+
+
 async def _start_background_tasks() -> None:
     """Start each independent maintenance loop exactly once."""
     global _background_tasks
@@ -688,6 +709,7 @@ async def _start_background_tasks() -> None:
         ("scheduled-dispatch-poll", _scheduled_dispatch_poll_loop),
         ("dispatch-timeout-poll", _dispatch_timeout_poll_loop),
         ("active-turn-sweep", _active_turn_sweep_loop),
+        ("client-report-poll", _client_report_poll_loop),
         ("feedback-poll", _feedback_poll_loop),
         ("incubation-maturation-poll", _incubation_maturation_poll_loop),
         ("dispatch-completion-poll", _dispatch_completion_poll_loop),

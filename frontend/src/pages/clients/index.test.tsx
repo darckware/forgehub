@@ -75,6 +75,14 @@ vi.mock("@/hooks/useNexoInstallations", async (importOriginal) => {
   };
 });
 
+vi.mock("@/hooks/useClientReports", () => ({
+  useClientReports: () => ({ data: [], isLoading: false, isError: false }),
+  useGenerateClientReport: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useGenerateMonthlyReport: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReviewClientReport: () => ({ mutate: vi.fn(), isPending: false }),
+  downloadReportFile: vi.fn(),
+}));
+
 const CLIENT: Client = {
   id: "client-1",
   name: "Acme Operations",

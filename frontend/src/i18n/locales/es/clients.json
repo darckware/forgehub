@@ -64,5 +64,32 @@
       "revokeConfirm": "Revocar acceso",
       "audited": "Esta acción quedará registrada en la auditoría."
     }
+  },
+  "reports": {
+    "title": "Informes de Seguimiento",
+    "description": "Documentos inmutables generados a partir del historial de monitoreo e incidentes.",
+    "onDemandTitle": "Informe Bajo Demanda",
+    "monthlyTitle": "Informe Mensual",
+    "periodStart": "Inicio del período",
+    "periodEnd": "Fin del período",
+    "monthLabel": "Mes cerrado",
+    "generateOnDemand": "Generar informe bajo demanda",
+    "generateMonthly": "Generar informe mensual",
+    "kindMonthly": "Mensual",
+    "kindOnDemand": "Bajo Demanda",
+    "reviewed": "Revisado",
+    "draft": "Borrador",
+    "generatedAt": "Generado el",
+    "download": "Descargar HTML",
+    "markReviewed": "Confirmar revisión",
+    "unreview": "Retirar revisión",
+    "unreviewTitle": "¿Retirar revisión del informe?",
+    "unreviewDescription": "Al retirar la revisión, el documento dejará de estar accesible mediante API externa para el cliente.",
+    "unreviewConfirm": "Retirar revisión",
+    "empty": "No hay informes generados para este cliente todavía.",
+    "loadError": "No se pudieron cargar los informes.",
+    "generateError": "No se pudo generar el informe bajo demanda.",
+    "monthlyError": "No se pudo generar el informe mensual. Asegúrese de seleccionar un mes cerrado.",
+    "downloadError": "No se pudo descargar el informe."
   }
 }
