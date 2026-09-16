@@ -53,7 +53,6 @@ import UsersPage from "@/pages/users";
 import ProfilesPage from "@/pages/profiles";
 import PipelineTemplatesPage from "@/pages/pipeline-templates";
 import NotificationsPage from "@/pages/notifications";
-import NewsPage from "@/pages/news";
 import SettingsPage from "@/pages/settings";
 import ConceptionPage from "@/pages/conception";
 import SystemMapPage from "@/pages/system-map";
@@ -88,7 +87,6 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="workspace" element={<WorkspacePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="news" element={<NewsPage />} />
         <Route path="conception" element={<ConceptionPage />} />
         <Route path="system-map" element={<SystemMapPage />} />
         <Route path="project-scope" element={<ProjectScopePage />} />

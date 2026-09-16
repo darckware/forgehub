@@ -50,7 +50,6 @@ from app.api.routes import (
     hindsight,
     irregularity,
     mcp_catalog,
-    news,
     nexo_installation,
     notifications,
     orchestration,
@@ -314,7 +313,6 @@ app.include_router(audit.router)
 app.include_router(governance.router)
 app.include_router(governed_approval.router)
 app.include_router(hindsight.router)
-app.include_router(news.router)
 app.include_router(nexo_installation.router)
 app.include_router(foundation.router)
 app.include_router(foundation_docs.router)
