@@ -4372,6 +4372,8 @@ async def terminal_ws(
     session: str = Query(...),
     command: str | None = Query(default=None),
     cwd: str | None = Query(default=None),
+    cols: int = Query(default=80),
+    rows: int = Query(default=24),
 ) -> None:
     if token != BRIDGE_TOKEN or not SESSION_ID_RE.match(session):
         await websocket.close(code=4401)
@@ -4379,6 +4381,8 @@ async def terminal_ws(
     await websocket.accept()
 
     home = str(Path.home())
+    initial_cols = max(10, min(int(cols), 500))
+    initial_rows = max(2, min(int(rows), 200))
     # Each terminal tab maps 1:1 to a tmux session named after the tab's id,
     # namespaced so it can't collide with unrelated tmux sessions on the
     # host. Reusing an existing session (rather than always spawning a fresh
@@ -4390,13 +4394,14 @@ async def terminal_ws(
     if is_new:
         # -c sets the pane's starting directory directly (no typed `cd`
         # needed, so no risk of it ever flashing on screen on first attach).
-        _tmux("new-session", "-d", "-s", session_name, "-x", "80", "-y", "24", "-c", cwd or home)
+        _tmux("new-session", "-d", "-s", session_name, "-x", str(initial_cols), "-y", str(initial_rows), "-c", cwd or home)
         # Without this, the mouse wheel/scrollbar over the pane does nothing --
         # tmux owns the pane's scrollback itself (it's not exposed through
         # xterm.js's native viewport), and only enters copy-mode to scroll it
         # when the client has mouse reporting on. Session-scoped (no -g) so it
         # doesn't change behavior for unrelated sessions on the shared host.
         _tmux("set-option", "-t", session_name, "mouse", "on")
+        _tmux("set-window-option", "-t", session_name, "window-size", "manual")
         if _is_allowed_launcher_command(command):
             # Only on creation -- reattaching to an existing session must
             # never re-type the launcher, or every reconnect would relaunch
@@ -4415,9 +4420,12 @@ async def terminal_ws(
             # chain, so it still builds the overrides itself.
             _tmux("send-keys", "-t", session_name, "-l", command)
             _tmux("send-keys", "-t", session_name, "Enter")
+    else:
+        _tmux("set-window-option", "-t", session_name, "window-size", "manual")
+        _tmux("resize-window", "-t", session_name, "-x", str(initial_cols), "-y", str(initial_rows))
 
     master_fd, slave_fd = pty.openpty()
-    _set_winsize(master_fd, 24, 80)
+    _set_winsize(master_fd, initial_rows, initial_cols)
 
     proc = subprocess.Popen(
         ["tmux", "attach-session", "-t", session_name],
@@ -4469,20 +4477,22 @@ async def terminal_ws(
             if payload.get("type") == "input":
                 os.write(fd, payload.get("data", "").encode())
             elif payload.get("type") == "resize":
-                _set_winsize(fd, int(payload.get("rows", 24)), int(payload.get("cols", 80)))
-                # Unlike a plain bash PTY, the tmux client here doesn't have
-                # this PTY as its controlling terminal (it was never set up
-                # via setsid + TIOCSCTTY, which is what makes the kernel
-                # deliver SIGWINCH automatically on TIOCSWINSZ) -- so the
-                # resize above is invisible to it until nudged explicitly,
-                # leaving the tmux window stuck at its creation size while
-                # xterm.js on the browser side resizes freely. Confirmed via
-                # direct testing: tmux only picks up the new size once it
-                # actually receives SIGWINCH itself.
+                new_rows = max(2, min(int(payload.get("rows", 24)), 200))
+                new_cols = max(10, min(int(payload.get("cols", 80)), 500))
+                _set_winsize(fd, new_rows, new_cols)
+                # In tmux 3.4, sending SIGWINCH to a tmux attach client does NOT
+                # automatically resize the underlying tmux window or update the
+                # status line position -- calling resize-window explicitly ensures
+                # the tmux window matches xterm.js dimensions exactly, avoiding
+                # status bar displacement and orphan-line ghosting.
+                _tmux("set-window-option", "-t", session_name, "window-size", "manual")
+                _tmux("resize-window", "-t", session_name, "-x", str(new_cols), "-y", str(new_rows))
                 try:
                     os.kill(proc.pid, signal.SIGWINCH)
                 except ProcessLookupError:
                     pass
+            elif payload.get("type") == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
     except WebSocketDisconnect:
         pass
     finally:

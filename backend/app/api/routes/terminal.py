@@ -270,6 +270,8 @@ async def terminal_ws(
     command: str | None = Query(default=None),
     cwd: str | None = Query(default=None),
     ticket: str = Query(...),
+    cols: int = Query(default=80),
+    rows: int = Query(default=24),
 ) -> None:
     # WebSocket upgrades skip RequireAuthMiddleware entirely (it only sees
     # "http" scope requests), and get_current_admin's OAuth2PasswordBearer
@@ -296,6 +298,7 @@ async def terminal_ws(
         bridge_ws_url += f"&command={quote(command)}"
     if cwd:
         bridge_ws_url += f"&cwd={quote(cwd)}"
+    bridge_ws_url += f"&cols={cols}&rows={rows}"
 
     try:
         async with ws_connect(bridge_ws_url) as bridge_ws:

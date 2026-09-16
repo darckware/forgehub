@@ -57,9 +57,21 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
   const containerRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const termRef = useRef<Terminal | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const [fontSize, setFontSize] = useState<number>(getStoredFontSize);
   const [latestLink, setLatestLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const sendResize = (cols?: number, rows?: number) => {
+    const term = termRef.current;
+    const socket = wsRef.current;
+    if (!term || socket?.readyState !== WebSocket.OPEN) return;
+    const c = cols ?? term.cols;
+    const r = rows ?? term.rows;
+    if (c > 0 && r > 0) {
+      socket.send(JSON.stringify({ type: "resize", cols: c, rows: r }));
+    }
+  };
 
   const handleCopy = async () => {
     const term = termRef.current;
@@ -85,6 +97,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       if (termRef.current) {
         termRef.current.options.fontSize = next;
         fitAddonRef.current?.fit();
+        sendResize();
       }
       return next;
     });
@@ -99,6 +112,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       if (termRef.current) {
         termRef.current.options.fontSize = next;
         fitAddonRef.current?.fit();
+        sendResize();
       }
       return next;
     });
@@ -112,6 +126,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       if (termRef.current) {
         termRef.current.options.fontSize = DEFAULT_FONT_SIZE;
         fitAddonRef.current?.fit();
+        sendResize();
       }
       return DEFAULT_FONT_SIZE;
     });
@@ -180,6 +195,25 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     // /ws-ticket + /ws), and put only that short-lived ticket in the URL.
     let ws: WebSocket | null = null;
     let cancelled = false;
+    let pingTimer: ReturnType<typeof setInterval> | undefined;
+    const PING_INTERVAL_MS = 25_000;
+
+    function stopHeartbeat() {
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = undefined;
+      }
+    }
+
+    function startHeartbeat(socket: WebSocket) {
+      stopHeartbeat();
+      pingTimer = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "ping" }));
+        }
+      }, PING_INTERVAL_MS);
+    }
+
     // Reconnection with backoff (Fase 6.1, 2026-07-28) -- a dropped
     // connection (host-bridge restart, brief network hiccup) used to leave
     // the pane dead on screen until the user navigated away and back. The
@@ -206,6 +240,8 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       params.set("session", sessionId);
       if (command) params.set("command", command);
       if (cwd) params.set("cwd", cwd);
+      params.set("cols", String(term.cols || 80));
+      params.set("rows", String(term.rows || 24));
       try {
         const { ticket } = await apiClient.post<{ ticket: string }>("/api/v1/terminal/ws-ticket");
         if (cancelled) return;
@@ -220,6 +256,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
 
       const socket = new WebSocket(`${WS_BASE}/api/v1/terminal/ws?${params.toString()}`);
       ws = socket;
+      wsRef.current = socket;
 
       // The PTY is read in fixed-size chunks on the host, so the DECRQM
       // sequence stripped below can land split across two WebSocket
@@ -230,6 +267,10 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       let pendingTail = "";
       let linkScanBuffer = "";
       socket.onmessage = (event) => {
+        // Keepalive heartbeat pong reply: discard without writing to the terminal
+        if (typeof event.data === "string" && (event.data === '{"type":"pong"}' || event.data === '{"type": "pong"}')) {
+          return;
+        }
         // @xterm/xterm 6.0.0's DECRQM handler (CSI ? Pm $ p, used by CLIs
         // like Antigravity's `agy` to probe synchronized-output support)
         // throws "r is not defined" inside its own minified bundle and
@@ -249,7 +290,9 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       };
       socket.onopen = () => {
         reconnectAttempt = 0;
+        fitAddon.fit();
         socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        startHeartbeat(socket);
       };
       // Fires for both a clean server-initiated close and a dropped
       // connection alike (WebSocket has no reliable way to tell them
@@ -257,7 +300,11 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       // tearing down (`cancelled`, set right before the deliberate
       // `ws?.close()` in the cleanup below).
       socket.onclose = () => {
-        if (ws === socket) ws = null;
+        stopHeartbeat();
+        if (ws === socket) {
+          ws = null;
+          wsRef.current = null;
+        }
         if (!cancelled) scheduleReconnect();
       };
     }
@@ -363,6 +410,8 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
 
     return () => {
       cancelled = true;
+      stopHeartbeat();
+      wsRef.current = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       inputDisposable.dispose();
       container.removeEventListener("contextmenu", handleContextMenu);
@@ -389,7 +438,10 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     // on becoming visible again instead of waiting for the next byte from
     // the PTY, which could be seconds away or never come if it's idle.
     const term = termRef.current;
-    if (term) term.refresh(0, term.rows - 1);
+    if (term) {
+      term.refresh(0, term.rows - 1);
+      sendResize();
+    }
   }, [active]);
 
   return (
