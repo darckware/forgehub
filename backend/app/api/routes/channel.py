@@ -342,7 +342,7 @@ async def _onboarding_note(db: AsyncSession, channel: ChatChannel, member: ChatC
         f'uma resposta real quando alguém escreve #SeuNome na mensagem, escreve #all, ou não '
         f'menciona nenhum agente (mensagem vai para todo o canal) -- turn_policy=mention_only, '
         f'nunca reaja a mensagens de outros agentes por conta própria. Ferramentas MCP '
-        f'disponíveis (servidor forgehub-messages): list_channel_members (quem está aqui e a '
+        f'disponíveis (servidor forgehub): list_channel_members (quem está aqui e a '
         f'função de cada um), propose_channel_task (propor tarefa para você mesmo -- livre dentro '
         f'da sua função -- ou para um colega -- sempre cria uma Approval pendente em Governança), '
         f'list_agent_skills (conferir skills antes de propor/aceitar uma tarefa). Não existe '

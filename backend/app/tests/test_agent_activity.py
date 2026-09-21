@@ -488,9 +488,9 @@ async def test_build_activity_includes_membership_only_project(activity_world):
             for relation in view.topology_relations
         )
         assert any(
-            relation.kind == "persistence"
+            relation.kind == "portal_sync"
             and relation.from_id == str(membership_project_id)
-            and relation.to_id == "database:forgehub_postgres/company"
+            and relation.to_id == "site:darckware"
             for relation in view.topology_relations
         )
     finally:
@@ -1217,15 +1217,10 @@ async def test_agent_activity_get_requires_authority_and_returns_canonical_view(
     agent = next(item for item in payload["agents"] if item["id"] == str(activity_world.agent_id))
     assert agent["avatar_data_url"] == "data:image/png;base64,AA=="
     assert any(item["id"] == str(activity_world.project_id) for item in payload["projects"])
-    assert payload["resources"] == [
-        {
-            "key": "database:forgehub_postgres/company",
-            "kind": "database",
-            "label": "forgehub_postgres",
-            "detail": "company",
-            "status": "available",
-        }
-    ]
+    assert any(r["key"] == "site:darckware" for r in payload["resources"])
+    assert any(r["key"] == "platform:forgehub" for r in payload["resources"])
+    assert any(r["key"] == "gateway:forgerouter" for r in payload["resources"])
+    assert any(r["key"] == "vault:forgevault" for r in payload["resources"])
     assert any(
         relation["kind"] == "current_work"
         and relation["from_id"] == str(activity_world.agent_id)

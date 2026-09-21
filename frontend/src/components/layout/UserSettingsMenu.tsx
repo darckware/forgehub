@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { Camera, Check, ExternalLink, Info, KeyRound, Laptop, LogOut, Loader2, Moon, Settings, Settings2, Sun, User as UserIcon } from "lucide-react";
+import { Camera, Check, ExternalLink, Info, KeyRound, Laptop, LogOut, Loader2, Moon, Settings, Settings2, ShieldCheck, Sun, User as UserIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api";
 import { useClickOutside } from "@/hooks/useClickOutside";
@@ -11,6 +11,7 @@ import type { UiLanguage } from "@/i18n";
 import { useAuthStore } from "@/store/authStore";
 import { useUpdateMe, useChangeMyPassword, useClearQueryCacheOnLogout } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { TwoFactorModal } from "./TwoFactorModal";
 
 const THEME_OPTIONS = [
   { value: "light" as const, labelKey: "themeLight", icon: Sun },
@@ -336,7 +337,7 @@ export function UserSettingsMenu({
 }) {
   const { t } = useTranslation("common");
   const [open, setOpen] = useState(false);
-  const [modal, setModal] = useState<"account" | "password" | "about" | null>(null);
+  const [modal, setModal] = useState<"account" | "password" | "twofactor" | "about" | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
   const { theme, setTheme } = useTheme();
@@ -418,6 +419,17 @@ export function UserSettingsMenu({
               <KeyRound className="h-3.5 w-3.5" />
               {t("userMenu.changePassword")}
             </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setModal("twofactor");
+                setOpen(false);
+              }}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {t("userMenu.twoFactor")}
+            </button>
             {user?.is_admin && (
               <button
                 type="button"
@@ -472,6 +484,7 @@ export function UserSettingsMenu({
       </div>
       {modal === "account" && <AccountModal onClose={() => setModal(null)} />}
       {modal === "password" && <ChangePasswordModal onClose={() => setModal(null)} />}
+      {modal === "twofactor" && <TwoFactorModal onClose={() => setModal(null)} />}
       {modal === "about" && <AboutModal onClose={() => setModal(null)} />}
     </>
   );

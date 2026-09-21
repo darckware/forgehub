@@ -5,7 +5,7 @@
 
 ## Contrato de comunicação
 
-O `forgehub-messages` é o canal canônico de comunicação entre agentes. Ele usa o mesmo domínio
+O `forgehub` é o canal canônico de comunicação entre agentes. Ele usa o mesmo domínio
 `company.agent_demands`, a mesma tela Messages e o mesmo ciclo de dispatch do ForgeHub; não é uma
 fila paralela.
 
@@ -51,11 +51,11 @@ Cada perfil Hermes ativo deve declarar uma única entrada:
 
 ```yaml
 mcp_servers:
-  forgehub-messages:
+  forgehub:
     command: uv
     args:
       - run
-      - /root/project/forgehub/host-bridge/forgehub_messages_mcp.py
+      - /root/project/forgehub/backend/app/mcp/factory_server.py
     env:
       FORGEHUB_API_URL: http://localhost:8000
       FORGEHUB_ENV_FILE: /root/project/forgehub/.env
@@ -158,7 +158,7 @@ nenhum novo erro de bind/MCP/Telegram e nenhuma demanda terminal com feedback pe
 - `backend/app/api/routes/demand.py` — resolução de aliases e home channel.
 - `backend/app/core/agent_telegram.py` — caminho efetivo do perfil e leitura segura do `.env`.
 - `backend/app/core/feedback.py` — opt-in textual e entrega terminal idempotente.
-- `host-bridge/forgehub_messages_mcp.py` — ferramentas MCP e dependência compatível.
+- `backend/app/mcp/factory_server.py` — ferramentas MCP e dependência compatível.
 
 A política coletiva correspondente está em
 `/root/.hermes/foundation/policies/hermes-gateway-operations.md`; o contrato coletivo de Messages

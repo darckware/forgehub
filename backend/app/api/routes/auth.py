@@ -3,7 +3,14 @@
 Validates username/password against the Users table.  Falls back to the
 DEV_USER settings credentials for the bootstrap login (before the admin
 row is persisted) so the very first login always works.
+
+When a user has TOTP-based 2FA enabled, the password step returns a
+short-lived ``totp_pending_token`` instead of a real access token — the
+frontend must call /auth/totp/verify with the 6-digit code to complete
+the login and receive the real JWT.
 """
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
@@ -111,6 +118,19 @@ async def login_for_access_token(
         permissions = _all_true_permissions()
         actions = {action: True for action in SENSITIVE_ACTIONS}
     else:
+        # ---- 2FA gate ----
+        if user.totp_enabled:
+            pending_token = create_access_token(
+                subject=form_data.username,
+                expires_delta=timedelta(minutes=5),
+                extra_claims={"purpose": "totp_pending"},
+            )
+            return TokenOut(
+                access_token="",
+                token_type="bearer",
+                requires_totp=True,
+                totp_pending_token=pending_token,
+            )
         user_out = UserOut.model_validate(user)
         permissions = await _build_permissions(user, db)
         actions = await _build_action_permissions(user, db)

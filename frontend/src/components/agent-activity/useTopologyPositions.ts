@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   clampGraphPosition,
+  distributeActivityGraph,
   graphPositionStorageKey,
   mergeSavedGraphPositions,
   type ActivityGraphNode,
@@ -58,5 +59,13 @@ export function useTopologyPositions(
     setPositions([...defaultNodes]);
   };
 
-  return { positions, previewMove, commitMove, organize };
+  const distribute = () => {
+    setPositions((current) => {
+      const next = distributeActivityGraph(current);
+      window.localStorage.setItem(storageKey, JSON.stringify(positionRecord(next)));
+      return next;
+    });
+  };
+
+  return { positions, previewMove, commitMove, organize, distribute };
 }

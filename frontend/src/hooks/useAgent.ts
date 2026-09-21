@@ -315,6 +315,7 @@ export function useSyncHermesAgents() {
       // The MCP screens are keyed by the same roster: a sync that adds or
       // retires an agent must not leave them showing the previous one.
       queryClient.invalidateQueries({ queryKey: agentMcpKeys.overview });
+      queryClient.invalidateQueries({ queryKey: ["agent-activity"] });
     },
   });
 }

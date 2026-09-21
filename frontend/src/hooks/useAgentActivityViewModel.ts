@@ -44,20 +44,63 @@ function layoutBand(
   bottom: number,
 ): ActivityGraphNode[] {
   if (records.length === 0) return [];
-  const columns = Math.min(5, Math.max(1, Math.ceil(Math.sqrt(records.length * 1.6))));
+  const columns = Math.min(7, Math.max(1, Math.ceil(Math.sqrt(records.length * 1.8))));
   const rows = Math.ceil(records.length / columns);
   return records.map((record, index) => {
     const column = index % columns;
     const row = Math.floor(index / columns);
+    // Alternate x stagger for adjacent rows to prevent vertical blocking
+    const countInRow = row === rows - 1 ? records.length - row * columns : columns;
+    const xPct = ((column + 1) * 100) / (countInRow + 1);
+    const yPct = rows === 1 ? (top + bottom) / 2 : top + (row * (bottom - top)) / (rows - 1);
     return {
       id: graphNodeId(kind, record.sourceId),
       sourceId: record.sourceId,
       kind,
       label: record.label,
-      xPct: roundPercent(((column + 1) * 100) / (Math.min(columns, records.length) + 1)),
-      yPct: roundPercent(rows === 1 ? (top + bottom) / 2 : top + (row * (bottom - top)) / (rows - 1)),
+      xPct: roundPercent(clampGraphPosition({ xPct, yPct: 50 }).xPct),
+      yPct: roundPercent(clampGraphPosition({ xPct: 50, yPct }).yPct),
     };
   });
+}
+
+export function distributeActivityGraph(
+  nodes: readonly ActivityGraphNode[],
+): ActivityGraphNode[] {
+  const result = nodes.map((node) => ({ ...node }));
+  const minX = 18;
+  const minY = 12;
+
+  for (let iter = 0; iter < 20; iter++) {
+    let moved = false;
+    for (let i = 0; i < result.length; i++) {
+      for (let j = i + 1; j < result.length; j++) {
+        const dx = result[j].xPct - result[i].xPct;
+        const dy = result[j].yPct - result[i].yPct;
+        const absX = Math.abs(dx);
+        const absY = Math.abs(dy);
+
+        if (absX < minX && absY < minY) {
+          const overlapX = (minX - absX) / 2;
+          const overlapY = (minY - absY) / 2;
+          const signX = dx >= 0 ? 1 : -1;
+          const signY = dy >= 0 ? 1 : -1;
+
+          result[i].xPct = clampGraphPosition({ xPct: result[i].xPct - signX * overlapX, yPct: 50 }).xPct;
+          result[j].xPct = clampGraphPosition({ xPct: result[j].xPct + signX * overlapX, yPct: 50 }).xPct;
+          result[i].yPct = clampGraphPosition({ xPct: 50, yPct: result[i].yPct - signY * overlapY }).yPct;
+          result[j].yPct = clampGraphPosition({ xPct: 50, yPct: result[j].yPct + signY * overlapY }).yPct;
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  return result.map((node) => ({
+    ...node,
+    xPct: roundPercent(node.xPct),
+    yPct: roundPercent(node.yPct),
+  }));
 }
 
 export function layoutActivityGraph(
@@ -66,7 +109,16 @@ export function layoutActivityGraph(
   resources: readonly ActivityResource[],
   contexts: readonly ActivityContext[] = [],
 ): ActivityGraphNode[] {
-  const orderedAgents = [...agents]
+  const seenAgentKeys = new Set<string>();
+  const dedupedAgents: ActivityAgent[] = [];
+  for (const agent of agents) {
+    const key = agent.name.split("@")[0].trim().toLowerCase();
+    if (seenAgentKeys.has(key) || seenAgentKeys.has(agent.id)) continue;
+    seenAgentKeys.add(key);
+    seenAgentKeys.add(agent.id);
+    dedupedAgents.push(agent);
+  }
+  const orderedAgents = dedupedAgents
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((agent) => ({ sourceId: agent.id, label: agent.name }));
   const orderedProjects = [...projects]
@@ -133,7 +185,16 @@ function roundPercent(value: number): number {
  * rewrites availability, ownership, work, reply, or waiting state.
  */
 export function layoutActivityNodes(agents: readonly ActivityAgent[]): ActivityNode[] {
-  const orderedAgents = [...agents].sort((left, right) => left.id.localeCompare(right.id));
+  const seenAgentKeys = new Set<string>();
+  const dedupedAgents: ActivityAgent[] = [];
+  for (const agent of agents) {
+    const key = agent.name.split("@")[0].trim().toLowerCase();
+    if (seenAgentKeys.has(key) || seenAgentKeys.has(agent.id)) continue;
+    seenAgentKeys.add(key);
+    seenAgentKeys.add(agent.id);
+    dedupedAgents.push(agent);
+  }
+  const orderedAgents = dedupedAgents.sort((left, right) => left.id.localeCompare(right.id));
   const total = Math.max(orderedAgents.length, 1);
 
   return orderedAgents.map((agent, index) => {

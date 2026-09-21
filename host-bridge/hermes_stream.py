@@ -159,7 +159,7 @@ def main() -> None:
 
     os.environ["HERMES_HOME"] = args.profile_home
     os.environ.setdefault("HERMES_SESSION_SOURCE", "tool")
-    # Without this, MCP tools (forgehub-messages included) are never
+    # Without this, MCP tools (forgehub included) are never
     # available to the model during a chat.py-driven turn (2026-07-28).
     # This process instantiates HermesCLI directly and calls _init_agent()
     # itself, skipping hermes_cli/main.py's main() -- which is the only
@@ -241,7 +241,7 @@ def main() -> None:
                 payload["path"] = tool_args["path"]
             # Delegating to another agent mid-conversation (2026-07-28, see
             # FORGEHUB_MESSAGE.md's "Delegating to another agent
-            # mid-conversation"): forgehub-messages' send_agent_message
+            # mid-conversation"): forgehub' send_agent_message
             # always replies with "Sent message #<N> (...)" as its first
             # line (forgehub_messages_mcp.py). Surfacing the number here --
             # not by having the frontend re-parse the model's own paraphrase

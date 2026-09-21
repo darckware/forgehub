@@ -70,6 +70,7 @@ from app.api.routes import (
     task,
     terminal,
     tool,
+    totp,
     toolversions,
     users,
     vault,
@@ -118,6 +119,7 @@ app = FastAPI(
 # /audit/run-internal self-guards with the shared bridge token (see audit.py).
 _PUBLIC_API_PATHS = {
     "/api/v1/auth/token",
+    "/api/v1/auth/totp/verify",
     "/api/v1/audit/run-internal",
     "/api/v1/demands/submit",
     # Nexo Remote Agent ingestion -- authenticated by its own X-Device-Token
@@ -193,7 +195,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         # (see that route's own docstring) -- can't just add these paths to
         # _PUBLIC_API_PATHS since that set only does exact string matches
         # and these have dynamic {channel_id} segments. Two things a
-        # bridge-token caller (the forgehub-messages MCP's
+        # bridge-token caller (the forgehub MCP's
         # list_channel_members/propose_channel_task tools) may do: read
         # anything under /channels/ (listing channels/members is harmless,
         # same trust level as /demands/pending's read), or propose a task.
@@ -210,7 +212,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
                 return await call_next(request)
         # Same trust boundary as channels_bridge_path above -- read-only,
         # non-secret roster/skills data (2026-08-06, backs the
-        # forgehub-messages MCP's list_agent_skills tool: an
+        # forgehub MCP's list_agent_skills tool: an
         # orchestrator-agent checking a colleague's skills before proposing
         # a task). Scoped narrowly to GET /agents (roster, for slug
         # resolution) and any GET path ending in /skills under /agents/
@@ -283,6 +285,7 @@ async def health() -> dict[str, str]:
 
 
 app.include_router(auth.router)
+app.include_router(totp.router)
 
 # ---------------------------------------------------------------------------
 # DOMAIN ROUTERS -- added by wiring step

@@ -51,10 +51,10 @@ hide_full_access_warning = true
 """
 
 
-def _server(name: str = "forgehub-messages", **kwargs) -> agent_mcp.McpServerInfo:
+def _server(name: str = "forgehub", **kwargs) -> agent_mcp.McpServerInfo:
     defaults = dict(
         command="uv",
-        args=["run", "/root/project/forgehub/host-bridge/forgehub_messages_mcp.py"],
+        args=["run", "/root/project/forgehub/backend/app/mcp/factory_server.py"],
         env={"FORGEHUB_AGENT_SLUG": "athos"},
     )
     defaults.update(kwargs)
@@ -98,7 +98,7 @@ def test_yaml_upsert_keeps_comments_and_siblings(tmp_path):
     path.write_text(HERMES_YAML, encoding="utf-8")
     fmt = agent_mcp.format_for("hermes")
 
-    agent_mcp.write_server(str(path), fmt, "forgehub-messages", _server())
+    agent_mcp.write_server(str(path), fmt, "forgehub", _server())
 
     text = path.read_text(encoding="utf-8")
     assert text.startswith("# Hermes profile config -- hand maintained, comments matter.\n")
@@ -106,8 +106,8 @@ def test_yaml_upsert_keeps_comments_and_siblings(tmp_path):
     assert "checkpoints:\n  enabled: false\n  max_snapshots: 20\n" in text
 
     document = yaml.safe_load(text)
-    assert set(document["mcp_servers"]) == {"forgehub-macros", "forgehub-messages"}
-    assert document["mcp_servers"]["forgehub-messages"]["command"] == "uv"
+    assert set(document["mcp_servers"]) == {"forgehub-macros", "forgehub"}
+    assert document["mcp_servers"]["forgehub"]["command"] == "uv"
     assert document["mcp_servers"]["forgehub-macros"]["env"]["FORGEHUB_API_URL"] == "http://localhost:8001"
 
 
@@ -129,10 +129,10 @@ def test_yaml_disabled_writes_enabled_false(tmp_path):
     path.write_text(HERMES_YAML, encoding="utf-8")
     fmt = agent_mcp.format_for("hermes")
 
-    agent_mcp.write_server(str(path), fmt, "forgehub-messages", _server(enabled=False))
+    agent_mcp.write_server(str(path), fmt, "forgehub", _server(enabled=False))
 
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert document["mcp_servers"]["forgehub-messages"]["enabled"] is False
+    assert document["mcp_servers"]["forgehub"]["enabled"] is False
     assert agent_mcp.read_servers(str(path), fmt)[0].enabled is False
 
 
@@ -142,10 +142,10 @@ def test_yaml_enabled_true_is_not_written(tmp_path):
     path.write_text(HERMES_YAML, encoding="utf-8")
     fmt = agent_mcp.format_for("hermes")
 
-    agent_mcp.write_server(str(path), fmt, "forgehub-messages", _server(enabled=True))
+    agent_mcp.write_server(str(path), fmt, "forgehub", _server(enabled=True))
 
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert "enabled" not in document["mcp_servers"]["forgehub-messages"]
+    assert "enabled" not in document["mcp_servers"]["forgehub"]
 
 
 def test_yaml_remove_last_server_drops_the_block(tmp_path):
@@ -167,11 +167,11 @@ def test_yaml_creates_block_when_absent(tmp_path):
     path.write_text("model: forgerouter/standard\n", encoding="utf-8")
     fmt = agent_mcp.format_for("hermes")
 
-    agent_mcp.write_server(str(path), fmt, "forgehub-messages", _server())
+    agent_mcp.write_server(str(path), fmt, "forgehub", _server())
 
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert document["model"] == "forgerouter/standard"
-    assert document["mcp_servers"]["forgehub-messages"]["args"][0] == "run"
+    assert document["mcp_servers"]["forgehub"]["args"][0] == "run"
 
 
 # ---------------------------------------------------------------------------
@@ -184,13 +184,13 @@ def test_toml_upsert_appends_and_keeps_other_tables(tmp_path):
     path.write_text(CODEX_TOML, encoding="utf-8")
     fmt = agent_mcp.format_for("codex")
 
-    agent_mcp.write_server(str(path), fmt, "forgehub-messages", _server())
+    agent_mcp.write_server(str(path), fmt, "forgehub", _server())
 
     document = tomllib.loads(path.read_text(encoding="utf-8"))
     assert document["projects"]["/root"]["trust_level"] == "trusted"
     assert document["notice"]["hide_full_access_warning"] is True
     assert document["mcp_servers"]["other"]["env"]["TOKEN"] == "abc"
-    entry = document["mcp_servers"]["forgehub-messages"]
+    entry = document["mcp_servers"]["forgehub"]
     assert entry["command"] == "uv"
     assert entry["env"]["FORGEHUB_AGENT_SLUG"] == "athos"
 
@@ -231,12 +231,12 @@ def test_claude_json_preserves_unrelated_keys_and_stamps_stdio(tmp_path):
     path.write_text(json.dumps({"projects": {"/root": {"history": [1, 2, 3]}}}), encoding="utf-8")
     fmt = agent_mcp.format_for("claude")
 
-    agent_mcp.write_server(str(path), fmt, "forgehub-messages", _server())
+    agent_mcp.write_server(str(path), fmt, "forgehub", _server())
 
     document = json.loads(path.read_text(encoding="utf-8"))
     assert document["projects"]["/root"]["history"] == [1, 2, 3]
-    assert document["mcpServers"]["forgehub-messages"]["type"] == "stdio"
-    assert document["mcpServers"]["forgehub-messages"]["command"] == "uv"
+    assert document["mcpServers"]["forgehub"]["type"] == "stdio"
+    assert document["mcpServers"]["forgehub"]["command"] == "uv"
 
 
 def test_openclaw_nested_path_and_disabled_flag(tmp_path):
@@ -244,11 +244,11 @@ def test_openclaw_nested_path_and_disabled_flag(tmp_path):
     path.write_text(json.dumps({"plugins": {"entries": {"telegram": {"enabled": True}}}}), encoding="utf-8")
     fmt = agent_mcp.format_for("openclaw")
 
-    agent_mcp.write_server(str(path), fmt, "forgehub-messages", _server(enabled=False))
+    agent_mcp.write_server(str(path), fmt, "forgehub", _server(enabled=False))
 
     document = json.loads(path.read_text(encoding="utf-8"))
     assert document["plugins"]["entries"]["telegram"]["enabled"] is True
-    assert document["mcp"]["servers"]["forgehub-messages"]["disabled"] is True
+    assert document["mcp"]["servers"]["forgehub"]["disabled"] is True
     # Inverted toggle: `disabled: true` must read back as enabled=False.
     assert agent_mcp.read_servers(str(path), fmt)[0].enabled is False
 
@@ -272,9 +272,9 @@ def test_write_creates_missing_file(tmp_path):
     path = tmp_path / "mcp_config.json"
     fmt = agent_mcp.format_for("agy")
 
-    agent_mcp.write_server(str(path), fmt, "forgehub-messages", _server())
+    agent_mcp.write_server(str(path), fmt, "forgehub", _server())
 
-    assert json.loads(path.read_text(encoding="utf-8"))["mcpServers"]["forgehub-messages"]["command"] == "uv"
+    assert json.loads(path.read_text(encoding="utf-8"))["mcpServers"]["forgehub"]["command"] == "uv"
 
 
 # ---------------------------------------------------------------------------

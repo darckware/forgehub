@@ -245,4 +245,171 @@ describe("ActivityTopology", () => {
     expect(agentNode.style.left).not.toBe(initialLeft);
     expect(onSelectAgent).not.toHaveBeenCalled();
   });
+
+  it("distributes entities when clicking the distribute button", () => {
+    renderTopology();
+    const distributeBtn = screen.getByRole("button", { name: /distribute entities/i });
+    expect(distributeBtn).toBeVisible();
+
+    fireEvent.click(distributeBtn);
+    expect(screen.getByRole("status", { name: /topology movement/i })).toHaveTextContent(/distributed with optimized spacing/i);
+    expect(localStorage.getItem("forgehub:agent-activity:topology:v1:all")).not.toBeNull();
+  });
+
+  it("toggles fullscreen mode when clicking the fullscreen button", () => {
+    renderTopology();
+    const fullscreenBtn = screen.getByRole("button", { name: /fullscreen/i });
+    expect(fullscreenBtn).toBeVisible();
+
+    fireEvent.click(fullscreenBtn);
+    expect(screen.getByRole("button", { name: /exit fullscreen/i })).toBeVisible();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("button", { name: /fullscreen/i })).toBeVisible();
+  });
+
+  it("marks an entity and highlights connected communicating entities", () => {
+    renderTopology();
+    const projectBtn = screen.getByRole("button", { name: /ForgeHub.*project/i });
+    fireEvent.click(projectBtn);
+
+    const aramisBtn = screen.getByRole("button", { name: /Aramis.*agent/i });
+    expect(aramisBtn.className).toContain("scale-[1.02]");
+
+    const canvas = screen.getByTestId("topology-canvas");
+    fireEvent.click(canvas);
+  });
+
+  it("deduplicates duplicate agents in the topology", () => {
+    const duplicateAgents = [
+      ...agents,
+      { ...agents[0], id: "duplicate-id-1", name: "Aramis" },
+      { ...agents[0], id: "duplicate-id-2", name: "Aramis @ VPS" },
+    ];
+    render(
+      <ActivityTopology
+        agents={duplicateAgents}
+        projects={projects}
+        resources={resources}
+        relations={relations}
+        edges={[]}
+        projectScopeId={null}
+        selectedAgentId={null}
+        onSelectAgent={vi.fn()}
+        onOpenMessage={vi.fn()}
+      />,
+    );
+    const aramisButtons = screen.getAllByRole("button", { name: /Aramis/i });
+    expect(aramisButtons).toHaveLength(1);
+  });
+
+  it("animates in-flight message exchange between agents when active", () => {
+    const targetAgentId = "99999999-9999-4999-8999-999999999999";
+    const twoAgents = [
+      ...agents,
+      {
+        id: targetAgentId,
+        name: "Athos",
+        avatar_data_url: null,
+        runtime_type: "hermes",
+        availability: "busy",
+        current_work: null,
+      } as ActivityAgent,
+    ];
+
+    const inFlightEdge: ActivityMessageEdge = {
+      message_id: "edge-in-flight-1",
+      from_agent_id: AGENT_ID,
+      from_agent_name: "Aramis",
+      target_agent_id: targetAgentId,
+      target_agent_name: "Athos",
+      reply_to_id: null,
+      project_id: PROJECT_ID,
+      development_request_id: null,
+      product_id: null,
+      task_id: null,
+      subject: "Execute deployment check",
+      dispatch_status: "running",
+      requires_response: false,
+      response_status: null,
+      waiting_for_response: false,
+      waiting_on_agent_id: null,
+      sent_at: "2026-08-30T12:00:00Z",
+      updated_at: "2026-08-30T12:00:00Z",
+      responded_at: null,
+      canonical_path: "/demands?message=edge-in-flight-1",
+      factory_context_path: null,
+    };
+
+    render(
+      <ActivityTopology
+        agents={twoAgents}
+        projects={projects}
+        resources={resources}
+        relations={relations}
+        edges={[inFlightEdge]}
+        projectScopeId={null}
+        selectedAgentId={null}
+        onSelectAgent={vi.fn()}
+        onOpenMessage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("active-packet-edge-in-flight-1")).toBeInTheDocument();
+  });
+
+  it("does not render moving packet animation when edge is completed or idle", () => {
+    const targetAgentId = "99999999-9999-4999-8999-999999999999";
+    const twoAgents = [
+      ...agents,
+      {
+        id: targetAgentId,
+        name: "Athos",
+        avatar_data_url: null,
+        runtime_type: "hermes",
+        availability: "available",
+        current_work: null,
+      } as ActivityAgent,
+    ];
+
+    const completedEdge: ActivityMessageEdge = {
+      message_id: "edge-completed-1",
+      from_agent_id: AGENT_ID,
+      from_agent_name: "Aramis",
+      target_agent_id: targetAgentId,
+      target_agent_name: "Athos",
+      reply_to_id: null,
+      project_id: PROJECT_ID,
+      development_request_id: null,
+      product_id: null,
+      task_id: null,
+      subject: "Check completed",
+      dispatch_status: "completed",
+      requires_response: false,
+      response_status: "responded",
+      waiting_for_response: false,
+      waiting_on_agent_id: null,
+      sent_at: "2026-08-30T12:00:00Z",
+      updated_at: "2026-08-30T12:00:00Z",
+      responded_at: "2026-08-30T12:05:00Z",
+      canonical_path: "/demands?message=edge-completed-1",
+      factory_context_path: null,
+    };
+
+    render(
+      <ActivityTopology
+        agents={twoAgents}
+        projects={projects}
+        resources={resources}
+        relations={relations}
+        edges={[completedEdge]}
+        projectScopeId={null}
+        selectedAgentId={null}
+        onSelectAgent={vi.fn()}
+        onOpenMessage={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("active-packet-edge-completed-1")).not.toBeInTheDocument();
+  });
 });

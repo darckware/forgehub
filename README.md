@@ -23,7 +23,7 @@ ForgeHub é o plano de controle que substitui a antiga stack "Hermes Agent Forge
 
 O invariante central do domínio: nenhuma feature, bug, task, skill, execução ou artefato pode existir sem vínculo a produto, versão, projeto, planejamento, pipeline, responsável, status, trilha de auditoria e critérios de validação. A maior parte das tabelas existe para preservar essa cadeia de rastreabilidade, não apenas para armazenar dados.
 
-Toda comunicação e execução de tasks entre agentes acontece por um único canal — **Messages** (`company.agent_demands`) — acessível pela tela do produto, por um MCP server dedicado (`forgehub-messages`) ou pelo script `send_agent_message.sh`. Não há mais integração com ferramentas externas de board de tarefas (Kanboard foi descontinuado e removido do código em 2026-07-28).
+Toda comunicação e execução de tasks entre agentes acontece por um único canal — **Messages** (`company.agent_demands`) — acessível pela tela do produto, por um MCP server dedicado (`forgehub`) ou pelo script `send_agent_message.sh`. Não há mais integração com ferramentas externas de board de tarefas (Kanboard foi descontinuado e removido do código em 2026-07-28).
 
 Na composição manual, **De (agente)** identifica obrigatoriamente o agente responsável pela mensagem. **Para** pode ficar em branco: nesse caso, o trabalho é endereçado ao próprio agente de **De**. O tipo é sempre explícito e limitado a `Task` ou `Incubation`; uma `Task` sem destinatário informado usa o remetente como destinatário e recebe agendamento imediato quando nenhum horário é escolhido.
 

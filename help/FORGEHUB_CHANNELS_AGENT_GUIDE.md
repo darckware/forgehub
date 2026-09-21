@@ -17,7 +17,7 @@ Um **canal** (`ChatChannel`) é uma sala persistente onde Marcelo e N agentes co
 
 Não existe nenhum comando de texto ("`/channel add`", "`@forgehub-channel-manager`" ou similar) que gerencie canais. **Gerenciamento de canal não passa por mensagem nenhuma** — é sempre uma chamada HTTP direta (UI do Marcelo, ou API com autoridade delegada, ver §4).
 
-## 3. O que você PODE fazer via MCP (`forgehub-messages`)
+## 3. O que você PODE fazer via MCP (`forgehub`)
 
 Três ferramentas, todas somente-leitura ou de proposta — nenhuma delas gerencia membros ou papéis:
 

@@ -218,7 +218,12 @@ def build_activity_agents(
     runtime_by_agent = _runtime_events_by_agent(forgerouter_state)
 
     result: list[ActivityAgentOut] = []
+    seen_agent_names: set[str] = set()
     for agent in sorted(agents, key=lambda item: (item.name.casefold(), str(item.id))):
+        base_name = agent.name.split("@")[0].strip().casefold()
+        if base_name in seen_agent_names:
+            continue
+        seen_agent_names.add(base_name)
         agent_executions = sorted(
             executions_by_agent.get(agent.id, []),
             key=lambda item: (
@@ -1448,11 +1453,9 @@ async def build_agent_activity(
     agent_ids.update(
         membership.agent_id for membership in memberships if membership.agent_id is not None
     )
-    agent_query = select(Agent)
+    agent_query = select(Agent).where(and_(Agent.is_active.is_(True), Agent.status == "active"))
     if project_id is not None:
         agent_query = agent_query.where(Agent.id.in_(agent_ids))
-    else:
-        agent_query = agent_query.where(or_(Agent.is_active.is_(True), Agent.id.in_(agent_ids)))
     agents = list(
         (
             await db.execute(agent_query.order_by(Agent.name).limit(ROW_LIMIT))
@@ -1542,19 +1545,71 @@ async def build_agent_activity(
             label="Working now",
         )
 
-    database_key = "database:forgehub_postgres/company"
+    forgehub_key = "platform:forgehub"
+    forgerouter_key = "gateway:forgerouter"
+    forgevault_key = "vault:forgevault"
+    darckware_key = "site:darckware"
+
     topology_relations = list(relation_by_pair.values())
     topology_relations.extend(
         ActivityTopologyRelationOut(
-            key=f"persistence:{project.id}:{database_key}",
-            kind="persistence",
+            key=f"portal_sync:{project.id}:{darckware_key}",
+            kind="portal_sync",
             from_type="project",
             from_id=str(project.id),
             to_type="resource",
-            to_id=database_key,
-            label="Persists in company schema",
+            to_id=darckware_key,
+            label="Delivers to Darckware portal",
         )
         for project in projects
+    )
+    topology_relations.extend(
+        ActivityTopologyRelationOut(
+            key=f"orchestration:{agent.id}:{forgehub_key}",
+            kind="orchestration",
+            from_type="agent",
+            from_id=str(agent.id),
+            to_type="resource",
+            to_id=forgehub_key,
+            label="Orchestrated by ForgeHub",
+        )
+        for agent in activity_agents
+    )
+    topology_relations.extend(
+        ActivityTopologyRelationOut(
+            key=f"ai_routing:{agent.id}:{forgerouter_key}",
+            kind="ai_routing",
+            from_type="agent",
+            from_id=str(agent.id),
+            to_type="resource",
+            to_id=forgerouter_key,
+            label="Routes AI prompts",
+        )
+        for agent in activity_agents
+    )
+    topology_relations.extend(
+        ActivityTopologyRelationOut(
+            key=f"vault_sync:{agent.id}:{forgevault_key}",
+            kind="vault_sync",
+            from_type="agent",
+            from_id=str(agent.id),
+            to_type="resource",
+            to_id=forgevault_key,
+            label="Syncs knowledge & credentials",
+        )
+        for agent in activity_agents
+    )
+    topology_relations.extend(
+        ActivityTopologyRelationOut(
+            key=f"portal_sync:{agent.id}:{darckware_key}",
+            kind="portal_sync",
+            from_type="agent",
+            from_id=str(agent.id),
+            to_type="resource",
+            to_id=darckware_key,
+            label="Darckware web & client sync",
+        )
+        for agent in activity_agents
     )
     topology_relations.extend(
         ActivityTopologyRelationOut(
@@ -1690,12 +1745,33 @@ async def build_agent_activity(
         ],
         resources=[
             ActivityResourceOut(
-                key=database_key,
-                kind="database",
-                label="forgehub_postgres",
-                detail="company",
+                key=darckware_key,
+                kind="portal",
+                label="darckware",
+                detail="portal_web",
                 status="available",
-            )
+            ),
+            ActivityResourceOut(
+                key=forgehub_key,
+                kind="platform",
+                label="forgehub",
+                detail="orchestrator",
+                status="available",
+            ),
+            ActivityResourceOut(
+                key=forgerouter_key,
+                kind="gateway",
+                label="forgerouter",
+                detail="ai_proxy",
+                status="available" if forgerouter_freshness.status != "unavailable" else "degraded",
+            ),
+            ActivityResourceOut(
+                key=forgevault_key,
+                kind="vault",
+                label="forgevault",
+                detail="knowledge_vault",
+                status="available",
+            ),
         ],
         topology_relations=sorted(topology_relations, key=lambda item: item.key),
         flow_items=sorted(

@@ -1,10 +1,13 @@
-import { ArrowUpRight, Bot, HeartPulse } from "lucide-react";
+import { ArrowUpRight, Bot, HeartPulse, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import type { ActivityAgent } from "@/hooks/useAgentActivity";
 
 interface AgentInspectorProps {
   agent: ActivityAgent | null;
+  agents?: ActivityAgent[];
+  onSelectAgent?: (agentId: string) => void;
+  onClearSelection?: () => void;
   onOpenRecord: (canonicalPath: string) => void;
 }
 
@@ -34,7 +37,13 @@ function RecordButton({ path, label, onOpen }: { path: string; label: string; on
   );
 }
 
-export function AgentInspector({ agent, onOpenRecord }: AgentInspectorProps) {
+export function AgentInspector({
+  agent,
+  agents,
+  onSelectAgent,
+  onClearSelection,
+  onOpenRecord,
+}: AgentInspectorProps) {
   const { t } = useTranslation("agentActivity");
 
   return (
@@ -53,16 +62,54 @@ export function AgentInspector({ agent, onOpenRecord }: AgentInspectorProps) {
             </p>
           </div>
         </div>
-        {agent && (
-          <Badge variant="outline" className="shrink-0 gap-1 text-[9px]">
-            <HeartPulse className="h-3 w-3" aria-hidden="true" />
-            {t(`availability.${agent.availability}`)}
-          </Badge>
-        )}
+        <div className="flex items-center gap-1.5">
+          {agent && (
+            <Badge variant="outline" className="shrink-0 gap-1 text-[9px]">
+              <HeartPulse className="h-3 w-3" aria-hidden="true" />
+              {t(`availability.${agent.availability}`)}
+            </Badge>
+          )}
+          {agent && onClearSelection && (
+            <button
+              type="button"
+              onClick={onClearSelection}
+              title={t("inspector.deselectAgent")}
+              aria-label={t("inspector.deselectAgent")}
+              className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </div>
 
       {!agent ? (
-        <p className="px-3 py-8 text-center text-xs text-muted-foreground">{t("inspector.selectAgent")}</p>
+        <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+          <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-muted/60">
+            <Bot className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          </span>
+          <p className="text-xs font-medium text-foreground">{t("inspector.selectAgent")}</p>
+          <p className="mt-1 max-w-xs text-[11px] text-muted-foreground">{t("inspector.selectAgentHint")}</p>
+          {agents && agents.length > 0 && onSelectAgent && (
+            <div className="mt-3 w-full max-w-xs">
+              <select
+                aria-label={t("inspector.switchAgent")}
+                className="w-full cursor-pointer rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                onChange={(e) => e.target.value && onSelectAgent(e.target.value)}
+                defaultValue=""
+              >
+                <option value="" disabled>
+                  {t("inspector.switchAgent")}...
+                </option>
+                {agents.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} ({item.runtime_type})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       ) : (
         <dl className="divide-y divide-border text-[11px]">
           <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">

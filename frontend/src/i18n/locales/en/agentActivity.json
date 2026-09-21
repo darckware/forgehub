@@ -9,6 +9,10 @@
     "unavailable": "Records unavailable"
   },
   "updatedAt": "Updated {{value}}",
+  "syncAgents": "Update agents",
+  "syncingAgents": "Updating agents…",
+  "syncAgentsTooltip": "Sync agent roster with Hermes Foundation and refresh activity",
+  "syncError": "Failed to update agents: {{message}}",
   "availability": {
     "available": "Available",
     "busy": "Running",
@@ -35,16 +39,27 @@
     "legend": "Availability legend",
     "organize": "Organize objects",
     "organized": "Objects returned to the automatic layout.",
+    "distribute": "Distribute entities",
+    "distributed": "Entities distributed with optimized spacing.",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit fullscreen",
     "movementStatus": "Topology movement",
     "nodeMoved": "{{name}} moved.",
     "nodeSelected": "{{name}} selected.",
+    "nodeDeselected": "{{name}} deselected.",
     "relationships": "Topology relationships",
     "noRelationships": "No project or resource relationships recorded.",
     "objectType": {
       "agent": "agent",
       "conception": "Conception",
       "project": "project",
-      "resource": "database"
+      "resource": "database",
+      "database": "database",
+      "platform": "platform",
+      "gateway": "AI gateway",
+      "vault": "knowledge vault",
+      "portal": "site & portal",
+      "site": "darckware site"
     },
     "noProject": "No current project",
     "noTask": "No current task",
@@ -84,6 +99,10 @@
   "severity": {
     "title": "Severity inbox",
     "empty": "No operational incidents.",
+    "filterByAgent": "Filtered by: {{name}}",
+    "showAll": "Show all",
+    "allIncidents": "All incidents",
+    "emptyForAgent": "No incidents for this agent.",
     "requestMonitoring": "Request Athos monitoring",
     "level": {
       "info": "Information",
@@ -95,6 +114,9 @@
   "inspector": {
     "title": "Agent inspector",
     "selectAgent": "Select an agent in the topology.",
+    "selectAgentHint": "Select an agent in the topology to inspect its details.",
+    "deselectAgent": "Deselect agent",
+    "switchAgent": "Switch agent",
     "noProfile": "no profile",
     "runtimeHealth": "Runtime health",
     "currentAction": "Current action",

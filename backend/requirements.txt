@@ -15,3 +15,6 @@ httpx
 websockets
 croniter
 paramiko
+
+pyotp
+qrcode[pil]

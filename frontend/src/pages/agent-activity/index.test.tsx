@@ -8,6 +8,7 @@ import AgentActivityPage from ".";
 const hookMocks = vi.hoisted(() => ({
   useAgentActivity: vi.fn(),
   mutateAsync: vi.fn(),
+  syncHermesAsync: vi.fn(),
   useReducedMotion: vi.fn(),
 }));
 
@@ -31,6 +32,15 @@ vi.mock("framer-motion", () => ({
     ),
   },
   useReducedMotion: hookMocks.useReducedMotion,
+}));
+
+vi.mock("@/hooks/useAgent", () => ({
+  useSyncHermesAgents: () => ({
+    mutateAsync: hookMocks.syncHermesAsync,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
 }));
 
 vi.mock("@/hooks/useAgentActivity", async (importOriginal) => {
@@ -645,5 +655,34 @@ describe("AgentActivityPage", () => {
 
     expect(await screen.findByText(/solicitação de monitoramento criada/i)).toHaveAttribute("role", "status");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("renders the sync agents button and triggers synchronization when clicked", async () => {
+    hookMocks.syncHermesAsync.mockResolvedValue({});
+    renderPage();
+
+    const syncButton = screen.getByRole("button", { name: /atualizar agentes/i });
+    expect(syncButton).toBeVisible();
+
+    fireEvent.click(syncButton);
+    expect(hookMocks.syncHermesAsync).toHaveBeenCalled();
+  });
+
+  it("filters severity inbox by selected agent and toggles showing all", () => {
+    renderPage();
+    const inbox = screen.getByRole("region", { name: /caixa de severidade/i });
+    expect(within(inbox).getByText("Dartan")).toBeInTheDocument();
+
+    const showAllLink = within(inbox).getByRole("link", { name: /ver todos/i });
+    fireEvent.click(showAllLink);
+    expect(within(inbox).getByText("Dartan")).toBeInTheDocument();
+  });
+
+  it("allows deselecting agent from the inspector", () => {
+    renderPage();
+    const deselectButton = screen.getByRole("button", { name: /desmarcar agente/i });
+    fireEvent.click(deselectButton);
+
+    expect(screen.getByText(/selecione um agente na topologia para inspecionar seus detalhes/i)).toBeInTheDocument();
   });
 });

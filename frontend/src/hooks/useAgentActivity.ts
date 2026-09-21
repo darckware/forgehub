@@ -117,7 +117,7 @@ export type ActivityProject = z.infer<typeof activityProjectSchema>;
 
 export const activityResourceSchema = z.object({
   key: z.string(),
-  kind: z.literal("database"),
+  kind: z.enum(["database", "platform", "gateway", "vault", "portal", "site"]),
   label: z.string(),
   detail: z.string().nullable(),
   status: z.enum(["available", "degraded", "unavailable"]),
@@ -126,7 +126,16 @@ export type ActivityResource = z.infer<typeof activityResourceSchema>;
 
 export const activityTopologyRelationSchema = z.object({
   key: z.string(),
-  kind: z.enum(["current_work", "membership", "persistence", "transition"]),
+  kind: z.enum([
+    "current_work",
+    "membership",
+    "persistence",
+    "transition",
+    "orchestration",
+    "ai_routing",
+    "vault_sync",
+    "portal_sync",
+  ]),
   from_type: z.enum(["agent", "project", "conception"]),
   from_id: z.string(),
   to_type: z.enum(["project", "resource"]),

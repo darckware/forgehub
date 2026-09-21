@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Radio } from "lucide-react";
+import { AlertTriangle, Loader2, Radio, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ActivityTopology } from "@/components/agent-activity/ActivityTopology";
 import { ActivityViewSwitch, readActivityView, type ActivityOperationalView } from "@/components/agent-activity/ActivityViewSwitch";
@@ -8,6 +8,8 @@ import { ContinuityTimeline } from "@/components/agent-activity/ContinuityTimeli
 import { CurrentFlowBoard } from "@/components/agent-activity/CurrentFlowBoard";
 import { RequestAthosDialog } from "@/components/agent-activity/RequestAthosDialog";
 import { SeverityInbox } from "@/components/agent-activity/SeverityInbox";
+import { Button } from "@/components/ui/button";
+import { useSyncHermesAgents } from "@/hooks/useAgent";
 import {
   useAgentActivity,
   type ActivityIncident,
@@ -51,18 +53,30 @@ function ReservedTopologyState({ state }: { state: "loading" | "error" }) {
 export default function AgentActivityPage() {
   const { t, i18n } = useTranslation("agentActivity");
   const activity = useAgentActivity();
+  const syncHermes = useSyncHermesAgents();
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [monitoringIncident, setMonitoringIncident] = useState<ActivityIncident | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [operationalView, setOperationalView] = useState<ActivityOperationalView>(readActivityView);
 
+  const handleSyncAgents = async () => {
+    try {
+      await syncHermes.mutateAsync();
+      await activity.refetch();
+    } catch {
+      // syncHermes.error is displayed in UI
+    }
+  };
+
   const data = activity.data;
-  const fallbackAgentId = data?.incidents.find((incident) => incident.affected_agent_id)?.affected_agent_id
-    ?? data?.agents[0]?.id
-    ?? null;
-  const effectiveSelectedAgentId = data?.agents.some((agent) => agent.id === selectedAgentId)
+  const incidentFallbackAgentId = data?.incidents.find((incident) => incident.affected_agent_id)?.affected_agent_id ?? null;
+  const effectiveSelectedAgentId = selectedAgentId === ""
+    ? null
+    : selectedAgentId !== null && data?.agents.some((agent) => agent.id === selectedAgentId)
     ? selectedAgentId
-    : fallbackAgentId;
+    : selectedAgentId === null
+    ? incidentFallbackAgentId
+    : null;
   const selectedAgent = data?.agents.find((agent) => agent.id === effectiveSelectedAgentId) ?? null;
   const unavailableSources = data?.source_freshness.filter((source) => source.status === "unavailable") ?? [];
   const staleSources = data?.source_freshness.filter((source) => source.status === "stale") ?? [];
@@ -116,18 +130,47 @@ export default function AgentActivityPage() {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
         </div>
-        {data?.generated_at && (
-          <p className="font-mono text-[10px] text-muted-foreground">
-            {t("updatedAt", {
-              value: new Intl.DateTimeFormat(i18n.language, {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              }).format(new Date(data.generated_at)),
-            })}
-          </p>
-        )}
+        <div className="flex items-center gap-2">
+          {data?.generated_at && (
+            <p className="font-mono text-[10px] text-muted-foreground">
+              {t("updatedAt", {
+                value: new Intl.DateTimeFormat(i18n.language, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                }).format(new Date(data.generated_at)),
+              })}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncAgents}
+            disabled={syncHermes.isPending || activity.isLoading}
+            className="h-8 gap-1.5 text-xs"
+            title={t("syncAgentsTooltip")}
+          >
+            <RefreshCw
+              className={cn(
+                "h-3.5 w-3.5",
+                (syncHermes.isPending || activity.isFetching) && "animate-spin"
+              )}
+            />
+            {syncHermes.isPending ? t("syncingAgents") : t("syncAgents")}
+          </Button>
+        </div>
       </header>
+
+      {syncHermes.isError && (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {t("syncError", {
+            message: (syncHermes.error as Error)?.message || "Erro desconhecido",
+          })}
+        </p>
+      )}
 
       {(unavailableSources.length > 0 || staleSources.length > 0) && (
         <div role="status" className="space-y-2" aria-label={t("states.sourceHealth")}>
@@ -171,10 +214,18 @@ export default function AgentActivityPage() {
         <aside aria-label={t("rail.title")} className="grid content-start gap-3">
           <SeverityInbox
             incidents={data?.incidents ?? []}
+            selectedAgent={selectedAgent}
             onSelectIncident={selectIncident}
             onRequestMonitoring={requestMonitoring}
+            onClearFilter={() => setSelectedAgentId("")}
           />
-          <AgentInspector agent={selectedAgent} onOpenRecord={openCanonicalRecord} />
+          <AgentInspector
+            agent={selectedAgent}
+            agents={data?.agents ?? []}
+            onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
+            onClearSelection={() => setSelectedAgentId("")}
+            onOpenRecord={openCanonicalRecord}
+          />
         </aside>
 
         <div className="space-y-2 lg:col-span-2">

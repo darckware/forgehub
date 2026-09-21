@@ -854,7 +854,7 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
         stale_result = await db.execute(
             select(Agent).where(
                 Agent.runtime_type == "hermes",
-                Agent.has_profile.is_(True),
+                Agent.profile_slug.is_not(None),
                 Agent.profile_slug.not_in(active_profile_slugs),
                 Agent.is_active.is_(True),
             )

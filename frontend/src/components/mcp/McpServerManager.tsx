@@ -119,7 +119,7 @@ function ServerForm({
             value={draft.name}
             disabled={!isNew}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-            placeholder="forgehub-messages"
+            placeholder="forgehub"
             className="font-mono text-sm"
           />
           {nameInvalid && <p className="text-xs text-destructive">{t("mcp.form.nameInvalid")}</p>}

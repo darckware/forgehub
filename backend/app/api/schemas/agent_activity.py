@@ -130,7 +130,7 @@ class ActivityResourceOut(BaseModel):
     """A configured infrastructure resource used by visible projects."""
 
     key: str
-    kind: Literal["database"]
+    kind: Literal["database", "platform", "gateway", "vault", "portal", "site"]
     label: str
     detail: str | None = None
     status: Literal["available", "degraded", "unavailable"]
@@ -140,7 +140,16 @@ class ActivityTopologyRelationOut(BaseModel):
     """A typed, text-labelled relationship between topology objects."""
 
     key: str
-    kind: Literal["current_work", "membership", "persistence", "transition"]
+    kind: Literal[
+        "current_work",
+        "membership",
+        "persistence",
+        "transition",
+        "orchestration",
+        "ai_routing",
+        "vault_sync",
+        "portal_sync",
+    ]
     from_type: Literal["agent", "project", "conception"]
     from_id: str
     to_type: Literal["project", "resource"]

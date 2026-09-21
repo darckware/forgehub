@@ -27,7 +27,22 @@ from typing import Any
 
 import yaml
 
-FOUNDATION_AGENTS_DIR = Path("/foundation-agents")
+def _resolve_foundation_agents_dir() -> Path:
+    for candidate in (
+        Path("/foundation-agents"),
+        Path("/foundation-root/14_agents"),
+        Path("/governance/14_agents"),
+        Path("/root/.hermes/foundation/14_agents"),
+        Path("/root/memory/foundation/14_agents"),
+        Path("/root/.hermes/foundation/agents"),
+        Path("/root/memory/foundation/agents"),
+    ):
+        if candidate.is_dir() and (candidate / "ECOSYSTEM_AGENTS.md").is_file():
+            return candidate
+    return Path("/foundation-agents")
+
+
+FOUNDATION_AGENTS_DIR = _resolve_foundation_agents_dir()
 PROFILES_DIR = Path("/profiles")
 CANONICAL_AGENTS_DOC_ROOT = "/root/.hermes/foundation/agents"
 

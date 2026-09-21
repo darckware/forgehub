@@ -1415,7 +1415,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             # this ad hoc agent-runs dispatch path before now.
             agent_env = {**agent_env, "ANTHROPIC_BASE_URL": FORGEROUTER_ANTHROPIC_BASE_URL}
         command = [
-            "/root/.local/bin/claude",
+            resolve_runtime_executable("claude", env=agent_env),
             "--print",
             "--output-format",
             "json",
@@ -1458,7 +1458,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
 
     return (
         [
-            "/root/.local/bin/agy",
+            resolve_runtime_executable("agy", env=agent_env),
             "--print",
             req.prompt,
             "--mode",
@@ -1581,12 +1581,22 @@ async def agent_runner_health(x_bridge_token: str | None = Header(default=None))
         codex_health = {"available": True}
     except RuntimeError:
         codex_health = {"available": False, "reason": "runtime executable unavailable"}
+
+    def _check_available(name: str, fallback_paths: list[str]) -> bool:
+        if shutil.which(name):
+            return True
+        for p in fallback_paths:
+            candidate = Path(p)
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return True
+        return False
+
     adapters = {
-        "claude": {"available": Path("/root/.local/bin/claude").exists()},
+        "claude": {"available": _check_available("claude", ["/usr/local/bin/claude", "/root/.local/bin/claude"])},
         "codex": codex_health,
-        "agy": {"available": Path("/root/.local/bin/agy").exists()},
-        "hermes": {"available": Path("/usr/local/bin/hermes").exists()},
-        "openclaw": {"available": Path("/root/.npm-global/bin/openclaw").exists()},
+        "agy": {"available": _check_available("agy", ["/usr/local/bin/agy", "/root/.local/bin/agy"])},
+        "hermes": {"available": _check_available("hermes", ["/usr/local/bin/hermes", "/root/.local/bin/hermes"])},
+        "openclaw": {"available": _check_available("openclaw", ["/root/.npm-global/bin/openclaw"])},
     }
     return {
         "status": "ok" if any(item["available"] for item in adapters.values()) else "degraded",

@@ -68,7 +68,7 @@ BASE_URL = os.environ.get("FORGEHUB_API_URL", "http://localhost:8000").rstrip("/
 ENV_FILE = Path(os.environ.get("FORGEHUB_ENV_FILE", "/root/project/forgehub/.env"))
 SELF_SLUG = os.environ.get("FORGEHUB_AGENT_SLUG", "").strip()
 
-mcp = FastMCP("forgehub-messages")
+mcp = FastMCP("forgehub")
 
 
 class ForgeHubError(Exception):
@@ -189,6 +189,7 @@ async def send_agent_message(
     development_request_id: str | None = None,
     channel: str | None = None,
     channel_ref: str | None = None,
+    working_path: str | None = None,
 ) -> str:
     """Send a message through ForgeHub's Agent Message channel (the canonical
     agent-to-agent communication mechanism of the Hermes ecosystem).
@@ -271,6 +272,9 @@ async def send_agent_message(
             # dispatches now unless the caller deliberately deferred it --
             # matches send_agent_message.sh, so both front doors act alike.
             payload["scheduled_at"] = scheduled_at or _utc_now_iso()
+            payload["working_path"] = working_path or "/root/project/forgehub"
+        elif working_path:
+            payload["working_path"] = working_path
         if origin_task_number is not None:
             payload["origin_number"] = origin_task_number
         if development_request_id is not None:

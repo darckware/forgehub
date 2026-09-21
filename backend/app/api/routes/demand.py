@@ -428,7 +428,7 @@ async def create_demand_and_notify(
         incubation_owner_id=incubation_owner_id,
         incubation_state=incubation_state,
         matures_at=matures_at,
-        working_path=payload.working_path,
+        working_path=payload.working_path or ("/root/project/forgehub" if target_agent_id is not None else None),
         # Meio de comunicação: por onde o pedido entrou e, portanto, por onde
         # o resultado tem de voltar (2026-08-13). Sem isto o resultado fica
         # preso no Messages -- é o que o feedback lê para saber o destino.

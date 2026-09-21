@@ -12,6 +12,7 @@ const user = (isAdmin: boolean): AuthUser => ({
   email: null,
   full_name: null,
   avatar_data_url: null,
+  totp_enabled: false,
   is_active: true,
   is_admin: isAdmin,
   profile_id: null,

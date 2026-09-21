@@ -1,14 +1,17 @@
 import { AlertTriangle, ArrowUpRight, Inbox, Send } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { ActivityIncident } from "@/hooks/useAgentActivity";
+import type { ActivityAgent, ActivityIncident } from "@/hooks/useAgentActivity";
 import { cn } from "@/lib/utils";
 
 interface SeverityInboxProps {
   incidents: ActivityIncident[];
+  selectedAgent?: ActivityAgent | null;
   onSelectIncident: (incident: ActivityIncident) => void;
   onRequestMonitoring: (incident: ActivityIncident) => void;
+  onClearFilter?: () => void;
 }
 
 const SEVERITY_CLASS: Record<ActivityIncident["severity"], string> = {
@@ -25,18 +28,37 @@ const SEVERITY_RANK: Record<ActivityIncident["severity"], number> = {
   critical: 3,
 };
 
-export function SeverityInbox({ incidents, onSelectIncident, onRequestMonitoring }: SeverityInboxProps) {
+export function SeverityInbox({
+  incidents,
+  selectedAgent,
+  onSelectIncident,
+  onRequestMonitoring,
+}: SeverityInboxProps) {
   const { t } = useTranslation("agentActivity");
-  const orderedIncidents = [...incidents].sort((left, right) => {
-    const severityDifference = SEVERITY_RANK[right.severity] - SEVERITY_RANK[left.severity];
-    if (severityDifference !== 0) return severityDifference;
-    const leftTime = Date.parse(left.occurred_at);
-    const rightTime = Date.parse(right.occurred_at);
-    if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
-      return rightTime - leftTime;
-    }
-    return left.key.localeCompare(right.key);
-  });
+  const [showAll, setShowAll] = useState(false);
+
+  useEffect(() => {
+    setShowAll(false);
+  }, [selectedAgent?.id]);
+
+  const displayedIncidents = useMemo(() => {
+    if (!selectedAgent || showAll) return incidents;
+    return incidents.filter((incident) => incident.affected_agent_id === selectedAgent.id);
+  }, [incidents, selectedAgent, showAll]);
+
+  const orderedIncidents = useMemo(() => {
+    return [...displayedIncidents].sort((left, right) => {
+      const severityDifference = SEVERITY_RANK[right.severity] - SEVERITY_RANK[left.severity];
+      if (severityDifference !== 0) return severityDifference;
+      const leftTime = Date.parse(left.occurred_at);
+      const rightTime = Date.parse(right.occurred_at);
+      if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+        return rightTime - leftTime;
+      }
+      return left.key.localeCompare(right.key);
+    });
+  }, [displayedIncidents]);
+
   const monitorableIncident = orderedIncidents.find(
     (incident) => incident.recommended_action === "request_athos_monitoring" && incident.execution_id,
   );
@@ -44,18 +66,51 @@ export function SeverityInbox({ incidents, onSelectIncident, onRequestMonitoring
   return (
     <section aria-labelledby="severity-inbox-title" className="overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex min-h-10 items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <div className="flex items-center gap-2">
-          <Inbox className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          <h2 id="severity-inbox-title" className="text-xs font-medium">{t("severity.title")}</h2>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Inbox className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <h2 id="severity-inbox-title" className="truncate text-xs font-medium">{t("severity.title")}</h2>
+          {selectedAgent && !showAll && (
+            <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[9px] font-normal truncate max-w-[90px]">
+              {selectedAgent.name}
+            </Badge>
+          )}
         </div>
-        <Badge variant="outline" className="font-mono text-[10px]">
-          {incidents.length}
-        </Badge>
+        <div className="flex items-center gap-1.5">
+          {selectedAgent && (
+            <a
+              href="#toggle-incidents-filter"
+              onClick={(e) => {
+                e.preventDefault();
+                setShowAll((prev) => !prev);
+              }}
+              className="text-[10px] text-primary hover:underline cursor-pointer"
+            >
+              {showAll ? selectedAgent.name : t("severity.showAll")}
+            </a>
+          )}
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {orderedIncidents.length}{selectedAgent && !showAll && incidents.length !== orderedIncidents.length ? ` / ${incidents.length}` : ""}
+          </Badge>
+        </div>
       </div>
 
       <div className="max-h-44 divide-y divide-border overflow-y-auto">
-        {incidents.length === 0 ? (
-          <p className="px-3 py-5 text-center text-xs text-muted-foreground">{t("severity.empty")}</p>
+        {orderedIncidents.length === 0 ? (
+          <div className="px-3 py-5 text-center text-xs text-muted-foreground">
+            <p>{selectedAgent && !showAll ? t("severity.emptyForAgent") : t("severity.empty")}</p>
+            {selectedAgent && !showAll && incidents.length > 0 && (
+              <a
+                href="#show-all-incidents"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setShowAll(true);
+                }}
+                className="mt-1 inline-block text-[11px] text-primary underline cursor-pointer"
+              >
+                {t("severity.showAll")} ({incidents.length})
+              </a>
+            )}
+          </div>
         ) : (
           orderedIncidents.map((incident) => (
             <button

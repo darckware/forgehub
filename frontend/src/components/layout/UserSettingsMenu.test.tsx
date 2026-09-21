@@ -59,6 +59,7 @@ describe("UserSettingsMenu system version", () => {
         email: null,
         full_name: "Marcelo",
         avatar_data_url: null,
+        totp_enabled: false,
         is_active: true,
         is_admin: true,
         profile_id: null,

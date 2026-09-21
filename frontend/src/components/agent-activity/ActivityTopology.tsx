@@ -1,6 +1,6 @@
 import { motion, useReducedMotion } from "framer-motion";
-import { ArrowUpRight, LayoutGrid, Radio } from "lucide-react";
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { ArrowUpRight, LayoutGrid, Maximize2, Minimize2, Radio, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ActivityAgent,
@@ -79,11 +79,38 @@ export function ActivityTopology({
   const dragRef = useRef<DragState | null>(null);
   const suppressActivationRef = useRef(false);
   const [announcement, setAnnouncement] = useState("");
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(() =>
+    selectedAgentId ? graphNodeId("agent", selectedAgentId) : null,
+  );
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (selectedAgentId) {
+      setSelectedNodeId(graphNodeId("agent", selectedAgentId));
+    } else if (selectedNodeId?.startsWith("agent:")) {
+      setSelectedNodeId(null);
+    }
+  }, [selectedAgentId]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreen]);
+
   const defaultNodes = useMemo(
     () => layoutActivityGraph(agents, projects, resources, contexts),
     [agents, contexts, projects, resources],
   );
-  const { positions: nodes, previewMove, commitMove, organize } = useTopologyPositions(defaultNodes, projectScopeId);
+  const { positions: nodes, previewMove, commitMove, organize, distribute } = useTopologyPositions(
+    defaultNodes,
+    projectScopeId,
+  );
 
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const conceptionById = useMemo(
@@ -93,6 +120,28 @@ export function ActivityTopology({
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const resourceById = useMemo(() => new Map(resources.map((resource) => [resource.key, resource])), [resources]);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
+
+  const focusedNodeId = hoveredNodeId ?? selectedNodeId ?? (selectedAgentId ? graphNodeId("agent", selectedAgentId) : null);
+
+  const connectedNodeIds = useMemo(() => {
+    if (!focusedNodeId) return null;
+    const connected = new Set<string>([focusedNodeId]);
+    for (const rel of relations) {
+      const fromId = graphNodeId(rel.from_type, rel.from_id);
+      const toId = graphNodeId(rel.to_type, rel.to_id);
+      if (fromId === focusedNodeId) connected.add(toId);
+      if (toId === focusedNodeId) connected.add(fromId);
+    }
+    for (const edge of edges) {
+      if (edge.from_agent_id && edge.target_agent_id) {
+        const fromId = graphNodeId("agent", edge.from_agent_id);
+        const toId = graphNodeId("agent", edge.target_agent_id);
+        if (fromId === focusedNodeId) connected.add(toId);
+        if (toId === focusedNodeId) connected.add(fromId);
+      }
+    }
+    return connected;
+  }, [focusedNodeId, relations, edges]);
 
   const sourceLabel = (kind: "agent" | "conception" | "project" | "resource", id: string) => {
     if (kind === "agent") return agentById.get(id)?.name ?? id;
@@ -170,8 +219,20 @@ export function ActivityTopology({
       suppressActivationRef.current = false;
       return;
     }
+    setSelectedNodeId(node.id);
     if (node.kind === "agent") onSelectAgent(node.sourceId);
     setAnnouncement(t("topology.nodeSelected", { name: node.label }));
+  };
+
+  const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.target === canvasRef.current || (event.target as HTMLElement).tagName === "svg") {
+      setSelectedNodeId(null);
+      onSelectAgent("");
+    }
+  };
+
+  const toggleFullscreen = () => {
+    setIsFullscreen((prev) => !prev);
   };
 
   const organizeNodes = () => {
@@ -179,8 +240,22 @@ export function ActivityTopology({
     setAnnouncement(t("topology.organized"));
   };
 
+  const distributeNodes = () => {
+    distribute();
+    setAnnouncement(t("topology.distributed"));
+  };
+
   return (
-    <section aria-labelledby="activity-topology-title" aria-label={t("topology.title")} className="min-h-[30rem] overflow-hidden rounded-lg border border-border bg-card">
+    <section
+      aria-labelledby="activity-topology-title"
+      aria-label={t("topology.title")}
+      className={cn(
+        "overflow-hidden bg-card transition-all duration-200",
+        isFullscreen
+          ? "fixed inset-0 z-50 flex h-screen w-screen flex-col rounded-none border-0 p-3 shadow-2xl"
+          : "min-h-[30rem] rounded-lg border border-border",
+      )}
+    >
       <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
           <Radio className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -195,43 +270,201 @@ export function ActivityTopology({
               </span>
             ))}
           </div>
-          <button type="button" onClick={organizeNodes} className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted">
-            <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("topology.organize")}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={distributeNodes}
+              className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted"
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("topology.distribute")}
+            </button>
+            <button
+              type="button"
+              onClick={organizeNodes}
+              className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("topology.organize")}
+            </button>
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? t("topology.exitFullscreen") : t("topology.fullscreen")}
+              aria-label={isFullscreen ? t("topology.exitFullscreen") : t("topology.fullscreen")}
+              className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted"
+            >
+              {isFullscreen ? (
+                <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              <span>{isFullscreen ? t("topology.exitFullscreen") : t("topology.fullscreen")}</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      <div ref={canvasRef} data-testid="topology-canvas" className="relative min-h-[27rem] overflow-auto bg-[linear-gradient(to_right,hsl(var(--border)/0.22)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.22)_1px,transparent_1px)] bg-[size:32px_32px]">
+      <div
+        ref={canvasRef}
+        onClick={handleCanvasClick}
+        data-testid="topology-canvas"
+        className={cn(
+          "relative overflow-auto bg-[linear-gradient(to_right,hsl(var(--border)/0.22)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.22)_1px,transparent_1px)] bg-[size:32px_32px]",
+          isFullscreen ? "flex-1 min-h-0 h-full w-full" : "min-h-[29rem]",
+        )}
+      >
         {nodes.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-muted-foreground">{t("states.empty")}</div>
         ) : (
           <>
             <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
               <defs>
+                <style>{`
+                  @keyframes activeMessageFlow {
+                    from { stroke-dashoffset: 24; }
+                    to { stroke-dashoffset: 0; }
+                  }
+                  .active-message-flow {
+                    animation: activeMessageFlow 1.4s linear infinite;
+                  }
+                `}</style>
                 <marker id="activity-arrow" markerHeight="5" markerWidth="5" orient="auto" refX="4" refY="2.5">
-                  <path d="M0,0 L5,2.5 L0,5 z" className="fill-muted-foreground" />
+                  <path d="M0,0 L5,2.5 L0,5 z" className="fill-muted-foreground/80" />
+                </marker>
+                <marker id="activity-arrow-violet" markerHeight="5" markerWidth="5" orient="auto" refX="4" refY="2.5">
+                  <path d="M0,0 L5,2.5 L0,5 z" className="fill-violet-500" />
+                </marker>
+                <marker id="activity-arrow-amber" markerHeight="5" markerWidth="5" orient="auto" refX="4" refY="2.5">
+                  <path d="M0,0 L5,2.5 L0,5 z" className="fill-amber-500" />
+                </marker>
+                <marker id="activity-arrow-purple" markerHeight="5" markerWidth="5" orient="auto" refX="4" refY="2.5">
+                  <path d="M0,0 L5,2.5 L0,5 z" className="fill-purple-500" />
+                </marker>
+                <marker id="activity-arrow-indigo" markerHeight="5" markerWidth="5" orient="auto" refX="4" refY="2.5">
+                  <path d="M0,0 L5,2.5 L0,5 z" className="fill-indigo-500" />
+                </marker>
+                <marker id="activity-arrow-emerald" markerHeight="5" markerWidth="5" orient="auto" refX="4" refY="2.5">
+                  <path d="M0,0 L5,2.5 L0,5 z" className="fill-emerald-500" />
+                </marker>
+                <marker id="activity-arrow-sky" markerHeight="5" markerWidth="5" orient="auto" refX="4" refY="2.5">
+                  <path d="M0,0 L5,2.5 L0,5 z" className="fill-sky-500" />
                 </marker>
               </defs>
+
+              {/* Relações estruturais e de ecossistema */}
               {relations.map((relation) => {
                 const from = nodeById.get(graphNodeId(relation.from_type, relation.from_id));
                 const to = nodeById.get(graphNodeId(relation.to_type, relation.to_id));
                 if (!from || !to) return null;
+
+                const isConnected = connectedNodeIds
+                  ? connectedNodeIds.has(from.id) && connectedNodeIds.has(to.id)
+                  : true;
+                const opacity = connectedNodeIds && !isConnected ? 0.15 : 1;
+
+                const isAiRouting = relation.kind === "ai_routing";
+                const isOrch = relation.kind === "orchestration";
+                const isVault = relation.kind === "vault_sync";
+                const isPortalSync = relation.kind === "portal_sync";
+                const isWork = relation.kind === "current_work";
+                const isMember = relation.kind === "membership";
+                const isPersist = relation.kind === "persistence";
+                const isTrans = relation.kind === "transition";
+
                 return (
-                  <line key={relation.key} x1={from.xPct} y1={from.yPct} x2={to.xPct} y2={to.yPct} className={cn(
-                    relation.kind === "current_work" && "stroke-emerald-500/75",
-                    relation.kind === "membership" && "stroke-sky-500/65",
-                    relation.kind === "persistence" && "stroke-muted-foreground/50",
-                    relation.kind === "transition" && "stroke-violet-500/70",
-                  )} strokeDasharray={relation.kind === "membership" ? "2 2" : undefined} strokeWidth="0.45" />
+                  <g key={relation.key} opacity={opacity} className="transition-opacity duration-200">
+                    <line
+                      x1={from.xPct}
+                      y1={from.yPct}
+                      x2={to.xPct}
+                      y2={to.yPct}
+                      className={cn(
+                        isAiRouting && "stroke-purple-500/70",
+                        isOrch && "stroke-indigo-500/65",
+                        isVault && "stroke-emerald-500/65",
+                        isPortalSync && "stroke-sky-500/65",
+                        isWork && "stroke-emerald-500/80",
+                        isMember && "stroke-sky-500/60",
+                        isPersist && "stroke-cyan-500/50",
+                        isTrans && "stroke-violet-500/70",
+                      )}
+                      strokeDasharray={
+                        isMember || isPersist
+                          ? "2 2"
+                          : undefined
+                      }
+                      strokeWidth={isWork || isAiRouting || isOrch || isPortalSync ? "0.55" : "0.45"}
+                      markerEnd={
+                        isAiRouting
+                          ? "url(#activity-arrow-purple)"
+                          : isOrch
+                          ? "url(#activity-arrow-indigo)"
+                          : isVault
+                          ? "url(#activity-arrow-emerald)"
+                          : isPortalSync
+                          ? "url(#activity-arrow-sky)"
+                          : undefined
+                      }
+                    />
+                  </g>
                 );
               })}
+
+              {/* Mensagens e comunicações inter-agentes */}
               {edges.map((edge) => {
                 const from = edge.from_agent_id ? nodeById.get(graphNodeId("agent", edge.from_agent_id)) : undefined;
                 const to = edge.target_agent_id ? nodeById.get(graphNodeId("agent", edge.target_agent_id)) : undefined;
                 if (!from || !to) return null;
+
+                const isConnected = connectedNodeIds
+                  ? connectedNodeIds.has(from.id) && connectedNodeIds.has(to.id)
+                  : true;
+                const opacity = connectedNodeIds && !isConnected ? 0.15 : 1;
+                const isWaiting = edge.waiting_for_response;
+                const isRunning = edge.dispatch_status === "running";
+                const isDispatched = edge.dispatch_status === "dispatched";
+                const isInFlight = isRunning || isDispatched;
+                const isDistinctAgents = from.id !== to.id;
+                const pathData = `M ${from.xPct} ${from.yPct} L ${to.xPct} ${to.yPct}`;
+
                 return (
-                  <line key={edge.message_id} x1={from.xPct} y1={from.yPct} x2={to.xPct} y2={to.yPct} className={cn("stroke-violet-500/70", edge.waiting_for_response && "stroke-amber-500/80")} strokeDasharray={edge.waiting_for_response ? "2 2" : undefined} strokeWidth="0.5" markerEnd="url(#activity-arrow)" />
+                  <g key={edge.message_id} opacity={opacity} className="transition-opacity duration-200">
+                    <line
+                      x1={from.xPct}
+                      y1={from.yPct}
+                      x2={to.xPct}
+                      y2={to.yPct}
+                      className={cn(
+                        isWaiting
+                          ? "stroke-amber-500/85 animate-pulse"
+                          : isInFlight
+                          ? "stroke-violet-500 active-message-flow"
+                          : "stroke-violet-400/50",
+                      )}
+                      strokeDasharray={isWaiting ? "2 2" : isInFlight ? "4 2" : undefined}
+                      strokeWidth={isInFlight || isWaiting ? "0.65" : "0.45"}
+                      markerEnd={isWaiting ? "url(#activity-arrow-amber)" : "url(#activity-arrow-violet)"}
+                    />
+                    {isInFlight && isDistinctAgents && (
+                      <g data-testid={`active-packet-${edge.message_id}`}>
+                        <circle r="1.6" className={isRunning ? "fill-violet-400/35" : "fill-sky-400/35"}>
+                          <animateMotion
+                            path={pathData}
+                            dur={isRunning ? "1.8s" : "2.2s"}
+                            repeatCount="indefinite"
+                          />
+                        </circle>
+                        <circle r="0.8" className={isRunning ? "fill-violet-300" : "fill-sky-300"}>
+                          <animateMotion
+                            path={pathData}
+                            dur={isRunning ? "1.8s" : "2.2s"}
+                            repeatCount="indefinite"
+                          />
+                        </circle>
+                      </g>
+                    )}
+                  </g>
                 );
               })}
             </svg>
@@ -242,7 +475,17 @@ export function ActivityTopology({
               const project = node.kind === "project" ? projectById.get(node.sourceId) : undefined;
               const resource = node.kind === "resource" ? resourceById.get(node.sourceId) : undefined;
               if (!agent && !conception && !project && !resource) return null;
-              const statusLabel = agent ? t(`availability.${agent.availability}`) : conception?.status ?? project?.status ?? resource?.status ?? t("availability.unknown");
+              const statusLabel = agent
+                ? t(`availability.${agent.availability}`)
+                : conception?.status ?? project?.status ?? resource?.status ?? t("availability.unknown");
+
+              const isDimmed = connectedNodeIds !== null && !connectedNodeIds.has(node.id);
+              const isHighlighted = focusedNodeId === node.id || (connectedNodeIds !== null && connectedNodeIds.has(node.id));
+
+              const typeLabel = node.kind === "resource" && resource
+                ? t(`topology.objectType.${resource.kind}`, { defaultValue: t("topology.objectType.resource") })
+                : t(`topology.objectType.${node.kind}`);
+
               return (
                 <TopologyNode
                   key={node.id}
@@ -251,14 +494,18 @@ export function ActivityTopology({
                   conception={conception}
                   project={project}
                   resource={resource}
-                  selected={Boolean(agent && agent.id === selectedAgentId)}
-                  typeLabel={t(`topology.objectType.${node.kind}`)}
+                  selected={selectedNodeId === node.id || Boolean(agent && agent.id === selectedAgentId)}
+                  dimmed={isDimmed}
+                  highlighted={isHighlighted}
+                  typeLabel={typeLabel}
                   statusLabel={statusLabel}
                   onActivate={() => activateNode(node)}
                   onKeyDown={(event) => handleNodeKeyDown(node, event)}
                   onPointerDown={(event) => handlePointerDown(node, event)}
                   onPointerMove={(event) => handlePointerMove(node, event)}
                   onPointerUp={(event) => handlePointerUp(node, event)}
+                  onPointerEnter={() => setHoveredNodeId(node.id)}
+                  onPointerLeave={() => setHoveredNodeId(null)}
                 />
               );
             })}
@@ -285,7 +532,7 @@ export function ActivityTopology({
         )}
       </div>
 
-      <div className="grid gap-3 border-t border-border px-3 py-2 sm:grid-cols-2">
+      <div className={cn("grid gap-3 border-t border-border px-3 py-2 sm:grid-cols-2", isFullscreen && "max-h-24 overflow-y-auto")}>
         <div>
           <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t("topology.relationships")}</p>
           {relations.length === 0 ? (

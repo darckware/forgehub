@@ -7,9 +7,11 @@ import { useAuthStore, type ActionPermissionMap, type AuthUser, type PermissionM
 interface TokenOut {
   access_token: string;
   token_type: string;
-  user: AuthUser;
-  permissions: PermissionMap;
+  user: AuthUser | null;
+  permissions: PermissionMap | null;
   actions: ActionPermissionMap;
+  requires_totp?: boolean;
+  totp_pending_token?: string;
 }
 
 interface LoginPayload {
@@ -40,7 +42,9 @@ export function useLogin() {
       return res.json();
     },
     onSuccess: (data) => {
-      setAuth(data.access_token, data.user, data.permissions ?? {}, data.actions ?? {});
+      if (!data.requires_totp && data.access_token) {
+        setAuth(data.access_token, data.user!, data.permissions ?? {}, data.actions ?? {});
+      }
     },
   });
 }
@@ -83,7 +87,7 @@ export function useSessionKeepAlive() {
       apiClient
         .get<TokenOut>("/api/v1/auth/me")
         .then((data) => {
-          if (data.access_token) setAuth(data.access_token, data.user, data.permissions ?? {}, data.actions ?? {});
+          if (data.access_token && data.user) setAuth(data.access_token, data.user, data.permissions ?? {}, data.actions ?? {});
         })
         .catch(() => {
           // Token already invalid -- lib/api.ts's 401 handler already
@@ -113,6 +117,62 @@ export function useSyncUiLanguage() {
     if (i18n.language === uiLanguage) return;
     void i18n.changeLanguage(uiLanguage as UiLanguage);
   }, [uiLanguage]);
+}
+
+// ---- TOTP 2FA ---------------------------------------------------------------
+
+interface TotpSetupOut {
+  secret: string;
+  provisioning_uri: string;
+  qr_code_data_url: string;
+  recovery_codes: string[];
+}
+
+export function useSetupTotp() {
+  return useMutation<TotpSetupOut, Error, void>({
+    mutationFn: () => apiClient.post("/api/v1/auth/totp/setup"),
+  });
+}
+
+export function useEnableTotp() {
+  const updateUser = useAuthStore((s) => s.updateUser);
+  return useMutation<{ enabled: boolean }, Error, { secret: string; code: string; recovery_codes?: string[] }>({
+    mutationFn: (body) => apiClient.post("/api/v1/auth/totp/enable", body),
+    onSuccess: () => updateUser({ totp_enabled: true } as Partial<AuthUser>),
+  });
+}
+
+export function useDisableTotp() {
+  const updateUser = useAuthStore((s) => s.updateUser);
+  return useMutation<{ enabled: boolean }, Error, { password: string; code: string }>({
+    mutationFn: (body) => apiClient.post("/api/v1/auth/totp/disable", body),
+    onSuccess: () => updateUser({ totp_enabled: false } as Partial<AuthUser>),
+  });
+}
+
+export function useVerifyTotp() {
+  const setAuth = useAuthStore((s) => s.setAuth);
+  return useMutation<TokenOut, Error, { totp_pending_token: string; code: string }>({
+    mutationFn: (body) => {
+      const base = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
+      return fetch(`${base}/api/v1/auth/totp/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error((err as { detail?: string }).detail ?? "TOTP verification failed");
+        }
+        return res.json();
+      });
+    },
+    onSuccess: (data) => {
+      if (data.access_token) {
+        setAuth(data.access_token, data.user!, data.permissions ?? {}, data.actions ?? {});
+      }
+    },
+  });
 }
 
 // ---- Users ----------------------------------------------------------------

@@ -5,6 +5,7 @@ import mermaid from "mermaid";
 import { AlertTriangle, Check, Code2, Copy, Maximize2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
+import { SecretBadge } from "@/components/chat/SecretBadge";
 
 /** Code blocks (```...```) get a hover-reveal copy button -- reads
  * .textContent off the rendered <pre> rather than re-serializing the
@@ -209,12 +210,85 @@ const markdownComponents: Components = {
   td: ({ children }) => <td className="border border-current/20 px-2 py-1">{children}</td>,
 };
 
+export function parseSecretSegments(content: string) {
+  if (!content.includes("<secret")) {
+    return [{ type: "markdown" as const, text: content }];
+  }
+
+  const secretRegex = /<secret([\s\S]*?)>([\s\S]*?)<\/secret>/gi;
+  const segments: Array<
+    | { type: "markdown"; text: string }
+    | { type: "secret"; name?: string; env?: string; value: string }
+  > = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = secretRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({
+        type: "markdown",
+        text: content.slice(lastIndex, match.index),
+      });
+    }
+
+    const attrs = match[1] || "";
+    const value = match[2] || "";
+    const nameMatch = /name=["']([^"']*)["']/i.exec(attrs);
+    const envMatch = /env=["']([^"']*)["']/i.exec(attrs);
+
+    segments.push({
+      type: "secret",
+      name: nameMatch ? nameMatch[1] : undefined,
+      env: envMatch ? envMatch[1] : undefined,
+      value,
+    });
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    segments.push({
+      type: "markdown",
+      text: content.slice(lastIndex),
+    });
+  }
+
+  return segments;
+}
+
 export function Markdown({ content, className }: { content: string; className?: string }) {
+  const segments = parseSecretSegments(content);
+
+  if (segments.length === 1 && segments[0].type === "markdown") {
+    return (
+      <div className={cn("[&>*:last-child]:mb-0", className)}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
   return (
     <div className={cn("[&>*:last-child]:mb-0", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {content}
-      </ReactMarkdown>
+      {segments.map((seg, idx) => {
+        if (seg.type === "secret") {
+          return (
+            <SecretBadge
+              key={idx}
+              name={seg.name}
+              env={seg.env}
+              value={seg.value}
+            />
+          );
+        }
+        if (!seg.text.trim()) return null;
+        return (
+          <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {seg.text}
+          </ReactMarkdown>
+        );
+      })}
     </div>
   );
 }

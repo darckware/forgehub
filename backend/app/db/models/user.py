@@ -25,6 +25,10 @@ class User(Base, TimestampMixin):
     # content yet, and avatars are small enough that this is simpler than
     # standing up file storage just for this.
     avatar_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # TOTP two-factor authentication fields.
+    totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    totp_recovery_codes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     profile_id: Mapped[uuid.UUID | None] = mapped_column(

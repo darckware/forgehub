@@ -47,6 +47,7 @@ import { Markdown } from "@/components/Markdown";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useAuthStore } from "@/store/authStore";
 import { TestApplicationDialog } from "@/components/chat/TestApplicationDialog";
+import { SecretInputPopover } from "@/components/chat/SecretInputPopover";
 import { useFsList, type FsEntry } from "@/hooks/useTerminalBrowse";
 import { getToken } from "@/lib/api";
 import {
@@ -4479,6 +4480,15 @@ export function ChatPane({
                       setArtifactMentionOpen(true);
                       setArtifactMentionQuery("");
                     }
+                    composerTextareaRef.current?.focus();
+                  }}
+                />
+                <SecretInputPopover
+                  onInsertSecret={(formattedPrompt) => {
+                    setComposerText((t) => {
+                      const trimmed = t.trim();
+                      return trimmed.length > 0 ? `${trimmed}\n\n${formattedPrompt}` : formattedPrompt;
+                    });
                     composerTextareaRef.current?.focus();
                   }}
                 />

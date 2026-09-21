@@ -31,6 +31,7 @@ class UserOut(BaseModel):
     email: str | None
     full_name: str | None
     avatar_data_url: str | None
+    totp_enabled: bool
     is_active: bool
     is_admin: bool
     profile_id: uuid.UUID | None
@@ -71,6 +72,35 @@ PermissionMap = dict[str, dict[str, bool]]
 class TokenOut(BaseModel):
     access_token: str
     token_type: str
-    user: UserOut
-    permissions: PermissionMap
+    user: UserOut | None = None
+    permissions: PermissionMap | None = None
     actions: dict[str, bool] = Field(default_factory=dict)
+    requires_totp: bool = False
+    totp_pending_token: str | None = None
+
+
+class TotpSetupOut(BaseModel):
+    """Returned by POST /auth/totp/setup."""
+    secret: str
+    provisioning_uri: str
+    qr_code_data_url: str
+    recovery_codes: list[str]
+
+
+class TotpEnableRequest(BaseModel):
+    """Sent to POST /auth/totp/enable after scanning the QR."""
+    secret: str
+    code: str
+    recovery_codes: list[str] | None = None
+
+
+class TotpDisableRequest(BaseModel):
+    """Sent to POST /auth/totp/disable — requires current password + TOTP code."""
+    password: str
+    code: str
+
+
+class TotpVerifyRequest(BaseModel):
+    """Second step of the 2FA login — validates a TOTP or recovery code."""
+    totp_pending_token: str
+    code: str

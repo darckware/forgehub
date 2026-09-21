@@ -11,7 +11,7 @@ Also guards the auth boundary itself: these are dynamic-segment routes
 `_PUBLIC_API_PATHS` can't cover (exact-match only) -- they need the
 `demands_bridge_action` carve-out in main.py's `RequireAuthMiddleware`.
 Without it, a caller sending only `X-Bridge-Token` (no `Authorization`
-header at all, exactly what the forgehub-messages MCP does) gets a 401
+header at all, exactly what the forgehub MCP does) gets a 401
 before the route's own bridge-token check ever runs -- which is exactly
 what `receive_incubation`/`drop_incubation`/`reprocess_demand` had been
 silently suffering since they were written, unnoticed because every test

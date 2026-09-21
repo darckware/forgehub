@@ -9,6 +9,10 @@
     "unavailable": "Registros indisponíveis"
   },
   "updatedAt": "Atualizado {{value}}",
+  "syncAgents": "Atualizar agentes",
+  "syncingAgents": "Atualizando agentes…",
+  "syncAgentsTooltip": "Sincronizar roster de agentes com a Hermes Foundation e atualizar atividade",
+  "syncError": "Falha ao atualizar agentes: {{message}}",
   "availability": {
     "available": "Disponível",
     "busy": "Executando",
@@ -35,16 +39,27 @@
     "legend": "Legenda de disponibilidade",
     "organize": "Organizar objetos",
     "organized": "Objetos restaurados ao layout automático.",
+    "distribute": "Distribuir entidades",
+    "distributed": "Entidades distribuídas com espaçamento otimizado.",
+    "fullscreen": "Tela cheia",
+    "exitFullscreen": "Sair da tela cheia",
     "movementStatus": "Movimentação da topologia",
     "nodeMoved": "{{name}} foi movido.",
     "nodeSelected": "{{name}} foi selecionado.",
+    "nodeDeselected": "{{name}} foi desmarcado.",
     "relationships": "Relações da topologia",
     "noRelationships": "Nenhuma relação de projeto ou recurso registrada.",
     "objectType": {
       "agent": "agente",
       "conception": "Concepção",
       "project": "projeto",
-      "resource": "banco de dados"
+      "resource": "banco de dados",
+      "database": "banco de dados",
+      "platform": "plataforma",
+      "gateway": "gateway de IA",
+      "vault": "vault de conhecimento",
+      "portal": "site & portal",
+      "site": "site darckware"
     },
     "noProject": "Sem projeto atual",
     "noTask": "Sem tarefa atual",
@@ -84,6 +99,10 @@
   "severity": {
     "title": "Caixa de severidade",
     "empty": "Nenhum incidente operacional.",
+    "filterByAgent": "Filtrado por: {{name}}",
+    "showAll": "Ver todos",
+    "allIncidents": "Todos os incidentes",
+    "emptyForAgent": "Nenhum incidente para este agente.",
     "requestMonitoring": "Solicitar monitoramento ao Athos",
     "level": {
       "info": "Informação",
@@ -95,6 +114,9 @@
   "inspector": {
     "title": "Inspetor do agente",
     "selectAgent": "Selecione um agente na topologia.",
+    "selectAgentHint": "Selecione um agente na topologia para inspecionar seus detalhes.",
+    "deselectAgent": "Desmarcar agente",
+    "switchAgent": "Trocar agente",
     "noProfile": "sem perfil",
     "runtimeHealth": "Saúde do runtime",
     "currentAction": "Ação atual",
