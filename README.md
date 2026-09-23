@@ -76,7 +76,7 @@ import-order coupling; all modules are imported centrally in
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.11 · FastAPI · SQLAlchemy (async) + asyncpg · Alembic · OAuth2 password flow + JWT (python-jose) · pytest + httpx |
+| Backend | Python 3.13 · FastAPI · SQLAlchemy (async) + asyncpg · Alembic · OAuth2 password flow + JWT (python-jose) · pytest + httpx |
 | Frontend | React 18 + Vite · TypeScript · shadcn/ui (Tailwind + Radix, via class-variance-authority/clsx/tailwind-merge) + Framer Motion · TanStack Query + Zustand · React Hook Form + Zod · Vitest + React Testing Library |
 | Database | PostgreSQL (pgvector/pg16) — shared instance `company_postgres`, `company` schema |
 | Messaging/agents | MCP servers (`host-bridge/forgehub_messages_mcp.py`, `forgehub_macro_mcp.py`, `forgehub_testing_mcp.py`) |
@@ -116,7 +116,7 @@ forgehub/
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.13+
 - Node.js/npm (Vite/React 18)
 - A reachable PostgreSQL instance (pgvector/pg16), configured via `.env` at the repository root — see [`docs/reference/DB_README.md`](docs/reference/DB_README.md)
 - Docker + Docker Compose — only needed for the containerized deploy path

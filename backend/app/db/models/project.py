@@ -21,7 +21,7 @@ SQLAlchemy resolves these lazily once every domain module has been imported
 centrally (see app/db/models/__init__.py).
 """
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -243,7 +243,7 @@ class PlanBaseline(Base, TimestampMixin):
     end_date_snapshot: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     frozen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
 

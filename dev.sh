@@ -79,10 +79,27 @@ check_config() {
     failed=1
   fi
 
-  if [ ! -x "$BACKEND_DIR/.venv/bin/uvicorn" ]; then
-    warn "backend/.venv missing or incomplete -- creating it and installing requirements.txt (first run only, takes a bit)."
-    python3 -m venv "$BACKEND_DIR/.venv" || { err "Failed to create backend venv"; failed=1; }
-    "$BACKEND_DIR/.venv/bin/pip" install -q -r "$BACKEND_DIR/requirements.txt" || { err "pip install failed"; failed=1; }
+  # Checking that uvicorn exists isn't enough: a venv whose interpreter was
+  # removed underneath it (the uv-managed python3.11 it symlinks to got
+  # uninstalled, 2026-09-23) still has every script, so the old
+  # `-x .venv/bin/uvicorn` check passed and the backend just failed to start.
+  # Actually run the interpreter, and rebuild the venv when it can't.
+  # Also rebuilt when it runs a different minor than the Docker image, so a
+  # Python upgrade reaches every dev machine on its next ./dev.sh start.
+  local py_minor="3.13"  # keep in sync with backend/Dockerfile's FROM python:<minor>-slim
+  if [ ! -x "$BACKEND_DIR/.venv/bin/uvicorn" ] \
+    || ! "$BACKEND_DIR/.venv/bin/python" -c "import sys; sys.exit(f'{sys.version_info[0]}.{sys.version_info[1]}' != '$py_minor')" >/dev/null 2>&1; then
+    warn "backend/.venv missing, broken or not Python $py_minor -- (re)creating it and installing requirements (takes a bit)."
+    rm -rf "$BACKEND_DIR/.venv"
+    if command -v uv >/dev/null 2>&1; then
+      { uv python install "$py_minor" >/dev/null 2>&1 \
+        && uv venv -q --python "$py_minor" "$BACKEND_DIR/.venv" \
+        && uv pip install -q --python "$BACKEND_DIR/.venv/bin/python" -r "$BACKEND_DIR/requirements.txt" -r "$BACKEND_DIR/requirements-dev.txt"; } \
+        || { err "Failed to create backend venv with uv"; failed=1; }
+    else
+      python3 -m venv "$BACKEND_DIR/.venv" || { err "Failed to create backend venv"; failed=1; }
+      "$BACKEND_DIR/.venv/bin/pip" install -q -r "$BACKEND_DIR/requirements.txt" || { err "pip install failed"; failed=1; }
+    fi
   fi
 
   if [ ! -x "$FRONTEND_DIR/node_modules/.bin/vite" ]; then
@@ -109,11 +126,28 @@ start_backend() {
     exit 1
   fi
   info "Starting backend (uvicorn --reload) on :$BACKEND_PORT ..."
-  python3 -c "
-import subprocess
+  # .env's POSTGRES_HOST is the Docker container name (right for the deployed
+  # backend on foundation_network), which the host itself can't resolve --
+  # the dev backend then ran with every DB-backed loop failing on DNS. The
+  # container publishes its port on 127.0.0.1, so use that instead whenever
+  # the configured name doesn't resolve here. Only this process's env is
+  # changed; .env stays as the Docker deploy needs it.
+  local pg_host
+  pg_host=$(grep -E '^POSTGRES_HOST=' "$ROOT_DIR/.env" | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')
+  local pg_override=""
+  if [ -n "$pg_host" ] && ! getent hosts "$pg_host" >/dev/null 2>&1; then
+    pg_override="127.0.0.1"
+    info "POSTGRES_HOST=$pg_host doesn't resolve on this host -- dev backend uses 127.0.0.1 instead."
+  fi
+  PG_OVERRIDE="$pg_override" python3 -c "
+import os, subprocess
+env = os.environ.copy()
+if env.get('PG_OVERRIDE'):
+    env['POSTGRES_HOST'] = env['PG_OVERRIDE']
 p = subprocess.Popen(
     ['.venv/bin/uvicorn', 'app.main:app', '--reload', '--host', '0.0.0.0', '--port', '$BACKEND_PORT'],
     cwd='$BACKEND_DIR',
+    env=env,
     stdout=open('$LOG_DIR/backend.log', 'a'),
     stderr=subprocess.STDOUT,
     start_new_session=True

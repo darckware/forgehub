@@ -15,7 +15,7 @@ from app.main import app
 async def _user_token() -> str:
     async with AsyncSessionLocal() as db:
         from sqlalchemy import select
-        result = await db.execute(select(User).limit(1))
+        result = await db.execute(select(User).where(User.is_active.is_(True)).order_by(User.username).limit(1))
         user = result.scalar_one_or_none()
         assert user is not None
         return create_access_token(user.username)

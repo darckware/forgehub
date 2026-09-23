@@ -14,7 +14,7 @@ Core invariant from the PRD: no feature, bug, task, skill, execution, or artifac
 
 `docs/SPEC.md` describes a C#/ASP.NET Core + Dapper backend. That is **stale** — the implemented backend stack matches `docs/TECHNOLOGY.md`:
 
-- Backend: Python 3.11, FastAPI, SQLAlchemy (async) + asyncpg, Alembic migrations, OAuth2 password flow + JWT, pytest + httpx for tests.
+- Backend: Python 3.13 (upgraded from 3.11 on 2026-09-23 -- `backend/Dockerfile`, `dev.sh` and `ruff.toml` must stay on the same minor), FastAPI, SQLAlchemy (async) + asyncpg, Alembic migrations, OAuth2 password flow + JWT, pytest + httpx for tests.
 - Frontend: React 18 + Vite, TypeScript, shadcn/ui (Tailwind + Radix primitives, via `class-variance-authority`/`clsx`/`tailwind-merge`) + Framer Motion, TanStack Query + Zustand, React Hook Form + Zod, Vitest + React Testing Library.
 - Datastore: PostgreSQL (pgvector/pg16), shared instance `company_postgres` on port 5433, database `forgehub`, schema `company` (**every** table — models set `MetaData(schema=settings.POSTGRES_SCHEMA)` in `backend/app/db/base.py`, never `public`). ForgeHub does not run its own Postgres container; `database/postgres-company/docker-compose.yml` only re-documents/recreates the externally-managed container definition (see its trailing comment — do not blindly `docker compose up` there without checking config drift, Kanboard's own database depends on the same container). Full topology: `docs/DB_README.md` and `/root/.hermes/foundation/governance/POSTGRESQL_TOPOLOGY.md`. The other instance, `foundation_postgres` (port 5432), is reserved for internal Hermes/Foundation data — never put ForgeHub application data there.
 - Integrations already provisioned in `.env`: Postgres connection (`company_postgres:5433/forgehub`).

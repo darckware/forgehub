@@ -1,7 +1,7 @@
 # Tecnologia do ForgeHub
 
 ## Backend
-- **Linguagem**: Python 3.11
+- **Linguagem**: Python 3.13
 - **Framework**: FastAPI (async, OpenAPI automatic)
 - **Servidor HTTP**: Uvicorn/Gunicorn
 - **Banco de Dados**: PostgreSQL 15 (Docker Compose)  

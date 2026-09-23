@@ -20,7 +20,7 @@ from app.main import app
 async def _admin_token() -> str:
     async with AsyncSessionLocal() as db:
         admin = (
-            await db.execute(select(User).where(User.is_admin.is_(True)).limit(1))
+            await db.execute(select(User).where(User.is_admin.is_(True), User.is_active.is_(True)).order_by(User.username).limit(1))
         ).scalar_one()
         return create_access_token(admin.username)
 

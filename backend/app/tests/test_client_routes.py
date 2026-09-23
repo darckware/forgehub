@@ -27,7 +27,7 @@ def fake_headscale_policy_push(monkeypatch):
 async def _admin_token() -> str:
     async with AsyncSessionLocal() as db:
         from sqlalchemy import select
-        result = await db.execute(select(User).where(User.is_admin.is_(True)).limit(1))
+        result = await db.execute(select(User).where(User.is_admin.is_(True), User.is_active.is_(True)).order_by(User.username).limit(1))
         admin = result.scalar_one_or_none()
         assert admin is not None, "expected at least one admin user to exist for this test"
         return create_access_token(admin.username)
