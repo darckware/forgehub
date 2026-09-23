@@ -24,7 +24,10 @@
     "hideHidden": "Ocultar elementos ocultos",
     "create": "Crear",
     "save": "Guardar",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "moveTo": "Mover a…",
+    "copyTo": "Copiar a…",
+    "selectNone": "No seleccionar nada"
   },
   "view": {
     "details": "Detalles",
@@ -117,5 +120,21 @@
     "toggle": "Mostrar/ocultar detalles de la subida",
     "skipped": "omitido",
     "failed": "falló"
+  },
+  "moveTo": {
+    "titleOne": "Mover \"{{name}}\" a…",
+    "titleMany": "Mover {{count}} elementos a…",
+    "confirm": "Mover aquí",
+    "cancel": "Cancelar",
+    "destination": "Destino:",
+    "foldersLabel": "Carpetas",
+    "noSubfolders": "No hay subcarpetas aquí. Puedes mover a esta carpeta o crear una nueva.",
+    "cannotIntoItself": "Una carpeta no se puede mover ni copiar dentro de sí misma",
+    "alreadyThere": "Los elementos seleccionados ya están en esta carpeta."
+  },
+  "copyTo": {
+    "titleOne": "Copiar \"{{name}}\" a…",
+    "titleMany": "Copiar {{count}} elementos a…",
+    "confirm": "Copiar aquí"
   }
 }

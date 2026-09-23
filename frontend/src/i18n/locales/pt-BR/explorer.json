@@ -24,7 +24,10 @@
     "hideHidden": "Ocultar itens ocultos",
     "create": "Criar",
     "save": "Salvar",
-    "close": "Fechar"
+    "close": "Fechar",
+    "moveTo": "Mover para…",
+    "copyTo": "Copiar para…",
+    "selectNone": "Limpar seleção"
   },
   "view": {
     "details": "Detalhes",
@@ -117,5 +120,21 @@
     "toggle": "Mostrar/ocultar detalhes do envio",
     "skipped": "pulado",
     "failed": "falhou"
+  },
+  "moveTo": {
+    "titleOne": "Mover \"{{name}}\" para…",
+    "titleMany": "Mover {{count}} itens para…",
+    "confirm": "Mover aqui",
+    "cancel": "Cancelar",
+    "destination": "Destino:",
+    "foldersLabel": "Pastas",
+    "noSubfolders": "Não há subpastas aqui. Você pode mover para esta pasta ou criar uma nova.",
+    "cannotIntoItself": "Uma pasta não pode ser movida ou copiada para dentro dela mesma",
+    "alreadyThere": "Os itens selecionados já estão nesta pasta."
+  },
+  "copyTo": {
+    "titleOne": "Copiar \"{{name}}\" para…",
+    "titleMany": "Copiar {{count}} itens para…",
+    "confirm": "Copiar aqui"
   }
 }

@@ -41,6 +41,7 @@ export type ExplorerDialog =
   | { kind: "rename"; entry: ExplorerEntry }
   | { kind: "delete"; entries: ExplorerEntry[] }
   | { kind: "uploadConflict"; uploads: PendingUpload[]; destination: string; conflicts: string[] }
+  | { kind: "transferTo"; entries: ExplorerEntry[]; mode: "copy" | "move" }
   | { kind: "edit"; path: string }
   | { kind: "preview"; entry: ExplorerEntry; url: string };
 
@@ -216,6 +217,19 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
   }
 
   const selectAll = () => setSelected(new Set(entries.map((e) => e.path)));
+  /** Checkbox click: add/remove one item without touching the rest. */
+  function toggle(entry: ExplorerEntry) {
+    anchorRef.current = entry.path;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(entry.path)) next.delete(entry.path);
+      else next.add(entry.path);
+      return next;
+    });
+  }
+  /** Header checkbox: select all, or clear when everything is selected. */
+  const toggleAll = () =>
+    entries.length > 0 && entries.every((e) => selected.has(e.path)) ? setSelected(new Set()) : selectAll();
   const clearSelection = () => setSelected(new Set());
 
   function moveSelection(delta: number, extend: boolean) {
@@ -315,12 +329,12 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
   const copySelection = () => selectedEntries.length && setClipboard({ mode: "copy", entries: selectedEntries });
   const cutSelection = () => selectedEntries.length && setClipboard({ mode: "cut", entries: selectedEntries });
 
-  /** Paste into `destination` (current folder by default). Copying onto an
-   * existing name gets a Windows-style "- Copy" name; a cut onto an
-   * existing name is refused rather than overwriting silently. */
-  async function paste(destination: string = path) {
-    if (!clipboard) return;
-    const { mode, entries: items } = clipboard;
+  /** The one place files change folder -- paste, drag-and-drop and
+   * "Move to…/Copy to…" all go through here, so they share the same rules:
+   * a copy onto an existing name gets a Windows-style "- Copy" name, a move
+   * onto an existing name is skipped and reported (never overwritten), and
+   * nothing is moved/copied into itself or one of its own subfolders. */
+  async function transfer(items: ExplorerEntry[], destination: string, mode: "copy" | "move") {
     let taken: Set<string>;
     try {
       taken = await namesIn(destination);
@@ -328,13 +342,17 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
       setOperation({ status: "error", message: errorMessage(error) });
       return false;
     }
-    const ok = await run(async () => {
+    return run(async () => {
       const skipped: string[] = [];
       for (const item of items) {
-        if (mode === "cut" && parentPath(item.path) === destination) continue;
+        if (item.path === destination || destination.startsWith(`${item.path}/`)) {
+          skipped.push(item.name);
+          continue;
+        }
+        if (mode === "move" && parentPath(item.path) === destination) continue;
         let name = item.name;
         if (taken.has(name)) {
-          if (mode === "cut") {
+          if (mode === "move") {
             skipped.push(name);
             continue;
           }
@@ -345,27 +363,33 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
         else await mutations.move.mutateAsync({ path: item.path, newPath: target });
         taken.add(name);
       }
-      if (skipped.length) throw new Error(`Already exists in destination: ${skipped.join(", ")}`);
+      if (skipped.length) throw new Error(`Skipped (already exists in destination or is the destination itself): ${skipped.join(", ")}`);
     });
-    if (mode === "cut") setClipboard(null);
+  }
+
+  /** Paste into `destination` (current folder by default). */
+  async function paste(destination: string = path) {
+    if (!clipboard) return;
+    const ok = await transfer(clipboard.entries, destination, clipboard.mode === "cut" ? "move" : "copy");
+    if (clipboard.mode === "cut") setClipboard(null);
     return ok;
   }
 
-  /** Drag an item onto a folder: move (copy with Ctrl). */
+  /** Drag items onto a folder: move (copy with Ctrl). */
   async function dropEntries(paths: string[], destination: string, copyInstead: boolean) {
-    const items = paths
-      .map((p) => entryByPath.get(p))
-      .filter((e): e is ExplorerEntry => Boolean(e))
-      .filter((e) => e.path !== destination && !destination.startsWith(`${e.path}/`));
+    const items = paths.map((p) => entryByPath.get(p)).filter((e): e is ExplorerEntry => Boolean(e));
     if (items.length === 0) return;
-    await run(async () => {
-      for (const item of items) {
-        if (!copyInstead && parentPath(item.path) === destination) continue;
-        const target = joinPath(destination, item.name);
-        if (copyInstead) await mutations.copy.mutateAsync({ path: item.path, newPath: target });
-        else await mutations.move.mutateAsync({ path: item.path, newPath: target });
-      }
-    });
+    await transfer(items, destination, copyInstead ? "copy" : "move");
+  }
+
+  /** "Move to…"/"Copy to…": the folder picker's confirm. */
+  async function transferTo(entries: ExplorerEntry[], destination: string, mode: "copy" | "move") {
+    const ok = await transfer(entries, destination, mode);
+    if (ok) {
+      setDialog(null);
+      if (mode === "move") setSelected(new Set());
+    }
+    return ok;
   }
 
   async function download(targets: ExplorerEntry[] = selectedEntries) {
@@ -478,6 +502,9 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
     select,
     selectForContext,
     selectAll,
+    toggle,
+    toggleAll,
+    allSelected: entries.length > 0 && entries.every((e) => selected.has(e.path)),
     clearSelection,
     moveSelection,
     open,
@@ -491,6 +518,7 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
     cutSelection,
     paste,
     dropEntries,
+    transferTo,
     download,
     requestUpload,
     startUpload,

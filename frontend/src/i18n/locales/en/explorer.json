@@ -24,7 +24,10 @@
     "hideHidden": "Hide hidden items",
     "create": "Create",
     "save": "Save",
-    "close": "Close"
+    "close": "Close",
+    "moveTo": "Move to…",
+    "copyTo": "Copy to…",
+    "selectNone": "Select none"
   },
   "view": {
     "details": "Details",
@@ -117,5 +120,21 @@
     "toggle": "Show/hide upload details",
     "skipped": "skipped",
     "failed": "failed"
+  },
+  "moveTo": {
+    "titleOne": "Move \"{{name}}\" to…",
+    "titleMany": "Move {{count}} items to…",
+    "confirm": "Move here",
+    "cancel": "Cancel",
+    "destination": "Destination:",
+    "foldersLabel": "Folders",
+    "noSubfolders": "No subfolders here. You can move into this folder or create a new one.",
+    "cannotIntoItself": "A folder can't be moved or copied into itself",
+    "alreadyThere": "The selected items are already in this folder."
+  },
+  "copyTo": {
+    "titleOne": "Copy \"{{name}}\" to…",
+    "titleMany": "Copy {{count}} items to…",
+    "confirm": "Copy here"
   }
 }

@@ -24,6 +24,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FolderInput,
   FolderUp,
   LayoutGrid,
   Link2,
@@ -33,6 +34,8 @@ import {
   RefreshCw,
   Scissors,
   Search,
+  SquareCheck,
+  SquareX,
   Trash2,
   Upload,
   X,
@@ -183,7 +186,22 @@ export function FileExplorerPane({
   const totalSelectedSize = vm.selectedEntries.reduce((sum, e) => sum + (e.size ?? 0), 0);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-background text-sm">
+    <div
+      className="relative flex h-full min-h-0 flex-col bg-background text-sm"
+      onKeyDown={(event) => {
+        // The list handles its own keys; this catches the same shortcuts when
+        // focus sits on the toolbar or tree, so Ctrl+A/C/X/V don't depend on
+        // having clicked the list first. Text fields keep their own meaning.
+        const target = event.target as HTMLElement;
+        if (listRef.current?.contains(target)) return;
+        if (target.closest("input, textarea, [contenteditable=true]")) return;
+        if (target.closest('[role="dialog"]')) return;
+        // Only the shortcuts -- Enter/arrows on a focused toolbar button
+        // must keep activating/moving within the toolbar.
+        const shortcut = event.ctrlKey || event.metaKey || ["Delete", "F2", "F5"].includes(event.key);
+        if (shortcut) onListKeyDown(event as unknown as KeyboardEvent<HTMLDivElement>);
+      }}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -218,6 +236,8 @@ export function FileExplorerPane({
         <RibbonButton icon={<Scissors className="h-4 w-4" />} label={t("actions.cut")} shortcut="Ctrl+X" disabled={!hasSelection} onClick={vm.cutSelection} />
         <RibbonButton icon={<Copy className="h-4 w-4" />} label={t("actions.copy")} shortcut="Ctrl+C" disabled={!hasSelection} onClick={vm.copySelection} />
         <RibbonButton icon={<ClipboardPaste className="h-4 w-4" />} label={t("actions.paste")} shortcut="Ctrl+V" disabled={!vm.clipboard || busy} onClick={() => void vm.paste()} />
+        <RibbonButton icon={<FolderInput className="h-4 w-4" />} label={t("actions.moveTo")} disabled={!hasSelection || busy} onClick={() => vm.setDialog({ kind: "transferTo", entries: vm.selectedEntries, mode: "move" })} />
+        <RibbonButton icon={<Copy className="h-4 w-4" />} label={t("actions.copyTo")} disabled={!hasSelection || busy} onClick={() => vm.setDialog({ kind: "transferTo", entries: vm.selectedEntries, mode: "copy" })} />
         <RibbonButton icon={<Pencil className="h-4 w-4" />} label={t("actions.rename")} shortcut="F2" disabled={!single} onClick={() => askRename()} />
         <RibbonButton icon={<Trash2 className="h-4 w-4 text-destructive" />} label={t("actions.delete")} shortcut="Del" disabled={!hasSelection} onClick={() => askDelete()} />
         <Divider />
@@ -227,6 +247,9 @@ export function FileExplorerPane({
           disabled={!hasSelection || busy}
           onClick={() => void vm.download()}
         />
+        <Divider />
+        <RibbonButton icon={<SquareCheck className="h-4 w-4" />} label={t("actions.selectAll")} shortcut="Ctrl+A" disabled={vm.entries.length === 0 || vm.allSelected} onClick={vm.selectAll} />
+        <RibbonButton icon={<SquareX className="h-4 w-4" />} label={t("actions.selectNone")} shortcut="Esc" disabled={!hasSelection} onClick={vm.clearSelection} />
         <div className="flex-1" />
         <RibbonButton
           icon={vm.showHidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
@@ -388,6 +411,8 @@ export function FileExplorerPane({
                   "divider",
                   { label: t("actions.cut"), icon: <Scissors className="h-3.5 w-3.5" />, shortcut: "Ctrl+X", onClick: vm.cutSelection },
                   { label: t("actions.copy"), icon: <Copy className="h-3.5 w-3.5" />, shortcut: "Ctrl+C", onClick: vm.copySelection },
+                  { label: t("actions.moveTo"), icon: <FolderInput className="h-3.5 w-3.5" />, onClick: () => vm.setDialog({ kind: "transferTo", entries: vm.selectedEntries, mode: "move" }) },
+                  { label: t("actions.copyTo"), icon: <Copy className="h-3.5 w-3.5" />, onClick: () => vm.setDialog({ kind: "transferTo", entries: vm.selectedEntries, mode: "copy" }) },
                   { label: t("actions.pasteInto"), icon: <ClipboardPaste className="h-3.5 w-3.5" />, onClick: () => void vm.paste(menu.entry!.path), hidden: menu.entry.type !== "dir" || !vm.clipboard || vm.selectedEntries.length > 1 },
                   { label: t("actions.copyPath"), icon: <Link2 className="h-3.5 w-3.5" />, onClick: () => void navigator.clipboard?.writeText(vm.selectedEntries.map((e) => e.path).join("\n")) },
                   "divider",
@@ -409,7 +434,7 @@ export function FileExplorerPane({
           }
         />
       )}
-      <ExplorerDialogs vm={vm} />
+      <ExplorerDialogs vm={vm} quickAccess={quickAccess} />
     </div>
   );
 }
@@ -467,6 +492,14 @@ function DetailsView(props: ItemViewProps & { dateFormatter: Intl.DateTimeFormat
     <table className="w-full table-fixed border-collapse text-sm">
       <thead className="sticky top-0 z-[5] bg-card">
         <tr className="border-b border-border text-left text-xs text-muted-foreground">
+          <th className="w-9 py-1.5 pl-3">
+            <SelectBox
+              checked={vm.allSelected}
+              indeterminate={vm.selected.size > 0 && !vm.allSelected}
+              label={t("actions.selectAll")}
+              onToggle={vm.toggleAll}
+            />
+          </th>
           {columns.map((col) => (
             <th key={col.key} className={cn("px-3 py-1.5 font-medium", col.className)}>
               <button
@@ -500,6 +533,9 @@ function DetailsView(props: ItemViewProps & { dateFormatter: Intl.DateTimeFormat
               )}
               {...itemHandlers(props, entry)}
             >
+              <td className="py-1 pl-3">
+                <SelectBox checked={selected} label={entry.name} onToggle={() => vm.toggle(entry)} />
+              </td>
               <td className="px-3 py-1">
                 <div className="flex min-w-0 items-center gap-2">
                   <EntryIcon entry={entry} />
@@ -527,6 +563,37 @@ function DetailsView(props: ItemViewProps & { dateFormatter: Intl.DateTimeFormat
   );
 }
 
+/** Windows' "item check boxes": toggles one item without clearing the rest
+ * of the selection -- the discoverable way to pick several items (or all,
+ * from the header box) without knowing Ctrl/Shift+click. */
+function SelectBox({
+  checked,
+  indeterminate = false,
+  label,
+  onToggle,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <input
+      type="checkbox"
+      checked={checked}
+      ref={(el) => {
+        if (el) el.indeterminate = indeterminate;
+      }}
+      aria-label={label}
+      aria-checked={indeterminate ? "mixed" : checked}
+      className="h-4 w-4 cursor-pointer accent-primary align-middle"
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onChange={onToggle}
+    />
+  );
+}
+
 function kindLabel(entry: ExplorerEntry, t: (key: string, opts?: Record<string, unknown>) => string) {
   if (entry.type === "dir") return t("kinds.folder");
   const idx = entry.name.lastIndexOf(".");
@@ -547,13 +614,16 @@ function IconsView(props: ItemViewProps) {
             aria-selected={selected}
             title={entry.path}
             className={cn(
-              "flex cursor-default select-none flex-col items-center gap-1 rounded-md p-2 text-center",
+              "group relative flex cursor-default select-none flex-col items-center gap-1 rounded-md p-2 text-center",
               selected ? "bg-primary/15 ring-1 ring-primary/40" : "hover:bg-accent/50",
               cut.has(entry.path) && "opacity-50",
               props.drop.dropTarget === entry.path && "ring-1 ring-primary"
             )}
             {...itemHandlers(props, entry)}
           >
+            <div className={cn("absolute left-1.5 top-1.5", !selected && "opacity-0 group-hover:opacity-100 focus-within:opacity-100")}>
+              <SelectBox checked={selected} label={entry.name} onToggle={() => vm.toggle(entry)} />
+            </div>
             <EntryIcon entry={entry} large />
             <span className="line-clamp-2 w-full break-all text-xs">{entry.name}</span>
           </div>
@@ -617,7 +687,13 @@ function AddressBar({
       title={t("nav.editAddress")}
     >
       <HardDriveMini />
-      <div className="flex min-w-0 items-center overflow-x-auto">
+      <div
+        className="flex min-w-0 items-center overflow-x-auto"
+        // Long paths: show the end (current folder), like Explorer does.
+        ref={(el) => {
+          if (el) el.scrollLeft = el.scrollWidth;
+        }}
+      >
         {segments.map((segment, index) => (
           <span key={segment.path} className="flex shrink-0 items-center">
             {index > 1 && <ChevronRight className="h-3 w-3 text-muted-foreground" />}

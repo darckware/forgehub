@@ -11,9 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { isValidName, useExplorerFileContent } from "@/hooks/useFileExplorer";
 import { errorMessage, type FileExplorerViewModel } from "@/hooks/useFileExplorerViewModel";
+import { FolderPickerDialog } from "./FolderPickerDialog";
+import type { QuickAccessItem } from "./ExplorerTree";
 
 /** Every modal the Explorer can show, driven by `vm.dialog`. */
-export function ExplorerDialogs({ vm }: { vm: FileExplorerViewModel }) {
+export function ExplorerDialogs({ vm, quickAccess }: { vm: FileExplorerViewModel; quickAccess: QuickAccessItem[] }) {
   const { t } = useTranslation("explorer");
   const dialog = vm.dialog;
   const working = vm.operation.status === "working";
@@ -109,6 +111,10 @@ export function ExplorerDialogs({ vm }: { vm: FileExplorerViewModel }) {
         </Button>
       </ConfirmDialog>
     );
+  }
+
+  if (dialog.kind === "transferTo") {
+    return <FolderPickerDialog vm={vm} entries={dialog.entries} mode={dialog.mode} quickAccess={quickAccess} />;
   }
 
   if (dialog.kind === "edit") {
