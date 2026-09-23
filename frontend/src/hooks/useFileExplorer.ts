@@ -241,3 +241,66 @@ export function fileKind(entry: Pick<ExplorerEntry, "name" | "type">): string {
     return "code";
   return isTextLike(entry.name) ? "text" : "file";
 }
+
+// ---------------------------------------------------------------------------
+// Quick access (per user, server-side). The backend stores only this user's
+// deviations from the built-in list -- pinned folders and hidden built-ins --
+// and mergeQuickAccess applies them. See db/models/file_explorer.py.
+// ---------------------------------------------------------------------------
+
+export interface QuickAccessRow {
+  path: string;
+  label: string | null;
+  hidden: boolean;
+}
+
+export interface QuickAccessEntry {
+  label: string;
+  path: string;
+  icon?: "home" | "drive" | "star" | "folder" | "pin";
+  /** true = pinned by the user (unpin deletes the row); false = built-in (unpin hides it). */
+  pinned: boolean;
+}
+
+export function mergeQuickAccess(
+  builtins: Omit<QuickAccessEntry, "pinned">[],
+  rows: QuickAccessRow[]
+): { entries: QuickAccessEntry[]; hiddenCount: number } {
+  const hidden = new Set(rows.filter((r) => r.hidden).map((r) => r.path));
+  const builtinPaths = new Set(builtins.map((b) => b.path));
+  const entries: QuickAccessEntry[] = builtins
+    .filter((b) => !hidden.has(b.path))
+    .map((b) => ({ ...b, pinned: false }));
+  for (const row of rows) {
+    if (row.hidden || builtinPaths.has(row.path)) continue;
+    entries.push({ label: row.label || baseName(row.path), path: row.path, icon: "pin", pinned: true });
+  }
+  return { entries, hiddenCount: rows.filter((r) => r.hidden && builtinPaths.has(r.path)).length };
+}
+
+const QUICK_ACCESS = `${RESOURCE}/quick-access`;
+
+export function useQuickAccessRows() {
+  return useQuery({
+    queryKey: ["file-explorer-quick-access"],
+    queryFn: () => apiClient.get<QuickAccessRow[]>(QUICK_ACCESS),
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+export function useQuickAccessMutations() {
+  const queryClient = useQueryClient();
+  const onSettled = () => queryClient.invalidateQueries({ queryKey: ["file-explorer-quick-access"] });
+  return {
+    pin: useMutation({
+      mutationFn: ({ path, label, hidden = false }: { path: string; label?: string; hidden?: boolean }) =>
+        apiClient.put<QuickAccessRow>(QUICK_ACCESS, { path, label, hidden }),
+      onSettled,
+    }),
+    unpin: useMutation({
+      mutationFn: (path: string) => apiClient.delete<void>(QUICK_ACCESS, { params: { path } }),
+      onSettled,
+    }),
+  };
+}

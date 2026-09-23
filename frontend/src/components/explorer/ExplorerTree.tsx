@@ -1,14 +1,11 @@
 import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive, Home, Loader2, Star } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive, Home, Loader2, Pin, PinOff, RotateCcw, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { baseName, useExplorerListing } from "@/hooks/useFileExplorer";
+import { baseName, useExplorerListing, type QuickAccessEntry } from "@/hooks/useFileExplorer";
 
-export interface QuickAccessItem {
-  label: string;
-  path: string;
-  icon?: "home" | "drive" | "star" | "folder";
-}
+/** A built-in Quick access entry, before the user's pins/unpins are merged in. */
+export type QuickAccessItem = Omit<QuickAccessEntry, "pinned">;
 
 export interface TreeDropHandlers {
   onDragOver: (event: DragEvent, path: string) => void;
@@ -21,22 +18,57 @@ export interface TreeDropHandlers {
 export function ExplorerTree({
   currentPath,
   quickAccess,
+  hiddenCount,
   showHidden,
   onNavigate,
+  onUnpin,
+  onRestoreDefaults,
+  pinDrop,
   drop,
 }: {
   currentPath: string;
-  quickAccess: QuickAccessItem[];
+  quickAccess: QuickAccessEntry[];
+  hiddenCount: number;
   showHidden: boolean;
   onNavigate: (path: string) => void;
+  onUnpin: (entry: QuickAccessEntry) => void;
+  onRestoreDefaults: () => void;
+  /** Dropping folders on the "Quick access" heading pins them, like Explorer. */
+  pinDrop: {
+    onDragOver: (event: DragEvent) => void;
+    onDragLeave: () => void;
+    onDrop: (event: DragEvent) => void;
+    active: boolean;
+  };
   drop: TreeDropHandlers;
 }) {
   const { t } = useTranslation("explorer");
   return (
     <nav aria-label={t("tree.label")} className="flex min-h-0 flex-col overflow-auto py-2 text-sm">
-      <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {t("tree.quickAccess")}
+      <div
+        className={cn(
+          "mx-1 flex items-center gap-1 rounded-sm px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground",
+          pinDrop.active && "bg-primary/10 ring-1 ring-primary"
+        )}
+        title={t("tree.quickAccessHelp")}
+        onDragOver={pinDrop.onDragOver}
+        onDragLeave={pinDrop.onDragLeave}
+        onDrop={pinDrop.onDrop}
+      >
+        <span className="flex-1">{t("tree.quickAccess")}</span>
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            className="flex items-center gap-0.5 rounded px-1 normal-case tracking-normal hover:bg-accent hover:text-foreground"
+            title={t("tree.restoreDefaultsHelp", { count: hiddenCount })}
+            onClick={onRestoreDefaults}
+          >
+            <RotateCcw className="h-3 w-3" />
+            {t("tree.restoreDefaults")}
+          </button>
+        )}
       </div>
+      <div role="group" aria-label={t("tree.quickAccess")}>
       {quickAccess.map((item) => (
         <TreeRow
           key={`qa-${item.path}`}
@@ -49,8 +81,10 @@ export function ExplorerTree({
           onClick={() => onNavigate(item.path)}
           onDragOver={(e) => drop.onDragOver(e, item.path)}
           onDrop={(e) => drop.onDrop(e, item.path)}
+          action={{ label: t("actions.unpin"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => onUnpin(item) }}
         />
       ))}
+      </div>
       <div className="mt-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {t("tree.thisComputer")}
       </div>
@@ -64,6 +98,7 @@ function quickIcon(icon: QuickAccessItem["icon"]) {
   if (icon === "home") return <Home className={cn(cls, "text-sky-500")} />;
   if (icon === "drive") return <HardDrive className={cn(cls, "text-muted-foreground")} />;
   if (icon === "star") return <Star className={cn(cls, "text-amber-500")} />;
+  if (icon === "pin") return <Pin className={cn(cls, "text-primary")} />;
   return <Folder className={cn(cls, "text-amber-400")} />;
 }
 
@@ -155,6 +190,7 @@ function TreeRow({
   onClick,
   onDragOver,
   onDrop,
+  action,
 }: {
   depth: number;
   label: string;
@@ -167,6 +203,8 @@ function TreeRow({
   onClick: () => void;
   onDragOver: (event: DragEvent) => void;
   onDrop: (event: DragEvent) => void;
+  /** Hover-revealed row action (Quick access rows: unpin). */
+  action?: { label: string; icon: ReactNode; onClick: () => void };
 }) {
   return (
     <div
@@ -196,6 +234,17 @@ function TreeRow({
         {icon}
         <span className="truncate">{label}</span>
       </button>
+      {action && (
+        <button
+          type="button"
+          className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+          title={action.label}
+          aria-label={`${action.label}: ${label}`}
+          onClick={action.onClick}
+        >
+          {action.icon}
+        </button>
+      )}
     </div>
   );
 }

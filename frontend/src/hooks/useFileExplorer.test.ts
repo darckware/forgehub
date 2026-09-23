@@ -85,3 +85,31 @@ describe("topLevelNames", () => {
     ).toEqual(["site", "notes.txt"]);
   });
 });
+
+import { mergeQuickAccess } from "./useFileExplorer";
+
+describe("mergeQuickAccess", () => {
+  const builtins = [
+    { label: "Home", path: "/root", icon: "home" as const },
+    { label: "Root (/)", path: "/", icon: "drive" as const },
+  ];
+
+  it("hides removed built-ins, appends pins, and never duplicates a built-in", () => {
+    const { entries, hiddenCount } = mergeQuickAccess(builtins, [
+      { path: "/", label: null, hidden: true },
+      { path: "/srv/data", label: null, hidden: false },
+      { path: "/root", label: null, hidden: false },
+      { path: "/opt/app", label: "App", hidden: false },
+    ]);
+    expect(entries.map((e) => [e.label, e.pinned])).toEqual([
+      ["Home", false],
+      ["data", true],
+      ["App", true],
+    ]);
+    expect(hiddenCount).toBe(1);
+  });
+
+  it("returns the built-ins untouched when the user changed nothing", () => {
+    expect(mergeQuickAccess(builtins, []).entries.every((e) => !e.pinned)).toBe(true);
+  });
+});

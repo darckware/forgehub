@@ -6,6 +6,7 @@ import {
   downloadExplorerPath,
   downloadExplorerZip,
   joinPath,
+  mergeQuickAccess,
   parentPath,
   saveBlob,
   uploadExplorerFile,
@@ -13,7 +14,10 @@ import {
   useExplorerMutations,
   useExplorerSearch,
   useInvalidateExplorer,
+  useQuickAccessMutations,
+  useQuickAccessRows,
   type ExplorerEntry,
+  type QuickAccessEntry,
 } from "@/hooks/useFileExplorer";
 import { topLevelNames, type PendingUpload } from "@/components/explorer/droppedFiles";
 
@@ -538,3 +542,63 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
 }
 
 export type FileExplorerViewModel = ReturnType<typeof useFileExplorerViewModel>;
+
+/**
+ * Quick access ViewModel: merges the built-in entries with this user's
+ * server-side pins/unpins (useQuickAccessRows) and exposes pin/unpin in the
+ * terms the UI uses. Unpinning a user pin deletes its row; unpinning a
+ * built-in stores a hidden row (so it stays gone on every browser); pinning
+ * a hidden built-in just deletes that hidden row, bringing it back in its
+ * original place.
+ */
+export function useQuickAccessViewModel(builtins: Omit<QuickAccessEntry, "pinned">[]) {
+  const rows = useQuickAccessRows();
+  const { pin, unpin } = useQuickAccessMutations();
+  const [error, setError] = useState<string | null>(null);
+  const { entries, hiddenCount } = useMemo(() => mergeQuickAccess(builtins, rows.data ?? []), [builtins, rows.data]);
+  const builtinPaths = useMemo(() => new Set(builtins.map((b) => b.path)), [builtins]);
+  const has = (path: string) => entries.some((e) => e.path === path);
+
+  async function act(action: () => Promise<unknown>) {
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  return {
+    entries,
+    hiddenCount,
+    error,
+    busy: pin.isPending || unpin.isPending,
+    dismissError: () => setError(null),
+    has,
+    /** Pin every folder not already there. */
+    pinPaths: (paths: string[]) =>
+      act(async () => {
+        for (const path of paths) {
+          if (has(path)) continue;
+          if (builtinPaths.has(path)) await unpin.mutateAsync(path); // un-hide the built-in
+          else await pin.mutateAsync({ path });
+        }
+      }),
+    unpinPaths: (paths: string[]) =>
+      act(async () => {
+        for (const path of paths) {
+          if (!has(path)) continue;
+          if (builtinPaths.has(path)) await pin.mutateAsync({ path, hidden: true });
+          else await unpin.mutateAsync(path);
+        }
+      }),
+    restoreDefaults: () =>
+      act(async () => {
+        for (const row of rows.data ?? []) {
+          if (row.hidden) await unpin.mutateAsync(row.path);
+        }
+      }),
+  };
+}
+
+export type QuickAccessViewModel = ReturnType<typeof useQuickAccessViewModel>;

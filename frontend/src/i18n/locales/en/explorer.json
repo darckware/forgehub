@@ -27,7 +27,11 @@
     "close": "Close",
     "moveTo": "Move to…",
     "copyTo": "Copy to…",
-    "selectNone": "Select none"
+    "selectNone": "Select none",
+    "pin": "Pin to Quick access",
+    "unpin": "Unpin from Quick access",
+    "pinCurrent": "Pin this folder to Quick access",
+    "unpinCurrent": "Unpin this folder from Quick access"
   },
   "view": {
     "details": "Details",
@@ -58,7 +62,10 @@
     "home": "Home",
     "projects": "Projects",
     "workingDir": "Working folder",
-    "root": "Root (/)"
+    "root": "Root (/)",
+    "quickAccessHelp": "Drag folders here to pin them. Hover an entry to unpin it.",
+    "restoreDefaults": "Restore",
+    "restoreDefaultsHelp": "Bring back {{count}} removed default entries"
   },
   "list": {
     "label": "Folder contents",

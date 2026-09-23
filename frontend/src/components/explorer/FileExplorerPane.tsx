@@ -31,6 +31,8 @@ import {
   List,
   Loader2,
   Pencil,
+  Pin,
+  PinOff,
   RefreshCw,
   Scissors,
   Search,
@@ -51,7 +53,12 @@ import {
   pathSegments,
   type ExplorerEntry,
 } from "@/hooks/useFileExplorer";
-import { useFileExplorerViewModel, type ExplorerSortKey, type FileExplorerViewModel } from "@/hooks/useFileExplorerViewModel";
+import {
+  useFileExplorerViewModel,
+  useQuickAccessViewModel,
+  type ExplorerSortKey,
+  type FileExplorerViewModel,
+} from "@/hooks/useFileExplorerViewModel";
 import { ExplorerDialogs } from "./ExplorerDialogs";
 import { ExplorerTree, type QuickAccessItem } from "./ExplorerTree";
 import { filesFromDataTransfer, filesFromInput, isExternalFileDrag } from "./droppedFiles";
@@ -82,6 +89,8 @@ export function FileExplorerPane({
 }) {
   const { t, i18n } = useTranslation("explorer");
   const vm = useFileExplorerViewModel(initialPath, onPathChange);
+  const qa = useQuickAccessViewModel(quickAccess);
+  const [pinDropActive, setPinDropActive] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -185,6 +194,33 @@ export function FileExplorerPane({
 
   const totalSelectedSize = vm.selectedEntries.reduce((sum, e) => sum + (e.size ?? 0), 0);
 
+  // Quick access targets, Explorer-style: the selected folders, or the
+  // current folder when nothing (or no folder) is selected.
+  const selectedDirs = vm.selectedEntries.filter((e) => e.type === "dir").map((e) => e.path);
+  const pinTargets = selectedDirs.length > 0 ? selectedDirs : [vm.path];
+  const pinTargetsAllPinned = pinTargets.every(qa.has);
+  const pinDrop = {
+    active: pinDropActive,
+    onDragOver: (event: DragEvent) => {
+      if (!Array.from(event.dataTransfer.types).includes(INTERNAL_DRAG_TYPE)) return;
+      event.preventDefault();
+      // Must be one of the drag's effectAllowed ("copyMove", set in
+      // onDragStartEntry) -- "link" made the browser silently refuse the drop.
+      event.dataTransfer.dropEffect = "copy";
+      setPinDropActive(true);
+    },
+    onDragLeave: () => setPinDropActive(false),
+    onDrop: (event: DragEvent) => {
+      event.preventDefault();
+      setPinDropActive(false);
+      const raw = event.dataTransfer.getData(INTERNAL_DRAG_TYPE);
+      if (!raw) return;
+      const paths = new Set(JSON.parse(raw) as string[]);
+      const dirs = vm.entries.filter((e) => e.type === "dir" && paths.has(e.path)).map((e) => e.path);
+      if (dirs.length) void qa.pinPaths(dirs);
+    },
+  };
+
   return (
     <div
       className="relative flex h-full min-h-0 flex-col bg-background text-sm"
@@ -250,6 +286,12 @@ export function FileExplorerPane({
         <Divider />
         <RibbonButton icon={<SquareCheck className="h-4 w-4" />} label={t("actions.selectAll")} shortcut="Ctrl+A" disabled={vm.entries.length === 0 || vm.allSelected} onClick={vm.selectAll} />
         <RibbonButton icon={<SquareX className="h-4 w-4" />} label={t("actions.selectNone")} shortcut="Esc" disabled={!hasSelection} onClick={vm.clearSelection} />
+        <RibbonButton
+          icon={pinTargetsAllPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+          label={pinTargetsAllPinned ? t("actions.unpin") : t("actions.pin")}
+          disabled={qa.busy}
+          onClick={() => void (pinTargetsAllPinned ? qa.unpinPaths(pinTargets) : qa.pinPaths(pinTargets))}
+        />
         <div className="flex-1" />
         <RibbonButton
           icon={vm.showHidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
@@ -308,7 +350,17 @@ export function FileExplorerPane({
       {/* Body */}
       <div className="flex min-h-0 flex-1">
         <div className="hidden w-60 shrink-0 border-r border-border md:flex md:flex-col">
-          <ExplorerTree currentPath={vm.path} quickAccess={quickAccess} showHidden={vm.showHidden} onNavigate={vm.navigate} drop={drop} />
+          <ExplorerTree
+            currentPath={vm.path}
+            quickAccess={qa.entries}
+            hiddenCount={qa.hiddenCount}
+            showHidden={vm.showHidden}
+            onNavigate={vm.navigate}
+            onUnpin={(entry) => void qa.unpinPaths([entry.path])}
+            onRestoreDefaults={() => void qa.restoreDefaults()}
+            pinDrop={pinDrop}
+            drop={drop}
+          />
         </div>
 
         <div
@@ -385,6 +437,15 @@ export function FileExplorerPane({
             {t("status.working")}
           </span>
         )}
+        {qa.error && (
+          <span className="flex min-w-0 items-center gap-1 text-destructive">
+            <AlertCircle className="h-3 w-3 shrink-0" />
+            <span className="truncate" title={qa.error}>{qa.error}</span>
+            <button type="button" aria-label={t("actions.close")} onClick={qa.dismissError}>
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        )}
         {vm.operation.status === "error" && !vm.dialog && (
           <span className="flex min-w-0 items-center gap-1 text-destructive">
             <AlertCircle className="h-3 w-3 shrink-0" />
@@ -415,6 +476,8 @@ export function FileExplorerPane({
                   { label: t("actions.copyTo"), icon: <Copy className="h-3.5 w-3.5" />, onClick: () => vm.setDialog({ kind: "transferTo", entries: vm.selectedEntries, mode: "copy" }) },
                   { label: t("actions.pasteInto"), icon: <ClipboardPaste className="h-3.5 w-3.5" />, onClick: () => void vm.paste(menu.entry!.path), hidden: menu.entry.type !== "dir" || !vm.clipboard || vm.selectedEntries.length > 1 },
                   { label: t("actions.copyPath"), icon: <Link2 className="h-3.5 w-3.5" />, onClick: () => void navigator.clipboard?.writeText(vm.selectedEntries.map((e) => e.path).join("\n")) },
+                  { label: t("actions.pin"), icon: <Pin className="h-3.5 w-3.5" />, onClick: () => void qa.pinPaths(selectedDirs), hidden: selectedDirs.length === 0 || selectedDirs.every(qa.has) },
+                  { label: t("actions.unpin"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => void qa.unpinPaths(selectedDirs), hidden: selectedDirs.length === 0 || !selectedDirs.some(qa.has) },
                   "divider",
                   { label: t("actions.rename"), icon: <Pencil className="h-3.5 w-3.5" />, shortcut: "F2", onClick: () => askRename(menu.entry!), hidden: vm.selectedEntries.length > 1 },
                   { label: t("actions.delete"), icon: <Trash2 className="h-3.5 w-3.5 text-destructive" />, shortcut: "Del", onClick: () => askDelete(), destructive: true },
@@ -429,12 +492,15 @@ export function FileExplorerPane({
                   "divider",
                   { label: t("actions.selectAll"), icon: <List className="h-3.5 w-3.5" />, shortcut: "Ctrl+A", onClick: vm.selectAll },
                   { label: t("actions.copyPath"), icon: <Link2 className="h-3.5 w-3.5" />, onClick: () => void navigator.clipboard?.writeText(vm.path) },
+                  qa.has(vm.path)
+                    ? { label: t("actions.unpinCurrent"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => void qa.unpinPaths([vm.path]) }
+                    : { label: t("actions.pinCurrent"), icon: <Pin className="h-3.5 w-3.5" />, onClick: () => void qa.pinPaths([vm.path]) },
                   { label: t("nav.refresh"), icon: <RefreshCw className="h-3.5 w-3.5" />, shortcut: "F5", onClick: vm.refresh },
                 ]
           }
         />
       )}
-      <ExplorerDialogs vm={vm} quickAccess={quickAccess} />
+      <ExplorerDialogs vm={vm} quickAccess={qa.entries} />
     </div>
   );
 }

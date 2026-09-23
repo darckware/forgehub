@@ -27,7 +27,11 @@
     "close": "Fechar",
     "moveTo": "Mover para…",
     "copyTo": "Copiar para…",
-    "selectNone": "Limpar seleção"
+    "selectNone": "Limpar seleção",
+    "pin": "Fixar no Acesso rápido",
+    "unpin": "Desafixar do Acesso rápido",
+    "pinCurrent": "Fixar esta pasta no Acesso rápido",
+    "unpinCurrent": "Desafixar esta pasta do Acesso rápido"
   },
   "view": {
     "details": "Detalhes",
@@ -58,7 +62,10 @@
     "home": "Início",
     "projects": "Projetos",
     "workingDir": "Pasta de trabalho",
-    "root": "Raiz (/)"
+    "root": "Raiz (/)",
+    "quickAccessHelp": "Arraste pastas para cá para fixá-las. Passe o mouse sobre um item para desafixá-lo.",
+    "restoreDefaults": "Restaurar",
+    "restoreDefaultsHelp": "Trazer de volta {{count}} itens padrão removidos"
   },
   "list": {
     "label": "Conteúdo da pasta",

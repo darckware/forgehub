@@ -29,6 +29,8 @@ from collections.abc import AsyncIterator
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import delete as sa_delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.file_explorer import (
     ExplorerContentUpdate,
@@ -39,10 +41,13 @@ from app.api.schemas.file_explorer import (
     ExplorerPath,
     ExplorerSearchResult,
     ExplorerZipRequest,
+    QuickAccessEntryOut,
+    QuickAccessPin,
 )
 from app.core.config import settings
 from app.core.deps import get_current_admin
-from app.db.base import AsyncSessionLocal
+from app.db.base import AsyncSessionLocal, get_db
+from app.db.models.file_explorer import ExplorerQuickAccessEntry
 from app.db.models.governance import AuditEvent
 from app.db.models.user import User
 
@@ -266,3 +271,60 @@ async def download_zip(payload: ExplorerZipRequest, user: User = Depends(get_cur
     for p in paths:
         await _audit("downloaded", p, user, {"archive": payload.name})
     return response
+
+
+# ---------------------------------------------------------------------------
+# Quick access (per user). Only the user's deviations from the built-in list
+# are stored -- see db/models/file_explorer.py. No host-bridge call and no
+# audit event: this is navigation preference, not a filesystem change.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/quick-access", response_model=list[QuickAccessEntryOut])
+async def list_quick_access(
+    user: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> list[ExplorerQuickAccessEntry]:
+    result = await db.execute(
+        select(ExplorerQuickAccessEntry)
+        .where(ExplorerQuickAccessEntry.user_id == user.id)
+        .order_by(ExplorerQuickAccessEntry.created_at)
+    )
+    return list(result.scalars())
+
+
+@router.put("/quick-access", response_model=QuickAccessEntryOut)
+async def pin_quick_access(
+    payload: QuickAccessPin, user: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> ExplorerQuickAccessEntry:
+    """Upsert by path: pin a folder (hidden=false) or remove a built-in
+    entry (hidden=true). Re-pinning an existing path keeps its position."""
+    path = _normalize(payload.path)
+    entry = (
+        await db.execute(
+            select(ExplorerQuickAccessEntry).where(
+                ExplorerQuickAccessEntry.user_id == user.id, ExplorerQuickAccessEntry.path == path
+            )
+        )
+    ).scalar_one_or_none()
+    if entry is None:
+        entry = ExplorerQuickAccessEntry(user_id=user.id, path=path)
+        db.add(entry)
+    entry.hidden = payload.hidden
+    entry.label = (payload.label or "").strip() or None
+    await db.commit()
+    await db.refresh(entry)
+    return entry
+
+
+@router.delete("/quick-access", status_code=status.HTTP_204_NO_CONTENT)
+async def unpin_quick_access(
+    path: str = Query(...), user: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> None:
+    """Drop this user's row for `path`: a pinned folder disappears, a hidden
+    built-in comes back. Idempotent."""
+    await db.execute(
+        sa_delete(ExplorerQuickAccessEntry).where(
+            ExplorerQuickAccessEntry.user_id == user.id, ExplorerQuickAccessEntry.path == _normalize(path)
+        )
+    )
+    await db.commit()

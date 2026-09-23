@@ -27,7 +27,11 @@
     "close": "Cerrar",
     "moveTo": "Mover a…",
     "copyTo": "Copiar a…",
-    "selectNone": "No seleccionar nada"
+    "selectNone": "No seleccionar nada",
+    "pin": "Anclar a Acceso rápido",
+    "unpin": "Desanclar de Acceso rápido",
+    "pinCurrent": "Anclar esta carpeta a Acceso rápido",
+    "unpinCurrent": "Desanclar esta carpeta de Acceso rápido"
   },
   "view": {
     "details": "Detalles",
@@ -58,7 +62,10 @@
     "home": "Inicio",
     "projects": "Proyectos",
     "workingDir": "Carpeta de trabajo",
-    "root": "Raíz (/)"
+    "root": "Raíz (/)",
+    "quickAccessHelp": "Arrastra carpetas aquí para anclarlas. Pasa el ratón sobre un elemento para desanclarlo.",
+    "restoreDefaults": "Restaurar",
+    "restoreDefaultsHelp": "Recuperar {{count}} elementos predeterminados eliminados"
   },
   "list": {
     "label": "Contenido de la carpeta",
