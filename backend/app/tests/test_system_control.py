@@ -10,26 +10,19 @@ from pathlib import Path
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
 
 
-def _admin_headers() -> dict[str, str]:
-    # Real seeded admin user (see .env's DEV_USER_USERNAME) -- system
-    # control's routes are gated with Depends(get_current_admin), which
-    # looks the username up in the DB and checks is_admin, so an arbitrary
-    # token subject (as other domains' tests use) won't pass here.
-    return {"Authorization": f"Bearer {create_access_token('admin')}"}
-
-
 @pytest_asyncio.fixture
-async def client():
+async def client(admin_headers):
+    # system control's routes are gated with Depends(get_current_admin),
+    # which checks a real active admin row -- see conftest's admin_headers.
     from app.main import app
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test", headers=_admin_headers()) as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=admin_headers) as ac:
         yield ac
 
 

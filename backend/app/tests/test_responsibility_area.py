@@ -39,7 +39,12 @@ async def world():
         version = ProductVersion(product_id=product.id, version="0.1.0")
         session.add(version)
         await session.flush()
-        project = Project(name=f"Responsibility Test Project {suffix}", product_version_id=version.id)
+        project = Project(
+            name=f"Responsibility Test Project {suffix}",
+            product_version_id=version.id,
+            # dispatch refuses to guess a cwd (demand.py _execute_dispatch).
+            working_directory_path="/tmp/forgehub-test-dispatch",
+        )
         session.add(project)
         await session.flush()
         item = PlanningItem(

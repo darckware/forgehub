@@ -271,7 +271,12 @@ async def test_list_installations_filters_os_and_workstation_and_orders_names(
     )
 
     assert unfiltered.status_code == windows.status_code == 200
-    assert [row["id"] for row in unfiltered.json()] == [
+    # The suite runs against the real database, which holds real
+    # installations too (e.g. a customer's package_ready row), so assert on
+    # this test's own rows -- still in the route's name order -- rather than
+    # on the whole table.
+    own_ids = {str(i) for i in context["installation_ids"]}
+    assert [row["id"] for row in unfiltered.json() if row["id"] in own_ids] == [
         str(context["installation_ids"][0]),
         str(context["installation_ids"][1]),
     ]

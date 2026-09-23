@@ -2,11 +2,15 @@
 contract (previously returned access_token="" -- a no-op that made the
 frontend's activity-based sliding session impossible; see
 useSessionKeepAlive on the frontend)."""
+import uuid
+
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 
-from app.core.config import settings
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, hash_password
+from app.db.base import AsyncSessionLocal
+from app.db.models.user import User
 
 
 @pytest_asyncio.fixture
@@ -18,15 +22,33 @@ async def client():
         yield ac
 
 
-async def test_login_then_me_reissues_a_fresh_access_token(client: AsyncClient, monkeypatch):
+@pytest_asyncio.fixture
+async def login_user():
+    """A throwaway active user with a known password. The test used to log
+    in as .env's DEV_USER_USERNAME, which only works while that seeded row
+    is active (or absent): once the real 'admin' account was deactivated,
+    login correctly refused it and this test 401'd for a reason unrelated
+    to what it checks."""
+    username = f"test-login-{uuid.uuid4().hex[:12]}"
+    password = uuid.uuid4().hex
+    async with AsyncSessionLocal() as db:
+        db.add(User(username=username, hashed_password=hash_password(password)))
+        await db.commit()
+    yield username, password
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(User).where(User.username == username))
+        await db.commit()
+
+
+async def test_login_then_me_reissues_a_fresh_access_token(client: AsyncClient, monkeypatch, login_user):
     async def accepted_captcha(token):
         return token == "synthetic-captcha"
 
+    username, password = login_user
     monkeypatch.setattr("app.api.routes.auth.verify_recaptcha", accepted_captcha)
     resp = await client.post(
         "/api/v1/auth/token",
-        data={"username": settings.DEV_USER_USERNAME, "password": settings.DEV_USER_PASSWORD,
-              "recaptcha_token": "synthetic-captcha"},
+        data={"username": username, "password": password, "recaptcha_token": "synthetic-captcha"},
     )
     assert resp.status_code == 200, resp.text
     original_token = resp.json()["access_token"]
@@ -38,7 +60,7 @@ async def test_login_then_me_reissues_a_fresh_access_token(client: AsyncClient, 
     assert body["access_token"], "must not be blank -- this is the sliding-session refresh"
     payload = decode_access_token(body["access_token"])
     assert payload is not None
-    assert payload["sub"] == settings.DEV_USER_USERNAME
+    assert payload["sub"] == username
 
 
 async def test_me_requires_a_valid_token(client: AsyncClient):

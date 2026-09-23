@@ -1,5 +1,4 @@
 """Unit and integration tests for TOTP 2FA."""
-import json
 import pyotp
 import pytest
 import pytest_asyncio

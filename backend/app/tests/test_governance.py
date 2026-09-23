@@ -274,14 +274,20 @@ async def test_approving_project_task_approval_dispatches_it(client: AsyncClient
 
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        agent = Agent(name=f"Approval Dispatch Agent {suffix}", agent_type="executor")
+        agent = Agent(name=f"Approval Dispatch Agent {suffix}", agent_type="executor", runtime_type="claude")
         product = Product(name=f"Approval Dispatch Product {suffix}", status="active")
         db.add_all([agent, product])
         await db.flush()
         version = ProductVersion(product_id=product.id, version="0.1.0", status="planned")
         db.add(version)
         await db.flush()
-        project = Project(name=f"Approval Dispatch Project {suffix}", product_version_id=version.id, status="planned")
+        project = Project(
+            name=f"Approval Dispatch Project {suffix}",
+            product_version_id=version.id,
+            status="planned",
+            # dispatch refuses to guess a cwd (demand.py _execute_dispatch).
+            working_directory_path="/tmp/forgehub-test-dispatch",
+        )
         db.add(project)
         await db.flush()
         item = PlanningItem(title="Approval-gated item", item_type="feature", project_id=project.id)

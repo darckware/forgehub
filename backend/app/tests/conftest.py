@@ -5,13 +5,16 @@ token (it validates the JWT itself, not a user row), so every test client
 must send one. Domain test files keep their own `client` fixture (some add
 extra setup) and take `auth_headers` from here to build it.
 """
+import uuid
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select, text
 
-from app.core.security import create_access_token
+from app.core.security import create_access_token, hash_password
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent
+from app.db.models.user import User
 
 # The free-text `from_agent` most demand tests post with. create_demand
 # auto-resolves it to a real Agent row by profile_slug (_find_agent_by_slug),
@@ -72,6 +75,25 @@ async def clean_stale_agent_fixtures():
 @pytest.fixture
 def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {create_access_token('test-suite')}"}
+
+
+@pytest_asyncio.fixture
+async def admin_headers():
+    """Bearer headers for a throwaway admin created for this test and
+    deleted afterwards. Routes behind get_current_admin look the token's
+    subject up in `users` (active + is_admin), so an arbitrary subject like
+    auth_headers' won't pass -- and borrowing a seeded user ('admin', or
+    "the first admin") made tests pass or 401 depending on whether that row
+    was still active, which is how 10 system_control tests broke once the
+    seeded 'admin' account was deactivated."""
+    username = f"test-admin-{uuid.uuid4().hex[:12]}"
+    async with AsyncSessionLocal() as db:
+        db.add(User(username=username, hashed_password=hash_password(uuid.uuid4().hex), is_admin=True))
+        await db.commit()
+    yield {"Authorization": f"Bearer {create_access_token(username)}"}
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(User).where(User.username == username))
+        await db.commit()
 
 
 @pytest_asyncio.fixture
