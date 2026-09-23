@@ -3,43 +3,43 @@
 </p>
 
 <p align="center">
-  <strong>Plano de controle para planejar, governar e executar projetos de software com agentes de IA.</strong>
+  <strong>Control plane for planning, governing, and executing software projects with AI agents.</strong>
 </p>
 
 <p align="center">
-  <a href="#visao-geral">Visão Geral</a> ·
-  <a href="#principais-funcionalidades">Funcionalidades</a> ·
-  <a href="#arquitetura">Arquitetura</a> ·
-  <a href="#tecnologias">Tecnologias</a> ·
-  <a href="#instalação">Instalação</a> ·
-  <a href="#documentação">Documentação</a>
+  <a href="#overview">Overview</a> ·
+  <a href="#key-features">Features</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#technologies">Technologies</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#documentation">Documentation</a>
 </p>
 
 ---
 
-## Visão Geral
+## Overview
 
-ForgeHub é o plano de controle que substitui a antiga stack "Hermes Agent Forge" para planejar, governar e executar projetos de software conduzidos por agentes de IA. O produto registra produtos/versões/projetos, define estágios de pipeline com artefatos obrigatórios e gates de aprovação, quebra itens de planejamento (features, bugs etc.) em tasks, despacha essas tasks para agentes executores e mantém uma trilha de auditoria ligando cada entidade de volta a uma versão de produto.
+ForgeHub is the control plane that replaces the former "Hermes Agent Forge" stack for planning, governing, and executing software projects driven by AI agents. The product registers products/versions/projects, defines pipeline stages with mandatory artifacts and approval gates, breaks planning items (features, bugs, etc.) down into tasks, dispatches those tasks to executor agents, and keeps an audit trail linking every entity back to a product version.
 
-O invariante central do domínio: nenhuma feature, bug, task, skill, execução ou artefato pode existir sem vínculo a produto, versão, projeto, planejamento, pipeline, responsável, status, trilha de auditoria e critérios de validação. A maior parte das tabelas existe para preservar essa cadeia de rastreabilidade, não apenas para armazenar dados.
+The core invariant of the domain: no feature, bug, task, skill, execution, or artifact can exist without a link to a product, version, project, planning item, pipeline, owner, status, audit trail, and validation criteria. Most tables exist to preserve this traceability chain, not merely to store data.
 
-Toda comunicação e execução de tasks entre agentes acontece por um único canal — **Messages** (`company.agent_demands`) — acessível pela tela do produto, por um MCP server dedicado (`forgehub`) ou pelo script `send_agent_message.sh`. Não há mais integração com ferramentas externas de board de tarefas (Kanboard foi descontinuado e removido do código em 2026-07-28).
+All communication and task execution between agents happens through a single channel — **Messages** (`company.agent_demands`) — accessible from the product's screen, a dedicated MCP server (`forgehub`), or the `send_agent_message.sh` script. There is no longer any integration with external task-board tools (Kanboard was discontinued and removed from the code on 2026-07-28).
 
-Na composição manual, **De (agente)** identifica obrigatoriamente o agente responsável pela mensagem. **Para** pode ficar em branco: nesse caso, o trabalho é endereçado ao próprio agente de **De**. O tipo é sempre explícito e limitado a `Task` ou `Incubation`; uma `Task` sem destinatário informado usa o remetente como destinatário e recebe agendamento imediato quando nenhum horário é escolhido.
+In manual composition, **From (agent)** must always identify the agent responsible for the message. **To** may be left blank: in that case, the work is addressed to the **From** agent itself. The type is always explicit and limited to `Task` or `Incubation`; a `Task` with no recipient specified uses the sender as the recipient and is scheduled immediately when no time is chosen.
 
-## Principais Funcionalidades
+## Key Features
 
-- **Governança de produto e pipeline** — cadastro de produtos, versões e projetos; definição de estágios de pipeline com artefatos obrigatórios e gates de aprovação antes de avançar o trabalho.
-- **Rastreabilidade planejamento → execução** — quebra de features/bugs em tasks, atribuição a agentes, dependências entre tasks (gate de bloqueio no dispatch) e telemetria de execução por agente.
-- **Cockpit Produto → Projeto** — árvore agregada com as cinco fases da Fábrica de Software (Conceito, System Map, Backlog/Planejamento, Tasks, Governance) e custo por projeto.
-- **Canal Messages (agente ↔ agente e execução de task)** — todo dispatch de task passa pelo mesmo canal de mensagens, com timeout de despacho, teto de concorrência, reprocessamento manual de falhas e feedback opcional por Telegram.
-- **Incubação** — mensagens sem execução imediata ficam "estacionadas" até o agente dono decidir recebê-las (viram Task) ou descartá-las, com prazo de maturação automático.
-- **Registro de agentes** — agentes executores/coordenadores, sub-agentes, skills, credenciais de serviço revogáveis, arquivos de perfil (SOUL.md/IDENTITY.md/...), servidores MCP por runtime e status do canal Telegram.
-- **Trilha de auditoria e governança** — aprovações e eventos de auditoria como entidades de primeira classe, com referência polimórfica (entity_type/entity_id).
-- **Inbox/Docs/Chat** — canal de intake convertível em task/doc/artefato/planning item; área de documentação em Markdown; chat com streaming SSE para os agentes Hermes.
-- **Ferramentas operacionais** — cron jobs, scripts, exploração de banco de dados, status do Hindsight (memória), controle de Git/sistema e inventário de servidores (com cofre de chaves SSH cifrado).
+- **Product and pipeline governance** — registration of products, versions, and projects; definition of pipeline stages with mandatory artifacts and approval gates before work can move forward.
+- **Planning → execution traceability** — breaking down features/bugs into tasks, assignment to agents, dependencies between tasks (a blocking gate at dispatch), and per-agent execution telemetry.
+- **Product → Project Cockpit** — an aggregated tree with the five phases of the Software Factory (Concept, System Map, Backlog/Planning, Tasks, Governance) and per-project cost.
+- **Messages channel (agent ↔ agent and task execution)** — every task dispatch goes through the same message channel, with a dispatch timeout, a concurrency cap, manual reprocessing of failures, and optional Telegram feedback.
+- **Incubation** — messages with no immediate execution stay "parked" until the owning agent decides to receive them (they become a Task) or discard them, with an automatic maturation deadline.
+- **Agent registry** — executor/coordinator agents, sub-agents, skills, revocable service credentials, profile files (SOUL.md/IDENTITY.md/...), per-runtime MCP servers, and Telegram channel status.
+- **Audit trail and governance** — approvals and audit events as first-class entities, with a polymorphic reference (entity_type/entity_id).
+- **Inbox/Docs/Chat** — an intake channel convertible into a task/doc/artifact/planning item; a Markdown documentation area; chat with SSE streaming to the Hermes agents.
+- **Operational tools** — cron jobs, scripts, database exploration, Hindsight (memory) status, Git/system control, and server inventory (with an encrypted SSH key vault).
 
-## Arquitetura
+## Architecture
 
 ```text
 Frontend (React/Vite)
@@ -47,92 +47,92 @@ Frontend (React/Vite)
    ▼
 Backend (FastAPI, /api/v1/*)
    │
-   ├── PostgreSQL "company" schema (company_postgres:5433) — dados do ForgeHub
-   ├── PostgreSQL "foundation" (foundation_postgres:5432) — dados internos Hermes/Hindsight
-   ├── host-bridge (systemd, :8910) — proxy para processos Hermes reais no host
-   │      ├── chat streaming (SSE) e execução de agentes
-   │      └── gateway de mensageria cross-channel (Telegram/Discord/Slack)
-   └── Hindsight — memória semântica coletiva (proxy read-only)
+   ├── PostgreSQL "company" schema (company_postgres:5433) — ForgeHub data
+   ├── PostgreSQL "foundation" (foundation_postgres:5432) — internal Hermes/Hindsight data
+   ├── host-bridge (systemd, :8910) — proxy to real Hermes processes on the host
+   │      ├── chat streaming (SSE) and agent execution
+   │      └── cross-channel messaging gateway (Telegram/Discord/Slack)
+   └── Hindsight — collective semantic memory (read-only proxy)
 ```
 
 ```mermaid
 flowchart LR
-    Client[Navegador] --> Frontend[React + Vite / nginx]
+    Client[Browser] --> Frontend[React + Vite / nginx]
     Frontend --> API[FastAPI /api/v1]
-    API --> DB[(PostgreSQL - schema company)]
+    API --> DB[(PostgreSQL - company schema)]
     API --> Bridge[host-bridge :8910]
-    Bridge --> Agents[Agentes Hermes / runtimes externos]
+    Bridge --> Agents[Hermes Agents / external runtimes]
     API --> Hindsight[(Hindsight - foundation_postgres)]
 ```
 
-O backend segue um **padrão de módulos de domínio**: cada domínio toca exatamente três camadas —
-`db/models/<domínio>.py` (SQLAlchemy), `api/schemas/<domínio>.py` (Pydantic) e
-`api/routes/<domínio>.py` (`APIRouter` dono do próprio prefixo `/api/v1/<recurso>`). Chaves
-estrangeiras entre domínios são declaradas em forma de string (`ForeignKey("company.<tabela>.id")`)
-para evitar acoplamento de ordem de import; todos os módulos são importados centralmente em
-`app/db/models/__init__.py` (também usado pelo Alembic para autogenerate).
+The backend follows a **domain-module pattern**: each domain touches exactly three layers —
+`db/models/<domain>.py` (SQLAlchemy), `api/schemas/<domain>.py` (Pydantic), and
+`api/routes/<domain>.py` (an `APIRouter` owning its own `/api/v1/<resource>` prefix). Cross-domain
+foreign keys are declared as strings (`ForeignKey("company.<table>.id")`) to avoid
+import-order coupling; all modules are imported centrally in
+`app/db/models/__init__.py` (also used by Alembic for autogenerate).
 
-## Tecnologias
+## Technologies
 
-| Camada | Tecnologia |
+| Layer | Technology |
 |---|---|
 | Backend | Python 3.11 · FastAPI · SQLAlchemy (async) + asyncpg · Alembic · OAuth2 password flow + JWT (python-jose) · pytest + httpx |
 | Frontend | React 18 + Vite · TypeScript · shadcn/ui (Tailwind + Radix, via class-variance-authority/clsx/tailwind-merge) + Framer Motion · TanStack Query + Zustand · React Hook Form + Zod · Vitest + React Testing Library |
-| Banco de dados | PostgreSQL (pgvector/pg16) — instância compartilhada `company_postgres`, schema `company` |
-| Mensageria/agentes | MCP servers (`host-bridge/forgehub_messages_mcp.py`, `forgehub_macro_mcp.py`, `forgehub_testing_mcp.py`) |
-| Diagramas/visualização (frontend) | Mermaid, `@xyflow/react`, `force-graph`/`3d-force-graph`, `markmap`, `@excalidraw/excalidraw`, `@xterm/xterm` |
-| Containerização | Docker + Docker Compose (rede externa compartilhada `foundation_network`) |
-| Proxy de LLMs | ForgeRouter (serviço externo ao repositório, integrado via SSO/API key) |
+| Database | PostgreSQL (pgvector/pg16) — shared instance `company_postgres`, `company` schema |
+| Messaging/agents | MCP servers (`host-bridge/forgehub_messages_mcp.py`, `forgehub_macro_mcp.py`, `forgehub_testing_mcp.py`) |
+| Diagrams/visualization (frontend) | Mermaid, `@xyflow/react`, `force-graph`/`3d-force-graph`, `markmap`, `@excalidraw/excalidraw`, `@xterm/xterm` |
+| Containerization | Docker + Docker Compose (shared external network `foundation_network`) |
+| LLM proxy | ForgeRouter (external service, not part of this repository, integrated via SSO/API key) |
 
-Ver [`docs/reference/TECHNOLOGY.md`](docs/reference/TECHNOLOGY.md) para a referência completa e autoritativa da stack (supera as seções §2/§3.2 de [`docs/specs/SPEC.md`](docs/specs/SPEC.md), que descrevem uma stack C#/ASP.NET Core desatualizada).
+See [`docs/reference/TECHNOLOGY.md`](docs/reference/TECHNOLOGY.md) for the complete, authoritative reference of the stack (supersedes sections §2/§3.2 of [`docs/specs/SPEC.md`](docs/specs/SPEC.md), which describe an outdated C#/ASP.NET Core stack).
 
-## Estrutura do Projeto
+## Project Structure
 
 ```text
 forgehub/
 ├── backend/
 │   ├── app/
-│   │   ├── api/routes/       # ~45 routers de domínio (product, task, demand, agent, ...)
-│   │   ├── api/schemas/      # schemas Pydantic por domínio
-│   │   ├── db/models/        # modelos SQLAlchemy por domínio
+│   │   ├── api/routes/       # ~45 domain routers (product, task, demand, agent, ...)
+│   │   ├── api/schemas/      # Pydantic schemas per domain
+│   │   ├── db/models/        # SQLAlchemy models per domain
 │   │   ├── core/             # config, security, feedback, agent_runs, etc.
-│   │   ├── tests/            # pytest + httpx contra app real e DB real
-│   │   └── main.py           # entrypoint FastAPI, monta todos os routers
-│   ├── alembic/versions/     # migrations (131 revisões)
+│   │   ├── tests/            # pytest + httpx against the real app and real DB
+│   │   └── main.py           # FastAPI entrypoint, mounts all routers
+│   ├── alembic/versions/     # migrations (131 revisions)
 │   └── requirements.txt
 ├── frontend/
-│   ├── src/pages/<domínio>/  # uma pasta por domínio (index.tsx, [id].tsx, Form)
-│   ├── src/hooks/use<Domínio>.ts  # hooks TanStack Query (67 arquivos)
-│   ├── src/components/ui/    # primitivas shadcn/ui
-│   ├── src/i18n/locales/     # en, pt-BR, es (parcial)
-│   └── nginx.conf            # proxy /api -> forgehub-backend:8000 (deploy Docker)
-├── host-bridge/               # processo systemd no host: chat SSE, MCP servers, mensageria
-├── database/postgres-company/ # documentação/definição do container Postgres compartilhado
-├── docs/                      # documentação de desenvolvimento (ver docs/README.md)
-├── help/                      # manual do usuário final e guias operacionais
-├── docker-compose.yml         # backend + frontend + hindsight, rede foundation_network
-└── dev.sh                     # launcher de desenvolvimento (hot-reload, sem Docker)
+│   ├── src/pages/<domain>/  # one folder per domain (index.tsx, [id].tsx, Form)
+│   ├── src/hooks/use<Domain>.ts  # TanStack Query hooks (67 files)
+│   ├── src/components/ui/    # shadcn/ui primitives
+│   ├── src/i18n/locales/     # en, pt-BR, es (partial)
+│   └── nginx.conf            # proxy /api -> forgehub-backend:8000 (Docker deploy)
+├── host-bridge/               # systemd process on host: SSE chat, MCP servers, messaging
+├── database/postgres-company/ # docs/definition of the shared Postgres container
+├── docs/                      # development documentation (see docs/README.md)
+├── help/                      # end-user manual and operational guides
+├── docker-compose.yml         # backend + frontend + hindsight, foundation_network network
+└── dev.sh                     # development launcher (hot-reload, no Docker)
 ```
 
-## Pré-requisitos
+## Prerequisites
 
 - Python 3.11+
 - Node.js/npm (Vite/React 18)
-- Uma instância PostgreSQL alcançável (pgvector/pg16), configurada via `.env` na raiz do repositório — ver [`docs/reference/DB_README.md`](docs/reference/DB_README.md)
-- Docker + Docker Compose — apenas para o caminho de deploy containerizado
+- A reachable PostgreSQL instance (pgvector/pg16), configured via `.env` at the repository root — see [`docs/reference/DB_README.md`](docs/reference/DB_README.md)
+- Docker + Docker Compose — only needed for the containerized deploy path
 
-## Instalação
+## Installation
 
 ```bash
-git clone <URL_DO_REPOSITORIO>
+git clone <REPOSITORY_URL>
 cd forgehub
 ```
 
-> A `origin` configurada neste checkout aponta para um repositório GitHub privado do autor; substitua pela URL do seu próprio fork/remote.
+> The `origin` configured in this checkout points to the author's private GitHub repository; replace it with the URL of your own fork/remote.
 
-`dev.sh` verifica automaticamente `.env`, `backend/.venv` e `frontend/node_modules`, criando/instalando o que estiver faltando em um checkout novo — não é necessário rodar os passos manuais abaixo se for usar `./dev.sh`.
+`dev.sh` automatically checks for `.env`, `backend/.venv`, and `frontend/node_modules`, creating/installing whatever is missing in a fresh checkout — you don't need to run the manual steps below if you're using `./dev.sh`.
 
-### Backend (manual, se não usar `dev.sh`)
+### Backend (manual, if not using `dev.sh`)
 
 ```bash
 cd backend
@@ -147,25 +147,25 @@ cd frontend
 npm install
 ```
 
-## Configuração
+## Configuration
 
-Não há `.env.example` versionado neste repositório; as variáveis abaixo (lidas por `backend/app/core/config.py`, via `pydantic-settings`) devem ser definidas em um `.env` na raiz:
+There is no versioned `.env.example` in this repository; the variables below (read by `backend/app/core/config.py`, via `pydantic-settings`) must be defined in a `.env` file at the root:
 
-| Variável | Obrigatória | Descrição |
+| Variable | Required | Description |
 |---|---:|---|
-| `POSTGRES_HOST` | Não (default `localhost`) | Host do PostgreSQL principal |
-| `POSTGRES_PORT` | Não (default `5433`) | Porta do PostgreSQL principal |
-| `POSTGRES_USER` | Não (default `foundation`) | Usuário do PostgreSQL |
-| `POSTGRES_PASSWORD` | Sim | Senha do PostgreSQL |
-| `POSTGRES_DB` | Não (default `forgehub`) | Nome do banco |
-| `POSTGRES_SCHEMA` | Não (default `company`) | Schema usado por todos os modelos |
-| `JWT_SECRET` | Sim (produção) | Chave de assinatura dos tokens JWT — o default é inseguro e apenas para dev |
-| `DEV_USER_USERNAME` / `DEV_USER_PASSWORD` | Não | Credenciais do usuário único hardcoded do placeholder de auth |
-| `CHAT_BRIDGE_URL` / `CHAT_BRIDGE_TOKEN` | Sim (para chat/dispatch) | Endereço e token do host-bridge (proxy para processos Hermes reais) |
-| `FORGEROUTER_URL` / `FORGEROUTER_SSO_SECRET` | Não | Integração de SSO com o ForgeRouter (proxy de LLMs) |
-| `FOUNDATION_POSTGRES_HOST` | Não (default `foundation_postgres`) | Segunda instância Postgres (dados internos Hermes/Hindsight) |
-| `HINDSIGHT_API_LLM_API_KEY` | Sim (para o serviço `hindsight` do compose) | Chave de LLM usada pelo Hindsight via ForgeRouter |
-| `MESSAGE_ATTACHMENTS_ROOT` | Não (default `/messages`) | Diretório onde anexos de mensagens são gravados |
+| `POSTGRES_HOST` | No (default `localhost`) | Main PostgreSQL host |
+| `POSTGRES_PORT` | No (default `5433`) | Main PostgreSQL port |
+| `POSTGRES_USER` | No (default `foundation`) | PostgreSQL user |
+| `POSTGRES_PASSWORD` | Yes | PostgreSQL password |
+| `POSTGRES_DB` | No (default `forgehub`) | Database name |
+| `POSTGRES_SCHEMA` | No (default `company`) | Schema used by all models |
+| `JWT_SECRET` | Yes (production) | JWT token signing key — the default is insecure and for dev only |
+| `DEV_USER_USERNAME` / `DEV_USER_PASSWORD` | No | Credentials for the single hardcoded user in the auth placeholder |
+| `CHAT_BRIDGE_URL` / `CHAT_BRIDGE_TOKEN` | Yes (for chat/dispatch) | Address and token of the host-bridge (proxy to real Hermes processes) |
+| `FORGEROUTER_URL` / `FORGEROUTER_SSO_SECRET` | No | SSO integration with ForgeRouter (LLM proxy) |
+| `FOUNDATION_POSTGRES_HOST` | No (default `foundation_postgres`) | Second Postgres instance (internal Hermes/Hindsight data) |
+| `HINDSIGHT_API_LLM_API_KEY` | Yes (for the compose's `hindsight` service) | LLM key used by Hindsight via ForgeRouter |
+| `MESSAGE_ATTACHMENTS_ROOT` | No (default `/messages`) | Directory where message attachments are written |
 
 ```env
 POSTGRES_PASSWORD=<POSTGRES_PASSWORD>
@@ -174,42 +174,42 @@ CHAT_BRIDGE_TOKEN=<CHAT_BRIDGE_TOKEN>
 HINDSIGHT_API_LLM_API_KEY=<HINDSIGHT_API_LLM_API_KEY>
 ```
 
-## Executando o Projeto
+## Running the Project
 
-### Desenvolvimento (recomendado — sem rebuild de Docker a cada mudança)
+### Development (recommended — no Docker rebuild per change)
 
 ```bash
-./dev.sh            # backend em :8001 (uvicorn --reload) + frontend em :5172 (vite dev)
-./dev.sh status      # o que está no ar
-./dev.sh stop        # para os dois
+./dev.sh            # backend on :8001 (uvicorn --reload) + frontend on :5172 (vite dev)
+./dev.sh status      # what's currently running
+./dev.sh stop        # stops both
 ./dev.sh restart     # stop + start
 ```
 
-Portas deliberadamente diferentes do deploy Docker (8000/4173) para que ambos possam rodar ao mesmo tempo. `dev.sh` nunca mata um processo que não iniciou: ele encerra quem estiver de fato escutando a porta (`lsof`), não um PID capturado.
+Ports deliberately different from the Docker deploy (8000/4173) so both can run at the same time. `dev.sh` never kills a process it didn't start: it stops whatever is actually listening on the port (`lsof`), not a captured PID.
 
-### Produção / Docker
+### Production / Docker
 
 ```bash
 docker compose up -d --build
 curl http://localhost:8000/health        # → {"status":"ok"}
 ```
 
-O compose sobe três serviços: `forgehub-backend` (:8000), `forgehub-frontend` (:4173, nginx servindo o build) e `hindsight` (:8888/:9999). Todos compartilham a rede externa `foundation_network` (criada manualmente com `docker network create foundation_network`), a mesma usada por `company_postgres`/`foundation_postgres`. O backend depende de múltiplos bind mounts do host (Knowledge Base, perfis Hermes, área de Docs, anexos de mensagens, `/` completo para as "áreas de criação") — ver comentários em [`docker-compose.yml`](docker-compose.yml).
+The compose brings up three services: `forgehub-backend` (:8000), `forgehub-frontend` (:4173, nginx serving the build), and `hindsight` (:8888/:9999). All of them share the external network `foundation_network` (created manually with `docker network create foundation_network`), the same one used by `company_postgres`/`foundation_postgres`. The backend depends on multiple host bind mounts (Knowledge Base, Hermes profiles, Docs area, message attachments, the full `/` for the "creation areas") — see the comments in [`docker-compose.yml`](docker-compose.yml).
 
-## Acesso à Aplicação
+## Application Access
 
-| Serviço | Dev (`dev.sh`) | Docker |
+| Service | Dev (`dev.sh`) | Docker |
 |---|---|---|
 | Frontend | `http://localhost:5172` | `http://localhost:4173` |
 | Backend / health | `http://localhost:8001/health` | `http://localhost:8000/health` |
-| Documentação interativa da API (Swagger) | `http://localhost:8001/docs` | `http://localhost:8000/docs` |
+| Interactive API documentation (Swagger) | `http://localhost:8001/docs` | `http://localhost:8000/docs` |
 
 ## API
 
-- Base: `/api/v1/*`, cada domínio dono do próprio prefixo (ex.: `/api/v1/products`, `/api/v1/tasks`, `/api/v1/demands`).
-- Autenticação: OAuth2 password flow + JWT (`POST /api/v1/auth/token`), validado por um `RequireAuthMiddleware` global; um pequeno conjunto de rotas fica público por necessidade estrutural (login, submissão de tasks/demands por agente via token de bridge, fila de pull de um agente).
-- Documentação viva: `/docs` (Swagger UI) e `/redoc`, gerados automaticamente pelo FastAPI.
-- Cerca de 45 routers de domínio estão montados em `backend/app/main.py` — não reproduzido aqui integralmente por já existir no Swagger.
+- Base: `/api/v1/*`, each domain owns its own prefix (e.g., `/api/v1/products`, `/api/v1/tasks`, `/api/v1/demands`).
+- Authentication: OAuth2 password flow + JWT (`POST /api/v1/auth/token`), validated by a global `RequireAuthMiddleware`; a small set of routes remains public out of structural necessity (login, task/demand submission by an agent via bridge token, an agent's pull queue).
+- Live documentation: `/docs` (Swagger UI) and `/redoc`, auto-generated by FastAPI.
+- About 45 domain routers are mounted in `backend/app/main.py` — not fully reproduced here since it's already available in Swagger.
 
 ```http
 POST /api/v1/auth/token
@@ -219,89 +219,89 @@ POST /api/v1/tasks/{id}/dispatch
 POST /api/v1/demands/submit
 ```
 
-## Banco de Dados
+## Database
 
 ```bash
 cd backend
-alembic upgrade head                              # aplica as 131 migrations existentes
-alembic revision --autogenerate -m "<mensagem>"   # nova migration (lê app/db/models/__init__.py)
+alembic upgrade head                              # applies the 131 existing migrations
+alembic revision --autogenerate -m "<message>"   # new migration (reads app/db/models/__init__.py)
 ```
 
-Todas as tabelas da aplicação vivem no schema `company` da instância compartilhada `company_postgres` (porta 5433) — nunca em `public` nem na instância `foundation_postgres` (reservada a dados internos Hermes/Hindsight). Detalhes de topologia em [`docs/reference/DB_README.md`](docs/reference/DB_README.md) e o dicionário de entidades em [`docs/reference/DATA_MODEL.md`](docs/reference/DATA_MODEL.md).
+All application tables live in the `company` schema of the shared instance `company_postgres` (port 5433) — never in `public` nor in the `foundation_postgres` instance (reserved for internal Hermes/Hindsight data). Topology details in [`docs/reference/DB_README.md`](docs/reference/DB_README.md) and the entity dictionary in [`docs/reference/DATA_MODEL.md`](docs/reference/DATA_MODEL.md).
 
-## Segurança
+## Security
 
-- Autenticação via OAuth2 password flow + JWT (`python-jose`), com `RequireAuthMiddleware` global e allowlist explícita para os poucos endpoints estruturalmente públicos.
-- `auth.py` é um **placeholder explícito**: valida contra um único usuário fixo (`DEV_USER_USERNAME`/`DEV_USER_PASSWORD`), sem domínio real de Users/Auth — fora de escopo na fase atual do produto.
-- Segredos sensíveis (chaves privadas SSH em `server.py`, chave de API do ForgeRouter por agente) são cifrados em repouso via `core/secrets.py` (Fernet) antes de ir ao banco; nenhum endpoint retorna o valor em texto puro, apenas um booleano de "configurado".
-- Rotas de bridge-token (usadas por agentes/MCP) validam o token no corpo da própria rota, com carve-outs explícitos no middleware para paths dinâmicos (`/demands/{id}/...`).
-- CORS habilitado via `CORSMiddleware` (ver `backend/app/main.py`).
+- Authentication via OAuth2 password flow + JWT (`python-jose`), with a global `RequireAuthMiddleware` and an explicit allowlist for the few structurally public endpoints.
+- `auth.py` is an **explicit placeholder**: it validates against a single fixed user (`DEV_USER_USERNAME`/`DEV_USER_PASSWORD`), with no real Users/Auth domain — out of scope at the product's current stage.
+- Sensitive secrets (SSH private keys in `server.py`, per-agent ForgeRouter API key) are encrypted at rest via `core/secrets.py` (Fernet) before reaching the database; no endpoint returns the plaintext value, only a "configured" boolean.
+- Bridge-token routes (used by agents/MCP) validate the token within the route itself, with explicit carve-outs in the middleware for dynamic paths (`/demands/{id}/...`).
+- CORS enabled via `CORSMiddleware` (see `backend/app/main.py`).
 
-Não há avaliação formal de segurança publicada neste repositório; trate os pontos acima como o que está implementado, não como uma certificação de "production-ready".
+There is no formal security assessment published in this repository; treat the points above as what is implemented, not as a "production-ready" certification.
 
-## Testes
+## Tests
 
 ```bash
-# Backend — pytest + httpx contra o FastAPI real e o banco real (sem mocks/rollback de transação)
+# Backend — pytest + httpx against the real FastAPI app and the real database (no mocks/transaction rollback)
 cd backend
-pytest                                              # todos os testes (52 arquivos)
-pytest app/tests/test_product.py                    # um domínio
-pytest app/tests/test_product.py::test_create_get_list_product   # um teste
+pytest                                              # all tests (52 files)
+pytest app/tests/test_product.py                    # a single domain
+pytest app/tests/test_product.py::test_create_get_list_product   # a single test
 
-# Frontend — Vitest + React Testing Library (ambiente jsdom)
+# Frontend — Vitest + React Testing Library (jsdom environment)
 cd frontend
 npm test
 ```
 
-Os testes de backend exigem que as migrations já tenham sido aplicadas (as tabelas precisam existir) e cada teste cria/limpa seus próprios dados (geralmente com sufixo UUID) em um `finally`.
+Backend tests require migrations to have already been applied (the tables need to exist), and each test creates/cleans up its own data (usually with a UUID suffix) in a `finally`.
 
-## Qualidade de Código
+## Code Quality
 
 ```bash
 cd backend
-ruff check app        # lint Python (ruff.toml: Pyflakes + regra B904)
+ruff check app        # Python lint (ruff.toml: Pyflakes + rule B904)
 ```
 
-Não há configuração de ESLint/Prettier no frontend neste repositório; `npm run build` roda `tsc -b` antes do build do Vite, funcionando como verificação de tipos.
+There is no ESLint/Prettier configuration on the frontend in this repository; `npm run build` runs `tsc -b` before the Vite build, acting as type checking.
 
-## Deploy
+## Deployment
 
-O único mecanismo de deploy presente no repositório é `docker compose up -d --build` (ver seção acima). Não há workflows de CI/CD (`.github/`), Kubernetes, Terraform ou Ansible neste repositório.
+The only deployment mechanism present in the repository is `docker compose up -d --build` (see section above). There are no CI/CD workflows (`.github/`), Kubernetes, Terraform, or Ansible in this repository.
 
-## Observabilidade
+## Observability
 
-- `GET /health` no backend, usado pelo próprio healthcheck do Docker Compose.
-- Página de **System Control** expõe status de git/último commit do repositório e aciona backup compactado de `/root/.hermes` via host-bridge.
-- Página de **Hindsight** expõe status/logs do daemon de memória (via host-bridge), com restart e limpeza de log administrativos.
-- Telemetria de execução por agente (`GET /api/v1/factory/agent-telemetry`) e custo por projeto no Cockpit, agregados a partir de `TaskExecution`/`TaskAssignment`/`AgentDemand`.
+- `GET /health` on the backend, used by Docker Compose's own healthcheck.
+- The **System Control** page exposes the repository's git status/last commit and triggers a compressed backup of `/root/.hermes` via host-bridge.
+- The **Hindsight** page exposes the memory daemon's status/logs (via host-bridge), with admin restart and log-clearing.
+- Per-agent execution telemetry (`GET /api/v1/factory/agent-telemetry`) and per-project cost in the Cockpit, aggregated from `TaskExecution`/`TaskAssignment`/`AgentDemand`.
 
-## Contribuição
+## Contribution
 
-O repositório documenta convenções de contribuição em [`AGENTS.md`](AGENTS.md) (estrutura, comandos, estilo de código, testes e mensagens de commit/PR). Fluxo básico:
+The repository documents contribution conventions in [`AGENTS.md`](AGENTS.md) (structure, commands, code style, tests, and commit/PR messages). Basic flow:
 
 ```bash
-git checkout -b feature/NOME_DA_FEATURE
-git commit -m "feat: descrição"
-git push origin feature/NOME_DA_FEATURE
+git checkout -b feature/FEATURE_NAME
+git commit -m "feat: description"
+git push origin feature/FEATURE_NAME
 ```
 
-## Licença
+## License
 
-Nenhum arquivo de licença foi identificado no repositório.
+No license file was found in the repository.
 
-## Documentação
+## Documentation
 
-| Documento | Conteúdo |
+| Document | Content |
 |---|---|
-| [`docs/README.md`](docs/README.md) | Mapa e hierarquia de autoridade de toda a documentação de desenvolvimento |
-| [`docs/specs/PRD.md`](docs/specs/PRD.md) | Visão de produto original, jornadas, definição de pronto (baseline histórico) |
-| [`docs/specs/SPEC.md`](docs/specs/SPEC.md) | Modelo de domínio, entidades e regras de negócio originais (stack §2/§3.2 está desatualizada) |
-| [`docs/reference/TECHNOLOGY.md`](docs/reference/TECHNOLOGY.md) | Stack tecnológica implementada (canônica) |
-| [`docs/reference/DATA_MODEL.md`](docs/reference/DATA_MODEL.md) | Dicionário de entidades implementadas |
-| [`docs/reference/BUSINESS_RULES.md`](docs/reference/BUSINESS_RULES.md) | Regras de negócio aplicadas hoje |
-| [`docs/reference/DB_README.md`](docs/reference/DB_README.md) | Topologia e configuração de conexão do banco |
-| [`docs/architecture/`](docs/architecture) | Arquitetura-alvo, protocolo de execução por agentes, readiness de implementação |
-| [`help/MANUAL.md`](help/MANUAL.md) | Manual operacional do usuário final |
-| [`help/TECH_STACK_GUIDE.md`](help/TECH_STACK_GUIDE.md) | Guia de stack tecnológico para os produtos que o ForgeHub gerencia |
-| [`AGENTS.md`](AGENTS.md) | Convenções de estrutura, build, teste e commit para contribuintes |
-| `http://localhost:8001/docs` (dev) ou `:8000/docs` (Docker) | Referência interativa da API (Swagger, gerada pelo FastAPI) |
+| [`docs/README.md`](docs/README.md) | Map and authority hierarchy of all development documentation |
+| [`docs/specs/PRD.md`](docs/specs/PRD.md) | Original product vision, journeys, definition of done (historical baseline) |
+| [`docs/specs/SPEC.md`](docs/specs/SPEC.md) | Original domain model, entities, and business rules (stack §2/§3.2 is outdated) |
+| [`docs/reference/TECHNOLOGY.md`](docs/reference/TECHNOLOGY.md) | Implemented technology stack (canonical) |
+| [`docs/reference/DATA_MODEL.md`](docs/reference/DATA_MODEL.md) | Dictionary of implemented entities |
+| [`docs/reference/BUSINESS_RULES.md`](docs/reference/BUSINESS_RULES.md) | Business rules applied today |
+| [`docs/reference/DB_README.md`](docs/reference/DB_README.md) | Database topology and connection configuration |
+| [`docs/architecture/`](docs/architecture) | Target architecture, agent execution protocol, implementation readiness |
+| [`help/MANUAL.md`](help/MANUAL.md) | End-user operational manual |
+| [`help/TECH_STACK_GUIDE.md`](help/TECH_STACK_GUIDE.md) | Technology stack guide for the products ForgeHub manages |
+| [`AGENTS.md`](AGENTS.md) | Structure, build, test, and commit conventions for contributors |
+| `http://localhost:8001/docs` (dev) or `:8000/docs` (Docker) | Interactive API reference (Swagger, generated by FastAPI) |
