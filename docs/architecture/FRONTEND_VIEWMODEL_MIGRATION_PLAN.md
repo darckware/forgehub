@@ -57,6 +57,7 @@ reality, not the other way around.
 ## Wave 0 — pilot (done)
 
 - [x] `frontend/src/hooks/useImprovePromptViewModel.ts` + `frontend/src/components/chat/ImprovePromptDialog.tsx` (2026-08-07)
+- [x] `frontend/src/hooks/useFileExplorerViewModel.ts` + `frontend/src/components/explorer/FileExplorerPane.tsx` (2026-09-23 — born converted: Workspace Explorer, `status` for the listing and a separate `operation` machine for actions)
 
 ## Wave 1 — Chat & Channels (active area, highest line count, highest risk)
 

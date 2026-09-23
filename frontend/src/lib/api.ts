@@ -185,6 +185,41 @@ async function postDownload(path: string, body?: unknown): Promise<{ blob: Blob;
   return downloadFromResponse(path, response);
 }
 
+/** PUT a raw body (a File/Blob, not multipart) with upload progress --
+ * fetch() still cannot report request-body progress, so this one helper
+ * uses XMLHttpRequest. Backs the Workspace Explorer's uploads, where a
+ * large file or a whole folder without a progress bar reads as a hang. */
+function uploadBinary<T>(
+  path: string,
+  body: Blob,
+  params?: RequestOptions["params"],
+  onProgress?: (loaded: number, total: number) => void,
+  signal?: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", buildUrl(path, params));
+    const token = getToken();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (event) => onProgress?.(event.loaded, event.lengthComputable ? event.total : body.size);
+    xhr.onload = () => {
+      let parsed: unknown = undefined;
+      try {
+        parsed = xhr.responseText ? JSON.parse(xhr.responseText) : undefined;
+      } catch {
+        // non-JSON body
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(parsed as T);
+      else reject(new ApiError(`Request to ${path} failed with status ${xhr.status}`, xhr.status, parsed));
+    };
+    xhr.onerror = () => reject(new ApiError(`Request to ${path} failed (network error)`, 0, undefined));
+    xhr.onabort = () => reject(new ApiError(`Request to ${path} was cancelled`, 0, undefined));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(body);
+  });
+}
+
 export const apiClient = {
   get: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "GET" }),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
@@ -197,4 +232,5 @@ export const apiClient = {
   delete: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "DELETE" }),
   downloadFile,
   postDownload,
+  uploadBinary,
 };

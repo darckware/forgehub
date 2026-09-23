@@ -41,6 +41,7 @@ from app.api.routes import (
     execution,
     docs,
     factory,
+    file_explorer,
     forgerouter,
     foundation,
     foundation_docs,
@@ -327,6 +328,7 @@ app.include_router(toolversions.router)
 app.include_router(system_info.router)
 app.include_router(systemstats.router)
 app.include_router(workspace_browser.router)
+app.include_router(file_explorer.router)
 app.include_router(vault.router)
 app.include_router(docs.router)
 app.include_router(demand.router)

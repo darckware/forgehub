@@ -1,0 +1,121 @@
+{
+  "tabLabel": "Explorador",
+  "openExplorer": "Abrir explorador de arquivos",
+  "actions": {
+    "new": "Novo",
+    "newFolder": "Nova pasta",
+    "newFile": "Novo arquivo",
+    "uploadFiles": "Enviar arquivos",
+    "uploadFolder": "Enviar pasta",
+    "cut": "Recortar",
+    "copy": "Copiar",
+    "paste": "Colar",
+    "pasteInto": "Colar na pasta",
+    "rename": "Renomear",
+    "delete": "Excluir",
+    "download": "Baixar",
+    "downloadZip": "Baixar {{count}} itens (.zip)",
+    "open": "Abrir",
+    "edit": "Editar",
+    "openLocation": "Abrir local do arquivo",
+    "copyPath": "Copiar caminho",
+    "selectAll": "Selecionar tudo",
+    "showHidden": "Mostrar itens ocultos",
+    "hideHidden": "Ocultar itens ocultos",
+    "create": "Criar",
+    "save": "Salvar",
+    "close": "Fechar"
+  },
+  "view": {
+    "details": "Detalhes",
+    "icons": "Ícones grandes"
+  },
+  "nav": {
+    "back": "Voltar (Alt+←)",
+    "forward": "Avançar (Alt+→)",
+    "up": "Subir um nível (Backspace)",
+    "refresh": "Atualizar",
+    "address": "Endereço",
+    "editAddress": "Clique para digitar um caminho"
+  },
+  "search": {
+    "label": "Pesquisar",
+    "placeholder": "Pesquisar em {{name}}",
+    "help": "Busca por nome nesta pasta e em todas as subpastas. Use * e ? como curinga, ex.: *.pdf",
+    "clear": "Limpar pesquisa",
+    "resultsIn": "Resultados para \"{{query}}\" em {{path}}",
+    "truncated": "a busca parou antes do fim — refine o termo",
+    "searching": "Pesquisando…",
+    "noResults": "Nenhum item corresponde à pesquisa."
+  },
+  "tree": {
+    "label": "Painel de navegação",
+    "quickAccess": "Acesso rápido",
+    "thisComputer": "Este computador",
+    "home": "Início",
+    "projects": "Projetos",
+    "workingDir": "Pasta de trabalho",
+    "root": "Raiz (/)"
+  },
+  "list": {
+    "label": "Conteúdo da pasta",
+    "loading": "Carregando…",
+    "error": "Não foi possível abrir esta pasta.",
+    "empty": "Esta pasta está vazia.",
+    "dropHint": "Arraste arquivos ou pastas para cá para enviar."
+  },
+  "columns": {
+    "name": "Nome",
+    "modified": "Data de modificação",
+    "type": "Tipo",
+    "size": "Tamanho"
+  },
+  "kinds": {
+    "folder": "Pasta de arquivos",
+    "file": "Arquivo",
+    "fileExt": "Arquivo {{ext}}"
+  },
+  "status": {
+    "items_one": "{{count}} item",
+    "items_other": "{{count}} itens",
+    "selected_one": "{{count}} item selecionado",
+    "selected_other": "{{count}} itens selecionados",
+    "clipboardCut_one": "{{count}} item recortado",
+    "clipboardCut_other": "{{count}} itens recortados",
+    "clipboardCopy_one": "{{count}} item copiado",
+    "clipboardCopy_other": "{{count}} itens copiados",
+    "working": "Processando…"
+  },
+  "dialogs": {
+    "newFolderTitle": "Nova pasta",
+    "newFileTitle": "Novo arquivo",
+    "renameTitle": "Renomear \"{{name}}\"",
+    "defaultFolderName": "Nova pasta",
+    "defaultFileName": "novo-arquivo.txt",
+    "nameLabel": "Nome",
+    "nameRequired": "Informe um nome.",
+    "nameInvalid": "O nome não pode conter \"/\" nem ser \".\" / \"..\".",
+    "deleteOneTitle": "Excluir \"{{name}}\"?",
+    "deleteManyTitle": "Excluir {{count}} itens?",
+    "deleteWarning": "A exclusão é definitiva no servidor. Não existe lixeira.",
+    "deleteFoldersWarning": "Pastas são excluídas com todo o conteúdo. A exclusão é definitiva — não existe lixeira.",
+    "conflictTitle_one": "{{count}} item já existe",
+    "conflictTitle_other": "{{count}} itens já existem",
+    "conflictDescription": "Substituir os arquivos existentes ou pular os que já existem? As pastas são mescladas nos dois casos.",
+    "replace": "Substituir existentes",
+    "skipExisting": "Pular arquivos existentes"
+  },
+  "editor": {
+    "contentLabel": "Conteúdo do arquivo",
+    "unsaved": "Alterações não salvas",
+    "saved": "Salvo",
+    "discardChanges": "Descartar as alterações não salvas?"
+  },
+  "upload": {
+    "progress": "Enviando {{done}} de {{total}} ({{percent}}%)",
+    "finished": "Envio concluído: {{done}} enviados, {{failed}} com falha, {{skipped}} pulados",
+    "toggle": "Mostrar/ocultar detalhes do envio",
+    "skipped": "pulado",
+    "failed": "falhou"
+  }
+}

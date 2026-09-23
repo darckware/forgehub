@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   Feather,
+  FolderOpen,
   Globe2,
   Loader2,
   MessageSquare,
@@ -52,6 +53,9 @@ import { ChannelPane } from "@/components/channel/ChannelPane";
 import { TelegramPane } from "@/components/TelegramPane";
 import { useAgents, useChattableAgents } from "@/hooks/useAgent";
 import { WebAppPane } from "@/components/WebAppPane";
+import { FileExplorerPane } from "@/components/explorer/FileExplorerPane";
+import type { QuickAccessItem } from "@/components/explorer/ExplorerTree";
+import { useProjects } from "@/hooks/useProject";
 import { useAssistantContext } from "@/hooks/useAssistant";
 import { useAssistantStore } from "@/store/assistantStore";
 import { useProducts } from "@/hooks/useProduct";
@@ -770,8 +774,10 @@ function LaunchersMenu({ onLaunch }: { onLaunch: (label: string, command: string
 
 export default function WorkspacePage() {
   const { t } = useTranslation("workspace");
+  const { t: tExplorer } = useTranslation("explorer");
   const { data: allAgents } = useAgents();
   const { data: products = [] } = useProducts();
+  const { data: projects = [] } = useProjects();
   const { data: chatableAgentsData } = useChattableAgents();
   const chatableAgents = chatableAgentsData ?? [];
 
@@ -958,6 +964,45 @@ export default function WorkspacePage() {
     if (existing) setActiveTabId(existing.id);
     else openWebTab();
   }
+
+  // Explorer: one tab is enough for most work, so the toolbar button
+  // focuses the existing one (like the web browser toggle) and only opens a
+  // second when none exists; the "..." of a tab strip is not needed here.
+  function openExplorerTab() {
+    const existing = tabs.find((tab) => tab.kind === "explorer");
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const id = crypto.randomUUID();
+    setTabs((current) => [...current, { kind: "explorer", id, label: tExplorer("tabLabel"), path: workingDir || "/root" }]);
+    setActiveTabId(id);
+  }
+
+  const updateExplorerTabPath = useCallback((tabId: string, path: string) => {
+    setTabs((current) =>
+      current.map((tab) => (tab.id === tabId && tab.kind === "explorer" ? { ...tab, path } : tab))
+    );
+  }, []);
+
+  const explorerQuickAccess = useMemo<QuickAccessItem[]>(() => {
+    const items: QuickAccessItem[] = [
+      { label: tExplorer("tree.home"), path: "/root", icon: "home" },
+      { label: tExplorer("tree.projects"), path: "/root/project", icon: "star" },
+    ];
+    if (workingDir && !items.some((item) => item.path === workingDir)) {
+      items.push({ label: tExplorer("tree.workingDir"), path: workingDir, icon: "star" });
+    }
+    const seen = new Set(items.map((item) => item.path));
+    for (const project of projects) {
+      const dir = project.working_directory_path?.replace(/\/+$/, "");
+      if (!dir || seen.has(dir)) continue;
+      seen.add(dir);
+      items.push({ label: project.name, path: dir, icon: "folder" });
+    }
+    items.push({ label: tExplorer("tree.root"), path: "/", icon: "drive" });
+    return items;
+  }, [projects, workingDir, tExplorer]);
 
   const updateWebTabUrl = useCallback((tabId: string, url: string) => {
     setTabs((current) =>
@@ -1379,6 +1424,16 @@ export default function WorkspacePage() {
           >
             <Bot className="h-4 w-4" />
           </Button>
+          <Button
+            variant={tabs.find((tab) => tab.id === activeTabId)?.kind === "explorer" ? "secondary" : "outline"}
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            title={tExplorer("openExplorer")}
+            aria-label={tExplorer("openExplorer")}
+            onClick={openExplorerTab}
+          >
+            <FolderOpen className="h-4 w-4 text-amber-400" />
+          </Button>
           <SshLauncherMenu onLaunch={openTerminalTab} />
           <LaunchersMenu onLaunch={openTerminalTab} />
           <div className="flex-1" />
@@ -1456,13 +1511,15 @@ export default function WorkspacePage() {
           {tabs.map((tab, index) => {
             const label = tab.kind === "chat" || tab.kind === "telegram"
               ? chatableAgents.find((agent) => agent.id === tab.agentId)?.name ?? t("tabs.defaultChatName")
+              : tab.kind === "explorer"
+              ? tExplorer("tabLabel")
               : tab.label;
             return (
               <WorkspaceTabItem
                 key={tab.id}
                 tab={tab}
                 label={label}
-                icon={tab.kind === "chat" ? <MessageSquare className="h-3.5 w-3.5" /> : tab.kind === "terminal" ? <SquareTerminal className="h-3.5 w-3.5" /> : tab.kind === "telegram" ? <Send className="h-3.5 w-3.5 text-sky-500" /> : <Globe2 className="h-3.5 w-3.5" />}
+                icon={tab.kind === "chat" ? <MessageSquare className="h-3.5 w-3.5" /> : tab.kind === "terminal" ? <SquareTerminal className="h-3.5 w-3.5" /> : tab.kind === "telegram" ? <Send className="h-3.5 w-3.5 text-sky-500" /> : tab.kind === "explorer" ? <FolderOpen className="h-3.5 w-3.5 text-amber-400" /> : <Globe2 className="h-3.5 w-3.5" />}
                 active={tab.id === activeTabId}
                 onSelect={() => setActiveTabId(tab.id)}
                 onClose={() => closeTab(tab.id)}
@@ -1543,6 +1600,15 @@ export default function WorkspacePage() {
                 agents={chatableAgents}
                 active={tab.id === activeTabId}
                 onAgentChange={(agentId) => handleTelegramAgentChange(tab.id, agentId)}
+              />
+            </div>
+          ) : tab.kind === "explorer" ? (
+            <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
+              <FileExplorerPane
+                initialPath={tab.path}
+                quickAccess={explorerQuickAccess}
+                active={tab.id === activeTabId}
+                onPathChange={(path) => updateExplorerTabPath(tab.id, path)}
               />
             </div>
           ) : (

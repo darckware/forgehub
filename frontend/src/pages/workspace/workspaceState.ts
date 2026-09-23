@@ -28,7 +28,8 @@ export type WorkspaceTab =
     }
   | { kind: "terminal"; id: string; label: string; command?: string; cwd?: string }
   | { kind: "telegram"; id: string; agentId: string }
-  | { kind: "web"; id: string; label: string; url: string; target?: WebAppTarget };
+  | { kind: "web"; id: string; label: string; url: string; target?: WebAppTarget }
+  | { kind: "explorer"; id: string; label: string; path: string };
 
 const nonEmptyString = z.string().trim().min(1);
 const webTargetSchema = z.discriminatedUnion("mode", [
@@ -64,6 +65,12 @@ const workspaceTabSchema = z.discriminatedUnion("kind", [
     label: nonEmptyString,
     url: nonEmptyString,
     target: webTargetSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal("explorer"),
+    id: nonEmptyString,
+    label: nonEmptyString,
+    path: nonEmptyString,
   }),
 ]);
 const workspaceTabsSchema = z.array(workspaceTabSchema);

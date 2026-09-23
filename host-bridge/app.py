@@ -54,7 +54,7 @@ import httpx
 import yaml
 import websockets
 
-from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, Request, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -4549,6 +4549,10 @@ class FsEntry(BaseModel):
     path: str
     type: str  # "file" | "dir"
     size: int | None = None
+    # Added for the Workspace Explorer (date column / symlink badge); both
+    # optional so the older callers (project file browser) are unaffected.
+    modified: float | None = None
+    is_symlink: bool = False
 
 
 class FsListResponse(BaseModel):
@@ -4572,12 +4576,15 @@ async def fs_list(path: str | None = Query(default=None), x_bridge_token: str | 
     for entry in children:
         try:
             is_dir = entry.is_dir()
+            st = entry.stat()
             entries.append(
                 FsEntry(
                     name=entry.name,
                     path=str(entry),
                     type="dir" if is_dir else "file",
-                    size=None if is_dir else entry.stat().st_size,
+                    size=None if is_dir else st.st_size,
+                    modified=st.st_mtime,
+                    is_symlink=entry.is_symlink(),
                 )
             )
         except OSError:
@@ -4733,6 +4740,258 @@ async def fs_chmod(req: FsChmodRequest, x_bridge_token: str | None = Header(defa
             detail=f"chmod failed: {result.stderr.strip()}",
         )
     return {"status": "ok", "path": str(target), "lock": req.lock}
+
+
+# ---------------------------------------------------------------------------
+# Workspace Explorer -- search / copy / binary download / streamed upload.
+# Same trust model as the /v1/fs/* routes above (bridge token is the
+# boundary; forgehub-backend's file_explorer.py is admin-only and decides
+# which paths may be touched). Kept separate from fs_read/fs_write because
+# those are text-only and capped at 2 MiB -- a file manager has to move
+# arbitrary bytes, so these never decode and never buffer a whole file.
+# ---------------------------------------------------------------------------
+
+# Directories a name search never descends into: they are huge, machine-
+# generated, and a hit inside them is almost never what "find my file"
+# means. Pseudo-filesystems are skipped for the same reason plus the risk
+# of blocking on a /proc entry.
+_SEARCH_SKIP_DIRS = {
+    ".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
+    ".pytest_cache", ".next", ".nuxt", ".turbo", ".parcel-cache", ".cache",
+}
+_SEARCH_SKIP_ROOTS = {"/proc", "/sys", "/dev", "/run", "/snap"}
+
+
+class FsSearchResponse(BaseModel):
+    path: str
+    query: str
+    entries: list[FsEntry]
+    truncated: bool
+
+
+def _fs_search_sync(root: Path, query: str, limit: int, deadline: float) -> tuple[list[FsEntry], bool]:
+    import fnmatch
+
+    q = query.lower()
+    use_glob = any(ch in q for ch in "*?[")
+    results: list[FsEntry] = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _SEARCH_SKIP_DIRS and os.path.join(dirpath, d) not in _SEARCH_SKIP_ROOTS
+        ]
+        for name, is_dir in [*((d, True) for d in dirnames), *((f, False) for f in filenames)]:
+            lowered = name.lower()
+            if not (fnmatch.fnmatch(lowered, q) if use_glob else q in lowered):
+                continue
+            full = os.path.join(dirpath, name)
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            results.append(
+                FsEntry(
+                    name=name,
+                    path=full,
+                    type="dir" if is_dir else "file",
+                    size=None if is_dir else st.st_size,
+                    modified=st.st_mtime,
+                    is_symlink=os.path.islink(full),
+                )
+            )
+            if len(results) >= limit:
+                return results, True
+        if time.monotonic() > deadline:
+            return results, True
+    return results, False
+
+
+@app.get("/v1/fs/search", response_model=FsSearchResponse)
+async def fs_search(
+    path: str = Query(...),
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=500, ge=1, le=5000),
+    x_bridge_token: str | None = Header(default=None),
+) -> FsSearchResponse:
+    """Recursive, case-insensitive name search under `path`. A query with
+    `*`/`?`/`[` is a glob matched against the whole name ("*.pdf"),
+    otherwise a substring. Bounded by `limit` hits and ~10s of walking --
+    `truncated` says either bound was hit, so the UI can tell "no more
+    matches" from "stopped looking"."""
+    _check_token(x_bridge_token)
+    root = Path(path)
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="Not a directory")
+    entries, truncated = await asyncio.to_thread(
+        _fs_search_sync, root, q.strip(), limit, time.monotonic() + 10.0
+    )
+    return FsSearchResponse(path=str(root), query=q, entries=entries, truncated=truncated)
+
+
+class FsCopyRequest(BaseModel):
+    path: str
+    new_path: str
+
+
+@app.post("/v1/fs/copy", response_model=FsEntry)
+async def fs_copy(req: FsCopyRequest, x_bridge_token: str | None = Header(default=None)) -> FsEntry:
+    """Copy a file or a whole directory tree (symlinks copied as links, not
+    followed). Never overwrites: 409 if new_path exists -- the Explorer
+    picks a free "name (copy)" name itself before calling."""
+    _check_token(x_bridge_token)
+    source = Path(req.path)
+    dest = Path(req.new_path)
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="Source not found")
+    if dest.exists():
+        raise HTTPException(status_code=409, detail="Destination already exists")
+    if source.is_dir() and (dest == source or source in dest.parents):
+        raise HTTPException(status_code=400, detail="Cannot copy a folder into itself")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if source.is_dir():
+        await asyncio.to_thread(shutil.copytree, source, dest, symlinks=True)
+    else:
+        await asyncio.to_thread(shutil.copy2, source, dest)
+    st = dest.stat()
+    return FsEntry(
+        name=dest.name,
+        path=str(dest),
+        type="dir" if dest.is_dir() else "file",
+        size=None if dest.is_dir() else st.st_size,
+        modified=st.st_mtime,
+    )
+
+
+def _iter_file(path: Path, cleanup: bool = False, chunk_size: int = 1024 * 1024):
+    try:
+        with open(path, "rb") as fh:
+            while chunk := fh.read(chunk_size):
+                yield chunk
+    finally:
+        if cleanup:
+            with contextlib.suppress(OSError):
+                path.unlink()
+
+
+def _zip_paths_sync(sources: list[Path]) -> Path:
+    """One .zip holding every source (files and whole folder trees), each
+    stored under its own name at the archive root -- what "Send to >
+    Compressed folder" produces for a multi-selection."""
+    import zipfile
+
+    fd, tmp_name = tempfile.mkstemp(prefix="fh-explorer-", suffix=".zip")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        for source in sources:
+            if source.is_file():
+                with contextlib.suppress(OSError):
+                    zf.write(source, arcname=source.name)
+                continue
+            for dirpath, dirnames, filenames in os.walk(source, followlinks=False):
+                rel_dir = Path(dirpath).relative_to(source.parent)
+                if not filenames and not dirnames:
+                    zf.write(dirpath, arcname=str(rel_dir) + "/")
+                for name in filenames:
+                    full = Path(dirpath) / name
+                    if full.is_symlink() and not full.exists():
+                        continue
+                    try:
+                        zf.write(full, arcname=str(rel_dir / name))
+                    except OSError:
+                        continue
+    return tmp
+
+
+def _download_response(body, filename: str, size: int, media_type: str) -> StreamingResponse:
+    from urllib.parse import quote as _quote
+
+    return StreamingResponse(
+        body,
+        media_type=media_type,
+        headers={
+            # Plain filename= first (ASCII fallback, what api.ts's parser
+            # reads), filename*= second for non-ASCII names.
+            "Content-Disposition": (
+                f"attachment; filename=\"{filename.encode('ascii', 'replace').decode().replace(chr(34), '_')}\"; "
+                f"filename*=UTF-8''{_quote(filename)}"
+            ),
+            "Content-Length": str(size),
+        },
+    )
+
+
+@app.get("/v1/fs/download")
+async def fs_download(path: str = Query(...), x_bridge_token: str | None = Header(default=None)):
+    """Stream a file's raw bytes, or a directory as a .zip built in a temp
+    file (removed once streamed). Content-Disposition carries the name."""
+    _check_token(x_bridge_token)
+    target = Path(path)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    if target.is_dir():
+        archive = await asyncio.to_thread(_zip_paths_sync, [target])
+        return _download_response(
+            _iter_file(archive, cleanup=True), f"{target.name or 'root'}.zip", archive.stat().st_size, "application/zip"
+        )
+    return _download_response(_iter_file(target), target.name, target.stat().st_size, "application/octet-stream")
+
+
+class FsZipRequest(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=1000)
+    name: str = "download.zip"
+
+
+@app.post("/v1/fs/download-zip")
+async def fs_download_zip(req: FsZipRequest, x_bridge_token: str | None = Header(default=None)):
+    """Multi-selection download: every path (files and folders) in one .zip."""
+    _check_token(x_bridge_token)
+    sources = [Path(p) for p in req.paths]
+    missing = [str(p) for p in sources if not p.exists()]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Not found: {', '.join(missing[:5])}")
+    names = [p.name for p in sources]
+    if len(set(names)) != len(names):
+        raise HTTPException(status_code=400, detail="Selected items share a name; download them separately")
+    archive = await asyncio.to_thread(_zip_paths_sync, sources)
+    name = Path(req.name).name or "download.zip"
+    return _download_response(_iter_file(archive, cleanup=True), name, archive.stat().st_size, "application/zip")
+
+
+@app.put("/v1/fs/upload", response_model=FsEntry)
+async def fs_upload(
+    request: Request,
+    path: str = Query(...),
+    overwrite: bool = Query(default=False),
+    x_bridge_token: str | None = Header(default=None),
+) -> FsEntry:
+    """Write the raw request body to `path`, streamed to a sibling temp file
+    and renamed into place only once complete -- an interrupted upload never
+    leaves a truncated file under the real name. 409 when the file exists
+    and overwrite is false (the UI asks the user first)."""
+    _check_token(x_bridge_token)
+    target = Path(path)
+    # Parents are created on demand: a folder upload sends each file with
+    # its relative path ("site/css/app.css"), so the tree is recreated by
+    # the files themselves rather than a separate mkdir round trip each.
+    if target.parent.exists() and not target.parent.is_dir():
+        raise HTTPException(status_code=409, detail="Destination parent is a file")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_dir():
+        raise HTTPException(status_code=409, detail="A folder with this name already exists")
+    if target.exists() and not overwrite:
+        raise HTTPException(status_code=409, detail="File already exists")
+    tmp = target.parent / f".{target.name}.{uuid.uuid4().hex[:8]}.part"
+    try:
+        with open(tmp, "wb") as fh:
+            async for chunk in request.stream():
+                fh.write(chunk)
+        os.replace(tmp, target)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+    st = target.stat()
+    return FsEntry(name=target.name, path=str(target), type="file", size=st.st_size, modified=st.st_mtime)
 
 
 # ---------------------------------------------------------------------------

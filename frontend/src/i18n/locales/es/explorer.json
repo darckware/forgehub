@@ -1,0 +1,121 @@
+{
+  "tabLabel": "Explorador",
+  "openExplorer": "Abrir explorador de archivos",
+  "actions": {
+    "new": "Nuevo",
+    "newFolder": "Nueva carpeta",
+    "newFile": "Nuevo archivo",
+    "uploadFiles": "Subir archivos",
+    "uploadFolder": "Subir carpeta",
+    "cut": "Cortar",
+    "copy": "Copiar",
+    "paste": "Pegar",
+    "pasteInto": "Pegar en la carpeta",
+    "rename": "Cambiar nombre",
+    "delete": "Eliminar",
+    "download": "Descargar",
+    "downloadZip": "Descargar {{count}} elementos (.zip)",
+    "open": "Abrir",
+    "edit": "Editar",
+    "openLocation": "Abrir ubicación del archivo",
+    "copyPath": "Copiar ruta",
+    "selectAll": "Seleccionar todo",
+    "showHidden": "Mostrar elementos ocultos",
+    "hideHidden": "Ocultar elementos ocultos",
+    "create": "Crear",
+    "save": "Guardar",
+    "close": "Cerrar"
+  },
+  "view": {
+    "details": "Detalles",
+    "icons": "Iconos grandes"
+  },
+  "nav": {
+    "back": "Atrás (Alt+←)",
+    "forward": "Adelante (Alt+→)",
+    "up": "Subir un nivel (Retroceso)",
+    "refresh": "Actualizar",
+    "address": "Dirección",
+    "editAddress": "Haz clic para escribir una ruta"
+  },
+  "search": {
+    "label": "Buscar",
+    "placeholder": "Buscar en {{name}}",
+    "help": "Búsqueda por nombre en esta carpeta y todas sus subcarpetas. Usa * y ? como comodines, p. ej.: *.pdf",
+    "clear": "Borrar búsqueda",
+    "resultsIn": "Resultados de \"{{query}}\" en {{path}}",
+    "truncated": "la búsqueda se detuvo antes — afina el término",
+    "searching": "Buscando…",
+    "noResults": "Ningún elemento coincide con la búsqueda."
+  },
+  "tree": {
+    "label": "Panel de navegación",
+    "quickAccess": "Acceso rápido",
+    "thisComputer": "Este equipo",
+    "home": "Inicio",
+    "projects": "Proyectos",
+    "workingDir": "Carpeta de trabajo",
+    "root": "Raíz (/)"
+  },
+  "list": {
+    "label": "Contenido de la carpeta",
+    "loading": "Cargando…",
+    "error": "No se pudo abrir esta carpeta.",
+    "empty": "Esta carpeta está vacía.",
+    "dropHint": "Arrastra archivos o carpetas aquí para subirlos."
+  },
+  "columns": {
+    "name": "Nombre",
+    "modified": "Fecha de modificación",
+    "type": "Tipo",
+    "size": "Tamaño"
+  },
+  "kinds": {
+    "folder": "Carpeta de archivos",
+    "file": "Archivo",
+    "fileExt": "Archivo {{ext}}"
+  },
+  "status": {
+    "items_one": "{{count}} elemento",
+    "items_other": "{{count}} elementos",
+    "selected_one": "{{count}} elemento seleccionado",
+    "selected_other": "{{count}} elementos seleccionados",
+    "clipboardCut_one": "{{count}} elemento cortado",
+    "clipboardCut_other": "{{count}} elementos cortados",
+    "clipboardCopy_one": "{{count}} elemento copiado",
+    "clipboardCopy_other": "{{count}} elementos copiados",
+    "working": "Procesando…"
+  },
+  "dialogs": {
+    "newFolderTitle": "Nueva carpeta",
+    "newFileTitle": "Nuevo archivo",
+    "renameTitle": "Cambiar nombre de \"{{name}}\"",
+    "defaultFolderName": "Nueva carpeta",
+    "defaultFileName": "nuevo-archivo.txt",
+    "nameLabel": "Nombre",
+    "nameRequired": "Escribe un nombre.",
+    "nameInvalid": "El nombre no puede contener \"/\" ni ser \".\" / \"..\".",
+    "deleteOneTitle": "¿Eliminar \"{{name}}\"?",
+    "deleteManyTitle": "¿Eliminar {{count}} elementos?",
+    "deleteWarning": "Se elimina definitivamente del servidor. No hay papelera.",
+    "deleteFoldersWarning": "Las carpetas se eliminan con todo su contenido. Es definitivo — no hay papelera.",
+    "conflictTitle_one": "{{count}} elemento ya existe",
+    "conflictTitle_other": "{{count}} elementos ya existen",
+    "conflictDescription": "¿Reemplazar los archivos existentes u omitir los que ya existen? Las carpetas se combinan en ambos casos.",
+    "replace": "Reemplazar existentes",
+    "skipExisting": "Omitir archivos existentes"
+  },
+  "editor": {
+    "contentLabel": "Contenido del archivo",
+    "unsaved": "Cambios sin guardar",
+    "saved": "Guardado",
+    "discardChanges": "¿Descartar los cambios sin guardar?"
+  },
+  "upload": {
+    "progress": "Subiendo {{done}} de {{total}} ({{percent}}%)",
+    "finished": "Subida terminada: {{done}} enviados, {{failed}} con error, {{skipped}} omitidos",
+    "toggle": "Mostrar/ocultar detalles de la subida",
+    "skipped": "omitido",
+    "failed": "falló"
+  }
+}

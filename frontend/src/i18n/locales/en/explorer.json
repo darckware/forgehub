@@ -1,0 +1,121 @@
+{
+  "tabLabel": "Explorer",
+  "openExplorer": "Open file explorer",
+  "actions": {
+    "new": "New",
+    "newFolder": "New folder",
+    "newFile": "New file",
+    "uploadFiles": "Upload files",
+    "uploadFolder": "Upload folder",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "pasteInto": "Paste into folder",
+    "rename": "Rename",
+    "delete": "Delete",
+    "download": "Download",
+    "downloadZip": "Download {{count}} items (.zip)",
+    "open": "Open",
+    "edit": "Edit",
+    "openLocation": "Open file location",
+    "copyPath": "Copy path",
+    "selectAll": "Select all",
+    "showHidden": "Show hidden items",
+    "hideHidden": "Hide hidden items",
+    "create": "Create",
+    "save": "Save",
+    "close": "Close"
+  },
+  "view": {
+    "details": "Details",
+    "icons": "Large icons"
+  },
+  "nav": {
+    "back": "Back (Alt+←)",
+    "forward": "Forward (Alt+→)",
+    "up": "Up one level (Backspace)",
+    "refresh": "Refresh",
+    "address": "Address",
+    "editAddress": "Click to type a path"
+  },
+  "search": {
+    "label": "Search",
+    "placeholder": "Search {{name}}",
+    "help": "Name search in this folder and all subfolders. Use * and ? for patterns, e.g. *.pdf",
+    "clear": "Clear search",
+    "resultsIn": "Results for \"{{query}}\" in {{path}}",
+    "truncated": "search stopped early — refine the term",
+    "searching": "Searching…",
+    "noResults": "No items match your search."
+  },
+  "tree": {
+    "label": "Navigation pane",
+    "quickAccess": "Quick access",
+    "thisComputer": "This computer",
+    "home": "Home",
+    "projects": "Projects",
+    "workingDir": "Working folder",
+    "root": "Root (/)"
+  },
+  "list": {
+    "label": "Folder contents",
+    "loading": "Loading…",
+    "error": "Could not open this folder.",
+    "empty": "This folder is empty.",
+    "dropHint": "Drag files or folders here to upload."
+  },
+  "columns": {
+    "name": "Name",
+    "modified": "Date modified",
+    "type": "Type",
+    "size": "Size"
+  },
+  "kinds": {
+    "folder": "File folder",
+    "file": "File",
+    "fileExt": "{{ext}} file"
+  },
+  "status": {
+    "items_one": "{{count}} item",
+    "items_other": "{{count}} items",
+    "selected_one": "{{count}} item selected",
+    "selected_other": "{{count}} items selected",
+    "clipboardCut_one": "{{count}} item cut",
+    "clipboardCut_other": "{{count}} items cut",
+    "clipboardCopy_one": "{{count}} item copied",
+    "clipboardCopy_other": "{{count}} items copied",
+    "working": "Working…"
+  },
+  "dialogs": {
+    "newFolderTitle": "New folder",
+    "newFileTitle": "New file",
+    "renameTitle": "Rename \"{{name}}\"",
+    "defaultFolderName": "New folder",
+    "defaultFileName": "new-file.txt",
+    "nameLabel": "Name",
+    "nameRequired": "Enter a name.",
+    "nameInvalid": "Names cannot contain \"/\" or be \".\" / \"..\".",
+    "deleteOneTitle": "Delete \"{{name}}\"?",
+    "deleteManyTitle": "Delete {{count}} items?",
+    "deleteWarning": "This permanently deletes from the server. There is no recycle bin.",
+    "deleteFoldersWarning": "Folders are deleted with everything inside them. This is permanent — there is no recycle bin.",
+    "conflictTitle_one": "{{count}} item already exists",
+    "conflictTitle_other": "{{count}} items already exist",
+    "conflictDescription": "Replace the existing files, or skip the ones that already exist? Folders are merged either way.",
+    "replace": "Replace existing",
+    "skipExisting": "Skip existing files"
+  },
+  "editor": {
+    "contentLabel": "File content",
+    "unsaved": "Unsaved changes",
+    "saved": "Saved",
+    "discardChanges": "Discard unsaved changes?"
+  },
+  "upload": {
+    "progress": "Uploading {{done}} of {{total}} ({{percent}}%)",
+    "finished": "Upload finished: {{done}} sent, {{failed}} failed, {{skipped}} skipped",
+    "toggle": "Show/hide upload details",
+    "skipped": "skipped",
+    "failed": "failed"
+  }
+}
