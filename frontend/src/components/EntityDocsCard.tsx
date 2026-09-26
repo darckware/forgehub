@@ -162,7 +162,7 @@ export function EntityDocsCard({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
+      <CardHeader className="flex flex-col gap-3 space-y-0 pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <CardTitle className="flex items-center gap-2 text-base font-semibold">
             <BookOpen className="h-4 w-4 text-primary" /> Documentos de Contexto
@@ -178,7 +178,7 @@ export function EntityDocsCard({
             type="button"
             variant="outline"
             size="sm"
-            className="text-xs gap-1.5 h-8 font-medium"
+            className="text-xs gap-1.5 h-8 font-medium max-md:h-auto max-md:min-h-8 max-md:whitespace-normal max-md:py-1.5"
             onClick={() => setShowFilePicker((v) => !v)}
           >
             <Plus className="h-3.5 w-3.5" />

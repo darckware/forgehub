@@ -500,7 +500,7 @@ export default function PipelineDetailPage() {
               <div className="flex items-center gap-2"><Waypoints className="h-5 w-5" /><CardTitle className="text-xl">{t("detail.projectProgressTitle")}</CardTitle></div>
               <CardDescription>{t("detail.projectProgressDescription")}</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-3">
+            <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div><p className="text-xs text-muted-foreground">{t("detail.macroflowLabel")}</p><p className="font-medium capitalize">{progress?.macroflow ?? "—"}</p></div>
               <div><p className="text-xs text-muted-foreground">{t("detail.lastConfirmationLabel")}</p><p className="font-medium">{progress?.last_confirmed_at ? new Date(progress.last_confirmed_at).toLocaleString() : t("detail.noCheckpointShort")}</p></div>
               <div><p className="text-xs text-muted-foreground">{t("detail.nextSafeActionLabel")}</p><p className="font-medium">{progress?.first_safe_action ?? t("detail.evaluateCurrentStageFallback")}</p></div>
@@ -510,7 +510,7 @@ export default function PipelineDetailPage() {
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-xl">{t("detail.stagesTitle")}</CardTitle>
                 <CardDescription>{t("detail.stagesDescription")}</CardDescription>
@@ -527,7 +527,7 @@ export default function PipelineDetailPage() {
                 </p>
               )}
               {(sortedStages.length > 0 || showAddStage) && (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {sortedStages.map((stage, index) => (
                     <StageCard
                       key={stage.id}

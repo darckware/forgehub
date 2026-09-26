@@ -94,16 +94,16 @@ export default function ProjectDetailPage() {
       {!isLoading && !isError && project && (
         <>
           <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <Settings className="h-5 w-5 text-primary" />
-                <h1 className="text-2xl font-bold tracking-tight">Configurações do Projeto: {project.name}</h1>
+                <Settings className="h-5 w-5 shrink-0 text-primary" />
+                <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight">Configurações do Projeto: {project.name}</h1>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {project.description || "Gerencie configurações de repositório, diretório de trabalho e especificações do projeto."}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="text-xs capitalize">
                 {t(`enums.projectStatus.${project.status}`, project.status)}
               </Badge>
@@ -167,10 +167,10 @@ export default function ProjectDetailPage() {
             </Card>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* Card de Planejamentos e Tarefas do Projeto */}
             <Card className="flex flex-col">
-              <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between pb-3">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-base font-semibold">
                     <ListTodo className="h-4 w-4 text-primary" />
@@ -297,13 +297,13 @@ export default function ProjectDetailPage() {
           </div>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-xl">{t("detail.workingDirectoryTitle")}</CardTitle>
                 <CardDescription>{t("detail.workingDirectoryDescription")}</CardDescription>
               </div>
               {!editingPath && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {project.working_directory_path && (
                     <Button
                       variant="outline"
@@ -359,7 +359,7 @@ export default function ProjectDetailPage() {
                   </Button>
                 </div>
               ) : (
-                <p className="text-sm">
+                <p className="break-all text-sm">
                   {project.working_directory_path ?? (
                     <span className="italic text-muted-foreground">{t("detail.notSet")}</span>
                   )}

@@ -138,6 +138,7 @@ export function TaskAutomationCard({ taskId, projectId }: { taskId: string; proj
         <div><Label>Additional governed instructions (optional)</Label><Textarea className="resize-none" value={addendum} onChange={(event) => setAddendum(event.target.value)} placeholder="Task-specific constraints; never paste secrets." /></div>
         <Button
           disabled
+          className="max-md:h-auto max-md:whitespace-normal max-md:py-2"
         >
           {dispatch.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
           Use Planning &gt; Execution Release to dispatch

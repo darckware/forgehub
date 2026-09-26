@@ -239,9 +239,11 @@ export default function AgentDetailPage() {
             }}
             onCancel={() => setConfirmRemoveSkill(null)}
           />
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">{agent.name}</h1>
+          {/* Stacks below sm: the name + status/home-path column ran ~290px
+              past a phone's edge. */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <div className="min-w-0">
+              <h1 className="break-words text-2xl font-bold tracking-tight md:text-3xl">{agent.name}</h1>
               {agent.mission ? (
                 <p className="mt-1 max-w-2xl text-muted-foreground">{agent.mission}</p>
               ) : (
@@ -250,13 +252,13 @@ export default function AgentDetailPage() {
                 )
               )}
               {agent.source_path && (
-                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                  <ExternalLink className="h-3 w-3" />
+                <p className="mt-1 flex items-center gap-1 break-all text-xs text-muted-foreground">
+                  <ExternalLink className="h-3 w-3 shrink-0" />
                   {agent.source_path}
                 </p>
               )}
             </div>
-            <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
               <Badge variant={STATUS_VARIANT[agent.status] ?? "outline"} className="text-sm capitalize">
                 {agent.status}
               </Badge>
@@ -443,7 +445,7 @@ export default function AgentDetailPage() {
             <CardContent className="space-y-3">
               {homePathDraft === null ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="rounded bg-muted px-2 py-1 text-sm">
+                  <code className="break-all rounded bg-muted px-2 py-1 text-sm">
                     {agent.effective_home_path ?? t("homePath.none")}
                   </code>
                   <Badge variant={agent.home_path ? "secondary" : "outline"}>

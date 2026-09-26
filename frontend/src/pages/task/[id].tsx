@@ -311,7 +311,7 @@ export default function TaskDetailPage() {
           <TaskAutomationCard taskId={task.id} projectId={task.project_id ?? undefined} />
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2 text-xl">
                   <History className="h-5 w-5" />
@@ -319,7 +319,7 @@ export default function TaskDetailPage() {
                 </CardTitle>
                 <CardDescription>{t("detail.executions.description")}</CardDescription>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {/* Executa a task pelo canal de Mensagens -- o único caminho
                     de execução (decisão de 2026-07-26). Cria a mensagem
                     vinculada e a despacha ao agente atribuido. */}

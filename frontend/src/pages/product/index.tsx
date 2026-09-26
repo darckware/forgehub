@@ -167,9 +167,9 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" aria-modal="true">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto p-4" aria-modal="true">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 my-auto w-full max-w-md rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
         <div className="h-1 w-full rounded-t-xl bg-blue-500/80" />
         <div className="p-6 space-y-4">
           <div className="flex items-start gap-3">

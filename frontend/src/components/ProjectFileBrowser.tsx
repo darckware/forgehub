@@ -13,6 +13,7 @@ import {
   Save,
   Trash2,
   X,
+  ChevronLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -383,8 +384,10 @@ export function ProjectFileBrowser({ projectId }: { projectId: string }) {
   }
 
   return (
+    // Phone: tree until a file is picked, then the file with a back button --
+    // side by side, the file pane was a few pixels wide. Desktop unchanged.
     <div className="flex h-[32rem] gap-3">
-      <aside className="flex w-64 shrink-0 flex-col overflow-y-auto rounded-md border border-border p-2">
+      <aside className={cn("flex w-64 shrink-0 flex-col overflow-y-auto rounded-md border border-border p-2 max-md:w-full", selectedPath && "max-md:hidden")}>
         <div className="mb-1 flex items-center justify-end gap-1 border-b border-border pb-1">
           <Button variant="ghost" size="icon" className="h-6 w-6" title="New file" aria-label="New file at root" onClick={handleNewFileAtRoot}>
             <FilePlus className="h-3.5 w-3.5" />
@@ -404,9 +407,17 @@ export function ProjectFileBrowser({ projectId }: { projectId: string }) {
         />
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden rounded-md border border-border">
-        <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-          <span className="truncate text-sm font-medium text-muted-foreground">
+      <div className={cn("flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border", !selectedPath && "max-md:hidden")}>
+        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
+          <button
+            type="button"
+            onClick={() => setSelectedPath(undefined)}
+            className="flex shrink-0 items-center text-muted-foreground hover:text-foreground md:hidden"
+            aria-label="Back to files"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground">
             {selectedPath ?? "Select a file"}
           </span>
           {selectedPath && doc && (

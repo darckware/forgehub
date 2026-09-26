@@ -214,11 +214,11 @@ function SkillFormModal({ skill, onClose }: { skill: Skill; onClose: () => void 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/50 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-lg border border-border bg-card"
+        className="my-auto w-full max-w-lg rounded-lg border border-border bg-card"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">

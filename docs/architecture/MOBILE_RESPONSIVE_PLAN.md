@@ -119,10 +119,16 @@ endpoint (textos longos de propósito). Causa principal em Hindsight/VPN/Control
 Não abertas no levantamento. Revisar depois das ondas 1–3, quando o `PageHeader` e o padrão de
 lista/detalhe já existirem:
 
-- [ ] Detalhes: `/product/:id`, `/projects/:id`, `/pipeline/:id`, `/backlog/:id`, `/tasks/:id`,
-      `/agents/:id`, `/artifact/:id`, `/governance/:id`, `/clients/:id`
-- [ ] Diálogos e formulários (`components/ui/dialog.tsx`): largura máxima, rolagem interna, botões
-      no rodapé visíveis com o teclado aberto
+- [x] Detalhes: `/product/:id`, `/projects/:id`, `/pipeline/:id`, `/backlog/:id`, `/tasks/:id`,
+      `/agents/:id`, `/artifact/:id`, `/governance/:id`, `/clients/:id` — auditados em 2026-09-26 com
+      dados gerados a partir dos próprios schemas Zod do app. Corrigidos: cabeçalho do Agente, cabeçalhos
+      de cartão em linha fixa (Projeto, Pipeline, Tarefa, Documentos de Contexto), grids sem `grid-cols-1`,
+      caminhos longos, navegador de arquivos do Projeto (lista/detalhe) e botões de rótulo longo.
+- [x] Diálogos: não há primitivo compartilhado (28 modais escritos à mão). Os que podem passar da altura
+      da tela (Produto, Servers, Foundation ×2, Ferramentas, Skills, Test Application) agora rolam, com o
+      painel centrado por `my-auto` (centraliza quando cabe, encosta no topo quando não cabe).
+      **Fora deste passe**: os modais de `pages/deploy/index.tsx` e `components/explorer/ExplorerDialogs.tsx`
+      — esses arquivos têm trabalho pendente de outra frente; revisar quando ele for commitado.
 
 ## Critério de "pronto" por tela
 
