@@ -1058,14 +1058,21 @@ async def _run_chat_turn(
                                 if step:
                                     steps_run.append(str(step))
                                 if turn_id is not None:
+                                    # The bridge names it `tool_id` (as channel.py
+                                    # already reads it); reading `id` gave every
+                                    # step a random id, so its completion below
+                                    # could never find it. parent_id/subagent keep
+                                    # a subagent's steps grouped for a reconnect.
                                     await active_turns.record_step(
                                         db,
                                         turn_id,
                                         {
-                                            "id": tool_start.get("id") or str(uuid.uuid4()),
+                                            "id": tool_start.get("tool_id") or tool_start.get("id") or str(uuid.uuid4()),
                                             "name": tool_start.get("name"),
                                             "label": tool_start.get("context") or tool_start.get("name"),
                                             "status": "running",
+                                            "parent_id": tool_start.get("parent_id"),
+                                            "subagent": tool_start.get("subagent"),
                                         },
                                         agent_id=target_agent_id,
                                     )
@@ -1083,6 +1090,11 @@ async def _run_chat_turn(
                             tool_complete = data.get("tool_complete")
                             if isinstance(tool_complete, dict) and tool_complete.get("path"):
                                 created_paths.append(tool_complete["path"])
+                            if isinstance(tool_complete, dict) and tool_complete.get("tool_id") and turn_id is not None:
+                                await active_turns.update_step(
+                                    db, turn_id, str(tool_complete["tool_id"]), {"status": "done"}
+                                )
+                                await db.commit()
 
                             delta = data.get("delta", "")
                             accumulated.append(delta)

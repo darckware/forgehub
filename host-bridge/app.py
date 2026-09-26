@@ -2616,27 +2616,87 @@ def _external_chat_command(runtime: str, message: str, cwd: str, session_id: str
     ]
 
 
+# Claude Code's tool for launching a subagent ("Task" in older builds).
+CLAUDE_SUBAGENT_TOOLS = ("Agent", "Task")
+
+
 def _claude_events(data: dict) -> tuple[list[dict], str | None, str | None]:
-    """(events, session_id, final_reply) for one Claude Code stream-json line."""
+    """(events, session_id, final_reply) for one Claude Code stream-json line.
+
+    Subagents (2026-09-26, Marcelo: "preciso visualizar as tarefas dos
+    subagentes ... tem que aparecer as listas dos agentes em execução"):
+    every line a subagent produces carries `parent_tool_use_id` = the id of
+    the Agent tool call that launched it; top-level lines carry null. That
+    marker used to be ignored, so a subagent's text streamed into the main
+    reply as if the parent had said it, and its tool steps mixed into the
+    parent's trail. Now:
+      - the launching tool_start carries `subagent` {description, type};
+      - a subagent's tool_start carries `parent_id`;
+      - a subagent's text is `subagent_delta` {parent_id, text}, never `delta`;
+      - system task_started/progress/notification become `subagent_status`
+        (a backgrounded subagent keeps running after its launch returns);
+      - tool_result blocks become `tool_complete`, which this runtime never
+        sent before -- every step spun until the whole turn ended.
+    Verified against Claude Code 2.1.283; fixture:
+    tests/fixtures/claude_subagent_stream.jsonl.
+    """
     events: list[dict] = []
     kind = data.get("type")
+    parent_id = data.get("parent_tool_use_id")
     if kind == "system":
+        subtype = data.get("subtype")
+        if subtype in ("task_started", "task_progress", "task_notification") and data.get("tool_use_id"):
+            status: dict = {"tool_id": data["tool_use_id"]}
+            if subtype == "task_started":
+                status.update(
+                    status="running",
+                    description=data.get("description") or "",
+                    subagent_type=data.get("subagent_type") or "",
+                    backgrounded=bool(data.get("is_backgrounded")),
+                )
+            elif subtype == "task_progress":
+                status.update(status="running", last_tool=data.get("last_tool_name") or "")
+            else:
+                status.update(status=data.get("status") or "completed", summary=data.get("summary") or "")
+            events.append({"subagent_status": status})
+            return events, None, None
         # init also carries the tool list, hooks fire their own system lines --
         # only the session id matters to us, and none of it is worth relaying.
         return events, data.get("session_id"), None
     if kind == "assistant":
         for block in (data.get("message") or {}).get("content") or []:
             if block.get("type") == "text" and block.get("text"):
-                events.append({"delta": block["text"]})
+                if parent_id:
+                    events.append({"subagent_delta": {"parent_id": parent_id, "text": block["text"]}})
+                else:
+                    events.append({"delta": block["text"]})
             elif block.get("type") == "tool_use":
-                events.append({
-                    "tool_start": {
-                        "tool_id": block.get("id"),
-                        "name": block.get("name"),
-                        "context": _tool_context(block.get("input")),
+                tool_input = block.get("input") or {}
+                start: dict = {
+                    "tool_id": block.get("id"),
+                    "name": block.get("name"),
+                    "context": _tool_context(tool_input),
+                }
+                if parent_id:
+                    start["parent_id"] = parent_id
+                if block.get("name") in CLAUDE_SUBAGENT_TOOLS and isinstance(tool_input, dict):
+                    description = str(tool_input.get("description") or "")
+                    start["subagent"] = {
+                        "description": description,
+                        "subagent_type": str(tool_input.get("subagent_type") or "general-purpose"),
                     }
-                })
+                    start["context"] = description[:80] or start["context"]
+                events.append({"tool_start": start})
         return events, data.get("session_id"), None
+    if kind == "user":
+        content = (data.get("message") or {}).get("content")
+        for block in content if isinstance(content, list) else []:
+            if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id"):
+                done: dict = {"tool_id": block["tool_use_id"], "is_error": bool(block.get("is_error"))}
+                if parent_id:
+                    done["parent_id"] = parent_id
+                events.append({"tool_complete": done})
+        return events, None, None
     if kind == "result":
         return events, data.get("session_id"), data.get("result") or ""
     return events, None, None

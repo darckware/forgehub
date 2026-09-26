@@ -224,5 +224,22 @@
     "removeFromListTitle": "Remover da lista (não exclui o arquivo real)",
     "noArtifactsYet": "Nenhum artefato criado nesta conversa ainda.",
     "noArtifactsFound": "Nenhum artefato encontrado."
+  },
+  "running": {
+    "title": "Em execução",
+    "main": "Principal",
+    "subagentFallback": "Subagente",
+    "lastTool": "último passo: {{tool}}",
+    "delegation": "#{{number}} → {{agent}}",
+    "noOutput": "Sem saída ainda.",
+    "noneRunning": "Nada em execução agora.",
+    "finished_one": "Concluído ({{count}})",
+    "finished_other": "Concluídos ({{count}})",
+    "status": {
+      "running": "em execução",
+      "completed": "concluído",
+      "failed": "falhou",
+      "stopped": "encerrado"
+    }
   }
 }

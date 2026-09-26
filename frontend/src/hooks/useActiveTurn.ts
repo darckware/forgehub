@@ -26,6 +26,9 @@ const activeTurnStepSchema = z.object({
    * essencial no canal, onde vários rodam em paralelo -- sem isto os rastros
    * de dois agentes viram uma lista só, sem dono. */
   agent_id: z.string().nullable().optional(),
+  /** Set on a step a Claude Code subagent ran (the launching tool call's
+   * id) -- the main trail leaves those out, like the live stream does. */
+  parent_id: z.string().nullable().optional(),
 });
 
 const activeTurnSchema = z.object({

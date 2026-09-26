@@ -44,6 +44,17 @@ import { ComposerShell } from "@/components/chat/ComposerShell";
 import { ImprovePromptDialog } from "@/components/chat/ImprovePromptDialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Markdown } from "@/components/Markdown";
+import { RunningPanel } from "@/components/chat/RunningPanel";
+import {
+  onSubagentLaunched,
+  onSubagentStatus,
+  onSubagentStep,
+  onSubagentStepDone,
+  onSubagentText,
+  onToolCompleted,
+  settleSubagents,
+  type SubagentMap,
+} from "@/lib/chatSubagents";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useAuthStore } from "@/store/authStore";
 import { TestApplicationDialog } from "@/components/chat/TestApplicationDialog";
@@ -2001,6 +2012,27 @@ export function ChatPane({
   const [finishedStepsByMessageId, setFinishedStepsByMessageId] = useState<Map<string, ChatQueueStep[]>>(
     new Map()
   );
+  // Subagents launched by this session's turns, for the "Em execução" panel
+  // (lib/chatSubagents.ts). Session-scoped like the finished trails above:
+  // kept after a turn ends so their output can still be opened.
+  const [subagents, setSubagents] = useState<SubagentMap>({});
+  useEffect(() => setSubagents({}), [sessionId]);
+  // With no turn streaming, nothing launched by one can still be alive --
+  // the bridge process that ran it has exited.
+  useEffect(() => {
+    if (!queue.some((item) => item.status === "processing")) setSubagents((m) => settleSubagents(m, "stopped"));
+  }, [queue]);
+  // Messages delegations made from this session (send_agent_message steps),
+  // oldest first -- the panel reads their live status from useDemands.
+  const delegationNumbers = useMemo(() => {
+    const seen = new Set<number>();
+    const collect = (steps: ChatQueueStep[]) => {
+      for (const step of steps) if (step.demandNumber != null) seen.add(step.demandNumber);
+    };
+    for (const steps of finishedStepsByMessageId.values()) collect(steps);
+    for (const item of queue) collect(item.steps);
+    return [...seen];
+  }, [finishedStepsByMessageId, queue]);
   // Jump straight to the item just revealed -- with several queued items,
   // scrolling to the bottom of the transcript wouldn't necessarily put an
   // earlier one (still processing) in view.
@@ -2384,6 +2416,35 @@ export function ChatPane({
   }, [queue, sessionId]);
 
   function handleStreamEvent(itemId: string, event: ChatStreamEvent) {
+    // Subagent activity goes to the "Em execução" panel, not the turn: a
+    // subagent's own steps and text stay out of the main trail and reply.
+    if (event.type === "subagent_delta") {
+      setSubagents((m) => onSubagentText(m, event.parentId, event.text));
+      return;
+    }
+    if (event.type === "subagent_status") {
+      setSubagents((m) => onSubagentStatus(m, event));
+      return;
+    }
+    if (event.type === "tool_start" && event.parentId) {
+      const parentId = event.parentId;
+      setSubagents((m) =>
+        onSubagentStep(m, parentId, { id: event.toolId, name: event.name, label: event.context || event.name, detail: event.detail, done: false })
+      );
+      return;
+    }
+    if (event.type === "tool_complete" && event.parentId) {
+      const parentId = event.parentId;
+      setSubagents((m) => onSubagentStepDone(m, parentId, event.toolId));
+      return;
+    }
+    if (event.type === "tool_start" && event.subagent) {
+      const subagent = event.subagent;
+      setSubagents((m) => onSubagentLaunched(m, event.toolId, subagent));
+    }
+    if (event.type === "tool_complete") {
+      setSubagents((m) => onToolCompleted(m, event.toolId, event.isError));
+    }
     // Approval controls must never remain hidden in a collapsed concurrent
     // turn. Expanding it also preserves the one-open-at-a-time contract.
     if (event.type === "approval_request") {
@@ -4061,7 +4122,7 @@ export function ChatPane({
                   // (booleano). A conversão fica aqui, no ponto de leitura,
                   // em vez de mudar o formato gravado -- que também serve ao
                   // canal e a quem for depurar a linha.
-                  steps={activeTurn.steps.map((step) => ({
+                  steps={activeTurn.steps.filter((step) => !step.parent_id).map((step) => ({
                     id: step.id,
                     name: step.name ?? "",
                     label: step.label ?? step.name ?? "",
@@ -4255,6 +4316,12 @@ export function ChatPane({
         </div>
 
         <div className="space-y-2 border-t border-border p-3">
+          <RunningPanel
+            subagents={Object.values(subagents)}
+            delegationNumbers={delegationNumbers}
+            renderSteps={(steps) => <QueueStepsList steps={steps} />}
+            renderDelegation={(demandNumber) => <SubagentStatusCard number={demandNumber} />}
+          />
           {pendingQueue.length > 1 && (
             <div className="space-y-1 rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 text-xs">
               {pendingQueue.map((item) => (

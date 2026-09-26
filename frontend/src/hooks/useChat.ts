@@ -387,12 +387,24 @@ export function useDeleteChatMessage(sessionId: string | undefined) {
 
 export type ChatStreamEvent =
   | { type: "delta"; text: string }
-  | { type: "tool_start"; toolId: string; name: string; context?: string; detail?: string }
+  | {
+      type: "tool_start";
+      toolId: string;
+      name: string;
+      context?: string;
+      detail?: string;
+      /** Set on a step a subagent ran: the launching Agent tool call's id. */
+      parentId?: string;
+      /** Set when this tool call launched a subagent (Claude Code's Agent). */
+      subagent?: { description: string; subagentType: string };
+    }
   | {
       type: "tool_complete";
       toolId: string;
       name: string;
       summary?: string;
+      parentId?: string;
+      isError?: boolean;
       /** Set only for mcp__forgehub_messages__send_agent_message -- the
        * #number of the message it just created (2026-07-28). Lets the UI
        * render a live status card for a mid-conversation delegation
@@ -406,10 +418,22 @@ export type ChatStreamEvent =
    * since the turn itself now runs detached from this connection (see
    * chat.py's `_run_chat_turn`). Previously unparsed/dropped entirely. */
   | { type: "turn_started"; turnId: string }
+  /** A subagent's own output -- never part of the main reply. */
+  | { type: "subagent_delta"; parentId: string; text: string }
+  | {
+      type: "subagent_status";
+      toolId: string;
+      status?: string;
+      description?: string;
+      subagentType?: string;
+      lastTool?: string;
+      summary?: string;
+      backgrounded?: boolean;
+    }
   | { type: "done"; reply: string }
   | { type: "error"; message: string };
 
-function parseChatStreamLine(raw: string): ChatStreamEvent | null {
+export function parseChatStreamLine(raw: string): ChatStreamEvent | null {
   let data: any;
   try {
     data = JSON.parse(raw);
@@ -428,6 +452,13 @@ function parseChatStreamLine(raw: string): ChatStreamEvent | null {
       // Exact primary argument (full command/path/query) -- `context` is an
       // 80-char label; the UI shows this verbatim in the shell block.
       detail: data.tool_start.detail,
+      parentId: data.tool_start.parent_id ?? undefined,
+      subagent: data.tool_start.subagent
+        ? {
+            description: String(data.tool_start.subagent.description ?? ""),
+            subagentType: String(data.tool_start.subagent.subagent_type ?? ""),
+          }
+        : undefined,
     };
   }
   if (data.tool_complete) {
@@ -437,6 +468,24 @@ function parseChatStreamLine(raw: string): ChatStreamEvent | null {
       name: data.tool_complete.name,
       summary: data.tool_complete.summary,
       demandNumber: data.tool_complete.demand_number,
+      parentId: data.tool_complete.parent_id ?? undefined,
+      isError: Boolean(data.tool_complete.is_error),
+    };
+  }
+  if (data.subagent_delta && typeof data.subagent_delta.text === "string") {
+    return { type: "subagent_delta", parentId: String(data.subagent_delta.parent_id ?? ""), text: data.subagent_delta.text };
+  }
+  if (data.subagent_status && data.subagent_status.tool_id) {
+    const st = data.subagent_status;
+    return {
+      type: "subagent_status",
+      toolId: String(st.tool_id),
+      status: st.status,
+      description: st.description,
+      subagentType: st.subagent_type,
+      lastTool: st.last_tool,
+      summary: st.summary,
+      backgrounded: typeof st.backgrounded === "boolean" ? st.backgrounded : undefined,
     };
   }
   if (data.approval_request) {

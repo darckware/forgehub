@@ -224,5 +224,22 @@
     "removeFromListTitle": "Remove from list (does not delete the actual file)",
     "noArtifactsYet": "No artifacts created in this conversation yet.",
     "noArtifactsFound": "No artifacts found."
+  },
+  "running": {
+    "title": "Running",
+    "main": "Main",
+    "subagentFallback": "Subagent",
+    "lastTool": "last step: {{tool}}",
+    "delegation": "#{{number}} → {{agent}}",
+    "noOutput": "No output yet.",
+    "noneRunning": "Nothing running right now.",
+    "finished_one": "Finished ({{count}})",
+    "finished_other": "Finished ({{count}})",
+    "status": {
+      "running": "running",
+      "completed": "completed",
+      "failed": "failed",
+      "stopped": "ended"
+    }
   }
 }
