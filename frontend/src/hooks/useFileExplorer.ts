@@ -260,20 +260,35 @@ export interface QuickAccessEntry {
   icon?: "home" | "drive" | "star" | "folder" | "pin";
   /** true = pinned by the user (unpin deletes the row); false = built-in (unpin hides it). */
   pinned: boolean;
+  /** The name it has without the user's rename (built-in label, or the folder name). */
+  originalLabel?: string;
 }
 
+/**
+ * Built-ins minus the ones the user removed, plus the folders they pinned.
+ * A non-hidden row for a built-in path is a rename: it keeps the built-in's
+ * place and icon and only overrides the label. A pin's label defaults to
+ * the folder name.
+ */
 export function mergeQuickAccess(
   builtins: Omit<QuickAccessEntry, "pinned">[],
   rows: QuickAccessRow[]
 ): { entries: QuickAccessEntry[]; hiddenCount: number } {
   const hidden = new Set(rows.filter((r) => r.hidden).map((r) => r.path));
+  const renamed = new Map(rows.filter((r) => !r.hidden && r.label).map((r) => [r.path, r.label as string]));
   const builtinPaths = new Set(builtins.map((b) => b.path));
   const entries: QuickAccessEntry[] = builtins
     .filter((b) => !hidden.has(b.path))
-    .map((b) => ({ ...b, pinned: false }));
+    .map((b) => ({ ...b, label: renamed.get(b.path) ?? b.label, originalLabel: b.label, pinned: false }));
   for (const row of rows) {
     if (row.hidden || builtinPaths.has(row.path)) continue;
-    entries.push({ label: row.label || baseName(row.path), path: row.path, icon: "pin", pinned: true });
+    entries.push({
+      label: row.label || baseName(row.path),
+      originalLabel: baseName(row.path),
+      path: row.path,
+      icon: "pin",
+      pinned: true,
+    });
   }
   return { entries, hiddenCount: rows.filter((r) => r.hidden && builtinPaths.has(r.path)).length };
 }

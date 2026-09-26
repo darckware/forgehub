@@ -1,6 +1,6 @@
-import { useEffect, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive, Home, Loader2, Pin, PinOff, RotateCcw, Star } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive, Home, Loader2, Pencil, Pin, PinOff, RotateCcw, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { baseName, useExplorerListing, type QuickAccessEntry } from "@/hooks/useFileExplorer";
 
@@ -22,6 +22,7 @@ export function ExplorerTree({
   showHidden,
   onNavigate,
   onUnpin,
+  onRename,
   onRestoreDefaults,
   pinDrop,
   drop,
@@ -32,6 +33,8 @@ export function ExplorerTree({
   showHidden: boolean;
   onNavigate: (path: string) => void;
   onUnpin: (entry: QuickAccessEntry) => void;
+  /** Resolves when saved; an empty label restores the original name. */
+  onRename: (entry: QuickAccessEntry, label: string) => Promise<unknown>;
   onRestoreDefaults: () => void;
   /** Dropping folders on the "Quick access" heading pins them, like Explorer. */
   pinDrop: {
@@ -43,6 +46,7 @@ export function ExplorerTree({
   drop: TreeDropHandlers;
 }) {
   const { t } = useTranslation("explorer");
+  const [renaming, setRenaming] = useState<string | null>(null);
   return (
     <nav aria-label={t("tree.label")} className="flex min-h-0 flex-col overflow-auto py-2 text-sm">
       <div
@@ -69,7 +73,16 @@ export function ExplorerTree({
         )}
       </div>
       <div role="group" aria-label={t("tree.quickAccess")}>
-      {quickAccess.map((item) => (
+      {quickAccess.map((item) =>
+        renaming === item.path ? (
+          <RenameRow
+            key={`qa-${item.path}`}
+            item={item}
+            icon={quickIcon(item.icon)}
+            onDone={() => setRenaming(null)}
+            onSave={(label) => onRename(item, label)}
+          />
+        ) : (
         <TreeRow
           key={`qa-${item.path}`}
           depth={0}
@@ -81,9 +94,13 @@ export function ExplorerTree({
           onClick={() => onNavigate(item.path)}
           onDragOver={(e) => drop.onDragOver(e, item.path)}
           onDrop={(e) => drop.onDrop(e, item.path)}
-          action={{ label: t("actions.unpin"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => onUnpin(item) }}
+          actions={[
+            { label: t("actions.renameQuickAccess"), icon: <Pencil className="h-3.5 w-3.5" />, onClick: () => setRenaming(item.path) },
+            { label: t("actions.unpin"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => onUnpin(item) },
+          ]}
         />
-      ))}
+        )
+      )}
       </div>
       <div className="mt-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {t("tree.thisComputer")}
@@ -190,7 +207,7 @@ function TreeRow({
   onClick,
   onDragOver,
   onDrop,
-  action,
+  actions,
 }: {
   depth: number;
   label: string;
@@ -203,8 +220,8 @@ function TreeRow({
   onClick: () => void;
   onDragOver: (event: DragEvent) => void;
   onDrop: (event: DragEvent) => void;
-  /** Hover-revealed row action (Quick access rows: unpin). */
-  action?: { label: string; icon: ReactNode; onClick: () => void };
+  /** Hover-revealed row actions (Quick access rows: rename, unpin). */
+  actions?: { label: string; icon: ReactNode; onClick: () => void }[];
 }) {
   return (
     <div
@@ -234,8 +251,9 @@ function TreeRow({
         {icon}
         <span className="truncate">{label}</span>
       </button>
-      {action && (
+      {actions?.map((action) => (
         <button
+          key={action.label}
           type="button"
           className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
           title={action.label}
@@ -244,7 +262,71 @@ function TreeRow({
         >
           {action.icon}
         </button>
-      )}
+      ))}
     </div>
+  );
+}
+
+/** Inline rename of a Quick access entry: Enter saves, Esc/blur cancels,
+ * empty restores the original name (shown as the placeholder). */
+function RenameRow({
+  item,
+  icon,
+  onSave,
+  onDone,
+}: {
+  item: QuickAccessEntry;
+  icon: ReactNode;
+  onSave: (label: string) => Promise<unknown>;
+  onDone: () => void;
+}) {
+  const { t } = useTranslation("explorer");
+  const [value, setValue] = useState(item.label);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  async function save() {
+    if (value.trim() === item.label) return onDone();
+    setSaving(true);
+    await onSave(value);
+    setSaving(false);
+    onDone();
+  }
+
+  return (
+    <form
+      className="flex items-center gap-1.5 py-0.5 pl-6 pr-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      {icon}
+      <input
+        ref={inputRef}
+        value={value}
+        maxLength={255}
+        disabled={saving}
+        placeholder={item.originalLabel}
+        title={t("tree.renameHelp", { original: item.originalLabel })}
+        aria-label={t("actions.renameQuickAccess")}
+        spellCheck={false}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onDone();
+          }
+        }}
+        onBlur={() => !saving && onDone()}
+        className="h-6 min-w-0 flex-1 rounded border border-input bg-background px-1.5 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      />
+      {saving && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />}
+    </form>
   );
 }

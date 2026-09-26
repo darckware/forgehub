@@ -31,7 +31,8 @@
     "pin": "Pin to Quick access",
     "unpin": "Unpin from Quick access",
     "pinCurrent": "Pin this folder to Quick access",
-    "unpinCurrent": "Unpin this folder from Quick access"
+    "unpinCurrent": "Unpin this folder from Quick access",
+    "renameQuickAccess": "Rename"
   },
   "view": {
     "details": "Details",
@@ -65,7 +66,8 @@
     "root": "Root (/)",
     "quickAccessHelp": "Drag folders here to pin them. Hover an entry to unpin it.",
     "restoreDefaults": "Restore",
-    "restoreDefaultsHelp": "Bring back {{count}} removed default entries"
+    "restoreDefaultsHelp": "Bring back {{count}} removed default entries",
+    "renameHelp": "Enter saves, Esc cancels. Leave empty to restore \"{{original}}\"."
   },
   "list": {
     "label": "Folder contents",

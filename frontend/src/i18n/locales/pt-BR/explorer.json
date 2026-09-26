@@ -31,7 +31,8 @@
     "pin": "Fixar no Acesso rápido",
     "unpin": "Desafixar do Acesso rápido",
     "pinCurrent": "Fixar esta pasta no Acesso rápido",
-    "unpinCurrent": "Desafixar esta pasta do Acesso rápido"
+    "unpinCurrent": "Desafixar esta pasta do Acesso rápido",
+    "renameQuickAccess": "Renomear"
   },
   "view": {
     "details": "Detalhes",
@@ -65,7 +66,8 @@
     "root": "Raiz (/)",
     "quickAccessHelp": "Arraste pastas para cá para fixá-las. Passe o mouse sobre um item para desafixá-lo.",
     "restoreDefaults": "Restaurar",
-    "restoreDefaultsHelp": "Trazer de volta {{count}} itens padrão removidos"
+    "restoreDefaultsHelp": "Trazer de volta {{count}} itens padrão removidos",
+    "renameHelp": "Enter salva, Esc cancela. Deixe vazio para voltar a \"{{original}}\"."
   },
   "list": {
     "label": "Conteúdo da pasta",

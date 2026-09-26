@@ -109,6 +109,18 @@ describe("mergeQuickAccess", () => {
     expect(hiddenCount).toBe(1);
   });
 
+  it("renames keep the entry's place; the original name stays known", () => {
+    const { entries } = mergeQuickAccess(builtins, [
+      { path: "/", label: "Servidor", hidden: false },
+      { path: "/srv/data", label: "Dados", hidden: false },
+    ]);
+    expect(entries.map((e) => [e.label, e.originalLabel, e.pinned])).toEqual([
+      ["Home", "Home", false],
+      ["Servidor", "Root (/)", false],
+      ["Dados", "data", true],
+    ]);
+  });
+
   it("returns the built-ins untouched when the user changed nothing", () => {
     expect(mergeQuickAccess(builtins, []).entries.every((e) => !e.pinned)).toBe(true);
   });

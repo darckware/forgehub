@@ -31,7 +31,8 @@
     "pin": "Anclar a Acceso rápido",
     "unpin": "Desanclar de Acceso rápido",
     "pinCurrent": "Anclar esta carpeta a Acceso rápido",
-    "unpinCurrent": "Desanclar esta carpeta de Acceso rápido"
+    "unpinCurrent": "Desanclar esta carpeta de Acceso rápido",
+    "renameQuickAccess": "Cambiar nombre"
   },
   "view": {
     "details": "Detalles",
@@ -65,7 +66,8 @@
     "root": "Raíz (/)",
     "quickAccessHelp": "Arrastra carpetas aquí para anclarlas. Pasa el ratón sobre un elemento para desanclarlo.",
     "restoreDefaults": "Restaurar",
-    "restoreDefaultsHelp": "Recuperar {{count}} elementos predeterminados eliminados"
+    "restoreDefaultsHelp": "Recuperar {{count}} elementos predeterminados eliminados",
+    "renameHelp": "Enter guarda, Esc cancela. Déjalo vacío para volver a \"{{original}}\"."
   },
   "list": {
     "label": "Contenido de la carpeta",

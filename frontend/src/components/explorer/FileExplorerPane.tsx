@@ -357,6 +357,7 @@ export function FileExplorerPane({
             showHidden={vm.showHidden}
             onNavigate={vm.navigate}
             onUnpin={(entry) => void qa.unpinPaths([entry.path])}
+            onRename={qa.rename}
             onRestoreDefaults={() => void qa.restoreDefaults()}
             pinDrop={pinDrop}
             drop={drop}

@@ -592,6 +592,17 @@ export function useQuickAccessViewModel(builtins: Omit<QuickAccessEntry, "pinned
           else await unpin.mutateAsync(path);
         }
       }),
+    /** Rename one entry. An empty name (or the original one) restores the
+     * original: a pin's label is cleared; a built-in's rename row is dropped. */
+    rename: (entry: QuickAccessEntry, label: string) =>
+      act(async () => {
+        const trimmed = label.trim();
+        const reset = !trimmed || trimmed === entry.originalLabel;
+        if (entry.pinned) await pin.mutateAsync({ path: entry.path, label: reset ? undefined : trimmed });
+        else if (reset) {
+          if (rows.data?.some((r) => r.path === entry.path && !r.hidden)) await unpin.mutateAsync(entry.path);
+        } else await pin.mutateAsync({ path: entry.path, label: trimmed });
+      }),
     restoreDefaults: () =>
       act(async () => {
         for (const row of rows.data ?? []) {
