@@ -53,6 +53,7 @@ import {
   useRemoveVolume,
   useRemoveNetwork,
   useRemoveImage,
+  useRemoveImages,
   useDeployGroups,
   useCreateDeployGroup,
   useUpdateDeployGroup,
@@ -1548,10 +1549,46 @@ function NetworksTab({
 function ImagesTab() {
   const { data: images = [], isLoading, isError, refetch, isFetching } = useDockerImages();
   const removeImgMut = useRemoveImage();
+  const removeManyMut = useRemoveImages();
   const [confirmRemoveImg, setConfirmRemoveImg] = useState<string | null>(null);
   const [removeImgError, setRemoveImgError] = useState<string | null>(null);
+  const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
 
   const unusedCount = images.filter((i) => !i.in_use).length;
+  // Only images not in use can be deleted, so only those are selectable.
+  const deletableRefs = images.filter((i) => !i.in_use).map(imageRef);
+  // Drop selections whose image vanished (deleted, or pruned elsewhere) so
+  // the count and the bulk action never target a stale ref.
+  const selected = deletableRefs.filter((ref) => selectedRefs.has(ref));
+  const allSelected = deletableRefs.length > 0 && selected.length === deletableRefs.length;
+  const danglingRefs = images.filter((i) => i.dangling && !i.in_use).map(imageRef);
+
+  const toggleRef = (ref: string) =>
+    setSelectedRefs((prev) => {
+      const next = new Set(prev);
+      if (next.has(ref)) next.delete(ref);
+      else next.add(ref);
+      return next;
+    });
+  const toggleAll = () => setSelectedRefs(allSelected ? new Set() : new Set(deletableRefs));
+
+  const handleRemoveSelected = async () => {
+    setRemoveImgError(null);
+    try {
+      const { failed } = await removeManyMut.mutateAsync(selected);
+      setSelectedRefs(new Set(failed.map((f) => f.ref)));
+      if (failed.length > 0) {
+        setRemoveImgError(
+          `${failed.length} image(s) could not be deleted:\n` + failed.map((f) => `${f.ref}: ${f.error}`).join("\n"),
+        );
+      }
+    } catch (err) {
+      setRemoveImgError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConfirmBulk(false);
+    }
+  };
 
   const handleRemoveImage = async () => {
     if (!confirmRemoveImg) return;
@@ -1576,16 +1613,44 @@ function ImagesTab() {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between max-md:flex-wrap max-md:gap-2">
         <p className="text-xs text-muted-foreground">
           {images.length} image(s){unusedCount > 0 && ` · ${unusedCount} unused`}
+          {selected.length > 0 && ` · ${selected.length} selected`}
         </p>
-        <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
-        </Button>
+        <div className="flex items-center gap-1 max-md:flex-wrap">
+          {danglingRefs.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelectedRefs(new Set(danglingRefs))}
+              disabled={removeManyMut.isPending}
+            >
+              Select dangling ({danglingRefs.length})
+            </Button>
+          )}
+          {selected.length > 0 && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => setConfirmBulk(true)}
+              disabled={removeManyMut.isPending}
+            >
+              {removeManyMut.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+              )}
+              Delete selected ({selected.length})
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
+          </Button>
+        </div>
       </div>
       {removeImgError && (
-        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeImgError}</p>
+        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2 whitespace-pre-line">{removeImgError}</p>
       )}
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
@@ -1598,6 +1663,15 @@ function ImagesTab() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
+                <th className="pl-4 py-2.5 w-8">
+                  <ImageSelectBox
+                    checked={allSelected}
+                    indeterminate={selected.length > 0 && !allSelected}
+                    disabled={deletableRefs.length === 0 || removeManyMut.isPending}
+                    label="Select all deletable images"
+                    onToggle={toggleAll}
+                  />
+                </th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Repository</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Tag</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">ID</th>
@@ -1609,16 +1683,23 @@ function ImagesTab() {
             </thead>
             <tbody className="divide-y divide-border">
               {images.map((img) => {
-                // Two repo:tag rows can share the same underlying image ID
-                // (e.g. one re-tagged from the other) -- Docker refuses
-                // `docker rmi <id>` in that case ("referenced in multiple
-                // repositories"), so deletion always targets the specific
-                // tag, never the bare ID. Dangling images have no tag, so
-                // the ID is the only valid reference for those.
-                const ref = img.dangling ? img.id : `${img.repository}:${img.tag}`;
-                const removing = removeImgMut.isPending && removeImgMut.variables === ref;
+                const ref = imageRef(img);
+                const removing =
+                  (removeImgMut.isPending && removeImgMut.variables === ref) ||
+                  (removeManyMut.isPending && selectedRefs.has(ref));
+                const isSelected = selectedRefs.has(ref);
                 return (
-                  <tr key={ref} className="hover:bg-muted/20 transition-colors">
+                  <tr key={ref} className={cn("hover:bg-muted/20 transition-colors", isSelected && "bg-primary/5")}>
+                    <td className="pl-4 py-2.5">
+                      {!img.in_use && (
+                        <ImageSelectBox
+                          checked={isSelected}
+                          disabled={removeManyMut.isPending}
+                          label={`Select ${ref}`}
+                          onToggle={() => toggleRef(ref)}
+                        />
+                      )}
+                    </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
                         <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-500" />
@@ -1679,7 +1760,61 @@ function ImagesTab() {
         onConfirm={handleRemoveImage}
         onCancel={() => setConfirmRemoveImg(null)}
       />
+      <ConfirmDialog
+        open={confirmBulk}
+        title="Delete selected images"
+        description={`Remove ${selected.length} image(s) from Docker? This action cannot be undone.`}
+        confirmLabel={`Delete ${selected.length}`}
+        loading={removeManyMut.isPending}
+        confirmDisabled={selected.length === 0}
+        onConfirm={handleRemoveSelected}
+        onCancel={() => setConfirmBulk(false)}
+      >
+        <ul className="max-h-40 overflow-y-auto rounded border border-border bg-muted/30 px-3 py-2 text-[11px] font-mono text-muted-foreground space-y-0.5">
+          {selected.map((ref) => (
+            <li key={ref} className="break-all">{ref}</li>
+          ))}
+        </ul>
+      </ConfirmDialog>
     </div>
+  );
+}
+
+/** Two repo:tag rows can share the same underlying image ID (e.g. one
+ * re-tagged from the other) -- Docker refuses `docker rmi <id>` in that case
+ * ("referenced in multiple repositories"), so deletion always targets the
+ * specific tag, never the bare ID. Dangling images have no tag, so the ID is
+ * the only valid reference for those. */
+function imageRef(img: DockerImage) {
+  return img.dangling ? img.id : `${img.repository}:${img.tag}`;
+}
+
+function ImageSelectBox({
+  checked,
+  indeterminate = false,
+  disabled = false,
+  label,
+  onToggle,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  disabled?: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <input
+      type="checkbox"
+      checked={checked}
+      ref={(el) => {
+        if (el) el.indeterminate = indeterminate;
+      }}
+      disabled={disabled}
+      aria-label={label}
+      aria-checked={indeterminate ? "mixed" : checked}
+      className="h-4 w-4 cursor-pointer accent-primary align-middle disabled:cursor-not-allowed disabled:opacity-40"
+      onChange={onToggle}
+    />
   );
 }
 

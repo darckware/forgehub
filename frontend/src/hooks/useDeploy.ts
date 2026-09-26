@@ -283,6 +283,34 @@ export function useRemoveImage() {
   });
 }
 
+export interface RemoveImagesResult {
+  removed: string[];
+  failed: { ref: string; error: string }[];
+}
+
+/** Bulk delete for the Images tab's multi-select. Sequential on purpose:
+ * `docker rmi` calls racing each other on images that share layers can fail
+ * spuriously, and one failure (e.g. an image that became in-use) must not
+ * abort the rest -- each ref's outcome is reported individually. */
+export function useRemoveImages() {
+  const qc = useQueryClient();
+  return useMutation<RemoveImagesResult, Error, string[]>({
+    mutationFn: async (refs) => {
+      const result: RemoveImagesResult = { removed: [], failed: [] };
+      for (const ref of refs) {
+        try {
+          await apiClient.delete(`/api/v1/deploy/images`, { params: { ref } });
+          result.removed.push(ref);
+        } catch (err) {
+          result.failed.push({ ref, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      return result;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["deploy", "images"] }),
+  });
+}
+
 export function useSyncFromDocker() {
   const qc = useQueryClient();
   return useMutation<SyncResult, Error>({
