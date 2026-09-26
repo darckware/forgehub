@@ -133,7 +133,7 @@ export default function McpPage() {
   }, [agents]);
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-3xl font-bold">

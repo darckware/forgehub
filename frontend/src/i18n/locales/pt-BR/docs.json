@@ -71,7 +71,8 @@
     "editInWhiteboard": "Editar na Lousa",
     "couldNotReadFile": "Não foi possível ler o arquivo.",
     "couldNotReadSceneInvalidJson": "Não foi possível ler esta cena (JSON inválido).",
-    "drawingSaved": "Desenho salvo em {{path}} — abra um documento markdown para inserir a imagem, ou copie o caminho acima."
+    "drawingSaved": "Desenho salvo em {{path}} — abra um documento markdown para inserir a imagem, ou copie o caminho acima.",
+    "backToTree": "Arquivos"
   },
   "tree": {
     "dragReferenceFolder": "Arraste para o assistente para referenciar esta pasta",

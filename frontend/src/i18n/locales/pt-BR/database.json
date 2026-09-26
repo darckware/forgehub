@@ -31,7 +31,8 @@
     "showColumns": "Mostrar colunas",
     "hideColumns": "Ocultar colunas",
     "showColumnsWarning": "Renderizar {{count}} tabelas com todas as colunas pode congelar a aba por vários segundos.",
-    "compactNotice": "{{count}} tabelas — colunas ocultas para o diagrama seguir responsivo. Use \"Mostrar colunas\" para o detalhe completo."
+    "compactNotice": "{{count}} tabelas — colunas ocultas para o diagrama seguir responsivo. Use \"Mostrar colunas\" para o detalhe completo.",
+    "backToList": "Diagramas"
   },
   "query": {
     "sqlEditor": "Editor SQL",

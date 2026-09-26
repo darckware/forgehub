@@ -86,8 +86,8 @@ export default function IrregularitiesPage() {
   );
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 md:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-semibold">
             <AlertTriangle className="h-5 w-5" />
@@ -135,7 +135,9 @@ export default function IrregularitiesPage() {
         </Select>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-border">
+      {/* overflow-x-auto, not hidden: on a phone the columns past the first
+          two were cut off with no way to reach them. */}
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>

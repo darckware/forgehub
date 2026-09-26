@@ -16,6 +16,7 @@
   "emptyArchivedFolderMessage": "",
   "emptyInboxMessage": "",
   "selectMessagePrompt": "Selecione uma mensagem para ler.",
+  "backToFolders": "Pastas",
   "newNoteTitle": "Nova mensagem",
   "editTitle": "Editar mensagem",
   "newNoteDescription": "Permite que você registre seu próprio item na caixa de entrada (não apenas agentes via /submit), conforme o caso de uso 'console de desenvolvimento': anotações/procedimentos do dia a dia chegam aqui primeiro e são triados depois. Arquivados como `from_agent = username` para que a caixa de entrada mostre um remetente real em ambos os casos.",

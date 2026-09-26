@@ -21,7 +21,7 @@ export default function UsersPage() {
   const [deleting, setDeleting] = useState<{ id: string; username: string } | null>(null);
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-4">
+    <div className="md:p-6 max-w-5xl mx-auto space-y-4">
       <ConfirmDialog
         open={deleting !== null}
         title={t("users.delete.confirm", { username: deleting?.username ?? "" })}

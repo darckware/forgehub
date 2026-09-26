@@ -228,12 +228,12 @@ export default function QueryPage() {
   return (
     <div className="flex flex-col p-4 gap-3">
       <div className="flex flex-col gap-2 shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SQL Editor</span>
           <ValidationIcon state={validationState} error={validationError} />
           <span className="flex-1" />
           <span className="text-[10px] text-muted-foreground">Ctrl+Enter to run · SELECT/WITH/EXPLAIN only</span>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {EXAMPLES.map((ex) => (
               <Button key={ex.label} size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setSql(ex.sql)}>
                 {ex.label}

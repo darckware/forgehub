@@ -409,7 +409,7 @@ export default function CockpitPage() {
   }, [productProjects, selectedPhaseId, projectEvolutionMap]);
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 md:p-6">
       {/* Header com Filtros de Contexto */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b pb-4">
         <div>
@@ -424,12 +424,12 @@ export default function CockpitPage() {
 
         {/* Seletores de Contexto: Produto e Projeto */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 bg-muted/30 p-1.5 rounded-lg border">
+          <div className="flex w-full items-center gap-2 bg-muted/30 p-1.5 rounded-lg border sm:w-auto">
             <Filter className="h-4 w-4 text-muted-foreground" />
 
             {/* Seletor de Produto */}
             <select
-              className="h-8 rounded-md border border-input bg-background px-2.5 text-xs font-medium focus-visible:ring-1 focus-visible:ring-primary"
+              className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium focus-visible:ring-1 focus-visible:ring-primary sm:flex-none"
               value={selectedProductId}
               onChange={(e) => {
                 setSelectedProductId(e.target.value);
@@ -446,7 +446,7 @@ export default function CockpitPage() {
 
             {/* Seletor de Projeto */}
             <select
-              className="h-8 rounded-md border border-input bg-background px-2.5 text-xs font-semibold focus-visible:ring-1 focus-visible:ring-primary"
+              className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-xs font-semibold focus-visible:ring-1 focus-visible:ring-primary sm:flex-none"
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
             >

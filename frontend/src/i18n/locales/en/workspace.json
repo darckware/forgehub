@@ -94,7 +94,13 @@
       "closePane": "Close the current tmux pane",
       "closeTabButton": "Close tab",
       "detach": "Detach the tab while its process keeps running"
-    }
+    },
+    "touchInputPlaceholder": "Type here and tap send…",
+    "touchInputSend": "Send to terminal",
+    "touchInputToggle": "Typing bar (mobile)",
+    "showControls": "Show terminal controls",
+    "hideControls": "Collapse terminal controls",
+    "jumpToBottom": "Jump to the last line"
   },
   "webAppPane": {
     "back": "Back",

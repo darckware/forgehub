@@ -203,7 +203,7 @@ const markdownComponents: Components = {
   h3: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
   table: ({ children }) => (
     <div className="mb-2 overflow-x-auto last:mb-0">
-      <table className="w-full border-collapse text-xs">{children}</table>
+      <table className="w-full border-collapse text-xs [overflow-wrap:normal]">{children}</table>
     </div>
   ),
   th: ({ children }) => <th className="border border-current/20 px-2 py-1 text-left font-semibold">{children}</th>,

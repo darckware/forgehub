@@ -26,6 +26,7 @@ import {
   Trash2,
   UnfoldVertical,
   Upload,
+  ChevronLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -459,7 +460,7 @@ export default function DocsPage() {
         }}
       />
 
-      <div className="grid grid-cols-[280px_1fr] items-center gap-4">
+      <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-[280px_1fr]">
         <h1 className="flex items-center gap-2 text-xl font-semibold">
           <BookOpen className="h-5 w-5" /> {t("page.title")}
         </h1>
@@ -521,7 +522,7 @@ export default function DocsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-[280px_1fr] items-center gap-4">
+      <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-[280px_1fr]">
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           <button
             type="button"
@@ -536,7 +537,7 @@ export default function DocsPage() {
             <code className="break-all text-foreground">{workingDir ? `/${workingDir}` : "/"}</code>
           </span>
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
           <Button
             size="icon"
             variant="outline"
@@ -559,7 +560,8 @@ export default function DocsPage() {
             value={treeSearch}
             onChange={setTreeSearch}
             placeholder={t("page.searchPlaceholder")}
-            className="flex-1"
+            // Own line on a phone -- beside the icon row it was a few letters wide.
+            className="min-w-0 flex-1 max-md:order-first max-md:basis-full"
           />
           <Button
             size="icon"
@@ -654,9 +656,12 @@ export default function DocsPage() {
         </Card>
       )}
 
-      <div className={cn("grid min-h-0 flex-1 gap-4", hideTree ? "grid-cols-1" : "grid-cols-[280px_1fr]")}>
+      {/* Below md the tree and the document can't share the row (the
+          document was left a sliver), so a phone shows the tree until a file
+          is picked, then the document with a back bar. Desktop unchanged. */}
+      <div className={cn("grid min-h-0 flex-1 gap-4", hideTree ? "grid-cols-1" : "grid-cols-1 md:grid-cols-[280px_1fr]")}>
         {!hideTree && (
-          <Card className="min-h-0 overflow-hidden">
+          <Card className={cn("min-h-0 overflow-hidden", selectedPath && "max-md:hidden")}>
             <CardContent className="h-full overflow-y-auto p-2">
               {isLoading && <Loader2 className="m-4 h-5 w-5 animate-spin text-muted-foreground" />}
               {tree && tree.length === 0 && (
@@ -701,10 +706,18 @@ export default function DocsPage() {
           </Card>
         )}
 
-        <Card className="min-h-0 overflow-hidden">
+        <Card className={cn("flex min-h-0 flex-col overflow-hidden", !selectedPath && !hideTree && "max-md:hidden")}>
+          <button
+            type="button"
+            onClick={() => setSelectedPath(null)}
+            className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-2 text-sm text-muted-foreground hover:text-foreground md:hidden"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            {t("page.backToTree")}
+          </button>
           <CardContent
             className={cn(
-              "h-full",
+              "min-h-0 flex-1",
               viewMode === "note" ? "flex flex-col gap-2 overflow-y-auto p-4" : "overflow-hidden p-0"
             )}
           >

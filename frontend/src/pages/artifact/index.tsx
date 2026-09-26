@@ -27,6 +27,7 @@ import {
 } from "@/hooks/useArtifact";
 import { ArtifactForm } from "./ArtifactForm";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PageHeader } from "@/components/PageHeader";
 
 const STATUS_VARIANT: Record<
   string,
@@ -64,18 +65,17 @@ export default function ArtifactPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("title")}</h1>
-          <p className="text-muted-foreground">
-            {t("description")}
-          </p>
-        </div>
-        <Button onClick={() => setShowForm((v) => !v)}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t("newArtifact")}
-        </Button>
-      </div>
+      <PageHeader
+        align="center"
+        title={t("title")}
+        description={<p>{t("description")}</p>}
+        actions={
+          <Button onClick={() => setShowForm((v) => !v)}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t("newArtifact")}
+          </Button>
+        }
+      />
 
       {showForm && (
         <Card>

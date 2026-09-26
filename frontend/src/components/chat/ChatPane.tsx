@@ -1570,7 +1570,9 @@ function MessageBubble({
             <AgentAvatar name={displayAgentName} avatarDataUrl={avatarUrl} size="sm" className="h-8 w-8 text-[11px]" />
           )}
         </div>
-        <div className="min-w-0 flex-1">
+        {/* overflow-wrap:anywhere -- an unbroken URL/path otherwise sets the
+            column's min width and runs off a phone screen. */}
+        <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs font-semibold text-foreground">{displayAgentName}</span>
             {message.created_at && (
@@ -1609,7 +1611,7 @@ function MessageBubble({
           ) : (
             <Markdown content={message.content} />
           )}
-          <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover/msg:opacity-100">
+          <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover/msg:opacity-100 [@media(hover:none)]:opacity-100">
             <button
               type="button"
               aria-label={t("messageBubble.copyMessage")}
@@ -1694,12 +1696,12 @@ function MessageBubble({
 
   return (
     <div className="group/msg flex justify-end gap-3">
-      <div className="flex max-w-[75%] flex-col items-end">
+      <div className="flex min-w-0 max-w-[75%] flex-col items-end max-md:max-w-[88%]">
         <div className="flex items-baseline gap-2 mb-1">
           <span className="text-[10px] text-muted-foreground">{formatTime(message.created_at)}</span>
           <span className="text-xs font-semibold text-foreground">{user?.username || user?.full_name || "Você"}</span>
         </div>
-        <div className="rounded-2xl bg-indigo-600 px-4 py-2 text-sm text-white shadow-sm">
+        <div className="max-w-full rounded-2xl bg-indigo-600 px-4 py-2 text-sm text-white shadow-sm [overflow-wrap:anywhere]">
           {attachedImages.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
               {attachedImages.map((imgUrl, idx) => (
@@ -1722,7 +1724,7 @@ function MessageBubble({
           )}
           <Markdown content={message.content} />
         </div>
-        <div className="mt-1 flex items-center gap-1.5 opacity-0 transition-opacity group-hover/msg:opacity-100">
+        <div className="mt-1 flex items-center gap-1.5 opacity-0 transition-opacity group-hover/msg:opacity-100 [@media(hover:none)]:opacity-100">
           <button
             type="button"
             aria-label={t("messageBubble.copyMessage")}
@@ -1765,6 +1767,11 @@ function MessageBubble({
  * inactive -- so switching tabs preserves the draft, attachment, and
  * scroll position, same as how terminal tabs keep their tmux session
  * alive in the background. */
+/** Same 768px line as Tailwind's `md` and the Sidebar's MOBILE_BREAKPOINT. */
+function isPhoneViewport(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+}
+
 export function ChatPane({
   tabId,
   active,
@@ -1776,6 +1783,8 @@ export function ChatPane({
   initialComposerText,
   historyCollapsed,
   artifactsOpen,
+  onCloseHistory,
+  onCloseArtifacts,
   workingDir,
   startNewSession,
   emptyStateText,
@@ -1793,6 +1802,12 @@ export function ChatPane({
   initialComposerText?: string;
   historyCollapsed: boolean;
   artifactsOpen: boolean;
+  /** Below md the history/artifacts panels overlay the conversation
+   * instead of sitting beside it (a phone has no room for a 256px column
+   * next to the chat), so they need their own close control -- and
+   * picking a session should hand the screen back to the conversation. */
+  onCloseHistory?: () => void;
+  onCloseArtifacts?: () => void;
   /** Hides the composer's agent-selector pill -- the agent is fixed by the
    * embedding context (e.g. a channel member's own individual session,
    * opened by clicking their name) rather than user-switchable
@@ -3490,7 +3505,11 @@ export function ChatPane({
             ? "bg-accent text-accent-foreground"
             : "cursor-pointer text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         )}
-        onClick={() => editingSessionId !== s.id && setSessionId(s.id)}
+        onClick={() => {
+          if (editingSessionId === s.id) return;
+          setSessionId(s.id);
+          if (isPhoneViewport()) onCloseHistory?.();
+        }}
       >
         {editingSessionId === s.id ? (
           <input
@@ -3540,11 +3559,25 @@ export function ChatPane({
   return (
     <div className={cn("absolute inset-0 flex gap-2 p-2", !active && "hidden")}>
       {!historyCollapsed && (
-        <aside className="flex w-64 shrink-0 flex-col rounded-lg border border-border bg-card">
+        <aside className="flex w-64 shrink-0 flex-col rounded-lg border border-border bg-card max-md:absolute max-md:inset-2 max-md:z-30 max-md:w-auto max-md:shadow-xl">
           <div className="flex items-center justify-between border-b border-border p-3">
             <span className="text-sm font-medium text-muted-foreground">{t("sidebar.chats")}</span>
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" title={t("sidebar.newChat")} aria-label={t("sidebar.newChat")} onClick={handleNewChat}>
+              {onCloseHistory && (
+                <Button variant="ghost" size="icon" className="md:hidden" title={t("common:close")} aria-label={t("common:close")} onClick={onCloseHistory}>
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                title={t("sidebar.newChat")}
+                aria-label={t("sidebar.newChat")}
+                onClick={() => {
+                  handleNewChat();
+                  if (isPhoneViewport()) onCloseHistory?.();
+                }}
+              >
                 <Plus className="h-4 w-4" />
               </Button>
               <AgentPickerButton agents={chatableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
@@ -4585,9 +4618,14 @@ export function ChatPane({
       </div>
 
       {artifactsOpen && (
-        <aside className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-card">
+        <aside className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-card max-md:absolute max-md:inset-2 max-md:z-30 max-md:w-auto max-md:shadow-xl">
           <div className="flex items-center justify-between border-b border-border p-3">
             <span className="text-sm font-medium text-muted-foreground">{t("artifactsPanel.title")}</span>
+            {onCloseArtifacts && (
+              <Button variant="ghost" size="icon" className="h-7 w-7 md:hidden" title={t("common:close")} aria-label={t("common:close")} onClick={onCloseArtifacts}>
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
           <div className="border-b border-border p-2">
             <div className="relative">

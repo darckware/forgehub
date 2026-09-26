@@ -84,7 +84,7 @@ export default function NotificationsPage() {
   return (
     // Full-bleed page (see AppLayout): header/filters stay fixed and the
     // notification list scrolls inside its own card.
-    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-4 p-6">
+    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-4 p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold flex items-center gap-2">
           <Bell className="h-5 w-5" /> {t("title")}
@@ -94,7 +94,7 @@ export default function NotificationsPage() {
             </Badge>
           )}
         </h1>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button
             size="sm"
             variant="outline"
@@ -118,7 +118,7 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         {FILTER_OPTIONS.map(([value, labelKey]) => (
           <Button
             key={value}

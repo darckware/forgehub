@@ -72,7 +72,9 @@ function LayoutInner() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden">
-      <div className="flex items-center gap-4 px-6 py-2.5 border-b border-border shrink-0">
+      {/* Wraps below md: the instance/database/schema pickers dropped under
+          the title instead of squeezing it to a sliver on a phone. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 border-b border-border shrink-0 md:flex-nowrap md:px-6">
         <Database className="h-5 w-5 text-blue-500 shrink-0" />
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-bold leading-none">{t('database:title')}</h1>
@@ -81,7 +83,7 @@ function LayoutInner() {
           </p>
         </div>
 
-        <div className="flex items-end gap-3 shrink-0">
+        <div className="flex flex-wrap items-end gap-3 shrink-0 max-md:basis-full">
           <Select
             label="Instance"
             value={instance}

@@ -129,7 +129,7 @@ export default function VpnPage() {
   const operationsList = operations.data?.operations ?? [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-md:break-words">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -174,7 +174,7 @@ export default function VpnPage() {
           <CardTitle className="text-base">{t("topology.title")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid items-center gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr]">
+          <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr]">
             <TopologyPoint icon={Laptop} label={local?.hostname ?? t("node.local")} detail={local?.tailscale_ipv4 ?? "—"} active={local?.online === true} />
             <Cable className="mx-auto h-5 w-5 rotate-90 text-muted-foreground md:rotate-0" aria-hidden="true" />
             <TopologyPoint icon={ShieldCheck} label={t("topology.tailnet")} detail={t(`path.${connection.kind}`, { relay: connection.relay ?? "—" })} active={connection.kind !== "unavailable"} />
@@ -187,7 +187,7 @@ export default function VpnPage() {
         </CardContent>
       </Card>
 
-      <section className="grid gap-4 xl:grid-cols-2" aria-label={t("nodes.title")}>
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2" aria-label={t("nodes.title")}>
         {local && <NodeCard node={local} peerHostname={remote?.hostname ?? t("nodeName.remote")} locale={i18n.language} busy={actionMutation.isPending && actionMutation.variables?.node === "local"} onAction={requestAction} t={t} />}
         {remote && <NodeCard node={remote} peerHostname={local?.hostname ?? t("nodeName.local")} locale={i18n.language} busy={actionMutation.isPending && actionMutation.variables?.node === "remote"} onAction={requestAction} t={t} />}
       </section>
@@ -321,7 +321,7 @@ function NodeCard({ node, peerHostname, locale, busy, onAction, t }: { node: Vpn
 
 function ActionButton({ icon: Icon, label, onClick, disabled, variant = "outline" }: { icon: typeof Power; label: string; onClick: () => void; disabled?: boolean; variant?: "outline" | "destructive" }) {
   return (
-    <Button type="button" size="sm" variant={variant} onClick={onClick} disabled={disabled} aria-label={label} className="cursor-pointer gap-1.5">
+    <Button type="button" size="sm" variant={variant} onClick={onClick} disabled={disabled} aria-label={label} className="cursor-pointer gap-1.5 max-md:h-auto max-md:min-h-9 max-md:max-w-full max-md:whitespace-normal max-md:py-1.5 max-md:text-left">
       <Icon className="h-3.5 w-3.5" aria-hidden="true" /> {label}
     </Button>
   );

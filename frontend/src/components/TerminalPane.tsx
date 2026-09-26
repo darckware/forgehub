@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Check, Copy, ExternalLink, HelpCircle, Minus, Plus } from "lucide-react";
+import { ArrowDownToLine, Check, ChevronRight, Copy, ExternalLink, HelpCircle, Keyboard, Minus, Plus, SendHorizontal, SlidersHorizontal } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import { apiClient, getToken } from "@/lib/api";
 import {
@@ -52,12 +52,198 @@ interface TerminalPaneProps {
   active: boolean;
 }
 
+/** Phones/tablets: xterm.js takes keyboard input through a hidden textarea,
+ * and Android IMEs (Gboard's suggestions/autocorrect) re-commit words already
+ * sent, so typed text shows up duplicated in the PTY -- a known xterm.js
+ * limitation with no fix upstream (2026-09-26, Marcelo: "no prompt de digitar
+ * está apresentado um problema de digitação as vezes", and his own messages
+ * arrived with phrases repeated). On a coarse pointer the terminal instead
+ * gets a native input bar: the IME, autocorrect and dictation all work
+ * normally there, and the text only reaches the PTY on Send. */
+const TOUCH_INPUT_STORAGE_KEY = "forgehub-terminal-touch-input";
+
+/** The copy/link/zoom/keyboard/help cluster floats over the terminal's
+ * top-right corner and covered the output under it (2026-09-26, Marcelo:
+ * "os botões de zoom no canto superior direito ... atrapalha na
+ * visualização ... um botão de recolher", for phone and desktop alike).
+ * Collapsed by default to a single small toggle; the choice persists. */
+const CONTROLS_COLLAPSED_STORAGE_KEY = "forgehub-terminal-controls-collapsed";
+
+function readControlsCollapsed(): boolean {
+  try {
+    return localStorage.getItem(CONTROLS_COLLAPSED_STORAGE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function isCoarsePointer(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+}
+
+/** SGR mouse-wheel reports, as xterm writes them to the PTY once tmux turns
+ * mouse reporting on (`mouse on`). Button 64 = wheel up, 65 = wheel down. */
+const WHEEL_UP_RE = /\x1b\[<64;/g;
+const WHEEL_DOWN_RE = /\x1b\[<65;/g;
+
+/** Keys a phone keyboard can't produce, sent as the raw bytes a real
+ * terminal would. Shift+Tab is Claude Code's mode switch. */
+const TOUCH_KEYS: { label: string; data: string; aria: string }[] = [
+  { label: "Esc", data: "\x1b", aria: "Escape" },
+  { label: "Tab", data: "\t", aria: "Tab" },
+  { label: "⇧Tab", data: "\x1b[Z", aria: "Shift+Tab" },
+  { label: "^C", data: "\x03", aria: "Ctrl+C" },
+  { label: "↑", data: "\x1b[A", aria: "Up" },
+  { label: "↓", data: "\x1b[B", aria: "Down" },
+  { label: "←", data: "\x1b[D", aria: "Left" },
+  { label: "→", data: "\x1b[C", aria: "Right" },
+  { label: "⏎", data: "\r", aria: "Enter" },
+];
+
+function TerminalTouchInput({ send }: { send: (data: string) => void }) {
+  const { t } = useTranslation("workspace");
+  const [text, setText] = useState("");
+
+  function submit() {
+    if (text) {
+      send(text);
+      // Enter goes out as its own write: a TUI such as Claude Code reads a
+      // single chunk of text + "\r" as a paste, where the "\r" becomes a
+      // newline inside the prompt instead of submitting it.
+      window.setTimeout(() => send("\r"), 60);
+    } else {
+      send("\r");
+    }
+    setText("");
+  }
+
+  return (
+    <div className="shrink-0 space-y-1.5 border-t border-border bg-background p-1.5">
+      <div className="flex gap-1 overflow-x-auto">
+        {TOUCH_KEYS.map((key) => (
+          <button
+            key={key.aria}
+            type="button"
+            aria-label={key.aria}
+            // Keeps focus (and the phone keyboard) in the textarea.
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => send(key.data)}
+            className="h-8 min-w-[2.5rem] shrink-0 rounded-md border border-border bg-muted px-2 font-mono text-xs text-foreground active:bg-accent"
+          >
+            {key.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-end gap-1.5">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          rows={1}
+          placeholder={t("terminal.touchInputPlaceholder")}
+          // text-base: iOS zooms into inputs under 16px on focus.
+          className="max-h-32 min-h-[40px] flex-1 resize-none rounded-md border border-border bg-muted/40 px-3 py-2 text-base outline-none focus:border-primary"
+        />
+        <button
+          type="button"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={submit}
+          aria-label={t("terminal.touchInputSend")}
+          title={t("terminal.touchInputSend")}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground active:opacity-80"
+        >
+          <SendHorizontal className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function TerminalPane({ sessionId, command, cwd, active }: TerminalPaneProps) {
   const { t } = useTranslation("workspace");
   const containerRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const [touchDevice] = useState(isCoarsePointer);
+  const [touchInput, setTouchInput] = useState(() => {
+    if (!isCoarsePointer()) return false;
+    try {
+      return localStorage.getItem(TOUCH_INPUT_STORAGE_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      if (touchDevice) localStorage.setItem(TOUCH_INPUT_STORAGE_KEY, touchInput ? "1" : "0");
+    } catch {
+      // private mode / blocked storage -- the toggle just won't persist
+    }
+    // While the bar is on, tapping the terminal must not raise the keyboard
+    // on xterm's own textarea -- that is the input path that duplicates text.
+    const textarea = termRef.current?.textarea;
+    if (!textarea) return;
+    if (touchInput) textarea.setAttribute("inputmode", "none");
+    else textarea.removeAttribute("inputmode");
+  }, [touchInput, touchDevice]);
+  const [controlsCollapsed, setControlsCollapsed] = useState(readControlsCollapsed);
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONTROLS_COLLAPSED_STORAGE_KEY, controlsCollapsed ? "1" : "0");
+    } catch {
+      // blocked storage -- the toggle just won't persist
+    }
+  }, [controlsCollapsed]);
+  // "Follow the output like the chat" (2026-09-26, Marcelo: "a barra de
+  // rolagem vertical tem que funcionar igual ao chat ... ao mover, ela tem
+  // que parar ... quando coloca no final retorna o automático ... um botão
+  // no lado inferior direito para a última linha"). Following and pausing
+  // are already done by whatever owns the scroll -- tmux copy-mode (entered
+  // with -e, so it leaves by itself at the bottom) or a TUI with its own
+  // mouse scrolling, like Claude Code. What the page lacked was knowing the
+  // user had scrolled away, and a way back. Neither side reports a scroll
+  // position, so it's counted from the wheel reports this terminal itself
+  // sends: notches up minus notches down. Replaying that many notches down
+  // lands exactly where the user left the bottom, for any of them.
+  const wheelUpNotchesRef = useRef(0);
+  const [scrolledAway, setScrolledAway] = useState(false);
+  const trackWheelInput = (data: string) => {
+    const up = data.match(WHEEL_UP_RE)?.length ?? 0;
+    const down = data.match(WHEEL_DOWN_RE)?.length ?? 0;
+    if (!up && !down) return;
+    wheelUpNotchesRef.current = Math.max(0, wheelUpNotchesRef.current + up - down);
+    setScrolledAway(wheelUpNotchesRef.current > 0);
+  };
+  const jumpToBottom = () => {
+    const socket = wsRef.current;
+    const term = termRef.current;
+    if (socket?.readyState !== WebSocket.OPEN || !term) return;
+    const notches = wheelUpNotchesRef.current;
+    wheelUpNotchesRef.current = 0;
+    setScrolledAway(false);
+    if (notches <= 0) return;
+    // Aim at the middle of the pane; a few extra notches absorb rounding
+    // (extra wheel-downs at the bottom are no-ops in tmux and in TUIs).
+    const col = Math.max(1, Math.floor(term.cols / 2));
+    const row = Math.max(1, Math.floor(term.rows / 2));
+    const data = `\x1b[<65;${col};${row}M`.repeat(notches + 3);
+    socket.send(JSON.stringify({ type: "input", data }));
+  };
+  const touchInputRef = useRef(touchInput);
+  touchInputRef.current = touchInput;
+  const sendToPty = (data: string) => {
+    // Typing while scrolled up in tmux copy-mode would be read as copy-mode
+    // commands (vi keys), not text -- return to the live bottom first.
+    if (wheelUpNotchesRef.current > 0) jumpToBottom();
+    const socket = wsRef.current;
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "input", data }));
+  };
   const [fontSize, setFontSize] = useState<number>(getStoredFontSize);
   const [latestLink, setLatestLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -152,9 +338,79 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     const webLinksAddon = new WebLinksAddon((_event, uri) => openLink(uri));
     term.loadAddon(webLinksAddon);
     term.open(container);
+
+    // Touch scrolling (2026-09-26, Marcelo: "no terminal no celular ... a
+    // barra de rolagem vertical dentro do display. Não estou conseguindo").
+    // The history lives in tmux, not in xterm (tmux redraws the screen and
+    // has `mouse on`, see host-bridge's terminal_ws): on a desktop the wheel
+    // becomes a mouse-wheel sequence that tmux turns into copy-mode
+    // scrolling. xterm never maps a finger drag to that, so on a phone
+    // nothing scrolled. Replaying the drag as wheel events on xterm's own
+    // screen element reuses exactly the desktop path -- tmux scrollback,
+    // or xterm's own buffer when nothing is tracking the mouse.
+    let touchLastY: number | null = null;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchScrolling = false;
+    let touchCarry = 0;
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        touchLastY = null;
+        return;
+      }
+      touchLastY = touchStartY = event.touches[0].clientY;
+      touchStartX = event.touches[0].clientX;
+      touchScrolling = false;
+      touchCarry = 0;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (touchLastY === null || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      if (!touchScrolling) {
+        const dx = Math.abs(touch.clientX - touchStartX);
+        const dy = Math.abs(touch.clientY - touchStartY);
+        if (dy < 8 || dy < dx) return; // a tap or a sideways swipe, not a scroll
+        touchScrolling = true;
+      }
+      event.preventDefault();
+      const screen = term.element?.querySelector(".xterm-screen");
+      if (!screen) return;
+      const rowHeight = screen.clientHeight / Math.max(term.rows, 1) || 16;
+      touchCarry += touchLastY - touch.clientY;
+      touchLastY = touch.clientY;
+      // tmux scrolls several lines per wheel notch, so one notch per few
+      // rows dragged keeps the text roughly under the finger. Line mode, not
+      // pixels: xterm treats small pixel deltas as a trackpad and scales
+      // them down to 30%, which swallowed most of the drag.
+      const rowsPerNotch = 3;
+      while (Math.abs(touchCarry) >= rowHeight * rowsPerNotch) {
+        const sign = Math.sign(touchCarry);
+        touchCarry -= sign * rowHeight * rowsPerNotch;
+        screen.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: sign,
+            deltaMode: WheelEvent.DOM_DELTA_LINE,
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+      }
+    };
+    const onTouchEnd = () => {
+      touchLastY = null;
+    };
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: false });
+    container.addEventListener("touchend", onTouchEnd);
+    container.addEventListener("touchcancel", onTouchEnd);
     fitAddon.fit();
     fitAddonRef.current = fitAddon;
     termRef.current = term;
+    // Same rule as the touch-input effect above, which ran before this
+    // terminal existed on first mount.
+    if (touchInputRef.current) term.textarea?.setAttribute("inputmode", "none");
 
     // Auto copy on text selection (copy-on-select) so whatever text
     // is selected with the mouse is immediately written to the clipboard
@@ -311,6 +567,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     connect();
 
     const inputDisposable = term.onData((data) => {
+      trackWheelInput(data);
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "input", data }));
       }
@@ -418,6 +675,10 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       container.removeEventListener("paste", handlePaste, true);
       container.removeEventListener("dragover", handleDragOver);
       container.removeEventListener("drop", handleDrop);
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchend", onTouchEnd);
+      container.removeEventListener("touchcancel", onTouchEnd);
       resizeObserver.disconnect();
       if (ws) {
         ws.onclose = null;
@@ -445,9 +706,28 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
   }, [active]);
 
   return (
-    <div className="relative h-full w-full group">
-      {/* Zoom / Font Size Controls */}
-      <div className="absolute right-3 top-2 z-10 flex items-center gap-1 rounded-md border border-border/60 bg-background/80 px-1 py-0.5 shadow-sm backdrop-blur-sm opacity-60 hover:opacity-100 transition-opacity">
+    <div className="relative flex h-full w-full flex-col group">
+      {/* Terminal controls (copy, link, zoom, typing bar, help) --
+          collapsible so they don't cover the output in the corner. */}
+      <div
+        // Always fully opaque: a faded toggle relied on hover to become
+        // readable, and a phone has no hover -- on the black terminal in the
+        // dark theme the collapsed button all but disappeared.
+        className="absolute right-3 top-2 z-10 flex items-center gap-1 rounded-md border border-border bg-muted px-1 py-0.5 shadow-md"
+      >
+        <button
+          type="button"
+          onClick={() => setControlsCollapsed((v) => !v)}
+          className="flex h-6 w-6 items-center justify-center rounded text-foreground hover:bg-accent"
+          title={controlsCollapsed ? t("terminal.showControls") : t("terminal.hideControls")}
+          aria-label={controlsCollapsed ? t("terminal.showControls") : t("terminal.hideControls")}
+          aria-expanded={!controlsCollapsed}
+        >
+          {controlsCollapsed ? <SlidersHorizontal className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </button>
+        {!controlsCollapsed && (
+        <>
+        <div className="mx-0.5 h-4 w-px bg-border/70" aria-hidden="true" />
         <button
           type="button"
           onClick={() => void handleCopy()}
@@ -504,6 +784,19 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
 
         <div className="mx-0.5 h-4 w-px bg-border/70" aria-hidden="true" />
 
+        {touchDevice && (
+          <button
+            type="button"
+            onClick={() => setTouchInput((v) => !v)}
+            className={`flex h-6 w-6 items-center justify-center rounded hover:bg-accent ${touchInput ? "text-primary" : "text-muted-foreground"}`}
+            title={t("terminal.touchInputToggle")}
+            aria-label={t("terminal.touchInputToggle")}
+            aria-pressed={touchInput}
+          >
+            <Keyboard className="h-3.5 w-3.5" />
+          </button>
+        )}
+
         <details className="group/help relative">
           <summary
             className="flex h-6 w-6 cursor-pointer list-none items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground [&::-webkit-details-marker]:hidden"
@@ -537,9 +830,25 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
             </div>
           </div>
         </details>
+        </>
+        )}
       </div>
 
-      <div ref={containerRef} className="h-full w-full" />
+      <div className="relative min-h-0 w-full flex-1">
+        <div ref={containerRef} className="h-full w-full" />
+        {scrolledAway && (
+          <button
+            type="button"
+            onClick={jumpToBottom}
+            className="absolute bottom-3 right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-muted text-foreground shadow-md hover:bg-accent"
+            title={t("terminal.jumpToBottom")}
+            aria-label={t("terminal.jumpToBottom")}
+          >
+            <ArrowDownToLine className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+      {touchInput && <TerminalTouchInput send={sendToPty} />}
     </div>
   );
 }

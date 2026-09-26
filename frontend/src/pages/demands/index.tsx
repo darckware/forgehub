@@ -22,6 +22,7 @@ import {
   User,
   Workflow,
   XCircle,
+  ChevronLeft,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -915,6 +916,7 @@ export default function DemandsPage() {
   // filtered `visible` (so it matches what the folder actually shows).
   const unreadCount = computeInboxTotalCount(demands ?? []);
   const selected = (demands ?? []).find((d) => d.id === selectedId) ?? null;
+  const phoneDetailOpen = Boolean(formMode || selected);
 
   useAssistantContext({
     label: "Use current message",
@@ -1092,14 +1094,14 @@ export default function DemandsPage() {
           start where the reading pane starts instead of floating over the
           split. Filters live here, not in the message action bar, because
           they are global -- every tab renders the same filtered set. */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 py-3 pr-4">
-        <h1 className="flex w-80 shrink-0 items-center gap-2 pl-4 text-xl font-semibold">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border/60 py-3 pr-4 max-md:pl-4 md:flex-nowrap">
+        <h1 className="flex items-center gap-2 text-xl font-semibold md:w-80 md:shrink-0 md:pl-4">
           {t("inboxTitle")}
           <InboxIcon className="h-5 w-5" />
           {unreadCount > 0 && <Badge variant="destructive">{unreadCount} {t("new")}</Badge>}
         </h1>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-          <div className="relative min-w-0 flex-1 max-w-md">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 max-md:basis-full">
+          <div className="relative min-w-0 flex-1 max-w-md max-md:max-w-none max-md:basis-full">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
@@ -1249,7 +1251,16 @@ export default function DemandsPage() {
 
       {activeTab === "messages" && !isLoading && !isError && (
         <div className="flex min-h-0 flex-1">
-          <div className="flex w-80 shrink-0 flex-col overflow-y-auto border-r border-border/60 p-2">
+          {/* Below md the folder tree and the reading pane don't fit side by
+              side (the pane was left a few pixels wide), so a phone shows one
+              at a time: the tree, or -- once a message or the compose form is
+              open -- the pane with a back bar. Desktop is unchanged. */}
+          <div
+            className={cn(
+              "flex w-80 shrink-0 flex-col overflow-y-auto border-r border-border/60 p-2 max-md:w-full max-md:border-r-0",
+              phoneDetailOpen && "max-md:hidden"
+            )}
+          >
             <AgentDirectionTree
               direction="inbox"
               label={t("incomingFolder")}
@@ -1375,7 +1386,19 @@ export default function DemandsPage() {
             />
           </div>
 
-          <div className="min-w-0 flex-1">
+          <div className={cn("flex min-w-0 flex-1 flex-col", !phoneDetailOpen && "max-md:hidden")}>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedId(null);
+                closeForm();
+              }}
+              className="flex shrink-0 items-center gap-1.5 border-b border-border/60 px-3 py-2 text-sm text-muted-foreground hover:text-foreground md:hidden"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              {t("backToFolders")}
+            </button>
+            <div className="min-h-0 flex-1">
             {formMode ? (
               <DemandFormPanel
                 // Forces a fresh mount (and fresh useState initializers --
@@ -1407,6 +1430,7 @@ export default function DemandsPage() {
                 {t("selectMessagePrompt")}
               </div>
             )}
+            </div>
           </div>
         </div>
       )}

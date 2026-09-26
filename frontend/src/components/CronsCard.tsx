@@ -50,8 +50,8 @@ export function CronsCard() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="flex items-center gap-2">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+        <CardTitle className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xl md:text-2xl">
           <Clock className="h-4 w-4 text-muted-foreground" />
           {t("crons.title")}
           {jobs && (
@@ -60,7 +60,7 @@ export function CronsCard() {
             </span>
           )}
         </CardTitle>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <Button
             variant="ghost"
             size="icon"

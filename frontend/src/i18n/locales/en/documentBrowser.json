@@ -9,5 +9,6 @@
   "hideTree": "Hide directory",
   "showTree": "Show directory",
   "expandAll": "Expand all folders",
-  "collapseAll": "Collapse all folders"
+  "collapseAll": "Collapse all folders",
+  "backToTree": "Files"
 }

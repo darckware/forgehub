@@ -16,6 +16,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -526,15 +527,15 @@ export default function BacklogPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
-          <p className="text-muted-foreground">{t("list.subtitle")}</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        align="center"
+        title={t("list.title")}
+        description={<p>{t("list.subtitle")}</p>}
+        actions={
+          <>
           <Filter className="h-4 w-4 text-muted-foreground" />
           <select
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm sm:flex-none"
             value={filterProjectId}
             onChange={(e) => setFilterProjectId(e.target.value)}
           >
@@ -609,8 +610,9 @@ export default function BacklogPage() {
             <Plus className="mr-2 h-4 w-4" />
             {t("list.newButton")}
           </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {importError && (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">

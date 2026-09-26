@@ -14,6 +14,7 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  ChevronLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import { useDatabaseSchema } from "@/hooks/useDatabase";
 import type { SchemaOut } from "@/hooks/useDatabase";
 import { buildMermaidERD, injectMermaidSvg, renderMermaidToString } from "@/lib/mermaidErd";
 import { useSchema } from "./SchemaContext";
+import { usePhoneListDetail } from "@/hooks/useIsPhone";
 import { useTranslation } from "react-i18next";
 
 // ---------------------------------------------------------------------------
@@ -211,6 +213,7 @@ export default function DiagramPage() {
     setEditing(null);
     setNewName("");
     setEditTables([]);
+    phone.openDetail();
   };
 
   const startEdit = (d: DiagramConfig) => {
@@ -218,6 +221,7 @@ export default function DiagramPage() {
     setCreating(false);
     setNewName(d.name);
     setEditTables(d.tables === "all" ? allTables : [...d.tables]);
+    phone.openDetail();
   };
 
   const cancelEdit = () => { setEditing(null); setCreating(false); };
@@ -253,12 +257,16 @@ export default function DiagramPage() {
   };
 
   const isEditMode = editing !== null || creating;
+  // Phone: the diagram list and the canvas can't share the row, so one shows
+  // at a time. There's always an active diagram, so it opens on the canvas;
+  // "‹ Diagrams" brings the list back. Desktop keeps both side by side.
+  const phone = usePhoneListDetail(true);
   const editDiagram = editing ? diagrams.find((d) => d.id === editing) : null;
 
   return (
     <div className="flex h-full min-h-0">
       {/* Left panel — diagram list */}
-      <div className="w-56 shrink-0 border-r border-border flex flex-col h-full bg-card">
+      <div className={cn("w-56 shrink-0 border-r border-border flex flex-col h-full bg-card max-md:w-full max-md:border-r-0", !phone.showList && "hidden")}>
         <div className="p-3 border-b border-border">
           <Button size="sm" className="w-full gap-1.5 text-xs h-7" onClick={startCreate}>
             <Plus className="h-3.5 w-3.5" /> {t('database:diagram.newDiagram')}
@@ -277,7 +285,7 @@ export default function DiagramPage() {
                   isActive && "bg-accent",
                   isBeingEdited && "bg-primary/10"
                 )}
-                onClick={() => { if (!isBeingEdited) { setActiveId(d.id); cancelEdit(); } }}
+                onClick={() => { if (!isBeingEdited) { setActiveId(d.id); cancelEdit(); phone.openDetail(); } }}
               >
                 <Layers className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
                 <div className="flex-1 min-w-0">
@@ -310,7 +318,7 @@ export default function DiagramPage() {
       </div>
 
       {/* Main area */}
-      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0">
+      <div className={cn("flex-1 min-w-0 flex flex-col h-full min-h-0", !phone.showDetail && "hidden")}>
         {isEditMode ? (
           /* ── Editor mode ── */
           <div className="flex flex-col h-full min-h-0">
@@ -335,8 +343,8 @@ export default function DiagramPage() {
               </Button>
             </div>
             {/* Table selector + live preview side-by-side */}
-            <div className="flex flex-1 min-h-0 gap-0">
-              <div className="w-64 shrink-0 border-r border-border p-3 flex flex-col min-h-0">
+            <div className="flex flex-1 min-h-0 gap-0 max-md:flex-col">
+              <div className="w-64 shrink-0 border-r border-border p-3 flex flex-col min-h-0 max-md:max-h-[45%] max-md:w-full max-md:border-b max-md:border-r-0">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{t('database:diagram.selectTables')}</p>
                 {schemaLoading ? (
                   <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
@@ -362,6 +370,9 @@ export default function DiagramPage() {
           /* ── View mode ── */
           <>
             <div className="flex items-center gap-2 px-4 py-2 border-b border-border shrink-0">
+              <Button size="sm" variant="ghost" className="h-7 gap-1 px-1.5 text-xs md:hidden" onClick={phone.backToList}>
+                <ChevronLeft className="h-3.5 w-3.5" /> {t('database:diagram.backToList')}
+              </Button>
               <span className="text-xs font-medium flex-1">
                 {activeDiagram.name}
                 <Badge variant="outline" className="ml-2 text-[10px]">

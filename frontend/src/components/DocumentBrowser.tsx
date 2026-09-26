@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { FoldVertical, Folder, PanelLeftClose, PanelLeftOpen, UnfoldVertical } from "lucide-react";
+import { ChevronLeft, FoldVertical, Folder, PanelLeftClose, PanelLeftOpen, UnfoldVertical } from "lucide-react";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import type { DocTreeNode } from "@/components/DocTree";
 import { SearchFilterInput } from "@/components/SearchFilterInput";
@@ -55,6 +55,8 @@ export function DocumentBrowser({
   treeExpand,
   tree,
   children,
+  onBack,
+  hasSelection = false,
   bodyClassName,
 }: {
   title: string;
@@ -80,13 +82,19 @@ export function DocumentBrowser({
   treeExpand?: { allExpanded: boolean; onToggleAll: () => void };
   tree: ReactNode;
   children: ReactNode;
+  /** Phone layout (below md): with a document open, the tree hides and the
+   * document fills the screen with a back button that calls this -- the
+   * page clears its own selection. Omit to keep the side-by-side split. */
+  onBack?: () => void;
+  /** Whether a document is open -- decides which half a phone shows. */
+  hasSelection?: boolean;
   bodyClassName?: string;
 }) {
   const { t } = useTranslation("documentBrowser");
   const [hideTree, setHideTree] = useState(false);
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-[280px_1fr] items-center gap-4">
+      <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-[280px_1fr]">
         <h2 className="flex items-center gap-2 text-xl font-semibold">{title}</h2>
         <div className="flex flex-wrap items-center justify-between gap-2">
           {titleSuffix}
@@ -97,7 +105,7 @@ export function DocumentBrowser({
         </div>
       </div>
 
-      <div className="grid grid-cols-[280px_1fr] items-center gap-4">
+      <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-[280px_1fr]">
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           <button
             type="button"
@@ -113,7 +121,7 @@ export function DocumentBrowser({
             <code className="break-all text-foreground">{path}</code>
           </span>
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
           <Button
             variant="outline"
             size="icon"
@@ -138,7 +146,8 @@ export function DocumentBrowser({
             value={searchValue}
             onChange={onSearchChange}
             placeholder={searchPlaceholder}
-            className="flex-1"
+            // Own line on a phone -- beside the icon row it was one letter wide.
+            className="min-w-0 flex-1 max-md:order-first max-md:basis-full"
           />
           <ViewModeToggle
             viewMode={viewMode}
@@ -152,20 +161,32 @@ export function DocumentBrowser({
       <div
         className={cn(
           "grid h-[65vh] gap-4",
-          hideTree ? "grid-cols-1" : "grid-cols-[280px_1fr]",
+          hideTree ? "grid-cols-1" : "grid-cols-1 md:grid-cols-[280px_1fr]",
           bodyClassName
         )}
       >
+        {/* Phone: tree until a document is picked, then the document with a
+            back bar (only when the page wires onBack). Desktop unchanged. */}
         {!hideTree && (
-          <Card className="min-h-0 overflow-hidden">
+          <Card className={cn("min-h-0 overflow-hidden", onBack && hasSelection && "max-md:hidden")}>
             <CardContent className="h-full overflow-y-auto p-2">{tree}</CardContent>
           </Card>
         )}
 
-        <Card className="min-h-0 overflow-hidden">
+        <Card className={cn("flex min-h-0 flex-col overflow-hidden", onBack && !hasSelection && !hideTree && "max-md:hidden")}>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-2 text-sm text-muted-foreground hover:text-foreground md:hidden"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              {t("backToTree")}
+            </button>
+          )}
           <CardContent
             className={cn(
-              "h-full",
+              "min-h-0 flex-1",
               viewMode === "note" ? "flex flex-col gap-2 overflow-y-auto p-4" : "overflow-hidden p-0"
             )}
           >

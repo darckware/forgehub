@@ -316,6 +316,8 @@ function DocumentationCard() {
         </p>
       )}
       <DocumentBrowser
+        hasSelection={Boolean(selectedPath)}
+        onBack={() => setSelectedPath(undefined)}
         title={t("docs.title")}
         titleSuffix={
           <span className="flex items-center gap-1 text-sm font-normal text-muted-foreground">

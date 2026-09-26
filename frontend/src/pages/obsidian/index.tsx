@@ -299,6 +299,8 @@ export default function ObsidianPage() {
         </p>
       )}
       <DocumentWorkspace
+        hasSelection={Boolean(selectedPath)}
+        onBack={() => setSelectedPath(undefined)}
         title={t("title")}
         titleIcon={<Gem className="h-5 w-5" />}
         titleSuffix={

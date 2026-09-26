@@ -312,7 +312,7 @@ export default function PipelineTemplatesPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-4">
+    <div className="md:p-6 max-w-3xl mx-auto space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-semibold flex items-center gap-2">
           <GitBranch className="h-5 w-5" /> {t("templates.pageTitle")}

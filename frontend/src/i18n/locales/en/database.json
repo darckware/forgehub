@@ -31,7 +31,8 @@
     "showColumns": "Show columns",
     "hideColumns": "Hide columns",
     "showColumnsWarning": "Rendering {{count}} tables with every column can freeze the tab for several seconds.",
-    "compactNotice": "{{count}} tables — columns hidden to keep the diagram responsive. Use \"Show columns\" for the full detail."
+    "compactNotice": "{{count}} tables — columns hidden to keep the diagram responsive. Use \"Show columns\" for the full detail.",
+    "backToList": "Diagrams"
   },
   "query": {
     "sqlEditor": "SQL Editor",

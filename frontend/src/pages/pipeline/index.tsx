@@ -22,6 +22,7 @@ import {
 } from "@/hooks/usePipeline";
 import { useProjects } from "@/hooks/useProject";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PageHeader } from "@/components/PageHeader";
 import { PipelineForm } from "./PipelineForm";
 
 const STATUS_VARIANT: Record<
@@ -93,16 +94,17 @@ export default function PipelinePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
-          <p className="text-muted-foreground">{t("list.description")}</p>
-        </div>
-        <Button onClick={() => setShowForm((v) => !v)}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t("list.newPipeline")}
-        </Button>
-      </div>
+      <PageHeader
+        align="center"
+        title={t("list.title")}
+        description={<p>{t("list.description")}</p>}
+        actions={
+          <Button onClick={() => setShowForm((v) => !v)}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t("list.newPipeline")}
+          </Button>
+        }
+      />
 
       {showForm && (
         <Card>

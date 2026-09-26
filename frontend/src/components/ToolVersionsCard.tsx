@@ -73,9 +73,9 @@ export function ToolVersionsCard() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle>{t("toolVersions.title")}</CardTitle>
-        <div className="flex items-center gap-1">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+        <CardTitle className="min-w-0 text-xl md:text-2xl">{t("toolVersions.title")}</CardTitle>
+        <div className="flex shrink-0 items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
@@ -136,7 +136,7 @@ export function ToolVersionsCard() {
             return (
               <div key={tool} className="rounded-md">
                 <div className="flex items-center justify-between gap-3 px-2 py-1.5 hover:bg-accent/50">
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     {meta.icon ? (
                       meta.iconBg ? (
                         <span className={`flex h-6 w-6 items-center justify-center rounded ${meta.iconBg}`}>
@@ -148,14 +148,14 @@ export function ToolVersionsCard() {
                     ) : (
                       <Feather className="h-6 w-6 text-muted-foreground" />
                     )}
-                    <div>
-                      <div className="text-sm font-medium">{meta.label}</div>
-                      <div className="text-xs text-muted-foreground">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{meta.label}</div>
+                      <div className="truncate text-xs text-muted-foreground">
                         {version?.installed_version ?? (errorText ? t("toolVersions.error") : version ? t("toolVersions.notInstalled") : t("toolVersions.unknown"))}
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
                     {version?.update_available ? (
                       <Badge variant="warning">{version.latest_version ?? t("toolVersions.updateAvailable")}</Badge>
                     ) : version?.installed_version ? (

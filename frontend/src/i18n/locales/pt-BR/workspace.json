@@ -94,7 +94,13 @@
       "closePane": "Fechar o painel tmux atual",
       "closeTabButton": "Fechar aba",
       "detach": "Desanexar a aba; o processo continua executando"
-    }
+    },
+    "touchInputPlaceholder": "Digite aqui e toque em enviar…",
+    "touchInputSend": "Enviar ao terminal",
+    "touchInputToggle": "Barra de digitação (celular)",
+    "showControls": "Mostrar controles do terminal",
+    "hideControls": "Recolher controles do terminal",
+    "jumpToBottom": "Ir para a última linha"
   },
   "webAppPane": {
     "back": "Voltar",

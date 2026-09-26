@@ -19,7 +19,7 @@ export default function ProfilesPage() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-4">
+    <div className="md:p-6 max-w-5xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold flex items-center gap-2">
           <ShieldCheck className="h-5 w-5" /> {t("profiles.list.title")}

@@ -120,7 +120,7 @@ export default function SystemControlPage() {
   const isAllBackups = backupTarget === "all";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-md:break-words">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">System Control</h1>
@@ -137,7 +137,7 @@ export default function SystemControlPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="p-4">
             <p className="text-xs font-medium uppercase text-muted-foreground">Branch</p>
@@ -168,15 +168,15 @@ export default function SystemControlPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card>
           <CardContent className="space-y-3 p-4">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <GitBranch className="h-4 w-4 text-muted-foreground" />
                 <h2 className="text-base font-semibold">Git Control</h2>
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Select
                   value={data.git.repo_key}
                   className="h-8 w-40 text-xs"
@@ -451,7 +451,7 @@ export default function SystemControlPage() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Button
                 size="sm"
                 variant="outline"

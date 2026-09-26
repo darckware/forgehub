@@ -71,7 +71,8 @@
     "editInWhiteboard": "Edit in Whiteboard",
     "couldNotReadFile": "Could not read the file.",
     "couldNotReadSceneInvalidJson": "Could not read this scene (invalid JSON).",
-    "drawingSaved": "Drawing saved to {{path}} — open a markdown document to insert the image, or copy the path above."
+    "drawingSaved": "Drawing saved to {{path}} — open a markdown document to insert the image, or copy the path above.",
+    "backToTree": "Files"
   },
   "tree": {
     "dragReferenceFolder": "Drag to the assistant to reference this folder",

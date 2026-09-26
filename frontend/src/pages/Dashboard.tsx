@@ -15,18 +15,23 @@ export default function Dashboard() {
   const [tab, setTab] = useState<RightColumnTab>("resources");
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">{t("title")}</h1>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{t("title")}</h1>
         <p className="text-muted-foreground">{t("welcome")}</p>
       </div>
       {/* Left column (Tool Versions) is naturally the tallest card --
           tabbing System Resources/Remote Access into one card on the right
           keeps that column's height close to it, instead of stacking both
-          and towering over it whenever the QR code is showing. */}
-      <div className="grid items-start gap-6 md:grid-cols-2">
-        <ToolVersionsCard />
-        <div className="space-y-6">
+          and towering over it whenever the QR code is showing.
+          grid-cols-1 (not the implicit track) + min-w-0 on each column: an
+          implicit grid column sizes to its content's max-content width, so
+          on a phone the cards grew past the viewport and got clipped. */}
+      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 md:gap-6">
+        <div className="min-w-0">
+          <ToolVersionsCard />
+        </div>
+        <div className="min-w-0 space-y-4 md:space-y-6">
           <Card>
             <CardHeader className="pb-3">
               <Tabs value={tab} onValueChange={(v) => setTab(v as RightColumnTab)}>

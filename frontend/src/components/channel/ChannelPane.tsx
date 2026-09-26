@@ -160,12 +160,27 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
     setCreating(true);
   }, [defaultProjectId, channels]);
 
+  // Below md the expanded channel list overlays the room (a 256px column
+  // left a phone ~130px for the conversation), so picking a channel or
+  // starting a new one folds it back to the 44px rail to reveal the room.
+  function foldListOnPhone() {
+    if (window.matchMedia("(max-width: 767px)").matches) setSidebarCollapsed(true);
+  }
+  function selectChannel(id: string) {
+    setSelectedChannelId(id);
+    foldListOnPhone();
+  }
+  function startCreating() {
+    setCreating(true);
+    foldListOnPhone();
+  }
+
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 flex-1">
       <div
         className={cn(
-          "flex shrink-0 flex-col border-r border-border transition-[width]",
-          sidebarCollapsed ? "w-11" : "w-64"
+          "flex shrink-0 flex-col border-r border-border bg-background transition-[width]",
+          sidebarCollapsed ? "w-11" : "w-64 max-md:absolute max-md:inset-0 max-md:z-30 max-md:w-auto"
         )}
       >
         <div className={cn("flex items-center px-2 py-2", sidebarCollapsed ? "flex-col gap-1" : "justify-between px-3")}>
@@ -180,7 +195,7 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"
-                onClick={() => setCreating(true)}
+                onClick={startCreating}
                 aria-label={t("channels.new")}
               >
                 <Plus className="h-4 w-4" />
@@ -201,7 +216,7 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"
-                onClick={() => setCreating(true)}
+                onClick={startCreating}
                 aria-label={t("channels.new")}
               >
                 <Plus className="h-4 w-4" />
@@ -216,7 +231,7 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
                 label={t("channels.withProject")}
                 items={withProject}
                 activeId={activeChannelId}
-                onSelect={setSelectedChannelId}
+                onSelect={selectChannel}
               />
             )}
             {withoutProject.length > 0 && (
@@ -224,7 +239,7 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
                 label={t("channels.freeform")}
                 items={withoutProject}
                 activeId={activeChannelId}
-                onSelect={setSelectedChannelId}
+                onSelect={selectChannel}
               />
             )}
             {channels.length === 0 && !creating && (
@@ -268,7 +283,7 @@ export function ChannelPane({ agents, defaultProjectId }: { agents: Agent[]; def
           de chat"), just agent-locked (lockAgent hides the agent-selector
           pill since it's already fixed by which name was clicked). */}
       {openAgentSession && (
-        <div className="relative flex w-96 shrink-0 flex-col border-l border-border">
+        <div className="relative flex w-96 shrink-0 flex-col border-l border-border bg-background max-md:absolute max-md:inset-0 max-md:z-40 max-md:w-auto max-md:border-l-0">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-sm font-medium">{openAgentSession.name}</span>
             <Button

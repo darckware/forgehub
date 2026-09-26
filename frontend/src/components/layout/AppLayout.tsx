@@ -40,7 +40,11 @@ export function AppLayout() {
           overflow-y-auto and AssistantDrawer's h-full need a definite
           ancestor height to actually contain their own scrolling instead
           of growing the page. */}
-      <div className="flex h-screen min-w-0 flex-1">
+      {/* h-dvh after h-screen: on mobile browsers 100vh includes the area
+          under the collapsible address bar, which pushed the bottom of the
+          page (the chat composer) off-screen. Browsers without dvh drop
+          that declaration and keep h-screen. */}
+      <div className="flex h-screen h-dvh min-w-0 flex-1">
         <main
           className={cn(
             "min-w-0 flex-1 overflow-hidden",
@@ -48,7 +52,11 @@ export function AppLayout() {
             // trigger is `fixed top-3 left-3` and would otherwise sit on
             // top of page titles/toolbars that start right at the p-8
             // corner.
-            isFullBleed ? "flex flex-col pt-14 md:pt-0" : "overflow-y-auto p-4 pt-16 md:p-8"
+            // The workspace fits the trigger into its own first toolbar row
+            // (see its modeToggle) -- a phone can't spare the extra 56px.
+            isFullBleed
+              ? cn("flex flex-col", !pathname.startsWith("/workspace") && "pt-14 md:pt-0")
+              : "overflow-y-auto p-4 pt-16 md:p-8"
           )}
         >
           <Outlet />

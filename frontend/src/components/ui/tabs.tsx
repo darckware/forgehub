@@ -33,7 +33,11 @@ function TabsList({ children, className }: { children: React.ReactNode; classNam
   return (
     <div
       role="tablist"
-      className={cn("inline-flex items-center gap-1 rounded-md bg-muted p-1", className)}
+      // max-md: a phone scrolls the tab row sideways instead of wrapping
+      // each label onto 3-4 lines (docs/architecture/MOBILE_RESPONSIVE_PLAN.md, P4).
+      // max-md:inline-flex also overrides callers' `grid grid-cols-N`, whose
+      // minmax(0,1fr) columns can't grow and made the labels overlap.
+      className={cn("inline-flex items-center gap-1 rounded-md bg-muted p-1 max-md:max-w-full max-md:overflow-x-auto", className, "max-md:inline-flex")}
     >
       {children}
     </div>
@@ -64,7 +68,7 @@ function TabsTrigger({
       title={title}
       onClick={() => ctx.setValue(value)}
       className={cn(
-        "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+        "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors max-md:shrink-0 max-md:whitespace-nowrap",
         isActive
           ? "bg-background text-foreground shadow-sm"
           : "text-muted-foreground hover:text-foreground",

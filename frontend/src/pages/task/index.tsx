@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, CheckCircle2, ClipboardList, Copy, Filter, Loader2, Plus, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -154,15 +155,15 @@ export default function TaskPage() {
   return (
     <div className="space-y-6">
       <ExecutionWaveBoard />
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
-          <p className="text-muted-foreground">{t("list.subtitle")}</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        align="center"
+        title={t("list.title")}
+        description={<p>{t("list.subtitle")}</p>}
+        actions={
+          <>
           <Filter className="h-4 w-4 text-muted-foreground" />
           <select
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm sm:flex-none"
             value={filterProjectId}
             onChange={(e) => setFilterProjectId(e.target.value)}
           >
@@ -177,13 +178,14 @@ export default function TaskPage() {
             <Plus className="mr-2 h-4 w-4" />
             {t("list.newTask")}
           </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-          <div>
-            <CardTitle>{t("list.forgeRouterCard.title")}</CardTitle>
+        <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <CardTitle className="max-md:text-xl">{t("list.forgeRouterCard.title")}</CardTitle>
             <CardDescription>{t("list.forgeRouterCard.description")}</CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={() => void handleCopyForgeRouterPrompt()}>

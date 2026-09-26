@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PageHeader } from "@/components/PageHeader";
 import {
   usePolicies,
   useCreatePolicy,
@@ -159,17 +160,16 @@ export default function PoliciesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("policies.title")}</h1>
-          <p className="text-muted-foreground">
-            {t("policies.description")}
-          </p>
-        </div>
-        <Button onClick={() => { setShowCreate(true); setEditingId(null); }}>
-          <Plus className="mr-2 h-4 w-4" /> {t("policies.newPolicy")}
-        </Button>
-      </div>
+      <PageHeader
+        align="center"
+        title={t("policies.title")}
+        description={<p>{t("policies.description")}</p>}
+        actions={
+          <Button onClick={() => { setShowCreate(true); setEditingId(null); }}>
+            <Plus className="mr-2 h-4 w-4" /> {t("policies.newPolicy")}
+          </Button>
+        }
+      />
 
       {showCreate && (
         <Card>

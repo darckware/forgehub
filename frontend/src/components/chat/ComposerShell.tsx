@@ -71,7 +71,12 @@ export const ComposerShell = forwardRef<
   return (
     <div
       className={cn(
-        "relative flex items-end gap-1 rounded-3xl border bg-muted/50 px-2 py-1.5 transition-colors",
+        // Below md the row wraps: the textarea takes a full-width first line
+        // and the leading/trailing buttons share a second one. Kept on one
+        // row the buttons left the textarea a few pixels wide on a phone
+        // (the placeholder rendered one letter per line). max-md: variants
+        // only, so desktop and the AssistantDrawer stay exactly as before.
+        "relative flex items-end gap-1 rounded-3xl border max-md:flex-wrap bg-muted/50 px-2 py-1.5 transition-colors",
         dragActive ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border"
       )}
       onDragEnter={onDragEnter}
@@ -95,10 +100,14 @@ export const ComposerShell = forwardRef<
         rows={1}
         style={textareaStyle}
         className={cn(
-          "min-h-[36px] flex-1 resize-none border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0",
+          // max-md:text-base: iOS Safari zooms the page into any input
+          // under 16px on focus, which on a phone never zooms back out.
+          "min-h-[36px] flex-1 resize-none border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-md:order-first max-md:basis-full max-md:text-base",
           textareaClassName
         )}
       />
+      {/* Pushes `trailing` to the right edge of the wrapped second row. */}
+      <div className="hidden flex-1 max-md:block" aria-hidden />
       {trailing}
     </div>
   );

@@ -229,7 +229,7 @@ export default function HindsightPage() {
     : t("metrics.asyncOps.daemonOffline");
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-md:break-words">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{t("title")}</h1>
@@ -312,7 +312,7 @@ export default function HindsightPage() {
         </TabsContent>
 
         <TabsContent value="status" className="mt-4 space-y-6">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Server}
           label={t("metrics.daemon.label")}
@@ -343,7 +343,7 @@ export default function HindsightPage() {
         />
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Table2}
           label={t("metrics.tables.label")}
@@ -392,7 +392,7 @@ export default function HindsightPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <CardContent className="space-y-4 p-4">
             <div>
@@ -404,7 +404,7 @@ export default function HindsightPage() {
                 })}
               </p>
             </div>
-            <div className="grid gap-3 text-sm sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div>
                 <p className="text-xs uppercase text-muted-foreground">{t("configuration.apiUrl")}</p>
                 <p className="break-all font-mono text-xs">{data.connection.api_url ?? t("configuration.notConfigured")}</p>
@@ -597,7 +597,7 @@ export default function HindsightPage() {
         }}
       />
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card>
           <CardContent className="space-y-3 p-4">
             <div className="flex items-center justify-between gap-2">

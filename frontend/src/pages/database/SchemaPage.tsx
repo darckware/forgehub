@@ -312,7 +312,7 @@ function TablesSection() {
   return (
     <div className="flex h-full min-h-0">
       {/* List */}
-      <div className="w-56 shrink-0 border-r border-border flex flex-col h-full">
+      <div className={cn("w-56 shrink-0 border-r border-border flex flex-col h-full max-md:w-full max-md:border-r-0", selected && "max-md:hidden")}>
         <div className="p-2 border-b border-border space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{tables.length} tables</span>
@@ -355,7 +355,18 @@ function TablesSection() {
       </div>
 
       {/* Detail */}
-      <div className="flex-1 min-w-0 overflow-y-auto p-4">
+      <div className={cn("flex-1 min-w-0 overflow-y-auto p-4", !selected && "max-md:hidden")}>
+        {/* Phone: the list and the detail can't share the row -- show one
+            at a time, with a way back to the list. */}
+        {selected && (
+          <button
+            type="button"
+            onClick={() => setSelected(null)}
+            className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:hidden"
+          >
+            <ChevronLeft className="h-4 w-4" /> Tables
+          </button>
+        )}
         {!selected ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <Table2 className="h-10 w-10 opacity-20" />
@@ -574,7 +585,7 @@ function FunctionsSection() {
 
   return (
     <div className="flex h-full min-h-0">
-      <div className="w-56 shrink-0 border-r border-border flex flex-col h-full">
+      <div className={cn("w-56 shrink-0 border-r border-border flex flex-col h-full max-md:w-full max-md:border-r-0", selected && "max-md:hidden")}>
         <div className="p-2 border-b border-border space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{functions.length} functions</span>
@@ -602,7 +613,18 @@ function FunctionsSection() {
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 overflow-y-auto p-4">
+      <div className={cn("flex-1 min-w-0 overflow-y-auto p-4", !selected && "max-md:hidden")}>
+        {/* Phone: the list and the detail can't share the row -- show one
+            at a time, with a way back to the list. */}
+        {selected && (
+          <button
+            type="button"
+            onClick={() => setSelected(null)}
+            className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:hidden"
+          >
+            <ChevronLeft className="h-4 w-4" /> Functions
+          </button>
+        )}
         {!selected ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <Zap className="h-10 w-10 opacity-20" />

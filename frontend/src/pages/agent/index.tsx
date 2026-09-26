@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, Bot, Download, KeyRound, Loader2, RefreshCw, Send, Wrench } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,20 +35,24 @@ export default function AgentPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
-          <p className="text-muted-foreground">{t("list.subtitle")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("list.foundationSource")} <code>{FOUNDATION_AGENTS_ROOT}</code>
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5">
+      <PageHeader
+        align="center"
+        title={t("list.title")}
+        description={
+          <>
+            <p>{t("list.subtitle")}</p>
+            <p className="mt-1 break-all text-xs">
+              {t("list.foundationSource")} <code>{FOUNDATION_AGENTS_ROOT}</code>
+            </p>
+          </>
+        }
+        actions={
+          <>
           {/* Keep the active-agent filter in the URL with table ordering. */}
           <Select
             value={focusedAgentId}
             onChange={(e) => setFocusedAgentId(e.target.value)}
-            className="w-56"
+            className="w-full sm:w-56"
             aria-label={t("list.filterByAgent")}
           >
             <option value="">{t("list.allAgents")}</option>
@@ -96,8 +101,9 @@ export default function AgentPage() {
             <Wrench className="mr-2 h-4 w-4" />
             {t("list.agentTools")}
           </Link>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {syncHermes.isError && (
         <Card className="border-destructive/50">

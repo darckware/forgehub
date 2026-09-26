@@ -1298,7 +1298,11 @@ export default function WorkspacePage() {
   }
 
   const modeToggle = (
-    <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+    // max-md: this row shares its line with the Sidebar's floating mobile
+    // menu trigger (fixed, 36px at top/left 12px) instead of AppLayout
+    // reserving a whole empty row above it -- pl-14 clears the trigger,
+    // h-[60px] centers the toggle on it.
+    <div className="flex items-center gap-1 border-b border-border px-2 py-1.5 max-md:h-[60px] max-md:pl-14">
       <Button
         variant={viewMode === "conversas" ? "secondary" : "ghost"}
         size="sm"
@@ -1335,7 +1339,7 @@ export default function WorkspacePage() {
   // *frontend* from throwing away an otherwise-healthy in-flight request
   // by destroying the component watching it.
   return (
-    <div className="flex min-h-0 flex-1 flex-col pl-4">
+    <div className="flex min-h-0 flex-1 flex-col md:pl-4">
       {modeToggle}
       <div className={cn("flex min-h-0 flex-1 flex-col", viewMode !== "canais" && "hidden")}>
         <ChannelPane agents={allAgents ?? []} defaultProjectId={channelDefaultProjectId} />
@@ -1351,8 +1355,12 @@ export default function WorkspacePage() {
       ) : (
       <>
       <div className="flex flex-col border-b border-border">
-        {/* Toolbar: static actions on the left, working-dir/launchers on the right. */}
-        <div className="flex min-w-0 items-center gap-1 px-2 py-1.5">
+        {/* Toolbar: static actions on the left, working-dir/launchers on the right.
+            Wraps below md -- kept on one line, a phone clipped everything
+            past the SSH menu (launchers, working folder, upload). Not
+            overflow-x-auto: that would also clip the dropdowns hanging off
+            these buttons. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-1 px-2 py-1.5 md:flex-nowrap">
           <Button
             variant={activeChatTab && !activeChatTab.historyCollapsed ? "secondary" : "outline"}
             size="icon"
@@ -1586,6 +1594,8 @@ export default function WorkspacePage() {
                 onSessionChange={(sessionId) => handleSessionChangeForTab(tab.id, sessionId)}
                 historyCollapsed={Boolean(tab.historyCollapsed)}
                 artifactsOpen={Boolean(tab.artifactsOpen)}
+                onCloseHistory={() => toggleHistoryCollapsed(tab.id)}
+                onCloseArtifacts={() => toggleArtifactsPanel(tab.id)}
                 workingDir={workingDir}
               />
             </div>

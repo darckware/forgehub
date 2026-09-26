@@ -1783,9 +1783,9 @@ export default function DeployPage() {
   const isSaving = createMut.isPending || updateMut.isPending;
 
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="flex h-full flex-col gap-4 md:p-6">
+      {/* Header -- stacks below sm so the actions stay on screen on a phone. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2">
             <Server className="h-5 w-5 text-blue-500" /> {t("mainPage.header.title")}
@@ -1794,7 +1794,7 @@ export default function DeployPage() {
             {t("mainPage.header.description")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Sync result toast */}
           {syncResult && (
             <div className={cn(
@@ -1849,7 +1849,9 @@ export default function DeployPage() {
       </div>
 
       {/* Summary stats — clickable cards navigate to the corresponding tab */}
-      <div className="grid grid-cols-8 gap-3">
+      {/* 8 across only from lg -- on a phone that left each card ~40px wide
+          with its label overlapping the next one. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         {[
           { label: t("mainPage.stats.installations"), value: installations.length, icon: Zap, color: "text-sky-500", tab: "installations", offline: false },
           { label: t("mainPage.stats.containers"), value: bridgeOffline ? null : containers.length, icon: Box, color: "text-blue-500", tab: "live", offline: bridgeOffline },

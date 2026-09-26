@@ -27,6 +27,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PageHeader } from "@/components/PageHeader";
 import { cn } from "@/lib/utils";
 import {
   useProducts,
@@ -331,44 +332,43 @@ export default function ProductPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("list.title")}</h1>
-          <p className="text-muted-foreground">
-            {t("list.subtitle")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {view === "list" ? (
-            <>
-              <input
-                ref={restoreInputRef}
-                type="file"
-                accept=".zip"
-                className="hidden"
-                onChange={handleRestoreFileChange}
-              />
-              <Button
-                variant="outline"
-                onClick={() => restoreInputRef.current?.click()}
-                title={t("list.restoreButtonTitle")}
-              >
-                <Upload className="mr-2 h-4 w-4" />
-                {t("list.restoreButton")}
+      <PageHeader
+        align="center"
+        title={t("list.title")}
+        description={<p>{t("list.subtitle")}</p>}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {view === "list" ? (
+              <>
+                <input
+                  ref={restoreInputRef}
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  onChange={handleRestoreFileChange}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => restoreInputRef.current?.click()}
+                  title={t("list.restoreButtonTitle")}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {t("list.restoreButton")}
+                </Button>
+                <Button onClick={openCreateForm}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t("list.newButton")}
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" onClick={backToList}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                {t("list.backToList")}
               </Button>
-              <Button onClick={openCreateForm}>
-                <Plus className="mr-2 h-4 w-4" />
-                {t("list.newButton")}
-              </Button>
-            </>
-          ) : (
-            <Button variant="outline" onClick={backToList}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              {t("list.backToList")}
-            </Button>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
+        }
+      />
 
       {view === "form" ? (
         editingId && editingProduct ? (
