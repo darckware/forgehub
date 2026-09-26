@@ -162,6 +162,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             "/api/v1/governed/", "/api/v1/executions/", "/api/v1/execution-waves/",
             "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/",
             "/api/v1/workspace-browser/", "/api/v1/products",
+            "/api/v1/tools",
             # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md:
             # /governance/ lets a delegated agent-orchestrator (e.g. Athos,
             # once granted an AuthorityDelegation for
@@ -255,6 +256,17 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             or path == "/api/v1/database/query"
         )
         if is_system_bridge_path:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
+
+        # Agent tool catalog via ForgeHub Messages MCP. The MCP bridge already
+        # exposes list/register/update/scan_agent_tools using X-Bridge-Token,
+        # so the HTTP auth boundary must explicitly allow this narrow catalog
+        # surface; without it those installed MCP tools return 401 even though
+        # the bridge token is valid.
+        is_tools_bridge_path = path == "/api/v1/tools" or path.startswith("/api/v1/tools/")
+        if is_tools_bridge_path:
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
                 return await call_next(request)
