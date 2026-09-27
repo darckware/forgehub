@@ -244,7 +244,8 @@ async def get_system_control_status(
             "type": entry.get("type"),
         }
         for entry in backup_listing.get("entries", [])
-        if entry.get("type") == "file"
+        # Same rule as list_backups: a hidden file (the backup lock) isn't an archive.
+        if entry.get("type") == "file" and not (entry.get("name") or "").startswith(".")
     ]
     backups.sort(key=lambda item: item["name"] or "")
     commit_lines = last_commit.splitlines()
@@ -453,7 +454,10 @@ async def list_backups(
     entries = [
         {"name": e.get("name"), "path": e.get("path"), "size": e.get("size"), "type": e.get("type")}
         for e in listing.get("entries", [])
-        if e.get("type") == "file"
+        # Hidden files are never archives: backup_hermes_root.sh leaves its
+        # .backup_hermes_root.lock here, which the header card counted as
+        # "1 archive(s)" while the real weekly archives sit in a subfolder.
+        if e.get("type") == "file" and not (e.get("name") or "").startswith(".")
     ]
     entries.sort(key=lambda item: item["name"] or "")
     return {"target": target, "path": backup_dir, "count": len(entries), "entries": entries}
@@ -1021,3 +1025,152 @@ async def update_app_config(
     PRUNE_NAMES = settings.CLEANUP_PRUNE_NAMES
 
     return _settings_to_config_out(settings)
+
+
+# --- Docker disk cleanup -----------------------------------------------------
+#
+# Docker is where this host's disk actually goes (2026-09-27, Marcelo: "o
+# grande vilão é o docker"): 92 GB of BuildKit cache against 24 GB of images,
+# with the root filesystem at 82%. The weekly foundation-clear policy already
+# runs `docker builder prune --all`, and it works -- it reclaimed 21 GB on
+# 2026-09-20 -- but a few days of CoreTI's `dotnet publish` builds refilled it
+# from nothing, so waiting for Sunday isn't enough. These two routes put the
+# same prune one click away, plus the unused-image prune the policy doesn't do
+# (it only drops *dangling* images older than 30 days, so every superseded
+# tagged image, e.g. forgehub-frontend:rollback-*, stays forever).
+#
+# Volumes are never pruned here, same line as the weekly policy: they hold
+# database data, and "unused by a container right now" is not "disposable".
+
+_DOCKER_SIZE_UNITS = {"B": 1, "kB": 10**3, "KB": 10**3, "MB": 10**6, "GB": 10**9, "TB": 10**12}
+_DOCKER_SIZE_RE = re.compile(r"^\s*([\d.]+)\s*([kKMGT]?B)")
+
+
+def _docker_size(text: str | None) -> int:
+    """Docker's human sizes ("10.61GB (44%)", "0B", "N/A") to bytes.
+    Docker reports decimal (SI) units, so GB is 10**9, not 2**30."""
+    match = _DOCKER_SIZE_RE.match(text or "")
+    if not match:
+        return 0
+    return int(float(match.group(1)) * _DOCKER_SIZE_UNITS[match.group(2)])
+
+
+def _json_lines(block: str) -> list[dict[str, Any]]:
+    rows = []
+    for line in block.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            continue
+    return rows
+
+
+# One bridge call for the whole card: filesystem, `docker system df`, every
+# image, and the image IDs any container (running or stopped) still points at
+# -- an image referenced by a stopped container is not "unused", and
+# `docker image prune --all` keeps it too, so the list shown matches what the
+# prune would actually remove. `-a` because the prune also takes the untagged
+# intermediate images a plain `docker images` hides (51 of 84 on 2026-09-27).
+# Per-image sizes overlap (shared layers), so the card's "reclaimable" comes
+# from `docker system df`, never from summing this list.
+_DOCKER_USAGE_COMMAND = (
+    "df -B1 --output=size,used,avail / | tail -n 1; echo __SECTION__; "
+    "docker system df --format '{{json .}}'; echo __SECTION__; "
+    "docker images -a --no-trunc --format '{{json .}}'; echo __SECTION__; "
+    "docker ps -aq | xargs -r docker inspect --format '{{.Image}}'"
+)
+
+
+@router.get("/docker-usage")
+async def docker_usage(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    """Read-only: root filesystem usage, Docker's own per-type breakdown, and
+    the images no container uses (what "Remove unused images" would delete)."""
+    data = await _bridge(
+        "POST", "/v1/exec", timeout_seconds=130.0, json={"command": _DOCKER_USAGE_COMMAND, "timeout_seconds": 120}
+    )
+    if data["exit_code"] != 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(data["stderr"] or "").strip() or "docker usage failed",
+        )
+    sections = (data["stdout"] or "").split("__SECTION__")
+    if len(sections) != 4:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="unexpected docker usage output")
+    df_block, types_block, images_block, used_block = sections
+
+    df_fields = df_block.split()
+    disk = None
+    if len(df_fields) == 3 and all(f.isdigit() for f in df_fields):
+        disk = {"total": int(df_fields[0]), "used": int(df_fields[1]), "available": int(df_fields[2])}
+
+    types = [
+        {
+            "type": row.get("Type", ""),
+            "total_count": int(row["TotalCount"]) if str(row.get("TotalCount", "")).isdigit() else 0,
+            "active": int(row["Active"]) if str(row.get("Active", "")).isdigit() else 0,
+            "size": _docker_size(row.get("Size")),
+            "reclaimable": _docker_size(row.get("Reclaimable")),
+        }
+        for row in _json_lines(types_block)
+    ]
+
+    used_ids = {line.strip() for line in used_block.splitlines() if line.strip()}
+    unused_images = []
+    for row in _json_lines(images_block):
+        if row.get("ID") in used_ids:
+            continue
+        repository, tag = row.get("Repository", "<none>"), row.get("Tag", "<none>")
+        unused_images.append(
+            {
+                "id": row.get("ID", ""),
+                "name": "<none>" if repository == "<none>" else f"{repository}:{tag}",
+                "size": _docker_size(row.get("Size")),
+                "created_at": row.get("CreatedAt", ""),
+                "created_since": row.get("CreatedSince", ""),
+            }
+        )
+    unused_images.sort(key=lambda image: -image["size"])
+
+    return {"disk": disk, "types": types, "unused_images": unused_images}
+
+
+class DockerPruneRequest(BaseModel):
+    build_cache: bool = False
+    unused_images: bool = False
+
+
+@router.post("/docker:prune")
+async def docker_prune(payload: DockerPruneRequest, _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    """Removes the whole BuildKit cache and/or every image no container uses.
+
+    Both are reproducible -- the next `docker compose build` re-downloads or
+    rebuilds what it needs, only slower the first time -- which is why this
+    is a hard delete and not a move to TRASH_ROOT like /cleanup-scan/delete.
+    Removing unused images also removes rollback tags (e.g.
+    forgehub-frontend:rollback-*); the UI's confirmation says so.
+    """
+    if not payload.build_cache and not payload.unused_images:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing selected to prune")
+    steps: list[tuple[str, str]] = []
+    if payload.build_cache:
+        steps.append(("build_cache", "docker builder prune --all --force"))
+    if payload.unused_images:
+        steps.append(("unused_images", "docker image prune --all --force"))
+
+    results: dict[str, str] = {}
+    for key, command in steps:
+        # A 90 GB builder prune can take minutes -- same budget as /cleanup-run.
+        data = await _bridge(
+            "POST", "/v1/exec", timeout_seconds=615.0, json={"command": command, "timeout_seconds": 600}
+        )
+        if data["exit_code"] != 0:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(data["stderr"] or "").strip() or f"{command} failed",
+            )
+        lines = [line for line in (data["stdout"] or "").strip().splitlines() if line.strip()]
+        results[key] = lines[-1] if lines else ""
+    return {"results": results, "policy": "no-docker-volume-prune"}

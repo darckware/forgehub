@@ -271,3 +271,62 @@ export function useEmptyTrash() {
     },
   });
 }
+
+export interface DockerUsageType {
+  /** Docker's own label: "Images" | "Containers" | "Local Volumes" | "Build Cache". */
+  type: string;
+  total_count: number;
+  active: number;
+  size: number;
+  reclaimable: number;
+}
+
+export interface DockerUnusedImage {
+  id: string;
+  /** "repo:tag", or "<none>" for a dangling image. */
+  name: string;
+  size: number;
+  created_at: string;
+  created_since: string;
+}
+
+export interface DockerUsage {
+  /** Root filesystem, bytes -- null if `df` output couldn't be parsed. */
+  disk: { total: number; used: number; available: number } | null;
+  types: DockerUsageType[];
+  /** Images no container (running or stopped) points at -- exactly what
+   * "Remove unused images" deletes. Largest first. */
+  unused_images: DockerUnusedImage[];
+}
+
+/** Docker's share of the host disk (2026-09-27) -- where the space actually
+ * goes on this VPS, mostly BuildKit cache. Read-only. */
+export function useDockerUsage() {
+  return useQuery<DockerUsage>({
+    queryKey: ["system-control", "docker-usage"],
+    queryFn: () => apiClient.get("/api/v1/system-control/docker-usage"),
+    retry: false,
+  });
+}
+
+export interface DockerPruneRequest {
+  build_cache?: boolean;
+  unused_images?: boolean;
+}
+
+export interface DockerPruneResult {
+  /** Last line of each prune's output (Docker's own "Total ..." summary). */
+  results: Partial<Record<"build_cache" | "unused_images", string>>;
+  policy: "no-docker-volume-prune";
+}
+
+/** Hard delete of reproducible Docker artifacts -- never volumes. */
+export function useDockerPrune() {
+  const queryClient = useQueryClient();
+  return useMutation<DockerPruneResult, Error, DockerPruneRequest>({
+    mutationFn: (body) => apiClient.post("/api/v1/system-control/docker:prune", body),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "docker-usage"] });
+    },
+  });
+}

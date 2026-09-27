@@ -408,3 +408,104 @@ async def test_status_graceful_when_git_fails(client: AsyncClient, monkeypatch):
     assert body["git"]["branch"] == "detached"
     assert body["git"]["head"] == ""
 
+
+
+class FakeDockerBridge(FakeBridgeClient):
+    """Answers the Docker card's commands with real-shaped output."""
+
+    async def request(self, method, url, headers=None, json=None, params=None, **kwargs):
+        FakeBridgeClient.calls.append((method, url, json, params))
+        command = (json or {}).get("command", "")
+        if command.startswith("df -B1"):
+            return _git_ok(
+                "207000000000 168000000000 39000000000\n__SECTION__\n"
+                '{"Active":"16","Reclaimable":"10.61GB (44%)","Size":"23.98GB","TotalCount":"78","Type":"Images"}\n'
+                '{"Active":"8","Reclaimable":"88.65GB","Size":"92.26GB","TotalCount":"333","Type":"Build Cache"}\n'
+                "__SECTION__\n"
+                '{"ID":"sha256:used","Repository":"forgehub-backend","Tag":"latest","Size":"660MB","CreatedAt":"x","CreatedSince":"1 hour ago"}\n'
+                '{"ID":"sha256:old","Repository":"forgehub-frontend","Tag":"rollback-a","Size":"111MB","CreatedAt":"y","CreatedSince":"1 day ago"}\n'
+                '{"ID":"sha256:dangling","Repository":"<none>","Tag":"<none>","Size":"1.5GB","CreatedAt":"z","CreatedSince":"9 days ago"}\n'
+                "__SECTION__\nsha256:used\n"
+            )
+        if command.startswith("docker builder prune"):
+            return _git_ok("ID\nabc\nTotal:\t88.65GB\n")
+        if command.startswith("docker image prune"):
+            return _git_ok("Deleted Images:\nx\nTotal reclaimed space: 10.61GB\n")
+        raise AssertionError(f"Unexpected bridge call: {command}")
+
+
+async def test_docker_usage_parses_sizes_and_lists_only_unused_images(client: AsyncClient, monkeypatch):
+    from app.api.routes import system_control as sc
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeDockerBridge)
+
+    resp = await client.get("/api/v1/system-control/docker-usage")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["disk"] == {"total": 207000000000, "used": 168000000000, "available": 39000000000}
+    build = next(t for t in body["types"] if t["type"] == "Build Cache")
+    assert build["size"] == 92_260_000_000
+    assert build["reclaimable"] == 88_650_000_000
+    images = next(t for t in body["types"] if t["type"] == "Images")
+    assert images["reclaimable"] == 10_610_000_000  # "(44%)" suffix ignored
+    # The image a container points at is not "unused"; largest first.
+    assert [i["name"] for i in body["unused_images"]] == ["<none>", "forgehub-frontend:rollback-a"]
+
+
+async def test_docker_prune_runs_only_selected_steps_and_never_volumes(client: AsyncClient, monkeypatch):
+    from app.api.routes import system_control as sc
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeDockerBridge)
+
+    resp = await client.post("/api/v1/system-control/docker:prune", json={"build_cache": True})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["results"] == {"build_cache": "Total:\t88.65GB"}
+    commands = [c[2]["command"] for c in FakeBridgeClient.calls]
+    assert commands == ["docker builder prune --all --force"]
+
+    FakeBridgeClient.calls = []
+    resp = await client.post(
+        "/api/v1/system-control/docker:prune", json={"build_cache": True, "unused_images": True}
+    )
+    assert resp.status_code == 200, resp.text
+    commands = [c[2]["command"] for c in FakeBridgeClient.calls]
+    assert commands == ["docker builder prune --all --force", "docker image prune --all --force"]
+    assert not any("volume" in c for c in commands)
+
+
+async def test_docker_prune_rejects_empty_selection(client: AsyncClient, monkeypatch):
+    from app.api.routes import system_control as sc
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeDockerBridge)
+    resp = await client.post("/api/v1/system-control/docker:prune", json={})
+    assert resp.status_code == 400
+    assert FakeBridgeClient.calls == []
+
+
+async def test_backup_listing_skips_hidden_lock_file(client: AsyncClient, monkeypatch):
+    """backup_hermes_root.sh leaves .backup_hermes_root.lock in BACKUP_DIR; it
+    was being listed (and counted) as a backup archive."""
+    from app.api.routes import system_control as sc
+
+    class LockListing(FakeBridgeClient):
+        async def request(self, method, url, headers=None, json=None, params=None, **kwargs):
+            if url.endswith("/v1/fs/list"):
+                return FakeResponse({"entries": [
+                    {"name": ".backup_hermes_root.lock", "path": "/root/backup/.backup_hermes_root.lock", "size": 0, "type": "file"},
+                    {"name": "hermes-backup-1.tar.gz", "path": "/root/backup/hermes-backup-1.tar.gz", "size": 9, "type": "file"},
+                ]})
+            return await super().request(method, url, headers=headers, json=json, params=params, **kwargs)
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", LockListing)
+
+    resp = await client.get("/api/v1/system-control/backups", params={"target": "hermes"})
+    assert resp.status_code == 200, resp.text
+    assert [e["name"] for e in resp.json()["entries"]] == ["hermes-backup-1.tar.gz"]
+
+    resp = await client.get("/api/v1/system-control/status")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["backups"]["count"] == 1

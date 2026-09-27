@@ -29,6 +29,7 @@ import {
   useResetChatSessionHermesLink,
 } from "@/hooks/useChat";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
+import { DockerCleanupCard } from "./DockerCleanupCard";
 
 function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null) return "—";
@@ -430,6 +431,8 @@ export default function SystemControlPage() {
           </CardContent>
         </Card>
       </div>
+
+      <DockerCleanupCard />
 
       <Card>
         <CardContent className="space-y-3 p-4">
