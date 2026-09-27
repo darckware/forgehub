@@ -14,19 +14,29 @@ independently:
                 TELEGRAM_HOME_CHANNEL. Read straight off the /profiles mount;
                 no secret ever leaves this module (only booleans and the
                 channel *name*, never the token).
-  running    -- systemd unit `hermes-gateway-<profile>.service` is active.
-                That daemon is what long-polls Telegram, so "installed but
-                not running" means messages silently go nowhere. The backend
-                container has no systemd, so this comes from the host-bridge
-                (`/v1/exec`), same as system_control.py's git calls, and is
-                reported as None (unknown) rather than False when the bridge
-                is unreachable -- "we could not check" must not render as
-                "it is broken".
+  running    -- the profile's Telegram adapter is `connected` in the host
+                gateway's own state file (`~/.hermes/gateway_state.json`,
+                platform key `<profile>:telegram`), and the gateway PID
+                recorded there is alive. Read through the host-bridge
+                (`/v1/exec`), reported as None (unknown) rather than False
+                when the bridge is unreachable -- "we could not check" must
+                not render as "it is broken".
+
+Since Hermes' multiplex mode (September 2026) there is ONE gateway process,
+the user unit `hermes-gateway.service`, serving every profile; the old
+per-profile `hermes-gateway-<profile>.service` units no longer exist. This
+module used to check those units, so every agent read "not running" while
+its Telegram was fine -- and, worse, a real outage looked the same as the
+false one (2026-09-27: Athos/Aegis/Kairos/Lara were `fatal`
+telegram_polling_conflict for 16 hours). A running process is not a working
+channel either: the adapter can be `fatal` inside a healthy gateway, which
+is why the per-profile platform state is the signal, not the unit.
 
 Statuses: ok | not_running | not_configured | unknown | not_applicable.
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,6 +67,11 @@ EXTERNAL_RUNTIME_ENV_PATHS = {
 
 _ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*?)\s*$")
 
+# The single host gateway (multiplex) and the state file it keeps.
+GATEWAY_UNIT = "hermes-gateway.service"
+GATEWAY_STATE_PATH = "/root/.hermes/gateway_state.json"
+_ALIVE_MARKER = "__GATEWAY_PID_ALIVE__"
+
 STATUS_OK = "ok"
 STATUS_NOT_RUNNING = "not_running"
 STATUS_NOT_CONFIGURED = "not_configured"
@@ -76,16 +91,51 @@ class TelegramStatus:
 
 
 def gateway_service_name(profile_slug: str | None, runtime_type: str | None) -> str | None:
-    """The systemd unit that carries this profile's Telegram channel.
+    """The systemd unit that carries this profile's Telegram channel: the
+    one multiplex host gateway, for every Hermes profile.
 
     Only Hermes profiles have one. The external CLI runtimes have a
     profile_slug too (it is their inbox addressing key, not a directory under
     /root/.hermes/profiles), so keying off the slug alone wrongly attributed
-    a `hermes-gateway-porthus.service` to Porthus and reported that
-    non-existent unit as down."""
+    a gateway to Porthus and reported it as down."""
     if not profile_slug or runtime_type != "hermes":
         return None
-    return f"hermes-gateway-{profile_slug}.service"
+    return GATEWAY_UNIT
+
+
+def gateway_state_command() -> str:
+    """One host-bridge call: the gateway state file, then whether the PID it
+    records is still alive (a crashed gateway leaves the file behind)."""
+    return (
+        f'f={GATEWAY_STATE_PATH}; cat "$f"; printf "\\n{_ALIVE_MARKER}\\n"; '
+        "pid=$(grep -oE '\"pid\": *[0-9]+' \"$f\" | head -1 | grep -oE '[0-9]+$'); "
+        '[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && echo yes || echo no'
+    )
+
+
+def parse_telegram_states(stdout: str) -> dict[str, str]:
+    """`{profile_slug: telegram adapter state}` from `gateway_state_command`
+    output. Empty when the gateway is not alive or not running -- every
+    channel is then down, whatever the (stale) file says. The `default`
+    profile's own adapter is keyed `telegram`, without a prefix."""
+    body, _, alive = stdout.partition(_ALIVE_MARKER)
+    if alive.strip() != "yes":
+        return {}
+    try:
+        state = json.loads(body)
+    except ValueError:
+        return {}
+    if state.get("gateway_state") not in ("running", "starting"):
+        return {}
+    states: dict[str, str] = {}
+    for key, platform in (state.get("platforms") or {}).items():
+        if not isinstance(platform, dict):
+            continue
+        if key == "telegram":
+            states["default"] = str(platform.get("state"))
+        elif key.endswith(":telegram"):
+            states[key.split(":", 1)[0]] = str(platform.get("state"))
+    return states
 
 
 def _read_env_values(env_path: Path) -> dict[str, str]:
@@ -154,32 +204,6 @@ def read_profile_home_chat(
     return _read_env_values(home_dir / ".env").get(_CHANNEL_KEY) or None
 
 
-def parse_active_services(systemctl_stdout: str) -> set[str]:
-    """Unit names reported as ActiveState=active by
-    `systemctl show --property=Name,ActiveState`-style output.
-
-    Parses the `Name=…`/`ActiveState=…` pairs that `systemctl show` emits per
-    unit (blank-line separated). Using `show` rather than `is-active` keeps it
-    to a single host-bridge round trip for the whole roster."""
-    active: set[str] = set()
-    name: str | None = None
-    state: str | None = None
-    for line in systemctl_stdout.splitlines():
-        line = line.strip()
-        if not line:
-            if name and state == "active":
-                active.add(name)
-            name, state = None, None
-            continue
-        if line.startswith("Id="):
-            name = line[3:].strip()
-        elif line.startswith("ActiveState="):
-            state = line[len("ActiveState=") :].strip()
-    if name and state == "active":
-        active.add(name)
-    return active
-
-
 def resolve_status(
     *,
     required: bool,
@@ -208,9 +232,9 @@ def build_status(
     required: bool,
     home_path: str | None,
     runtime_type: str | None,
-    active_services: set[str] | None,
+    telegram_states: dict[str, str] | None,
 ) -> TelegramStatus:
-    """`active_services=None` means the host-bridge could not be reached, so
+    """`telegram_states=None` means the host-bridge could not be reached, so
     `running` stays None and the status degrades to "unknown" rather than
     falsely reporting the channel as down."""
     installed, channel_name = read_profile_telegram_config(
@@ -218,8 +242,8 @@ def build_status(
     )
     service = gateway_service_name(profile_slug, runtime_type)
     running: bool | None = None
-    if service is not None and active_services is not None:
-        running = service in active_services
+    if service is not None and telegram_states is not None:
+        running = telegram_states.get(profile_slug or "") == "connected"
     return TelegramStatus(
         profile_slug=profile_slug,
         required=required,

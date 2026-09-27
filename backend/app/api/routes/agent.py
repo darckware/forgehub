@@ -42,7 +42,6 @@ import asyncio
 import hashlib
 import json
 import secrets
-import shlex
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -226,37 +225,30 @@ async def list_agents(
 # Telegram channel status
 #
 # Registered before /{agent_id} so the literal path segment wins over the
-# UUID converter. Whole-roster in one call: the systemd check is a single
+# UUID converter. Whole-roster in one call: the gateway state is a single
 # host-bridge round trip for every agent, not one per row.
 # ---------------------------------------------------------------------------
 
 
-async def _active_gateway_services(services: list[str]) -> tuple[set[str] | None, str | None]:
-    """Which of `services` systemd reports as active, via the host-bridge
-    (`/v1/exec` -- the backend container has no systemd of its own).
+async def _telegram_platform_states() -> tuple[dict[str, str] | None, str | None]:
+    """Each Hermes profile's Telegram adapter state, read from the multiplex
+    host gateway's own state file through the host-bridge (`/v1/exec` -- the
+    backend container sees neither the host's systemd nor ~/.hermes).
 
     Returns (None, error) rather than raising: a Telegram badge that cannot
     be computed must degrade to "unknown", never take down the Agents page."""
-    if not services:
-        return set(), None
-    command = "systemctl show --no-pager --property=Id --property=ActiveState " + " ".join(
-        shlex.quote(service) for service in services
-    )
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
                 f"{settings.CHAT_BRIDGE_URL}/v1/exec",
                 headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
-                json={"command": command},
+                json={"command": agent_telegram.gateway_state_command()},
             )
     except httpx.HTTPError as e:
         return None, f"Host-bridge unreachable: {e}"
     if resp.status_code != 200:
         return None, f"Host-bridge error: {resp.text[:200]}"
-    data = resp.json()
-    # A non-zero exit is normal here: systemctl show returns non-zero when any
-    # named unit does not exist, while still printing the ones that do.
-    return agent_telegram.parse_active_services(data.get("stdout") or ""), None
+    return agent_telegram.parse_telegram_states(resp.json().get("stdout") or ""), None
 
 
 @router.post("/sync/runtimes", response_model=AgentRuntimeSyncOut)
@@ -518,18 +510,7 @@ async def get_agents_telegram_status(
     and whether the gateway daemon that serves it is running."""
     result = await db.execute(select(Agent).order_by(Agent.name))
     agents = list(result.scalars().all())
-    services = sorted(
-        {
-            service
-            for agent in agents
-            if (
-                service := agent_telegram.gateway_service_name(
-                    agent.profile_slug, agent.runtime_type
-                )
-            )
-        }
-    )
-    active, check_error = await _active_gateway_services(services)
+    states, check_error = await _telegram_platform_states()
     return AgentTelegramStatusListOut(
         agents=[
             AgentTelegramStatusOut(
@@ -541,7 +522,7 @@ async def get_agents_telegram_status(
                         required=agent.telegram_required,
                         home_path=agent.effective_home_path,
                         runtime_type=agent.runtime_type,
-                        active_services=active,
+                        telegram_states=states,
                     )
                 ),
             )

@@ -543,30 +543,50 @@ async def test_profile_files_404_when_agent_has_no_directory(client, cleanup_age
 def test_telegram_gateway_service_only_for_hermes_profiles():
     """The external CLI runtimes carry a profile_slug too -- it is their
     Inbox addressing key, not a directory under /root/.hermes/profiles -- so
-    keying the systemd unit off the slug alone invented a
-    `hermes-gateway-porthus.service` and reported that non-existent unit as
-    down."""
-    assert (
-        agent_telegram.gateway_service_name("athos", "hermes")
-        == "hermes-gateway-athos.service"
-    )
+    only Hermes profiles map to the (single, multiplex) host gateway."""
+    assert agent_telegram.gateway_service_name("athos", "hermes") == "hermes-gateway.service"
     assert agent_telegram.gateway_service_name("porthus", "claude") is None
     assert agent_telegram.gateway_service_name(None, "hermes") is None
 
 
-def test_telegram_parse_active_services():
-    stdout = (
-        "Id=hermes-gateway-athos.service\nActiveState=active\n"
-        "\n"
-        "Id=hermes-gateway-scriba.service\nActiveState=inactive\n"
-        "\n"
-        "Id=hermes-gateway-atlas.service\nActiveState=active\n"
-    )
-    assert agent_telegram.parse_active_services(stdout) == {
-        "hermes-gateway-athos.service",
-        "hermes-gateway-atlas.service",
+def _gateway_state_output(alive: str = "yes", gateway_state: str = "running") -> str:
+    import json as _json
+
+    state = {
+        "pid": 202061,
+        "gateway_state": gateway_state,
+        "platforms": {
+            "telegram": {"state": "connected"},
+            "athos:telegram": {"state": "connected"},
+            "aegis:telegram": {"state": "fatal", "error_code": "telegram_polling_conflict"},
+            "athos:whatsapp": {"state": "disabled"},
+        },
     }
-    assert agent_telegram.parse_active_services("") == set()
+    return _json.dumps(state) + "\n__GATEWAY_PID_ALIVE__\n" + alive + "\n"
+
+
+def test_telegram_states_come_from_the_multiplex_gateway_state():
+    """2026-09-27: every channel read "not running" because ForgeHub looked
+    for per-profile units that multiplex removed, while Aegis & co. were
+    really `fatal` inside a healthy gateway. The adapter state is the signal."""
+    assert agent_telegram.parse_telegram_states(_gateway_state_output()) == {
+        "default": "connected",
+        "athos": "connected",
+        "aegis": "fatal",
+    }
+
+
+def test_telegram_states_empty_when_the_gateway_is_dead_or_stopped():
+    # A crashed gateway leaves its last state file behind: trust the PID.
+    assert agent_telegram.parse_telegram_states(_gateway_state_output(alive="no")) == {}
+    assert agent_telegram.parse_telegram_states(_gateway_state_output(gateway_state="stopped")) == {}
+    assert agent_telegram.parse_telegram_states("garbage\n__GATEWAY_PID_ALIVE__\nyes\n") == {}
+
+
+def test_telegram_state_command_checks_the_recorded_pid():
+    command = agent_telegram.gateway_state_command()
+    assert agent_telegram.GATEWAY_STATE_PATH in command
+    assert "kill -0" in command
 
 
 def test_telegram_status_reads_env_without_leaking_the_token(tmp_path):
@@ -583,7 +603,7 @@ def test_telegram_status_reads_env_without_leaking_the_token(tmp_path):
         required=True,
         home_path=str(tmp_path),
         runtime_type="hermes",
-        active_services={"hermes-gateway-athos.service"},
+        telegram_states={"athos": "connected"},
     )
     assert status.installed is True
     assert status.running is True
@@ -620,16 +640,18 @@ def test_telegram_status_states(tmp_path):
         "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_HOME_CHANNEL=1\n", encoding="utf-8"
     )
 
-    # Installed but the gateway is down -- messages silently go nowhere, so
-    # this is its own state rather than a generic failure.
-    down = agent_telegram.build_status(
-        profile_slug="athos",
-        required=True,
-        home_path=str(configured),
-        runtime_type="hermes",
-        active_services=set(),
-    )
-    assert down.status == "not_running"
+    # Installed but the channel is down -- messages silently go nowhere, so
+    # this is its own state rather than a generic failure. Both a `fatal`
+    # adapter and a profile the gateway doesn't serve count as down.
+    for states in ({"athos": "fatal"}, {}):
+        down = agent_telegram.build_status(
+            profile_slug="athos",
+            required=True,
+            home_path=str(configured),
+            runtime_type="hermes",
+            telegram_states=states,
+        )
+        assert down.status == "not_running"
 
     # Host-bridge unreachable: "we could not check" must not render as
     # "it is broken".
@@ -638,7 +660,7 @@ def test_telegram_status_states(tmp_path):
         required=True,
         home_path=str(configured),
         runtime_type="hermes",
-        active_services=None,
+        telegram_states=None,
     )
     assert unchecked.running is None
     assert unchecked.status == "unknown"
@@ -651,7 +673,7 @@ def test_telegram_status_states(tmp_path):
         required=True,
         home_path=str(empty),
         runtime_type="hermes",
-        active_services=set(),
+        telegram_states={},
     )
     assert missing.status == "not_configured"
 
@@ -661,6 +683,6 @@ def test_telegram_status_states(tmp_path):
         required=False,
         home_path=str(empty),
         runtime_type="claude",
-        active_services=set(),
+        telegram_states={},
     )
     assert external.status == "not_applicable"

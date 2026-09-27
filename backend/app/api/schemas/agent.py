@@ -651,9 +651,10 @@ class AgentTelegramStatusOut(BaseModel):
 
     Two independent signals (see core/agent_telegram.py): `installed` reads
     the profile's own .env (bot token + home channel; the token itself never
-    leaves the backend), `running` is the `hermes-gateway-<profile>.service`
-    systemd state. `running` is None when the host-bridge could not be
-    reached -- "not checked" must not render as "broken"."""
+    leaves the backend), `running` is the profile's Telegram adapter being
+    `connected` in the multiplex host gateway's state file (`service` is that
+    single `hermes-gateway.service`). `running` is None when the host-bridge
+    could not be reached -- "not checked" must not render as "broken"."""
 
     agent_id: uuid.UUID
     agent_name: str
