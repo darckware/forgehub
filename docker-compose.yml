@@ -38,8 +38,14 @@ services:
       NEXO_ARTIFACT_ROOT: /nexo-artifacts
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Localhost only (2026-09-27): the public IP reaches no system -- web
+    # traffic arrives through the Cloudflare Tunnel (ingress
+    # http://localhost:<port>, and it resolves localhost to ::1, hence both
+    # families), admin through Tailscale. Host clients (the forgehub MCP,
+    # host-bridge) already call localhost:8000.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+      - "[::1]:8000:8000"
     volumes:
       # Read-write: backs ForgeHub's collective Knowledge Base interface
       # (api/routes/vault.py), including per-agent inboxes and shared review.
@@ -107,7 +113,8 @@ services:
     container_name: forgehub-frontend
     restart: unless-stopped
     ports:
-      - "4173:4173"
+      - "127.0.0.1:4173:4173"
+      - "[::1]:4173:4173"
     depends_on:
       forgehub-backend:
         condition: service_healthy
