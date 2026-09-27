@@ -77,7 +77,15 @@ sub-conversion, ticked off independently.
         priming effect (sends `primingMessage` as the session's opening turn) deliberately stays
         in `ChatPane.tsx` itself, not this hook: it also touches `setQueue`, which belongs to the
         not-yet-extracted send/streaming concern below.
-  - [ ] composer/draft + attachment state
+  - [x] composer/draft + attachment state — done 2026-09-27: `frontend/src/hooks/useChatComposerViewModel.ts`
+        owns the draft (still staged per tab across remounts), attachments + image preview,
+        drag-and-drop, the `@`/`/`/`#`/`$` pickers and the prompt-rewrite dialog. Not a form model
+        (no schema, no submit): the send path takes the draft via `takeDraft()`, so the composer
+        never learns what a send does. The four independent `*Open` booleans became one `picker`
+        state -- at most one picker open, the keyboard routed to it through a single `pickerRef`.
+        Pure `nextPickerState` + the hook are covered by `useChatComposerViewModel.test.ts`.
+        Dictation (`isRecording`/`MediaRecorder`) stays in `ChatPane.tsx` with the voice concern;
+        it only calls `composer.appendText`.
   - [ ] send/streaming + queue state (`ChatQueueItem` draining)
   - [ ] voice/TTS state — the largest remaining piece: SpeechRecognition + MediaRecorder/VAD
         fallback + TTS + barge-in detection, all via raw browser APIs with no test coverage here.

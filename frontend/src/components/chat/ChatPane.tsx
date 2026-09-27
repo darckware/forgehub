@@ -61,10 +61,6 @@ import { TestApplicationDialog } from "@/components/chat/TestApplicationDialog";
 import { SecretInputPopover } from "@/components/chat/SecretInputPopover";
 import { useFsList, type FsEntry } from "@/hooks/useTerminalBrowse";
 import { getToken } from "@/lib/api";
-import {
-  getAssistantFileDragData,
-  loadAssistantDraggedFile,
-} from "@/lib/assistantFileDrag";
 import { cn } from "@/lib/utils";
 import { type Agent, useAgents, useAgentMcpServers } from "@/hooks/useAgent";
 import { useActiveTurns } from "@/hooks/useActiveTurn";
@@ -95,6 +91,7 @@ import {
   type ChatStreamEvent,
 } from "@/hooks/useChat";
 import { useChatSessionViewModel } from "@/hooks/useChatSessionViewModel";
+import { COMPOSER_MAX_HEIGHT_PX, clearComposerStaging, useChatComposerViewModel } from "@/hooks/useChatComposerViewModel";
 
 // Tabs/active-tab are persisted (not just in-memory state) so that
 // navigating to another page and back to Workspace recreates the same tabs
@@ -102,16 +99,6 @@ import { useChatSessionViewModel } from "@/hooks/useChatSessionViewModel";
 // tmux session name, re-attaching to the still-running session instead of
 // losing it. See TerminalPane.tsx and host-bridge/app.py's terminal_ws.
 
-
-// Attached-file and draft-text staging per chat tab, kept outside React
-// state. Navigating to another page and back to Workspace remounts
-// ChatTabPanel from scratch (unlike switching tabs within Workspace, which
-// just CSS-hides it), so plain useState loses the pending image/draft; a
-// File can't round-trip through the tabs' localStorage persistence either,
-// and composer text isn't wired into it. These module-level maps survive
-// that remount for the lifetime of the SPA session.
-const attachmentByTabId = new Map<string, File[]>();
-const composerTextByTabId = new Map<string, string>();
 
 // Streams abertos por esta aba. É o único estado em voo que pertence mesmo
 // ao cliente -- a conexão. O que a execução já produziu (passos, texto,
@@ -131,14 +118,9 @@ export function clearChatTabQueue(tabId: string): void {
 /** Drop a closed tab's staged draft/attachments (the Workspace calls this
  * when the user closes a chat tab -- the maps are module-private here). */
 export function clearChatTabStaging(tabId: string): void {
-  attachmentByTabId.delete(tabId);
-  composerTextByTabId.delete(tabId);
+  clearComposerStaging(tabId);
   clearChatTabQueue(tabId);
 }
-
-// Composer auto-grow ceiling -- past this it scrolls internally instead
-// of taking over the message area.
-const COMPOSER_MAX_HEIGHT_PX = 240;
 
 // Prevent the same physical gesture from being handled twice (for example,
 // a rapid double-click) without treating repeated text as a duplicate. A
@@ -1913,52 +1895,8 @@ export function ChatPane({
   // configured response language, same one the agent is instructed to
   // answer in (Settings -> AI chat).
   const { texts: languageTexts } = useChatLanguage();
-  const [composerText, setComposerText] = useState(
-    () => composerTextByTabId.get(tabId) ?? initialComposerText ?? ""
-  );
-  useEffect(() => {
-    // An empty composer has no draft worth preserving across a remount --
-    // and staging "" here would otherwise permanently win over a later
-    // initialComposerText (a seed pushed in after this first empty mount),
-    // since the lookup below only falls through on null/undefined, not "".
-    if (composerText) {
-      composerTextByTabId.set(tabId, composerText);
-    } else {
-      composerTextByTabId.delete(tabId);
-    }
-  }, [tabId, composerText]);
-  const [attachedFiles, setAttachedFilesState] = useState<File[]>(
-    () => attachmentByTabId.get(tabId) ?? []
-  );
-  function setAttachedFiles(files: File[]) {
-    if (files.length > 0) attachmentByTabId.set(tabId, files);
-    else attachmentByTabId.delete(tabId);
-    setAttachedFilesState(files);
-  }
-  function addAttachedFiles(newFiles: File[]) {
-    setAttachedFilesState((current) => {
-      const next = [...current, ...newFiles];
-      attachmentByTabId.set(tabId, next);
-      return next;
-    });
-  }
-  function removeAttachedFile(index: number) {
-    setAttachedFilesState((current) => {
-      const next = current.filter((_, i) => i !== index);
-      if (next.length > 0) attachmentByTabId.set(tabId, next);
-      else attachmentByTabId.delete(tabId);
-      return next;
-    });
-  }
-  const [imagePreviewIndex, setImagePreviewIndex] = useState<number | null>(null);
-  useEffect(() => {
-    if (imagePreviewIndex === null) return;
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setImagePreviewIndex(null);
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [imagePreviewIndex]);
+  const composer = useChatComposerViewModel(tabId, initialComposerText, active);
+  const { data: promptCommands = [] } = usePromptCommands();
   const [isRecording, setIsRecording] = useState(false);
   // Agent-assisted prompt rewrite (2026-08-06 for Channels, ported here
   // 2026-08-07, Marcelo: "no ChatPane (Conversations) o icone de melhoria
@@ -1966,7 +1904,6 @@ export function ChatPane({
   // useStreamImprovePrompt's docstring: private rewrite-only call, never a
   // real turn -- applying the result only replaces the compose draft,
   // sending is still a separate, explicit Enter afterward.
-  const [improveOpen, setImproveOpen] = useState(false);
   const improvePrompt = useStreamImprovePrompt(sessionId);
   // Só o que ESTE cliente está transmitindo agora. O turno em si pertence ao
   // servidor (core/active_turns.py) e é lido por useActiveTurn abaixo, então
@@ -2042,27 +1979,11 @@ export function ChatPane({
     pendingScrollToRevealedRef.current = null;
     queueItemRefs.current.get(id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [revealedQueueIds]);
-  const [composerWarning, setComposerWarning] = useState<string | null>(null);
-  const [composerDragActive, setComposerDragActive] = useState(false);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [slashOpen, setSlashOpen] = useState(false);
-  const { data: promptCommands = [] } = usePromptCommands();
-  const [agentMentionOpen, setAgentMentionOpen] = useState(false);
-  const [agentMentionQuery, setAgentMentionQuery] = useState("");
-  const [artifactMentionOpen, setArtifactMentionOpen] = useState(false);
-  const [artifactMentionQuery, setArtifactMentionQuery] = useState("");
-  const mentionPickerRef = useRef<MentionFilePickerHandle>(null);
-  const slashPickerRef = useRef<SlashCommandPickerHandle>(null);
-  const agentPickerRef = useRef<AgentMentionPickerHandle>(null);
-  const artifactPickerRef = useRef<ArtifactMentionPickerHandle>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
-  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const lastSendGestureRef = useRef<{ signature: string; timestamp: number } | null>(null);
 
   // Voice conversation state
@@ -2236,21 +2157,9 @@ export function ChatPane({
     }
   }, [messages, queue, sessionId, revealedQueueIds]);
 
-  // Auto-grow the composer with its content -- the single-line height is
-  // the floor (never shrinks below it), and it grows up to
-  // COMPOSER_MAX_HEIGHT_PX for large pastes/prompts before scrolling
-  // internally. Recompute on `active` too: a tab seeded with a draft while
-  // hidden (display:none) measures scrollHeight as 0 until shown.
-  useEffect(() => {
-    const el = composerTextareaRef.current;
-    if (!el || !active) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
-  }, [composerText, active]);
-
   const selectedAgent = chatableAgents.find((a) => a.id === agentId);
   const showSelfRestartWarning =
-    isForgeHubRepoPath(activeSession?.working_directory_path) && SELF_RESTART_COMMAND_RE.test(composerText);
+    isForgeHubRepoPath(activeSession?.working_directory_path) && SELF_RESTART_COMMAND_RE.test(composer.text);
 
   // "/testar" (LOCAL_SLASH_COMMANDS) opens this dialog instead of sending a
   // message -- dispatches straight to the background-test endpoint via
@@ -2258,22 +2167,16 @@ export function ChatPane({
   // or MCP tool discovery being available.
   const [testDialogOpen, setTestDialogOpen] = useState(false);
 
-  function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    if (files.length > 0) addAttachedFiles(files);
-    e.target.value = "";
-  }
-
   async function handleSend(overrideText?: string) {
     if (!agentId) {
-      setComposerWarning(t("composer.selectAgentFirst"));
+      composer.setWarning(t("composer.selectAgentFirst"));
       return;
     }
     const isOverride = overrideText !== undefined;
 
-    const trimmed = (isOverride ? overrideText : composerText).trim();
-    if (!trimmed && attachedFiles.length === 0) {
-      setComposerWarning(t("composer.typeMessageFirst"));
+    const trimmed = (isOverride ? overrideText : composer.text).trim();
+    if (!trimmed && composer.files.length === 0) {
+      composer.setWarning(t("composer.typeMessageFirst"));
       return;
     }
 
@@ -2281,16 +2184,14 @@ export function ChatPane({
     // catches the paste-then-click-Send path, which never opens the slash
     // picker (that only triggers on typing "/" as a fresh keystroke) so
     // handleSlashSelect never runs for it.
-    if (!isOverride && attachedFiles.length === 0 && trimmed.toLowerCase() === "/new") {
+    if (!isOverride && composer.files.length === 0 && trimmed.toLowerCase() === "/new") {
       handleNewChat();
-      setComposerText("");
-      setComposerWarning(null);
+      composer.clearText();
       return;
     }
-    if (!isOverride && attachedFiles.length === 0 && trimmed.toLowerCase() === "/testar") {
+    if (!isOverride && composer.files.length === 0 && trimmed.toLowerCase() === "/testar") {
       setTestDialogOpen(true);
-      setComposerText("");
-      setComposerWarning(null);
+      composer.clearText();
       return;
     }
 
@@ -2299,7 +2200,7 @@ export function ChatPane({
     if (!isOverride) {
       const signature = JSON.stringify([
         trimmed,
-        ...attachedFiles.map((file) => [file.name, file.size, file.lastModified]),
+        ...composer.files.map((file) => [file.name, file.size, file.lastModified]),
       ]);
       const timestamp = Date.now();
       const previous = lastSendGestureRef.current;
@@ -2317,13 +2218,7 @@ export function ChatPane({
     // as its own hidden turn when the pane opened (see primingMessage), so
     // what the user typed is exactly what's sent and stored.
     await ensureSession();
-    const message = isOverride ? overrideText : composerText;
-    const files = isOverride ? [] : attachedFiles;
-    if (!isOverride) {
-      setComposerText("");
-      setAttachedFiles([]);
-      setComposerWarning(null);
-    }
+    const { text: message, files } = isOverride ? { text: overrideText, files: [] as File[] } : composer.takeDraft();
 
     // "!command" runs raw bash via the bridge -- no agent/LLM call at all,
     // bypasses mentions/queue-target logic entirely.
@@ -2644,17 +2539,6 @@ export function ChatPane({
   // cluttering this small pending-queue summary panel below.
   const pendingQueue = useMemo(() => queue.filter((item) => item.status !== "error"), [queue]);
 
-  const attachedImagePreviewUrls = useMemo(
-    () => attachedFiles.map((f) => (f.type.startsWith("image/") ? URL.createObjectURL(f) : null)),
-    [attachedFiles]
-  );
-
-  useEffect(() => {
-    return () => {
-      attachedImagePreviewUrls.forEach((url) => url && URL.revokeObjectURL(url));
-    };
-  }, [attachedImagePreviewUrls]);
-
   // Ghost-text suggestion: only when the agent's last message ends with a
   // question (explicit -- no LLM call, no guessing at open-ended answers)
   // AND the composer is empty AND nothing is queued/processing (otherwise
@@ -2668,7 +2552,7 @@ export function ChatPane({
   try {
     const lastMessage = (messages ?? [])[(messages ?? []).length - 1];
     if (
-      composerText === "" &&
+      composer.text === "" &&
       pendingQueue.length === 0 &&
       lastMessage?.role === "assistant" &&
       lastMessage.content.trim().endsWith("?")
@@ -2679,137 +2563,28 @@ export function ChatPane({
     suggestedReply = null;
   }
 
-  function handleComposerPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const imageItems = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith("image/"));
-    if (imageItems.length === 0) return;
-    e.preventDefault();
-    const newFiles = imageItems
-      .map((item, index) => {
-        const file = item.getAsFile();
-        if (!file) return null;
-        const ext = file.type.split("/")[1] || "png";
-        const name =
-          file.name && file.name !== "image.png" ? file.name : `pasted-image-${Date.now()}-${index}.${ext}`;
-        return new File([file], name, { type: file.type });
-      })
-      .filter((f): f is File => f !== null);
-    if (newFiles.length > 0) addAttachedFiles(newFiles);
-  }
-
-  async function handleComposerDrop(e: React.DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setComposerDragActive(false);
-    setComposerWarning(null);
-
-    const internalFile = getAssistantFileDragData(e.dataTransfer);
-    if (internalFile) {
-      if (internalFile.source === "host-folder") {
-        setComposerText((text) => {
-          const separator = text.length > 0 && !text.endsWith("\n") ? "\n" : "";
-          return `${text}${separator}Folder: ${internalFile.path}\n`;
-        });
-        composerTextareaRef.current?.focus();
-        return;
-      }
-      try {
-        addAttachedFiles([await loadAssistantDraggedFile(internalFile)]);
-        composerTextareaRef.current?.focus();
-      } catch {
-        setComposerWarning(t("composer.couldNotAttach", { name: internalFile.name }));
-      }
-      return;
-    }
-
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    if (droppedFiles.length > 0) {
-      addAttachedFiles(droppedFiles);
-      composerTextareaRef.current?.focus();
-      return;
-    }
-
-    const path = e.dataTransfer.getData("text/plain");
-    if (!path) return;
-    setComposerText((text) => {
-      const needsSpace = text.length > 0 && !/\s$/.test(text);
-      return text + (needsSpace ? " " : "") + path + " ";
-    });
-  }
-
   function handleComposerKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "ArrowRight" && composerText === "" && suggestedReply) {
+    if (e.key === "ArrowRight" && composer.text === "" && suggestedReply) {
       e.preventDefault();
-      setComposerText(suggestedReply);
+      composer.replaceText(suggestedReply);
       return;
     }
-    if (mentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      mentionPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (mentionOpen && e.key === "Enter") {
-      e.preventDefault();
-      mentionPickerRef.current?.confirmActive();
-      return;
-    }
-    if (slashOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      slashPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (slashOpen && e.key === "Enter") {
-      e.preventDefault();
-      slashPickerRef.current?.confirmActive();
-      return;
-    }
-    if (agentMentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      agentPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (agentMentionOpen && e.key === "Enter") {
-      e.preventDefault();
-      agentPickerRef.current?.confirmActive();
-      return;
-    }
-    if (artifactMentionOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      artifactPickerRef.current?.moveActive(e.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (artifactMentionOpen && e.key === "Enter") {
-      e.preventDefault();
-      artifactPickerRef.current?.confirmActive();
-      return;
-    }
+    if (composer.handlePickerKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
-      return;
     }
-    if (e.key === "Escape" && (mentionOpen || slashOpen || agentMentionOpen || artifactMentionOpen)) {
-      setMentionOpen(false);
-      setSlashOpen(false);
-      setAgentMentionOpen(false);
-      setArtifactMentionOpen(false);
-    }
-  }
-
-  function handleMentionSelect(path: string) {
-    setComposerText((t) => (t.endsWith("@") ? t.slice(0, -1) : t) + `${path} `);
-    setMentionOpen(false);
-    composerTextareaRef.current?.focus();
   }
 
   function handleSlashSelect(item: SlashCommandItem) {
-    setSlashOpen(false);
+    composer.closePicker();
     // Local commands run immediately -- never sent as a message, and the
     // composer (which may still hold the "/" the user typed to open this
     // picker) is cleared rather than filled with the command text.
     if (item.kind === "local") {
       if (item.command === "/new") handleNewChat();
       if (item.command === "/testar") setTestDialogOpen(true);
-      setComposerText("");
-      composerTextareaRef.current?.focus();
+      composer.replaceText("");
       return;
     }
     // The backend strips trailing whitespace from a stored prompt (see
@@ -2817,28 +2592,7 @@ export function ChatPane({
     // like "/demanda" would otherwise land with no room to keep typing --
     // always leave exactly one trailing space regardless of kind.
     const text = item.kind === "prompt" ? item.prompt : item.command;
-    setComposerText(text.endsWith(" ") ? text : `${text} `);
-    composerTextareaRef.current?.focus();
-  }
-
-  function handleAgentMentionSelect(agent: Agent) {
-    setComposerText((t) => {
-      const hashIndex = t.lastIndexOf("#");
-      const base = hashIndex === -1 ? t : t.slice(0, hashIndex);
-      return `${base}#${agent.name} `;
-    });
-    setAgentMentionOpen(false);
-    composerTextareaRef.current?.focus();
-  }
-
-  function handleArtifactMentionSelect(path: string) {
-    setComposerText((t) => {
-      const dollarIndex = t.lastIndexOf("$");
-      const base = dollarIndex === -1 ? t : t.slice(0, dollarIndex);
-      return `${base}${path} `;
-    });
-    setArtifactMentionOpen(false);
-    composerTextareaRef.current?.focus();
+    composer.replaceText(text.endsWith(" ") ? text : `${text} `);
   }
 
   async function handleToggleRecording() {
@@ -2859,7 +2613,7 @@ export function ChatPane({
       stream.getTracks().forEach((track) => track.stop());
       const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
       const result = await transcribe.mutateAsync(blob);
-      setComposerText((prev) => (prev ? `${prev} ${result.text}` : result.text));
+      composer.appendText(result.text);
     };
 
     mediaRecorderRef.current = recorder;
@@ -4380,45 +4134,45 @@ export function ChatPane({
               ))}
             </div>
           )}
-          {composerWarning && (
-            <p className="px-1 text-xs text-destructive">{composerWarning}</p>
+          {composer.warning && (
+            <p className="px-1 text-xs text-destructive">{composer.warning}</p>
           )}
-          {!composerWarning && showSelfRestartWarning && (
+          {!composer.warning && showSelfRestartWarning && (
             <p className="flex items-center gap-1.5 px-1 text-xs text-amber-500">
               <AlertCircle className="h-3 w-3 shrink-0" />
               {t("composer.selfRestartWarning")}
             </p>
           )}
-          {attachedFiles.length > 0 && (
+          {composer.files.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {attachedFiles.map((file, index) => (
+              {composer.files.map((file, index) => (
                 <div key={index} className="flex w-fit items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs">
-                  {attachedImagePreviewUrls[index] ? (
+                  {composer.previewUrls[index] ? (
                     <button
                       type="button"
                       aria-label={t("composer.viewAttachedImage")}
-                      onClick={() => setImagePreviewIndex(index)}
+                      onClick={() => composer.openPreview(index)}
                       className="shrink-0"
                     >
-                      <img src={attachedImagePreviewUrls[index]!} alt="" className="h-6 w-6 rounded object-cover" />
+                      <img src={composer.previewUrls[index]!} alt="" className="h-6 w-6 rounded object-cover" />
                     </button>
                   ) : (
                     <Paperclip className="h-3 w-3" />
                   )}
                   {file.name}
-                  <button type="button" aria-label={t("composer.removeAttachment")} onClick={() => removeAttachedFile(index)}>
+                  <button type="button" aria-label={t("composer.removeAttachment")} onClick={() => composer.removeFile(index)}>
                     <X className="h-3 w-3" />
                   </button>
                 </div>
               ))}
             </div>
           )}
-          {imagePreviewIndex !== null && attachedImagePreviewUrls[imagePreviewIndex] && (
+          {composer.previewIndex !== null && composer.previewUrls[composer.previewIndex] && (
             <div
               className="fixed inset-0 z-50 flex items-center justify-center p-4"
               role="dialog"
               aria-modal="true"
-              onClick={() => setImagePreviewIndex(null)}
+              onClick={composer.closePreview}
             >
               <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
               <div
@@ -4426,18 +4180,15 @@ export function ChatPane({
                 onClick={(e) => e.stopPropagation()}
               >
                 <img
-                  src={attachedImagePreviewUrls[imagePreviewIndex]!}
-                  alt={attachedFiles[imagePreviewIndex]?.name ?? ""}
+                  src={composer.previewUrls[composer.previewIndex]!}
+                  alt={composer.files[composer.previewIndex]?.name ?? ""}
                   className="max-h-[70vh] max-w-[80vw] rounded-lg object-contain shadow-2xl"
                 />
                 <Button
                   type="button"
                   variant="secondary"
                   className="gap-2"
-                  onClick={() => {
-                    removeAttachedFile(imagePreviewIndex);
-                    setImagePreviewIndex(null);
-                  }}
+                  onClick={composer.removePreviewed}
                 >
                   <X className="h-4 w-4" />
                   {t("composer.remove")}
@@ -4445,7 +4196,7 @@ export function ChatPane({
                 <button
                   type="button"
                   aria-label={t("composer.close")}
-                  onClick={() => setImagePreviewIndex(null)}
+                  onClick={composer.closePreview}
                   className="absolute -right-3 -top-3 rounded-full border border-border bg-card p-1.5 shadow-md hover:bg-accent"
                 >
                   <X className="h-4 w-4" />
@@ -4454,47 +4205,11 @@ export function ChatPane({
             </div>
           )}
           <ComposerShell
-            ref={composerTextareaRef}
-            value={composerText}
-            onChange={(e) => {
-              const value = e.target.value;
-              setComposerText(value);
-              if (composerWarning) setComposerWarning(null);
-              const last = value.slice(-1);
-              const beforeLast = value.slice(-2, -1);
-              if (last === "@" && (beforeLast === "" || /\s/.test(beforeLast))) {
-                setMentionOpen(true);
-              }
-              if (value === "/") {
-                setSlashOpen(true);
-              } else if (slashOpen && !value.startsWith("/")) {
-                setSlashOpen(false);
-              }
-              if (last === "#" && (beforeLast === "" || /\s/.test(beforeLast))) {
-                setAgentMentionOpen(true);
-                setAgentMentionQuery("");
-              } else if (agentMentionOpen) {
-                const hashIndex = value.lastIndexOf("#");
-                if (hashIndex === -1 || /\s/.test(value.slice(hashIndex + 1))) {
-                  setAgentMentionOpen(false);
-                } else {
-                  setAgentMentionQuery(value.slice(hashIndex + 1));
-                }
-              }
-              if (last === "$" && (beforeLast === "" || /\s/.test(beforeLast))) {
-                setArtifactMentionOpen(true);
-                setArtifactMentionQuery("");
-              } else if (artifactMentionOpen) {
-                const dollarIndex = value.lastIndexOf("$");
-                if (dollarIndex === -1 || /\s/.test(value.slice(dollarIndex + 1))) {
-                  setArtifactMentionOpen(false);
-                } else {
-                  setArtifactMentionQuery(value.slice(dollarIndex + 1));
-                }
-              }
-            }}
+            ref={composer.textareaRef}
+            value={composer.text}
+            onChange={(e) => composer.changeText(e.target.value)}
             onKeyDown={handleComposerKeyDown}
-            onPaste={handleComposerPaste}
+            onPaste={composer.paste}
             placeholder={
               suggestedReply
                 ? t("composer.completeHint", { text: suggestedReply })
@@ -4502,95 +4217,54 @@ export function ChatPane({
             }
             textareaClassName="min-h-0 overflow-y-auto"
             textareaStyle={{ maxHeight: COMPOSER_MAX_HEIGHT_PX }}
-            dragActive={composerDragActive}
+            dragActive={composer.dragActive}
             dropHint={
               <>
                 <Paperclip className="mr-2 h-4 w-4" /> {t("composer.dropIntoAssistant")}
               </>
             }
-            onDragEnter={(e) => {
-              e.preventDefault();
-              setComposerDragActive(true);
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "copy";
-              setComposerDragActive(true);
-            }}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setComposerDragActive(false);
-            }}
-            onDrop={handleComposerDrop}
+            onDragEnter={composer.dragEnter}
+            onDragOver={composer.dragOver}
+            onDragLeave={composer.dragLeave}
+            onDrop={(e) => void composer.drop(e)}
             leading={
               <>
-                {mentionOpen && (
+                {composer.picker === "file" && (
                   <MentionFilePicker
-                    ref={mentionPickerRef}
-                    onSelectPath={handleMentionSelect}
-                    onClose={() => setMentionOpen(false)}
+                    ref={composer.pickerRef}
+                    onSelectPath={composer.selectFileMention}
+                    onClose={composer.closePicker}
                   />
                 )}
-                {slashOpen && (
+                {composer.picker === "slash" && (
                   <SlashCommandPicker
-                    ref={slashPickerRef}
+                    ref={composer.pickerRef}
                     promptCommands={promptCommands}
                     onSelect={handleSlashSelect}
-                    onClose={() => setSlashOpen(false)}
+                    onClose={composer.closePicker}
                   />
                 )}
-                {agentMentionOpen && (
+                {composer.picker === "agent" && (
                   <AgentMentionPicker
-                    ref={agentPickerRef}
+                    ref={composer.pickerRef}
                     agents={chatableAgents}
-                    query={agentMentionQuery}
-                    onSelect={handleAgentMentionSelect}
-                    onClose={() => setAgentMentionOpen(false)}
+                    query={composer.pickerQuery}
+                    onSelect={(agent) => composer.selectAgentMention(agent.name)}
+                    onClose={composer.closePicker}
                   />
                 )}
-                {artifactMentionOpen && (
+                {composer.picker === "artifact" && (
                   <ArtifactMentionPicker
-                    ref={artifactPickerRef}
-                    query={artifactMentionQuery}
-                    onSelectPath={handleArtifactMentionSelect}
-                    onClose={() => setArtifactMentionOpen(false)}
+                    ref={composer.pickerRef}
+                    query={composer.pickerQuery}
+                    onSelectPath={composer.selectArtifactMention}
+                    onClose={composer.closePicker}
                   />
                 )}
-                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFilePick} />
-                <AttachMenuButton
-                  onPickFile={() => fileInputRef.current?.click()}
-                  onInsertTrigger={(char) => {
-                    if (char === "!") {
-                      // Must be the very first character (see handleSend's
-                      // trimmed.startsWith("!") check) -- prefix, don't append.
-                      setComposerText((t) => (t.startsWith("!") ? t : `!${t}`));
-                      composerTextareaRef.current?.focus();
-                      return;
-                    }
-                    setComposerText((t) => {
-                      const needsSpace = t.length > 0 && !/\s$/.test(t);
-                      return t + (needsSpace ? " " : "") + char;
-                    });
-                    if (char === "@") setMentionOpen(true);
-                    if (char === "/") setSlashOpen(true);
-                    if (char === "#") {
-                      setAgentMentionOpen(true);
-                      setAgentMentionQuery("");
-                    }
-                    if (char === "$") {
-                      setArtifactMentionOpen(true);
-                      setArtifactMentionQuery("");
-                    }
-                    composerTextareaRef.current?.focus();
-                  }}
-                />
+                <input ref={composer.fileInputRef} type="file" multiple className="hidden" onChange={composer.pickFiles} />
+                <AttachMenuButton onPickFile={composer.openFilePicker} onInsertTrigger={composer.insertTrigger} />
                 <SecretInputPopover
-                  onInsertSecret={(formattedPrompt) => {
-                    setComposerText((t) => {
-                      const trimmed = t.trim();
-                      return trimmed.length > 0 ? `${trimmed}\n\n${formattedPrompt}` : formattedPrompt;
-                    });
-                    composerTextareaRef.current?.focus();
-                  }}
+                  onInsertSecret={composer.insertSecret}
                 />
               </>
             }
@@ -4614,7 +4288,7 @@ export function ChatPane({
                     // already uses (2026-08-07, Marcelo: "o botão continua
                     // desabilitado" on a fresh conversation).
                     void ensureSession();
-                    setImproveOpen(true);
+                    composer.openImprove();
                   }}
                 >
                   <Sparkles className="h-4 w-4" />
@@ -4668,18 +4342,14 @@ export function ChatPane({
             }
           />
         </div>
-        {improveOpen && (
+        {composer.improveOpen && (
           <ImprovePromptDialog
-            initialDraft={composerText}
+            initialDraft={composer.text}
             subject={selectedAgent?.name ?? t("agentPicker.agentFallback")}
             agents={chatableAgents}
             improvePrompt={improvePrompt}
-            onApply={(improved) => {
-              setComposerText(improved);
-              setImproveOpen(false);
-              composerTextareaRef.current?.focus();
-            }}
-            onClose={() => setImproveOpen(false)}
+            onApply={composer.applyImproved}
+            onClose={composer.closeImprove}
           />
         )}
       </div>
