@@ -21,6 +21,7 @@ import {
   User,
   X,
 } from "lucide-react";
+import { JumpToBottomButton } from "@/components/JumpToBottomButton";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
@@ -607,6 +608,14 @@ function ChannelRoom({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrolledChannelRef = useRef<string | null>(null);
   const isNearBottomRef = useRef(true);
+  // Drives the "go to the last line" button -- state (unlike the ref above)
+  // because the button has to appear/disappear as the user scrolls.
+  const [scrolledAway, setScrolledAway] = useState(false);
+  function jumpToBottom() {
+    isNearBottomRef.current = true;
+    setScrolledAway(false);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
 
   useEffect(() => {
     if (!allMessages) return;
@@ -658,6 +667,7 @@ function ChannelRoom({
           }
         />
         <TabsContent value="transcript" className="flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col">
           <div
             ref={messagesContainerRef}
             onScroll={() => {
@@ -665,6 +675,7 @@ function ChannelRoom({
               if (!el) return;
               const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
               isNearBottomRef.current = distance < 80;
+              setScrolledAway(distance >= 80);
             }}
             className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
           >
@@ -788,6 +799,8 @@ function ChannelRoom({
               )
             )}
             <div ref={messagesEndRef} />
+          </div>
+          {scrolledAway && <JumpToBottomButton onClick={jumpToBottom} />}
           </div>
           {sendError && (
             <div className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">

@@ -45,6 +45,7 @@ import { ImprovePromptDialog } from "@/components/chat/ImprovePromptDialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Markdown } from "@/components/Markdown";
 import { RunningPanel } from "@/components/chat/RunningPanel";
+import { JumpToBottomButton } from "@/components/JumpToBottomButton";
 import {
   onSubagentLaunched,
   onSubagentStatus,
@@ -1984,6 +1985,14 @@ export function ChatPane({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
+  // Drives the "go to the last line" button -- state (unlike the ref above)
+  // because the button has to appear/disappear as the user scrolls.
+  const [scrolledAway, setScrolledAway] = useState(false);
+  function jumpToBottom() {
+    isNearBottomRef.current = true;
+    setScrolledAway(false);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
   const lastSendGestureRef = useRef<{ signature: string; timestamp: number } | null>(null);
 
   // Voice conversation state
@@ -3809,6 +3818,7 @@ export function ChatPane({
         </AnimatePresence>
         {/* ── end voice overlay ───────────────────────────────────── */}
 
+        <div className="relative flex min-h-0 flex-1 flex-col">
         <div
           ref={messagesContainerRef}
           onScroll={() => {
@@ -3816,6 +3826,7 @@ export function ChatPane({
             if (!el) return;
             const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
             isNearBottomRef.current = distance < 80;
+            setScrolledAway(distance >= 80);
           }}
           className="flex-1 space-y-3 overflow-y-auto p-4"
         >
@@ -4067,6 +4078,8 @@ export function ChatPane({
             );
           })}
           <div ref={messagesEndRef} />
+        </div>
+        {scrolledAway && <JumpToBottomButton onClick={jumpToBottom} />}
         </div>
 
         <div className="space-y-2 border-t border-border p-3">

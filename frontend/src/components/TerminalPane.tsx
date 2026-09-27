@@ -3,8 +3,9 @@ import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { ArrowDownToLine, Check, ChevronRight, Copy, ExternalLink, HelpCircle, Keyboard, Minus, Plus, SendHorizontal, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronRight, Copy, ExternalLink, HelpCircle, Keyboard, Minus, Plus, SendHorizontal, SlidersHorizontal } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
+import { JumpToBottomButton } from "@/components/JumpToBottomButton";
 import { apiClient, getToken } from "@/lib/api";
 import {
   copyTerminalText,
@@ -836,17 +837,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
 
       <div className="relative min-h-0 w-full flex-1">
         <div ref={containerRef} className="h-full w-full" />
-        {scrolledAway && (
-          <button
-            type="button"
-            onClick={jumpToBottom}
-            className="absolute bottom-3 right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-muted text-foreground shadow-md hover:bg-accent"
-            title={t("terminal.jumpToBottom")}
-            aria-label={t("terminal.jumpToBottom")}
-          >
-            <ArrowDownToLine className="h-4 w-4" />
-          </button>
-        )}
+        {scrolledAway && <JumpToBottomButton onClick={jumpToBottom} />}
       </div>
       {touchInput && <TerminalTouchInput send={sendToPty} />}
     </div>
