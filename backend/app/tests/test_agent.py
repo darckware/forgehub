@@ -677,6 +677,17 @@ def test_telegram_status_states(tmp_path):
     )
     assert missing.status == "not_configured"
 
+    # A Hermes profile served by the gateway whose Telegram isn't required
+    # and has no bot: not a gap, not applicable.
+    optional = agent_telegram.build_status(
+        profile_slug="atlas",
+        required=False,
+        home_path=str(empty),
+        runtime_type="hermes",
+        telegram_states={},
+    )
+    assert optional.status == "not_applicable"
+
     # An external runtime Telegram was never part of.
     external = agent_telegram.build_status(
         profile_slug="porthus",

@@ -213,14 +213,15 @@ def resolve_status(
 ) -> str:
     """Fold the two signals into one badge state.
 
-    `not_applicable` covers the agents Telegram was never part of: no gateway
-    service and nothing configured. If an agent *is* configured, it gets a
-    real status even when `telegram_required` is false -- a channel that
-    exists is a channel that can break."""
-    if not installed and service is None:
-        return STATUS_NOT_APPLICABLE if not required else STATUS_NOT_CONFIGURED
+    `not_applicable` covers the agents Telegram is not part of: nothing
+    configured and not required -- including Hermes profiles served by the
+    gateway whose Telegram was deliberately dropped (2026-09-27: Atlas,
+    Daedalus, Hephaestus, Mnemosyne, Scriba, Themis are reached through
+    Messages). If an agent *is* configured, it gets a real status even when
+    `telegram_required` is false -- a channel that exists is a channel that
+    can break."""
     if not installed:
-        return STATUS_NOT_CONFIGURED
+        return STATUS_NOT_CONFIGURED if required else STATUS_NOT_APPLICABLE
     if running is None:
         return STATUS_UNKNOWN
     return STATUS_OK if running else STATUS_NOT_RUNNING
