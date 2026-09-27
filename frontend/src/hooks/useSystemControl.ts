@@ -300,12 +300,18 @@ export interface DockerUsage {
 }
 
 /** Docker's share of the host disk (2026-09-27) -- where the space actually
- * goes on this VPS, mostly BuildKit cache. Read-only. */
-export function useDockerUsage() {
+ * goes on this VPS, mostly BuildKit cache. Read-only. Admin-only on the
+ * backend, so callers outside System Control pass `enabled` from the user's
+ * role; one read is ~10s of `docker` on the host, so a poller should stay in
+ * minutes, not seconds. Shares its key with System Control's card, so a
+ * prune there refreshes every consumer. */
+export function useDockerUsage(options: { enabled?: boolean; refetchInterval?: number } = {}) {
   return useQuery<DockerUsage>({
     queryKey: ["system-control", "docker-usage"],
     queryFn: () => apiClient.get("/api/v1/system-control/docker-usage"),
     retry: false,
+    enabled: options.enabled ?? true,
+    refetchInterval: options.refetchInterval,
   });
 }
 

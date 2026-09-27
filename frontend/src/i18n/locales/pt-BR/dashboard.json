@@ -35,7 +35,11 @@
     "hostBridgeError": "Falha ao acessar o host-bridge — o forgehub-chat-bridge está em execução?",
     "memory": "Memória",
     "disk": "Disco",
-    "network": "Rede"
+    "network": "Rede",
+    "docker": "Docker",
+    "dockerBreakdown": "cache de build {{cache}} · imagens {{images}}",
+    "dockerReclaimable": "{{size}} recuperáveis",
+    "dockerReclaimableWarning": "{{size}} recuperáveis no Docker — limpar no System Control"
   },
   "remoteAccess": {
     "loading": "Carregando...",
