@@ -48,6 +48,7 @@ import {
 import { fetchOpenclawDashboardUrl, useTerminalSessions } from "@/hooks/useTerminalBrowse";
 import { chatKeys, chatSessionsHostStatusKey, useChatSessionsHostStatus } from "@/hooks/useChat";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { usePhoneMenuStyle } from "@/hooks/usePhoneMenuStyle";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { ChannelPane } from "@/components/channel/ChannelPane";
 import { TelegramPane } from "@/components/TelegramPane";
@@ -279,6 +280,7 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
+  const menuStyle = usePhoneMenuStyle(containerRef, open);
   const { data: servers } = useServers();
   const probe = useServerStatusProbe();
   const lastProbeRef = useRef<{ at: number; signature: string } | null>(null);
@@ -312,7 +314,7 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
         <ChevronDown className="h-3 w-3 opacity-60" />
       </Button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto" style={menuStyle}>
           {(servers ?? []).length === 0 && (
             <p className="px-3 py-3 text-xs italic text-muted-foreground">
               {t("toolbar.noServersRegistered")}
@@ -413,6 +415,7 @@ function LauncherMenu({
   const [loadingWeb, setLoadingWeb] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
+  const menuStyle = usePhoneMenuStyle(containerRef, open);
 
   async function openWeb() {
     setOpen(false);
@@ -441,7 +444,7 @@ function LauncherMenu({
         {loadingWeb ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LauncherIcon icon={launcher.icon} iconBg={launcher.iconBg} />}
       </Button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 mr-1 w-44 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
+        <div className="absolute right-0 top-full z-20 mt-1 mr-1 w-44 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto" style={menuStyle}>
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
@@ -503,6 +506,7 @@ function TerminalTabsMenu({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
+  const menuStyle = usePhoneMenuStyle(containerRef, open);
   // Only queried while the menu is open -- a live host read isn't worth
   // paying for on every Workspace visit just to keep a closed dropdown warm.
   const { data: sessions, isLoading } = useTerminalSessions(open);
@@ -525,7 +529,7 @@ function TerminalTabsMenu({
         <SquareTerminal className="h-4 w-4" />
       </Button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-60 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
+        <div className="absolute left-0 top-full z-20 mt-1 w-60 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto" style={menuStyle}>
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium hover:bg-accent hover:text-accent-foreground"
@@ -623,6 +627,7 @@ function ChatSessionsMenu({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
+  const menuStyle = usePhoneMenuStyle(containerRef, open);
   const { data: sessions, isLoading } = useChatSessionsHostStatus(open);
 
   const rows = (sessions ?? []).map((session) => {
@@ -653,7 +658,7 @@ function ChatSessionsMenu({
         <MessageSquare className="h-4 w-4" />
       </Button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
+        <div className="absolute left-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto" style={menuStyle}>
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium hover:bg-accent hover:text-accent-foreground"
@@ -729,6 +734,7 @@ function LaunchersMenu({ onLaunch }: { onLaunch: (label: string, command: string
   const [loadingWeb, setLoadingWeb] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
+  const menuStyle = usePhoneMenuStyle(containerRef, open);
 
   async function openOpenClawWeb() {
     setOpen(false);
@@ -751,7 +757,7 @@ function LaunchersMenu({ onLaunch }: { onLaunch: (label: string, command: string
         <ChevronDown className="h-3 w-3 opacity-60" />
       </Button>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 max-h-80 w-60 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
+        <div className="absolute right-0 top-full z-30 mt-1 max-h-80 w-60 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto" style={menuStyle}>
           <p className="px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">{t("toolbar.cli")}</p>
           {CLI_LAUNCHERS.map((launcher) => (
             <button key={launcher.command} type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent" onClick={() => { onLaunch(launcher.label, launcher.command); setOpen(false); }}>
@@ -1383,7 +1389,8 @@ export default function WorkspacePage() {
             these buttons. Those dropdowns (SSH, launchers, runtimes, tabs,
             sessions) are `max-md:fixed max-md:inset-x-2` on a phone: anchored
             to a button that wrapped near either edge, a fixed-width menu ran
-            off the screen (2026-09-27). */}
+            off the screen (2026-09-27). Their `top` comes from
+            usePhoneMenuStyle -- a fixed `top-full` is the viewport's bottom. */}
         <div className="flex min-w-0 flex-wrap items-center gap-1 px-2 py-1.5 md:flex-nowrap">
           <Button
             variant={activeChatTab && !activeChatTab.historyCollapsed ? "secondary" : "outline"}
