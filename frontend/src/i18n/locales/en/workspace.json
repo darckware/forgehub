@@ -97,7 +97,8 @@
     },
     "touchInputPlaceholder": "Type here and tap send…",
     "touchInputSend": "Send to terminal",
-    "touchInputToggle": "Typing bar (mobile)",
+    "touchInputOpen": "Open typing bar",
+    "touchInputClose": "Close typing bar",
     "showControls": "Show terminal controls",
     "hideControls": "Collapse terminal controls",
     "jumpToBottom": "Jump to the last line"

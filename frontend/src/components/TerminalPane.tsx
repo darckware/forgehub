@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Check, ChevronRight, Copy, ExternalLink, HelpCircle, Keyboard, Minus, Plus, SendHorizontal, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronRight, Copy, ExternalLink, HelpCircle, Keyboard, KeyboardOff, Minus, Plus, SendHorizontal, SlidersHorizontal } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import { JumpToBottomButton } from "@/components/JumpToBottomButton";
 import { apiClient, getToken } from "@/lib/api";
@@ -788,13 +788,25 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
         {touchDevice && (
           <button
             type="button"
-            onClick={() => setTouchInput((v) => !v)}
+            // Open AND close (2026-09-28, Marcelo: "adicionar nesse botão de
+            // teclado a função de abrir e fechar"). With the bar open its
+            // textarea has focus and the phone keyboard is up; without this,
+            // the tap blurs the textarea first, the keyboard drops, the
+            // layout jumps and the click lands elsewhere -- the bar could
+            // be opened here but never closed. Same trick as the bar's keys.
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => {
+              if (touchInput && document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur(); // closing also drops the phone keyboard
+              }
+              setTouchInput((v) => !v);
+            }}
             className={`flex h-6 w-6 items-center justify-center rounded hover:bg-accent ${touchInput ? "text-primary" : "text-muted-foreground"}`}
-            title={t("terminal.touchInputToggle")}
-            aria-label={t("terminal.touchInputToggle")}
+            title={touchInput ? t("terminal.touchInputClose") : t("terminal.touchInputOpen")}
+            aria-label={touchInput ? t("terminal.touchInputClose") : t("terminal.touchInputOpen")}
             aria-pressed={touchInput}
           >
-            <Keyboard className="h-3.5 w-3.5" />
+            {touchInput ? <KeyboardOff className="h-3.5 w-3.5" /> : <Keyboard className="h-3.5 w-3.5" />}
           </button>
         )}
 

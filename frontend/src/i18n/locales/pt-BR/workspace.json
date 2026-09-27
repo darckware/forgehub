@@ -97,7 +97,8 @@
     },
     "touchInputPlaceholder": "Digite aqui e toque em enviar…",
     "touchInputSend": "Enviar ao terminal",
-    "touchInputToggle": "Barra de digitação (celular)",
+    "touchInputOpen": "Abrir barra de digitação",
+    "touchInputClose": "Fechar barra de digitação",
     "showControls": "Mostrar controles do terminal",
     "hideControls": "Recolher controles do terminal",
     "jumpToBottom": "Ir para a última linha"
