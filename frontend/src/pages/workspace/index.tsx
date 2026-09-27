@@ -62,7 +62,10 @@ import { useProducts } from "@/hooks/useProduct";
 import {
   WORKSPACE_STORAGE_KEYS,
   WORKSPACE_STORAGE_VERSION,
+  explorerServerFor,
   restoreWorkspaceState,
+  serverHome,
+  type TabServer,
   type WebAppTarget,
   type WorkspaceTab,
   type WorkspaceViewMode,
@@ -271,7 +274,7 @@ function SshRowSignals({
  * a new terminal tab pre-filled with `ssh [-i key] [-p port] user@ip`
  * (see useServers' buildSshCommand), reusing the same openTerminalTab flow
  * as the CLI/Runtime launchers above. */
-function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: string) => void }) {
+function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: string, server: TabServer) => void }) {
   const { t } = useTranslation("workspace");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -309,7 +312,7 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
         <ChevronDown className="h-3 w-3 opacity-60" />
       </Button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md">
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
           {(servers ?? []).length === 0 && (
             <p className="px-3 py-3 text-xs italic text-muted-foreground">
               {t("toolbar.noServersRegistered")}
@@ -331,7 +334,7 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
                   className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                   title={parked ? t("toolbar.sshAccessOff") : result?.detail}
                   onClick={() => {
-                    onLaunch(s.name, buildSshCommand(s));
+                    onLaunch(s.name, buildSshCommand(s), { id: s.id, name: s.name, home: serverHome(s.remote_user) });
                     setOpen(false);
                   }}
                 >
@@ -438,7 +441,7 @@ function LauncherMenu({
         {loadingWeb ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LauncherIcon icon={launcher.icon} iconBg={launcher.iconBg} />}
       </Button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 mr-1 w-44 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md">
+        <div className="absolute right-0 top-full z-20 mt-1 mr-1 w-44 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
@@ -522,7 +525,7 @@ function TerminalTabsMenu({
         <SquareTerminal className="h-4 w-4" />
       </Button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-60 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md">
+        <div className="absolute left-0 top-full z-20 mt-1 w-60 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium hover:bg-accent hover:text-accent-foreground"
@@ -650,7 +653,7 @@ function ChatSessionsMenu({
         <MessageSquare className="h-4 w-4" />
       </Button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md">
+        <div className="absolute left-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium hover:bg-accent hover:text-accent-foreground"
@@ -748,7 +751,7 @@ function LaunchersMenu({ onLaunch }: { onLaunch: (label: string, command: string
         <ChevronDown className="h-3 w-3 opacity-60" />
       </Button>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 max-h-80 w-60 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md">
+        <div className="absolute right-0 top-full z-30 mt-1 max-h-80 w-60 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto">
           <p className="px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">{t("toolbar.cli")}</p>
           {CLI_LAUNCHERS.map((launcher) => (
             <button key={launcher.command} type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent" onClick={() => { onLaunch(launcher.label, launcher.command); setOpen(false); }}>
@@ -917,9 +920,9 @@ export default function WorkspacePage() {
     return `bash${String(next).padStart(2, "0")}`;
   }
 
-  function openTerminalTab(label: string, command?: string, cwdOverride?: string) {
+  function openTerminalTab(label: string, command?: string, cwdOverride?: string, server?: TabServer) {
     const id = crypto.randomUUID();
-    setTabs((t) => [...t, { kind: "terminal", id, label, command, cwd: cwdOverride ?? workingDir }]);
+    setTabs((t) => [...t, { kind: "terminal", id, label, command, cwd: cwdOverride ?? workingDir, server }]);
     setActiveTabId(id);
   }
 
@@ -965,17 +968,23 @@ export default function WorkspacePage() {
     else openWebTab();
   }
 
-  // Explorer: one tab is enough for most work, so the toolbar button
-  // focuses the existing one (like the web browser toggle) and only opens a
-  // second when none exists; the "..." of a tab strip is not needed here.
+  // Explorer: one tab per machine (2026-09-27, Marcelo: "quando a aba da
+  // ssh estiver sendo usada o explorer deve usar o servidor do ssh e quando
+  // estiver usando a aba do terminal deve usar o servidor vps"). From an SSH
+  // tab the button focuses -- or opens -- that server's Explorer; from any
+  // other tab, the VPS's. Each keeps its own folder, and its tab name says
+  // which machine it is ("Explorer · srv-app05"; plain "Explorer" = VPS).
   function openExplorerTab() {
-    const existing = tabs.find((tab) => tab.kind === "explorer");
+    const server = explorerServerFor(tabs, activeTabId);
+    if (server === "stay") return;
+    const existing = tabs.find((tab) => tab.kind === "explorer" && tab.server?.id === server?.id);
     if (existing) {
       setActiveTabId(existing.id);
       return;
     }
     const id = crypto.randomUUID();
-    setTabs((current) => [...current, { kind: "explorer", id, label: tExplorer("tabLabel"), path: workingDir || "/root" }]);
+    const path = server ? server.home : workingDir || "/root";
+    setTabs((current) => [...current, { kind: "explorer", id, label: tExplorer("tabLabel"), path, server }]);
     setActiveTabId(id);
   }
 
@@ -1004,6 +1013,17 @@ export default function WorkspacePage() {
     return items;
   }, [projects, workingDir, tExplorer]);
 
+  // A remote server's Quick access: its user's home and its root. The VPS's
+  // list (Projects, working folder, every Project's directory) is about
+  // this host and would point at paths that don't exist there.
+  const remoteQuickAccess = useCallback(
+    (server: TabServer): QuickAccessItem[] => [
+      { label: tExplorer("tree.home"), path: server.home, icon: "home" },
+      { label: tExplorer("tree.root"), path: "/", icon: "drive" },
+    ],
+    [tExplorer]
+  );
+
   const updateWebTabUrl = useCallback((tabId: string, url: string) => {
     setTabs((current) =>
       current.map((tab) => (tab.id === tabId && tab.kind === "web" ? { ...tab, url } : tab))
@@ -1024,10 +1044,11 @@ export default function WorkspacePage() {
   const navigate = useNavigate();
   const openSshHandledRef = useRef(false);
   useEffect(() => {
-    const openSsh = (location.state as { openSsh?: { label: string; command: string } } | null)?.openSsh;
+    const openSsh = (location.state as { openSsh?: { label: string; command: string; server?: TabServer } } | null)
+      ?.openSsh;
     if (!openSsh || openSshHandledRef.current) return;
     openSshHandledRef.current = true;
-    openTerminalTab(openSsh.label, openSsh.command);
+    openTerminalTab(openSsh.label, openSsh.command, undefined, openSsh.server);
     navigate(location.pathname, { replace: true, state: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
@@ -1359,7 +1380,10 @@ export default function WorkspacePage() {
             Wraps below md -- kept on one line, a phone clipped everything
             past the SSH menu (launchers, working folder, upload). Not
             overflow-x-auto: that would also clip the dropdowns hanging off
-            these buttons. */}
+            these buttons. Those dropdowns (SSH, launchers, runtimes, tabs,
+            sessions) are `max-md:fixed max-md:inset-x-2` on a phone: anchored
+            to a button that wrapped near either edge, a fixed-width menu ran
+            off the screen (2026-09-27). */}
         <div className="flex min-w-0 flex-wrap items-center gap-1 px-2 py-1.5 md:flex-nowrap">
           <Button
             variant={activeChatTab && !activeChatTab.historyCollapsed ? "secondary" : "outline"}
@@ -1442,7 +1466,7 @@ export default function WorkspacePage() {
           >
             <FolderOpen className="h-4 w-4 text-amber-400" />
           </Button>
-          <SshLauncherMenu onLaunch={openTerminalTab} />
+          <SshLauncherMenu onLaunch={(label, command, server) => openTerminalTab(label, command, undefined, server)} />
           <LaunchersMenu onLaunch={openTerminalTab} />
           <div className="flex-1" />
           <WorkingDirPicker workingDir={workingDir} onSelect={setWorkingDir} />
@@ -1520,7 +1544,9 @@ export default function WorkspacePage() {
             const label = tab.kind === "chat" || tab.kind === "telegram"
               ? chatableAgents.find((agent) => agent.id === tab.agentId)?.name ?? t("tabs.defaultChatName")
               : tab.kind === "explorer"
-              ? tExplorer("tabLabel")
+              ? tab.server
+                ? `${tExplorer("tabLabel")} · ${tab.server.name}`
+                : tExplorer("tabLabel")
               : tab.label;
             return (
               <WorkspaceTabItem
@@ -1616,7 +1642,8 @@ export default function WorkspacePage() {
             <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
               <FileExplorerPane
                 initialPath={tab.path}
-                quickAccess={explorerQuickAccess}
+                server={tab.server}
+                quickAccess={tab.server ? remoteQuickAccess(tab.server) : explorerQuickAccess}
                 active={tab.id === activeTabId}
                 onPathChange={(path) => updateExplorerTabPath(tab.id, path)}
               />

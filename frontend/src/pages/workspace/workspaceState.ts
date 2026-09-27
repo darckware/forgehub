@@ -16,6 +16,15 @@ export type WebAppTarget =
   | { mode: "app"; id: string }
   | { mode: "url" };
 
+/** An SSH inventory server a tab is bound to: an SSH terminal tab records
+ * the server it connects to, and an Explorer tab opened from it browses that
+ * server (2026-09-27). `home` is where that Explorer starts. */
+export interface TabServer {
+  id: string;
+  name: string;
+  home: string;
+}
+
 export type WorkspaceTab =
   | {
       kind: "chat";
@@ -26,10 +35,10 @@ export type WorkspaceTab =
       composerText?: string;
       sessionId?: string;
     }
-  | { kind: "terminal"; id: string; label: string; command?: string; cwd?: string }
+  | { kind: "terminal"; id: string; label: string; command?: string; cwd?: string; server?: TabServer }
   | { kind: "telegram"; id: string; agentId: string }
   | { kind: "web"; id: string; label: string; url: string; target?: WebAppTarget }
-  | { kind: "explorer"; id: string; label: string; path: string };
+  | { kind: "explorer"; id: string; label: string; path: string; server?: TabServer };
 
 const nonEmptyString = z.string().trim().min(1);
 const webTargetSchema = z.discriminatedUnion("mode", [
@@ -37,6 +46,7 @@ const webTargetSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("app"), id: nonEmptyString }),
   z.object({ mode: z.literal("url") }),
 ]);
+const tabServerSchema = z.object({ id: nonEmptyString, name: nonEmptyString, home: nonEmptyString });
 const workspaceTabSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("chat"),
@@ -53,6 +63,7 @@ const workspaceTabSchema = z.discriminatedUnion("kind", [
     label: nonEmptyString,
     command: z.string().optional(),
     cwd: nonEmptyString.optional(),
+    server: tabServerSchema.optional(),
   }),
   z.object({
     kind: z.literal("telegram"),
@@ -71,6 +82,7 @@ const workspaceTabSchema = z.discriminatedUnion("kind", [
     id: nonEmptyString,
     label: nonEmptyString,
     path: nonEmptyString,
+    server: tabServerSchema.optional(),
   }),
 ]);
 const workspaceTabsSchema = z.array(workspaceTabSchema);
@@ -113,4 +125,19 @@ export function restoreWorkspaceState(storage: StorageReader): RestoredWorkspace
     viewMode,
     workingDir: storedWorkingDir || undefined,
   };
+}
+
+/** Where an Explorer on this server starts: root's home is /root, everyone
+ * else's the conventional /home/<user>. */
+export function serverHome(remoteUser: string): string {
+  return remoteUser === "root" ? "/root" : `/home/${remoteUser}`;
+}
+
+/** The Explorer tab the toolbar button should focus or open, given the tab
+ * in use: an SSH terminal's server, otherwise the VPS (`undefined`). An
+ * Explorer tab already in use stays where it is. */
+export function explorerServerFor(tabs: WorkspaceTab[], activeTabId: string): TabServer | undefined | "stay" {
+  const active = tabs.find((tab) => tab.id === activeTabId);
+  if (active?.kind === "explorer") return "stay";
+  return active?.kind === "terminal" ? active.server : undefined;
 }

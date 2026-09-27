@@ -13,6 +13,7 @@ import {
   useExplorerListing,
   useExplorerMutations,
   useExplorerSearch,
+  useExplorerServerId,
   useInvalidateExplorer,
   useQuickAccessMutations,
   useQuickAccessRows,
@@ -113,6 +114,7 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
   });
   const [uploads, setUploads] = useState<UploadItem[]>([]);
 
+  const serverId = useExplorerServerId();
   const listing = useExplorerListing(path);
   const search = useExplorerSearch(path, searchQuery);
   const mutations = useExplorerMutations();
@@ -260,7 +262,7 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
     }
     if (isImage(entry.name)) {
       await run(async () => {
-        const { blob } = await downloadExplorerPath(entry.path);
+        const { blob } = await downloadExplorerPath(serverId, entry.path);
         setDialog({ kind: "preview", entry, url: URL.createObjectURL(blob) });
       });
       return;
@@ -400,15 +402,17 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
     if (targets.length === 0) return;
     await run(async () => {
       if (targets.length === 1) {
-        const { blob } = await downloadExplorerPath(targets[0].path);
-        saveBlob(blob, targets[0].type === "dir" ? `${targets[0].name}.zip` : targets[0].name);
+        // The server names the archive (.zip on the VPS, .tar.gz on a remote).
+        const { blob, filename } = await downloadExplorerPath(serverId, targets[0].path);
+        saveBlob(blob, filename || (targets[0].type === "dir" ? `${targets[0].name}.zip` : targets[0].name));
       } else {
         const name = `${baseName(path) === "/" ? "root" : baseName(path)}-${targets.length}-items.zip`;
-        const { blob } = await downloadExplorerZip(
+        const { blob, filename } = await downloadExplorerZip(
+          serverId,
           targets.map((t) => t.path),
           name
         );
-        saveBlob(blob, name);
+        saveBlob(blob, filename || name);
       }
     });
   }
@@ -454,7 +458,7 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
         const item = batch[index];
         update(item.id, { status: "uploading" });
         try {
-          await uploadExplorerFile(item.destination, pending[index].file, overwrite, (loaded, total) =>
+          await uploadExplorerFile(serverId, item.destination, pending[index].file, overwrite, (loaded, total) =>
             update(item.id, { loaded, total })
           );
           update(item.id, { status: "done", loaded: item.total });
@@ -551,11 +555,16 @@ export type FileExplorerViewModel = ReturnType<typeof useFileExplorerViewModel>;
  * a hidden built-in just deletes that hidden row, bringing it back in its
  * original place.
  */
-export function useQuickAccessViewModel(builtins: Omit<QuickAccessEntry, "pinned">[]) {
-  const rows = useQuickAccessRows();
+export function useQuickAccessViewModel(builtins: Omit<QuickAccessEntry, "pinned">[], editable = true) {
+  // A remote server's Explorer shows its built-ins only: pins are stored by
+  // path alone, so a VPS pin would show up on every server (and vice versa).
+  const rows = useQuickAccessRows(editable);
   const { pin, unpin } = useQuickAccessMutations();
   const [error, setError] = useState<string | null>(null);
-  const { entries, hiddenCount } = useMemo(() => mergeQuickAccess(builtins, rows.data ?? []), [builtins, rows.data]);
+  const { entries, hiddenCount } = useMemo(
+    () => mergeQuickAccess(builtins, editable ? rows.data ?? [] : []),
+    [builtins, editable, rows.data]
+  );
   const builtinPaths = useMemo(() => new Set(builtins.map((b) => b.path)), [builtins]);
   const has = (path: string) => entries.some((e) => e.path === path);
 
@@ -571,6 +580,7 @@ export function useQuickAccessViewModel(builtins: Omit<QuickAccessEntry, "pinned
   return {
     entries,
     hiddenCount,
+    editable,
     error,
     busy: pin.isPending || unpin.isPending,
     dismissError: () => setError(null),

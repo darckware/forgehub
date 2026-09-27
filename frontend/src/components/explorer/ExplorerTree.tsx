@@ -26,6 +26,8 @@ export function ExplorerTree({
   onRestoreDefaults,
   pinDrop,
   drop,
+  editable = true,
+  computerLabel,
 }: {
   currentPath: string;
   quickAccess: QuickAccessEntry[];
@@ -44,6 +46,10 @@ export function ExplorerTree({
     active: boolean;
   };
   drop: TreeDropHandlers;
+  /** false = a fixed list (a remote server's Explorer): no pin, rename or unpin. */
+  editable?: boolean;
+  /** Heading of the full tree; defaults to "This computer" (the VPS). */
+  computerLabel?: string;
 }) {
   const { t } = useTranslation("explorer");
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -54,13 +60,13 @@ export function ExplorerTree({
           "mx-1 flex items-center gap-1 rounded-sm px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground",
           pinDrop.active && "bg-primary/10 ring-1 ring-primary"
         )}
-        title={t("tree.quickAccessHelp")}
-        onDragOver={pinDrop.onDragOver}
-        onDragLeave={pinDrop.onDragLeave}
-        onDrop={pinDrop.onDrop}
+        title={editable ? t("tree.quickAccessHelp") : undefined}
+        onDragOver={editable ? pinDrop.onDragOver : undefined}
+        onDragLeave={editable ? pinDrop.onDragLeave : undefined}
+        onDrop={editable ? pinDrop.onDrop : undefined}
       >
         <span className="flex-1">{t("tree.quickAccess")}</span>
-        {hiddenCount > 0 && (
+        {editable && hiddenCount > 0 && (
           <button
             type="button"
             className="flex items-center gap-0.5 rounded px-1 normal-case tracking-normal hover:bg-accent hover:text-foreground"
@@ -94,16 +100,20 @@ export function ExplorerTree({
           onClick={() => onNavigate(item.path)}
           onDragOver={(e) => drop.onDragOver(e, item.path)}
           onDrop={(e) => drop.onDrop(e, item.path)}
-          actions={[
-            { label: t("actions.renameQuickAccess"), icon: <Pencil className="h-3.5 w-3.5" />, onClick: () => setRenaming(item.path) },
-            { label: t("actions.unpin"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => onUnpin(item) },
-          ]}
+          actions={
+            editable
+              ? [
+                  { label: t("actions.renameQuickAccess"), icon: <Pencil className="h-3.5 w-3.5" />, onClick: () => setRenaming(item.path) },
+                  { label: t("actions.unpin"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => onUnpin(item) },
+                ]
+              : undefined
+          }
         />
         )
       )}
       </div>
       <div className="mt-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {t("tree.thisComputer")}
+        {computerLabel ?? t("tree.thisComputer")}
       </div>
       <TreeNode path="/" depth={0} currentPath={currentPath} showHidden={showHidden} onNavigate={onNavigate} drop={drop} />
     </nav>

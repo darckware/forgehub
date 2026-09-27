@@ -61,6 +61,7 @@ from pydantic import BaseModel, Field
 from nexo_builds import build_agent, inspect_source
 from agent_runtime import resolve_runtime_executable, validate_working_directory
 from vpn_control import VpnControl, VpnPolicyError
+from remote_fs import make_remote_fs_router
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
 HERMES_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
@@ -5052,6 +5053,12 @@ async def fs_upload(
             tmp.unlink()
     st = target.stat()
     return FsEntry(name=target.name, path=str(target), type="file", size=st.st_size, modified=st.st_mtime)
+
+
+# Workspace Explorer on a remote server (an SSH tab's server): the same
+# routes as above under /v1/remote-fs/*, run through this host's `ssh`.
+# See remote_fs.py.
+app.include_router(make_remote_fs_router(_check_token, _resolve_key_path))
 
 
 # ---------------------------------------------------------------------------

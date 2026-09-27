@@ -46,6 +46,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import {
+  ExplorerServerProvider,
   fileKind,
   formatSize,
   isTextLike,
@@ -76,20 +77,35 @@ const INTERNAL_DRAG_TYPE = "application/x-forgehub-explorer-paths";
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
 const isImage = (name: string) => IMAGE_EXTENSIONS.has(name.toLowerCase().split(".").pop() ?? "");
 
-export function FileExplorerPane({
-  initialPath,
-  quickAccess,
-  active,
-  onPathChange,
-}: {
+interface FileExplorerPaneProps {
   initialPath: string;
   quickAccess: QuickAccessItem[];
   active: boolean;
   onPathChange?: (path: string) => void;
-}) {
+  /** Browse this SSH inventory server instead of the VPS (2026-09-27). */
+  server?: { id: string; name: string } | null;
+}
+
+/** Everything inside (listing, tree, dialogs, folder picker) talks to the
+ * same machine through ExplorerServerProvider. */
+export function FileExplorerPane({ server, ...props }: FileExplorerPaneProps) {
+  return (
+    <ExplorerServerProvider value={server?.id ?? null}>
+      <FileExplorerPaneContent {...props} serverName={server?.name ?? null} />
+    </ExplorerServerProvider>
+  );
+}
+
+function FileExplorerPaneContent({
+  initialPath,
+  quickAccess,
+  active,
+  onPathChange,
+  serverName,
+}: Omit<FileExplorerPaneProps, "server"> & { serverName: string | null }) {
   const { t, i18n } = useTranslation("explorer");
   const vm = useFileExplorerViewModel(initialPath, onPathChange);
-  const qa = useQuickAccessViewModel(quickAccess);
+  const qa = useQuickAccessViewModel(quickAccess, serverName === null);
   const [pinDropActive, setPinDropActive] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -286,12 +302,14 @@ export function FileExplorerPane({
         <Divider />
         <RibbonButton icon={<SquareCheck className="h-4 w-4" />} label={t("actions.selectAll")} shortcut="Ctrl+A" disabled={vm.entries.length === 0 || vm.allSelected} onClick={vm.selectAll} />
         <RibbonButton icon={<SquareX className="h-4 w-4" />} label={t("actions.selectNone")} shortcut="Esc" disabled={!hasSelection} onClick={vm.clearSelection} />
-        <RibbonButton
-          icon={pinTargetsAllPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-          label={pinTargetsAllPinned ? t("actions.unpin") : t("actions.pin")}
-          disabled={qa.busy}
-          onClick={() => void (pinTargetsAllPinned ? qa.unpinPaths(pinTargets) : qa.pinPaths(pinTargets))}
-        />
+        {qa.editable && (
+          <RibbonButton
+            icon={pinTargetsAllPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+            label={pinTargetsAllPinned ? t("actions.unpin") : t("actions.pin")}
+            disabled={qa.busy}
+            onClick={() => void (pinTargetsAllPinned ? qa.unpinPaths(pinTargets) : qa.pinPaths(pinTargets))}
+          />
+        )}
         <div className="flex-1" />
         <RibbonButton
           icon={vm.showHidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
@@ -361,6 +379,8 @@ export function FileExplorerPane({
             onRestoreDefaults={() => void qa.restoreDefaults()}
             pinDrop={pinDrop}
             drop={drop}
+            editable={qa.editable}
+            computerLabel={serverName ?? undefined}
           />
         </div>
 
@@ -477,8 +497,8 @@ export function FileExplorerPane({
                   { label: t("actions.copyTo"), icon: <Copy className="h-3.5 w-3.5" />, onClick: () => vm.setDialog({ kind: "transferTo", entries: vm.selectedEntries, mode: "copy" }) },
                   { label: t("actions.pasteInto"), icon: <ClipboardPaste className="h-3.5 w-3.5" />, onClick: () => void vm.paste(menu.entry!.path), hidden: menu.entry.type !== "dir" || !vm.clipboard || vm.selectedEntries.length > 1 },
                   { label: t("actions.copyPath"), icon: <Link2 className="h-3.5 w-3.5" />, onClick: () => void navigator.clipboard?.writeText(vm.selectedEntries.map((e) => e.path).join("\n")) },
-                  { label: t("actions.pin"), icon: <Pin className="h-3.5 w-3.5" />, onClick: () => void qa.pinPaths(selectedDirs), hidden: selectedDirs.length === 0 || selectedDirs.every(qa.has) },
-                  { label: t("actions.unpin"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => void qa.unpinPaths(selectedDirs), hidden: selectedDirs.length === 0 || !selectedDirs.some(qa.has) },
+                  { label: t("actions.pin"), icon: <Pin className="h-3.5 w-3.5" />, onClick: () => void qa.pinPaths(selectedDirs), hidden: !qa.editable || selectedDirs.length === 0 || selectedDirs.every(qa.has) },
+                  { label: t("actions.unpin"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => void qa.unpinPaths(selectedDirs), hidden: !qa.editable || selectedDirs.length === 0 || !selectedDirs.some(qa.has) },
                   "divider",
                   { label: t("actions.rename"), icon: <Pencil className="h-3.5 w-3.5" />, shortcut: "F2", onClick: () => askRename(menu.entry!), hidden: vm.selectedEntries.length > 1 },
                   { label: t("actions.delete"), icon: <Trash2 className="h-3.5 w-3.5 text-destructive" />, shortcut: "Del", onClick: () => askDelete(), destructive: true },
@@ -494,8 +514,8 @@ export function FileExplorerPane({
                   { label: t("actions.selectAll"), icon: <List className="h-3.5 w-3.5" />, shortcut: "Ctrl+A", onClick: vm.selectAll },
                   { label: t("actions.copyPath"), icon: <Link2 className="h-3.5 w-3.5" />, onClick: () => void navigator.clipboard?.writeText(vm.path) },
                   qa.has(vm.path)
-                    ? { label: t("actions.unpinCurrent"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => void qa.unpinPaths([vm.path]) }
-                    : { label: t("actions.pinCurrent"), icon: <Pin className="h-3.5 w-3.5" />, onClick: () => void qa.pinPaths([vm.path]) },
+                    ? { label: t("actions.unpinCurrent"), icon: <PinOff className="h-3.5 w-3.5" />, onClick: () => void qa.unpinPaths([vm.path]), hidden: !qa.editable }
+                    : { label: t("actions.pinCurrent"), icon: <Pin className="h-3.5 w-3.5" />, onClick: () => void qa.pinPaths([vm.path]), hidden: !qa.editable },
                   { label: t("nav.refresh"), icon: <RefreshCw className="h-3.5 w-3.5" />, shortcut: "F5", onClick: vm.refresh },
                 ]
           }

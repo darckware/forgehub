@@ -38,6 +38,7 @@ import {
   type Server,
   type ServerCheckResult,
 } from "@/hooks/useServers";
+import { serverHome } from "@/pages/workspace/workspaceState";
 import { ServerForm } from "./ServerForm";
 import { ServerServicesPanel } from "./ServerServicesPanel";
 
@@ -509,7 +510,13 @@ export default function ServersPage() {
                         className="h-7 w-7 text-emerald-600 hover:text-emerald-500"
                         onClick={() =>
                           navigate("/workspace", {
-                            state: { openSsh: { label: s.name, command: buildSshCommand(s) } },
+                            state: {
+                              openSsh: {
+                                label: s.name,
+                                command: buildSshCommand(s),
+                                server: { id: s.id, name: s.name, home: serverHome(s.remote_user) },
+                              },
+                            },
                           })
                         }
                         title={`Open SSH terminal to ${s.name} in Workspace`}

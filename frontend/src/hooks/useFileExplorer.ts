@@ -1,3 +1,4 @@
+import { createContext, useContext } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
 
@@ -8,7 +9,22 @@ import { apiClient } from "@/lib/api";
  * admin-only and delegates the actual filesystem work to the host-bridge.
  * Screen state (history, selection, clipboard, dialogs, upload queue) lives
  * in useFileExplorerViewModel.ts, not here.
+ *
+ * Which machine: the VPS by default, or one SSH inventory server when the
+ * Explorer tab was opened from that server's SSH tab (2026-09-27). The
+ * server comes from ExplorerServerContext rather than a parameter on every
+ * hook, so the tree, dialogs and folder picker inside one Explorer all talk
+ * to the same machine without each being told. It's part of every query
+ * key -- the same path on two machines is two different listings.
  */
+
+const ExplorerServerContext = createContext<string | null>(null);
+/** Wrap an Explorer in this with a server id to browse that server; without it, the VPS. */
+export const ExplorerServerProvider = ExplorerServerContext.Provider;
+export function useExplorerServerId(): string | null {
+  return useContext(ExplorerServerContext);
+}
+const serverParams = (serverId: string | null) => (serverId ? { server_id: serverId } : {});
 
 export interface ExplorerEntry {
   name: string;
@@ -41,15 +57,17 @@ const RESOURCE = "/api/v1/file-explorer";
 
 export const explorerKeys = {
   all: ["file-explorer"] as const,
-  list: (path: string) => ["file-explorer", "list", path] as const,
-  search: (path: string, q: string) => ["file-explorer", "search", path, q] as const,
-  content: (path: string) => ["file-explorer", "content", path] as const,
+  list: (server: string | null, path: string) => ["file-explorer", server ?? "vps", "list", path] as const,
+  search: (server: string | null, path: string, q: string) =>
+    ["file-explorer", server ?? "vps", "search", path, q] as const,
+  content: (server: string | null, path: string) => ["file-explorer", server ?? "vps", "content", path] as const,
 };
 
 export function useExplorerListing(path: string, enabled = true) {
+  const serverId = useExplorerServerId();
   return useQuery({
-    queryKey: explorerKeys.list(path),
-    queryFn: () => apiClient.get<ExplorerListing>(RESOURCE, { params: { path } }),
+    queryKey: explorerKeys.list(serverId, path),
+    queryFn: () => apiClient.get<ExplorerListing>(RESOURCE, { params: { path, ...serverParams(serverId) } }),
     enabled: enabled && Boolean(path),
     placeholderData: keepPreviousData,
     retry: false,
@@ -57,9 +75,11 @@ export function useExplorerListing(path: string, enabled = true) {
 }
 
 export function useExplorerSearch(path: string, q: string) {
+  const serverId = useExplorerServerId();
   return useQuery({
-    queryKey: explorerKeys.search(path, q),
-    queryFn: () => apiClient.get<ExplorerSearchResult>(`${RESOURCE}/search`, { params: { path, q } }),
+    queryKey: explorerKeys.search(serverId, path, q),
+    queryFn: () =>
+      apiClient.get<ExplorerSearchResult>(`${RESOURCE}/search`, { params: { path, q, ...serverParams(serverId) } }),
     enabled: Boolean(path && q.trim()),
     retry: false,
     staleTime: 10_000,
@@ -67,9 +87,11 @@ export function useExplorerSearch(path: string, q: string) {
 }
 
 export function useExplorerFileContent(path: string | null) {
+  const serverId = useExplorerServerId();
   return useQuery({
-    queryKey: explorerKeys.content(path ?? ""),
-    queryFn: () => apiClient.get<ExplorerFileContent>(`${RESOURCE}/content`, { params: { path: path! } }),
+    queryKey: explorerKeys.content(serverId, path ?? ""),
+    queryFn: () =>
+      apiClient.get<ExplorerFileContent>(`${RESOURCE}/content`, { params: { path: path!, ...serverParams(serverId) } }),
     enabled: Boolean(path),
     retry: false,
   });
@@ -81,41 +103,44 @@ export function useInvalidateExplorer() {
 }
 
 export function useExplorerMutations() {
+  const serverId = useExplorerServerId();
+  const params = serverParams(serverId);
   const invalidate = useInvalidateExplorer();
   const onSettled = () => void invalidate();
   return {
     createFolder: useMutation({
-      mutationFn: (path: string) => apiClient.post<ExplorerEntry>(`${RESOURCE}/directory`, { path }),
+      mutationFn: (path: string) => apiClient.post<ExplorerEntry>(`${RESOURCE}/directory`, { path }, { params }),
       onSettled,
     }),
     createFile: useMutation({
-      mutationFn: (path: string) => apiClient.post<ExplorerEntry>(`${RESOURCE}/file`, { path }),
+      mutationFn: (path: string) => apiClient.post<ExplorerEntry>(`${RESOURCE}/file`, { path }, { params }),
       onSettled,
     }),
     move: useMutation({
       mutationFn: ({ path, newPath }: { path: string; newPath: string }) =>
-        apiClient.patch<ExplorerEntry>(`${RESOURCE}/move`, { path, new_path: newPath }),
+        apiClient.patch<ExplorerEntry>(`${RESOURCE}/move`, { path, new_path: newPath }, { params }),
       onSettled,
     }),
     copy: useMutation({
       mutationFn: ({ path, newPath }: { path: string; newPath: string }) =>
-        apiClient.post<ExplorerEntry>(`${RESOURCE}/copy`, { path, new_path: newPath }),
+        apiClient.post<ExplorerEntry>(`${RESOURCE}/copy`, { path, new_path: newPath }, { params }),
       onSettled,
     }),
     remove: useMutation({
       mutationFn: (path: string) =>
-        apiClient.delete<void>(RESOURCE, { params: { path, recursive: true } }),
+        apiClient.delete<void>(RESOURCE, { params: { path, recursive: true, ...params } }),
       onSettled,
     }),
     writeContent: useMutation({
       mutationFn: ({ path, content }: { path: string; content: string }) =>
-        apiClient.put<ExplorerFileContent>(`${RESOURCE}/content`, { content }, { params: { path } }),
+        apiClient.put<ExplorerFileContent>(`${RESOURCE}/content`, { content }, { params: { path, ...params } }),
       onSettled,
     }),
   };
 }
 
 export function uploadExplorerFile(
+  serverId: string | null,
   destination: string,
   file: Blob,
   overwrite: boolean,
@@ -125,18 +150,23 @@ export function uploadExplorerFile(
   return apiClient.uploadBinary<ExplorerEntry>(
     `${RESOURCE}/upload`,
     file,
-    { path: destination, overwrite },
+    { path: destination, overwrite, ...serverParams(serverId) },
     onProgress,
     signal,
   );
 }
 
-export function downloadExplorerPath(path: string) {
-  return apiClient.downloadFile(`${RESOURCE}/download?path=${encodeURIComponent(path)}`);
+const withServer = (url: string, serverId: string | null) =>
+  serverId ? `${url}${url.includes("?") ? "&" : "?"}server_id=${encodeURIComponent(serverId)}` : url;
+
+export function downloadExplorerPath(serverId: string | null, path: string) {
+  return apiClient.downloadFile(withServer(`${RESOURCE}/download?path=${encodeURIComponent(path)}`, serverId));
 }
 
-export function downloadExplorerZip(paths: string[], name: string) {
-  return apiClient.postDownload(`${RESOURCE}/download-zip`, { paths, name });
+/** A folder or multi-selection arrives as .zip from the VPS, .tar.gz from a
+ * remote server (which always has tar, not always zip). */
+export function downloadExplorerZip(serverId: string | null, paths: string[], name: string) {
+  return apiClient.postDownload(withServer(`${RESOURCE}/download-zip`, serverId), { paths, name });
 }
 
 /** Hand a fetched blob to the browser's own save flow. */
@@ -295,10 +325,11 @@ export function mergeQuickAccess(
 
 const QUICK_ACCESS = `${RESOURCE}/quick-access`;
 
-export function useQuickAccessRows() {
+export function useQuickAccessRows(enabled = true) {
   return useQuery({
     queryKey: ["file-explorer-quick-access"],
     queryFn: () => apiClient.get<QuickAccessRow[]>(QUICK_ACCESS),
+    enabled,
     retry: false,
     staleTime: 60_000,
   });
