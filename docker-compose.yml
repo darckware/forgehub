@@ -50,7 +50,9 @@ services:
       # Keep /governance as a compatibility mount only if older code still
       # needs it; otherwise prefer /foundation-root everywhere.
       - /root/.hermes/foundation:/governance:ro
-      - /root/.hermes/foundation/agents:/foundation-agents:ro
+      # 14_agents/ is the canonical registry. The unnumbered agents/ copy was
+      # a stale duplicate (wrong MCP name) and left Foundation on 2026-09-27.
+      - /root/.hermes/foundation/14_agents:/foundation-agents:ro
       # Read-write: backs the Foundation rules browser/editor
       # (api/routes/foundation_docs.py) -- this is the actual rule set the
       # Hermes agents operate under, so every read/write there resolves

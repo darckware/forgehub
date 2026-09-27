@@ -74,7 +74,7 @@ RUNTIME_EXTRA_FILES: dict[str, tuple[str, ...]] = {
 
 # Default home directory per runtime_type for agents that are not Hermes
 # profiles. Sourced from each agent's canonical Foundation contract
-# (/root/.hermes/foundation/agents/{PORTHOS,ARAMIS,DARTAN,VECTOR}.md).
+# (/root/.hermes/foundation/14_agents/{PORTHOS,ARAMIS,DARTAN,VECTOR}.md).
 RUNTIME_DEFAULT_HOMES: dict[str, str] = {
     "claude": "/root/.claude",
     "codex": "/root/.codex",

@@ -4,7 +4,7 @@ Pure filesystem-reading helpers (no DB access) used by
 POST /api/v1/agents/sync/hermes-foundation (app/api/routes/agent.py) to
 populate the Agent domain from the Hermes ecosystem's canonical docs.
 
-Canonical source (confirmed by /root/.hermes/foundation/agents/README.md
+Canonical source (confirmed by /root/.hermes/foundation/14_agents/README.md
 and the `hermes-foundation-agent-registry` skill -- NOT
 /root/.hermes/knowledge_base/vault/Agents/, which is a derived mirror of only
 the 8 baseline profiles and explicitly points back here):
@@ -14,11 +14,12 @@ the 8 baseline profiles and explicitly points back here):
   - <NAME>.md              -- per-agent contract (Mission section)
 
 Mounted read-only into the backend container at /foundation-agents (see
-docker-compose.yml). Per-profile files (skills/) are read from /profiles,
+docker-compose.yml, which maps it to foundation/14_agents -- the unnumbered
+agents/ copy was a stale duplicate and was archived on 2026-09-27). Per-profile files (skills/) are read from /profiles,
 already mounted for app/api/routes/foundation.py.
 
 `source_path` values stored on synced rows use the *host* canonical path
-(/root/.hermes/foundation/agents/...) for human traceability, even though
+(/root/.hermes/foundation/14_agents/...) for human traceability, even though
 this module reads through the /foundation-agents mount alias.
 """
 import re
@@ -34,8 +35,6 @@ def _resolve_foundation_agents_dir() -> Path:
         Path("/governance/14_agents"),
         Path("/root/.hermes/foundation/14_agents"),
         Path("/root/memory/foundation/14_agents"),
-        Path("/root/.hermes/foundation/agents"),
-        Path("/root/memory/foundation/agents"),
     ):
         if candidate.is_dir() and (candidate / "ECOSYSTEM_AGENTS.md").is_file():
             return candidate
@@ -44,7 +43,7 @@ def _resolve_foundation_agents_dir() -> Path:
 
 FOUNDATION_AGENTS_DIR = _resolve_foundation_agents_dir()
 PROFILES_DIR = Path("/profiles")
-CANONICAL_AGENTS_DOC_ROOT = "/root/.hermes/foundation/agents"
+CANONICAL_AGENTS_DOC_ROOT = "/root/.hermes/foundation/14_agents"
 
 ECOSYSTEM_AGENTS_PATH = FOUNDATION_AGENTS_DIR / "ECOSYSTEM_AGENTS.md"
 RUNTIME_MATRIX_PATH = FOUNDATION_AGENTS_DIR / "AGENT_RUNTIME_MATRIX.md"

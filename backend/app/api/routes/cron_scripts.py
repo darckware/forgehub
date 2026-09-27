@@ -92,6 +92,8 @@ class SyncResultOut(BaseModel):
     inserted: int
     updated: int
     total: int
+    # Registered rows whose file is no longer in any profile's scripts dir.
+    missing: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +275,25 @@ def _build_jobs_by_script(jobs: list[dict[str, Any]]) -> dict[str, list[CronJobR
         )
         index.setdefault(script, []).append(ref)
     return index
+
+
+def _mark_missing(rows: list[CronScript], scanned_names: set[str]) -> list[CronScript]:
+    """Flags every registered script that the scan no longer finds as
+    `exists_on_disk=False` and returns the rows it changed.
+
+    Sync used to update only the rows it *found*, so a script deleted or
+    moved during the migrations kept its last `exists_on_disk=True` forever
+    and the catalog listed ghosts as healthy (2026-09-27: audit_work_dir.py,
+    foundation_audit.py, worker.sh... all "ok", none on disk) -- the opposite
+    of what a monitoring registry is for. The row itself is kept: its agent,
+    category and description are the record of what that script was.
+    """
+    changed = []
+    for row in rows:
+        if row.name not in scanned_names and row.exists_on_disk:
+            row.exists_on_disk = False
+            changed.append(row)
+    return changed
 
 
 def _scan_script_paths() -> list[dict[str, Any]]:
@@ -483,8 +504,17 @@ async def sync_scripts(db: AsyncSession = Depends(get_db)) -> SyncResultOut:
             db.add(row)
             inserted += 1
 
+    # Only when the profiles mount is really there: an absent mount scans
+    # nothing, and would otherwise flag the whole catalog as gone.
+    missing = 0
+    if PROFILES_DIR.is_dir():
+        gone = _mark_missing(list(existing.values()), {raw["name"] for raw in scanned})
+        for row in gone:
+            row.updated_at = now
+        missing = len(gone)
+
     await db.commit()
-    return SyncResultOut(inserted=inserted, updated=updated, total=len(scanned))
+    return SyncResultOut(inserted=inserted, updated=updated, total=len(scanned), missing=missing)
 
 
 @router.put("/{script_id}", response_model=ScriptOut)

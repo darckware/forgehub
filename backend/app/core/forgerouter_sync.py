@@ -3,7 +3,7 @@
 ForgeRouter (the ecosystem's exclusive LLM gateway) issues and tracks one
 API key per connected agent in its own database -- `forgerouter_postgres`
 (port 5432) -> database `forgerouter` -> schema `ai_router`, table
-`agents` (see /root/.hermes/foundation/governance/POSTGRESQL_TOPOLOGY.md
+`agents` (see /root/.hermes/foundation/36_governance/POSTGRESQL_TOPOLOGY.md
 and FORGEROUTER_DOCUMENTATION.md §ai_router.agents). That key is already
 written into each agent's own runtime config (`config_path`/`config_key`
 columns record where -- a Hermes profile's config.yaml for the
