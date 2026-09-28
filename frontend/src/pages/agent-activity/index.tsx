@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, LayoutGrid, Loader2, Network, Radio, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ActivityPulse } from "@/components/agent-activity/ActivityPulse";
-import { ActivityTopology } from "@/components/agent-activity/ActivityTopology";
+import { AgentConstellation } from "@/components/agent-activity/AgentConstellation";
 import { ActivityViewSwitch, readActivityView, type ActivityOperationalView } from "@/components/agent-activity/ActivityViewSwitch";
 import { AgentInspector } from "@/components/agent-activity/AgentInspector";
 import { ContinuityTimeline } from "@/components/agent-activity/ContinuityTimeline";
@@ -17,18 +17,19 @@ import {
   useAgentActivity,
   type ActivityAgent,
   type ActivityIncident,
-  type ActivityMessageEdge,
   type AgentLiveSnapshotItem,
 } from "@/hooks/useAgentActivity";
 import { useAgentActivityStreamViewModel } from "@/hooks/useAgentActivityStreamViewModel";
 import { cn } from "@/lib/utils";
 
-type MainView = "cards" | "topology";
+type MainView = "cards" | "constellation";
 const MAIN_VIEW_STORAGE_KEY = "forgehub:agent-activity:main:v1";
 
 function readMainView(): MainView {
   try {
-    return window.localStorage.getItem(MAIN_VIEW_STORAGE_KEY) === "topology" ? "topology" : "cards";
+    // "topology" was the pre-phase-3 value; the constellation replaced that view.
+    const saved = window.localStorage.getItem(MAIN_VIEW_STORAGE_KEY);
+    return saved === "constellation" || saved === "topology" ? "constellation" : "cards";
   } catch {
     return "cards";
   }
@@ -48,18 +49,18 @@ function openCanonicalRecord(path: string) {
   if (path.startsWith("/")) window.location.assign(path);
 }
 
-function ReservedTopologyState({ state }: { state: "loading" | "error" }) {
+function ReservedMainState({ state }: { state: "loading" | "error" }) {
   const { t } = useTranslation("agentActivity");
   const failed = state === "error";
   return (
     <section
       role="region"
-      aria-label={t("topology.title")}
+      aria-label={t("mainView.label")}
       className="flex min-h-[22rem] flex-col overflow-hidden rounded-lg border border-border bg-card"
     >
       <div className="flex min-h-11 items-center gap-2 border-b border-border px-3 py-2">
         <Radio className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-        <h2 className="text-sm font-medium">{t("topology.title")}</h2>
+        <h2 className="text-sm font-medium">{t("mainView.label")}</h2>
       </div>
       <div className="flex min-h-[17rem] flex-1 items-center justify-center px-6 text-center">
         {failed ? (
@@ -81,7 +82,7 @@ export default function AgentActivityPage() {
   const { t, i18n } = useTranslation("agentActivity");
   const stream = useAgentActivityStreamViewModel();
   // The stream carries the fast-moving part; while it's up the full read model only
-  // refreshes the slower parts (topology, flow, timeline).
+  // refreshes the slower parts (message records, flow, timeline).
   const activity = useAgentActivity({}, { refetchInterval: stream.status === "live" ? 30_000 : 5_000 });
   const now = useNow();
   const [mainView, setMainView] = useState<MainView>(readMainView);
@@ -113,11 +114,6 @@ export default function AgentActivityPage() {
     );
     return merged.filter((agent) => isMonitoredAgent(agent.runtime_type, agent.live, Boolean(agent.current_work)));
   }, [data?.agents, stream.snapshot, snapshotByAgent]);
-  const agentIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents]);
-  const relations = useMemo(
-    () => (data?.topology_relations ?? []).filter((relation) => relation.from_type !== "agent" || agentIds.has(relation.from_id)),
-    [data?.topology_relations, agentIds],
-  );
   const selectMainView = (next: MainView) => {
     try {
       window.localStorage.setItem(MAIN_VIEW_STORAGE_KEY, next);
@@ -160,7 +156,6 @@ export default function AgentActivityPage() {
     setDialogOpen(true);
   };
 
-  const openMessage = (edge: ActivityMessageEdge) => openCanonicalRecord(edge.canonical_path);
 
   return (
     <div className="mx-auto w-full max-w-[100rem] space-y-3">
@@ -275,7 +270,7 @@ export default function AgentActivityPage() {
           <div role="tablist" aria-label={t("mainView.label")} className="inline-flex rounded-md border border-border bg-card p-0.5">
             {([
               { value: "cards" as const, icon: LayoutGrid },
-              { value: "topology" as const, icon: Network },
+              { value: "constellation" as const, icon: Network },
             ]).map((option) => {
               const Icon = option.icon;
               const selected = mainView === option.value;
@@ -298,9 +293,9 @@ export default function AgentActivityPage() {
             })}
           </div>
           {activity.isLoading ? (
-            <ReservedTopologyState state="loading" />
+            <ReservedMainState state="loading" />
           ) : activity.isError ? (
-            <ReservedTopologyState state="error" />
+            <ReservedMainState state="error" />
           ) : mainView === "cards" ? (
             <LiveAgentCards
               agents={agents}
@@ -310,17 +305,14 @@ export default function AgentActivityPage() {
               now={now}
             />
           ) : (
-            <ActivityTopology
+            <AgentConstellation
               agents={agents}
-              contexts={data?.contexts ?? []}
-              projects={data?.projects ?? []}
-              resources={data?.resources ?? []}
-              relations={relations}
-              edges={data?.message_edges ?? []}
-              projectScopeId={data?.project_id ?? null}
+              snapshotByAgent={snapshotByAgent}
+              links={stream.snapshot?.links ?? []}
+              messageEdges={data?.message_edges ?? []}
               selectedAgentId={effectiveSelectedAgentId}
               onSelectAgent={setSelectedAgentId}
-              onOpenMessage={openMessage}
+              now={now}
             />
           )}
         </div>

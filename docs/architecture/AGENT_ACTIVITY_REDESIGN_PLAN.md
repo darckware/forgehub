@@ -1,6 +1,6 @@
 # Agent Activity — plano de redesenho (conceito + visual)
 
-> Status: conceito **aprovado** (2026-09-28). **F1 e F2 entregues** em 2026-09-28 — ver §9 e §10.
+> Status: conceito **aprovado** (2026-09-28). **F1, F2 e F3 entregues** em 2026-09-28 — ver §9 a §11.
 > Tela atual: `/agent-activity` (`pages/agent-activity/index.tsx`, `components/agent-activity/*`,
 > `hooks/useAgentActivity.ts`, backend `core/agent_activity.py` + `api/routes/agent_activity.py`).
 
@@ -212,3 +212,23 @@ Estimativa relativa: F1 e F4 são as maiores (backend); F2, F3 e F5 são médias
 - **Frontend**: `useAgentActivityStreamViewModel` (§21: `idle → connecting → live → reconnecting →
   error`, backoff de 1/2/5/10 s, conexão muda por 25 s é derrubada e refeita). Com o stream ativo, o
   read model completo passa a atualizar a cada 30 s em vez de 5 s.
+
+## 11. Entrega da F3 (2026-09-28)
+
+- **Constelação** (`AgentConstellation.tsx`), que substitui a topologia antiga; os arquivos
+  `ActivityTopology`, `TopologyNode`, `useTopologyPositions` e `useAgentActivityViewModel` foram
+  removidos. Layout radial determinístico (`constellationLayout.ts`): Athos no centro, os outros
+  agentes num anel em ordem de nome, e Você / Contatos / Sistema (e ForgeRouter, na camada de
+  infraestrutura) em pontos fixos por fora. As dimensões (viewBox 1000×760, anel 310×250, nós de
+  96 px) foram escolhidas por busca para que de 1 a 12 agentes no anel nunca se sobreponham; um
+  teste garante isso.
+- **Só atividade real**: o snapshot ganhou `links` (últimos 5 min) — conversas (quem → agente, por
+  qual canal), turnos do Workspace e mensagens do Messages entre agentes. Um link ativo tem partícula
+  animada; depois de encerrado, esmaece até um traço fraco. As linhas de fora curvam por fora do anel
+  e as de agente para agente por dentro, sem passar por cima dos nós. Sem atividade: "Tudo calmo".
+- **Infraestrutura** opcional: ForgeRouter ligado aos agentes que usaram LLM na última hora, com
+  espessura proporcional aos tokens.
+- Lista textual das interações recentes e dos registros de mensagem abaixo do gráfico
+  (acessibilidade). Com movimento reduzido, não há partículas.
+- Validado em produção com um turno real do Atlas a 1440 px e 390 px: linha Você → Atlas com
+  partícula, "Pensando · 15 s", nenhum nó sobreposto, sem rolagem horizontal.

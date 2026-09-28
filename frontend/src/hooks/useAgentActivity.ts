@@ -381,10 +381,25 @@ export const activityPulseSchema = z.object({
 });
 export type ActivityPulse = z.infer<typeof activityPulseSchema>;
 
+export const activityLinkSchema = z.object({
+  key: z.string(),
+  kind: z.enum(["conversation", "workspace", "message"]),
+  source_type: z.enum(["owner", "human", "system", "agent"]),
+  source_agent_id: uuidSchema.nullable(),
+  target_agent_id: uuidSchema,
+  channel: z.string().nullable(),
+  active: z.boolean(),
+  last_at: timestampSchema,
+  count: z.number().int(),
+  message_number: z.number().int().nullable(),
+});
+export type ActivityLink = z.infer<typeof activityLinkSchema>;
+
 export const agentLiveSnapshotSchema = z.object({
   generated_at: timestampSchema,
   agents: z.array(agentLiveSnapshotItemSchema),
   pulse: activityPulseSchema,
+  links: z.array(activityLinkSchema).default([]),
 });
 export type AgentLiveSnapshot = z.infer<typeof agentLiveSnapshotSchema>;
 

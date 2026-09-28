@@ -22,6 +22,15 @@ export const LIVE_STATE_TONE: Record<ActivityLiveState["state"], string> = {
   idle: "bg-muted-foreground/40 ring-transparent",
 };
 
+export const LIVE_AVATAR_RING: Record<ActivityLiveState["state"], string> = {
+  executing: "ring-2 ring-amber-500 ring-offset-2 ring-offset-card",
+  thinking: "ring-2 ring-sky-500 ring-offset-2 ring-offset-card",
+  conversing: "ring-2 ring-emerald-500 ring-offset-2 ring-offset-card",
+  degraded: "ring-2 ring-orange-500 ring-offset-2 ring-offset-card",
+  waiting: "ring-2 ring-violet-500/70 ring-offset-2 ring-offset-card",
+  idle: "",
+};
+
 /** External CLI runtimes: they only act when Messages dispatches to them. */
 export const ON_DEMAND_RUNTIMES = new Set(["claude", "codex", "agy", "openclaw"]);
 

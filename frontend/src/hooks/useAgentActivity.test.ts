@@ -13,7 +13,6 @@ import {
   useAgentActivity,
   useRequestAthosMonitoring,
 } from "./useAgentActivity";
-import { layoutActivityNodes, layoutActivityPackets } from "./useAgentActivityViewModel";
 
 const IDS = {
   athos: "11111111-1111-4111-8111-111111111111",
@@ -385,43 +384,5 @@ describe("agent activity data hooks", () => {
     expect(queryClient.getQueryState(agentActivityKeys.detail({}))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(demandKeys.all)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(notificationKeys.all)?.isInvalidated).toBe(true);
-  });
-});
-
-describe("agent activity geometry", () => {
-  it("keeps selected node geometry deterministic", () => {
-    expect(layoutActivityNodes(PARSED_ACTIVITY.agents)).toEqual(layoutActivityNodes(PARSED_ACTIVITY.agents));
-  });
-
-  it("sorts stable agent ids and separates overlapping ring positions without changing availability", () => {
-    expect(layoutActivityNodes(PARSED_ACTIVITY.agents)).toEqual([
-      {
-        id: IDS.athos,
-        label: "Athos",
-        availability: "busy",
-        xPct: 50,
-        yPct: 18.84,
-      },
-      {
-        id: IDS.aramis,
-        label: "Aramis",
-        availability: "available",
-        xPct: 50,
-        yPct: 81.16,
-      },
-    ]);
-  });
-
-  it("uses message id, dispatch status, and update timestamp as the stable packet identity", () => {
-    const nodes = layoutActivityNodes(PARSED_ACTIVITY.agents);
-    expect(layoutActivityPackets(PARSED_ACTIVITY.message_edges, nodes)).toEqual([
-      {
-        key: `${IDS.message}:running:2026-08-29T12:01:00Z`,
-        from: { x: 50, y: 81.16 },
-        to: { x: 50, y: 18.84 },
-        status: "running",
-        subject: "Validate the canonical activity contract",
-      },
-    ]);
   });
 });

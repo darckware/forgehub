@@ -113,8 +113,8 @@
   },
   "inspector": {
     "title": "Inspetor do agente",
-    "selectAgent": "Selecione um agente na topologia.",
-    "selectAgentHint": "Selecione um agente na topologia para inspecionar seus detalhes.",
+    "selectAgent": "Selecione um agente.",
+    "selectAgentHint": "Selecione um agente nos cartões ou na constelação para inspecionar seus detalhes.",
     "deselectAgent": "Desmarcar agente",
     "switchAgent": "Trocar agente",
     "noProfile": "sem perfil",
@@ -168,7 +168,7 @@
   },
   "live": {
     "section": "Agora",
-    "noSignal": "Sem sinal do runtime",
+    "noSignal": "Sem atividade registrada",
     "turnsHour": "Turnos (1h)",
     "toolsHour": "Ferramentas (1h)",
     "failuresHour": "Falhas (1h)",
@@ -247,12 +247,29 @@
   "mainView": {
     "label": "Visualização principal",
     "cards": "Cartões vivos",
-    "topology": "Topologia"
+    "topology": "Topologia",
+    "constellation": "Constelação"
   },
   "stream": {
     "connecting": "Conectando",
     "live": "Ao vivo",
     "reconnecting": "Reconectando…",
     "error": "Sem conexão ao vivo — tentando novamente"
+  },
+  "constellation": {
+    "title": "Constelação de atividade",
+    "legend": "Legenda das interações",
+    "showInfra": "Infraestrutura",
+    "calm": "Tudo calmo — nenhuma interação nos últimos 5 minutos.",
+    "recent": "Interações recentes",
+    "noInteractions": "Nenhuma interação nos últimos 5 minutos.",
+    "now": "agora",
+    "source": {
+      "owner": "Você",
+      "human": "Contatos",
+      "system": "Sistema",
+      "agent": "Entre agentes",
+      "forgerouter": "ForgeRouter"
+    }
   }
 }

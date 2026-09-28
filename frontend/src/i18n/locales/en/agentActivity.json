@@ -113,8 +113,8 @@
   },
   "inspector": {
     "title": "Agent inspector",
-    "selectAgent": "Select an agent in the topology.",
-    "selectAgentHint": "Select an agent in the topology to inspect its details.",
+    "selectAgent": "Select an agent.",
+    "selectAgentHint": "Select an agent in the cards or the constellation to inspect its details.",
     "deselectAgent": "Deselect agent",
     "switchAgent": "Switch agent",
     "noProfile": "no profile",
@@ -168,7 +168,7 @@
   },
   "live": {
     "section": "Now",
-    "noSignal": "No runtime signal",
+    "noSignal": "No recorded activity",
     "turnsHour": "Turns (1h)",
     "toolsHour": "Tools (1h)",
     "failuresHour": "Failures (1h)",
@@ -247,12 +247,29 @@
   "mainView": {
     "label": "Main view",
     "cards": "Live cards",
-    "topology": "Topology"
+    "topology": "Topology",
+    "constellation": "Constellation"
   },
   "stream": {
     "connecting": "Connecting",
     "live": "Live",
     "reconnecting": "Reconnecting…",
     "error": "No live connection — retrying"
+  },
+  "constellation": {
+    "title": "Activity constellation",
+    "legend": "Interaction legend",
+    "showInfra": "Infrastructure",
+    "calm": "All calm — no interactions in the last 5 minutes.",
+    "recent": "Recent interactions",
+    "noInteractions": "No interactions in the last 5 minutes.",
+    "now": "now",
+    "source": {
+      "owner": "You",
+      "human": "Contacts",
+      "system": "System",
+      "agent": "Agent to agent",
+      "forgerouter": "ForgeRouter"
+    }
   }
 }

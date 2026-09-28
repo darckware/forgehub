@@ -307,8 +307,8 @@ function renderPage(activity: AgentActivity = ACTIVITY_FIXTURE) {
 describe("AgentActivityPage", () => {
   beforeEach(async () => {
     localStorage.clear();
-    // The pre-phase-2 cases exercise the topology; live cards have their own cases below.
-    localStorage.setItem("forgehub:agent-activity:main:v1", "topology");
+    // These cases exercise the constellation view; live cards have their own cases below.
+    localStorage.setItem("forgehub:agent-activity:main:v1", "constellation");
     hookMocks.useAgentActivityStream.mockReset();
     hookMocks.useAgentActivityStream.mockReturnValue({ status: "idle", snapshot: null, receivedAt: null, attempts: 0 });
     hookMocks.useAgentActivity.mockReset();
@@ -487,15 +487,34 @@ describe("AgentActivityPage", () => {
     expect(within(timeline).getByRole("link", { name: /CP-771.*agente selecionado/i })).toBeVisible();
   });
 
-  it("removes packet animation while preserving its textual record for reduced motion", () => {
-    hookMocks.useReducedMotion.mockReturnValue(true);
-    const { container } = renderPage();
+  it("removes the travelling particles while preserving the textual records for reduced motion", () => {
+    const activeLink = {
+      key: "message:dartan:athos", kind: "message" as const, source_type: "agent" as const,
+      source_agent_id: IDS.dartan, target_agent_id: IDS.athos, channel: "messages", active: true,
+      last_at: new Date().toISOString(), count: 1, message_number: 284,
+    };
+    hookMocks.useAgentActivityStream.mockReturnValue({
+      status: "live", receivedAt: Date.now(), attempts: 0,
+      snapshot: {
+        generated_at: new Date().toISOString(),
+        agents: [],
+        links: [activeLink],
+        pulse: {
+          agents_total: 2, agents_reporting: 0, agents_active: 0, agents_in_turn: 0, agents_degraded: 0,
+          turns_last_hour: 0, tools_last_hour: 0, failures_last_hour: 0, pending_total: 0,
+          llm_calls_last_hour: null, tokens_last_hour: null, cost_today: null, turns_per_minute: [],
+        },
+      },
+    });
+    const { unmount } = renderPage();
+    expect(screen.getAllByTestId("constellation-particle").length).toBeGreaterThan(0);
+    unmount();
 
-    expect(container.querySelector('[data-motion-duration="0"]')).toHaveAttribute(
-      "data-motion-initial",
-      "false",
-    );
+    hookMocks.useReducedMotion.mockReturnValue(true);
+    renderPage();
+    expect(screen.queryByTestId("constellation-particle")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Dartan.*Athos/i })).toBeVisible();
+    expect(screen.getByRole("list", { name: /interações recentes/i })).toHaveTextContent("Dartan → Athos");
   });
 
   it("orders the incident inbox by severity before recency", () => {
@@ -523,7 +542,7 @@ describe("AgentActivityPage", () => {
     expect(within(inbox).getAllByRole("button")[0]).toHaveTextContent("Falha da execução #284");
   });
 
-  it("keeps the topology region reserved while reporting no active work", () => {
+  it("keeps the constellation region reserved while reporting no active work", () => {
     renderPage({
       ...ACTIVITY_FIXTURE,
       agents: [],
@@ -536,7 +555,7 @@ describe("AgentActivityPage", () => {
       timeline: [],
     });
 
-    expect(screen.getByRole("region", { name: /topologia operacional/i })).toHaveTextContent(
+    expect(screen.getByRole("region", { name: /constelação de atividade/i })).toHaveTextContent(
       /nenhum trabalho ativo/i,
     );
   });
@@ -582,7 +601,6 @@ describe("AgentActivityPage", () => {
 
     renderPage(conceptionActivity);
 
-    expect(screen.getByRole("button", { name: /Agent Activity continuity.*Concepção.*in_review/i })).toBeVisible();
     const flowPanel = screen.getByRole("tabpanel", { name: /Fluxo atual/i });
     expect(flowPanel).toHaveTextContent("Agent Activity continuity");
     expect(flowPanel).toHaveTextContent("Concepção");
@@ -641,7 +659,7 @@ describe("AgentActivityPage", () => {
 
     const sourceHealth = screen.getByRole("status", { name: /estado das fontes/i });
     expect(within(sourceHealth).getByText(/dados desatualizados/i)).toBeVisible();
-    expect(screen.getByRole("region", { name: /topologia operacional/i })).toBeVisible();
+    expect(screen.getByRole("region", { name: /constelação de atividade/i })).toBeVisible();
   });
 
   it("keeps a failed monitoring request recoverable in the dialog", async () => {
@@ -697,7 +715,7 @@ describe("AgentActivityPage", () => {
     const deselectButton = screen.getByRole("button", { name: /desmarcar agente/i });
     fireEvent.click(deselectButton);
 
-    expect(screen.getByText(/selecione um agente na topologia para inspecionar seus detalhes/i)).toBeInTheDocument();
+    expect(screen.getByText(/selecione um agente nos cartões ou na constelação/i)).toBeInTheDocument();
   });
 });
 

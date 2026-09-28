@@ -296,3 +296,44 @@ async def test_external_agent_is_on_the_board_only_while_messages_runs_it(monkey
             await db.execute(delete(AgentDemand).where(AgentDemand.target_agent_id == external_id))
             await db.execute(delete(Agent).where(Agent.id.in_([external_id, sender_id])))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_snapshot_links_show_conversations_and_messages(monkeypatch):
+    from app.core import agent_activity_stream
+    from app.db.models.demand import AgentDemand
+
+    async def no_forgerouter():
+        return None
+
+    monkeypatch.setattr(agent_activity_stream, "_cached_forgerouter_usage", no_forgerouter)
+    suffix = uuid.uuid4().hex[:8]
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        a = Agent(name=f"Link A {suffix}", agent_type="executor", runtime_type="hermes", profile_slug=f"link-a-{suffix}")
+        b = Agent(name=f"Link B {suffix}", agent_type="executor", runtime_type="hermes", profile_slug=f"link-b-{suffix}")
+        db.add_all([a, b])
+        await db.flush()
+        db.add_all([
+            AgentActivityEvent(agent_id=a.id, profile=a.profile_slug, runtime="hermes", kind="turn_started",
+                               occurred_at=now - timedelta(seconds=20), turn_id="t1", platform="telegram",
+                               counterpart_kind="owner", delivery_id=f"link-1-{suffix}"),
+            AgentDemand(from_agent=a.profile_slug, from_agent_id=a.id, target_agent_id=b.id,
+                        subject="handoff", body="x", origin_type="task", dispatch_status="running"),
+        ])
+        await db.commit()
+        a_id, b_id = a.id, b.id
+    try:
+        async with AsyncSessionLocal() as db:
+            snapshot = await agent_activity_stream.build_live_snapshot(db, now=now)
+        mine = [link for link in snapshot.links if link.target_agent_id in (a_id, b_id)]
+        conversation = next(link for link in mine if link.kind == "conversation")
+        assert conversation.source_type == "owner" and conversation.channel == "telegram" and conversation.active
+        message = next(link for link in mine if link.kind == "message")
+        assert message.source_agent_id == a_id and message.target_agent_id == b_id and message.active
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AgentDemand).where(AgentDemand.target_agent_id == b_id))
+            await db.execute(delete(AgentActivityEvent).where(AgentActivityEvent.agent_id == a_id))
+            await db.execute(delete(Agent).where(Agent.id.in_([a_id, b_id])))
+            await db.commit()

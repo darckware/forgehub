@@ -4,7 +4,7 @@ import { AgentAvatar } from "@/components/AgentAvatar";
 import type { ActivityAgent, AgentLiveSnapshotItem } from "@/hooks/useAgentActivity";
 import { cn } from "@/lib/utils";
 import { ActivitySparkline } from "./ActivitySparkline";
-import { LIVE_STATE_TONE, describeLiveState, isLiveStateActive } from "./liveState";
+import { LIVE_AVATAR_RING, LIVE_STATE_TONE, describeLiveState, isLiveStateActive } from "./liveState";
 
 /** Most active first; agents with no signal last. */
 const STATE_RANK: Record<string, number> = {
@@ -14,15 +14,6 @@ const STATE_RANK: Record<string, number> = {
   degraded: 3,
   waiting: 4,
   idle: 5,
-};
-
-const AVATAR_RING: Record<string, string> = {
-  executing: "ring-2 ring-amber-500 ring-offset-2 ring-offset-card",
-  thinking: "ring-2 ring-sky-500 ring-offset-2 ring-offset-card",
-  conversing: "ring-2 ring-emerald-500 ring-offset-2 ring-offset-card",
-  degraded: "ring-2 ring-orange-500 ring-offset-2 ring-offset-card",
-  waiting: "ring-2 ring-violet-500/70 ring-offset-2 ring-offset-card",
-  idle: "",
 };
 
 export function sortAgentsByActivity(agents: ActivityAgent[]): ActivityAgent[] {
@@ -100,7 +91,7 @@ export function LiveAgentCards({
                   avatarDataUrl={agent.avatar_data_url}
                   imageAlt={`${agent.name} profile`}
                   size="sm"
-                  className={cn(live && AVATAR_RING[live.state], active && "motion-safe:animate-pulse")}
+                  className={cn(live && LIVE_AVATAR_RING[live.state], active && "motion-safe:animate-pulse")}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">

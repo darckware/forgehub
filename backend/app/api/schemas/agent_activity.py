@@ -149,12 +149,33 @@ class ActivityPulseOut(BaseModel):
     turns_per_minute: list[int]
 
 
+class ActivityLinkOut(BaseModel):
+    """One interaction drawn on the constellation: who reached which agent, through what.
+
+    Only real, recent activity (``LINK_WINDOW``) -- never a static "may talk to" relation.
+    ``source_type`` owner/human/system are the outer-ring nodes; ``agent`` is another agent
+    (a Messages message), identified by ``source_agent_id``.
+    """
+
+    key: str
+    kind: Literal["conversation", "workspace", "message"]
+    source_type: Literal["owner", "human", "system", "agent"]
+    source_agent_id: uuid.UUID | None = None
+    target_agent_id: uuid.UUID
+    channel: str | None = None
+    active: bool
+    last_at: datetime
+    count: int = 1
+    message_number: int | None = None
+
+
 class AgentLiveSnapshotOut(BaseModel):
     """One frame of GET /api/v1/agent-activity/stream (core/agent_activity_stream.py)."""
 
     generated_at: datetime
     agents: list[AgentLiveSnapshotItemOut]
     pulse: ActivityPulseOut
+    links: list[ActivityLinkOut] = []
 
 
 class ActivityAgentOut(BaseModel):

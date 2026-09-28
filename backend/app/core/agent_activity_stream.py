@@ -29,22 +29,28 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.agent_activity import (
+    ActivityLinkOut,
     ActivityLiveStateOut,
     ActivityPulseOut,
     AgentLiveSnapshotItemOut,
     AgentLiveSnapshotOut,
 )
 from app.core.agent_activity import load_live_states
-from app.core.agent_live_state import is_on_demand_runtime
+from app.core.agent_live_state import LiveState, is_on_demand_runtime
+from app.db.models.active_turn import ActiveTurn
 from app.core.forgerouter_sync import ForgeRouterUsage, read_forgerouter_usage
 from app.db.models.agent import Agent
 from app.db.models.agent_activity_event import AgentActivityEvent
+from app.db.models.demand import AgentDemand
 
 STREAM_REFRESH_SECONDS = 10
 EVENT_DEBOUNCE_SECONDS = 0.3
 SPARK_BUCKETS = 12  # 5-minute buckets over the last hour, per agent
 PULSE_BUCKETS = 60  # 1-minute buckets over the last hour, page-wide
 FORGEROUTER_CACHE_SECONDS = 30
+
+# How long an interaction stays drawn on the constellation after its last activity.
+LINK_WINDOW = timedelta(minutes=5)
 
 IN_TURN_STATES = {"executing", "thinking"}
 ACTIVE_STATES = IN_TURN_STATES | {"conversing"}
@@ -105,6 +111,96 @@ def _bucket_counts(times: list[datetime], *, now: datetime, buckets: int, width:
         index = min(buckets - 1, int((moment - start) / width))
         counts[index] += 1
     return counts
+
+
+async def build_links(
+    db: AsyncSession,
+    *,
+    now: datetime,
+    agent_ids: set[uuid.UUID],
+    live_states: dict[uuid.UUID, LiveState],
+) -> list[ActivityLinkOut]:
+    """Recent interactions per (source, agent, channel), newest activity wins.
+
+    ``active`` means "happening right now": the agent's open turn is on that channel and
+    counterpart, a Workspace turn is running, or a Messages dispatch is in flight.
+    """
+    since = now - LINK_WINDOW
+    links: dict[str, ActivityLinkOut] = {}
+
+    def upsert(link: ActivityLinkOut) -> None:
+        current = links.get(link.key)
+        if current is None:
+            links[link.key] = link
+            return
+        current.count += 1
+        current.active = current.active or link.active
+        if link.last_at > current.last_at:
+            current.last_at = link.last_at
+            current.message_number = link.message_number or current.message_number
+
+    turns = (
+        await db.execute(
+            select(AgentActivityEvent).where(
+                AgentActivityEvent.kind == "turn_started",
+                AgentActivityEvent.occurred_at >= since,
+                AgentActivityEvent.agent_id.in_(agent_ids),
+            )
+        )
+    ).scalars()
+    for event in turns:
+        source = event.counterpart_kind or "system"
+        live = live_states.get(event.agent_id)
+        active = bool(
+            live
+            and live.state in IN_TURN_STATES
+            and live.source == "runtime"
+            and live.platform == event.platform
+            and (live.counterpart_kind or "system") == source
+        )
+        upsert(ActivityLinkOut(
+            key=f"conversation:{source}:{event.platform or '-'}:{event.agent_id}",
+            kind="conversation", source_type=source, target_agent_id=event.agent_id,
+            channel=event.platform, active=active, last_at=event.occurred_at,
+        ))
+
+    workspace_turns = (
+        await db.execute(
+            select(ActiveTurn).where(
+                ActiveTurn.agent_id.in_(agent_ids),
+                (ActiveTurn.status == "running") | (ActiveTurn.updated_at >= since),
+            )
+        )
+    ).scalars()
+    for turn in workspace_turns:
+        upsert(ActivityLinkOut(
+            key=f"workspace:{turn.agent_id}", kind="workspace", source_type="owner",
+            target_agent_id=turn.agent_id, channel="workspace", active=turn.status == "running",
+            last_at=turn.finished_at or turn.updated_at or turn.created_at,
+        ))
+
+    demands = (
+        await db.execute(
+            select(AgentDemand).where(
+                AgentDemand.target_agent_id.in_(agent_ids),
+                (AgentDemand.dispatch_status.in_(("dispatched", "running"))) | (AgentDemand.updated_at >= since),
+            )
+        )
+    ).scalars()
+    for demand in demands:
+        from_agent = demand.from_agent_id if demand.from_agent_id in agent_ids else None
+        if from_agent == demand.target_agent_id:
+            from_agent = None  # self-addressed work reads as the system handing it over
+        source = "agent" if from_agent else ("system" if demand.from_agent_id else "owner")
+        upsert(ActivityLinkOut(
+            key=f"message:{from_agent or source}:{demand.target_agent_id}",
+            kind="message", source_type=source, source_agent_id=from_agent,
+            target_agent_id=demand.target_agent_id, channel="messages",
+            active=demand.dispatch_status in ("dispatched", "running"),
+            last_at=demand.updated_at, message_number=demand.number,
+        ))
+
+    return sorted(links.values(), key=lambda link: link.last_at, reverse=True)
 
 
 async def build_live_snapshot(db: AsyncSession, *, now: datetime | None = None) -> AgentLiveSnapshotOut:
@@ -177,4 +273,7 @@ async def build_live_snapshot(db: AsyncSession, *, now: datetime | None = None) 
             list(all_turn_times), now=now, buckets=PULSE_BUCKETS, width=timedelta(minutes=1)
         ),
     )
-    return AgentLiveSnapshotOut(generated_at=now, agents=items, pulse=pulse)
+    links = await build_links(
+        db, now=now, agent_ids={item.agent_id for item in items}, live_states=live_states
+    )
+    return AgentLiveSnapshotOut(generated_at=now, agents=items, pulse=pulse, links=links)
