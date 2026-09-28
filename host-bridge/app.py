@@ -5385,6 +5385,8 @@ async def docker_volumes(x_bridge_token: str | None = Header(default=None)) -> d
             "containers": vol_containers.get(vname, []),
         })
     for source in sorted(bind_mounts):
+        # The bridge runs on the host, so it can tell a shared folder from a single shared file.
+        source_type = "dir" if os.path.isdir(source) else "file" if os.path.exists(source) else "missing"
         result.append({
             "name": source,
             "driver": "bind",
@@ -5392,6 +5394,7 @@ async def docker_volumes(x_bridge_token: str | None = Header(default=None)) -> d
             "scope": "local",
             "labels": {},
             "containers": bind_mounts[source],
+            "source_type": source_type,
         })
     return {"volumes": result}
 

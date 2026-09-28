@@ -94,6 +94,8 @@ class DockerVolumeOut(BaseModel):
     scope: str
     labels: dict = {}
     containers: list[str] = []
+    # Bind mounts only: "dir" | "file" | "missing" (host path); None for named volumes.
+    source_type: str | None = None
 
 
 class DockerNetworkContainerOut(BaseModel):

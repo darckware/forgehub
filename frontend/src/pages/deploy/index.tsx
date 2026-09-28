@@ -10,6 +10,7 @@ import {
   Circle,
   ClipboardCopy,
   Container,
+  FileText,
   Folder,
   ExternalLink,
   HardDrive,
@@ -1191,46 +1192,13 @@ function VolumesTab({
   const [confirmRemoveVol, setConfirmRemoveVol] = useState<string | null>(null);
   const [removeVolError, setRemoveVolError] = useState<string | null>(null);
 
-  const handleRemoveVolume = async () => {
-    if (!confirmRemoveVol) return;
-    setRemoveVolError(null);
-    try {
-      await removeVolMut.mutateAsync(confirmRemoveVol);
-      setConfirmRemoveVol(null);
-    } catch (err) {
-      setConfirmRemoveVol(null);
-      setRemoveVolError(err instanceof Error ? err.message : String(err));
-    }
-  };
+  // Bind mounts come in the same bridge list but are host paths, not Docker volumes (2026-09-28:
+  // 33 of the "37 volumes" were binds -- 23 folders and 10 single files like `.env`).
+  const namedVolumes = volumes.filter((v) => v.driver !== "bind");
+  const bindMounts = volumes.filter((v) => v.driver === "bind");
 
-  if (isError) {
-    return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
-        <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-        <p className="text-sm text-muted-foreground">Host-bridge offline — volumes unavailable.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{volumes.length} volume(s)</p>
-        <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
-        </Button>
-      </div>
-      {removeVolError && (
-        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeVolError}</p>
-      )}
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading volumes...
-        </div>
-      ) : volumes.length === 0 ? (
-        <div className="py-12 text-center text-sm text-muted-foreground">No volumes found.</div>
-      ) : (
-        <div className="rounded-lg border border-border overflow-hidden">
+  const renderTable = (list: DockerVolume[]) => (
+        <div className="rounded-lg border border-border overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
@@ -1243,7 +1211,7 @@ function VolumesTab({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {volumes.map((v) => {
+              {list.map((v) => {
                 const usedByRunning = v.containers.some((c) =>
                   liveContainers.some((lc) => lc.name === c && lc.state === "running")
                 );
@@ -1258,7 +1226,9 @@ function VolumesTab({
                         )}
                         title={usedByRunning ? "Active — in use by a running container" : "Inactive — no running container"}
                       />
-                      {v.driver === "bind" ? (
+                      {v.driver === "bind" && v.source_type === "file" ? (
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                      ) : v.driver === "bind" ? (
                         <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                       ) : (
                         <HardDrive className="h-3.5 w-3.5 shrink-0 text-blue-500" />
@@ -1328,6 +1298,68 @@ function VolumesTab({
               })}
             </tbody>
           </table>
+        </div>
+  );
+
+  const handleRemoveVolume = async () => {
+    if (!confirmRemoveVol) return;
+    setRemoveVolError(null);
+    try {
+      await removeVolMut.mutateAsync(confirmRemoveVol);
+      setConfirmRemoveVol(null);
+    } catch (err) {
+      setConfirmRemoveVol(null);
+      setRemoveVolError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
+        <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+        <p className="text-sm text-muted-foreground">Host-bridge offline — volumes unavailable.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">{namedVolumes.length} volume(s) · {bindMounts.length} bind mount(s)</p>
+        <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
+          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
+        </Button>
+      </div>
+      {removeVolError && (
+        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeVolError}</p>
+      )}
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading volumes...
+        </div>
+      ) : volumes.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground">No volumes found.</div>
+      ) : (
+        <div className="space-y-4">
+          <section className="space-y-1.5">
+            <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <HardDrive className="h-3.5 w-3.5 text-blue-500" /> Docker volumes ({namedVolumes.length})
+            </h3>
+            {namedVolumes.length > 0 ? renderTable(namedVolumes) : (
+              <p className="text-xs text-muted-foreground italic">No Docker volumes.</p>
+            )}
+          </section>
+          {bindMounts.length > 0 && (
+            <section className="space-y-1.5">
+              <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <Folder className="h-3.5 w-3.5 text-amber-500" /> Bind mounts — host folders and files shared into containers ({bindMounts.length})
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                Not Docker volumes: they live on the host filesystem and are never removed from here.
+              </p>
+              {renderTable(bindMounts)}
+            </section>
+          )}
         </div>
       )}
 
@@ -2009,7 +2041,7 @@ export default function DeployPage() {
           { label: t("mainPage.stats.running"), value: bridgeOffline ? null : containers.filter((c) => c.state === "running").length, icon: Activity, color: "text-emerald-500", tab: "live", offline: bridgeOffline },
           { label: t("mainPage.stats.healthy"), value: bridgeOffline ? null : containers.filter((c) => c.health === "healthy").length, icon: CheckCircle2, color: "text-emerald-600", tab: "live", offline: bridgeOffline },
           { label: t("mainPage.stats.issues"), value: bridgeOffline ? null : containers.filter((c) => c.state === "stopped" || c.health === "unhealthy").length, icon: AlertCircle, color: "text-red-500", tab: "live", offline: bridgeOffline },
-          { label: t("mainPage.stats.volumes"), value: volumesOffline ? null : volumes.length, icon: HardDrive, color: "text-violet-500", tab: "volumes", offline: volumesOffline },
+          { label: t("mainPage.stats.volumes"), value: volumesOffline ? null : volumes.filter((v) => v.driver !== "bind").length, icon: HardDrive, color: "text-violet-500", tab: "volumes", offline: volumesOffline },
           { label: t("mainPage.stats.networks"), value: networksOffline ? null : networks.length, icon: Network, color: "text-amber-500", tab: "networks", offline: networksOffline },
           { label: t("mainPage.stats.images"), value: imagesOffline ? null : images.length, icon: Layers, color: "text-cyan-500", tab: "images", offline: imagesOffline },
         ].map(({ label, value, icon: Icon, color, tab, offline }) => (

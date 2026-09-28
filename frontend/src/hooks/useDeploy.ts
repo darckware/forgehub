@@ -192,6 +192,8 @@ export interface DockerVolume {
   scope: string;
   labels: Record<string, string>;
   containers: string[];
+  /** Bind mounts only: what the host path is ("dir" | "file" | "missing"); absent from an older host-bridge. */
+  source_type?: string | null;
 }
 
 export interface DockerNetworkContainer {
