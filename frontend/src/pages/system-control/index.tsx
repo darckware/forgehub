@@ -30,6 +30,7 @@ import {
 } from "@/hooks/useChat";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { DockerCleanupCard } from "./DockerCleanupCard";
+import { BackupFilesCard } from "./BackupFilesCard";
 
 function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null) return "—";
@@ -433,6 +434,8 @@ export default function SystemControlPage() {
       </div>
 
       <DockerCleanupCard />
+
+      <BackupFilesCard />
 
       <Card>
         <CardContent className="space-y-3 p-4">

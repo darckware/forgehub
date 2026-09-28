@@ -336,3 +336,51 @@ export function useDockerPrune() {
     },
   });
 }
+
+export interface BackupFileItem {
+  path: string;
+  group: string;
+  size: number;
+  mtime: string;
+  is_dir: boolean;
+  /** Reason it can't be removed (e.g. the current weekly Hermes backup), or null. */
+  protected: string | null;
+}
+
+export interface BackupFileGroup {
+  group: string;
+  label: string;
+  count: number;
+  total_size: number;
+  items: BackupFileItem[];
+}
+
+export interface BackupFiles {
+  total_count: number;
+  total_size: number;
+  reclaimable_size: number;
+  groups: BackupFileGroup[];
+}
+
+/** Backup files on the host (2026-09-28): /root/backup, the weekly Hermes archive, rollback
+ * snapshots and dumps in /tmp. Read-only; one host scan per call, so no polling. */
+export function useBackupFiles() {
+  return useQuery<BackupFiles>({
+    queryKey: ["system-control", "backup-files"],
+    queryFn: () => apiClient.get("/api/v1/system-control/backup-files"),
+    retry: false,
+  });
+}
+
+/** Moves the selected backup items to TRASH_ROOT (recoverable until "Empty trash"). The
+ * backend re-scans and refuses unknown or protected paths. */
+export function useDeleteBackupFiles() {
+  const queryClient = useQueryClient();
+  return useMutation<{ count: number; total_size: number; trash_path: string }, Error, string[]>({
+    mutationFn: (paths) => apiClient.post("/api/v1/system-control/backup-files/delete", { paths }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "backup-files"] });
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "trash-status"] });
+    },
+  });
+}

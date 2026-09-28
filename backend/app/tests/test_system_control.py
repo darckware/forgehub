@@ -509,3 +509,67 @@ async def test_backup_listing_skips_hidden_lock_file(client: AsyncClient, monkey
     resp = await client.get("/api/v1/system-control/status")
     assert resp.status_code == 200, resp.text
     assert resp.json()["backups"]["count"] == 1
+
+
+class FakeBackupBridge(FakeBridgeClient):
+    """Answers the backup scan with real-shaped JSON and records the move command."""
+
+    scan = [
+        {"path": "/root/backup/forgehub-20260907", "group": "archives", "size": 356_000_000, "mtime": 1789000000.0, "is_dir": True, "protected": None},
+        {"path": "/root/backup/hermes-root/weekly/host_2026-W39.tar.zst", "group": "hermes_weekly", "size": 1_200_000_000, "mtime": 1790000000.0, "is_dir": False, "protected": "Newest weekly Hermes backup (latest recovery point)"},
+        {"path": "/tmp/db_transfer/foundation.sql.gz", "group": "tmp_dumps", "size": 61_000_000, "mtime": 1788000000.0, "is_dir": False, "protected": None},
+    ]
+
+    async def request(self, method, url, headers=None, json=None, params=None, **kwargs):
+        import json as _json
+
+        FakeBridgeClient.calls.append((method, url, json, params))
+        command = (json or {}).get("command", "")
+        if command.startswith("python3 - <<'PYEOF'"):
+            return _git_ok(_json.dumps(self.scan))
+        if command.startswith("mkdir -p"):
+            return _git_ok("")
+        raise AssertionError(f"Unexpected bridge call: {command[:80]}")
+
+
+async def test_backup_files_are_grouped_and_protected_is_not_reclaimable(client: AsyncClient, monkeypatch):
+    from app.api.routes import system_control as sc
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBackupBridge)
+    resp = await client.get("/api/v1/system-control/backup-files")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total_count"] == 3
+    assert body["reclaimable_size"] == 356_000_000 + 61_000_000
+    assert [g["group"] for g in body["groups"]] == ["archives", "hermes_weekly", "tmp_dumps"]
+
+
+async def test_backup_delete_refuses_protected_and_unknown_paths(client: AsyncClient, monkeypatch):
+    from app.api.routes import system_control as sc
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBackupBridge)
+    resp = await client.post("/api/v1/system-control/backup-files/delete", json={"paths": [
+        "/root/backup/hermes-root/weekly/host_2026-W39.tar.zst", "/etc/passwd",
+    ]})
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert detail["protected"] == ["/root/backup/hermes-root/weekly/host_2026-W39.tar.zst"]
+    assert detail["unknown"] == ["/etc/passwd"]
+    assert not any((c[2] or {}).get("command", "").startswith("mkdir -p") for c in FakeBridgeClient.calls)
+
+
+async def test_backup_delete_moves_selected_items_to_trash(client: AsyncClient, monkeypatch):
+    from app.api.routes import system_control as sc
+
+    FakeBridgeClient.calls = []
+    monkeypatch.setattr(sc.httpx, "AsyncClient", FakeBackupBridge)
+    resp = await client.post("/api/v1/system-control/backup-files/delete", json={"paths": [
+        "/root/backup/forgehub-20260907", "/tmp/db_transfer/foundation.sql.gz",
+    ]})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["count"] == 2 and resp.json()["total_size"] == 417_000_000
+    move = next(c[2]["command"] for c in FakeBridgeClient.calls if c[2]["command"].startswith("mkdir -p"))
+    assert f"{sc.TRASH_ROOT}/cleanup-manual/backups/" in move
+    assert "mv -- /root/backup/forgehub-20260907 " in move and "rm " not in move

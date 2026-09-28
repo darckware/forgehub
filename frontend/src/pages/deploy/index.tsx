@@ -1942,6 +1942,22 @@ export default function DeployPage() {
               {syncResult.created > 0 && <span>{syncResult.created} {t("mainPage.messages.syncResult.created")}</span>}
               {syncResult.updated > 0 && <span>{syncResult.updated} {t("mainPage.messages.syncResult.updated")}</span>}
               {syncResult.created === 0 && syncResult.updated === 0 && <span>{t("mainPage.messages.syncResult.upToDate")}</span>}
+              {(syncResult.stale?.length ?? 0) > 0 && (
+                <span
+                  className="text-amber-600"
+                  title={syncResult.stale!.map((s) => `${s.name} (${s.container_name})`).join("\n")}
+                >
+                  {syncResult.stale!.length} {t("mainPage.messages.syncResult.stale")}
+                </span>
+              )}
+              {(syncResult.invalid_compose?.length ?? 0) > 0 && (
+                <span
+                  className="text-amber-600"
+                  title={syncResult.invalid_compose!.map((s) => `${s.name}: ${s.compose_file}`).join("\n")}
+                >
+                  {syncResult.invalid_compose!.length} {t("mainPage.messages.syncResult.invalidCompose")}
+                </span>
+              )}
               <button type="button" onClick={() => setSyncResult(null)} className="ml-1 opacity-60 hover:opacity-100">
                 <X className="h-3 w-3" />
               </button>

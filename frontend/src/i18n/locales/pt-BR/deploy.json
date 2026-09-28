@@ -319,7 +319,9 @@
       "syncResult": {
         "created": "criado(s)",
         "updated": "atualizado(s)",
-        "upToDate": "Registro já está atualizado"
+        "upToDate": "Registro já está atualizado",
+        "stale": "sem container (obsoleto)",
+        "invalidCompose": "com compose inexistente"
       }
     }
   }

@@ -319,7 +319,9 @@
       "syncResult": {
         "created": "created",
         "updated": "updated",
-        "upToDate": "Registry already up to date"
+        "upToDate": "Registry already up to date",
+        "stale": "without a container (stale)",
+        "invalidCompose": "with a missing compose file"
       }
     }
   }

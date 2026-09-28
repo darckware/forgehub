@@ -217,6 +217,10 @@ export interface SyncResult {
   ignored: number;
   names_created: string[];
   names_updated: string[];
+  /** Registered installations whose container no longer exists (reported, never deleted). */
+  stale?: { name: string; container_name: string }[];
+  /** Registered installations whose compose file is missing on the host. */
+  invalid_compose?: { name: string; compose_file: string }[];
 }
 
 export function useDockerVolumes() {

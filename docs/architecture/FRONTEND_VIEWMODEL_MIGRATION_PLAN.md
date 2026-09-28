@@ -154,6 +154,9 @@ sub-conversion, ticked off independently.
 - [ ] `frontend/src/pages/crons/index.tsx` (633 lines)
 - [ ] `frontend/src/pages/auditor/index.tsx` (628 lines)
 - [ ] `frontend/src/pages/system-control/index.tsx` (604 lines)
+      — *partially*: the Docker card (`useDockerCleanupViewModel.ts` + `DockerCleanupCard.tsx`,
+      2026-09-27) and the Backups card (`useBackupFilesViewModel.ts` + `BackupFilesCard.tsx`,
+      2026-09-28) are ViewModel pairs; the rest of the page is still inline state.
 - [ ] `frontend/src/pages/obsidian/index.tsx` (571 lines)
 - [ ] `frontend/src/pages/hindsight/index.tsx` (549 lines)
 - [ ] `frontend/src/pages/tools/index.tsx` (536 lines)

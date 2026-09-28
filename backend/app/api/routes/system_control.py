@@ -1174,3 +1174,139 @@ async def docker_prune(payload: DockerPruneRequest, _admin: User = Depends(get_c
         lines = [line for line in (data["stdout"] or "").strip().splitlines() if line.strip()]
         results[key] = lines[-1] if lines else ""
     return {"results": results, "policy": "no-docker-volume-prune"}
+
+
+# --- Backup files ---------------------------------------------------------------------------
+#
+# 2026-09-28, Marcelo: find every backup file on the host and clean them up from this screen.
+# A scan across the whole filesystem by name pattern also matches source code (a project's
+# `.sql` migrations, build caches named `.old`), so this is deliberately a scan of the places
+# where backups actually live, never a pattern over `/`:
+#   /root/backup/*                      manual/system archives (one item per entry)
+#   /root/backup/hermes-root/weekly/*   the rolling Hermes backup -- the NEWEST archive is
+#                                       PROTECTED: it is the latest Hermes recovery point (not
+#                                       "the current ISO week": on a Monday before the weekly
+#                                       run, that rule left the only archive deletable)
+#   /root/.hermes/profiles/*/state-snapshots/*   pre-change rollback copies
+#   /tmp (depth <= 3)                   database dumps and archives left behind (the 2026-09-27
+#                                       audit found production dumps there, world-readable)
+# System (`/var/backups`, managed by dpkg) and tool-managed backups are not listed.
+# Removal moves items to TRASH_ROOT like the rest of this page -- recoverable until "Empty
+# trash" -- and re-derives the scan server-side instead of trusting client paths.
+
+_BACKUP_SCAN_SCRIPT = r'''
+import glob, json, os, re
+items = []
+def size(p):
+    if os.path.islink(p) or os.path.isfile(p):
+        return os.lstat(p).st_size
+    total = 0
+    for root, _, files in os.walk(p):
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(root, f)).st_size
+            except OSError:
+                pass
+    return total
+def add(p, group, protected=None):
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return
+    items.append({"path": p, "group": group, "size": size(p), "mtime": st.st_mtime,
+                  "is_dir": os.path.isdir(p) and not os.path.islink(p), "protected": protected})
+for p in sorted(glob.glob("/root/backup/*")):
+    if os.path.basename(p) == "hermes-root":
+        weekly = glob.glob("/root/backup/hermes-root/weekly/*")
+        newest = max(weekly, key=lambda q: os.lstat(q).st_mtime) if weekly else None
+        for q in sorted(weekly):
+            add(q, "hermes_weekly", "Newest weekly Hermes backup (latest recovery point)" if q == newest else None)
+        continue
+    add(p, "archives")
+for p in sorted(glob.glob("/root/.hermes/profiles/*/state-snapshots/*")):
+    add(p, "snapshots")
+DUMP = re.compile(r"\.(sql|sql\.gz|dump|tar|tar\.gz|tar\.zst|tgz|zip)$|backup", re.I)
+for root, dirs, files in os.walk("/tmp"):
+    dirs[:] = [d for d in dirs if not d.startswith(("claude-", "systemd-", "snap-"))]
+    if root.count("/") >= 3:
+        dirs[:] = []
+    for f in files:
+        if DUMP.search(f):
+            add(os.path.join(root, f), "tmp_dumps")
+print(json.dumps(items))
+'''
+
+_BACKUP_GROUP_LABELS = {
+    "archives": "Backup archives (/root/backup)",
+    "hermes_weekly": "Hermes weekly backup",
+    "snapshots": "Rollback snapshots (state-snapshots)",
+    "tmp_dumps": "Database dumps and archives in /tmp",
+}
+
+
+async def _scan_backup_files() -> list[dict[str, Any]]:
+    command = f"python3 - <<'PYEOF'\n{_BACKUP_SCAN_SCRIPT}\nPYEOF"
+    data = await _bridge("POST", "/v1/exec", timeout_seconds=130.0, json={"command": command, "timeout_seconds": 120})
+    if data["exit_code"] != 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(data["stderr"] or "").strip() or "backup scan failed",
+        )
+    try:
+        items = json.loads((data["stdout"] or "").strip() or "[]")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="unexpected backup scan output") from exc
+    for item in items:
+        item["mtime"] = datetime.fromtimestamp(float(item["mtime"]), tz=timezone.utc).isoformat()
+    return items
+
+
+@router.get("/backup-files")
+async def list_backup_files(_admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    """Read-only inventory of backup files, grouped (see the section comment above)."""
+    items = await _scan_backup_files()
+    groups = []
+    for key, label in _BACKUP_GROUP_LABELS.items():
+        group_items = sorted((i for i in items if i["group"] == key), key=lambda i: -i["size"])
+        if group_items:
+            groups.append({"group": key, "label": label, "count": len(group_items),
+                           "total_size": sum(i["size"] for i in group_items), "items": group_items})
+    return {
+        "total_count": len(items),
+        "total_size": sum(i["size"] for i in items),
+        "reclaimable_size": sum(i["size"] for i in items if not i["protected"]),
+        "groups": groups,
+    }
+
+
+class BackupDeleteRequest(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=500)
+
+
+@router.post("/backup-files/delete")
+async def delete_backup_files(payload: BackupDeleteRequest, _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    """Move the selected backup items to TRASH_ROOT. Every path must be in a fresh scan and not
+    protected -- a stale or arbitrary client path is refused, never moved."""
+    _assert_trash_root_safe()
+    items = {i["path"]: i for i in await _scan_backup_files()}
+    unknown = [p for p in payload.paths if p not in items]
+    protected = [p for p in payload.paths if p in items and items[p]["protected"]]
+    if unknown or protected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"unknown": unknown, "protected": protected},
+        )
+    dest = f"{TRASH_ROOT}/cleanup-manual/backups/{int(datetime.now(timezone.utc).timestamp())}"
+    moves = [
+        f"mv -- {shlex.quote(p)} {shlex.quote(f'{dest}/{i:04d}_{Path(p).name}')}"
+        for i, p in enumerate(dict.fromkeys(payload.paths))
+    ]
+    command = f"mkdir -p {shlex.quote(dest)} && " + " && ".join(moves)
+    data = await _bridge("POST", "/v1/exec", timeout_seconds=130.0, json={"command": command, "timeout_seconds": 120})
+    if data["exit_code"] != 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(data["stderr"] or "").strip() or "Failed to move backups to trash",
+        )
+    moved = [items[p] for p in dict.fromkeys(payload.paths)]
+    return {"count": len(moved), "total_size": sum(i["size"] for i in moved), "trash_path": dest}
