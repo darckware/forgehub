@@ -165,5 +165,50 @@
     "close": "Fechar solicitação de monitoramento",
     "failure": "O monitoramento não foi solicitado. Revise o incidente e tente novamente.",
     "success": "Solicitação de monitoramento criada."
+  },
+  "live": {
+    "section": "Agora",
+    "noSignal": "Sem sinal do runtime",
+    "turnsHour": "Turnos (1h)",
+    "toolsHour": "Ferramentas (1h)",
+    "failuresHour": "Falhas (1h)",
+    "pending": "Pendências",
+    "model": "Modelo",
+    "channel": "Canal",
+    "counterpartLabel": "Com",
+    "lastSeen": "Último sinal",
+    "never": "nunca",
+    "state": {
+      "executing": "Executando {{tool}}",
+      "executingNoTool": "Executando ferramenta",
+      "thinking": "Pensando",
+      "conversing": "Respondeu agora",
+      "waiting_one": "{{count}} pendência",
+      "waiting_other": "{{count}} pendências",
+      "degraded": "Última execução falhou",
+      "degradedReason": "Falhou: {{reason}}",
+      "idle": "Ocioso",
+      "idleSince": "Ocioso há {{time}}"
+    },
+    "counterpart": {
+      "owner": "Você",
+      "human": "Contato {{ref}}",
+      "humanNoRef": "Contato externo",
+      "agent": "Agente",
+      "system": "Sistema"
+    },
+    "platform": {
+      "workspace": "Workspace",
+      "telegram": "Telegram",
+      "whatsapp": "WhatsApp",
+      "cli": "Terminal",
+      "tui": "Terminal",
+      "acp": "Editor",
+      "cron": "Cron",
+      "kanban": "Kanban",
+      "subagent": "Subagente",
+      "tool": "ForgeHub",
+      "api_server": "API"
+    }
   }
 }

@@ -2,6 +2,8 @@ import { ArrowUpRight, Bot, HeartPulse, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import type { ActivityAgent } from "@/hooks/useAgentActivity";
+import { LIVE_STATE_TONE, describeLiveState, formatElapsed, isLiveStateActive } from "./liveState";
+import { cn } from "@/lib/utils";
 
 interface AgentInspectorProps {
   agent: ActivityAgent | null;
@@ -34,6 +36,57 @@ function RecordButton({ path, label, onOpen }: { path: string; label: string; on
       {label}
       <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
     </a>
+  );
+}
+
+function LiveNow({ agent }: { agent: ActivityAgent }) {
+  const { t } = useTranslation("agentActivity");
+  const live = agent.live;
+  if (!live) {
+    return (
+      <div className="px-3 py-2 text-muted-foreground" data-testid="agent-live-now">
+        <span className="font-medium text-foreground">{t("live.section")}</span> · {t("live.noSignal")}
+      </div>
+    );
+  }
+  const { headline, context } = describeLiveState(live, t);
+  const lastSeen = formatElapsed(live.last_event_at);
+  const counters: Array<[string, number, boolean]> = [
+    [t("live.turnsHour"), live.turns_last_hour, false],
+    [t("live.toolsHour"), live.tools_last_hour, false],
+    [t("live.failuresHour"), live.failures_last_hour, live.failures_last_hour > 0],
+    [t("live.pending"), live.pending_count, false],
+  ];
+  return (
+    <div className="space-y-2 px-3 py-2.5" data-testid="agent-live-now">
+      <div className="flex items-start gap-2">
+        <span
+          className={cn(
+            "mt-1 h-2 w-2 shrink-0 rounded-full ring-4",
+            LIVE_STATE_TONE[live.state],
+            isLiveStateActive(live) && "motion-safe:animate-pulse",
+          )}
+          aria-hidden="true"
+        />
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t("live.section")}</p>
+          <p className="break-words text-xs font-semibold text-foreground">{headline}</p>
+          {context && <p className="break-words text-muted-foreground">{context}</p>}
+          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+            {live.model ? `${live.model} · ` : ""}
+            {t("live.lastSeen")}: {lastSeen ?? t("live.never")}
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {counters.map(([label, value, alert]) => (
+          <div key={label} className="rounded-md border border-border bg-muted/30 px-1.5 py-1 text-center">
+            <p className={cn("text-sm font-semibold tabular-nums", alert && "text-destructive")}>{value}</p>
+            <p className="truncate text-[9px] text-muted-foreground">{label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -112,6 +165,7 @@ export function AgentInspector({
         </div>
       ) : (
         <dl className="divide-y divide-border text-[11px]">
+          <LiveNow agent={agent} />
           <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
             <dt className="text-muted-foreground">{t("inspector.runtimeHealth")}</dt>
             <dd>

@@ -95,6 +95,29 @@ class ActivityCurrentWorkOut(BaseModel):
     concept_revision_id: uuid.UUID | None = None
 
 
+class ActivityLiveStateOut(BaseModel):
+    """What the agent is doing right now, from its runtime's own lifecycle events
+    (``core/agent_live_state.py``). Metadata only: no message text ever reaches it."""
+
+    state: Literal["executing", "thinking", "conversing", "waiting", "degraded", "idle"]
+    since: datetime | None = None
+    # runtime = pushed by the agent runtime; workspace = a ForgeHub chat turn.
+    source: Literal["runtime", "workspace"] | None = None
+    platform: str | None = None
+    counterpart_kind: Literal["owner", "human", "agent", "system"] | None = None
+    counterpart_ref: str | None = None
+    model: str | None = None
+    tool_name: str | None = None
+    session_id: str | None = None
+    turn_id: str | None = None
+    last_event_at: datetime | None = None
+    reason: str | None = None
+    turns_last_hour: int = 0
+    tools_last_hour: int = 0
+    failures_last_hour: int = 0
+    pending_count: int = 0
+
+
 class ActivityAgentOut(BaseModel):
     """One agent node and its currently authoritative operational context."""
 
@@ -110,6 +133,8 @@ class ActivityAgentOut(BaseModel):
     current_work: ActivityCurrentWorkOut | None = None
     latest_checkpoint: ActivityCheckpointOut | None = None
     profile_summary: ActivityProfileSummaryOut
+    # None when this agent's runtime has never reported (e.g. not wired yet).
+    live: ActivityLiveStateOut | None = None
 
     @property
     def current_execution_id(self) -> uuid.UUID | None:

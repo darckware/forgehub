@@ -9,7 +9,9 @@ import {
   ShieldCheck,
   Zap,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { LIVE_STATE_TONE, describeLiveState, isLiveStateActive } from "./liveState";
 import type {
   ActivityAgent,
   ActivityContext,
@@ -86,6 +88,9 @@ export function TopologyNode({
   onPointerEnter,
   onPointerLeave,
 }: TopologyNodeProps) {
+  const { t } = useTranslation("agentActivity");
+  const liveText = agent?.live ? describeLiveState(agent.live, t) : null;
+  const liveActive = isLiveStateActive(agent?.live);
   const isPlatform = resource?.kind === "platform" || resource?.key === "platform:forgehub";
   const isGateway = resource?.kind === "gateway" || resource?.key === "gateway:forgerouter";
   const isVault = resource?.kind === "vault" || resource?.key === "vault:forgevault";
@@ -201,7 +206,24 @@ export function TopologyNode({
           </span>
         </span>
       </span>
-      {agent && (
+      {agent && liveText ? (
+        <>
+          <span className="mt-1.5 flex items-center gap-1.5 text-[10px] font-medium text-foreground">
+            <span
+              className={cn(
+                "h-1.5 w-1.5 shrink-0 rounded-full ring-2",
+                LIVE_STATE_TONE[agent.live!.state],
+                liveActive && "motion-safe:animate-pulse",
+              )}
+              aria-hidden="true"
+            />
+            <span className="truncate">{liveText.headline}</span>
+          </span>
+          <span className="block truncate text-[9px] text-muted-foreground">
+            {liveText.context ?? agent.current_work?.task_title ?? agent.current_work?.project_name ?? "\u00a0"}
+          </span>
+        </>
+      ) : agent ? (
         <>
           <span className="mt-1.5 block truncate text-[10px] font-medium text-foreground">
             {agent.current_work?.project_name ?? typeLabel}
@@ -210,14 +232,14 @@ export function TopologyNode({
             {agent.current_work?.task_title ?? agent.availability_reason ?? statusLabel}
           </span>
         </>
-      )}
+      ) : null}
       {(isGateway || isPlatform || isPortal || isVault) && (
         <span className="mt-1 flex items-center gap-1 text-[9px] text-muted-foreground">
           <Zap className="h-2.5 w-2.5 text-amber-500" aria-hidden="true" />
           <span className="truncate">{resource?.detail ?? "active service"}</span>
         </span>
       )}
-      {agent?.availability === "busy" && (
+      {(liveActive || (!agent?.live && agent?.availability === "busy")) && (
         <span
           className="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-500 ring-4 ring-amber-500/20 motion-safe:animate-pulse"
           aria-hidden="true"

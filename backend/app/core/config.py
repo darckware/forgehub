@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     CHAT_BRIDGE_URL: str = "http://host.docker.internal:8910"
     CHAT_BRIDGE_TOKEN: str = ""
 
+    # HMAC secret the agent runtimes sign their activity webhooks with
+    # (POST /api/v1/agent-activity/events). The same value lives in each Hermes
+    # profile's .env as FORGEHUB_ACTIVITY_WEBHOOK_SECRET. Empty = the endpoint
+    # refuses every event (fail-closed: it is reachable without a JWT).
+    AGENT_ACTIVITY_WEBHOOK_SECRET: str = ""
+
     # Nexo Remote Agent artifacts are built by the host bridge and exposed to
     # this backend beneath a separate, read-only mount root.
     NEXO_ARTIFACT_ROOT: Path = Path("/tmp/forgehub-nexo-artifacts")

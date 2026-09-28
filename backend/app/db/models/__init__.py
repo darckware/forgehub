@@ -108,3 +108,4 @@ from app.db.models.nexo_installation import (  # noqa: F401
     WorkstationInstallationEvent,
 )
 from app.db.models.file_explorer import ExplorerQuickAccessEntry  # noqa: F401
+from app.db.models.agent_activity_event import AgentActivityEvent  # noqa: F401

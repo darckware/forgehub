@@ -91,6 +91,26 @@ export const activityCurrentWorkSchema = z.object({
 });
 export type ActivityCurrentWork = z.infer<typeof activityCurrentWorkSchema>;
 
+export const activityLiveStateSchema = z.object({
+  state: z.enum(["executing", "thinking", "conversing", "waiting", "degraded", "idle"]),
+  since: timestampSchema.nullable(),
+  source: z.enum(["runtime", "workspace"]).nullable(),
+  platform: z.string().nullable(),
+  counterpart_kind: z.enum(["owner", "human", "agent", "system"]).nullable(),
+  counterpart_ref: z.string().nullable(),
+  model: z.string().nullable(),
+  tool_name: z.string().nullable(),
+  session_id: z.string().nullable(),
+  turn_id: z.string().nullable(),
+  last_event_at: timestampSchema.nullable(),
+  reason: z.string().nullable(),
+  turns_last_hour: z.number().int(),
+  tools_last_hour: z.number().int(),
+  failures_last_hour: z.number().int(),
+  pending_count: z.number().int(),
+});
+export type ActivityLiveState = z.infer<typeof activityLiveStateSchema>;
+
 export const activityAgentSchema = z.object({
   id: uuidSchema,
   name: z.string(),
@@ -104,6 +124,8 @@ export const activityAgentSchema = z.object({
   current_work: activityCurrentWorkSchema.nullable(),
   latest_checkpoint: activityCheckpointSchema.nullable(),
   profile_summary: activityProfileSummarySchema,
+  // Absent on older payloads and null when the agent's runtime never reported.
+  live: activityLiveStateSchema.nullable().optional(),
 });
 export type ActivityAgent = z.infer<typeof activityAgentSchema>;
 

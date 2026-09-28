@@ -123,6 +123,9 @@ _PUBLIC_API_PATHS = {
     "/api/v1/auth/totp/verify",
     "/api/v1/audit/run-internal",
     "/api/v1/demands/submit",
+    # Agent runtime activity webhooks -- authenticated by the HMAC signature
+    # over the body (AGENT_ACTIVITY_WEBHOOK_SECRET), checked in the route.
+    "/api/v1/agent-activity/events",
     # Nexo Remote Agent ingestion -- authenticated by its own X-Device-Token
     # header (hashed and matched against Workstation.device_token_hash, see
     # agent_report.py), never a User/Agent JWT/agt_ principal. Same "this
@@ -669,6 +672,20 @@ async def _demand_retention_poll_loop() -> None:
         await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)
 
 
+async def _agent_activity_retention_loop() -> None:
+    """Drops agent runtime events past their 14-day retention (2026-09-28)."""
+    from app.api.routes.agent_activity import run_agent_activity_retention
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_agent_activity_retention(db)
+        except Exception:
+            logger.exception("Agent activity retention sweep failed")
+        await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)
+
+
 async def _active_turn_sweep_loop() -> None:
     """Fecha turnos que passaram do prazo sem reportar (2026-08-13)."""
     from app.core.active_turns import sweep_stale
@@ -732,6 +749,7 @@ async def _start_background_tasks() -> None:
         ("task-failure-poll", _task_failure_poll_loop),
         ("evidence-verification-poll", _evidence_verification_poll_loop),
         ("demand-retention-poll", _demand_retention_poll_loop),
+        ("agent-activity-retention", _agent_activity_retention_loop),
         ("workstation-staleness-poll", _workstation_staleness_poll_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]

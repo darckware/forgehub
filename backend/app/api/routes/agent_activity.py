@@ -2,10 +2,11 @@
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,9 +18,13 @@ from app.api.schemas.agent_activity import (
 )
 from app.api.schemas.demand import DemandSubmitIn
 from app.core.agent_activity import build_agent_activity
+from app.core.agent_live_state import normalize_hermes_hook, verify_signature
+from app.core.agent_telegram import read_profile_home_chat
+from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.db.base import get_db
 from app.db.models.agent import Agent
+from app.db.models.agent_activity_event import AGENT_ACTIVITY_RETENTION_DAYS, AgentActivityEvent
 from app.db.models.backlog import PlanningItem
 from app.db.models.demand import AgentDemand
 from app.db.models.notification import Notification
@@ -171,6 +176,60 @@ async def get_agent_activity(
         project_id=project_id,
         window_minutes=window_minutes,
     )
+
+
+async def run_agent_activity_retention(db: AsyncSession) -> int:
+    """Deletes runtime events past ``AGENT_ACTIVITY_RETENTION_DAYS``. Hard delete: they
+    are telemetry, rebuilt by the runtimes every turn, not records anyone decides on."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=AGENT_ACTIVITY_RETENTION_DAYS)
+    result = await db.execute(delete(AgentActivityEvent).where(AgentActivityEvent.occurred_at < cutoff))
+    await db.commit()
+    return result.rowcount or 0
+
+
+@router.post("/events", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_runtime_event(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
+    """Receives one Hermes outbound-webhook delivery (``hooks.outbound`` -> this URL).
+
+    Public in ``RequireAuthMiddleware`` because the gateway has no JWT: the HMAC
+    signature over the raw body (``X-Hermes-Signature-256``, secret
+    ``AGENT_ACTIVITY_WEBHOOK_SECRET``) is the authentication, and an unset secret
+    refuses everything. Only metadata is stored -- see ``normalize_hermes_hook``.
+    Unknown events and webhook retries (same ``delivery_id``) are accepted and dropped,
+    so the sender never retries into an error loop.
+    """
+    body = await request.body()
+    if not verify_signature(
+        settings.AGENT_ACTIVITY_WEBHOOK_SECRET, body, request.headers.get("x-hermes-signature-256")
+    ):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Body is not JSON") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Body must be an object")
+
+    profile = str(payload.get("profile") or "default")
+    agent = (
+        await db.execute(select(Agent).where(func.lower(Agent.profile_slug) == profile.lower()))
+    ).scalars().first()
+    home_chat = (
+        read_profile_home_chat(agent.home_path, agent.runtime_type, agent.profile_slug)
+        if agent is not None
+        else None
+    )
+    values = normalize_hermes_hook(payload, home_chat=home_chat)
+    if values is None or not values["delivery_id"]:
+        return {"recorded": False}
+    values["agent_id"] = agent.id if agent is not None else None
+    result = await db.execute(
+        pg_insert(AgentActivityEvent)
+        .values(id=uuid.uuid4(), **values)
+        .on_conflict_do_nothing(index_elements=["delivery_id"])
+    )
+    await db.commit()
+    return {"recorded": bool(result.rowcount)}
 
 
 @router.post(

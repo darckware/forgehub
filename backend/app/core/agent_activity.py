@@ -13,11 +13,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.agent_activity import (
     ActivityAgentOut,
+    ActivityLiveStateOut,
     ActivityCheckpointOut,
     ActivityContextOut,
     ActivityCurrentWorkOut,
@@ -38,7 +39,10 @@ from app.core.forgerouter_sync import (
     ForgeRouterActivityEvent,
     read_recent_forgerouter_activity,
 )
+from app.core.agent_live_state import ACTIVITY_WINDOW, TURN_STALE_MINUTES, LiveState, derive_live_state
+from app.db.models.active_turn import ActiveTurn
 from app.db.models.agent import Agent
+from app.db.models.agent_activity_event import AgentActivityEvent
 from app.db.models.backlog import PlanningItem
 from app.db.models.demand import AgentDemand
 from app.db.models.execution import ExecutionLease, ExecutionWorkPackage
@@ -207,6 +211,7 @@ def build_activity_agents(
     executions: Iterable[ExecutionActivityContext | TaskExecution],
     checkpoints_by_execution: dict[uuid.UUID, ProgressCheckpoint],
     forgerouter_state: Iterable[ForgeRouterActivityEvent],
+    live_states: dict[uuid.UUID, LiveState] | None = None,
 ) -> list[ActivityAgentOut]:
     """Build agent nodes from explicit assignments and runtime attribution."""
 
@@ -268,8 +273,16 @@ def build_activity_agents(
             if current.lease:
                 last_heartbeat_at = current.lease.heartbeat_at
 
+        live = (live_states or {}).get(agent.id)
         runtime_event = runtime_by_agent.get(agent.name.casefold())
-        if runtime_event and (
+        if live is not None and live.state in {"executing", "thinking"}:
+            # The runtime's own report of a turn in progress outranks every inference below.
+            availability = "busy"
+            reason = f"Running {live.tool_name}" if live.tool_name else "Turn in progress"
+        elif live is not None and live.state == "degraded":
+            availability = "degraded"
+            reason = live.reason or "Latest turn failed"
+        elif runtime_event and (
             runtime_event.status.casefold() in {"pending", "routing", "running"}
         ):
             availability = "busy"
@@ -310,8 +323,98 @@ def build_activity_agents(
                     last_heartbeat_at=last_heartbeat_at,
                     issues=[] if agent.has_profile else ["Profile metadata is not registered"],
                 ),
+                live=ActivityLiveStateOut(**vars(live)) if live is not None else None,
             )
         )
+    return result
+
+
+async def load_live_states(
+    db: AsyncSession, agents: Iterable[Agent], *, now: datetime
+) -> dict[uuid.UUID, LiveState]:
+    """Live state per agent from runtime events, Workspace turns and the agent's queue.
+
+    Bounded reads only: the last hour of events (plus the newest event per agent, so an
+    idle agent still says "last seen N ago"), running Workspace turns, and two counts.
+    """
+    agent_ids = [agent.id for agent in agents]
+    if not agent_ids:
+        return {}
+    window_start = now - max(ACTIVITY_WINDOW, timedelta(minutes=TURN_STALE_MINUTES))
+    events_by_agent: dict[uuid.UUID, list[AgentActivityEvent]] = defaultdict(list)
+    for event in (
+        await db.execute(
+            select(AgentActivityEvent)
+            .where(
+                AgentActivityEvent.agent_id.in_(agent_ids),
+                AgentActivityEvent.occurred_at >= window_start,
+            )
+            .order_by(AgentActivityEvent.occurred_at.desc())
+            .limit(5000)
+        )
+    ).scalars():
+        events_by_agent[event.agent_id].append(event)
+    last_seen = dict(
+        (
+            await db.execute(
+                select(AgentActivityEvent.agent_id, func.max(AgentActivityEvent.occurred_at))
+                .where(AgentActivityEvent.agent_id.in_(agent_ids))
+                .group_by(AgentActivityEvent.agent_id)
+            )
+        ).all()
+    )
+    workspace_turns = dict(
+        (
+            await db.execute(
+                select(ActiveTurn.agent_id, func.min(ActiveTurn.created_at))
+                .where(ActiveTurn.agent_id.in_(agent_ids), ActiveTurn.status == "running")
+                .group_by(ActiveTurn.agent_id)
+            )
+        ).all()
+    )
+    queued_tasks = dict(
+        (
+            await db.execute(
+                select(AgentDemand.target_agent_id, func.count())
+                .where(
+                    AgentDemand.target_agent_id.in_(agent_ids),
+                    AgentDemand.origin_type == "task",
+                    AgentDemand.status != "archived",
+                    AgentDemand.dispatch_status.is_(None),
+                )
+                .group_by(AgentDemand.target_agent_id)
+            )
+        ).all()
+    )
+    pending_decisions = dict(
+        (
+            await db.execute(
+                select(AgentDemand.incubation_owner_id, func.count())
+                .where(
+                    AgentDemand.incubation_owner_id.in_(agent_ids),
+                    AgentDemand.incubation_state == "decision_pending",
+                    AgentDemand.status != "archived",
+                )
+                .group_by(AgentDemand.incubation_owner_id)
+            )
+        ).all()
+    )
+
+    result: dict[uuid.UUID, LiveState] = {}
+    for agent_id in agent_ids:
+        pending = queued_tasks.get(agent_id, 0) + pending_decisions.get(agent_id, 0)
+        workspace_started = workspace_turns.get(agent_id)
+        events = events_by_agent.get(agent_id, [])
+        if not events and last_seen.get(agent_id) is None and workspace_started is None and not pending:
+            continue  # never reported: leave `live` null rather than claim "idle"
+        state = derive_live_state(
+            events, now=now, workspace_turn_started_at=workspace_started, pending_count=pending
+        )
+        if state.last_event_at is None and last_seen.get(agent_id) is not None:
+            state.last_event_at = last_seen[agent_id]
+            if state.state in {"idle", "waiting"}:
+                state.since = last_seen[agent_id]
+        result[agent_id] = state
     return result
 
 
@@ -1500,12 +1603,14 @@ async def build_agent_activity(
     forgerouter_state, forgerouter_freshness = await _load_forgerouter_state(
         window_minutes=window_minutes
     )
+    live_states = await load_live_states(db, agents, now=generated_at)
     activity_agents = build_activity_agents(
         agents=agents,
         tasks_by_id=tasks_by_id,
         executions=execution_contexts,
         checkpoints_by_execution=checkpoints_by_execution,
         forgerouter_state=forgerouter_state,
+        live_states=live_states,
     )
     visible_agent_ids = {agent.id for agent in activity_agents}
     visible_project_ids = {project.id for project in projects}

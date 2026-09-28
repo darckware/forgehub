@@ -165,5 +165,50 @@
     "close": "Close monitoring request",
     "failure": "Monitoring was not requested. Review the incident and try again.",
     "success": "Monitoring request created."
+  },
+  "live": {
+    "section": "Now",
+    "noSignal": "No runtime signal",
+    "turnsHour": "Turns (1h)",
+    "toolsHour": "Tools (1h)",
+    "failuresHour": "Failures (1h)",
+    "pending": "Pending",
+    "model": "Model",
+    "channel": "Channel",
+    "counterpartLabel": "With",
+    "lastSeen": "Last signal",
+    "never": "never",
+    "state": {
+      "executing": "Running {{tool}}",
+      "executingNoTool": "Running a tool",
+      "thinking": "Thinking",
+      "conversing": "Just replied",
+      "waiting_one": "{{count}} pending",
+      "waiting_other": "{{count}} pending",
+      "degraded": "Last run failed",
+      "degradedReason": "Failed: {{reason}}",
+      "idle": "Idle",
+      "idleSince": "Idle for {{time}}"
+    },
+    "counterpart": {
+      "owner": "You",
+      "human": "Contact {{ref}}",
+      "humanNoRef": "External contact",
+      "agent": "Agent",
+      "system": "System"
+    },
+    "platform": {
+      "workspace": "Workspace",
+      "telegram": "Telegram",
+      "whatsapp": "WhatsApp",
+      "cli": "Terminal",
+      "tui": "Terminal",
+      "acp": "Editor",
+      "cron": "Cron",
+      "kanban": "Kanban",
+      "subagent": "Subagent",
+      "tool": "ForgeHub",
+      "api_server": "API"
+    }
   }
 }
