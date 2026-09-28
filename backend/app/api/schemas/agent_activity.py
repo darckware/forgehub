@@ -101,8 +101,9 @@ class ActivityLiveStateOut(BaseModel):
 
     state: Literal["executing", "thinking", "conversing", "waiting", "degraded", "idle"]
     since: datetime | None = None
-    # runtime = pushed by the agent runtime; workspace = a ForgeHub chat turn.
-    source: Literal["runtime", "workspace"] | None = None
+    # runtime = pushed by the agent runtime; workspace = a ForgeHub chat turn;
+    # messages = an on-demand external agent running a dispatched message.
+    source: Literal["runtime", "workspace", "messages"] | None = None
     platform: str | None = None
     counterpart_kind: Literal["owner", "human", "agent", "system"] | None = None
     counterpart_ref: str | None = None
@@ -112,10 +113,48 @@ class ActivityLiveStateOut(BaseModel):
     turn_id: str | None = None
     last_event_at: datetime | None = None
     reason: str | None = None
+    message_number: int | None = None
     turns_last_hour: int = 0
     tools_last_hour: int = 0
     failures_last_hour: int = 0
     pending_count: int = 0
+
+
+class AgentLiveSnapshotItemOut(BaseModel):
+    agent_id: uuid.UUID
+    live: ActivityLiveStateOut | None = None
+    # turn + tool starts per 5-minute bucket over the last hour, oldest first
+    spark: list[int]
+    tokens_last_hour: int = 0
+    cost_today: float = 0.0
+
+
+class ActivityPulseOut(BaseModel):
+    """Page-wide "what is happening now" numbers for the Agent Activity pulse strip."""
+
+    agents_total: int
+    agents_reporting: int
+    agents_active: int
+    agents_in_turn: int
+    agents_degraded: int
+    turns_last_hour: int
+    tools_last_hour: int
+    failures_last_hour: int
+    pending_total: int
+    # None = ForgeRouter unreachable (shown as "—", never as zero)
+    llm_calls_last_hour: int | None = None
+    tokens_last_hour: int | None = None
+    cost_today: float | None = None
+    # turn starts per minute over the last hour, oldest first
+    turns_per_minute: list[int]
+
+
+class AgentLiveSnapshotOut(BaseModel):
+    """One frame of GET /api/v1/agent-activity/stream (core/agent_activity_stream.py)."""
+
+    generated_at: datetime
+    agents: list[AgentLiveSnapshotItemOut]
+    pulse: ActivityPulseOut
 
 
 class ActivityAgentOut(BaseModel):

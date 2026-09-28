@@ -188,7 +188,8 @@
       "degraded": "Última execução falhou",
       "degradedReason": "Falhou: {{reason}}",
       "idle": "Ocioso",
-      "idleSince": "Ocioso há {{time}}"
+      "idleSince": "Ocioso há {{time}}",
+      "executingMessage": "Executando mensagem #{{number}}"
     },
     "counterpart": {
       "owner": "Você",
@@ -208,7 +209,50 @@
       "kanban": "Kanban",
       "subagent": "Subagente",
       "tool": "ForgeHub",
-      "api_server": "API"
+      "api_server": "API",
+      "messages": "Messages"
     }
+  },
+  "pulse": {
+    "title": "Pulso ao vivo",
+    "activeAgents": "Agentes ativos",
+    "inTurn_one": "{{count}} em turno",
+    "inTurn_other": "{{count}} em turno",
+    "turnsHour": "Turnos (1h)",
+    "turnsPerMinute": "Turnos por minuto na última hora",
+    "toolsHour": "Ferramentas (1h)",
+    "llmCalls_one": "{{count}} chamada LLM",
+    "llmCalls_other": "{{count}} chamadas LLM",
+    "tokensHour": "Tokens (1h)",
+    "forgerouterUnavailable": "ForgeRouter indisponível",
+    "costToday": "Custo hoje",
+    "attention": "Falhas (1h)",
+    "pending_one": "{{count}} pendência",
+    "pending_other": "{{count}} pendências"
+  },
+  "cards": {
+    "title": "Agentes ao vivo",
+    "empty": "Nenhum agente para monitorar.",
+    "sparkLabel": "Atividade na última hora, em blocos de 5 minutos",
+    "turns_one": "{{count}} turno",
+    "turns_other": "{{count}} turnos",
+    "tools_one": "{{count}} ferramenta",
+    "tools_other": "{{count}} ferramentas",
+    "tokens": "{{value}} tokens",
+    "pending_one": "{{count}} pendência",
+    "pending_other": "{{count}} pendências",
+    "failures_one": "{{count}} falha",
+    "failures_other": "{{count}} falhas"
+  },
+  "mainView": {
+    "label": "Visualização principal",
+    "cards": "Cartões vivos",
+    "topology": "Topologia"
+  },
+  "stream": {
+    "connecting": "Conectando",
+    "live": "Ao vivo",
+    "reconnecting": "Reconectando…",
+    "error": "Sem conexão ao vivo — tentando novamente"
   }
 }

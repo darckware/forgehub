@@ -188,7 +188,8 @@
       "degraded": "Last run failed",
       "degradedReason": "Failed: {{reason}}",
       "idle": "Idle",
-      "idleSince": "Idle for {{time}}"
+      "idleSince": "Idle for {{time}}",
+      "executingMessage": "Running message #{{number}}"
     },
     "counterpart": {
       "owner": "You",
@@ -208,7 +209,50 @@
       "kanban": "Kanban",
       "subagent": "Subagent",
       "tool": "ForgeHub",
-      "api_server": "API"
+      "api_server": "API",
+      "messages": "Messages"
     }
+  },
+  "pulse": {
+    "title": "Live pulse",
+    "activeAgents": "Active agents",
+    "inTurn_one": "{{count}} in a turn",
+    "inTurn_other": "{{count}} in a turn",
+    "turnsHour": "Turns (1h)",
+    "turnsPerMinute": "Turns per minute over the last hour",
+    "toolsHour": "Tools (1h)",
+    "llmCalls_one": "{{count}} LLM call",
+    "llmCalls_other": "{{count}} LLM calls",
+    "tokensHour": "Tokens (1h)",
+    "forgerouterUnavailable": "ForgeRouter unavailable",
+    "costToday": "Cost today",
+    "attention": "Failures (1h)",
+    "pending_one": "{{count}} pending",
+    "pending_other": "{{count}} pending"
+  },
+  "cards": {
+    "title": "Live agents",
+    "empty": "No agents to monitor.",
+    "sparkLabel": "Activity over the last hour, in 5-minute buckets",
+    "turns_one": "{{count}} turn",
+    "turns_other": "{{count}} turns",
+    "tools_one": "{{count}} tool",
+    "tools_other": "{{count}} tools",
+    "tokens": "{{value}} tokens",
+    "pending_one": "{{count}} pending",
+    "pending_other": "{{count}} pending",
+    "failures_one": "{{count}} failure",
+    "failures_other": "{{count}} failures"
+  },
+  "mainView": {
+    "label": "Main view",
+    "cards": "Live cards",
+    "topology": "Topology"
+  },
+  "stream": {
+    "connecting": "Connecting",
+    "live": "Live",
+    "reconnecting": "Reconnecting…",
+    "error": "No live connection — retrying"
   }
 }

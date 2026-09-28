@@ -142,3 +142,11 @@
     scrollbar-width: auto;
   }
 }
+
+/* Agent Activity live cards: light sweeping along the top edge of a card whose agent is
+   mid-turn (LiveAgentCards.tsx). Only used under motion-safe (the component skips it for
+   reduced motion). */
+@keyframes activity-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

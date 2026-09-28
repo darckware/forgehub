@@ -1,21 +1,48 @@
-import { useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Radio, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, LayoutGrid, Loader2, Network, Radio, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { ActivityPulse } from "@/components/agent-activity/ActivityPulse";
 import { ActivityTopology } from "@/components/agent-activity/ActivityTopology";
 import { ActivityViewSwitch, readActivityView, type ActivityOperationalView } from "@/components/agent-activity/ActivityViewSwitch";
 import { AgentInspector } from "@/components/agent-activity/AgentInspector";
 import { ContinuityTimeline } from "@/components/agent-activity/ContinuityTimeline";
 import { CurrentFlowBoard } from "@/components/agent-activity/CurrentFlowBoard";
+import { LiveAgentCards } from "@/components/agent-activity/LiveAgentCards";
+import { isMonitoredAgent } from "@/components/agent-activity/liveState";
 import { RequestAthosDialog } from "@/components/agent-activity/RequestAthosDialog";
 import { SeverityInbox } from "@/components/agent-activity/SeverityInbox";
 import { Button } from "@/components/ui/button";
 import { useSyncHermesAgents } from "@/hooks/useAgent";
 import {
   useAgentActivity,
+  type ActivityAgent,
   type ActivityIncident,
   type ActivityMessageEdge,
+  type AgentLiveSnapshotItem,
 } from "@/hooks/useAgentActivity";
+import { useAgentActivityStreamViewModel } from "@/hooks/useAgentActivityStreamViewModel";
 import { cn } from "@/lib/utils";
+
+type MainView = "cards" | "topology";
+const MAIN_VIEW_STORAGE_KEY = "forgehub:agent-activity:main:v1";
+
+function readMainView(): MainView {
+  try {
+    return window.localStorage.getItem(MAIN_VIEW_STORAGE_KEY) === "topology" ? "topology" : "cards";
+  } catch {
+    return "cards";
+  }
+}
+
+/** Re-renders once a second so elapsed times ("42 s") keep moving between frames. */
+function useNow(intervalMs = 1_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
 
 function openCanonicalRecord(path: string) {
   if (path.startsWith("/")) window.location.assign(path);
@@ -52,7 +79,12 @@ function ReservedTopologyState({ state }: { state: "loading" | "error" }) {
 
 export default function AgentActivityPage() {
   const { t, i18n } = useTranslation("agentActivity");
-  const activity = useAgentActivity();
+  const stream = useAgentActivityStreamViewModel();
+  // The stream carries the fast-moving part; while it's up the full read model only
+  // refreshes the slower parts (topology, flow, timeline).
+  const activity = useAgentActivity({}, { refetchInterval: stream.status === "live" ? 30_000 : 5_000 });
+  const now = useNow();
+  const [mainView, setMainView] = useState<MainView>(readMainView);
   const syncHermes = useSyncHermesAgents();
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [monitoringIncident, setMonitoringIncident] = useState<ActivityIncident | null>(null);
@@ -69,15 +101,40 @@ export default function AgentActivityPage() {
   };
 
   const data = activity.data;
+  const snapshotByAgent = useMemo(
+    () => new Map<string, AgentLiveSnapshotItem>((stream.snapshot?.agents ?? []).map((item) => [item.agent_id, item])),
+    [stream.snapshot],
+  );
+  // Live state from the newest stream frame wins over the (slower) read model's. External
+  // executors (claude/codex/agy/openclaw) only appear while Messages is running them.
+  const agents = useMemo<ActivityAgent[]>(() => {
+    const merged = (data?.agents ?? []).map((agent) =>
+      stream.snapshot ? { ...agent, live: snapshotByAgent.get(agent.id)?.live ?? null } : agent,
+    );
+    return merged.filter((agent) => isMonitoredAgent(agent.runtime_type, agent.live, Boolean(agent.current_work)));
+  }, [data?.agents, stream.snapshot, snapshotByAgent]);
+  const agentIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents]);
+  const relations = useMemo(
+    () => (data?.topology_relations ?? []).filter((relation) => relation.from_type !== "agent" || agentIds.has(relation.from_id)),
+    [data?.topology_relations, agentIds],
+  );
+  const selectMainView = (next: MainView) => {
+    try {
+      window.localStorage.setItem(MAIN_VIEW_STORAGE_KEY, next);
+    } catch {
+      // Private mode / blocked storage: the choice just isn't remembered.
+    }
+    setMainView(next);
+  };
   const incidentFallbackAgentId = data?.incidents.find((incident) => incident.affected_agent_id)?.affected_agent_id ?? null;
   const effectiveSelectedAgentId = selectedAgentId === ""
     ? null
-    : selectedAgentId !== null && data?.agents.some((agent) => agent.id === selectedAgentId)
+    : selectedAgentId !== null && agents.some((agent) => agent.id === selectedAgentId)
     ? selectedAgentId
     : selectedAgentId === null
     ? incidentFallbackAgentId
     : null;
-  const selectedAgent = data?.agents.find((agent) => agent.id === effectiveSelectedAgentId) ?? null;
+  const selectedAgent = agents.find((agent) => agent.id === effectiveSelectedAgentId) ?? null;
   const unavailableSources = data?.source_freshness.filter((source) => source.status === "unavailable") ?? [];
   const staleSources = data?.source_freshness.filter((source) => source.status === "stale") ?? [];
   const recordStatus = activity.isLoading
@@ -127,18 +184,38 @@ export default function AgentActivityPage() {
               />
               {recordStatus === "live" ? t("liveRecords") : t(`recordStatus.${recordStatus}`)}
             </span>
+            <span
+              role="status"
+              data-testid="activity-stream-status"
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium",
+                stream.status === "live" && "border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
+                (stream.status === "connecting" || stream.status === "idle") && "border-border text-muted-foreground",
+                stream.status === "reconnecting" && "border-amber-500/40 text-amber-700 dark:text-amber-400",
+                stream.status === "error" && "border-destructive/40 text-destructive",
+              )}
+            >
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  stream.status === "live" ? "bg-emerald-500 motion-safe:animate-pulse" : stream.status === "error" ? "bg-destructive" : "bg-amber-500",
+                )}
+                aria-hidden="true"
+              />
+              {t(`stream.${stream.status === "idle" ? "connecting" : stream.status}`)}
+            </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
-          {data?.generated_at && (
+          {(stream.receivedAt || data?.generated_at) && (
             <p className="font-mono text-[10px] text-muted-foreground">
               {t("updatedAt", {
                 value: new Intl.DateTimeFormat(i18n.language, {
                   hour: "2-digit",
                   minute: "2-digit",
                   second: "2-digit",
-                }).format(new Date(data.generated_at)),
+                }).format(stream.receivedAt ? new Date(stream.receivedAt) : new Date(data!.generated_at)),
               })}
             </p>
           )}
@@ -191,25 +268,62 @@ export default function AgentActivityPage() {
         </div>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        {activity.isLoading ? (
-          <ReservedTopologyState state="loading" />
-        ) : activity.isError ? (
-          <ReservedTopologyState state="error" />
-        ) : (
-          <ActivityTopology
-            agents={data?.agents ?? []}
-            contexts={data?.contexts ?? []}
-            projects={data?.projects ?? []}
-            resources={data?.resources ?? []}
-            relations={data?.topology_relations ?? []}
-            edges={data?.message_edges ?? []}
-            projectScopeId={data?.project_id ?? null}
-            selectedAgentId={effectiveSelectedAgentId}
-            onSelectAgent={setSelectedAgentId}
-            onOpenMessage={openMessage}
-          />
-        )}
+      <ActivityPulse pulse={stream.snapshot?.pulse ?? null} />
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 space-y-2">
+          <div role="tablist" aria-label={t("mainView.label")} className="inline-flex rounded-md border border-border bg-card p-0.5">
+            {([
+              { value: "cards" as const, icon: LayoutGrid },
+              { value: "topology" as const, icon: Network },
+            ]).map((option) => {
+              const Icon = option.icon;
+              const selected = mainView === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => selectMainView(option.value)}
+                  className={cn(
+                    "inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded px-3 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    selected && "bg-muted text-foreground shadow-sm",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t(`mainView.${option.value}`)}
+                </button>
+              );
+            })}
+          </div>
+          {activity.isLoading ? (
+            <ReservedTopologyState state="loading" />
+          ) : activity.isError ? (
+            <ReservedTopologyState state="error" />
+          ) : mainView === "cards" ? (
+            <LiveAgentCards
+              agents={agents}
+              snapshotByAgent={snapshotByAgent}
+              selectedAgentId={effectiveSelectedAgentId}
+              onSelectAgent={setSelectedAgentId}
+              now={now}
+            />
+          ) : (
+            <ActivityTopology
+              agents={agents}
+              contexts={data?.contexts ?? []}
+              projects={data?.projects ?? []}
+              resources={data?.resources ?? []}
+              relations={relations}
+              edges={data?.message_edges ?? []}
+              projectScopeId={data?.project_id ?? null}
+              selectedAgentId={effectiveSelectedAgentId}
+              onSelectAgent={setSelectedAgentId}
+              onOpenMessage={openMessage}
+            />
+          )}
+        </div>
 
         <aside aria-label={t("rail.title")} className="grid content-start gap-3">
           <SeverityInbox
@@ -221,7 +335,7 @@ export default function AgentActivityPage() {
           />
           <AgentInspector
             agent={selectedAgent}
-            agents={data?.agents ?? []}
+            agents={agents}
             onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
             onClearSelection={() => setSelectedAgentId("")}
             onOpenRecord={openCanonicalRecord}

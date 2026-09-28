@@ -39,7 +39,13 @@ from app.core.forgerouter_sync import (
     ForgeRouterActivityEvent,
     read_recent_forgerouter_activity,
 )
-from app.core.agent_live_state import ACTIVITY_WINDOW, TURN_STALE_MINUTES, LiveState, derive_live_state
+from app.core.agent_live_state import (
+    ACTIVITY_WINDOW,
+    TURN_STALE_MINUTES,
+    LiveState,
+    derive_live_state,
+    is_on_demand_runtime,
+)
 from app.db.models.active_turn import ActiveTurn
 from app.db.models.agent import Agent
 from app.db.models.agent_activity_event import AgentActivityEvent
@@ -337,9 +343,35 @@ async def load_live_states(
     Bounded reads only: the last hour of events (plus the newest event per agent, so an
     idle agent still says "last seen N ago"), running Workspace turns, and two counts.
     """
-    agent_ids = [agent.id for agent in agents]
+    agents = list(agents)
+    on_demand = [agent.id for agent in agents if is_on_demand_runtime(agent.runtime_type)]
+    agent_ids = [agent.id for agent in agents if not is_on_demand_runtime(agent.runtime_type)]
+    result: dict[uuid.UUID, LiveState] = {}
+    if on_demand:
+        running = (
+            await db.execute(
+                select(AgentDemand)
+                .where(
+                    AgentDemand.target_agent_id.in_(on_demand),
+                    AgentDemand.dispatch_status.in_(("dispatched", "running")),
+                )
+                .order_by(AgentDemand.updated_at.desc())
+            )
+        ).scalars()
+        for demand in running:
+            if demand.target_agent_id in result:
+                continue
+            result[demand.target_agent_id] = LiveState(
+                state="executing",
+                since=demand.updated_at,
+                source="messages",
+                platform="messages",
+                counterpart_kind="agent" if demand.from_agent_id else "owner",
+                message_number=demand.number,
+                last_event_at=demand.updated_at,
+            )
     if not agent_ids:
-        return {}
+        return result
     window_start = now - max(ACTIVITY_WINDOW, timedelta(minutes=TURN_STALE_MINUTES))
     events_by_agent: dict[uuid.UUID, list[AgentActivityEvent]] = defaultdict(list)
     for event in (
@@ -400,7 +432,6 @@ async def load_live_states(
         ).all()
     )
 
-    result: dict[uuid.UUID, LiveState] = {}
     for agent_id in agent_ids:
         pending = queued_tasks.get(agent_id, 0) + pending_decisions.get(agent_id, 0)
         workspace_started = workspace_turns.get(agent_id)

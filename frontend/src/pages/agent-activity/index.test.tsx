@@ -10,10 +10,20 @@ const hookMocks = vi.hoisted(() => ({
   mutateAsync: vi.fn(),
   syncHermesAsync: vi.fn(),
   useReducedMotion: vi.fn(),
+  useAgentActivityStream: vi.fn(),
+}));
+
+vi.mock("@/hooks/useAgentActivityStreamViewModel", () => ({
+  useAgentActivityStreamViewModel: hookMocks.useAgentActivityStream,
 }));
 
 vi.mock("framer-motion", () => ({
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   motion: {
+    li: ({ layout: _layout, transition: _transition, ...props }: React.HTMLAttributes<HTMLLIElement> & {
+      layout?: unknown;
+      transition?: unknown;
+    }) => <li {...props} />,
     span: ({
       animate: _animate,
       initial,
@@ -297,6 +307,10 @@ function renderPage(activity: AgentActivity = ACTIVITY_FIXTURE) {
 describe("AgentActivityPage", () => {
   beforeEach(async () => {
     localStorage.clear();
+    // The pre-phase-2 cases exercise the topology; live cards have their own cases below.
+    localStorage.setItem("forgehub:agent-activity:main:v1", "topology");
+    hookMocks.useAgentActivityStream.mockReset();
+    hookMocks.useAgentActivityStream.mockReturnValue({ status: "idle", snapshot: null, receivedAt: null, attempts: 0 });
     hookMocks.useAgentActivity.mockReset();
     hookMocks.mutateAsync.mockReset();
     hookMocks.useReducedMotion.mockReset();
@@ -684,5 +698,95 @@ describe("AgentActivityPage", () => {
     fireEvent.click(deselectButton);
 
     expect(screen.getByText(/selecione um agente na topologia para inspecionar seus detalhes/i)).toBeInTheDocument();
+  });
+});
+
+describe("AgentActivityPage live stream (phase 2)", () => {
+  const ARAMIS_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const LIVE_BASE = {
+    since: new Date(Date.now() - 42_000).toISOString(),
+    source: "runtime" as const,
+    platform: "telegram",
+    counterpart_kind: "owner" as const,
+    counterpart_ref: null,
+    model: "claude-sonnet",
+    tool_name: "terminal",
+    session_id: "s1",
+    turn_id: "t1",
+    last_event_at: new Date().toISOString(),
+    reason: null,
+    message_number: null,
+    turns_last_hour: 3,
+    tools_last_hour: 7,
+    failures_last_hour: 0,
+    pending_count: 0,
+  };
+  const PULSE = {
+    agents_total: 2, agents_reporting: 1, agents_active: 1, agents_in_turn: 1, agents_degraded: 0,
+    turns_last_hour: 3, tools_last_hour: 7, failures_last_hour: 0, pending_total: 0,
+    llm_calls_last_hour: 12, tokens_last_hour: 45000, cost_today: 1.5, turns_per_minute: Array(60).fill(0),
+  };
+  const withExternal: AgentActivity = {
+    ...ACTIVITY_FIXTURE,
+    agents: [
+      ...ACTIVITY_FIXTURE.agents,
+      { ...ACTIVITY_FIXTURE.agents[1], id: ARAMIS_ID, name: "Aramis", profile_slug: "aramis", runtime_type: "codex" },
+    ],
+  };
+
+  function stream(agents: Array<{ agent_id: string; live: unknown }>) {
+    hookMocks.useAgentActivityStream.mockReturnValue({
+      status: "live",
+      receivedAt: Date.now(),
+      attempts: 0,
+      snapshot: {
+        generated_at: new Date().toISOString(),
+        pulse: PULSE,
+        agents: agents.map((item) => ({ ...item, spark: Array(12).fill(1), tokens_last_hour: 45000, cost_today: 1.5 })),
+      },
+    });
+  }
+
+  beforeEach(async () => {
+    localStorage.clear();
+    hookMocks.useAgentActivity.mockReset();
+    hookMocks.useReducedMotion.mockReturnValue(false);
+    await i18n.changeLanguage("pt-BR");
+  });
+
+  it("defaults to live cards showing what each agent is doing, plus the pulse", () => {
+    stream([{ agent_id: IDS.athos, live: { ...LIVE_BASE, state: "executing" } }]);
+    renderPage(withExternal);
+    const cards = screen.getByTestId("live-agent-cards");
+    expect(within(cards).getByText(/executando terminal · 4\d s/i)).toBeInTheDocument();
+    expect(within(cards).getByText("Você · Telegram")).toBeInTheDocument();
+    expect(screen.getByTestId("activity-pulse")).toHaveTextContent("1/2");
+    expect(screen.getByTestId("activity-stream-status")).toHaveTextContent(/ao vivo/i);
+  });
+
+  it("hides an idle external executor and shows it while Messages runs it", () => {
+    stream([{ agent_id: IDS.athos, live: { ...LIVE_BASE, state: "idle" } }]);
+    const { unmount } = renderPage(withExternal);
+    expect(within(screen.getByTestId("live-agent-cards")).queryByText("Aramis")).not.toBeInTheDocument();
+    unmount();
+
+    stream([
+      { agent_id: IDS.athos, live: { ...LIVE_BASE, state: "idle" } },
+      {
+        agent_id: ARAMIS_ID,
+        live: { ...LIVE_BASE, state: "executing", source: "messages", platform: "messages",
+                counterpart_kind: "agent", tool_name: null, message_number: 9123 },
+      },
+    ]);
+    renderPage(withExternal);
+    const cards = screen.getByTestId("live-agent-cards");
+    expect(within(cards).getByText("Aramis")).toBeInTheDocument();
+    expect(within(cards).getByText(/executando mensagem #9123/i)).toBeInTheDocument();
+  });
+
+  it("shows the reconnecting state of the stream", () => {
+    hookMocks.useAgentActivityStream.mockReturnValue({ status: "reconnecting", snapshot: null, receivedAt: null, attempts: 1 });
+    renderPage();
+    expect(screen.getByTestId("activity-stream-status")).toHaveTextContent(/reconectando/i);
   });
 });

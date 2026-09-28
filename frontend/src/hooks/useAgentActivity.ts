@@ -94,7 +94,7 @@ export type ActivityCurrentWork = z.infer<typeof activityCurrentWorkSchema>;
 export const activityLiveStateSchema = z.object({
   state: z.enum(["executing", "thinking", "conversing", "waiting", "degraded", "idle"]),
   since: timestampSchema.nullable(),
-  source: z.enum(["runtime", "workspace"]).nullable(),
+  source: z.enum(["runtime", "workspace", "messages"]).nullable(),
   platform: z.string().nullable(),
   counterpart_kind: z.enum(["owner", "human", "agent", "system"]).nullable(),
   counterpart_ref: z.string().nullable(),
@@ -104,6 +104,7 @@ export const activityLiveStateSchema = z.object({
   turn_id: z.string().nullable(),
   last_event_at: timestampSchema.nullable(),
   reason: z.string().nullable(),
+  message_number: z.number().int().nullable().optional(),
   turns_last_hour: z.number().int(),
   tools_last_hour: z.number().int(),
   failures_last_hour: z.number().int(),
@@ -354,12 +355,49 @@ export const agentActivityKeys = {
   detail: (filters: ActivityFilters = {}) => ["agent-activity", filters] as const,
 };
 
-export function useAgentActivity(filters: ActivityFilters = {}) {
+export const agentLiveSnapshotItemSchema = z.object({
+  agent_id: uuidSchema,
+  live: activityLiveStateSchema.nullable(),
+  spark: z.array(z.number().int()),
+  tokens_last_hour: z.number().int(),
+  cost_today: z.number(),
+});
+export type AgentLiveSnapshotItem = z.infer<typeof agentLiveSnapshotItemSchema>;
+
+export const activityPulseSchema = z.object({
+  agents_total: z.number().int(),
+  agents_reporting: z.number().int(),
+  agents_active: z.number().int(),
+  agents_in_turn: z.number().int(),
+  agents_degraded: z.number().int(),
+  turns_last_hour: z.number().int(),
+  tools_last_hour: z.number().int(),
+  failures_last_hour: z.number().int(),
+  pending_total: z.number().int(),
+  llm_calls_last_hour: z.number().int().nullable(),
+  tokens_last_hour: z.number().int().nullable(),
+  cost_today: z.number().nullable(),
+  turns_per_minute: z.array(z.number().int()),
+});
+export type ActivityPulse = z.infer<typeof activityPulseSchema>;
+
+export const agentLiveSnapshotSchema = z.object({
+  generated_at: timestampSchema,
+  agents: z.array(agentLiveSnapshotItemSchema),
+  pulse: activityPulseSchema,
+});
+export type AgentLiveSnapshot = z.infer<typeof agentLiveSnapshotSchema>;
+
+/**
+ * The full read model. While the live stream is connected the page only needs it for the
+ * slower-moving parts (topology, flow, timeline), so the caller relaxes the poll.
+ */
+export function useAgentActivity(filters: ActivityFilters = {}, options: { refetchInterval?: number } = {}) {
   return useQuery({
     queryKey: agentActivityKeys.detail(filters),
     queryFn: () => apiClient.get<unknown>("/api/v1/agent-activity", { params: filters }),
     select: (value) => agentActivitySchema.parse(value),
-    refetchInterval: 5_000,
+    refetchInterval: options.refetchInterval ?? 5_000,
     refetchIntervalInBackground: true,
   });
 }

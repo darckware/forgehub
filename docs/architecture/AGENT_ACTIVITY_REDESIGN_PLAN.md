@@ -1,6 +1,6 @@
 # Agent Activity — plano de redesenho (conceito + visual)
 
-> Status: conceito **aprovado** (2026-09-28). **F1 entregue** em 2026-09-28 — ver §9.
+> Status: conceito **aprovado** (2026-09-28). **F1 e F2 entregues** em 2026-09-28 — ver §9 e §10.
 > Tela atual: `/agent-activity` (`pages/agent-activity/index.tsx`, `components/agent-activity/*`,
 > `hooks/useAgentActivity.ts`, backend `core/agent_activity.py` + `api/routes/agent_activity.py`).
 
@@ -38,7 +38,7 @@ produziria outra tela bonita e parada. A atividade real existe, mas em lugares q
 | Conversa entre agentes | ForgeHub `agent_demands` (Messages) | mensagem, dispatch, running, resultado, retorno | segundos |
 | Tarefas pendentes | `agent_demands` (Incoming/Incubação por dono), `project_tasks` + `task_assignments`, `approvals` | fila por agente | segundos |
 | Rotinas | `profiles/<p>/cron/jobs.json` + `executions.db` | cron rodando, próximo run, falhas | segundos |
-| Runtimes externos (Porthus/Aramis/Dartan/Vector) | transcripts `~/.claude/projects/*.jsonl`, `~/.codex/sessions`, runs do host-bridge (`core/agent_runs.py`) | sessão ativa, última ferramenta | segundos a minutos |
+| Agentes externos (Porthus/Aramis/Dartan) | **só o Messages** — despacho `dispatched`/`running` para eles (`agent_demands`) | "executando mensagem #N" | segundos |
 
 ## 3. Conceito novo — "Centro de Operações dos Agentes"
 
@@ -148,7 +148,7 @@ raias com scroll horizontal; a constelação vira opcional.
 | **F2 — Ao vivo** | SSE + faixa de Pulso + Cartões vivos | Nova mensagem/turno aparece sem refresh em ≤ 3 s; reconexão automática visível |
 | **F3 — Constelação** | Grafo radial com arestas de atividade animadas; infra como camada opcional | Nenhum cartão sobreposto a 1440 px; sem atividade, a tela mostra "calma", sem arestas estáticas |
 | **F4 — Rastreabilidade** | Tabela de eventos + raias + replay | Reconstruir "o que o Athos fez entre 14h e 15h" só pela tela, com clique até o registro canônico |
-| **F5 — Alertas e runtimes externos** | Severity inbox com novos sinais; Porthus/Aramis/Dartan/Vector via transcripts/bridge | Turno travado e adapter `fatal` geram incidente; os 4 runtimes externos mostram atividade |
+| **F5 — Alertas** | Severity inbox com novos sinais (turno travado, adapter `fatal`, cron falhando, erro de provider, custo fora do padrão) | Turno travado e adapter `fatal` geram incidente |
 
 Estimativa relativa: F1 e F4 são as maiores (backend); F2, F3 e F5 são médias.
 
@@ -159,8 +159,11 @@ Estimativa relativa: F1 e F4 são as maiores (backend); F2, F3 e F5 são médias
   para qualquer detalhe além disso. `prompt_preview` do ForgeRouter não é exibido por padrão.
 - **Carga**: 13 profiles × leitura de SQLite — o coletor lê incrementalmente (cursor por
   `timestamp`/id) a cada 2 s em um único loop, nunca por requisição de cliente.
-- **Cobertura desigual**: runtimes externos têm sinais mais pobres que os Hermes; a UI mostra a
-  confiança do sinal em vez de fingir precisão.
+- **Agentes externos não são residentes** (Marcelo, 2026-09-28: *"são agentes externo só interagem
+  quando são executados pelo Messages"* / *"toda a interação dos agentes externos são pelo
+  Messages"*): Porthus (claude), Aramis (codex) e Dartan (agy) não têm coleta de runtime. Só
+  aparecem na tela enquanto o Messages executa uma mensagem ou tarefa para eles. O Vector (openclaw)
+  não é agente registrado no ForgeHub e saiu do escopo.
 - **Não duplicar Messages**: a tela é observação; ações continuam nas telas donas (Messages,
   Tasks, Governance), como no Cockpit.
 
@@ -190,3 +193,22 @@ Estimativa relativa: F1 e F4 são as maiores (backend); F2, F3 e F5 são médias
   inspector ganhou o bloco "Agora" (turnos, ferramentas e falhas na última hora, e pendências).
 - Validado com um turno real do Atlas: início, `terminal` por 15 s, fim, tudo visível na API em
   segundos.
+
+## 10. Entrega da F2 (2026-09-28)
+
+- **Stream** `GET /api/v1/agent-activity/stream` (SSE, `event: snapshot`), em
+  `core/agent_activity_stream.py`. Envia um snapshot completo ao conectar, ~0,3 s depois de cada
+  evento de runtime (broadcaster em memória, com rajadas agrupadas) e a cada 10 s. Snapshots inteiros
+  em vez de deltas: uma conexão perdida nunca deixa o cliente num estado que o servidor não tem.
+  Cada frame abre a própria sessão de banco.
+- **Pulso**: agentes ativos/total e quantos estão em turno, turnos na última hora com barras por
+  minuto, ferramentas, chamadas de LLM, tokens na última hora, custo do dia (ForgeRouter, cache de
+  30 s; "—" quando o ForgeRouter está fora, nunca zero), falhas e pendências.
+- **Cartões vivos** (visão padrão; a Topologia continua como alternativa): um cartão por agente, com
+  estado, frase de atividade, sparkline de 60 min, tokens, pendências e falhas. Mais ativos primeiro,
+  reordenação animada e uma faixa animada no topo enquanto o agente está num turno.
+- **Agentes externos**: estado derivado do despacho do Messages (`source="messages"`,
+  `message_number`); fora da tela quando parados, na Topologia também.
+- **Frontend**: `useAgentActivityStreamViewModel` (§21: `idle → connecting → live → reconnecting →
+  error`, backoff de 1/2/5/10 s, conexão muda por 25 s é derrubada e refeita). Com o stream ativo, o
+  read model completo passa a atualizar a cada 30 s em vez de 5 s.

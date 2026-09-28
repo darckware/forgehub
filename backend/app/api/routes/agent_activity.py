@@ -1,10 +1,13 @@
 """Authenticated Agent Activity read model and Athos monitoring command."""
 
+import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -18,11 +21,17 @@ from app.api.schemas.agent_activity import (
 )
 from app.api.schemas.demand import DemandSubmitIn
 from app.core.agent_activity import build_agent_activity
+from app.core.agent_activity_stream import (
+    EVENT_DEBOUNCE_SECONDS,
+    STREAM_REFRESH_SECONDS,
+    broadcaster,
+    build_live_snapshot,
+)
 from app.core.agent_live_state import normalize_hermes_hook, verify_signature
 from app.core.agent_telegram import read_profile_home_chat
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
-from app.db.base import get_db
+from app.db.base import AsyncSessionLocal, get_db
 from app.db.models.agent import Agent
 from app.db.models.agent_activity_event import AGENT_ACTIVITY_RETENTION_DAYS, AgentActivityEvent
 from app.db.models.backlog import PlanningItem
@@ -32,6 +41,7 @@ from app.db.models.project import ChangeRequest
 from app.db.models.task import ProjectTask, TaskExecution
 
 router = APIRouter(prefix="/api/v1/agent-activity", tags=["agent-activity"])
+logger = logging.getLogger(__name__)
 
 
 async def _find_athos(db: AsyncSession) -> Agent | None:
@@ -229,7 +239,50 @@ async def ingest_runtime_event(request: Request, db: AsyncSession = Depends(get_
         .on_conflict_do_nothing(index_elements=["delivery_id"])
     )
     await db.commit()
+    if result.rowcount:
+        broadcaster.publish()
     return {"recorded": bool(result.rowcount)}
+
+
+@router.get("/stream")
+async def stream_live_activity(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> StreamingResponse:
+    """SSE of live snapshots (``event: snapshot``) -- see core/agent_activity_stream.py.
+
+    Each frame opens its own short DB session: holding the request's session for a
+    connection that lives for hours would pin a pool connection per open tab.
+    """
+    await authorize_action(db, principal, "demands.view", project_id=None)
+
+    async def frames():
+        with broadcaster.subscribe() as queue:
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    async with AsyncSessionLocal() as frame_db:
+                        snapshot = await build_live_snapshot(frame_db)
+                    yield f"event: snapshot\ndata: {snapshot.model_dump_json()}\n\n"
+                except Exception:
+                    logger.exception("agent activity snapshot failed")
+                    yield 'event: error\ndata: {"detail": "snapshot failed"}\n\n'
+                try:
+                    await asyncio.wait_for(queue.get(), timeout=STREAM_REFRESH_SECONDS)
+                    # Coalesce a burst (a turn fires several hooks within a second) into one frame.
+                    await asyncio.sleep(EVENT_DEBOUNCE_SECONDS)
+                    while not queue.empty():
+                        queue.get_nowait()
+                except asyncio.TimeoutError:
+                    pass
+
+    return StreamingResponse(
+        frames(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post(

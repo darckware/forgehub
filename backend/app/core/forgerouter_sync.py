@@ -152,3 +152,54 @@ async def read_recent_forgerouter_activity(since_seconds: int = 120, limit: int 
             ]
     finally:
         await engine.dispose()
+
+
+@dataclass(frozen=True)
+class ForgeRouterUsage:
+    """LLM usage per agent: last hour's tokens/calls and today's cost (America/Sao_Paulo day)."""
+
+    agent_name: str | None
+    calls_last_hour: int
+    tokens_last_hour: int
+    cost_today: float
+
+
+async def read_forgerouter_usage() -> list[ForgeRouterUsage]:
+    """One row per agent (plus a null-name row for unattributed calls) -- backs the Agent
+    Activity pulse (2026-09-28). Aggregated in SQL so the live stream never pulls rows."""
+    url = settings.db_url_for(
+        settings.FORGEROUTER_POSTGRES_HOST, settings.FORGEROUTER_POSTGRES_PORT, "forgerouter",
+        user=settings.FORGEROUTER_POSTGRES_USER,
+        password=settings.FORGEROUTER_POSTGRES_PASSWORD or settings.POSTGRES_PASSWORD,
+    )
+    engine = create_async_engine(url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        """
+                        SELECT a.name,
+                               count(*) FILTER (WHERE re.created_at > now() - interval '1 hour'),
+                               coalesce(sum(re.total_tokens) FILTER (
+                                   WHERE re.created_at > now() - interval '1 hour'), 0),
+                               coalesce(sum(re.cost) FILTER (WHERE re.created_at >= t.day_start), 0)
+                        FROM ai_router.route_events re
+                        LEFT JOIN ai_router.agents a ON a.agent_id = re.agent_id
+                        CROSS JOIN (SELECT date_trunc('day', now() AT TIME ZONE 'America/Sao_Paulo')
+                                           AT TIME ZONE 'America/Sao_Paulo' AS day_start) t
+                        WHERE re.created_at >= least(t.day_start, now() - interval '1 hour')
+                        GROUP BY a.name
+                        """
+                    )
+                )
+            ).fetchall()
+            return [
+                ForgeRouterUsage(
+                    agent_name=r[0], calls_last_hour=int(r[1] or 0),
+                    tokens_last_hour=int(r[2] or 0), cost_today=float(r[3] or 0),
+                )
+                for r in rows
+            ]
+    finally:
+        await engine.dispose()

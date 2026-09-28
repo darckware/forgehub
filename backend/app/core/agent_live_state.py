@@ -39,6 +39,18 @@ OPERATOR_PLATFORMS = {"cli", "tui", "acp"}
 # Work the ecosystem started on its own behalf.
 SYSTEM_PLATFORMS = {"cron", "kanban", "subagent", "tool", "api_server", "recovered"}
 
+# External CLI runtimes (Porthus/claude, Aramis/codex, Dartan/agy, Vector/openclaw) are
+# executors, not residents: they only act when Messages dispatches a message to them
+# (Marcelo, 2026-09-28: "são agentes externo só interagem quando são executados pelo
+# Messages"). No runtime telemetry is collected for them; their live state is the dispatch
+# itself, and while nothing is dispatched to them they are simply not on the live board.
+ON_DEMAND_RUNTIMES = {"claude", "codex", "agy", "openclaw"}
+
+
+def is_on_demand_runtime(runtime_type: str | None) -> bool:
+    return (runtime_type or "").lower() in ON_DEMAND_RUNTIMES
+
+
 TURN_STALE_MINUTES = 30
 CONVERSING_WINDOW = timedelta(minutes=2)
 FAILURE_WINDOW = timedelta(minutes=15)
@@ -177,6 +189,7 @@ class LiveState:
     turn_id: str | None = None
     last_event_at: datetime | None = None
     reason: str | None = None
+    message_number: int | None = None
     turns_last_hour: int = 0
     tools_last_hour: int = 0
     failures_last_hour: int = 0
