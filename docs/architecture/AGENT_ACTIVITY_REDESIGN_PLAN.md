@@ -1,6 +1,6 @@
 # Agent Activity — plano de redesenho (conceito + visual)
 
-> Status: conceito **aprovado** (2026-09-28). **F1, F2 e F3 entregues** em 2026-09-28 — ver §9 a §11.
+> Status: conceito **aprovado** (2026-09-28). **F1, F2 e F3 entregues** em 2026-09-28 — ver §9 a §12. F4 e F5 pendentes.
 > Tela atual: `/agent-activity` (`pages/agent-activity/index.tsx`, `components/agent-activity/*`,
 > `hooks/useAgentActivity.ts`, backend `core/agent_activity.py` + `api/routes/agent_activity.py`).
 
@@ -232,3 +232,19 @@ Estimativa relativa: F1 e F4 são as maiores (backend); F2, F3 e F5 são médias
   (acessibilidade). Com movimento reduzido, não há partículas.
 - Validado em produção com um turno real do Atlas a 1440 px e 390 px: linha Você → Atlas com
   partícula, "Pensando · 15 s", nenhum nó sobreposto, sem rolagem horizontal.
+
+## 12. Ajustes pós-F3 (2026-09-28)
+
+- **Canal "site" da Lara**: o darckware chama o host-bridge (`/v1/chat`) com `channel="site"`, e o
+  turno roda em `profiles/lara/channels/site`. O `cwd` é o único campo do webhook que o chamador
+  controla, então `normalize_hermes_hook` reconhece `/channels/<canal>` e registra o interlocutor
+  como contato externo (`human`), nunca como o operador no terminal. Na constelação: "Contatos →
+  Lara" pelo canal "Site darckware" (ícone de globo). A Lara do site responde sempre pelo Hermes —
+  o fallback direto ao ForgeRouter foi removido no darckware (ele escondia um token de bridge errado
+  fixado no `docker-compose.yml` de lá, que devolvia 401 em todo turno).
+- **`AgentDemand.dispatched_at`** (migration `b3d8f1a6c2e9`): quando o despacho mais recente
+  começou. O `dispatch_deadline_at` é limpo ao fim do run, então um run terminado tinha fim
+  (`task_execution_at`) mas não início. Base para as raias e o replay da F4; linhas antigas caem
+  para `scheduled_at`.
+- Validado em produção: turnos reais da Lara pelo site gravados com `platform=site`,
+  `counterpart_kind=human`, e o link correspondente gerado para a constelação.
