@@ -41,7 +41,10 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
+
 from app.core.agent_profile_files import effective_home_path, resolve_home_dir
+from app.core.config import settings
 
 # Only these keys are ever read out of the profile .env, and only the
 # home-channel *name* is ever returned. TELEGRAM_BOT_TOKEN is reduced to a
@@ -256,3 +259,24 @@ def build_status(
             required=required, installed=installed, service=service, running=running
         ),
     )
+
+
+async def read_telegram_platform_states() -> tuple[dict[str, str] | None, str | None]:
+    """Each Hermes profile's Telegram adapter state, read from the multiplex
+    host gateway's own state file through the host-bridge (`/v1/exec` -- the
+    backend container sees neither the host's systemd nor ~/.hermes).
+
+    Returns (None, error) rather than raising: a Telegram badge that cannot
+    be computed must degrade to "unknown", never take down the page asking."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{settings.CHAT_BRIDGE_URL}/v1/exec",
+                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+                json={"command": gateway_state_command()},
+            )
+    except httpx.HTTPError as e:
+        return None, f"Host-bridge unreachable: {e}"
+    if resp.status_code != 200:
+        return None, f"Host-bridge error: {resp.text[:200]}"
+    return parse_telegram_states(resp.json().get("stdout") or ""), None

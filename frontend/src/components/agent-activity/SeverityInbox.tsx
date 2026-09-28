@@ -116,6 +116,7 @@ export function SeverityInbox({
             <button
               key={incident.key}
               type="button"
+              title={incident.summary ?? undefined}
               onClick={() => onSelectIncident(incident)}
               className="flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-muted"
             >

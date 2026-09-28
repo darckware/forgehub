@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.routes.demand import create_demand_and_notify
 from app.api.schemas.agent_activity import (
     AgentActivityOut,
+    AgentActivityTimelineOut,
+    AgentLiveSnapshotOut,
     RequestAthosMonitoringIn,
     RequestAthosMonitoringOut,
 )
@@ -27,6 +29,7 @@ from app.core.agent_activity_stream import (
     broadcaster,
     build_live_snapshot,
 )
+from app.core.agent_activity_timeline import MAX_WINDOW, build_timeline
 from app.core.agent_live_state import normalize_hermes_hook, verify_signature
 from app.core.agent_telegram import read_profile_home_chat
 from app.core.config import settings
@@ -283,6 +286,64 @@ async def stream_live_activity(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+
+@router.get("/timeline", response_model=AgentActivityTimelineOut)
+async def get_activity_timeline(
+    start: datetime | None = None,
+    end: datetime | None = None,
+    agent_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> AgentActivityTimelineOut:
+    """Lanes, agent-to-agent messages and the event table for a window (phase 4).
+
+    Defaults to the last 2 hours; at most ``MAX_WINDOW`` (24 h), and never older than the
+    events' own retention -- asking for more is refused rather than silently cut.
+    """
+    await authorize_action(db, principal, "demands.view", project_id=None)
+    now = datetime.now(timezone.utc)
+    end = min(_aware(end), now) if end is not None else now
+    start = _aware(start) if start is not None else end - timedelta(hours=2)
+    if start >= end:
+        raise HTTPException(status_code=422, detail="start must be before end")
+    if end - start > MAX_WINDOW:
+        raise HTTPException(status_code=422, detail="window is limited to 24 hours")
+    if start < now - timedelta(days=AGENT_ACTIVITY_RETENTION_DAYS):
+        raise HTTPException(
+            status_code=422,
+            detail=f"activity is kept for {AGENT_ACTIVITY_RETENTION_DAYS} days",
+        )
+    return await build_timeline(db, start=start, end=end, now=now, agent_id=agent_id)
+
+
+@router.get("/snapshot", response_model=AgentLiveSnapshotOut)
+async def get_activity_snapshot(
+    at: datetime | None = None,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> AgentLiveSnapshotOut:
+    """One live frame -- the same shape the stream sends -- as it stood at ``at`` (replay).
+
+    Without ``at`` it is simply the current frame.
+    """
+    await authorize_action(db, principal, "demands.view", project_id=None)
+    now = datetime.now(timezone.utc)
+    if at is None:
+        return await build_live_snapshot(db, now=now)
+    moment = _aware(at)
+    if moment > now:
+        raise HTTPException(status_code=422, detail="at must not be in the future")
+    if moment < now - timedelta(days=AGENT_ACTIVITY_RETENTION_DAYS):
+        raise HTTPException(
+            status_code=422,
+            detail=f"activity is kept for {AGENT_ACTIVITY_RETENTION_DAYS} days",
+        )
+    return await build_live_snapshot(db, now=moment, historical=True)
 
 
 @router.post(

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, LayoutGrid, Loader2, Network, Radio, RefreshCw } from "lucide-react";
+import { AlertTriangle, History, LayoutGrid, Loader2, Network, Radio, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { ActivityEventTable } from "@/components/agent-activity/ActivityEventTable";
 import { ActivityPulse } from "@/components/agent-activity/ActivityPulse";
+import { ActivitySwimlanes } from "@/components/agent-activity/ActivitySwimlanes";
 import { AgentConstellation } from "@/components/agent-activity/AgentConstellation";
 import { ActivityViewSwitch, readActivityView, type ActivityOperationalView } from "@/components/agent-activity/ActivityViewSwitch";
 import { AgentInspector } from "@/components/agent-activity/AgentInspector";
@@ -19,6 +21,7 @@ import {
   type ActivityIncident,
   type AgentLiveSnapshotItem,
 } from "@/hooks/useAgentActivity";
+import { useActivityTraceViewModel } from "@/hooks/useActivityTraceViewModel";
 import { useAgentActivityStreamViewModel } from "@/hooks/useAgentActivityStreamViewModel";
 import { cn } from "@/lib/utils";
 
@@ -84,7 +87,13 @@ export default function AgentActivityPage() {
   // The stream carries the fast-moving part; while it's up the full read model only
   // refreshes the slower parts (message records, flow, timeline).
   const activity = useAgentActivity({}, { refetchInterval: stream.status === "live" ? 30_000 : 5_000 });
-  const now = useNow();
+  const trace = useActivityTraceViewModel();
+  const clock = useNow();
+  // Replay (phase 4): with the cursor on a past instant, the cards, constellation and pulse
+  // show the frame as it stood then instead of the stream's current one.
+  const replaying = trace.cursor !== null;
+  const liveSnapshot = replaying ? trace.replaySnapshot : stream.snapshot;
+  const now = replaying ? trace.cursor! : clock;
   const [mainView, setMainView] = useState<MainView>(readMainView);
   const syncHermes = useSyncHermesAgents();
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -103,17 +112,19 @@ export default function AgentActivityPage() {
 
   const data = activity.data;
   const snapshotByAgent = useMemo(
-    () => new Map<string, AgentLiveSnapshotItem>((stream.snapshot?.agents ?? []).map((item) => [item.agent_id, item])),
-    [stream.snapshot],
+    () => new Map<string, AgentLiveSnapshotItem>((liveSnapshot?.agents ?? []).map((item) => [item.agent_id, item])),
+    [liveSnapshot],
   );
   // Live state from the newest stream frame wins over the (slower) read model's. External
   // executors (claude/codex/agy/openclaw) only appear while Messages is running them.
   const agents = useMemo<ActivityAgent[]>(() => {
     const merged = (data?.agents ?? []).map((agent) =>
-      stream.snapshot ? { ...agent, live: snapshotByAgent.get(agent.id)?.live ?? null } : agent,
+      liveSnapshot ? { ...agent, live: snapshotByAgent.get(agent.id)?.live ?? null } : agent,
     );
-    return merged.filter((agent) => isMonitoredAgent(agent.runtime_type, agent.live, Boolean(agent.current_work)));
-  }, [data?.agents, stream.snapshot, snapshotByAgent]);
+    return merged.filter((agent) =>
+      isMonitoredAgent(agent.runtime_type, agent.live, !replaying && Boolean(agent.current_work)),
+    );
+  }, [data?.agents, liveSnapshot, snapshotByAgent, replaying]);
   const selectMainView = (next: MainView) => {
     try {
       window.localStorage.setItem(MAIN_VIEW_STORAGE_KEY, next);
@@ -131,6 +142,9 @@ export default function AgentActivityPage() {
     ? incidentFallbackAgentId
     : null;
   const selectedAgent = agents.find((agent) => agent.id === effectiveSelectedAgentId) ?? null;
+  // Lanes and events filter only on an agent the user picked, never on the incident
+  // fallback the inspector opens by itself.
+  const explicitAgentId = selectedAgentId ? effectiveSelectedAgentId : null;
   const unavailableSources = data?.source_freshness.filter((source) => source.status === "unavailable") ?? [];
   const staleSources = data?.source_freshness.filter((source) => source.status === "stale") ?? [];
   const recordStatus = activity.isLoading
@@ -148,6 +162,8 @@ export default function AgentActivityPage() {
 
   const selectIncident = (incident: ActivityIncident) => {
     if (incident.affected_agent_id) setSelectedAgentId(incident.affected_agent_id);
+    // A host-level alert (e.g. a cron no agent owns) has nothing to select: open its record.
+    else if (incident.canonical_path) openCanonicalRecord(incident.canonical_path);
   };
 
   const requestMonitoring = (incident: ActivityIncident) => {
@@ -263,7 +279,36 @@ export default function AgentActivityPage() {
         </div>
       )}
 
-      <ActivityPulse pulse={stream.snapshot?.pulse ?? null} />
+      {replaying && (
+        <div
+          role="status"
+          className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p className="flex items-start gap-2">
+            {trace.replayLoading ? (
+              <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />
+            ) : (
+              <History className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            )}
+            <span>
+              <strong className="font-medium">
+                {t("trace.replaying", {
+                  time: new Intl.DateTimeFormat(i18n.language, {
+                    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+                  }).format(trace.cursor!),
+                })}
+              </strong>{" "}
+              · {t("trace.replayNote")}
+            </span>
+          </p>
+          <Button variant="outline" size="sm" className="h-7 shrink-0 gap-1.5 text-xs" onClick={trace.backToLive}>
+            <Radio className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("trace.live")}
+          </Button>
+        </div>
+      )}
+
+      <ActivityPulse pulse={liveSnapshot?.pulse ?? null} />
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-2">
@@ -308,7 +353,7 @@ export default function AgentActivityPage() {
             <AgentConstellation
               agents={agents}
               snapshotByAgent={snapshotByAgent}
-              links={stream.snapshot?.links ?? []}
+              links={liveSnapshot?.links ?? []}
               messageEdges={data?.message_edges ?? []}
               selectedAgentId={effectiveSelectedAgentId}
               onSelectAgent={setSelectedAgentId}
@@ -337,7 +382,22 @@ export default function AgentActivityPage() {
         <div className="space-y-2 lg:col-span-2">
           <ActivityViewSwitch value={operationalView} onChange={setOperationalView} />
           <div role="tabpanel" aria-label={t(`views.${operationalView}`)}>
-            {operationalView === "flow" ? (
+            {operationalView === "lanes" ? (
+              <ActivitySwimlanes
+                trace={trace}
+                agents={data?.agents ?? []}
+                selectedAgentId={explicitAgentId}
+                onClearAgent={() => setSelectedAgentId("")}
+                onOpenRecord={openCanonicalRecord}
+              />
+            ) : operationalView === "events" ? (
+              <ActivityEventTable
+                trace={trace}
+                agents={data?.agents ?? []}
+                selectedAgentId={explicitAgentId}
+                onOpenRecord={openCanonicalRecord}
+              />
+            ) : operationalView === "flow" ? (
               <CurrentFlowBoard items={data?.flow_items ?? []} />
             ) : (
               <ContinuityTimeline events={data?.timeline ?? []} selectedAgentId={effectiveSelectedAgentId} />

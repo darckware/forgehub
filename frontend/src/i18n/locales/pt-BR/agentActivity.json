@@ -78,7 +78,9 @@
   "views": {
     "label": "Visão operacional",
     "flow": "Fluxo atual",
-    "history": "Histórico"
+    "history": "Histórico",
+    "lanes": "Raias",
+    "events": "Eventos"
   },
   "flow": {
     "title": "Fluxo atual",
@@ -272,5 +274,114 @@
       "agent": "Entre agentes",
       "forgerouter": "ForgeRouter"
     }
+  },
+  "trace": {
+    "title": "Raias",
+    "window": "Janela",
+    "preset": {
+      "1h": "1 h",
+      "2h": "2 h",
+      "6h": "6 h",
+      "24h": "24 h",
+      "custom": "Período"
+    },
+    "start": "Início",
+    "end": "Fim",
+    "rangeError": {
+      "order": "O início precisa ser antes do fim.",
+      "tooWide": "A janela vai até 24 horas.",
+      "invalid": "Informe início e fim."
+    },
+    "play": "Reproduzir",
+    "pause": "Pausar",
+    "live": "Ao vivo",
+    "empty": "Nenhuma atividade registrada nesta janela.",
+    "cursorLabel": "Instante do replay (clique ou use as setas)",
+    "legend": "Legenda das raias",
+    "legendFailed": "Falhou ou abandonado",
+    "legendTool": "Ferramenta",
+    "legendDispatch": "Execução pelo Messages",
+    "message": "Mensagem #{{number}}: {{from}} → {{to}}",
+    "block": {
+      "turn": "{{who}} · {{channel}}",
+      "dispatch": "Mensagem #{{number}} de {{from}}",
+      "workspace": "Você · Workspace"
+    },
+    "kind": {
+      "turn": "Turno do runtime",
+      "dispatch": "Execução pelo Messages",
+      "workspace": "Turno do Workspace"
+    },
+    "status": {
+      "completed": "Concluído",
+      "failed": "Falhou",
+      "interrupted": "Interrompido",
+      "abandoned": "Abandonado",
+      "open": "Em andamento",
+      "running": "Em andamento",
+      "dispatched": "Despachado",
+      "ok": "OK",
+      "error": "Erro",
+      "cancelled": "Cancelado"
+    },
+    "detail": {
+      "title": "Detalhe",
+      "kind": "Tipo",
+      "start": "Início",
+      "end": "Fim",
+      "open": "em andamento",
+      "duration": "Duração",
+      "status": "Status",
+      "error": "Erro",
+      "session": "Sessão",
+      "close": "Fechar detalhe",
+      "tools_one": "{{count}} ferramenta",
+      "tools_other": "{{count}} ferramentas"
+    },
+    "replayFromHere": "Reproduzir daqui",
+    "openMessage": "Abrir mensagem",
+    "openWorkspace": "Abrir Workspace",
+    "openAgent": "Abrir agente",
+    "replaying": "Replay de {{time}}",
+    "replayNote": "Estado reconstruído dos registros. Fila e custo não têm histórico e ficam de fora.",
+    "replayLoading": "Carregando o instante…",
+    "events": {
+      "title": "Eventos",
+      "count_one": "{{count}} registro",
+      "count_other": "{{count}} registros",
+      "filter": "Filtrar eventos",
+      "empty": "Nenhum evento para este filtro.",
+      "truncated": "Mostrando os 2.000 registros mais recentes da janela; reduza o período para ver o restante.",
+      "open": "Abrir registro",
+      "filters": {
+        "all": "Todos",
+        "turns": "Turnos",
+        "tools": "Ferramentas",
+        "messages": "Messages",
+        "failures": "Falhas"
+      },
+      "columns": {
+        "time": "Quando",
+        "agent": "Agente",
+        "event": "Evento",
+        "channel": "Canal",
+        "detail": "Detalhe",
+        "status": "Status",
+        "record": "Registro"
+      },
+      "kind": {
+        "turn_started": "Turno iniciado",
+        "turn_ended": "Turno encerrado",
+        "tool_started": "Ferramenta iniciada",
+        "tool_ended": "Ferramenta concluída",
+        "session_started": "Sessão iniciada",
+        "dispatch_started": "Execução iniciada",
+        "dispatch_completed": "Execução concluída",
+        "dispatch_failed": "Execução falhou",
+        "message_sent": "Mensagem enviada",
+        "workspace_turn": "Turno do Workspace"
+      }
+    },
+    "onlyAgent": "Só {{name}} · mostrar todos"
   }
 }

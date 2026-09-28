@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.agent_activity import (
@@ -35,6 +35,8 @@ from app.api.schemas.agent_activity import (
     ActivityTopologyRelationOut,
     AgentActivityOut,
 )
+from app.core.agent_activity_alerts import build_runtime_incidents
+from app.core.agent_activity_timeline import dispatch_interval
 from app.core.forgerouter_sync import (
     ForgeRouterActivityEvent,
     read_recent_forgerouter_activity,
@@ -336,34 +338,62 @@ def build_activity_agents(
 
 
 async def load_live_states(
-    db: AsyncSession, agents: Iterable[Agent], *, now: datetime
+    db: AsyncSession, agents: Iterable[Agent], *, now: datetime, historical: bool = False
 ) -> dict[uuid.UUID, LiveState]:
     """Live state per agent from runtime events, Workspace turns and the agent's queue.
 
     Bounded reads only: the last hour of events (plus the newest event per agent, so an
     idle agent still says "last seen N ago"), running Workspace turns, and two counts.
+
+    ``historical`` (replay, phase 4): ``now`` is a past instant. Every read is bounded at
+    it, and running work is whatever was running *then* (dispatch and Workspace spans that
+    cover the instant). Queue counts are left at zero -- the queue's past isn't recorded,
+    and a replay must not show today's backlog as if it existed then.
     """
     agents = list(agents)
     on_demand = [agent.id for agent in agents if is_on_demand_runtime(agent.runtime_type)]
     agent_ids = [agent.id for agent in agents if not is_on_demand_runtime(agent.runtime_type)]
     result: dict[uuid.UUID, LiveState] = {}
     if on_demand:
-        running = (
-            await db.execute(
-                select(AgentDemand)
-                .where(
-                    AgentDemand.target_agent_id.in_(on_demand),
-                    AgentDemand.dispatch_status.in_(("dispatched", "running")),
+        if historical:
+            candidates = (
+                await db.execute(
+                    select(AgentDemand)
+                    .where(
+                        AgentDemand.target_agent_id.in_(on_demand),
+                        or_(AgentDemand.dispatched_at <= now, AgentDemand.scheduled_at <= now),
+                        or_(
+                            AgentDemand.dispatch_status.in_(("dispatched", "running")),
+                            AgentDemand.task_execution_at > now,
+                            AgentDemand.updated_at > now,
+                        ),
+                    )
+                    .order_by(AgentDemand.updated_at.desc())
                 )
-                .order_by(AgentDemand.updated_at.desc())
-            )
-        ).scalars()
+            ).scalars()
+            running = []
+            for demand in candidates:
+                began, finished = dispatch_interval(demand)
+                if began is not None and began <= now and (finished is None or finished > now):
+                    running.append(demand)
+        else:
+            running = (
+                await db.execute(
+                    select(AgentDemand)
+                    .where(
+                        AgentDemand.target_agent_id.in_(on_demand),
+                        AgentDemand.dispatch_status.in_(("dispatched", "running")),
+                    )
+                    .order_by(AgentDemand.updated_at.desc())
+                )
+            ).scalars()
         for demand in running:
             if demand.target_agent_id in result:
                 continue
+            started = dispatch_interval(demand)[0] if historical else None
             result[demand.target_agent_id] = LiveState(
                 state="executing",
-                since=demand.updated_at,
+                since=started or demand.updated_at,
                 source="messages",
                 platform="messages",
                 counterpart_kind="agent" if demand.from_agent_id else "owner",
@@ -380,6 +410,7 @@ async def load_live_states(
             .where(
                 AgentActivityEvent.agent_id.in_(agent_ids),
                 AgentActivityEvent.occurred_at >= window_start,
+                (AgentActivityEvent.occurred_at <= now) if historical else true(),
             )
             .order_by(AgentActivityEvent.occurred_at.desc())
             .limit(5000)
@@ -390,47 +421,62 @@ async def load_live_states(
         (
             await db.execute(
                 select(AgentActivityEvent.agent_id, func.max(AgentActivityEvent.occurred_at))
-                .where(AgentActivityEvent.agent_id.in_(agent_ids))
+                .where(AgentActivityEvent.agent_id.in_(agent_ids), (AgentActivityEvent.occurred_at <= now) if historical else true())
                 .group_by(AgentActivityEvent.agent_id)
             )
         ).all()
     )
+    if historical:
+        # Running at that instant: started by then and not finished before it.
+        workspace_filter = and_(
+            ActiveTurn.created_at <= now,
+            or_(
+                ActiveTurn.status == "running",
+                ActiveTurn.finished_at > now,
+                and_(ActiveTurn.finished_at.is_(None), ActiveTurn.updated_at > now),
+            ),
+        )
+    else:
+        workspace_filter = ActiveTurn.status == "running"
     workspace_turns = dict(
         (
             await db.execute(
                 select(ActiveTurn.agent_id, func.min(ActiveTurn.created_at))
-                .where(ActiveTurn.agent_id.in_(agent_ids), ActiveTurn.status == "running")
+                .where(ActiveTurn.agent_id.in_(agent_ids), workspace_filter)
                 .group_by(ActiveTurn.agent_id)
             )
         ).all()
     )
-    queued_tasks = dict(
-        (
-            await db.execute(
-                select(AgentDemand.target_agent_id, func.count())
-                .where(
-                    AgentDemand.target_agent_id.in_(agent_ids),
-                    AgentDemand.origin_type == "task",
-                    AgentDemand.status != "archived",
-                    AgentDemand.dispatch_status.is_(None),
+    queued_tasks: dict[uuid.UUID, int] = {}
+    pending_decisions: dict[uuid.UUID, int] = {}
+    if not historical:
+        queued_tasks = dict(
+            (
+                await db.execute(
+                    select(AgentDemand.target_agent_id, func.count())
+                    .where(
+                        AgentDemand.target_agent_id.in_(agent_ids),
+                        AgentDemand.origin_type == "task",
+                        AgentDemand.status != "archived",
+                        AgentDemand.dispatch_status.is_(None),
+                    )
+                    .group_by(AgentDemand.target_agent_id)
                 )
-                .group_by(AgentDemand.target_agent_id)
-            )
-        ).all()
-    )
-    pending_decisions = dict(
-        (
-            await db.execute(
-                select(AgentDemand.incubation_owner_id, func.count())
-                .where(
-                    AgentDemand.incubation_owner_id.in_(agent_ids),
-                    AgentDemand.incubation_state == "decision_pending",
-                    AgentDemand.status != "archived",
+            ).all()
+        )
+        pending_decisions = dict(
+            (
+                await db.execute(
+                    select(AgentDemand.incubation_owner_id, func.count())
+                    .where(
+                        AgentDemand.incubation_owner_id.in_(agent_ids),
+                        AgentDemand.incubation_state == "decision_pending",
+                        AgentDemand.status != "archived",
+                    )
+                    .group_by(AgentDemand.incubation_owner_id)
                 )
-                .group_by(AgentDemand.incubation_owner_id)
-            )
-        ).all()
-    )
+            ).all()
+        )
 
     for agent_id in agent_ids:
         pending = queued_tasks.get(agent_id, 0) + pending_decisions.get(agent_id, 0)
@@ -1814,6 +1860,13 @@ async def build_agent_activity(
         approvals=approvals,
         forgerouter_state=forgerouter_state,
     )
+    if project_id is None:
+        # Runtime alerts (phase 5) are about agents and the host, not about one project.
+        incidents = sorted(
+            [*incidents, *await build_runtime_incidents(db, agents, now=generated_at)],
+            key=lambda item: (item.occurred_at, item.key),
+            reverse=True,
+        )
     for item in [*flow_items, *timeline, *incidents]:
         attach_context(item, resolve_item_context(item))
     for agent in activity_agents:

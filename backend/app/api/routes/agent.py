@@ -231,24 +231,7 @@ async def list_agents(
 
 
 async def _telegram_platform_states() -> tuple[dict[str, str] | None, str | None]:
-    """Each Hermes profile's Telegram adapter state, read from the multiplex
-    host gateway's own state file through the host-bridge (`/v1/exec` -- the
-    backend container sees neither the host's systemd nor ~/.hermes).
-
-    Returns (None, error) rather than raising: a Telegram badge that cannot
-    be computed must degrade to "unknown", never take down the Agents page."""
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{settings.CHAT_BRIDGE_URL}/v1/exec",
-                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
-                json={"command": agent_telegram.gateway_state_command()},
-            )
-    except httpx.HTTPError as e:
-        return None, f"Host-bridge unreachable: {e}"
-    if resp.status_code != 200:
-        return None, f"Host-bridge error: {resp.text[:200]}"
-    return agent_telegram.parse_telegram_states(resp.json().get("stdout") or ""), None
+    return await agent_telegram.read_telegram_platform_states()
 
 
 @router.post("/sync/runtimes", response_model=AgentRuntimeSyncOut)

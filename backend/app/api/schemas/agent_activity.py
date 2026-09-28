@@ -294,6 +294,12 @@ class ActivityIncidentOut(BaseModel):
         "blocked",
         "approval_pending",
         "source_unavailable",
+        # phase 5 runtime alerts (core/agent_activity_alerts.py)
+        "turn_stuck",
+        "adapter_fatal",
+        "cron_failing",
+        "provider_error",
+        "usage_anomaly",
     ]
     severity: Literal["info", "warning", "error", "critical"]
     title: str
@@ -314,6 +320,8 @@ class ActivityIncidentOut(BaseModel):
         "open_approval",
         "open_message",
         "inspect_execution",
+        "open_agent",
+        "open_crons",
     ]
     prior_attempts: list[ActivityPriorAttemptOut] = Field(default_factory=list)
     last_observed_at: datetime | None = None
@@ -437,3 +445,97 @@ class RequestAthosMonitoringOut(BaseModel):
     message_number: int
     notification_id: uuid.UUID
     created: bool
+
+
+# --- Phase 4: traceability (lanes, event table, replay) -------------------------------
+
+
+class TimelineToolOut(BaseModel):
+    """One tool call inside a turn, drawn as a tick on the agent's lane."""
+
+    start: datetime
+    end: datetime | None = None
+    tool_name: str | None = None
+    status: str | None = None
+    duration_ms: int | None = None
+
+
+class TimelineBlockOut(BaseModel):
+    """A span of work on an agent's lane.
+
+    ``turn`` = a runtime turn (start/end pair pushed by the agent's runtime);
+    ``dispatch`` = a Messages dispatch running for the agent; ``workspace`` = a ForgeHub
+    Workspace chat turn. ``end`` None means still open at the window's end;
+    ``status="abandoned"`` marks a runtime turn that never reported its end within
+    ``TURN_STALE_MINUTES`` (its end is then its last known event).
+    """
+
+    key: str
+    kind: Literal["turn", "dispatch", "workspace"]
+    start: datetime
+    end: datetime | None = None
+    platform: str | None = None
+    counterpart_kind: Literal["owner", "human", "agent", "system"] | None = None
+    counterpart_ref: str | None = None
+    counterpart_agent_id: uuid.UUID | None = None
+    model: str | None = None
+    status: str | None = None
+    error_type: str | None = None
+    session_id: str | None = None
+    turn_id: str | None = None
+    message_number: int | None = None
+    tools: list[TimelineToolOut] = []
+    canonical_path: str | None = None
+
+
+class TimelineLaneOut(BaseModel):
+    agent_id: uuid.UUID
+    blocks: list[TimelineBlockOut]
+
+
+class TimelineMessageOut(BaseModel):
+    """A Messages message between two agents, drawn as an arrow across their lanes."""
+
+    id: uuid.UUID
+    number: int | None = None
+    at: datetime
+    from_agent_id: uuid.UUID
+    target_agent_id: uuid.UUID
+    subject: str | None = None
+    canonical_path: str
+
+
+class TimelineEventOut(BaseModel):
+    """One row of the event table: the raw record behind the lanes."""
+
+    key: str
+    occurred_at: datetime
+    agent_id: uuid.UUID | None = None
+    profile: str | None = None
+    source: Literal["runtime", "messages", "workspace"]
+    kind: str
+    platform: str | None = None
+    counterpart_kind: str | None = None
+    counterpart_ref: str | None = None
+    model: str | None = None
+    tool_name: str | None = None
+    status: str | None = None
+    error_type: str | None = None
+    duration_ms: int | None = None
+    session_id: str | None = None
+    turn_id: str | None = None
+    message_number: int | None = None
+    canonical_path: str | None = None
+
+
+class AgentActivityTimelineOut(BaseModel):
+    """GET /api/v1/agent-activity/timeline -- everything that happened in a window."""
+
+    start: datetime
+    end: datetime
+    generated_at: datetime
+    lanes: list[TimelineLaneOut]
+    messages: list[TimelineMessageOut]
+    events: list[TimelineEventOut]
+    # True when the event table hit its cap; lanes are still complete.
+    truncated: bool = False

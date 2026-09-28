@@ -1,6 +1,6 @@
 # Agent Activity — plano de redesenho (conceito + visual)
 
-> Status: conceito **aprovado** (2026-09-28). **F1, F2 e F3 entregues** em 2026-09-28 — ver §9 a §12. F4 e F5 pendentes.
+> Status: conceito **aprovado** (2026-09-28). **F1 a F5 entregues** em 2026-09-28 — ver §9 a §14.
 > Tela atual: `/agent-activity` (`pages/agent-activity/index.tsx`, `components/agent-activity/*`,
 > `hooks/useAgentActivity.ts`, backend `core/agent_activity.py` + `api/routes/agent_activity.py`).
 
@@ -248,3 +248,50 @@ Estimativa relativa: F1 e F4 são as maiores (backend); F2, F3 e F5 são médias
   para `scheduled_at`.
 - Validado em produção: turnos reais da Lara pelo site gravados com `platform=site`,
   `counterpart_kind=human`, e o link correspondente gerado para a constelação.
+
+## 13. Entrega da F4 — rastreabilidade (2026-09-28)
+
+- **`GET /api/v1/agent-activity/timeline?start&end&agent_id`** (`core/agent_activity_timeline.py`):
+  raias por agente numa janela de até 24 h (padrão 2 h, nunca além da retenção de 14 dias). Três
+  fontes, todas registros do próprio ForgeHub: turnos do runtime com suas ferramentas
+  (`agent_activity_events`, pareados início/fim por `pair_runtime_events` — mesma regra do estado ao
+  vivo: sem fim após 30 min é "abandonado"), execuções do Messages (`dispatched_at` →
+  `task_execution_at`) e turnos do Workspace (`active_turns`); mais as mensagens entre agentes (setas
+  entre raias) e a tabela de eventos (até 2.000 linhas; `truncated` avisa).
+- **Replay** — `GET /api/v1/agent-activity/snapshot?at=`: o mesmo frame do stream, reconstruído no
+  instante pedido (`build_live_snapshot(historical=True)`). Todas as leituras limitadas ao instante;
+  fila e custo do ForgeRouter não têm passado registrado e ficam de fora ("—"/0), em vez de mostrar
+  os de hoje como se fossem de então. No modo ao vivo nada mudou (o limite só vale no replay, para um
+  relógio de runtime levemente adiantado não sumir com um evento).
+- **Frontend**: vistas "Raias" (padrão) e "Eventos" no seletor operacional
+  (`ActivitySwimlanes`, `ActivityEventTable`), estado em `useActivityTraceViewModel` (janela
+  1/2/6/24 h ou período, cursor, reprodução a 60×). Clicar na raia (ou setas do teclado) move o
+  cursor; com o cursor no passado, cartões, constelação e pulso mostram aquele instante, com faixa
+  "Replay de …" e botão "Ao vivo". Um bloco abre o detalhe (duração, ferramentas, modelo, sessão) com
+  "Reproduzir daqui" e o link para o registro canônico (agente, mensagem ou Workspace). Filtro por
+  agente só quando o usuário escolhe um (não pelo incidente que o inspector abre sozinho).
+- Validado em produção a 1440 e 390 px: turnos do site da Lara nas raias, detalhe, replay no turno
+  (Lara "pensando", Contatos → Lara ativo) e tabela de eventos; sem rolagem horizontal da página.
+
+## 14. Entrega da F5 — alertas (2026-09-28)
+
+`core/agent_activity_alerts.py` alimenta a caixa de severidade (só na visão sem filtro de projeto)
+com cinco sinais novos, cada um lido de onde é verdade e opcional (fonte fora = sem alerta daquela
+fonte, nunca "tudo certo" falso; cache de 60 s, timeout de 5 s):
+
+| Sinal | Regra | Severidade |
+|---|---|---|
+| `turn_stuck` | turno mais recente do agente sem fim há ≥ 10 min | aviso; erro a partir de 30 min |
+| `adapter_fatal` | Telegram configurado e adapter do gateway fora de `connected` | crítico se `fatal`, senão erro |
+| `cron_failing` | cron habilitado com última execução em erro, ou atrasado | erro / aviso |
+| `provider_error` | ≥ 3 chamadas não-`success` no ForgeRouter em 15 min | aviso; erro a partir de 9 |
+| `usage_anomaly` | tokens de hoje > 3× a média diária dos 7 dias anteriores (e ≥ 200 k), ou custo > 3× (e ≥ US$ 1) | aviso (tokens) / erro (custo) |
+
+Tokens contam além do custo porque quase tudo neste host custa US$ 0 (modelos gratuitos/assinatura)
+— um alerta só de custo nunca dispararia. Serviços do ForgeRouter (ex.: Hindsight) não viram
+incidente de agente. A leitura do estado do Telegram saiu da rota para
+`agent_telegram.read_telegram_platform_states`, compartilhada com a tela de Agentes.
+
+Na primeira execução em produção, os sinais apontaram quatro crons do Athos falhando de fato
+(`daily_hermes_update_check`, `docker-daily-cleanup`, `foundation-clear`, `memory-maintenance`:
+"cron external worker exited before ownership acknowledgement").

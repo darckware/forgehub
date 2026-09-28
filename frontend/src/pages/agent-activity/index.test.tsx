@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import i18n from "@/i18n";
 import type { AgentActivity } from "@/hooks/useAgentActivity";
+import type { ActivityTraceViewModel } from "@/hooks/useActivityTraceViewModel";
+import type { ActivityTimeline } from "@/hooks/useAgentActivityTimeline";
 import AgentActivityPage from ".";
 
 const hookMocks = vi.hoisted(() => ({
@@ -11,6 +13,11 @@ const hookMocks = vi.hoisted(() => ({
   syncHermesAsync: vi.fn(),
   useReducedMotion: vi.fn(),
   useAgentActivityStream: vi.fn(),
+  useActivityTrace: vi.fn(),
+}));
+
+vi.mock("@/hooks/useActivityTraceViewModel", () => ({
+  useActivityTraceViewModel: hookMocks.useActivityTrace,
 }));
 
 vi.mock("@/hooks/useAgentActivityStreamViewModel", () => ({
@@ -304,11 +311,41 @@ function renderPage(activity: AgentActivity = ACTIVITY_FIXTURE) {
   return render(<AgentActivityPage />);
 }
 
+function traceVM(overrides: Partial<ActivityTraceViewModel> = {}): ActivityTraceViewModel {
+  return {
+    status: "ready",
+    preset: "2h",
+    customRange: { start: "2026-08-29T13:00", end: "2026-08-29T15:00" },
+    rangeError: null,
+    window: { start: "2026-08-29T13:00:00Z", end: "2026-08-29T15:00:00Z" },
+    windowStartMs: Date.parse("2026-08-29T13:00:00Z"),
+    windowEndMs: Date.parse("2026-08-29T15:00:00Z"),
+    timeline: null,
+    isFetching: false,
+    cursor: null,
+    playing: false,
+    replaySnapshot: null,
+    replayLoading: false,
+    selectedBlock: null,
+    setPreset: vi.fn(),
+    setCustomRange: vi.fn(),
+    setCursor: vi.fn(),
+    backToLive: vi.fn(),
+    togglePlay: vi.fn(),
+    selectBlock: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe("AgentActivityPage", () => {
   beforeEach(async () => {
     localStorage.clear();
     // These cases exercise the constellation view; live cards have their own cases below.
     localStorage.setItem("forgehub:agent-activity:main:v1", "constellation");
+    // The pre-phase-4 operational views (flow/history); lanes/events have their own cases.
+    localStorage.setItem("forgehub:agent-activity:view:v1", "flow");
+    hookMocks.useActivityTrace.mockReset();
+    hookMocks.useActivityTrace.mockReturnValue(traceVM());
     hookMocks.useAgentActivityStream.mockReset();
     hookMocks.useAgentActivityStream.mockReturnValue({ status: "idle", snapshot: null, receivedAt: null, attempts: 0 });
     hookMocks.useAgentActivity.mockReset();
@@ -768,6 +805,8 @@ describe("AgentActivityPage live stream (phase 2)", () => {
   beforeEach(async () => {
     localStorage.clear();
     hookMocks.useAgentActivity.mockReset();
+    hookMocks.useActivityTrace.mockReset();
+    hookMocks.useActivityTrace.mockReturnValue(traceVM());
     hookMocks.useReducedMotion.mockReturnValue(false);
     await i18n.changeLanguage("pt-BR");
   });
@@ -806,5 +845,175 @@ describe("AgentActivityPage live stream (phase 2)", () => {
     hookMocks.useAgentActivityStream.mockReturnValue({ status: "reconnecting", snapshot: null, receivedAt: null, attempts: 1 });
     renderPage();
     expect(screen.getByTestId("activity-stream-status")).toHaveTextContent(/reconectando/i);
+  });
+});
+
+describe("AgentActivityPage traceability (phase 4)", () => {
+  const T = (minute: number) => new Date(Date.parse("2026-08-29T14:00:00Z") + minute * 60_000).toISOString();
+  const TIMELINE: ActivityTimeline = {
+    start: "2026-08-29T13:00:00Z",
+    end: "2026-08-29T15:00:00Z",
+    generated_at: "2026-08-29T15:00:00Z",
+    truncated: false,
+    lanes: [
+      {
+        agent_id: IDS.athos,
+        blocks: [
+          {
+            key: "turn:athos:t1", kind: "turn", start: T(0), end: T(5), platform: "telegram",
+            counterpart_kind: "owner", counterpart_ref: null, counterpart_agent_id: null, model: "m",
+            status: "completed", error_type: null, session_id: "s1", turn_id: "t1", message_number: null,
+            tools: [{ start: T(1), end: T(2), tool_name: "terminal", status: "ok", duration_ms: 60_000 }],
+            canonical_path: `/agents/${IDS.athos}`,
+          },
+        ],
+      },
+      {
+        agent_id: IDS.dartan,
+        blocks: [
+          {
+            key: "dispatch:m1", kind: "dispatch", start: T(10), end: T(20), platform: "messages",
+            counterpart_kind: "agent", counterpart_ref: null, counterpart_agent_id: IDS.athos, model: null,
+            status: "completed", error_type: null, session_id: null, turn_id: null, message_number: 9001,
+            tools: [], canonical_path: `/demands?message=${IDS.message}`,
+          },
+        ],
+      },
+    ],
+    messages: [
+      { id: IDS.message, number: 9001, at: T(9), from_agent_id: IDS.athos, target_agent_id: IDS.dartan,
+        subject: "handoff", canonical_path: `/demands?message=${IDS.message}` },
+    ],
+    events: [
+      { key: "runtime:2", occurred_at: T(5), agent_id: IDS.athos, profile: "athos", source: "runtime", kind: "turn_ended",
+        platform: "telegram", counterpart_kind: null, counterpart_ref: null, model: null, tool_name: null,
+        status: "failed", error_type: "provider_error", duration_ms: null, session_id: "s1", turn_id: "t1",
+        message_number: null, canonical_path: `/agents/${IDS.athos}` },
+      { key: "runtime:1", occurred_at: T(1), agent_id: IDS.athos, profile: "athos", source: "runtime", kind: "tool_started",
+        platform: "telegram", counterpart_kind: null, counterpart_ref: null, model: null, tool_name: "terminal",
+        status: null, error_type: null, duration_ms: null, session_id: "s1", turn_id: "t1",
+        message_number: null, canonical_path: `/agents/${IDS.athos}` },
+    ],
+  };
+
+  beforeEach(async () => {
+    localStorage.clear();
+    hookMocks.useAgentActivity.mockReset();
+    hookMocks.useAgentActivityStream.mockReturnValue({ status: "live", snapshot: null, receivedAt: null, attempts: 0 });
+    hookMocks.useReducedMotion.mockReturnValue(false);
+    await i18n.changeLanguage("pt-BR");
+  });
+
+  it("opens on the lanes: turns, tools, dispatches and messages between agents", () => {
+    const selectBlock = vi.fn();
+    const trace = traceVM({ timeline: TIMELINE, selectBlock });
+    hookMocks.useActivityTrace.mockReturnValue(trace);
+    renderPage();
+    const lanes = screen.getByRole("region", { name: "Raias" });
+    const turn = within(lanes).getByRole("button", { name: /Você · Telegram/ });
+    expect(turn).toHaveAttribute("aria-label", expect.stringMatching(/5 min$/));
+    expect(within(lanes).getByRole("button", { name: /Mensagem #9001 de Athos/ })).toBeInTheDocument();
+    expect(within(lanes).getByRole("button", { name: /Mensagem #9001: Athos → Dartan/ })).toBeInTheDocument();
+    fireEvent.click(turn);
+    expect(selectBlock).toHaveBeenCalledWith(IDS.athos, TIMELINE.lanes[0].blocks[0]);
+  });
+
+  it("shows a block's detail with its tools and canonical record", () => {
+    const setCursor = vi.fn();
+    hookMocks.useActivityTrace.mockReturnValue(
+      traceVM({ timeline: TIMELINE, setCursor, selectedBlock: { agentId: IDS.athos, block: TIMELINE.lanes[0].blocks[0] } }),
+    );
+    renderPage();
+    const detail = screen.getByRole("region", { name: "Detalhe" });
+    expect(detail).toHaveTextContent("terminal");
+    expect(detail).toHaveTextContent("Concluído");
+    fireEvent.click(within(detail).getByRole("button", { name: /Reproduzir daqui/ }));
+    expect(setCursor).toHaveBeenCalledWith(Date.parse(T(0)));
+    expect(within(detail).getByRole("button", { name: /Abrir agente/ })).toBeInTheDocument();
+  });
+
+  it("lists the events, filters failures, and moves the cursor on a row click", () => {
+    localStorage.setItem("forgehub:agent-activity:view:v1", "events");
+    const setCursor = vi.fn();
+    hookMocks.useActivityTrace.mockReturnValue(traceVM({ timeline: TIMELINE, setCursor }));
+    renderPage();
+    const table = screen.getByRole("region", { name: "Eventos" });
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    fireEvent.click(within(table).getByRole("radio", { name: "Falhas" }));
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toHaveTextContent("provider_error");
+    fireEvent.click(rows[1]);
+    expect(setCursor).toHaveBeenCalledWith(Date.parse(T(5)));
+  });
+
+  it("replays: the pulse and cards use the past frame, with a way back to live", () => {
+    localStorage.setItem("forgehub:agent-activity:main:v1", "cards");
+    const backToLive = vi.fn();
+    hookMocks.useActivityTrace.mockReturnValue(traceVM({
+      timeline: TIMELINE,
+      cursor: Date.parse(T(1)),
+      backToLive,
+      replaySnapshot: {
+        generated_at: T(1),
+        links: [],
+        pulse: {
+          agents_total: 2, agents_reporting: 2, agents_active: 1, agents_in_turn: 1, agents_degraded: 0,
+          turns_last_hour: 1, tools_last_hour: 1, failures_last_hour: 0, pending_total: 0,
+          llm_calls_last_hour: null, tokens_last_hour: null, cost_today: null, turns_per_minute: Array(60).fill(0),
+        },
+        agents: [{
+          agent_id: IDS.athos, spark: Array(12).fill(0), tokens_last_hour: 0, cost_today: 0,
+          live: {
+            state: "executing", since: T(1), source: "runtime", platform: "telegram", counterpart_kind: "owner",
+            counterpart_ref: null, model: "m", tool_name: "terminal", session_id: "s1", turn_id: "t1",
+            last_event_at: T(1), reason: null, message_number: null, turns_last_hour: 1, tools_last_hour: 1,
+            failures_last_hour: 0, pending_count: 0,
+          },
+        }],
+      },
+    }));
+    renderPage();
+    expect(screen.getByText(/Replay de/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("live-agent-cards")).getByText(/executando terminal/i)).toBeInTheDocument();
+    fireEvent.click(within(screen.getByText(/Replay de/).closest("[role=status]") as HTMLElement).getByRole("button", { name: /Ao vivo/ }));
+    expect(backToLive).toHaveBeenCalled();
+  });
+});
+
+describe("AgentActivityPage runtime alerts (phase 5)", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    hookMocks.useAgentActivity.mockReset();
+    hookMocks.useActivityTrace.mockReturnValue(traceVM());
+    hookMocks.useAgentActivityStream.mockReturnValue({ status: "live", snapshot: null, receivedAt: null, attempts: 0 });
+    hookMocks.useReducedMotion.mockReturnValue(false);
+    await i18n.changeLanguage("pt-BR");
+  });
+
+  it("lists a hung turn and a fatal Telegram adapter, critical first", () => {
+    const base = ACTIVITY_FIXTURE.incidents[0];
+    const runtimeAlert = (overrides: Partial<typeof base>) => ({
+      ...base,
+      execution_id: null, task_id: null, checkpoint_id: null, prior_attempts: [], related_records: [],
+      recommended_action: "open_agent" as const,
+      affected_agent_id: IDS.athos, canonical_path: `/agents/${IDS.athos}`,
+      ...overrides,
+    });
+    renderPage({
+      ...ACTIVITY_FIXTURE,
+      incidents: [
+        runtimeAlert({ key: "turn_stuck:a", kind: "turn_stuck", severity: "warning", title: "Athos: turn with no end for 12 min",
+                       error_code: "turn_stuck", occurred_at: "2026-08-29T17:31:00Z" }),
+        runtimeAlert({ key: "adapter_fatal:a", kind: "adapter_fatal", severity: "critical", title: "Athos: Telegram channel fatal",
+                       error_code: "telegram_fatal", occurred_at: "2026-08-29T17:00:00Z" }),
+      ],
+    } as AgentActivity);
+    const inbox = screen.getByRole("region", { name: /Caixa de severidade|Severidade|Incidentes/i });
+    const items = within(inbox).getAllByRole("button").filter((button) => /Athos:/.test(button.textContent ?? ""));
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining("Telegram channel fatal"),
+      expect.stringContaining("turn with no end"),
+    ]);
   });
 });

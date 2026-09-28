@@ -203,3 +203,84 @@ async def read_forgerouter_usage() -> list[ForgeRouterUsage]:
             ]
     finally:
         await engine.dispose()
+
+
+@dataclass(frozen=True)
+class ForgeRouterHealth:
+    """Per agent: recent provider errors and today's usage against its own recent days.
+
+    ``*_prev_avg`` is the mean over the 7 days before today (America/Sao_Paulo), counting
+    days with no calls as zero -- an agent that barely ran last week has a low baseline.
+    """
+
+    agent_name: str | None
+    errors_recent: int
+    last_error_type: str | None
+    last_error_at: datetime | None
+    tokens_today: int
+    tokens_prev_avg: float
+    cost_today: float
+    cost_prev_avg: float
+
+
+async def read_forgerouter_health(error_window_minutes: int = 15) -> list[ForgeRouterHealth]:
+    """Backs the Agent Activity alerts (phase 5): provider errors and usage out of pattern.
+    Aggregated in SQL; one short read."""
+    url = settings.db_url_for(
+        settings.FORGEROUTER_POSTGRES_HOST, settings.FORGEROUTER_POSTGRES_PORT, "forgerouter",
+        user=settings.FORGEROUTER_POSTGRES_USER,
+        password=settings.FORGEROUTER_POSTGRES_PASSWORD or settings.POSTGRES_PASSWORD,
+    )
+    engine = create_async_engine(url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        """
+                        WITH t AS (
+                            SELECT date_trunc('day', now() AT TIME ZONE 'America/Sao_Paulo')
+                                   AT TIME ZONE 'America/Sao_Paulo' AS day_start
+                        ),
+                        recent_errors AS (
+                            SELECT re.agent_id, re.error_type, re.status, re.created_at
+                            FROM ai_router.route_events re
+                            WHERE re.status <> 'success'
+                              AND re.created_at > now() - make_interval(mins => :error_window)
+                        )
+                        SELECT a.name,
+                               (SELECT count(*) FROM recent_errors e WHERE e.agent_id IS NOT DISTINCT FROM re_agg.agent_id),
+                               (SELECT coalesce(e.error_type, e.status) FROM recent_errors e
+                                 WHERE e.agent_id IS NOT DISTINCT FROM re_agg.agent_id
+                                 ORDER BY e.created_at DESC LIMIT 1),
+                               (SELECT max(e.created_at) FROM recent_errors e
+                                 WHERE e.agent_id IS NOT DISTINCT FROM re_agg.agent_id),
+                               re_agg.tokens_today, re_agg.tokens_prev / 7.0,
+                               re_agg.cost_today, re_agg.cost_prev / 7.0
+                        FROM (
+                            SELECT re.agent_id,
+                                   coalesce(sum(re.total_tokens) FILTER (WHERE re.created_at >= t.day_start), 0) AS tokens_today,
+                                   coalesce(sum(re.total_tokens) FILTER (WHERE re.created_at < t.day_start), 0) AS tokens_prev,
+                                   coalesce(sum(re.cost) FILTER (WHERE re.created_at >= t.day_start), 0) AS cost_today,
+                                   coalesce(sum(re.cost) FILTER (WHERE re.created_at < t.day_start), 0) AS cost_prev
+                            FROM ai_router.route_events re CROSS JOIN t
+                            WHERE re.created_at >= t.day_start - interval '7 days'
+                            GROUP BY re.agent_id
+                        ) re_agg
+                        LEFT JOIN ai_router.agents a ON a.agent_id = re_agg.agent_id
+                        """
+                    ),
+                    {"error_window": error_window_minutes},
+                )
+            ).fetchall()
+            return [
+                ForgeRouterHealth(
+                    agent_name=r[0], errors_recent=int(r[1] or 0), last_error_type=r[2],
+                    last_error_at=r[3], tokens_today=int(r[4] or 0),
+                    tokens_prev_avg=float(r[5] or 0), cost_today=float(r[6] or 0),
+                    cost_prev_avg=float(r[7] or 0),
+                )
+                for r in rows
+            ]
+    finally:
+        await engine.dispose()

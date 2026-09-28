@@ -1,13 +1,18 @@
-import { History, Rows3 } from "lucide-react";
+import { GanttChart, History, ListTree, Rows3 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
-export type ActivityOperationalView = "flow" | "history";
+export type ActivityOperationalView = "lanes" | "events" | "flow" | "history";
+const VIEWS: ActivityOperationalView[] = ["lanes", "events", "flow", "history"];
 export const ACTIVITY_VIEW_STORAGE_KEY = "forgehub:agent-activity:view:v1";
 
 export function readActivityView(): ActivityOperationalView {
-  const saved = window.localStorage.getItem(ACTIVITY_VIEW_STORAGE_KEY);
-  return saved === "history" ? "history" : "flow";
+  try {
+    const saved = window.localStorage.getItem(ACTIVITY_VIEW_STORAGE_KEY);
+    return VIEWS.find((view) => view === saved) ?? "lanes";
+  } catch {
+    return "lanes";
+  }
 }
 
 export function ActivityViewSwitch({
@@ -19,17 +24,23 @@ export function ActivityViewSwitch({
 }) {
   const { t } = useTranslation("agentActivity");
   const options = [
+    { value: "lanes" as const, icon: GanttChart },
+    { value: "events" as const, icon: ListTree },
     { value: "flow" as const, icon: Rows3 },
     { value: "history" as const, icon: History },
   ];
 
   const select = (next: ActivityOperationalView) => {
-    window.localStorage.setItem(ACTIVITY_VIEW_STORAGE_KEY, next);
+    try {
+      window.localStorage.setItem(ACTIVITY_VIEW_STORAGE_KEY, next);
+    } catch {
+      // Private mode / blocked storage: the choice just isn't remembered.
+    }
     onChange(next);
   };
 
   return (
-    <div role="tablist" aria-label={t("views.label")} className="inline-flex rounded-md border border-border bg-card p-0.5">
+    <div role="tablist" aria-label={t("views.label")} className="inline-flex flex-wrap rounded-md border border-border bg-card p-0.5">
       {options.map((option) => {
         const Icon = option.icon;
         const selected = value === option.value;

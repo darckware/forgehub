@@ -78,7 +78,9 @@
   "views": {
     "label": "Operational view",
     "flow": "Current flow",
-    "history": "History"
+    "history": "History",
+    "lanes": "Lanes",
+    "events": "Events"
   },
   "flow": {
     "title": "Current flow",
@@ -272,5 +274,114 @@
       "agent": "Agent to agent",
       "forgerouter": "ForgeRouter"
     }
+  },
+  "trace": {
+    "title": "Lanes",
+    "window": "Window",
+    "preset": {
+      "1h": "1 h",
+      "2h": "2 h",
+      "6h": "6 h",
+      "24h": "24 h",
+      "custom": "Range"
+    },
+    "start": "Start",
+    "end": "End",
+    "rangeError": {
+      "order": "Start must be before end.",
+      "tooWide": "The window is limited to 24 hours.",
+      "invalid": "Enter a start and an end."
+    },
+    "play": "Play",
+    "pause": "Pause",
+    "live": "Live",
+    "empty": "No activity recorded in this window.",
+    "cursorLabel": "Replay instant (click or use the arrow keys)",
+    "legend": "Lanes legend",
+    "legendFailed": "Failed or abandoned",
+    "legendTool": "Tool",
+    "legendDispatch": "Run through Messages",
+    "message": "Message #{{number}}: {{from}} → {{to}}",
+    "block": {
+      "turn": "{{who}} · {{channel}}",
+      "dispatch": "Message #{{number}} from {{from}}",
+      "workspace": "You · Workspace"
+    },
+    "kind": {
+      "turn": "Runtime turn",
+      "dispatch": "Run through Messages",
+      "workspace": "Workspace turn"
+    },
+    "status": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "abandoned": "Abandoned",
+      "open": "In progress",
+      "running": "In progress",
+      "dispatched": "Dispatched",
+      "ok": "OK",
+      "error": "Error",
+      "cancelled": "Cancelled"
+    },
+    "detail": {
+      "title": "Detail",
+      "kind": "Kind",
+      "start": "Start",
+      "end": "End",
+      "open": "in progress",
+      "duration": "Duration",
+      "status": "Status",
+      "error": "Error",
+      "session": "Session",
+      "close": "Close detail",
+      "tools_one": "{{count}} tool",
+      "tools_other": "{{count}} tools"
+    },
+    "replayFromHere": "Replay from here",
+    "openMessage": "Open message",
+    "openWorkspace": "Open Workspace",
+    "openAgent": "Open agent",
+    "replaying": "Replay at {{time}}",
+    "replayNote": "State rebuilt from the records. Queue and cost have no history and are left out.",
+    "replayLoading": "Loading that instant…",
+    "events": {
+      "title": "Events",
+      "count_one": "{{count}} record",
+      "count_other": "{{count}} records",
+      "filter": "Filter events",
+      "empty": "No events for this filter.",
+      "truncated": "Showing the 2,000 newest records in the window; narrow the range to see the rest.",
+      "open": "Open record",
+      "filters": {
+        "all": "All",
+        "turns": "Turns",
+        "tools": "Tools",
+        "messages": "Messages",
+        "failures": "Failures"
+      },
+      "columns": {
+        "time": "When",
+        "agent": "Agent",
+        "event": "Event",
+        "channel": "Channel",
+        "detail": "Detail",
+        "status": "Status",
+        "record": "Record"
+      },
+      "kind": {
+        "turn_started": "Turn started",
+        "turn_ended": "Turn ended",
+        "tool_started": "Tool started",
+        "tool_ended": "Tool finished",
+        "session_started": "Session started",
+        "dispatch_started": "Run started",
+        "dispatch_completed": "Run completed",
+        "dispatch_failed": "Run failed",
+        "message_sent": "Message sent",
+        "workspace_turn": "Workspace turn"
+      }
+    },
+    "onlyAgent": "Only {{name}} · show all"
   }
 }

@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.agent_activity import (
@@ -36,6 +36,7 @@ from app.api.schemas.agent_activity import (
     AgentLiveSnapshotOut,
 )
 from app.core.agent_activity import load_live_states
+from app.core.agent_activity_timeline import dispatch_interval
 from app.core.agent_live_state import LiveState, is_on_demand_runtime
 from app.db.models.active_turn import ActiveTurn
 from app.core.forgerouter_sync import ForgeRouterUsage, read_forgerouter_usage
@@ -119,11 +120,13 @@ async def build_links(
     now: datetime,
     agent_ids: set[uuid.UUID],
     live_states: dict[uuid.UUID, LiveState],
+    historical: bool = False,
 ) -> list[ActivityLinkOut]:
     """Recent interactions per (source, agent, channel), newest activity wins.
 
     ``active`` means "happening right now": the agent's open turn is on that channel and
     counterpart, a Workspace turn is running, or a Messages dispatch is in flight.
+    ``historical`` (replay): ``now`` is a past instant; "running" means running then.
     """
     since = now - LINK_WINDOW
     links: dict[str, ActivityLinkOut] = {}
@@ -144,6 +147,7 @@ async def build_links(
             select(AgentActivityEvent).where(
                 AgentActivityEvent.kind == "turn_started",
                 AgentActivityEvent.occurred_at >= since,
+                (AgentActivityEvent.occurred_at <= now) if historical else true(),
                 AgentActivityEvent.agent_id.in_(agent_ids),
             )
         )
@@ -168,26 +172,44 @@ async def build_links(
         await db.execute(
             select(ActiveTurn).where(
                 ActiveTurn.agent_id.in_(agent_ids),
+                (ActiveTurn.created_at <= now) if historical else true(),
                 (ActiveTurn.status == "running") | (ActiveTurn.updated_at >= since),
             )
         )
     ).scalars()
     for turn in workspace_turns:
+        ended = None if turn.status == "running" else (turn.finished_at or turn.updated_at)
+        if historical and ended is not None and ended < since:
+            continue
+        running = ended is None or (historical and ended > now)
         upsert(ActivityLinkOut(
             key=f"workspace:{turn.agent_id}", kind="workspace", source_type="owner",
-            target_agent_id=turn.agent_id, channel="workspace", active=turn.status == "running",
-            last_at=turn.finished_at or turn.updated_at or turn.created_at,
+            target_agent_id=turn.agent_id, channel="workspace", active=running,
+            last_at=now if running and historical else (ended or turn.updated_at or turn.created_at),
         ))
 
     demands = (
         await db.execute(
             select(AgentDemand).where(
                 AgentDemand.target_agent_id.in_(agent_ids),
+                (AgentDemand.created_at <= now) if historical else true(),
                 (AgentDemand.dispatch_status.in_(("dispatched", "running"))) | (AgentDemand.updated_at >= since),
             )
         )
     ).scalars()
     for demand in demands:
+        active = demand.dispatch_status in ("dispatched", "running")
+        last_at = demand.updated_at
+        if historical:
+            began, finished = dispatch_interval(demand)
+            if began is not None and began <= now and (finished is None or finished > now):
+                active, last_at = True, now
+            elif began is not None and began <= now and finished is not None and finished >= since:
+                active, last_at = False, finished
+            elif since <= demand.created_at <= now:
+                active, last_at = False, demand.created_at
+            else:
+                continue
         from_agent = demand.from_agent_id if demand.from_agent_id in agent_ids else None
         if from_agent == demand.target_agent_id:
             from_agent = None  # self-addressed work reads as the system handing it over
@@ -196,25 +218,30 @@ async def build_links(
             key=f"message:{from_agent or source}:{demand.target_agent_id}",
             kind="message", source_type=source, source_agent_id=from_agent,
             target_agent_id=demand.target_agent_id, channel="messages",
-            active=demand.dispatch_status in ("dispatched", "running"),
-            last_at=demand.updated_at, message_number=demand.number,
+            active=active, last_at=last_at, message_number=demand.number,
         ))
 
     return sorted(links.values(), key=lambda link: link.last_at, reverse=True)
 
 
-async def build_live_snapshot(db: AsyncSession, *, now: datetime | None = None) -> AgentLiveSnapshotOut:
+async def build_live_snapshot(
+    db: AsyncSession, *, now: datetime | None = None, historical: bool = False
+) -> AgentLiveSnapshotOut:
+    """One live frame. ``historical`` (replay, phase 4): the frame as it stood at ``now``,
+    a past instant -- every read bounded at it; ForgeRouter usage and queue counts, which
+    have no recorded past, are left out (shown as "—"/0) rather than borrowed from today."""
     now = now or datetime.now(timezone.utc)
     agents = list(
         (await db.execute(select(Agent).where(Agent.is_active.is_(True)).order_by(Agent.name))).scalars()
     )
-    live_states = await load_live_states(db, agents, now=now)
+    live_states = await load_live_states(db, agents, now=now, historical=historical)
 
     hour_ago = now - timedelta(hours=1)
     rows = (
         await db.execute(
             select(AgentActivityEvent.agent_id, AgentActivityEvent.occurred_at).where(
                 AgentActivityEvent.occurred_at >= hour_ago,
+                (AgentActivityEvent.occurred_at <= now) if historical else true(),
                 AgentActivityEvent.kind.in_(("turn_started", "tool_started")),
             )
         )
@@ -225,15 +252,21 @@ async def build_live_snapshot(db: AsyncSession, *, now: datetime | None = None) 
     all_turn_times = (
         await db.execute(
             select(AgentActivityEvent.occurred_at).where(
-                AgentActivityEvent.occurred_at >= hour_ago, AgentActivityEvent.kind == "turn_started"
+                AgentActivityEvent.occurred_at >= hour_ago,
+                (AgentActivityEvent.occurred_at <= now) if historical else true(),
+                AgentActivityEvent.kind == "turn_started",
             )
         )
     ).scalars().all()
     reporting_agents = (
-        await db.execute(select(func.count(func.distinct(AgentActivityEvent.agent_id))))
+        await db.execute(
+            select(func.count(func.distinct(AgentActivityEvent.agent_id))).where(
+                AgentActivityEvent.occurred_at <= now
+            )
+        )
     ).scalar_one()
 
-    usage = await _cached_forgerouter_usage()
+    usage = None if historical else await _cached_forgerouter_usage()
     usage_by_name = {(u.agent_name or "").casefold(): u for u in usage or []}
 
     items: list[AgentLiveSnapshotItemOut] = []
@@ -274,6 +307,7 @@ async def build_live_snapshot(db: AsyncSession, *, now: datetime | None = None) 
         ),
     )
     links = await build_links(
-        db, now=now, agent_ids={item.agent_id for item in items}, live_states=live_states
+        db, now=now, agent_ids={item.agent_id for item in items}, live_states=live_states,
+        historical=historical,
     )
     return AgentLiveSnapshotOut(generated_at=now, agents=items, pulse=pulse, links=links)
