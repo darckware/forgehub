@@ -1338,7 +1338,8 @@ async def _execute_dispatch(
     # Contingency bookkeeping (2026-08-13): every dispatch carries a deadline
     # and counts as an attempt, so a run that hangs can be failed by the
     # timeout sweep and a message that keeps failing can stop being retried.
-    demand.dispatch_deadline_at = datetime.now(timezone.utc) + timedelta(
+    demand.dispatched_at = datetime.now(timezone.utc)
+    demand.dispatch_deadline_at = demand.dispatched_at + timedelta(
         minutes=DISPATCH_TIMEOUT_MINUTES
     )
     demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1

@@ -2268,6 +2268,25 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
     image_paths: list[str] | None = None
+    # Where the conversation comes from when it isn't this host (e.g. "site" for
+    # darckware's Lara chat). The turn runs in <profile>/channels/<channel>, and that cwd
+    # travels in every Hermes activity webhook -- the only field of the hook payload a
+    # caller can set -- so ForgeHub records a site visitor as a site visitor, not as the
+    # operator at a terminal (2026-09-28).
+    channel: str | None = None
+
+
+CHAT_CHANNEL_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+def _chat_cwd(profile: str, channel: str | None) -> str:
+    if not channel:
+        return str(Path.home())
+    if not CHAT_CHANNEL_RE.match(channel):
+        raise HTTPException(status_code=400, detail=f"Invalid channel: {channel!r}")
+    path = PROFILES_DIR / profile / "channels" / channel
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
 
 
 class ChatResponse(BaseModel):
@@ -2310,7 +2329,7 @@ def _run_hermes_chat(
             capture_output=True,
             text=True,
             timeout=CHAT_TIMEOUT_SECONDS,
-            cwd=str(Path.home()),
+            cwd=_chat_cwd(req.profile, req.channel),
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Agent did not respond in time") from None

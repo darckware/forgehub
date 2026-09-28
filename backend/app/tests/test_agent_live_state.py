@@ -116,6 +116,20 @@ def test_normalize_keeps_no_conversation_content():
     assert normalize_hermes_hook({**body, "hook_event_name": "transform_llm_output"}, home_chat=None) is None
 
 
+def test_site_channel_turn_is_a_visitor_not_the_operator():
+    body = {
+        "hook_event_name": "pre_llm_call", "profile": "lara", "session_id": "s1",
+        "cwd": "/root/.hermes/profiles/lara/channels/site",
+        "extra": {"turn_id": "t1", "platform": "cli", "sender_id": "", "model": "m"},
+        "delivery_id": "d-site", "timestamp": "2026-09-28T12:00:00+00:00",
+    }
+    values = normalize_hermes_hook(body, home_chat=None)
+    assert values["platform"] == "site" and values["counterpart_kind"] == "human"
+    # An ordinary terminal turn is still the operator.
+    plain = normalize_hermes_hook({**body, "cwd": "/root"}, home_chat=None)
+    assert plain["platform"] == "cli" and plain["counterpart_kind"] == "owner"
+
+
 def test_signature_check():
     body = b'{"a": 1}'
     sig = "sha256=" + hmac.new(b"k", body, hashlib.sha256).hexdigest()

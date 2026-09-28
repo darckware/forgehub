@@ -210,7 +210,8 @@
       "subagent": "Subagente",
       "tool": "ForgeHub",
       "api_server": "API",
-      "messages": "Messages"
+      "messages": "Messages",
+      "site": "Site darckware"
     }
   },
   "pulse": {

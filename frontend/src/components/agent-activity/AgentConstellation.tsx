@@ -5,6 +5,7 @@ import {
   Bot,
   Clock,
   Cpu,
+  Globe,
   Mail,
   MessageCircle,
   Monitor,
@@ -50,6 +51,7 @@ const CHANNEL_ICON: Record<string, LucideIcon> = {
   messages: Mail,
   kanban: Workflow,
   subagent: Bot,
+  site: Globe,
 };
 
 const OUTER_ICON: Record<OuterNodeKind, LucideIcon> = {

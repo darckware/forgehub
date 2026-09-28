@@ -416,6 +416,12 @@ class AgentDemand(Base, TimestampMixin):
     dispatch_deadline_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # When the latest dispatch actually started (2026-09-28). The deadline above is
+    # cleared once the run ends, so without this a finished run had an end
+    # (task_execution_at) but no start -- and Agent Activity's per-agent lanes and replay
+    # could not draw how long an agent spent on a message. Rows dispatched before this
+    # column existed fall back to scheduled_at there.
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # How many times this message has been dispatched, counting the first.
     # Reprocessing a failure increments it; at DISPATCH_MAX_ATTEMPTS the
     # message is considered exhausted and the UI stops offering the retry,

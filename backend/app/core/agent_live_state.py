@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Literal
@@ -50,6 +51,12 @@ ON_DEMAND_RUNTIMES = {"claude", "codex", "agy", "openclaw"}
 def is_on_demand_runtime(runtime_type: str | None) -> bool:
     return (runtime_type or "").lower() in ON_DEMAND_RUNTIMES
 
+
+# A turn the host-bridge ran for an outside channel (``/v1/chat`` with ``channel``, e.g.
+# darckware's site chat with Lara) runs in ``<profile>/channels/<channel>``; the hook payload's
+# ``cwd`` is the only field such a caller can set, so it is how the channel is recognised.
+# Whoever is on the other side of such a channel is a visitor, never the operator.
+CHANNEL_CWD_RE = re.compile(r"/channels/([a-z][a-z0-9_-]{0,31})/?$")
 
 TURN_STALE_MINUTES = 30
 CONVERSING_WINDOW = timedelta(minutes=2)
@@ -115,11 +122,17 @@ def normalize_hermes_hook(body: dict[str, Any], *, home_chat: str | None) -> dic
     extra = body.get("extra") if isinstance(body.get("extra"), dict) else {}
     platform = _clip(extra.get("platform"), 40)
     platform = platform.lower() if platform else None
+    channel = CHANNEL_CWD_RE.search(str(body.get("cwd") or ""))
+    if channel:
+        platform = channel.group(1)
     counterpart_kind, counterpart_ref = (None, None)
     if kind in ("turn_started", "session_started"):
-        counterpart_kind, counterpart_ref = classify_counterpart(
-            platform, _clip(extra.get("sender_id"), 128), home_chat
-        )
+        if channel:
+            counterpart_kind = "human"
+        else:
+            counterpart_kind, counterpart_ref = classify_counterpart(
+                platform, _clip(extra.get("sender_id"), 128), home_chat
+            )
 
     status = None
     error_type = None
