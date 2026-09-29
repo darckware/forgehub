@@ -76,7 +76,7 @@ PROFILES_DIR = Path("/root/.hermes/profiles")
 PROFILE_NAME_RE = re.compile(r"^[a-z0-9_-]+$")
 
 CHAT_TIMEOUT_SECONDS = 600
-SESSION_ID_RE = re.compile(r"session_id:\s*(\S+)")
+HERMES_CLI_SESSION_ID_RE = re.compile(r"session_id:\s*(\S+)")
 
 # stream_id (minted by hermes_stream.py per request, see its --stream-id-less
 # self-generated id) -> the live subprocess, so POST /v1/chat/approve can
@@ -2345,7 +2345,7 @@ def _run_hermes_chat(
     ]
     reply = "\n".join(reply_lines).strip()
 
-    session_match = SESSION_ID_RE.search(proc.stderr)
+    session_match = HERMES_CLI_SESSION_ID_RE.search(proc.stderr)
     session_id = session_match.group(1) if session_match else req.session_id
 
     return ChatResponse(reply=reply, session_id=session_id)
