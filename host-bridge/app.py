@@ -2268,6 +2268,10 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
     image_paths: list[str] | None = None
+    # Optional per-turn toolset allowlist. The Darckware external-channel
+    # adapter uses `no_mcp` until identity and authorization have been proven;
+    # Telegram's internal flow can omit this field.
+    toolsets: list[str] | None = None
     # Where the conversation comes from when it isn't this host (e.g. "site" for
     # darckware's Lara chat). The turn runs in <profile>/channels/<channel>, and that cwd
     # travels in every Hermes activity webhook -- the only field of the hook payload a
@@ -2277,6 +2281,7 @@ class ChatRequest(BaseModel):
 
 
 CHAT_CHANNEL_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+CHAT_TOOLSET_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 def _chat_cwd(profile: str, channel: str | None) -> str:
@@ -2306,6 +2311,12 @@ def _run_hermes_chat(
         "hermes_cli.main",
         "-p",
         req.profile,
+    ]
+    if req.toolsets:
+        if not all(CHAT_TOOLSET_RE.fullmatch(toolset) for toolset in req.toolsets):
+            raise HTTPException(status_code=400, detail="Invalid toolset name")
+        args += ["-t", ",".join(req.toolsets)]
+    args += [
         "chat",
         "-q",
         req.message,
