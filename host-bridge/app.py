@@ -2365,7 +2365,10 @@ def _run_hermes_chat(
 @app.post("/v1/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, x_bridge_token: str | None = Header(default=None)) -> ChatResponse:
     _check_token(x_bridge_token)
-    return _run_hermes_chat(req)
+    # A Hermes run can take up to CHAT_TIMEOUT_SECONDS; running it inline
+    # froze the whole event loop (terminal WebSockets, health, every other
+    # route) for that long -- 2026-10-01 a Darckware triage call held it ~7min.
+    return await asyncio.to_thread(_run_hermes_chat, req)
 
 
 @app.post("/v1/audit/remediate", response_model=ChatResponse)
@@ -2376,7 +2379,7 @@ async def audit_remediate(
     _check_token(x_bridge_token)
     if req.profile != "athos":
         raise HTTPException(status_code=400, detail="Audit remediation must use the athos profile")
-    return _run_hermes_chat(req, autonomous_remediation=True)
+    return await asyncio.to_thread(_run_hermes_chat, req, autonomous_remediation=True)
 
 
 class MessageSendRequest(BaseModel):
@@ -2477,7 +2480,8 @@ async def send_message(
         profile_home = PROFILES_DIR / req.profile
         cmd += ["--profile-home", str(profile_home)]
     try:
-        proc = subprocess.run(
+        proc = await asyncio.to_thread(
+            subprocess.run,
             cmd,
             capture_output=True,
             text=True,
@@ -3138,7 +3142,8 @@ async def chat_with_image(
         dests.append(dest)
 
     try:
-        return _run_hermes_chat(
+        return await asyncio.to_thread(
+            _run_hermes_chat,
             ChatRequest(
                 profile=profile,
                 message=message,
@@ -4296,6 +4301,29 @@ def _tmux(*args: str, timeout: int = 10) -> subprocess.CompletedProcess:
     return subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
 
 
+def _tmux_new_session(*args: str) -> subprocess.CompletedProcess:
+    """`tmux new-session` wrapped in its own transient systemd scope.
+
+    Whichever tmux command first finds no server running forks the server,
+    and that server inherits the caller's cgroup. This service runs with
+    KillMode=control-group, so a server started from here used to die on
+    every bridge restart, killing every terminal session (and the CLI
+    agents running inside them) along with it. Run inside a scope, the
+    server lives outside the service's cgroup and survives restarts. If a
+    server is already running, the client just exits and systemd collects
+    the empty scope. If systemd-run fails, fall back to plain tmux so a
+    terminal still opens.
+    """
+    result = subprocess.run(
+        ["systemd-run", "--scope", "--quiet", "--collect",
+         "--description=ForgeHub terminal tmux server", "tmux", *args],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0 and not _tmux_session_exists(args[args.index("-s") + 1]):
+        return _tmux(*args)
+    return result
+
+
 def _tmux_session_exists(name: str) -> bool:
     return _tmux("has-session", "-t", name).returncode == 0
 
@@ -4495,7 +4523,7 @@ async def terminal_ws(
     if is_new:
         # -c sets the pane's starting directory directly (no typed `cd`
         # needed, so no risk of it ever flashing on screen on first attach).
-        _tmux("new-session", "-d", "-s", session_name, "-x", str(initial_cols), "-y", str(initial_rows), "-c", cwd or home)
+        _tmux_new_session("-d", "-s", session_name, "-x", str(initial_cols), "-y", str(initial_rows), "-c", cwd or home)
         # Without this, the mouse wheel/scrollbar over the pane does nothing --
         # tmux owns the pane's scrollback itself (it's not exposed through
         # xterm.js's native viewport), and only enters copy-mode to scroll it
@@ -5179,7 +5207,8 @@ async def create_hermes_backup(
     # Control, applies the same rule -- see its own comment).
     archive_name = req.archive_name or f"hermes-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
     archive_path = backup_dir / archive_name
-    result = subprocess.run(
+    result = await asyncio.to_thread(
+        subprocess.run,
         ["tar", "-czf", str(archive_path), "-C", str(source.parent), source.name],
         capture_output=True,
         text=True,
