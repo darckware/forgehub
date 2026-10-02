@@ -186,23 +186,22 @@ def main() -> None:
     cwd = args.cwd if args.cwd and os.path.isdir(args.cwd) else args.profile_home
     os.chdir(cwd)
 
-    stream_id = str(uuid.uuid4())
-    _emit({"stream_id": stream_id})
-
     try:
         from cli import HermesCLI  # type: ignore
+        from tools.approval import register_gateway_notify, unregister_gateway_notify
+        from tools.approval_context import reset_current_session_key, set_current_session_key
     except Exception as exc:
         _emit({"error": f"import failed: {exc}"})
         return
 
+    # Hermes may relaunch this script while importing cli to finish a source
+    # update. Announce the ID only after imports complete, so the bridge and
+    # approval callback never refer to different process generations.
+    stream_id = str(uuid.uuid4())
+    _emit({"stream_id": stream_id})
+
     session_key_token = None
     try:
-        from tools.approval import (
-            register_gateway_notify,
-            unregister_gateway_notify,
-        )
-        from tools.approval_context import reset_current_session_key, set_current_session_key
-
         cli_inst = HermesCLI(resume=args.session_id)
         cli_inst.tool_progress_mode = "off"  # keep the CLI's own print()s out of our JSON-line stdout
 

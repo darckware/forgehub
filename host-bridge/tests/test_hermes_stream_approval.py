@@ -6,6 +6,27 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 
+def test_stream_id_is_not_emitted_before_hermes_import_completes(monkeypatch, tmp_path):
+    stream_path = Path(__file__).resolve().parents[1] / "hermes_stream.py"
+    spec = importlib.util.spec_from_file_location("hermes_stream_import_test", stream_path)
+    stream = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stream)
+
+    # Hermes can restart this script while importing cli to finish a source
+    # update. An ID announced before that restart belongs to the old process.
+    cli = ModuleType("cli")
+    monkeypatch.setitem(sys.modules, "cli", cli)
+    events = []
+    monkeypatch.setattr(stream, "_emit", events.append)
+    monkeypatch.setattr(sys, "argv", ["hermes_stream.py", "--profile-home", str(tmp_path), "--message", "Oi"])
+    monkeypatch.chdir(tmp_path)
+
+    stream.main()
+
+    assert all("stream_id" not in event for event in events)
+    assert events[-1].get("error", "").startswith("import failed:")
+
+
 def test_stream_binds_approval_session_with_current_hermes_api(monkeypatch, tmp_path):
     stream_path = Path(__file__).resolve().parents[1] / "hermes_stream.py"
     spec = importlib.util.spec_from_file_location("hermes_stream_approval_test", stream_path)
