@@ -5659,6 +5659,27 @@ HERMES_HOME_DIR = Path.home() / ".hermes"
 HERMES_PROFILES_DIR = HERMES_HOME_DIR / "profiles"
 
 
+def _hindsight_container_env() -> dict[str, str] | None:
+    """Read the running daemon's env without returning it through the API."""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{json .Config.Env}}", "hindsight"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        variables = json.loads(result.stdout)
+        if not isinstance(variables, list):
+            return None
+        return {
+            key: value
+            for item in variables if isinstance(item, str) and "=" in item
+            for key, _, value in [item.partition("=")]
+        }
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+
+
 def _read_json_file(path: Path) -> dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -5812,16 +5833,25 @@ async def hindsight_status(x_bridge_token: str | None = Header(default=None)) ->
     env_path = HINDSIGHT_PROFILE_DIR / f"{primary_profile}.env" if primary_profile else None
     env = _read_env_file(env_path) if env_path else {}
 
-    llm = {
-        "provider": config.get("llm_provider") or env.get("HINDSIGHT_API_LLM_PROVIDER"),
-        "model": config.get("llm_model") or env.get("HINDSIGHT_API_LLM_MODEL"),
-        "base_url": config.get("llm_base_url") or env.get("HINDSIGHT_API_LLM_BASE_URL"),
-        "api_key_present": bool(
-            config.get("llm_api_key")
-            or env.get("HINDSIGHT_API_LLM_API_KEY")
-            or os.environ.get("HINDSIGHT_LLM_API_KEY")
-        ),
-    }
+    runtime_env = _hindsight_container_env()
+    if runtime_env is not None:
+        llm = {
+            "provider": runtime_env.get("HINDSIGHT_API_LLM_PROVIDER"),
+            "model": runtime_env.get("HINDSIGHT_API_LLM_MODEL"),
+            "base_url": runtime_env.get("HINDSIGHT_API_LLM_BASE_URL"),
+            "api_key_present": bool(runtime_env.get("HINDSIGHT_API_LLM_API_KEY")),
+        }
+    else:
+        llm = {
+            "provider": config.get("llm_provider") or env.get("HINDSIGHT_API_LLM_PROVIDER"),
+            "model": config.get("llm_model") or env.get("HINDSIGHT_API_LLM_MODEL"),
+            "base_url": config.get("llm_base_url") or env.get("HINDSIGHT_API_LLM_BASE_URL"),
+            "api_key_present": bool(
+                config.get("llm_api_key")
+                or env.get("HINDSIGHT_API_LLM_API_KEY")
+                or os.environ.get("HINDSIGHT_LLM_API_KEY")
+            ),
+        }
 
     connection = {
         "mode": config.get("mode") or os.environ.get("HINDSIGHT_MODE") or "cloud",
