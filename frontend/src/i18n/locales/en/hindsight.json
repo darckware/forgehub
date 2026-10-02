@@ -128,6 +128,27 @@
     "noLines": "No log lines."
   },
   "databaseControlAnalysis": "Database Control Analysis",
+  "retention": {
+    "title": "Retention and compaction",
+    "description": "Older memories leave active recall after their facts are saved in the Knowledge Base. Protected documents are preserved.",
+    "openKnowledgeBase": "Open Knowledge Base",
+    "reviewStage": "Review",
+    "afterDays": "After {{days}} days",
+    "reviewDetail": "Flags older documents for review.",
+    "compactStage": "Compaction",
+    "compactDetail": "Active facts go to share/hindsight in the Knowledge Base; the document leaves Hindsight.",
+    "recoveryStage": "Recovery",
+    "forDays": "For {{days}} days",
+    "recoveryDetail": "A compressed copy of the original remains available before final deletion.",
+    "reviewCount": "For review: {{count}}",
+    "eligibleCount": "Eligible: {{count}}",
+    "protectedCount": "Protected: {{count}}",
+    "compactedCount": "Compacted in last run: {{count}}",
+    "discontinuedCount": "Discontinued topics: {{count}}",
+    "errorCount": "Failures: {{count}}",
+    "checkedAt": "Checked {{date}}",
+    "awaitingReport": "Waiting for the first retention scan. No documents were removed."
+  },
   "common": {
     "yes": "Yes",
     "no": "No",

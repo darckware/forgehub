@@ -128,6 +128,27 @@
     "noLines": "Nenhuma linha de log."
   },
   "databaseControlAnalysis": "Análise de Controle do Banco de Dados",
+  "retention": {
+    "title": "Retenção e compactação",
+    "description": "Memórias antigas saem da busca ativa após seus fatos serem salvos na Base de Conhecimento. Documentos protegidos são preservados.",
+    "openKnowledgeBase": "Abrir Base de Conhecimento",
+    "reviewStage": "Revisão",
+    "afterDays": "Após {{days}} dias",
+    "reviewDetail": "Identifica documentos antigos para acompanhamento.",
+    "compactStage": "Compactação",
+    "compactDetail": "Fatos ativos vão para share/hindsight na Base de Conhecimento; o documento sai do Hindsight.",
+    "recoveryStage": "Recuperação",
+    "forDays": "Por {{days}} dias",
+    "recoveryDetail": "Uma cópia comprimida do original fica disponível antes da exclusão definitiva.",
+    "reviewCount": "Em revisão: {{count}}",
+    "eligibleCount": "Elegíveis: {{count}}",
+    "protectedCount": "Protegidos: {{count}}",
+    "compactedCount": "Compactados na última execução: {{count}}",
+    "discontinuedCount": "Assuntos descontinuados: {{count}}",
+    "errorCount": "Falhas: {{count}}",
+    "checkedAt": "Verificado em {{date}}",
+    "awaitingReport": "Aguardando a primeira análise de retenção. Nenhum documento foi removido."
+  },
   "common": {
     "yes": "Sim",
     "no": "Não",

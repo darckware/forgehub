@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Hindsight retention and Knowledge Base compaction daily
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=forgehub-hindsight-retention.service
+
+[Install]
+WantedBy=timers.target

@@ -63,6 +63,7 @@ from nexo_builds import build_agent, inspect_source
 from agent_runtime import resolve_runtime_executable, validate_working_directory
 from vpn_control import VpnControl, VpnPolicyError
 from remote_fs import make_remote_fs_router
+from hindsight_retention import read_status as read_hindsight_retention_status
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
 HERMES_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
@@ -5889,6 +5890,7 @@ async def hindsight_status(x_bridge_token: str | None = Header(default=None)) ->
 
     recording_configured = bool(active_profiles) and memory_flow["auto_retain"] is not False
     return {
+        "retention": read_hindsight_retention_status(),
         "summary": {
             "configured": bool(active_profiles),
             "daemon_active": bool(probe.get("ok")),

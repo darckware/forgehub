@@ -15,6 +15,22 @@ export interface HindsightProfile {
 }
 
 export interface HindsightStatus {
+  retention: {
+    checked_at: string;
+    review_days: number;
+    compact_days: number;
+    recovery_days: number;
+    mode: "preview" | "apply";
+    total_documents: number;
+    review_count: number;
+    eligible_count: number;
+    protected_count: number;
+    compacted_count: number;
+    purged_count: number;
+    error_count: number;
+    discontinued_topics_count: number;
+    discarded_topics_count: number;
+  } | null;
   summary: {
     configured: boolean;
     daemon_active: boolean;

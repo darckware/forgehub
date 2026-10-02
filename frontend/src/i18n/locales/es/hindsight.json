@@ -1,4 +1,25 @@
 {
+  "retention": {
+    "title": "Retención y compactación",
+    "description": "Las memorias antiguas salen de la búsqueda activa después de guardar sus hechos en la Base de Conocimiento. Se conservan los documentos protegidos.",
+    "openKnowledgeBase": "Abrir Base de Conocimiento",
+    "reviewStage": "Revisión",
+    "afterDays": "Después de {{days}} días",
+    "reviewDetail": "Identifica documentos antiguos para revisión.",
+    "compactStage": "Compactación",
+    "compactDetail": "Los hechos activos van a share/hindsight en la Base de Conocimiento; el documento sale de Hindsight.",
+    "recoveryStage": "Recuperación",
+    "forDays": "Durante {{days}} días",
+    "recoveryDetail": "Se conserva una copia comprimida del original antes de su eliminación definitiva.",
+    "reviewCount": "En revisión: {{count}}",
+    "eligibleCount": "Elegibles: {{count}}",
+    "protectedCount": "Protegidos: {{count}}",
+    "compactedCount": "Compactados en la última ejecución: {{count}}",
+    "discontinuedCount": "Temas descontinuados: {{count}}",
+    "errorCount": "Errores: {{count}}",
+    "checkedAt": "Verificado el {{date}}",
+    "awaitingReport": "Esperando el primer análisis de retención. No se eliminó ningún documento."
+  },
   "tabs": {
     "status": "Estado",
     "controlPlane": "Control plane"

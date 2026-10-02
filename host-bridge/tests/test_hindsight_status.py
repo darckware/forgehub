@@ -29,6 +29,10 @@ def test_hindsight_status_reads_container_llm_without_exposing_key(monkeypatch, 
         return {"ok": True, "error": None}
 
     monkeypatch.setattr(bridge, "_probe_hindsight", healthy)
+    monkeypatch.setattr(bridge, "read_hindsight_retention_status", lambda: {
+        "mode": "preview", "review_days": 90, "compact_days": 180,
+        "recovery_days": 60, "review_count": 4, "eligible_count": 0,
+    })
 
     def inspect_container(command, **_kwargs):
         assert command == ["docker", "inspect", "--format", "{{json .Config.Env}}", "hindsight"]
@@ -50,3 +54,4 @@ def test_hindsight_status_reads_container_llm_without_exposing_key(monkeypatch, 
         "api_key_present": True,
     }
     assert "super-secret" not in json.dumps(status)
+    assert status["retention"]["review_count"] == 4

@@ -40,6 +40,7 @@ import {
   type HindsightLogTarget,
 } from "@/hooks/useHindsight";
 import { useAuthStore } from "@/store/authStore";
+import { HindsightRetentionCard } from "./HindsightRetentionCard";
 
 function formatLogTimestamp(epochSeconds: number | null | undefined): string {
   if (!epochSeconds) return "no date";
@@ -373,6 +374,8 @@ export default function HindsightPage() {
           ok={!schemaLoading}
         />
       </div>
+
+      <HindsightRetentionCard retention={data.retention} />
 
       {data.logs.latest_errors.length > 0 && (
         <Card className="border-destructive/40">
