@@ -140,14 +140,13 @@ function groupLabel(group: string, t: (key: string) => string): string {
 }
 
 /** O console do Hindsight (control plane), servido pelo próprio daemon numa
- * porta separada da API (8888 é a API; 9999 é o console). Derivado do host
- * que serve o ForgeHub em vez de "localhost" fixo: o iframe é carregado pelo
- * navegador do usuário, então um localhost fixo quebraria todo acesso que não
- * seja da própria máquina (LAN, túnel) -- o mesmo motivo pelo qual o chat usa
- * `window.location.origin`. */
+ * porta separada da API (8888 é a API; 9999 é o console). O frontend do
+ * ForgeHub publica um proxy same-origin em /hindsight-control/; isso mantém
+ * o console acessível pelo domínio público sem expor a porta 9999 diretamente.
+ */
 const CONTROL_PLANE_URL =
   typeof window !== "undefined"
-    ? `${window.location.protocol}//${window.location.hostname}:9999/banks/hermes?view=data&subTab=world`
+    ? `${window.location.origin}/hindsight-control/banks/hermes?view=data&subTab=world`
     : "";
 
 export default function HindsightPage() {
