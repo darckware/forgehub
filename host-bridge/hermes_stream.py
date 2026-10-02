@@ -199,10 +199,9 @@ def main() -> None:
     try:
         from tools.approval import (
             register_gateway_notify,
-            reset_current_session_key,
-            set_current_session_key,
             unregister_gateway_notify,
         )
+        from tools.approval_context import reset_current_session_key, set_current_session_key
 
         cli_inst = HermesCLI(resume=args.session_id)
         cli_inst.tool_progress_mode = "off"  # keep the CLI's own print()s out of our JSON-line stdout

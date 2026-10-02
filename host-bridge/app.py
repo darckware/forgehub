@@ -30,6 +30,7 @@ import contextlib
 import fcntl
 import io
 import json
+import logging
 import os
 import pty
 import re
@@ -4316,11 +4317,16 @@ def _tmux_new_session(*args: str) -> subprocess.CompletedProcess:
     """
     result = subprocess.run(
         ["systemd-run", "--scope", "--quiet", "--collect",
-         "--description=ForgeHub terminal tmux server", "tmux", *args],
+         "--description=ForgeHub terminal tmux server", "tmux", "new-session", *args],
         capture_output=True, text=True, timeout=10,
     )
+    if result.returncode != 0:
+        logging.warning("terminal systemd-run failed: %s", result.stderr.strip())
     if result.returncode != 0 and not _tmux_session_exists(args[args.index("-s") + 1]):
-        return _tmux(*args)
+        fallback = _tmux("new-session", *args)
+        if fallback.returncode != 0:
+            logging.warning("terminal tmux fallback failed: %s", fallback.stderr.strip())
+        return fallback
     return result
 
 
