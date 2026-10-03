@@ -209,3 +209,41 @@ def stat_file(path: Path, filename: str, host_home: str) -> ProfileFileInfo:
         size=stat.st_size,
         modified_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
     )
+
+
+# External CLI runtimes get no identity from ForgeHub's dispatch on their
+# own: the host-bridge passes only the task text, and their native global
+# instruction files (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, GEMINI.md) are
+# either absent or -- for Claude Code -- shared with every operator session
+# on this host, so they can't carry "you are Porthus". The identity therefore
+# travels with each dispatch instead (2026-10-02).
+EXTERNAL_RUNTIMES = ("claude", "codex", "agy", "openclaw")
+IDENTITY_PREAMBLE_FILES = ("IDENTITY.md", "SOUL.md")
+IDENTITY_PREAMBLE_MAX_CHARS = 8000
+
+
+def external_identity_preamble(agent) -> str | None:
+    """The identity block prepended to a task dispatched to an external
+    runtime: the agent's IDENTITY.md and SOUL.md, bounded in size. None for
+    Hermes agents (Hermes loads SOUL.md itself) or when no file exists."""
+    if agent.runtime_type not in EXTERNAL_RUNTIMES:
+        return None
+    home = resolve_home_dir(effective_home_path(agent.home_path, agent.runtime_type, agent.profile_slug))
+    if home is None:
+        return None
+    sections: list[str] = []
+    for filename in IDENTITY_PREAMBLE_FILES:
+        path = resolve_file(home, filename, list(IDENTITY_PREAMBLE_FILES))
+        try:
+            text = path.read_text(encoding="utf-8").strip() if path else ""
+        except OSError:
+            text = ""
+        if text:
+            sections.append(text)
+    if not sections:
+        return None
+    body = "\n\n".join(sections)[:IDENTITY_PREAMBLE_MAX_CHARS]
+    return (
+        f"<agent-identity>\nYou are {agent.name}, a ForgeHub agent. Act according to this profile.\n\n"
+        f"{body}\n</agent-identity>"
+    )

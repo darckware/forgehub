@@ -10,6 +10,7 @@ this module instead is a separate, optional follow-up.
 """
 import httpx
 
+from app.core.agent_profile_files import external_identity_preamble
 from app.core.config import settings
 from app.core.secrets import decrypt_secret
 from app.db.models.agent import Agent
@@ -49,6 +50,10 @@ async def dispatch_agent_run(
     if agent.runtime_type == "hermes" and not agent.profile_slug:
         raise AgentRunDispatchError(f"Agent '{agent.name}' has no profile_slug for hermes dispatch")
     api_key = decrypt_secret(agent.forgerouter_api_key_encrypted) if agent.forgerouter_api_key_encrypted else ""
+    # External runtimes only see the task text; their identity rides along.
+    preamble = external_identity_preamble(agent)
+    if preamble:
+        prompt = f"{preamble}\n\n{prompt}"
 
     body = {
         "run_id": run_id,
