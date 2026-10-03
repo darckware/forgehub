@@ -61,6 +61,11 @@ Itens que vão falhar na primeira execução do catálogo v2. Cada um vira taref
 - Perfil `prometheus`: registrar como agente ou aposentar (ECO-044).
 - `hooks.outbound` nos perfis Hermes que não enviam telemetria (ECO-053).
 
+### Fase 1b — Perfis e skills (base das cartas de funções)
+
+- Descrições de todos os agentes (ForgeHub `agents.description` e profile files) e as qualidades distintas de Aramis, Porthus e Dartan nos respectivos perfis.
+- Por agente Hermes: análise da função, criação das skills da função, arquivamento das skills criadas por agentes sem uso ou obsoletas (`curator archive`, recuperável) e opt-out das bundled fora da função, com snapshot antes.
+
 ### Fase 4 — Continuidade dos agentes
 
 Pedido do Marcelo: agentes ociosos o dia todo, à espera de solicitação. A ideia é dar a cada agente funções de continuidade recorrentes, coordenadas por uma tela de controle e com comunicação entre eles pelo Messages.
@@ -69,7 +74,24 @@ Pedido do Marcelo: agentes ociosos o dia todo, à espera de solicitação. A ide
 - Depende das Fases 1–2: as primeiras funções de continuidade naturais são justamente as rotinas que a Auditoria v2 e o backup tornam verificáveis, como cada responsável de check atuar quando o check falha.
 - Questão a decidir na especificação: estender a tela Agent Activity ou criar uma tela de controle própria.
 
-## Decisões pendentes do Marcelo
+## Decisões aprovadas (Marcelo, 2026-10-02: "aprovado")
+
+| # | Decisão | Valor adotado |
+|---|---|---|
+| 1 | Senha do backup fora da VPS | Marcelo copia `RESTIC_VPS_BACKUP_PASSWORD` do ForgeVault para o Gerenciador de Senhas do Google (**confirmação ainda pendente**) |
+| 2 | Primeiro envio do backup | Continua com o client compartilhado do rclone (lento por `rateLimitExceeded`, sem perda); OAuth client próprio fica opcional |
+| 3 | Executor das rotinas | Messages (cobre agentes Hermes e externos) |
+| 4 | Tela | `/operations` nova, separada do Agent Activity |
+| 5 | Orçamento diário por agente | 24 execuções e US$ 2,00/dia (Athos e Hephaestus: US$ 5,00); editável na tela e ajustável pelo autoaperfeiçoamento só no nível A2 |
+| 6 | Catálogo inicial de rotinas | Aprovado como está na especificação |
+| 7 | Autonomia e avaliação | A0/A1/A2 como especificado; janela de avaliação de 7 dias |
+| 8 | Silêncio no Telegram | 23:00–07:00, só urgências (falha de backup, serviço fora do ar, segurança); o resto entra no briefing das 08:00 |
+| 9 | Catálogo v2 da Auditoria | Aprovado. Allow-list de portas: só `127.0.0.1`/`[::1]`, mais o Darckware no IP Tailscale `100.105.235.114` (3000, 8020). Limite do Messages: no máximo 20% de falhas em 7 dias. `prometheus` continua estacionado (`gateway.parked`), sem registro como agente; ECO-044 o ignora enquanto estiver estacionado |
+| 10 | Cloudflare Access no ForgeVault | Aprovado; depende do Marcelo no painel Zero Trust (ou de um token de API da Cloudflare) |
+| 11 | Skills | Arquivar as criadas por agentes sem uso ou obsoletas, desligar por perfil as genéricas fora da função, criar as skills de cada função. A lista por agente é apresentada antes de arquivar |
+| 12 | Perfis | Registrar as qualidades distintas de cada agente externo no perfil e melhorar as descrições de todos |
+
+## Decisões pendentes do Marcelo (histórico)
 
 1. Autorizar o Google Drive pelo navegador: abrir a URL gerada pela VPS e colar a URL de retorno, sem instalar nada (Fase 0.1).
 2. Confirmação de que a senha do backup foi guardada fora da VPS (Fase 0.1).
