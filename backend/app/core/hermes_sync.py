@@ -235,10 +235,13 @@ def parse_profile_identity(profile_slug: str) -> dict[str, str | None]:
         line = line.strip()
         if not line.startswith("- ") or ":" not in line:
             continue
+        # AGENT_PROFILE_STANDARD writes keys in bold ("- **Mission:** ..."):
+        # without stripping the markers the key reads "**mission" and every
+        # bold field was silently ignored (found 2026-10-02).
         key, _, value = line[2:].partition(":")
-        value = value.strip()
+        value = value.strip().lstrip("*").strip()
         if value:
-            fields[key.strip().lower()] = value
+            fields[key.strip().strip("*").strip().lower()] = value
     return {
         "name": fields.get("name"),
         "layer": fields.get("layer"),
