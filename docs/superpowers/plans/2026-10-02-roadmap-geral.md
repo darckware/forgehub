@@ -78,7 +78,7 @@ Pedido do Marcelo: agentes ociosos o dia todo, à espera de solicitação. A ide
 
 | # | Decisão | Valor adotado |
 |---|---|---|
-| 1 | Senha do backup fora da VPS | Marcelo copia `RESTIC_VPS_BACKUP_PASSWORD` do ForgeVault para o Gerenciador de Senhas do Google (**confirmação ainda pendente**) |
+| 1 | Senha do backup fora da VPS | ✅ `RESTIC_VPS_BACKUP_PASSWORD` copiada para o Gerenciador de Senhas do Google (entrada `https://forgevault.darckware.net` / `restic-backup-vps`), confirmado em 2026-10-02 |
 | 2 | Primeiro envio do backup | Continua com o client compartilhado do rclone (lento por `rateLimitExceeded`, sem perda); OAuth client próprio fica opcional |
 | 3 | Executor das rotinas | Messages (cobre agentes Hermes e externos) |
 | 4 | Tela | `/operations` nova, separada do Agent Activity |
@@ -126,8 +126,8 @@ Estado ao fechar a sessão do Claude Code iniciada fora do ForgeHub (continua nu
 3. Tela `/operations` (Operação fase 4).
 4. Auditoria B/T2…T8 (catálogo v2, monitor do Athos, crons, telas, correção operacional dos jobs: ref git do Hermes travada).
 
-**Pendente do Marcelo**
-- Confirmar que copiou `RESTIC_VPS_BACKUP_PASSWORD` (ForgeVault, meus-agentes/Production) para o Gerenciador de Senhas do Google.
+**Senha do backup fora da VPS**
+- ✅ Confirmado pelo Marcelo em 2026-10-02: `RESTIC_VPS_BACKUP_PASSWORD` copiada para o Gerenciador de Senhas do Google (site `https://forgevault.darckware.net`, usuário `restic-backup-vps`).
 
 **Achados registrados para tratar**
 - `validate_agent_profiles.py`: daedalus sem `scripts/knowledge_cycle.py`.
