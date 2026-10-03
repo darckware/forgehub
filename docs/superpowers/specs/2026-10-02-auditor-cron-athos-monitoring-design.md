@@ -1,7 +1,7 @@
 # Auditoria, Cron e Monitoramento do Athos — Especificação
 
 **Data:** 2026-10-02  
-**Status:** Aprovada como direção; aguardando revisão do documento antes do plano de implementação  
+**Status:** Aprovada; revisada em 2026-10-02 (conferência + catálogo v2 em proposta)  
 **Escopo:** ForgeHub Auditor, ForgeHub Crons, checklist semanal do Athos e scripts operacionais relacionados
 
 ## Objetivo
@@ -127,3 +127,66 @@ O fluxo de exclusão continuará protegido por confirmação. O fluxo de execuç
 - Alterar a retenção do Hindsight.
 - Apagar evidência histórica da Auditoria.
 - Reintroduzir catálogos centrais de scripts.
+
+## Revisão 2026-10-02 — conferência e catálogo v2
+
+A conferência do plano contra o código, o banco e o host corrigiu quatro descobertas desta especificação:
+
+- O catálogo persistido no ForgeHub **já** é exatamente `ECO-001`…`ECO-041`; ECO-021 está desabilitado (aposentado no `audit.foundation_checklist`). Não há checks obsoletos a reconciliar.
+- O `foundation-clear` falhou por `ruamel` em 2026-09-27, mas o runtime já importa o módulo hoje; basta validar.
+- O `daily_hermes_update_check` falha por uma causa real (`cannot lock ref 'refs/remotes/origin/main'` no checkout do Hermes). O correto é reparar a ref, não rebaixar o passo para diagnóstico.
+- As remediações têm um problema maior que `weekly_backup.sh`: ECO-005/020 reiniciam units por perfil que não existem mais (a política proíbe), ECO-010/012 usam containers aposentados, e ECO-012/040/041 chamam arquivos inexistentes.
+
+Além disso, o catálogo ficou para trás em relação ao ecossistema. Decisão do Marcelo: criar uma **lista de auditoria atualizada** para o contexto atual e os novos módulos.
+
+### Lacunas do catálogo atual
+
+| Área | Situação em 2026-10-02 | Coberto hoje? |
+|---|---|---|
+| ForgeVault (web, api, postgres, redis; guarda as chaves) | Fora do ar após o reboot (`restart=no`); domínio respondia 200 sem Cloudflare Access | Não |
+| Darckware (+ chat do site com a Lara) e CoreTI | Fora do ar após o reboot; só recuperados manualmente | Não |
+| Política de restart dos containers | Causa do incidente de 2026-10-02 | Não |
+| Backup dos bancos de aplicação (forgehub, forgevault, forgerouter, darckware, coreti, hindsight) | Não existe dump em `/root/backup`, só o arquivo do `/root/.hermes` | Não |
+| Acesso remoto (cloudflared, headscale, tailscaled, RustDesk hbbs/hbbr) | Ativos, sem verificação | Não |
+| Perfis kairos, lara e prometheus | Profile checks param no themis (ECO-031…038); prometheus existe no disco sem registro de agente | Não |
+| Runtimes externos (Porthus/claude, Aramis/codex, Dartan/agy) | Registrados, sem validação de home, arquivos e MCP | Parcial (ECO-004) |
+| Telemetria Agent Activity (`hooks.outbound`) | Eventos só de 5 dos 10 perfis Hermes | Não |
+| Messages (dispatch travado, falhas, feedback devido) | Sem verificação | Não |
+| Chaves ForgeRouter por agente | Sem verificação | Não |
+| Retenção do Hindsight (timer novo) | Sem verificação | Não |
+| Janela 09:00–23:59 dos crons (ECO-021) | Regra abandonada | Aposentar |
+
+### Catálogo v2 (proposta para aprovação)
+
+Princípios: IDs existentes são mantidos (o histórico continua válido); checks novos começam em `ECO-042`; aposentados não são reutilizados; cada check tem um perfil responsável; um check que falha logo na primeira execução (ex.: backups de banco) é o comportamento esperado e vira pendência, não motivo para afrouxar o check.
+
+**Mantidos, com escopo revisto**
+
+- ECO-007/009/010/017/019 passam a cobrir **todas** as aplicações do host (forgehub, forgerouter, hindsight, forgevault, darckware, coreti), não só o núcleo. ECO-008 continua só para quem precisa da `foundation_network`.
+- ECO-039 incorpora o limite do cache de build/imagens Docker (incidente de 2026-09-27).
+- Demais mantidos sem mudança: 001–006, 011–016, 018, 020, 022–038, 040, 041.
+
+**Aposentado:** ECO-021.
+
+**Novos**
+
+| ID | Categoria / responsável | Verificação |
+|---|---|---|
+| ECO-042 | profiles / kairos | Perfil Kairos válido (mesmo contrato de ECO-031…038) |
+| ECO-043 | profiles / lara | Perfil Lara válido (hoje falha: falta AGENTS.md) |
+| ECO-044 | agents / athos | Todo diretório em `/root/.hermes/profiles` (exceto `default`) e todo runtime externo corresponde a um agente registrado com `runtime_type` (hoje: prometheus sem registro) |
+| ECO-045 | containers / hephaestus | Todo container do ecossistema tem `restart: unless-stopped` ou `always`, no compose e no container em execução |
+| ECO-046 | backup / daedalus | Cada instância Postgres de aplicação tem dump recente (≤ 8 dias), não trivial e legível |
+| ECO-047 | security / aegis | Nenhuma porta de aplicação ligada em `0.0.0.0` fora da allow-list; `/docs`, `/redoc` e `/openapi.json` fechados nos domínios públicos |
+| ECO-048 | network / hephaestus | `cloudflared` ativo e cada domínio público responde; ForgeVault exige Cloudflare Access para requisição anônima |
+| ECO-049 | services / hephaestus | ForgeVault: api pronta, web, postgres e redis saudáveis |
+| ECO-050 | services / hephaestus | Darckware: site e API respondem; chat do site com a Lara (`/v1/chat`, `channel=site`) recebe resposta |
+| ECO-051 | services / hephaestus | CoreTI: web, api, nginx e postgres saudáveis |
+| ECO-052 | network / aegis | Acesso remoto: headscale, tailscaled e RustDesk (hbbs/hbbr) ativos |
+| ECO-053 | agents / athos | Todo perfil Hermes tem `hooks.outbound` apontando para `/api/v1/agent-activity/events` com o segredo configurado (verifica configuração, não atividade recente) |
+| ECO-054 | agents / athos | Messages: nenhum dispatch `running` além do prazo, nenhum feedback devido há mais de 1 h, taxa de falha da semana abaixo do limite |
+| ECO-055 | agents / athos | Runtimes externos: home, arquivos de perfil e MCP `forgehub` configurados para Porthus, Aramis e Dartan |
+| ECO-056 | provider / atlas | Todo agente ativo tem chave ForgeRouter configurada e igual ao registro do ForgeRouter |
+| ECO-057 | memory / mnemosyne | `forgehub-hindsight-retention.timer` ativo, com última execução bem-sucedida |
+
+O verificador canônico (`checklist_verifier.py`, propriedade do Athos, fora do repositório) e o catálogo persistido do ForgeHub são atualizados juntos: o primeiro ganha as funções, o segundo uma migração de dados que insere `ECO-042`… e desabilita ECO-021. O ECO-025 passa a exigir o novo total.
