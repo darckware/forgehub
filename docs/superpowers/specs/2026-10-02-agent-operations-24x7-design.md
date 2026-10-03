@@ -23,7 +23,8 @@
 4. **Monitoramento fecha o ciclo.** Um check de auditoria que falha gera uma mensagem Task para o agente responsável. O check volta a passar? A tarefa fecha com evidência. Não volta? Escala.
 5. **Dúvidas vão para o Marcelo pelo Telegram, com rastreio.** Toda pergunta vira um registro no ForgeHub (pergunta, contexto, quem pergunta, o que fica bloqueado) e chega ao Telegram dele. A resposta volta ao agente que perguntou.
 6. **O sistema se aperfeiçoa sozinho** (Marcelo: "o sistema tem que se aperfeiçoar sozinho"). Ele mede o próprio desempenho, propõe e aplica as melhorias dentro de níveis de autonomia, verifica se a mudança melhorou as métricas e desfaz a que piorou. O Marcelo aprova só o que é arriscado ou irreversível.
-7. **Custo e segurança são limites, não esperança.** Cada agente tem orçamento diário de execuções e de custo (ForgeRouter). A Lara nunca contata clientes por rotina. Ações destrutivas continuam exigindo aprovação.
+7. **Só os agentes externos codificam** (Marcelo, 2026-10-02: "codificação somente os agentes externos: codex, claude e agy"). Alterar código em qualquer repositório é exclusivo de **Aramis** (Codex), **Porthus** (Claude Code) e **Dartan** (agy). Os agentes Hermes, incluindo Daedalus e Hephaestus, monitoram, diagnosticam, planejam, documentam e **abrem a tarefa de código** para o agente externo certo, mas nunca editam código. Vector (OpenClaw) também não codifica. A regra entra no `never_does` de toda carta Hermes e é verificada: uma execução de rotina Hermes que altera arquivos de repositório é uma violação registrada.
+8. **Custo e segurança são limites, não esperança.** Cada agente tem orçamento diário de execuções e de custo (ForgeRouter). A Lara nunca contata clientes por rotina. Ações destrutivas continuam exigindo aprovação.
 
 ## Componentes
 
@@ -116,7 +117,17 @@ O sistema não espera o Marcelo para melhorar. O ciclo tem quatro etapas, todas 
 | **A1 — automático com aviso** | Reescrever instruções de uma rotina; criar rotina nova dentro do orçamento do agente; propor e ativar um check de auditoria novo; promover uma melhoria de Incubação a Task no domínio do próprio agente | Aplica e informa no briefing matinal; o Marcelo pode desfazer com um toque |
 | **A2 — aprovação do Marcelo** | Mudança de código em qualquer repositório; alterar a carta de funções; aumentar orçamento; mudar a política comum; qualquer ação destrutiva ou externa (clientes, domínios, segredos) | Pergunta pelo Telegram (`ask_marcelo`) com recomendação; nada é aplicado antes do sim |
 
-Mudanças de código (A2 aprovado) seguem o fluxo de produto que já existe: item de planejamento → Task → execução pelo agente dono via Messages → revisão do Porthus → testes → deploy pelo gate normal. A autonomia não pula as travas de aprovação.
+Mudanças de código (A2 aprovado) seguem o fluxo de produto que já existe: item de planejamento → Task atribuída a um **agente externo** → execução via Messages → revisão cruzada → testes → deploy pelo gate normal. A autonomia não pula as travas de aprovação.
+
+**Quem codifica o quê:**
+
+| Agente externo | Runtime | Codifica |
+|---|---|---|
+| Aramis | Codex | Backend, APIs, migrations, scripts, infraestrutura como código; manutenção de repositórios (dependências, testes quebrados) |
+| Dartan | agy | Frontend e UI: telas, componentes, i18n, ajustes de celular |
+| Porthus | Claude Code | Arquitetura e mudanças transversais ou de maior risco; **revisor obrigatório** do código de Aramis e Dartan |
+
+Quem escreve não aprova o próprio código: Porthus revisa Aramis e Dartan, e Aramis revisa o código de Porthus. O agente Hermes que detectou a necessidade (ex.: Daedalus na higiene dos repositórios, Aegis numa falha de segurança) é o **dono do pedido**: escreve a Task com contexto, critério de aceite e evidência, acompanha e valida o resultado no seu domínio.
 
 **Verificar e desfazer:** toda mudança aplicada vira uma `operations_change` (versão anterior, versão nova, métrica-alvo, janela de avaliação, normalmente 7 dias). No fim da janela, a retrospectiva compara antes e depois: melhorou, a mudança fica; piorou, A0/A1 é **desfeita automaticamente** e registrada como aprendizado; neutro, fica e entra no relatório. As rotinas, cartas e política têm histórico de versões, e qualquer estado anterior pode ser restaurado pela tela.
 
@@ -137,16 +148,16 @@ Uma sétima aba na tela `/operations` lista as mudanças propostas, aplicadas, e
 | Hephaestus | Saúde da infra: containers, disco, restart policy, logs, backup externo da noite | a cada hora |
 | Hephaestus | Verificação do backup (snapshot recente, restauração de amostra semanal) | diário 07:00 / dom |
 | Aegis | Segurança: portas expostas, Cloudflare Access, permissões de segredos, logins/SSH, tokens expirando | diário 06:00 |
-| Daedalus | Higiene dos repositórios: alterações sem commit, testes quebrados, dependências desatualizadas → propostas | diário 09:00 |
+| Daedalus | Higiene dos repositórios (só diagnóstico): alterações sem commit, testes quebrados, dependências desatualizadas → abre Tasks para Aramis/Dartan | diário 09:00 |
 | Atlas | Planejamento: tarefas paradas, dependências bloqueadas, itens sem dono; resumo para o Athos | diário 09:30 |
 | Mnemosyne | Qualidade da memória (Hindsight): retenção, fatos obsoletos, consolidação | diário 05:00 |
 | Scriba | Documentação: divergência entre CLAUDE.md/Foundation e o código do dia; atualizar a KB | diário 18:00 |
 | Themis | Conformidade: LGPD nos dados da Lara, licenças de dependências novas | semanal seg 10:00 |
 | Kairos | Inteligência de mercado: digest para o Marcelo | diário 08:30 |
 | Lara | Pipeline comercial interno (sem contato com clientes por rotina) | diário 10:00 |
-| Porthus | Revisão de arquitetura e código dos commits do dia | diário 20:00 |
-| Aramis | Engenharia de repositório: pendências técnicas atribuídas | diário 14:00 |
-| Dartan | Auditoria de UI/celular das telas alteradas no dia | diário 16:00 |
+| Aramis | Executar as Tasks de código backend/repositório atribuídas (fila do dia) | diário 10:00 e 14:00 |
+| Dartan | Executar as Tasks de UI atribuídas; auditoria de UI/celular das telas alteradas no dia | diário 11:00 e 16:00 |
+| Porthus | Revisão do código entregue no dia por Aramis/Dartan; Tasks de arquitetura | diário 20:00 |
 
 Os horários respeitam o teto global de concorrência (hoje 5) e o limite de um run por agente. A grade da tela mostra os conflitos.
 
