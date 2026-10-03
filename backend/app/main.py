@@ -53,6 +53,7 @@ from app.api.routes import (
     mcp_catalog,
     nexo_installation,
     notifications,
+    operations,
     orchestration,
     peer_grant,
     pipeline,
@@ -360,6 +361,7 @@ app.include_router(remote_access.router)
 app.include_router(system_control.router)
 app.include_router(vpn.router)
 app.include_router(forgerouter.router)
+app.include_router(operations.router)
 app.include_router(orchestration.router)
 app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
@@ -380,6 +382,12 @@ SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS = 30
 # being enforced is measured in days (INCUBATION_DEFAULT_MATURATION_DAYS),
 # so a 5-minute pass is already far finer than the thing it watches.
 INCUBATION_MATURATION_POLL_INTERVAL_SECONDS = 300
+
+# How often agent routines are materialized into Messages tasks and their
+# outcomes synced back. Routines run at most every 15 minutes
+# (routine_schedule.MIN_INTERVAL_SECONDS), so a 60s pass starts each one
+# within a minute of its occurrence.
+ROUTINE_POLL_INTERVAL_SECONDS = 60
 
 # How often stalled dispatches are checked against their deadline. Minutes,
 # not seconds: the deadline itself is DISPATCH_TIMEOUT_MINUTES (45), so a
@@ -494,6 +502,26 @@ async def _incubation_maturation_poll_loop() -> None:
         except Exception:
             logger.exception("Incubation maturation poll failed")
         await asyncio.sleep(INCUBATION_MATURATION_POLL_INTERVAL_SECONDS)
+
+
+async def _routine_poll_loop() -> None:
+    """24x7 agent operation: turn due routine occurrences into Messages tasks
+    and copy finished tasks' outcomes back onto their runs. Its own task:
+    it only touches ForgeHub's database, so a host-bridge outage that stalls
+    dispatch must not also stop occurrences from being recorded (a missed
+    occurrence is evidence the screen has to show)."""
+    from app.api.routes.operations import run_routine_generation_pass, run_routine_sync_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_routine_generation_pass(db)
+            async with AsyncSessionLocal() as db:
+                await run_routine_sync_pass(db)
+        except Exception:
+            logger.exception("Routine poll failed")
+        await asyncio.sleep(ROUTINE_POLL_INTERVAL_SECONDS)
 
 
 async def _dispatch_completion_poll_loop() -> None:
@@ -744,6 +772,7 @@ async def _start_background_tasks() -> None:
         ("client-report-poll", _client_report_poll_loop),
         ("feedback-poll", _feedback_poll_loop),
         ("incubation-maturation-poll", _incubation_maturation_poll_loop),
+        ("routine-poll", _routine_poll_loop),
         ("dispatch-completion-poll", _dispatch_completion_poll_loop),
         ("background-test-completion-poll", _background_test_completion_poll_loop),
         ("task-failure-poll", _task_failure_poll_loop),

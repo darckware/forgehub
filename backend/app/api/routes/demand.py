@@ -344,6 +344,7 @@ async def create_demand_and_notify(
     payload: DemandSubmitIn,
     *,
     commit: bool = True,
+    notify: bool = True,
 ) -> AgentDemand:
     """Every new inbox item also surfaces in the system Notifications bell
     (source="system", not "cron") -- so arriving mail doesn't go unnoticed
@@ -440,16 +441,20 @@ async def create_demand_and_notify(
     db.add(demand)
     await db.flush()  # assigns demand.id (Python-side default) before the notification references it
 
-    notification = Notification(
-        source="system",
-        severity="info",
-        title=f"New in Inbox: {demand.subject}",
-        message=_demand_preview(payload.body),
-        event_key=f"demand:{demand.id}",
-        occurred_at=datetime.now(timezone.utc),
-    )
-    db.add(notification)
-    await db.flush()
+    # `notify=False` is for machine-generated traffic that would flood the
+    # bell -- agent routines create dozens of tasks a day; their failures
+    # still notify through the dispatch path like any other task.
+    if notify:
+        notification = Notification(
+            source="system",
+            severity="info",
+            title=f"New in Inbox: {demand.subject}",
+            message=_demand_preview(payload.body),
+            event_key=f"demand:{demand.id}",
+            occurred_at=datetime.now(timezone.utc),
+        )
+        db.add(notification)
+        await db.flush()
 
     if commit:
         await db.commit()
