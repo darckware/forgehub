@@ -48,7 +48,7 @@
 
 ---
 
-### Tarefa 1: Sanear as remediações da Auditoria
+### Tarefa 1: Sanear as remediações da Auditoria — concluída (migração `c5e7a9b1d3f2`)
 
 **Arquivos:**
 - Criar: `backend/app/core/audit_remediation.py`
@@ -69,21 +69,21 @@
 
 | Check | Novo `remediation_command` | Observação |
 |---|---|---|
-| ECO-005 | o único restart permitido pela política (`systemctl --user restart hermes-gateway`, com o ambiente de usuário necessário ao rodar como root pelo bridge) | Antes de gravar, confirmar no host se a unit é de sistema ou de usuário e testar o comando com `systemctl ... is-active` |
+| ECO-005 | `XDG_RUNTIME_DIR=/run/user/0 systemctl --user restart hermes-gateway`, seguido de `is-active` | Unit de usuário com linger ativo. O bridge roda sem `XDG_RUNTIME_DIR`, por isso a variável é explícita (validado com `is-active`) |
 | ECO-020 | igual ao ECO-005 (o ticker do cron roda dentro do gateway) | |
 | ECO-010 | `docker start forgehub_postgres hindsight_postgres forgerouter_postgres` + espera `pg_isready` em cada um | `start` é no-op para container já em execução, então não derruba banco saudável |
 | ECO-012 | `NULL` | O `.sql` referenciado não existe. Descrição passa a orientar escalada manual |
-| ECO-024 | `bash /root/.hermes/profiles/athos/scripts/backup_hermes_root.sh` | Mesmo script do job `hermes-weekly-backup`. `timeout_seconds` sobe para 600 |
+| ECO-024 | `bash /root/.hermes/profiles/athos/scripts/backup_hermes_root.sh` | Mesmo script do job `hermes-weekly-backup`. `timeout_seconds` **não** muda: ele limita o comando de verificação; a remediação roda pelo Athos com 650 s |
 | ECO-040, ECO-041 | `NULL` | `repair_voice_runtime.sh` não existe. Escalar até um script de reparo ser criado pelo Athos (pendência registrada) |
 
 O `downgrade` restaura os valores anteriores literalmente.
 
-- [ ] **Passo 1: testes falhando.** `test_remediation_problems_flags_retired_containers`, `..._flags_per_profile_gateway_units`, `..._flags_missing_script`, `..._accepts_current_commands`, `test_remediate_refuses_broken_command` (rota com `_execute_command` simulado: nunca chamado quando há problema) e `test_create_check_rejects_retired_target`.
-- [ ] **Passo 2:** `cd backend && .venv/bin/pytest app/tests/test_audit_remediation.py -q`. Esperado: falha.
-- [ ] **Passo 3:** implementar `core/audit_remediation.py` e o guard na rota.
-- [ ] **Passo 4:** validar no host o comando de restart do gateway (só `is-active`, sem reiniciar) e escrever a migração.
-- [ ] **Passo 5:** `.venv/bin/pytest app/tests/test_audit_remediation.py app/tests/test_audit.py -q`, `.venv/bin/ruff check app` e `.venv/bin/alembic upgrade head`. Depois, consultar `company.audit_checks` e confirmar que `remediation_problems` retorna vazio para toda remediação não nula.
-- [ ] **Passo 6: commit.** `Audit: drop remediations that target retired units and missing scripts`
+- [x] **Passo 1: testes falhando.** `test_remediation_problems_flags_retired_containers`, `..._flags_per_profile_gateway_units`, `..._flags_missing_script`, `..._accepts_current_commands`, `test_remediate_refuses_broken_command` (rota com `_execute_command` simulado: nunca chamado quando há problema) e `test_create_check_rejects_retired_target`.
+- [x] **Passo 2:** `cd backend && .venv/bin/pytest app/tests/test_audit_remediation.py -q`. Esperado: falha.
+- [x] **Passo 3:** implementar `core/audit_remediation.py` e o guard na rota.
+- [x] **Passo 4:** validar no host o comando de restart do gateway (só `is-active`, sem reiniciar) e escrever a migração.
+- [x] **Passo 5:** `.venv/bin/pytest app/tests/test_audit_remediation.py app/tests/test_audit.py -q`, `.venv/bin/ruff check app` e `.venv/bin/alembic upgrade head`. Depois, consultar `company.audit_checks` e confirmar que `remediation_problems` retorna vazio para toda remediação não nula.
+- [x] **Passo 6: commit.** `Audit: drop remediations that target retired units and missing scripts`
 
 ### Tarefa 2: Catálogo de auditoria v2
 

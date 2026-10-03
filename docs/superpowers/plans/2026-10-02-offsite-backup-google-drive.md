@@ -45,8 +45,8 @@ Se a VPS for perdida, deve ser possível reconstruí-la numa máquina nova com *
 ### Segredos
 
 - **Senha do restic:** gerada na VPS e mostrada uma única vez para o Marcelo guardar no gerenciador de senhas. Fica em `/root/.config/restic/password` (0600) só para as execuções automáticas. Sem a cópia externa, o backup é irrecuperável. Este é o ponto crítico do desenho.
-- **Token do Google:** obtido com `rclone authorize "drive"` no computador do Marcelo, que tem navegador, e gravado em `/root/.config/rclone/rclone.conf` (0600). Escopo `drive.file`: o rclone só enxerga os arquivos que ele mesmo criou, não o restante do Drive.
-- Recomendado: um **OAuth client próprio** no Google Cloud Console. O client compartilhado do rclone tem limite de taxa global e deixa backups grandes lentos.
+- **Token do Google:** obtido **inteiramente pela VPS**, sem instalar nada no computador do Marcelo (decisão dele). O `rclone authorize "drive"` roda na VPS e gera a URL de consentimento; o Marcelo abre essa URL no navegador (computador ou celular) e autoriza. O Google então redireciona para `http://127.0.0.1:53682/?code=...`, endereço que na máquina dele não abre. Ele copia essa URL da barra de endereço e cola na sessão, e a VPS a entrega ao próprio listener do rclone, que troca o código pelo token. O token é gravado em `/root/.config/rclone/rclone.conf` (0600). Escopo `drive.file`: o rclone só enxerga os arquivos que ele mesmo criou, não o restante do Drive.
+- Opcional, também só pelo navegador: um **OAuth client próprio** no Google Cloud Console. O client compartilhado do rclone tem limite de taxa global e pode deixar o primeiro envio mais lento. Dá para começar sem ele e trocar depois, reautorizando.
 - Nada disso entra no git. Os dois arquivos estão em `/root/.config`, então também vão (cifrados) para o snapshot. Numa VPS nova basta reautorizar o Google e digitar a senha.
 
 ### Falha e observabilidade
@@ -60,8 +60,9 @@ Se a VPS for perdida, deve ser possível reconstruí-la numa máquina nova com *
 ### Tarefa 1: Instalação e autorização do Google Drive
 
 - [ ] `apt install restic rclone sqlite3` na VPS; conferir `restic version` ≥ 0.16 (compressão).
-- [ ] (Recomendado) Marcelo cria um OAuth client "Desktop" no Google Cloud Console, com a Google Drive API habilitada, e informa client_id/secret.
-- [ ] Marcelo roda `rclone authorize "drive"` no computador dele (com o client próprio, se criado) e cola o JSON do token na sessão.
+- [ ] Na VPS, `rclone authorize "drive"` (escopo `drive.file`) em background, aguardando no listener local `127.0.0.1:53682`, e entregar ao Marcelo a URL de consentimento.
+- [ ] Marcelo abre a URL no navegador, autoriza com marcelodarck@gmail.com e cola na sessão a URL `http://127.0.0.1:53682/?code=...` em que o navegador parar.
+- [ ] Na VPS, `curl` nessa URL contra o listener local. O rclone imprime o token, que é gravado no remote. Nada é instalado no computador do Marcelo.
 - [ ] Criar o remote `gdrive` (`scope = drive.file`) e validar com `rclone mkdir gdrive:vps-backup` + `rclone lsd gdrive:`.
 
 ### Tarefa 2: Repositório restic e custódia da senha
@@ -137,7 +138,7 @@ Marcelo pediu que o backup externo seja acompanhado e acionado pela tela System 
 
 **Interface:**
 - Card "Backup externo (Google Drive)": selo de estado, último backup (quando, duração, quanto foi enviado), próxima execução, tamanho do repositório e cota do Drive, lista de snapshots e botão "Fazer backup agora" com `ConfirmDialog` e `Loader2`.
-- `auth_required` mostra as instruções de reautorização (`rclone authorize "drive"`) e o link do runbook. O token nunca é digitado pela interface.
+- `auth_required` mostra o procedimento de reautorização pelo navegador (URL gerada na VPS, colar a URL de retorno) e o link do runbook. Integrar esse fluxo ao próprio card fica para a fase 2.
 - Layout de celular conforme o CLAUDE.md. Texto em pt-BR, en e es.
 
 **Fase 2 (fora deste plano, decidir depois):** navegar por um snapshot e restaurar um arquivo ou pasta para `/root/restore/<data>/`, nunca sobrescrevendo no lugar, com `AuditEvent`. A restauração completa continua sendo do runbook.

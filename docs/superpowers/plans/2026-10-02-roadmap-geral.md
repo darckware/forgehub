@@ -26,7 +26,7 @@ Roteiro mestre que ordena os planos detalhados e as pendências soltas levantada
 | # | Item | Plano | Depende de |
 |---|---|---|---|
 | 0.1 | Backup externo: instalação, autorização Google, repositório, script, primeira execução e teste de restauração (A, Tarefas 1–5) | A | Token do `rclone authorize` e confirmação da senha (Marcelo) |
-| 0.2 | Remediações perigosas da Auditoria: gateways por perfil, containers aposentados, scripts inexistentes (B, Tarefa 1) | B | — |
+| 0.2 | ✅ Remediações perigosas da Auditoria: gateways por perfil, containers aposentados, scripts inexistentes (B, Tarefa 1). Migração aplicada; deploy do backend pendente para o guard valer em produção | B | — |
 | 0.3 | ForgeVault atrás do Cloudflare Access (política no painel Zero Trust; validar `curl` anônimo → 302/403) | este roteiro | Acesso do Marcelo ao painel Cloudflare |
 | 0.4 | Commitar as correções de `restart` nos repositórios darckware, forgevault, coreti e forgerouter, depois de revisar cada diff (podem conter trabalho não relacionado) | este roteiro | Revisão do diff |
 
@@ -69,7 +69,7 @@ Pedido do Marcelo: agentes ociosos o dia todo, à espera de solicitação. A ide
 
 ## Decisões pendentes do Marcelo
 
-1. Token do `rclone authorize "drive"` e, se quiser, um OAuth client próprio (Fase 0.1).
+1. Autorizar o Google Drive pelo navegador: abrir a URL gerada pela VPS e colar a URL de retorno, sem instalar nada (Fase 0.1).
 2. Confirmação de que a senha do backup foi guardada fora da VPS (Fase 0.1).
 3. Aprovação do catálogo v2: allow-list de portas (ECO-047), limite de falhas do Messages (ECO-054) e destino do perfil `prometheus` (Fase 1.3).
 4. Manter ou aposentar o `hermes-weekly-backup` local depois do backup externo (Fase 1.1).

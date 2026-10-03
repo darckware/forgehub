@@ -4,7 +4,7 @@ The checklist (audit_checks) is fully editable from the Auditor page;
 POST /run executes every enabled check by shipping its command to the
 host through the chat bridge's /v1/exec (exit 0 = ok) and recording an
 audit_check_runs row per check. /run-internal is the same trigger for
-the `hermes cron` job (forgehub-audit-checklist in the athos store) --
+the `hermes cron` job (ecosystem-weekly-audit in the athos store) --
 it bypasses user auth but requires the shared bridge token, the same
 trust boundary the bridge itself uses.
 """
@@ -30,6 +30,11 @@ from app.api.schemas.audit import (
 )
 from app.api.schemas.demand import DemandSubmitIn
 from app.api.routes.demand import create_demand_and_notify
+from app.core.audit_remediation import (
+    referenced_files,
+    remediation_problems,
+    structural_remediation_problems,
+)
 from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.db.base import get_db
@@ -88,6 +93,38 @@ async def _execute_check(check: AuditCheck, requested_by: str) -> AuditCheckRun:
     return await _execute_command(check, check.command, requested_by)
 
 
+async def _host_path_exists(path: str) -> bool:
+    """Existence on the host, via the bridge -- this container sees the
+    profiles under a different mount. An unreachable bridge answers True:
+    the remediation cannot run then anyway, and the delegation reports the
+    real transport error instead of a misleading "file missing"."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{settings.CHAT_BRIDGE_URL}/v1/exec",
+                json={"command": f"test -e {shlex.quote(path)}", "timeout_seconds": 10},
+                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+            )
+        resp.raise_for_status()
+        return resp.json().get("exit_code") == 0
+    except (httpx.HTTPError, ValueError):
+        return True
+
+
+async def _remediation_problems_on_host(command: str | None) -> list[str]:
+    existing = {path for path in referenced_files(command) if await _host_path_exists(path)}
+    return remediation_problems(command, path_exists=existing.__contains__)
+
+
+def _reject_structural_remediation(command: str | None) -> None:
+    problems = structural_remediation_problems(command)
+    if problems:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"message": "Remediation command is not allowed", "problems": problems},
+        )
+
+
 def _athos_remediation_prompt(
     check: AuditCheck, previous_run: AuditCheckRun | None
 ) -> str:
@@ -112,7 +149,7 @@ Suggested correction command or procedure:
 Latest failure evidence:
 {previous_evidence[:_OUTPUT_LIMIT]}
 
-Diagnose and APPLY the smallest correction needed inside the configured ecosystem. Do not merely explain it. Stay within this control's scope, preserve databases and persistent volumes, do not delete user data, and do not perform unrelated upgrades. Finish with a concise account of what you changed and any remaining risk. ForgeHub will independently rerun the verification command."""
+Diagnose and APPLY the smallest correction needed inside the configured ecosystem. Do not merely explain it. Stay within this control's scope, preserve databases and persistent volumes, do not delete user data, and do not perform unrelated upgrades. There is a single multiplex Hermes gateway: never start another one, never kill its processes, and never touch per-profile hermes-gateway-<profile> units -- the only permitted restart is `systemctl --user restart hermes-gateway`. Finish with a concise account of what you changed and any remaining risk. ForgeHub will independently rerun the verification command."""
 
 
 async def _delegate_remediation_to_athos(
@@ -239,6 +276,7 @@ async def list_checks(db: AsyncSession = Depends(get_db)) -> list[AuditCheckOut]
 async def create_check(
     payload: AuditCheckCreate, db: AsyncSession = Depends(get_db)
 ) -> AuditCheckOut:
+    _reject_structural_remediation(payload.remediation_command)
     check = AuditCheck(**payload.model_dump())
     db.add(check)
     try:
@@ -258,7 +296,10 @@ async def update_check(
     check_id: uuid.UUID, payload: AuditCheckUpdate, db: AsyncSession = Depends(get_db)
 ) -> AuditCheckOut:
     check = await _get_check_or_404(db, check_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    if "remediation_command" in changes:
+        _reject_structural_remediation(changes["remediation_command"])
+    for field, value in changes.items():
         setattr(check, field, value)
     try:
         await db.commit()
@@ -297,8 +338,18 @@ async def remediate_check(
     db: AsyncSession = Depends(get_db),
     _admin=Depends(get_current_admin),
 ) -> AuditRemediationOut:
-    """Delegate correction to Athos, verify it, and escalate failure to Inbox."""
+    """Delegate correction to Athos, verify it, and escalate failure to Inbox.
+
+    Refused (409) before anything runs when the suggested correction targets
+    retired infrastructure, violates the gateway policy, or calls a file the
+    host does not have -- Athos would otherwise act on the stale suggestion."""
     check = await _get_check_or_404(db, check_id)
+    problems = await _remediation_problems_on_host(check.remediation_command)
+    if problems:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": f"Remediation for {check.name} cannot be delegated", "problems": problems},
+        )
     previous_run = (
         await db.execute(
             select(AuditCheckRun)
