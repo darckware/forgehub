@@ -61,7 +61,7 @@ Itens que vão falhar na primeira execução do catálogo v2. Cada um vira taref
 - Perfil `prometheus`: registrar como agente ou aposentar (ECO-044).
 - `hooks.outbound` nos perfis Hermes que não enviam telemetria (ECO-053).
 
-### Fase 1b — Perfis e skills (base das cartas de funções)
+### Fase 1b — Perfis e skills (base das cartas de funções) — ✅ concluída em 2026-10-02
 
 - Descrições de todos os agentes (ForgeHub `agents.description` e profile files) e as qualidades distintas de Aramis, Porthus e Dartan nos respectivos perfis.
 - Por agente Hermes: análise da função, criação das skills da função, arquivamento das skills criadas por agentes sem uso ou obsoletas (`curator archive`, recuperável) e opt-out das bundled fora da função, com snapshot antes.

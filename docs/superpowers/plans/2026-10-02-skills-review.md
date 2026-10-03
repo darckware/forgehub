@@ -1,4 +1,4 @@
-# Revisão de skills dos agentes Hermes — Proposta para aprovação
+# Revisão de skills dos agentes Hermes — aplicada em 2026-10-02
 
 **Data:** 2026-10-02
 **Fonte:** telemetria do curator do Hermes (`hermes -p <perfil> curator usage --json`), 10 perfis ativos (prometheus está estacionado e fica fora).
@@ -75,3 +75,25 @@ Cada skill nova segue o formato SKILL.md do Hermes, usa as ferramentas MCP do `f
 ## Resultado esperado
 
 Cada perfil fica com algo entre 15 e 30 skills, todas ligadas à função. O que sai pode ser restaurado com um comando, e o que entra fica fixado. Uma semana depois, a retrospectiva do Athos compara o uso das skills novas com o que existia antes.
+
+## Execução (2026-10-02, aprovada pelo Marcelo)
+
+| Perfil | Arquivadas | Desligadas (`skills.disabled`) | Criadas e fixadas | Carregadas após |
+|---|---|---|---|---|
+| athos | 21 | 10 | 5 | ~51 |
+| aegis | 15 | 10 | 4 | ~26 |
+| atlas | 15 | 36 | 3 | ~35 |
+| daedalus | 15 | 10 | 3 | ~20 |
+| hephaestus | 15 | 36 | 4 | ~37 |
+| kairos | 13 | 1 | 3 | ~24 |
+| lara | 14 | 0 (config não tocada) | 2 | 18 |
+| mnemosyne | 15 | 36 | 3 | ~35 |
+| scriba | 15 | 36 | 3 | ~34 |
+| themis | 15 | 36 | 4 | ~36 |
+
+- `godmode` e `obliteratus`: removidos de todos os perfis.
+- Todo agente Hermes (exceto a Lara, que não abre Tasks de código) recebeu `code-task-specification`; todos receberam `forgehub-routine-execution`.
+- **Correção da proposta:** `hermes-config-repair` no Athos **não** foi arquivada. Ela é a gêmea Hermes da skill de reparo do operador (Athos, Hephaestus e Aegis), está fixada de propósito, e o curator recusou o arquivamento.
+- Snapshot e relatório: `/root/.hermes/profiles/athos/state-snapshots/skills-review-2026-10-02/` (tarball de `skills/` + `config.yaml` por perfil e `report.json`). Reverter: `hermes -p <p> curator restore <skill>`, tirar o nome de `skills.disabled` ou extrair o tarball.
+- Atlas, Hephaestus, Mnemosyne, Scriba e Themis seguem acima de 30 skills carregadas por causa de bundled úteis que foram mantidas. A retrospectiva semanal reavalia com o uso real.
+- Pendência: a ferramenta MCP `propose_improvement` (criar item de Incubação). Até ela existir, a skill comum manda registrar melhorias como nota `[Melhoria]`.
