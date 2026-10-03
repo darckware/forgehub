@@ -178,7 +178,7 @@ Princípios: IDs existentes são mantidos (o histórico continua válido); check
 | ECO-045 | containers / hephaestus | Todo container do ecossistema tem `restart: unless-stopped` ou `always`, no compose e no container em execução |
 | ECO-046 | backup / daedalus | Cada instância Postgres de aplicação tem dump recente (≤ 8 dias), não trivial e legível |
 | ECO-047 | security / aegis | Nenhuma porta de aplicação ligada em `0.0.0.0` fora da allow-list; `/docs`, `/redoc` e `/openapi.json` fechados nos domínios públicos |
-| ECO-048 | network / hephaestus | `cloudflared` ativo e cada domínio público responde; a API do ForgeVault responde 401 sem credencial e `/mcp` não é alcançável pelo domínio público |
+| ECO-048 | network / hephaestus | `cloudflared` ativo e cada domínio público responde; a API do ForgeVault responde 401 sem credencial; **credencial de agente só funciona localmente** (Marcelo: "só pode fornecer acesso para os agentes locais via api ou mcp"): o mesmo token de agente recebe 403 pelo domínio público e 200 em `127.0.0.1:8080`, e `/mcp` não é alcançável pelo domínio público. Comportamento confirmado em 2026-10-02 |
 | ECO-049 | services / hephaestus | ForgeVault: api pronta, web, postgres e redis saudáveis |
 | ECO-050 | services / hephaestus | Darckware: site e API respondem; chat do site com a Lara (`/v1/chat`, `channel=site`) recebe resposta |
 | ECO-051 | services / hephaestus | CoreTI: web, api, nginx e postgres saudáveis |
