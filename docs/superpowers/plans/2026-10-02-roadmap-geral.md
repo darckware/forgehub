@@ -17,7 +17,7 @@ Roteiro mestre que ordena os planos detalhados e as pendências soltas levantada
 
 - Nada da implementação de A, B ou C começou. O working tree só tem estes documentos.
 - O incidente do reboot de 2026-10-02 já foi corrigido pelo Codex: todos os containers estão com `restart: unless-stopped`/`always`. Mas as alterações de compose em **darckware (9), forgevault (1), coreti (21), forgerouter (3) arquivos** continuam **sem commit** nos respectivos repositórios.
-- `forgevault.darckware.net` responde **200 para requisição anônima**: o Cloudflare Access exigido pela documentação não está ativo. O serviço guarda as chaves do ecossistema.
+- ~~`forgevault.darckware.net` sem Cloudflare Access~~ — **não é falha** (Marcelo: "o sistema tem login e dois fatores"). O 200 anônimo era só a tela de login (SPA); a API responde 401 sem credencial e `/mcp` não é alcançável pelo domínio público (POST → 405, fallback da SPA). Verificado em 2026-10-02.
 - Checks falhando hoje: ECO-004 (Lara sem `AGENTS.md`), ECO-022 (`foundation-clear`), ECO-039 (`/etc/docker/daemon.json` ausente / rotação de logs), ECO-040/041 (runtime de voz).
 - Nenhum banco de aplicação tem dump, e o único backup fica na própria VPS.
 
@@ -29,7 +29,7 @@ Roteiro mestre que ordena os planos detalhados e as pendências soltas levantada
 |---|---|---|---|
 | 0.1 | Backup externo: instalação, autorização Google, repositório, script, primeira execução e teste de restauração (A, Tarefas 1–5) | A | Token do `rclone authorize` e confirmação da senha (Marcelo) |
 | 0.2 | ✅ Remediações perigosas da Auditoria: gateways por perfil, containers aposentados, scripts inexistentes (B, Tarefa 1). Migração aplicada; deploy do backend pendente para o guard valer em produção | B | — |
-| 0.3 | ForgeVault atrás do Cloudflare Access (política no painel Zero Trust; validar `curl` anônimo → 302/403) | este roteiro | Acesso do Marcelo ao painel Cloudflare |
+| 0.3 | ~~Cloudflare Access no ForgeVault~~ — descartado: ForgeVault tem login próprio com 2FA; API 401 e `/mcp` fora do domínio público confirmados | — | — |
 | 0.4 | Commitar as correções de `restart` nos repositórios darckware, forgevault, coreti e forgerouter, depois de revisar cada diff (podem conter trabalho não relacionado) | este roteiro | Revisão do diff |
 
 ### Fase 1 — Observabilidade confiável
@@ -87,7 +87,7 @@ Pedido do Marcelo: agentes ociosos o dia todo, à espera de solicitação. A ide
 | 7 | Autonomia e avaliação | A0/A1/A2 como especificado; janela de avaliação de 7 dias |
 | 8 | Silêncio no Telegram | 23:00–07:00, só urgências (falha de backup, serviço fora do ar, segurança); o resto entra no briefing das 08:00 |
 | 9 | Catálogo v2 da Auditoria | Aprovado. Allow-list de portas: só `127.0.0.1`/`[::1]`, mais o Darckware no IP Tailscale `100.105.235.114` (3000, 8020). Limite do Messages: no máximo 20% de falhas em 7 dias. `prometheus` continua estacionado (`gateway.parked`), sem registro como agente; ECO-044 o ignora enquanto estiver estacionado |
-| 10 | Cloudflare Access no ForgeVault | Aprovado; depende do Marcelo no painel Zero Trust (ou de um token de API da Cloudflare) |
+| 10 | Cloudflare Access no ForgeVault | **Descartado** (login próprio + 2FA). O ECO-048 passa a verificar que a API do ForgeVault recusa anônimos (401) e que `/mcp` não responde pelo domínio público |
 | 11 | Skills | Arquivar as criadas por agentes sem uso ou obsoletas, desligar por perfil as genéricas fora da função, criar as skills de cada função. A lista por agente é apresentada antes de arquivar |
 | 12 | Perfis | Registrar as qualidades distintas de cada agente externo no perfil e melhorar as descrições de todos |
 
@@ -97,7 +97,7 @@ Pedido do Marcelo: agentes ociosos o dia todo, à espera de solicitação. A ide
 2. Confirmação de que a senha do backup foi guardada fora da VPS (Fase 0.1).
 3. Aprovação do catálogo v2: allow-list de portas (ECO-047), limite de falhas do Messages (ECO-054) e destino do perfil `prometheus` (Fase 1.3).
 4. Manter ou aposentar o `hermes-weekly-backup` local depois do backup externo (Fase 1.1).
-5. Ativar o Cloudflare Access no ForgeVault (Fase 0.3).
+5. ~~Cloudflare Access no ForgeVault~~ (descartado).
 
 ## Ordem de execução nesta sessão
 

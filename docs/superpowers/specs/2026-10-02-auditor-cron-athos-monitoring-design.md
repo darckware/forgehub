@@ -143,7 +143,7 @@ Além disso, o catálogo ficou para trás em relação ao ecossistema. Decisão 
 
 | Área | Situação em 2026-10-02 | Coberto hoje? |
 |---|---|---|
-| ForgeVault (web, api, postgres, redis; guarda as chaves) | Fora do ar após o reboot (`restart=no`); domínio respondia 200 sem Cloudflare Access | Não |
+| ForgeVault (web, api, postgres, redis; guarda as chaves) | Fora do ar após o reboot (`restart=no`). Acesso protegido pelo login próprio com 2FA (API 401 para anônimos) | Não |
 | Darckware (+ chat do site com a Lara) e CoreTI | Fora do ar após o reboot; só recuperados manualmente | Não |
 | Política de restart dos containers | Causa do incidente de 2026-10-02 | Não |
 | Backup dos bancos de aplicação (forgehub, forgevault, forgerouter, darckware, coreti, hindsight) | Não existe dump em `/root/backup`, só o arquivo do `/root/.hermes` | Não |
@@ -178,7 +178,7 @@ Princípios: IDs existentes são mantidos (o histórico continua válido); check
 | ECO-045 | containers / hephaestus | Todo container do ecossistema tem `restart: unless-stopped` ou `always`, no compose e no container em execução |
 | ECO-046 | backup / daedalus | Cada instância Postgres de aplicação tem dump recente (≤ 8 dias), não trivial e legível |
 | ECO-047 | security / aegis | Nenhuma porta de aplicação ligada em `0.0.0.0` fora da allow-list; `/docs`, `/redoc` e `/openapi.json` fechados nos domínios públicos |
-| ECO-048 | network / hephaestus | `cloudflared` ativo e cada domínio público responde; ForgeVault exige Cloudflare Access para requisição anônima |
+| ECO-048 | network / hephaestus | `cloudflared` ativo e cada domínio público responde; a API do ForgeVault responde 401 sem credencial e `/mcp` não é alcançável pelo domínio público |
 | ECO-049 | services / hephaestus | ForgeVault: api pronta, web, postgres e redis saudáveis |
 | ECO-050 | services / hephaestus | Darckware: site e API respondem; chat do site com a Lara (`/v1/chat`, `channel=site`) recebe resposta |
 | ECO-051 | services / hephaestus | CoreTI: web, api, nginx e postgres saudáveis |
