@@ -105,3 +105,31 @@ Pedido do Marcelo: agentes ociosos o dia todo, à espera de solicitação. A ide
 2. **B, Tarefa 1** (remediações), enquanto as decisões 1 e 2 não chegam. É a única frente da Fase 0 sem dependência externa.
 3. A, Tarefas 1–5, assim que o token chegar.
 4. Seguir as Fases 1 → 2 → 3, atualizando os status acima.
+
+## Passagem de sessão (2026-10-02 23:30)
+
+Estado ao fechar a sessão do Claude Code iniciada fora do ForgeHub (continua numa sessão dentro do ForgeHub via tmux).
+
+**Concluído e em produção**
+- Remediações perigosas da Auditoria corrigidas + trava (B/T1, `6cf985a`).
+- Operação 24x7, fase 1: cartas, rotinas, gerador → Messages, política v1, seed (13 cartas, 18 rotinas; só Athos/Hephaestus/Aegis ligados) — backend em produção (`07cb238`, `5f7cb08`).
+- Identidade injetada no despacho dos agentes externos (`52edd20`); parser de IDENTITY com chaves em negrito (`778b7e0`).
+- Perfis: IDENTITY.md no padrão (10 Hermes + Porthus/Aramis/Dartan), arquivos corrompidos de aegis/daedalus/hephaestus reparados, descrições sincronizadas no ForgeHub.
+- Revisão de skills aplicada (ver `2026-10-02-skills-review.md`).
+
+**Em andamento**
+- Primeiro envio do backup externo: unidade systemd avulsa `offsite-backup-first-run` (não depende de sessão). Acompanhar: `systemctl status offsite-backup-first-run`, `tail /root/backup/offsite-staging/first-run.log`, `cat /root/backup/offsite-staging/last_run.json`, `rclone size gdrive:vps-backup/restic`. Interrupção é segura (o envio retoma deduplicado).
+
+**Próximos passos, em ordem**
+1. Quando o primeiro envio terminar (`last_run.json` com `result=ok`): backup A/T5 (teste de restauração, incluindo o dump do ForgeVault), A/T6 (`hermes -p athos cron create` do job `backup-offsite-root` às 02:30 + sync de scripts no ForgeHub), A/T7 (runbook `docs/runbooks/offsite-backup-restore.md`).
+2. Ferramentas MCP `ask_marcelo` e `propose_improvement` (Operação fase 2). Carregar novas ferramentas exige um restart do gateway Hermes, que só acontece **com autorização do Marcelo**.
+3. Tela `/operations` (Operação fase 4).
+4. Auditoria B/T2…T8 (catálogo v2, monitor do Athos, crons, telas, correção operacional dos jobs: ref git do Hermes travada).
+
+**Pendente do Marcelo**
+- Confirmar que copiou `RESTIC_VPS_BACKUP_PASSWORD` (ForgeVault, meus-agentes/Production) para o Gerenciador de Senhas do Google.
+
+**Achados registrados para tratar**
+- `validate_agent_profiles.py`: daedalus sem `scripts/knowledge_cycle.py`.
+- Alterações sem commit nos repositórios darckware (9), forgevault (1), coreti (21), forgerouter (3).
+- Vector (OpenClaw) sem diretório de perfil e sem registro como agente.
