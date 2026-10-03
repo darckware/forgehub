@@ -285,3 +285,18 @@ async def test_charter_upsert_and_overview(client, agent):
     overview = (await client.get("/api/v1/operations/overview")).json()
     row = next(a for a in overview["agents"] if a["agent_id"] == str(agent.id))
     assert row["has_charter"] is True and row["daily_run_budget"] == 12
+
+
+def test_seed_catalog_is_consistent():
+    from app.core.operations_seed import CHARTERS, FIRST_WAVE, HERMES_NEVER, POLICY_V1, ROUTINES
+
+    external = {"aramis", "dartan", "porthus"}
+    for slug, title, schedule, _kind, _deadline, instructions, _evidence, _checks in ROUTINES:
+        assert slug in CHARTERS, f"routine {title!r} has no charter"
+        validate_schedule(schedule, "America/Sao_Paulo")
+        assert instructions.strip()
+    for slug, charter in CHARTERS.items():
+        # Only the external agents write code (Marcelo, 2026-10-02).
+        assert (HERMES_NEVER in charter["never_does"]) == (slug not in external), slug
+    assert FIRST_WAVE <= set(CHARTERS)
+    assert "Aramis" in POLICY_V1 and "23:00" in POLICY_V1
