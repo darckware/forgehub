@@ -1,5 +1,7 @@
 # Planejamento geral — Ecossistema ForgeHub/Hermes (a partir de 2026-10-02)
 
+**Objetivo central (Marcelo, 2026-10-02):** auditoria e monitoramento do ecossistema, com os agentes ativos em produção 24x7, cada um com funções estabelecidas, rotinas diárias, comunicação entre eles, dúvidas tiradas com o Marcelo pelo Telegram, e o sistema se aperfeiçoando sozinho. As frentes A (backup) e B (auditoria) são a base desse objetivo: a auditoria vira o que os agentes vigiam e o backup é uma das rotinas monitoradas.
+
 Roteiro mestre que ordena os planos detalhados e as pendências soltas levantadas na passagem do Codex para o Claude Code. Cada frente tem um plano próprio; este documento só define **ordem, dependências e decisões pendentes**. Atualize o status aqui no mesmo commit em que uma frente avança.
 
 ## Planos detalhados
@@ -9,7 +11,7 @@ Roteiro mestre que ordena os planos detalhados e as pendências soltas levantada
 | A. Backup externo no Google Drive | `docs/superpowers/plans/2026-10-02-offsite-backup-google-drive.md` |
 | B. Auditor, Cron e monitoramento do Athos (revisão 2) | `docs/superpowers/plans/2026-10-02-auditor-cron-athos-monitoring.md` |
 | B'. Especificação da Auditoria + catálogo v2 | `docs/superpowers/specs/2026-10-02-auditor-cron-athos-monitoring-design.md` |
-| C. Continuidade dos agentes (tirar a inércia) | a especificar |
+| C. Operação 24x7 dos agentes + autoaperfeiçoamento (**objetivo central**) | `docs/superpowers/specs/2026-10-02-agent-operations-24x7-design.md` (proposta) |
 
 ## Estado em 2026-10-02
 
