@@ -4331,6 +4331,30 @@ def _tmux_new_session(*args: str) -> subprocess.CompletedProcess:
     return result
 
 
+def _tmux_window_rows(session_name: str, client_rows: int) -> int:
+    """Rows the tmux *window* gets out of the client's `client_rows`.
+
+    The window is resized by hand (window-size manual), and the client also
+    draws the status bar -- ~/.tmux.conf turns it on for every session, and
+    `status` may be "on" or a line count ("2"). Resizing the window to the
+    full client height left it one row taller than what the client can show,
+    so tmux scrolled the viewport to the cursor and hid the pane's last row:
+    Claude Code's mode line ("⏵⏵ accept edits on (shift+tab to cycle)"),
+    which made Shift+Tab look like it did nothing (2026-10-03).
+    """
+    status = _tmux("display-message", "-p", "-t", session_name, "#{status}").stdout.strip()
+    if status in ("", "off"):
+        lines = 0
+    elif status == "on":
+        lines = 1
+    else:
+        try:
+            lines = int(status)
+        except ValueError:
+            lines = 1
+    return max(2, client_rows - lines)
+
+
 def _tmux_session_exists(name: str) -> bool:
     return _tmux("has-session", "-t", name).returncode == 0
 
@@ -4538,6 +4562,10 @@ async def terminal_ws(
         # doesn't change behavior for unrelated sessions on the shared host.
         _tmux("set-option", "-t", session_name, "mouse", "on")
         _tmux("set-window-option", "-t", session_name, "window-size", "manual")
+        _tmux(
+            "resize-window", "-t", session_name,
+            "-x", str(initial_cols), "-y", str(_tmux_window_rows(session_name, initial_rows)),
+        )
         if _is_allowed_launcher_command(command):
             # Only on creation -- reattaching to an existing session must
             # never re-type the launcher, or every reconnect would relaunch
@@ -4558,7 +4586,10 @@ async def terminal_ws(
             _tmux("send-keys", "-t", session_name, "Enter")
     else:
         _tmux("set-window-option", "-t", session_name, "window-size", "manual")
-        _tmux("resize-window", "-t", session_name, "-x", str(initial_cols), "-y", str(initial_rows))
+        _tmux(
+            "resize-window", "-t", session_name,
+            "-x", str(initial_cols), "-y", str(_tmux_window_rows(session_name, initial_rows)),
+        )
 
     master_fd, slave_fd = pty.openpty()
     _set_winsize(master_fd, initial_rows, initial_cols)
@@ -4622,7 +4653,10 @@ async def terminal_ws(
                 # the tmux window matches xterm.js dimensions exactly, avoiding
                 # status bar displacement and orphan-line ghosting.
                 _tmux("set-window-option", "-t", session_name, "window-size", "manual")
-                _tmux("resize-window", "-t", session_name, "-x", str(new_cols), "-y", str(new_rows))
+                _tmux(
+                    "resize-window", "-t", session_name,
+                    "-x", str(new_cols), "-y", str(_tmux_window_rows(session_name, new_rows)),
+                )
                 try:
                     os.kill(proc.pid, signal.SIGWINCH)
                 except ProcessLookupError:
