@@ -152,7 +152,7 @@ export function useChannel(channelId: string | undefined) {
     // Marcelo: "quando o agente solicitar as configurações no canal é
     // preciso dar uma atualização no display... para mostrar os ajustes
     // nos agentes do canal e suas funções"). Same interval class as
-    // useRemoteAccess/useSystemStats' own polling.
+    // useSystemStats' own polling.
     refetchInterval: 15_000,
   });
 }

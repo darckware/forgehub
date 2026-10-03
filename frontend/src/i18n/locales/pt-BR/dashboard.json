@@ -1,10 +1,6 @@
 {
   "title": "Painel",
   "welcome": "Bem-vindo ao ForgeHub.",
-  "tabs": {
-    "resources": "Recursos do Sistema",
-    "remote": "Acesso Remoto"
-  },
   "toolVersions": {
     "title": "Versões de Ferramentas",
     "checkNow": "Verificar agora",
@@ -40,14 +36,6 @@
     "dockerBreakdown": "cache de build {{cache}} · imagens {{images}}",
     "dockerReclaimable": "{{size}} recuperáveis",
     "dockerReclaimableWarning": "{{size}} recuperáveis no Docker — limpar no System Control"
-  },
-  "remoteAccess": {
-    "loading": "Carregando...",
-    "description": "Cria um link público temporário (Cloudflare Tunnel) para acessar todo o app ForgeHub de qualquer lugar. Ainda requer login — quem tiver o link cai na tela de entrada, não direto no app.",
-    "copyLink": "Copiar link",
-    "scanQrCode": "Escaneie o QR code com a câmera do seu celular para abrir o link.",
-    "turnOn": "Ativar acesso remoto",
-    "turnOff": "Desativar acesso remoto"
   },
   "crons": {
     "title": "Agendamentos",
