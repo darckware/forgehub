@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,10 @@ from app.api.routes.demand import create_demand_and_notify
 from app.api.schemas.demand import DemandSubmitIn
 from app.api.schemas.operations import (
     AgentOperationsSummary,
+    QuestionAnswerIn,
+    QuestionAskIn,
+    QuestionOut,
+    QuestionRelayAnswerIn,
     CharterIn,
     CharterOut,
     OperationsOverview,
@@ -39,6 +43,8 @@ from app.api.schemas.operations import (
     RoutineRunOut,
     RoutineUpdate,
 )
+from app.core import agent_questions
+from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.core.routine_schedule import (
     local_day_bounds,
@@ -50,9 +56,11 @@ from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.audit import AuditCheck
 from app.db.models.demand import AgentDemand
+from app.db.models.notification import Notification
 from app.db.models.operations import (
     ROUTINE_RUN_TERMINAL_STATUSES,
     AgentCharter,
+    AgentQuestion,
     AgentRoutine,
     AgentRoutineRun,
     OperationsPolicy,
@@ -557,3 +565,192 @@ async def operations_overview(db: AsyncSession = Depends(get_db)) -> OperationsO
             runs_counted_today=sum(v for k, v in counts.items() if k not in _NON_BUDGET_STATUSES),
         ))
     return OperationsOverview(agents=summaries, policy_version=policy.version if policy else None)
+
+
+# ---------------------------------------------------------------- questions
+#
+# Two surfaces. /agent-questions is the agents' side (bridge token, the
+# forgehub Messages MCP's ask_marcelo / list_my_questions /
+# record_marcelo_answer) and is carved out of RequireAuthMiddleware in
+# main.py. /questions is Marcelo's side (JWT): the Dúvidas tab lists and
+# answers. Answering from either side goes through
+# agent_questions.record_answer, so the agent gets the same Task either way.
+
+
+def _require_bridge(token: str | None) -> None:
+    if not settings.CHAT_BRIDGE_TOKEN or token != settings.CHAT_BRIDGE_TOKEN:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bridge token")
+
+
+async def _agent_by_slug_or_404(db: AsyncSession, slug: str) -> Agent:
+    agent = (await db.execute(select(Agent).where(Agent.profile_slug == slug.strip()))).scalar_one_or_none()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No agent with profile_slug {slug!r}")
+    return agent
+
+
+async def _question_out(db: AsyncSession, question: AgentQuestion) -> QuestionOut:
+    out = QuestionOut.model_validate(question)
+    asker = await db.get(Agent, question.agent_id)
+    relay = await db.get(Agent, question.relay_agent_id) if question.relay_agent_id else None
+    out.agent_name = asker.name if asker else None
+    out.relay_agent_name = relay.name if relay else None
+    return out
+
+
+def _assert_pending(question: AgentQuestion) -> None:
+    if question.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Question #{question.number} is already {question.status}",
+        )
+
+
+@router.post("/agent-questions", response_model=QuestionOut, status_code=status.HTTP_201_CREATED)
+async def ask_question(
+    payload: QuestionAskIn,
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> QuestionOut:
+    """An agent asks Marcelo something (MCP ask_marcelo). Recorded and shown
+    in ForgeHub at once; the Telegram message goes out with the next delivery
+    pass (every minute), or at 07:00 when asked in the quiet window."""
+    _require_bridge(x_bridge_token)
+    asker = await _agent_by_slug_or_404(db, payload.agent)
+    origin_demand_id = None
+    if payload.origin_message_number is not None:
+        origin_demand_id = (
+            await db.execute(select(AgentDemand.id).where(AgentDemand.number == payload.origin_message_number))
+        ).scalar_one_or_none()
+        if origin_demand_id is None:
+            raise HTTPException(status_code=404, detail=f"No message #{payload.origin_message_number}")
+    relay, chat = await agent_questions.resolve_relay(db, asker)
+    now = datetime.now(timezone.utc)
+    question = AgentQuestion(
+        agent_id=asker.id,
+        relay_agent_id=relay.id if relay else None,
+        telegram_chat=chat,
+        question=payload.question.strip(),
+        context=(payload.context or "").strip() or None,
+        recommendation=(payload.recommendation or "").strip() or None,
+        blocking=payload.blocking,
+        urgent=payload.urgent,
+        origin_demand_id=origin_demand_id,
+        notify_after=agent_questions.notify_after_for(now, payload.urgent),
+    )
+    db.add(question)
+    await db.flush()
+    db.add(
+        Notification(
+            source="system",
+            severity="warning" if payload.urgent or payload.blocking else "info",
+            title=f"Pergunta #{question.number} de {asker.name}",
+            message=question.question[:500],
+            event_key=f"agent-question:{question.id}",
+            occurred_at=now,
+        )
+    )
+    await db.commit()
+    await db.refresh(question)
+    return await _question_out(db, question)
+
+
+@router.get("/agent-questions", response_model=list[QuestionOut])
+async def list_agent_questions(
+    agent: str,
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=20, ge=1, le=200),
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> list[QuestionOut]:
+    """What an agent asked (or relays). Covers both: the asker checking for
+    an answer, and the relay agent finding the #number Marcelo replied to."""
+    _require_bridge(x_bridge_token)
+    who = await _agent_by_slug_or_404(db, agent)
+    query = select(AgentQuestion).where(
+        (AgentQuestion.agent_id == who.id) | (AgentQuestion.relay_agent_id == who.id)
+    )
+    if status_filter:
+        query = query.where(AgentQuestion.status == status_filter)
+    rows = await db.execute(query.order_by(AgentQuestion.number.desc()).limit(limit))
+    return [await _question_out(db, q) for q in rows.scalars()]
+
+
+@router.post("/agent-questions/{number}/relay-answer", response_model=QuestionOut)
+async def relay_answer(
+    number: int,
+    payload: QuestionRelayAnswerIn,
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> QuestionOut:
+    """Marcelo answered in Telegram: the agent whose bot carried the question
+    records it. Only that agent -- the reply exists only in its conversation,
+    and any other agent "answering" would be speaking for Marcelo."""
+    _require_bridge(x_bridge_token)
+    relay = await _agent_by_slug_or_404(db, payload.agent)
+    question = (await db.execute(select(AgentQuestion).where(AgentQuestion.number == number))).scalar_one_or_none()
+    if question is None:
+        raise HTTPException(status_code=404, detail=f"No question #{number}")
+    if question.relay_agent_id != relay.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Question #{number} was not sent through {payload.agent!r}'s Telegram",
+        )
+    _assert_pending(question)
+    await agent_questions.record_answer(
+        db, question, payload.answer, via="telegram", by=f"marcelo (via {relay.profile_slug})"
+    )
+    return await _question_out(db, question)
+
+
+@router.get("/questions", response_model=list[QuestionOut])
+async def list_questions(
+    status_filter: str | None = Query(default=None, alias="status"),
+    agent_id: uuid.UUID | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+) -> list[QuestionOut]:
+    query = select(AgentQuestion)
+    if status_filter:
+        query = query.where(AgentQuestion.status == status_filter)
+    if agent_id:
+        query = query.where(AgentQuestion.agent_id == agent_id)
+    rows = await db.execute(query.order_by(AgentQuestion.number.desc()).limit(limit))
+    return [await _question_out(db, q) for q in rows.scalars()]
+
+
+async def _question_or_404(db: AsyncSession, question_id: uuid.UUID) -> AgentQuestion:
+    question = await db.get(AgentQuestion, question_id)
+    if question is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+    return question
+
+
+@router.post("/questions/{question_id}:answer", response_model=QuestionOut)
+async def answer_question(
+    question_id: uuid.UUID,
+    payload: QuestionAnswerIn,
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(get_current_admin),
+) -> QuestionOut:
+    question = await _question_or_404(db, question_id)
+    _assert_pending(question)
+    await agent_questions.record_answer(
+        db, question, payload.answer, via="screen", by=getattr(admin, "username", None) or "marcelo"
+    )
+    return await _question_out(db, question)
+
+
+@router.post("/questions/{question_id}:cancel", response_model=QuestionOut)
+async def cancel_question(
+    question_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(get_current_admin),
+) -> QuestionOut:
+    """Withdraw a question that no longer needs an answer. Kept, never deleted."""
+    question = await _question_or_404(db, question_id)
+    _assert_pending(question)
+    question.status = "cancelled"
+    await db.commit()
+    await db.refresh(question)
+    return await _question_out(db, question)

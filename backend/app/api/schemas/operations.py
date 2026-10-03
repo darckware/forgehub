@@ -136,3 +136,52 @@ class AgentOperationsSummary(BaseModel):
 class OperationsOverview(BaseModel):
     agents: list[AgentOperationsSummary]
     policy_version: int | None
+
+
+class QuestionAskIn(BaseModel):
+    """Bridge-token body of the MCP `ask_marcelo` tool."""
+
+    agent: str = Field(min_length=1, max_length=50)
+    question: str = Field(min_length=1, max_length=4000)
+    context: str | None = Field(default=None, max_length=8000)
+    recommendation: str | None = Field(default=None, max_length=4000)
+    blocking: bool = False
+    urgent: bool = False
+    # The Messages #number the agent was running when it asked, if any: the
+    # answer task points back at it (reply_to_id).
+    origin_message_number: int | None = None
+
+
+class QuestionAnswerIn(BaseModel):
+    answer: str = Field(min_length=1, max_length=8000)
+
+
+class QuestionRelayAnswerIn(QuestionAnswerIn):
+    # The agent whose Telegram conversation received Marcelo's reply.
+    agent: str = Field(min_length=1, max_length=50)
+
+
+class QuestionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    number: int
+    agent_id: uuid.UUID
+    agent_name: str | None = None
+    relay_agent_id: uuid.UUID | None
+    relay_agent_name: str | None = None
+    question: str
+    context: str | None
+    recommendation: str | None
+    blocking: bool
+    urgent: bool
+    status: str
+    notify_after: datetime
+    telegram_sent_at: datetime | None
+    telegram_error: str | None
+    answer: str | None
+    answered_at: datetime | None
+    answered_via: str | None
+    answered_by: str | None
+    reply_demand_id: uuid.UUID | None
+    created_at: datetime

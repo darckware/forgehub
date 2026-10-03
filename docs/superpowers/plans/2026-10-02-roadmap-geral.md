@@ -122,7 +122,7 @@ Estado ao fechar a sessão do Claude Code iniciada fora do ForgeHub (continua nu
 
 **Próximos passos, em ordem**
 1. Quando o primeiro envio terminar (`last_run.json` com `result=ok`): backup A/T5 (teste de restauração, incluindo o dump do ForgeVault), A/T6 (`hermes -p athos cron create` do job `backup-offsite-root` às 02:30 + sync de scripts no ForgeHub), A/T7 (runbook `docs/runbooks/offsite-backup-restore.md`).
-2. Ferramentas MCP `ask_marcelo` e `propose_improvement` (Operação fase 2). Carregar novas ferramentas exige um restart do gateway Hermes, que só acontece **com autorização do Marcelo**.
+2. ✅ Código pronto (2026-10-03): tabela `agent_questions` (migration `d447cad24782`, aplicada), rotas `/operations/agent-questions` (bridge) e `/operations/questions` (JWT), entrega pelo Telegram com silêncio 23:00–07:00 no loop de rotinas, resposta devolvida como Task; MCP `ask_marcelo`, `list_my_questions`, `record_marcelo_answer`, `propose_improvement`. **Falta:** deploy do backend, restart do gateway Hermes (autorização do Marcelo) e trocar o passo 6 da skill `forgehub-routine-execution` para usar `propose_improvement`.
 3. Tela `/operations` (Operação fase 4).
 4. Auditoria B/T2…T8 (catálogo v2, monitor do Athos, crons, telas, correção operacional dos jobs: ref git do Hermes travada).
 

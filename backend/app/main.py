@@ -250,6 +250,18 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
                 return await call_next(request)
 
+        # Agents asking Marcelo (MCP ask_marcelo / list_my_questions /
+        # record_marcelo_answer, 2026-10-03). Only the agent-side prefix:
+        # /api/v1/operations/questions (Marcelo's answers) stays JWT-only.
+        # Each route re-checks the token itself.
+        is_agent_questions_path = path == "/api/v1/operations/agent-questions" or path.startswith(
+            "/api/v1/operations/agent-questions/"
+        )
+        if is_agent_questions_path:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
+
         # System operations via bridge token (system-control, backups, audit, deploy, database query)
         is_system_bridge_path = (
             path.startswith("/api/v1/system-control/")
@@ -511,6 +523,7 @@ async def _routine_poll_loop() -> None:
     dispatch must not also stop occurrences from being recorded (a missed
     occurrence is evidence the screen has to show)."""
     from app.api.routes.operations import run_routine_generation_pass, run_routine_sync_pass
+    from app.core.agent_questions import run_question_delivery_pass
     from app.db.base import AsyncSessionLocal
 
     while True:
@@ -521,6 +534,13 @@ async def _routine_poll_loop() -> None:
                 await run_routine_sync_pass(db)
         except Exception:
             logger.exception("Routine poll failed")
+        # Separate try: a Telegram/bridge failure must not stop routines,
+        # and a routine failure must not hold an agent's question back.
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_question_delivery_pass(db)
+        except Exception:
+            logger.exception("Agent question delivery failed")
         await asyncio.sleep(ROUTINE_POLL_INTERVAL_SECONDS)
 
 

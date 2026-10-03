@@ -111,6 +111,7 @@ from app.db.models.file_explorer import ExplorerQuickAccessEntry  # noqa: F401
 from app.db.models.agent_activity_event import AgentActivityEvent  # noqa: F401
 from app.db.models.operations import (  # noqa: F401
     AgentCharter,
+    AgentQuestion,
     AgentRoutine,
     AgentRoutineRun,
     OperationsPolicy,

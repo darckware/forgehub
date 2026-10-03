@@ -24,6 +24,14 @@ Seven tools, five of which are read-only:
     propose_channel_task   propose a task for yourself or a channel-mate
     list_agent_skills      one agent's declared function and granted skills
 
+24x7 operation (2026-10-03, spec
+docs/superpowers/specs/2026-10-02-agent-operations-24x7-design.md):
+
+    ask_marcelo            ask the operator on Telegram; the answer comes back as a Task
+    list_my_questions      questions asked by me or relayed through my bot
+    record_marcelo_answer  the relay bot records Marcelo's "#N ..." Telegram reply
+    propose_improvement    an Incubation item owned by me, with problem/proposal/metric
+
 The middle two wrap the ChatChannel domain (`POST/GET /api/v1/channels/...`,
 see backend/app/db/models/channel.py and
 docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) -- a different
@@ -602,6 +610,194 @@ async def drop_incubation(number: int, reason: str, agent: str | None = None) ->
     except ForgeHubError as exc:
         return str(exc)
     return f"Dropped #{number} — archived with the reason on record: {reason.strip()}"
+
+
+def _format_question(q: dict[str, Any]) -> str:
+    flags = [f for f, on in (("urgent", q.get("urgent")), ("blocking", q.get("blocking"))) if on]
+    lines = [
+        f"Question #{q.get('number')} from {q.get('agent_name')}"
+        + (f" [{', '.join(flags)}]" if flags else "")
+        + f" -- {q.get('status')}",
+        f"  Q: {q.get('question')}",
+    ]
+    if q.get("status") == "answered":
+        lines.append(f"  A ({q.get('answered_via')}): {q.get('answer')}")
+    elif q.get("telegram_sent_at"):
+        lines.append(f"  Sent on Telegram via {q.get('relay_agent_name')} at {q['telegram_sent_at']}")
+    else:
+        lines.append(f"  Telegram: not sent yet (goes out at {q.get('notify_after')})")
+        if q.get("telegram_error"):
+            lines.append(f"  Last delivery error: {q['telegram_error']}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def ask_marcelo(
+    question: str,
+    context: str | None = None,
+    recommendation: str | None = None,
+    blocking: bool = False,
+    urgent: bool = False,
+    message_number: int | None = None,
+    agent: str | None = None,
+) -> str:
+    """Ask Marcelo (the operator) something only he can decide. He gets it on
+    Telegram and on ForgeHub's Operations screen.
+
+    Use it for A2 decisions (code changes, charter/budget/policy changes,
+    anything destructive or external: customers, domains, secrets) and for
+    real ambiguity you cannot resolve from the docs or the code. Do NOT use
+    it for status updates or for things you can find out yourself.
+
+    His answer comes back to you as a new Messages Task ("[Resposta] Pergunta
+    #N"), so you do not need to poll. While waiting, carry on with your other
+    work -- never re-ask the same question; the morning briefing reminds him.
+
+    Quiet hours: 23:00-07:00 only `urgent` questions reach Telegram (backup
+    failure, a service down, security). Others wait until 07:00.
+
+    Args:
+        question: one clear question, answerable with a short reply
+            (ideally yes/no or a choice).
+        context: what he needs to know to answer -- facts, links, numbers.
+        recommendation: what you would do, and why. Always give one.
+        blocking: your current work cannot continue without the answer.
+        urgent: may wake him during quiet hours. Reserve for real incidents.
+        message_number: the Messages #number you are working on, so the
+            answer links back to it.
+        agent: who is asking; defaults to this runtime's own slug.
+    """
+    try:
+        payload: dict[str, Any] = {
+            "agent": _resolve_agent(agent),
+            "question": question,
+            "context": context,
+            "recommendation": recommendation,
+            "blocking": blocking,
+            "urgent": urgent,
+        }
+        if message_number is not None:
+            payload["origin_message_number"] = message_number
+        q = await _call("POST", "/api/v1/operations/agent-questions", json=payload)
+    except ForgeHubError as exc:
+        return str(exc)
+    return (
+        f"Asked as question #{q['number']}. The answer will arrive as a Messages Task; "
+        f"keep going with other work meanwhile.\n\n{_format_question(q)}"
+    )
+
+
+@mcp.tool()
+async def list_my_questions(status: str | None = None, agent: str | None = None, limit: int = 20) -> str:
+    """Questions you asked Marcelo, and the ones relayed through your Telegram
+    bot. Use it to check an answer or to find the #number Marcelo replied to.
+
+    Args:
+        status: "pending", "answered" or "cancelled"; omit for all.
+        agent: whose questions; defaults to this runtime's own slug.
+        limit: max questions (1-200, default 20).
+    """
+    try:
+        params: dict[str, Any] = {"agent": _resolve_agent(agent), "limit": limit}
+        if status:
+            params["status"] = status
+        items = await _call("GET", "/api/v1/operations/agent-questions", params=params)
+    except ForgeHubError as exc:
+        return str(exc)
+    if not items:
+        return "No questions."
+    return "\n\n".join(_format_question(q) for q in items)
+
+
+@mcp.tool()
+async def record_marcelo_answer(number: int, answer: str, agent: str | None = None) -> str:
+    """Record Marcelo's Telegram reply to a question sent through YOUR bot.
+
+    When Marcelo writes to you on Telegram starting with "#<number>" (e.g.
+    "#12 sim, pode arquivar"), that is his answer to question #12 asked by
+    an agent. Call this with the number and his words (without the "#12"
+    prefix, otherwise verbatim -- do not paraphrase or add to it); the asking
+    agent then receives it as a Task. Confirm to Marcelo in one short line.
+    If you are unsure which question he means, use list_my_questions and ask
+    him -- never guess, since you would be speaking for him.
+
+    Args:
+        number: the question's #number.
+        answer: Marcelo's answer, verbatim.
+        agent: your own slug (the bot that carried the question); defaults to
+            this runtime's own slug. Only that agent may record the answer.
+    """
+    try:
+        if not answer.strip():
+            raise ForgeHubError("The answer is empty -- record Marcelo's words verbatim.")
+        q = await _call(
+            "POST",
+            f"/api/v1/operations/agent-questions/{number}/relay-answer",
+            json={"agent": _resolve_agent(agent), "answer": answer},
+        )
+    except ForgeHubError as exc:
+        return str(exc)
+    return f"Recorded. {q.get('agent_name')} will receive the answer as a Task.\n\n{_format_question(q)}"
+
+
+@mcp.tool()
+async def propose_improvement(
+    title: str,
+    problem: str,
+    proposal: str,
+    expected_gain: str,
+    how_to_measure: str,
+    agent: str | None = None,
+) -> str:
+    """Propose an improvement in YOUR domain. It becomes an Incubation item you
+    own: it matures for 3 days, then comes back to you to decide
+    (receive_incubation to turn it into a Task, drop_incubation with a
+    reason). Nothing runs on its own.
+
+    Use it for things worth doing that are not urgent: a recurring failure
+    that needs a real fix, a missing routine, a check that keeps failing for
+    the same cause, a vague instruction. Code changes still go through
+    Marcelo's approval (ask_marcelo) once you decide to take the item on.
+
+    Args:
+        title: short name, e.g. "Rotação de logs do Docker".
+        problem: what is wrong or missing, with evidence.
+        proposal: what to change, concretely.
+        expected_gain: what improves.
+        how_to_measure: the metric or check that will show it worked.
+        agent: the owner; defaults to this runtime's own slug.
+    """
+    try:
+        owner = _resolve_agent(agent)
+        body = "\n".join(
+            [
+                "## Problema", problem.strip(), "",
+                "## Proposta", proposal.strip(), "",
+                "## Ganho esperado", expected_gain.strip(), "",
+                "## Como medir", how_to_measure.strip(),
+            ]
+        )
+        demand = await _call(
+            "POST",
+            "/api/v1/demands/submit",
+            json={
+                "from_agent": owner,
+                "subject": f"[Melhoria] {title.strip()}"[:255],
+                "body": body,
+                "origin_type": "incubation",
+            },
+        )
+    except ForgeHubError as exc:
+        return str(exc)
+    if demand.get("origin_type") != "incubation" or not demand.get("incubation_owner_id"):
+        return (
+            f"Filed as #{demand.get('number')}, but not as your incubation item "
+            f"({owner!r} may not be a registered agent). Check it on the Messages page."
+        )
+    return (
+        f"Proposed as incubation item #{demand['number']}, owned by {owner!r}. "
+        f"Decide by {demand.get('matures_at')} (list_my_incubation shows it)."
+    )
 
 
 async def _resolve_channel_id(channel: str) -> str:
