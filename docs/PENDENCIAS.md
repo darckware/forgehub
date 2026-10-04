@@ -254,3 +254,17 @@ contra host bridge, repositório Nexo ou estações reais.
 
 Ao concluir uma pendência, mover o item para **Concluído** e anexar revisão/commit, migration quando
 aplicável, comando e resultado dos testes e evidência de deploy/smoke test quando afetar runtime.
+
+## Auditoria do ecossistema — pendências de 2026-10-04
+
+O [runbook do Auditor](runbooks/auditor-cron-recovery.md) registra o cron do Athos, as migrações
+e os resultados dos 52 checks ativos. A implementação do catálogo v2 e das telas está concluída;
+as falhas dos checks abaixo representam estado do ecossistema a corrigir:
+
+- `ECO-019`: restringir permissões do `.env` do ForgeVault após validar seu proprietário e consumo.
+- `ECO-039`: corrigir rotação de logs dos três PostgreSQL apontados e aprovar limite de cache Docker.
+- `ECO-042/043`: completar os contratos dos perfis Kairos e Lara.
+- `ECO-047`: revisar listeners fora da allow-list e fechar `/docs`, `/redoc` e `/openapi.json` públicos do ForgeVault. Não alterar o deploy do Darckware nesta entrega.
+- `ECO-048/050/055/056`: criar provas seguras e só então habilitar os checks reservados.
+- `ECO-058`: primeiro snapshot externo e restauração de amostra continuam adiados por decisão do Marcelo.
+- `ECO-040/041` e `ECO-012`: criar e validar artefatos de remediação antes de habilitar reparo automático.
