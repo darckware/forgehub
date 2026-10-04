@@ -1,11 +1,12 @@
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Building2, Loader2, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, Building2, FolderKanban, Loader2, Pencil, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Select } from "@/components/ui/select";
 import type { Contract, ContractStatus } from "@/hooks/useClientOps";
 import { useClientAccountViewModel, type ClientAccountViewModel } from "@/hooks/useClientAccountViewModel";
 import { ContractDialog } from "./ContractDialog";
@@ -79,6 +80,8 @@ export default function ClientAccountPage() {
               </ul>
             </CardContent>
           </Card>
+
+          <FactorySection vm={vm} />
 
           <Card>
             <CardContent className="space-y-3 p-4">
@@ -189,5 +192,78 @@ function ContractRow({ contract: c, vm }: { contract: Contract; vm: ClientAccoun
         </div>
       </div>
     </li>
+  );
+}
+
+function FactorySection({ vm }: { vm: ClientAccountViewModel }) {
+  const { t } = useTranslation("clientOps");
+  const factory = vm.factory;
+  if (!factory) return null;
+  const empty = factory.products.length === 0 && factory.projects.length === 0;
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <FolderKanban className="h-4 w-4" /> {t("factory.title")}
+        </h2>
+        {empty && <p className="text-sm text-muted-foreground">{t("factory.none")}</p>}
+        {factory.products.length > 0 && (
+          <div className="space-y-1">
+            <h3 className="text-xs font-medium uppercase text-muted-foreground">{t("factory.products")}</h3>
+            <div className="flex flex-wrap gap-2">
+              {factory.products.map((p) => (
+                <Badge key={p.id} variant="outline">
+                  {p.name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+        {factory.projects.length > 0 && (
+          <div className="space-y-1">
+            <h3 className="text-xs font-medium uppercase text-muted-foreground">{t("factory.projects")}</h3>
+            <ul className="divide-y">
+              {factory.projects.map((p) => (
+                <li key={p.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                  <Link to={`/projects/${p.id}`} className="font-medium underline">
+                    {p.name}
+                  </Link>
+                  <Badge variant="outline">{p.status}</Badge>
+                  {p.darckware_origin_type && (
+                    <span className="text-xs text-muted-foreground">{t(`factory.origin.${p.darckware_origin_type}`)}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {factory.unlinked_products.length > 0 && (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex-1 space-y-1">
+              <label htmlFor="link-product" className="text-sm">
+                {t("factory.link")}
+              </label>
+              <Select
+                id="link-product"
+                className="max-md:text-base"
+                value={vm.linkProductId}
+                onChange={(e) => vm.setLinkProductId(e.target.value)}
+              >
+                <option value="">{t("factory.linkPick")}</option>
+                {factory.unlinked_products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Button variant="outline" onClick={() => void vm.linkProduct()} disabled={!vm.linkProductId || vm.linking}>
+              {vm.linking && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("factory.linkConfirm")}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

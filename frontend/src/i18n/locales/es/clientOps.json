@@ -236,5 +236,35 @@
     "done": "Cliente creado. El correo de bienvenida está en la cola de aprobación.",
     "openEmails": "Abrir aprobación",
     "openClient": "Abrir cliente"
+  },
+  "project": {
+    "create": "Crear proyecto",
+    "title": "Abrir proyecto en la Software Factory",
+    "explain": "Crea el proyecto (y el producto, si es nuevo) vinculado a este cliente y a esta demanda; la demanda pasa a en curso.",
+    "existing": "Producto existente",
+    "new": "Nuevo producto",
+    "product": "Producto",
+    "chooseProduct": "Seleccione el producto",
+    "productName": "Nombre del nuevo producto",
+    "projectName": "Nombre del proyecto",
+    "unlinkedHint": "Los productos sin cliente quedan vinculados a este cliente.",
+    "noClient": "Esta demanda aún no tiene cliente (vino de un lead). Convierta el lead en cliente para abrir un proyecto.",
+    "linked": "Proyecto en la Software Factory",
+    "open": "Abrir proyecto",
+    "confirm": "Crear proyecto",
+    "cancel": "Cancelar"
+  },
+  "factory": {
+    "title": "Software Factory",
+    "products": "Productos",
+    "projects": "Proyectos",
+    "none": "Ningún producto o proyecto de este cliente todavía.",
+    "link": "Vincular producto existente",
+    "linkPick": "Seleccione un producto sin cliente",
+    "linkConfirm": "Vincular",
+    "origin": {
+      "ticket": "de ticket",
+      "demand": "de demanda"
+    }
   }
 }

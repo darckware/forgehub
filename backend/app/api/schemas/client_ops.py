@@ -144,3 +144,26 @@ class LeadConvert(BaseModel):
     data: ConversionData
     notes: str | None = Field(default=None, max_length=2000)
     existing_client_account_id: uuid.UUID | None = None
+
+
+# ---------------------------------------------------------------------------
+# Onda 3 -- Software Factory per client
+# ---------------------------------------------------------------------------
+
+
+class CreateProjectFromItem(BaseModel):
+    """Open a Software Factory project for a client ticket/demand.
+
+    Exactly one of `product_id` (an existing product of this client, or one
+    not linked to any client yet) and `new_product_name`.
+    """
+
+    product_id: uuid.UUID | None = None
+    new_product_name: str | None = Field(default=None, min_length=1, max_length=255)
+    product_version_id: uuid.UUID | None = None
+    project_name: str | None = Field(default=None, min_length=1, max_length=255)
+    start_work: bool = True
+
+
+class LinkProduct(BaseModel):
+    product_id: uuid.UUID

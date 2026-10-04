@@ -55,6 +55,10 @@ class ProjectCockpitRow(BaseModel):
     project_name: str
     project_status: str
     project_description: str | None = None
+    # Darckware client and the ticket/demand the project came from (Onda 3).
+    darckware_client_id: uuid.UUID | None = None
+    darckware_origin_type: str | None = None
+    darckware_origin_id: uuid.UUID | None = None
 
     version_id: uuid.UUID
     version_number: str
@@ -109,6 +113,8 @@ class ProductCockpitRow(BaseModel):
     product_description: str | None = None
     application_url: str | None = None
     application_url_dev: str | None = None
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = None
 
     # Phase 1 is recorded at product level (product_concepts holds a UNIQUE
     # FK to products), so it is reported here as well as inside each

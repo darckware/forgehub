@@ -132,3 +132,7 @@ Restrições: ForgeHub tem implementação pendente do Codex (working tree sujo,
 - Darckware: `client_contracts` com N contratos (`contract_type`, `status`, datas, valor, escopo; índice único parcial = um suporte ativo), `leads.client_account_id`/`converted_at`, `client_conversion_proposals` (`scripts/migrations/20261005_client_contracts_conversion.sql`); `services/client_conversion.py` (aprovação atômica: conta + contato + contrato + vínculo + rascunho de boas-vindas), rotas `/clients/{id}/summary|contracts`, `/leads/{id}/conversion-proposals`, `/conversion-proposals*` e as de aprovação; MCP `propose_client_conversion`. Admin e portal continuam lendo só o contrato de suporte.
 - ForgeHub: rotas de contratos/conversões/leads em `client_ops.py`, aviso de proposta no sino, telas `/client-accounts` e `/client-accounts/:id`.
 - Para ativar: aplicar `20261005_client_contracts_conversion.sql` (depois do `20261004`) e o mesmo deploy da Onda 1.
+
+**2026-10-04 — Onda 3 implementada (sem deploy):**
+- ForgeHub: colunas de cliente em `products`/`projects` (migration `d7a3c91e5f20`, já aplicada no banco — só colunas anuláveis), herança do cliente do produto no `POST /projects`, `:create-project` a partir de chamado/demanda (idempotente, exige cliente), vínculo de produto existente ao cliente, seção Software Factory na ficha do cliente, cliente e filtro no Cockpit.
+- Darckware: nenhuma mudança nesta onda.

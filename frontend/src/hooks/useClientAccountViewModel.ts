@@ -1,8 +1,11 @@
 import { useState } from "react";
 import {
+  useClientFactory,
   useCreateContract,
+  useLinkProduct,
   useDarckwareClient,
   useUpdateContract,
+  type ClientFactory,
   type ClientSummary,
   type Contract,
   type ContractInput,
@@ -43,6 +46,12 @@ export interface ClientAccountViewModel {
   contractDialog?: ContractDialog;
   statusChange?: { contract: Contract; status: ContractStatus };
   errorMessage?: string;
+  /** This client's products/projects in the Software Factory (Onda 3). */
+  factory?: ClientFactory;
+  linkProductId: string;
+  linking: boolean;
+  setLinkProductId(id: string): void;
+  linkProduct(): Promise<void>;
   openCreateContract(): void;
   openEditContract(contract: Contract): void;
   closeContract(): void;
@@ -61,6 +70,9 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
   const query = useDarckwareClient(clientId);
   const create = useCreateContract();
   const update = useUpdateContract();
+  const factory = useClientFactory(clientId);
+  const link = useLinkProduct();
+  const [linkProductId, setLinkProductId] = useState("");
 
   let status: ClientAccountStatus;
   if (create.isPending || update.isPending) status = "submitting";
@@ -77,6 +89,20 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
     contractDialog,
     statusChange,
     errorMessage,
+    factory: factory.data,
+    linkProductId,
+    linking: link.isPending,
+    setLinkProductId,
+    async linkProduct() {
+      if (!clientId || !linkProductId) return;
+      setErrorMessage(undefined);
+      try {
+        await link.mutateAsync({ clientId, productId: linkProductId });
+        setLinkProductId("");
+      } catch (error) {
+        setErrorMessage((error as Error).message);
+      }
+    },
     openCreateContract() {
       setErrorMessage(undefined);
       setContractDialog({ mode: "create" });

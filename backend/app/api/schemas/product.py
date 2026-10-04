@@ -85,6 +85,8 @@ class ProductCreate(BaseModel):
     # is the development one.
     application_url: str | None = Field(default=None, max_length=2048, pattern=r"^https?://")
     application_url_dev: str | None = Field(default=None, max_length=2048, pattern=r"^https?://")
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=200)
     # Business rule 6.1.3: every product must have at least one version.
     # Optional here only insofar as a default "0.1.0 / planned" version is
     # created automatically when the caller omits it — the product is
@@ -98,6 +100,8 @@ class ProductUpdate(BaseModel):
     status: str | None = None
     application_url: str | None = Field(default=None, max_length=2048, pattern=r"^https?://")
     application_url_dev: str | None = Field(default=None, max_length=2048, pattern=r"^https?://")
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=200)
 
 
 class ProductOut(BaseModel):
@@ -109,6 +113,8 @@ class ProductOut(BaseModel):
     status: str
     application_url: str | None = None
     application_url_dev: str | None = None
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = None
     created_at: datetime
     updated_at: datetime
 

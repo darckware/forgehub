@@ -44,6 +44,9 @@ export const productSchema = z.object({
   status: z.enum(["concept", "active", "inactive", "archived"]).default("active"),
   application_url: z.string().nullable().optional(),
   application_url_dev: z.string().nullable().optional(),
+  // Darckware client this product is built for (client demands Onda 3).
+  darckware_client_id: z.string().nullable().optional(),
+  darckware_client_name: z.string().nullable().optional(),
   versions: z.array(productVersionSchema).optional().default([]),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),

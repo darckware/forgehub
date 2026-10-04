@@ -7,6 +7,7 @@ Project, full CRUD), PlanBaseline (create/list + read), ChangeRequest
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -35,6 +36,10 @@ class ProjectBase(BaseModel):
     github_repo_url: str | None = Field(default=None, max_length=500)
     backup_enabled: bool = False
     backup_location: str | None = Field(default=None, max_length=1024)
+    # Darckware client/origin (Onda 3). Client defaults to the product's.
+    darckware_client_id: uuid.UUID | None = None
+    darckware_origin_type: Literal["ticket", "demand"] | None = None
+    darckware_origin_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ProjectBase":
@@ -61,6 +66,7 @@ class ProjectUpdate(BaseModel):
     github_repo_url: str | None = Field(default=None, max_length=500)
     backup_enabled: bool | None = None
     backup_location: str | None = Field(default=None, max_length=1024)
+    darckware_client_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ProjectUpdate":

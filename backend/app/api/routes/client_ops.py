@@ -30,11 +30,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.client_ops import (
     ContractIn,
+    CreateProjectFromItem,
+    LinkProduct,
     ContractPatch,
     ConversionApprove,
     ConversionReject,
@@ -56,6 +59,8 @@ from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
 from app.db.models.notification import Notification
+from app.db.models.product import Product, ProductVersion
+from app.db.models.project import Project
 from app.db.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -307,13 +312,21 @@ def _check_kind(kind: str) -> str:
 
 
 @router.get("/work-items/{kind}/{item_id}")
-async def get_work_item(kind: str, item_id: uuid.UUID, _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+async def get_work_item(
+    kind: str, item_id: uuid.UUID, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
     _check_kind(kind)
     item, emails = await asyncio.gather(
         _load_item(kind, item_id),
         dw.request("GET", "/outbound-emails", params={f"{kind}_id": item_id, "limit": 50}),
     )
     item["emails"] = emails.get("items", [])
+    project = (
+        await db.execute(
+            select(Project).where(Project.darckware_origin_type == kind, Project.darckware_origin_id == item_id)
+        )
+    ).scalars().first()
+    item["project"] = _project_row(project) if project else None
     return item
 
 
@@ -718,6 +731,217 @@ async def convert_lead(
         json={**_conversion_body(payload.data), "notes": payload.notes, "proposed_by": f"forgehub:{admin.username}"},
     )
     return await _approve_conversion(proposal["id"], payload.data, payload.existing_client_account_id, admin, db)
+
+
+# ---------------------------------------------------------------------------
+# Software Factory per client (Onda 3)
+#
+# Products and projects carry the Darckware client id (no FK -- other
+# database). Opening a project from a ticket/demand reuses the product and
+# project routes' own functions, so rule 6.1.3 (a product is never persisted
+# without a version) and the client inheritance in create_project hold here
+# exactly as they do for the Cockpit's buttons.
+# ---------------------------------------------------------------------------
+
+
+def _product_row(p: Product) -> dict[str, Any]:
+    return {
+        "id": str(p.id),
+        "name": p.name,
+        "status": p.status,
+        "darckware_client_id": str(p.darckware_client_id) if p.darckware_client_id else None,
+        "darckware_client_name": p.darckware_client_name,
+    }
+
+
+def _project_row(p: Project) -> dict[str, Any]:
+    return {
+        "id": str(p.id),
+        "name": p.name,
+        "status": p.status,
+        "product_version_id": str(p.product_version_id),
+        "darckware_origin_type": p.darckware_origin_type,
+        "darckware_origin_id": str(p.darckware_origin_id) if p.darckware_origin_id else None,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+    }
+
+
+@router.get("/clients/{client_id}/factory")
+async def client_factory(
+    client_id: uuid.UUID, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """This client's products and projects in the Software Factory (ForgeHub's own data)."""
+    products = (
+        await db.execute(select(Product).where(Product.darckware_client_id == client_id).order_by(Product.name))
+    ).scalars().all()
+    projects = (
+        await db.execute(
+            select(Project).where(Project.darckware_client_id == client_id).order_by(Project.created_at.desc())
+        )
+    ).scalars().all()
+    unlinked = (
+        await db.execute(select(Product).where(Product.darckware_client_id.is_(None)).order_by(Product.name))
+    ).scalars().all()
+    return {
+        "products": [_product_row(p) for p in products],
+        "projects": [_project_row(p) for p in projects],
+        "unlinked_products": [_product_row(p) for p in unlinked],
+    }
+
+
+async def _link_product(db: AsyncSession, product: Product, client_id: uuid.UUID, company_name: str | None) -> None:
+    if product.darckware_client_id not in (None, client_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Product '{product.name}' already belongs to another client ({product.darckware_client_name})",
+        )
+    product.darckware_client_id = client_id
+    product.darckware_client_name = company_name
+
+
+@router.post("/clients/{client_id}/products")
+async def link_product_to_client(
+    client_id: uuid.UUID,
+    payload: LinkProduct,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Mark an existing product as built for this client. Its projects without a
+    client inherit it too (they were created before the link existed)."""
+    client = await dw.request("GET", f"/clients/{client_id}/summary")
+    product = await db.get(Product, payload.product_id)
+    if product is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+    await _link_product(db, product, client_id, client["company_name"])
+    projects = (
+        await db.execute(
+            select(Project)
+            .join(ProductVersion, ProductVersion.id == Project.product_version_id)
+            .where(ProductVersion.product_id == product.id, Project.darckware_client_id.is_(None))
+        )
+    ).scalars().all()
+    for project in projects:
+        project.darckware_client_id = client_id
+    db.add(
+        AuditEvent(
+            entity_type="product",
+            entity_id=product.id,
+            event_type="darckware_client_linked",
+            actor=admin.username,
+            payload={"client_id": str(client_id), "projects_updated": len(projects)},
+        )
+    )
+    await db.commit()
+    return _product_row(product)
+
+
+@router.post("/work-items/{kind}/{item_id}:create-project", status_code=status.HTTP_201_CREATED)
+async def create_project_from_item(
+    kind: str,
+    item_id: uuid.UUID,
+    payload: CreateProjectFromItem,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Open a Software Factory project for this ticket/demand.
+
+    Idempotent per origin: a second call returns 409 naming the project that
+    already exists, so a double click never opens two projects for one demand.
+    """
+    from app.api.routes.product import create_product
+    from app.api.routes.project import create_project
+    from app.api.schemas.product import ProductCreate
+    from app.api.schemas.project import ProjectCreate
+
+    _check_kind(kind)
+    if (payload.product_id is None) == (payload.new_product_name is None):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Give exactly one of product_id or new_product_name")
+    item = await _load_item(kind, item_id)
+    if not item.get("client_account_id"):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "This demand has no client yet (it came from a lead) -- convert the lead to a client first",
+        )
+    client_id = uuid.UUID(item["client_account_id"])
+
+    existing = (
+        await db.execute(
+            select(Project).where(Project.darckware_origin_type == kind, Project.darckware_origin_id == item_id)
+        )
+    ).scalars().first()
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Project '{existing.name}' ({existing.id}) already exists for this {kind}")
+
+    if payload.product_id is not None:
+        product = await db.get(Product, payload.product_id)
+        if product is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+        await _link_product(db, product, client_id, item.get("company_name"))
+        await db.commit()
+    else:
+        product = await create_product(
+            ProductCreate(
+                name=payload.new_product_name,
+                description=f"Produto do cliente {item.get('company_name') or ''}".strip(),
+                darckware_client_id=client_id,
+                darckware_client_name=item.get("company_name"),
+            ),
+            db,
+        )
+
+    versions = (
+        await db.execute(
+            select(ProductVersion)
+            .where(ProductVersion.product_id == product.id)
+            .order_by(ProductVersion.created_at.desc())
+        )
+    ).scalars().all()
+    if payload.product_version_id is not None:
+        version = next((v for v in versions if v.id == payload.product_version_id), None)
+        if version is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Version does not belong to this product")
+    else:
+        # A published version is locked for scope/planning edits; prefer one that isn't.
+        version = next((v for v in versions if v.status not in ("published", "deprecated")), None)
+        if version is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Every version of this product is published -- create a new version in the Cockpit, then pick it",
+            )
+
+    description = "\n\n".join(
+        part
+        for part in (
+            item.get("description"),
+            f"Origem: {'chamado' if kind == 'ticket' else 'demanda'} Darckware {item_id} — {item['title']}",
+        )
+        if part
+    )
+    project = await create_project(
+        ProjectCreate(
+            name=payload.project_name or item["title"][:255],
+            description=description,
+            product_version_id=version.id,
+            owner=admin.username,
+            darckware_client_id=client_id,
+            darckware_origin_type=kind,
+            darckware_origin_id=item_id,
+        ),
+        db,
+    )
+
+    actor = f"forgehub:{admin.username}"
+    note = f"Projeto '{project.name}' aberto na Software Factory do ForgeHub ({project.id})."
+    if payload.start_work and item["stage"] == "novo":
+        await _set_status(kind, item_id, _ACTION_STATUS["start"][kind], note, actor)
+    elif kind == "ticket":
+        await dw.request("POST", f"/tickets/{item_id}/comments", json={"body": note, "actor": actor})
+    else:
+        await dw.request("POST", f"/demands/{item_id}/notes", json={"note": note, "actor": actor})
+    await _audit(
+        db, kind, str(item_id), "project_created", admin, {"project_id": str(project.id), "product_id": str(product.id)}
+    )
+    return {"project": _project_row(project), "product": _product_row(product)}
 
 
 # ---------------------------------------------------------------------------

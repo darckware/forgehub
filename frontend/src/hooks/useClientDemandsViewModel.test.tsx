@@ -37,11 +37,12 @@ describe("useClientDemandsViewModel", () => {
   beforeEach(() => {
     vi.mocked(apiClient.get).mockReset();
     vi.mocked(apiClient.post).mockReset();
-    vi.mocked(apiClient.get).mockImplementation(async (path: string) =>
-      path.startsWith("/api/v1/client-ops/work-items/")
-        ? { ...ITEM, timeline: [], time_entries: [], emails: [] }
-        : { items: [ITEM], total: 1, by_stage: { novo: 1 } },
-    );
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+      if (path.endsWith("/factory")) return { products: [{ id: "pr1", name: "Sistema ACME", status: "active" }], projects: [], unlinked_products: [] };
+      if (path.startsWith("/api/v1/client-ops/work-items/"))
+        return { ...ITEM, client_account_id: "c1", company_name: "ACME", timeline: [], time_entries: [], emails: [], project: null };
+      return { items: [ITEM], total: 1, by_stage: { novo: 1 } };
+    });
   });
 
   it("starts on open items", async () => {
@@ -86,5 +87,23 @@ describe("useClientDemandsViewModel", () => {
     await act(() => result.current.submitAction());
     expect(result.current.draft?.action).toBe("start");
     expect(result.current.errorMessage).toBe("Destinatário não vinculado");
+  });
+
+  it("opens a project under the client's only product by default", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ project: { id: "pj1" }, product: { id: "pr1" } });
+    const { result } = renderHook(() => useClientDemandsViewModel(), { wrapper });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    act(() => result.current.select(result.current.items[0]));
+    await waitFor(() => expect(result.current.projectProducts).toHaveLength(1));
+
+    act(() => result.current.openCreateProject());
+    expect(result.current.projectDraft).toMatchObject({ productChoice: "existing", productId: "pr1", projectName: ITEM.title });
+    expect(result.current.canSubmitProject).toBe(true);
+    await act(() => result.current.submitCreateProject());
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/client-ops/work-items/ticket/t1:create-project", {
+      product_id: "pr1",
+      project_name: ITEM.title,
+    });
+    expect(result.current.projectDraft).toBeUndefined();
   });
 });

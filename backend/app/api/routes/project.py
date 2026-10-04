@@ -46,6 +46,7 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.backlog import PlanningItem
+from app.db.models.product import Product, ProductVersion
 from app.db.models.task import ProjectTask, TaskExecution
 from app.db.models.execution import ExecutionWave, ExecutionWorkPackage
 from app.db.models.orchestration import ProjectLoopPolicy, TaskExecutionReview
@@ -141,6 +142,16 @@ def _assert_node_not_locked(node: ProjectStructureNode) -> None:
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 async def create_project(payload: ProjectCreate, db: AsyncSession = Depends(get_db)) -> Project:
     project = Project(**payload.model_dump())
+    if project.darckware_client_id is None:
+        # A project is for the same client as its product unless told otherwise
+        # (client demands Onda 3, 2026-10-04).
+        project.darckware_client_id = (
+            await db.execute(
+                select(Product.darckware_client_id)
+                .join(ProductVersion, ProductVersion.product_id == Product.id)
+                .where(ProductVersion.id == payload.product_version_id)
+            )
+        ).scalar_one_or_none()
     db.add(project)
     await db.commit()
     await db.refresh(project)

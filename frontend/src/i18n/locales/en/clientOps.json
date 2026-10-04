@@ -236,5 +236,35 @@
     "done": "Client created. The welcome e-mail is in the approval queue.",
     "openEmails": "Open approval",
     "openClient": "Open client"
+  },
+  "project": {
+    "create": "Create project",
+    "title": "Open a Software Factory project",
+    "explain": "Creates the project (and the product, if new) linked to this client and this demand; the demand moves to in progress.",
+    "existing": "Existing product",
+    "new": "New product",
+    "product": "Product",
+    "chooseProduct": "Select the product",
+    "productName": "New product name",
+    "projectName": "Project name",
+    "unlinkedHint": "Products with no client get linked to this client.",
+    "noClient": "This demand has no client yet (it came from a lead). Convert the lead to a client to open a project.",
+    "linked": "Software Factory project",
+    "open": "Open project",
+    "confirm": "Create project",
+    "cancel": "Cancel"
+  },
+  "factory": {
+    "title": "Software Factory",
+    "products": "Products",
+    "projects": "Projects",
+    "none": "No products or projects for this client yet.",
+    "link": "Link an existing product",
+    "linkPick": "Select a product with no client",
+    "linkConfirm": "Link",
+    "origin": {
+      "ticket": "from ticket",
+      "demand": "from demand"
+    }
   }
 }

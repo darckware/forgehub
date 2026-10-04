@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Briefcase, Loader2, Mail, Plus, X } from "lucide-react";
+import { ArrowLeft, Briefcase, FolderKanban, Loader2, Mail, Plus, X } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -158,6 +158,7 @@ export default function ClientDemandsPage() {
       </div>
 
       {vm.draft && <ActionDialog vm={vm} />}
+      {vm.projectDraft && <CreateProjectDialog vm={vm} />}
       <NewWorkItemDialog
         open={creating}
         onClose={() => setCreating(false)}
@@ -185,7 +186,7 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
       </button>
       {vm.detailLoading && <Loader2 className="h-5 w-5 animate-spin" />}
       {vm.detailError && <p className="break-words text-sm text-destructive">{vm.detailError}</p>}
-      {vm.errorMessage && !vm.draft && (
+      {vm.errorMessage && !vm.draft && !vm.projectDraft && (
         <div className="flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           <span className="break-words">{vm.errorMessage}</span>
           <button type="button" onClick={vm.dismissError} aria-label="dismiss">
@@ -230,7 +231,26 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
           </dl>
           {detail.description && <p className="whitespace-pre-wrap break-words text-sm">{detail.description}</p>}
 
+          {detail.project ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
+              <FolderKanban className="h-4 w-4 text-muted-foreground" />
+              <span className="text-muted-foreground">{t("project.linked")}:</span>
+              <Link to={`/projects/${detail.project.id}`} className="font-medium underline">
+                {detail.project.name}
+              </Link>
+            </div>
+          ) : (
+            vm.projectBlockedReason === "noClient" && (
+              <p className="text-xs text-muted-foreground">{t("project.noClient")}</p>
+            )
+          )}
+
           <div className="flex flex-wrap gap-2">
+            {!detail.project && !vm.projectBlockedReason && detail.stage !== "fechado" && (
+              <Button size="sm" variant="outline" className="max-md:h-auto max-md:whitespace-normal" onClick={vm.openCreateProject}>
+                <FolderKanban className="mr-2 h-4 w-4" /> {t("project.create")}
+              </Button>
+            )}
             {(ACTIONS_BY_STAGE[detail.stage] ?? []).map((action) => (
               <Button
                 key={action}
@@ -354,6 +374,83 @@ function ActionDialog({ vm }: { vm: ClientDemandsViewModel }) {
           <Button onClick={() => void vm.submitAction()} disabled={!vm.canSubmitAction}>
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {t("demands.dialog.confirm")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreateProjectDialog({ vm }: { vm: ClientDemandsViewModel }) {
+  const { t } = useTranslation("clientOps");
+  const draft = vm.projectDraft!;
+  const submitting = vm.status === "submitting";
+  return (
+    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto p-4">
+      <div className="fixed inset-0 bg-black/60" onClick={vm.cancelCreateProject} aria-hidden />
+      <div role="dialog" aria-modal="true" className="relative my-auto w-full max-w-lg space-y-4 rounded-lg border bg-background p-5 shadow-xl">
+        <h2 className="text-lg font-semibold">{t("project.title")}</h2>
+        <p className="text-sm text-muted-foreground">{t("project.explain")}</p>
+        <div className="flex flex-wrap gap-4 text-sm">
+          {(["existing", "new"] as const).map((choice) => (
+            <label key={choice} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="product-choice"
+                checked={draft.productChoice === choice}
+                onChange={() => vm.updateProjectDraft({ productChoice: choice })}
+              />
+              {t(`project.${choice}`)}
+            </label>
+          ))}
+        </div>
+        {draft.productChoice === "existing" ? (
+          <div className="space-y-1">
+            <Label htmlFor="pj-product">{t("project.product")}</Label>
+            <Select
+              id="pj-product"
+              className="max-md:text-base"
+              value={draft.productId}
+              onChange={(e) => vm.updateProjectDraft({ productId: e.target.value })}
+            >
+              <option value="">{t("project.chooseProduct")}</option>
+              {vm.projectProducts.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.darckware_client_name ? ` · ${p.darckware_client_name}` : ""}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">{t("project.unlinkedHint")}</p>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <Label htmlFor="pj-new">{t("project.productName")}</Label>
+            <Input
+              id="pj-new"
+              className="max-md:text-base"
+              value={draft.newProductName}
+              onChange={(e) => vm.updateProjectDraft({ newProductName: e.target.value })}
+            />
+          </div>
+        )}
+        <div className="space-y-1">
+          <Label htmlFor="pj-name">{t("project.projectName")}</Label>
+          <Input
+            id="pj-name"
+            className="max-md:text-base"
+            value={draft.projectName}
+            onChange={(e) => vm.updateProjectDraft({ projectName: e.target.value })}
+          />
+        </div>
+        {vm.errorMessage && <p className="break-words text-sm text-destructive">{vm.errorMessage}</p>}
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="outline" onClick={vm.cancelCreateProject} disabled={submitting}>
+            {t("project.cancel")}
+          </Button>
+          <Button onClick={() => void vm.submitCreateProject()} disabled={!vm.canSubmitProject}>
+            {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t("project.confirm")}
           </Button>
         </div>
       </div>

@@ -66,6 +66,14 @@ class Product(Base, TimestampMixin):
     application_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     application_url_dev: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
+    # The Darckware client this product is built for (2026-10-04, client
+    # demands Onda 3). Darckware's id, not a FK -- that CRM lives in another
+    # database (same (entity_type, entity_id) spirit as governance.Approval).
+    # The name is a snapshot for display/search, refreshed on every link; the
+    # client itself is always read from Darckware. NULL = internal product.
+    darckware_client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    darckware_client_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
     modules: Mapped[list["ProductModule"]] = relationship(
         "ProductModule", back_populates="product", cascade="all, delete-orphan"
     )

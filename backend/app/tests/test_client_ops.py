@@ -349,3 +349,89 @@ async def test_reject_conversion(client, darckware):
     r = await client.post(f"/api/v1/client-ops/conversions/{PROPOSAL_ID}:reject", json={"reason": "Ainda negociando"})
     assert r.status_code == 200
     assert r.json()["status"] == "rejeitada"
+
+
+# ---------------------------------------------------------------------------
+# Onda 3 -- Software Factory per client
+# ---------------------------------------------------------------------------
+
+from app.db.models.product import Product  # noqa: E402
+from app.db.models.project import Project  # noqa: E402
+
+
+@pytest_asyncio.fixture
+async def factory_cleanup():
+    names: list[str] = []
+    yield names
+    async with AsyncSessionLocal() as db:
+        products = (await db.execute(select(Product).where(Product.name.in_(names)))).scalars().all()
+        for product in products:
+            from app.db.models.product import ProductVersion
+
+            version_ids = select(ProductVersion.id).where(ProductVersion.product_id == product.id)
+            project_ids = [p.id for p in (await db.execute(select(Project).where(Project.product_version_id.in_(version_ids)))).scalars()]
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(project_ids + [product.id])))
+            await db.execute(delete(Project).where(Project.id.in_(project_ids)))
+            await db.delete(product)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_create_project_from_ticket(client, darckware, factory_cleanup):
+    name = f"test-clientops-{uuid.uuid4().hex[:8]}"
+    factory_cleanup.append(name)
+    r = await client.post(
+        f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:create-project",
+        json={"new_product_name": name},
+    )
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["product"]["darckware_client_id"] == CLIENT_ID
+    assert data["product"]["darckware_client_name"] == "ACME"
+    assert data["project"]["darckware_origin_type"] == "ticket"
+    assert data["project"]["darckware_origin_id"] == TICKET_ID
+
+    async with AsyncSessionLocal() as db:
+        project = await db.get(Project, uuid.UUID(data["project"]["id"]))
+        assert str(project.darckware_client_id) == CLIENT_ID
+        assert project.name == "Impressora parada"
+
+    # the ticket moved to in progress with a note pointing at the project
+    patch = next(c for c in darckware.calls if c[0] == "PATCH")
+    assert patch[2]["status"] == "em_andamento"
+    assert data["project"]["id"] in patch[2]["note"]
+
+    again = await client.post(
+        f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:create-project",
+        json={"product_id": data["product"]["id"]},
+    )
+    assert again.status_code == 409
+
+    factory = (await client.get(f"/api/v1/client-ops/clients/{CLIENT_ID}/factory")).json()
+    assert [p["name"] for p in factory["products"]] == [name]
+    assert factory["projects"][0]["id"] == data["project"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_project_inherits_product_client(client, factory_cleanup):
+    """POST /projects without a client takes the product's (Cockpit's own button)."""
+    name = f"test-clientops-{uuid.uuid4().hex[:8]}"
+    factory_cleanup.append(name)
+    product = (
+        await client.post("/api/v1/products", json={"name": name, "darckware_client_id": CLIENT_ID, "darckware_client_name": "ACME"})
+    ).json()
+    version_id = product["versions"][0]["id"]
+    project = (await client.post("/api/v1/projects", json={"name": "Fase 2", "product_version_id": version_id})).json()
+    assert project["darckware_client_id"] == CLIENT_ID
+
+
+@pytest.mark.asyncio
+async def test_create_project_needs_client_and_one_product_choice(client, darckware):
+    no_choice = await client.post(f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:create-project", json={})
+    assert no_choice.status_code == 422
+    darckware.ticket = {**darckware.ticket, "client_account_id": None}
+    lead_only = await client.post(
+        f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:create-project", json={"new_product_name": "x"}
+    )
+    assert lead_only.status_code == 422
+    assert "convert the lead" in lead_only.json()["detail"]

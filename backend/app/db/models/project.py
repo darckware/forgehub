@@ -98,6 +98,10 @@ class Project(Base, TimestampMixin):
             name="ck_projects_solution_type",
         ),
         CheckConstraint(f"project_type IN {PROJECT_TYPES!r}", name="ck_projects_project_type"),
+        CheckConstraint(
+            "darckware_origin_type IS NULL OR darckware_origin_type IN ('ticket', 'demand')",
+            name="ck_projects_darckware_origin_type",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -152,6 +156,15 @@ class Project(Base, TimestampMixin):
     # never a Foundation one, see governance/FOUNDATION.md's 2026-07-11
     # ForgeRouter note).
     github_repo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Client traceability (2026-10-04, client demands Onda 3). The client is
+    # inherited from the product when a project is created without one; the
+    # origin is the Darckware ticket/demand the project was opened from.
+    # Darckware ids, no FK (other database). Planning items and tasks reach
+    # the client through Project -> PlanningItem -> Task, no column of their own.
+    darckware_client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    darckware_origin_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    darckware_origin_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # Whether this project participates in per-project backup (System
     # Control's project-backup endpoints, archives written under

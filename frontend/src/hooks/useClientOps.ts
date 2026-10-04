@@ -62,10 +62,30 @@ export interface WorkItem {
   updated_at?: string | null;
 }
 
+export interface FactoryProject {
+  id: string;
+  name: string;
+  status: string;
+  product_version_id: string;
+  darckware_origin_type?: WorkItemKind | null;
+  darckware_origin_id?: string | null;
+  created_at?: string | null;
+}
+
+export interface FactoryProduct {
+  id: string;
+  name: string;
+  status: string;
+  darckware_client_id?: string | null;
+  darckware_client_name?: string | null;
+}
+
 export interface WorkItemDetail extends WorkItem {
   timeline: { at: string; actor: string; type: string; note?: string | null }[];
   time_entries: { id: string; billable_hours: number; description: string }[];
   emails: OutboundEmail[];
+  /** The Software Factory project opened for this item, if any (Onda 3). */
+  project?: FactoryProject | null;
 }
 
 export interface WorkItemList {
@@ -438,5 +458,59 @@ export function useUpdateContract() {
   return useMutation<Contract, Error, { id: string; changes: Partial<ContractInput> & { status?: ContractStatus } }>({
     mutationFn: ({ id, changes }) => apiClient.patch(`${BASE}/contracts/${id}`, changes),
     onSettled: invalidate,
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// Onda 3 -- Software Factory per client
+// ---------------------------------------------------------------------------
+
+export interface ClientFactory {
+  products: FactoryProduct[];
+  projects: FactoryProject[];
+  /** Products not linked to any client yet -- candidates to link. */
+  unlinked_products: FactoryProduct[];
+}
+
+export function useClientFactory(clientId?: string | null) {
+  return useQuery<ClientFactory>({
+    queryKey: ["client-ops", "factory", clientId],
+    queryFn: () => apiClient.get(`${BASE}/clients/${clientId}/factory`),
+    enabled: Boolean(clientId),
+    retry: false,
+  });
+}
+
+export function useLinkProduct() {
+  const queryClient = useQueryClient();
+  return useMutation<FactoryProduct, Error, { clientId: string; productId: string }>({
+    mutationFn: ({ clientId, productId }) => apiClient.post(`${BASE}/clients/${clientId}/products`, { product_id: productId }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["client-ops"] });
+      void queryClient.invalidateQueries({ queryKey: ["factory", "cockpit"] });
+    },
+  });
+}
+
+export interface CreateProjectInput {
+  kind: WorkItemKind;
+  id: string;
+  product_id?: string;
+  new_product_name?: string;
+  project_name?: string;
+}
+
+export function useCreateProjectFromItem() {
+  const queryClient = useQueryClient();
+  return useMutation<{ project: FactoryProject; product: FactoryProduct }, Error, CreateProjectInput>({
+    mutationFn: ({ kind, id, ...body }) => apiClient.post(`${BASE}/work-items/${kind}/${id}:create-project`, body),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["client-ops"] });
+      // the new product/project must show up in the Cockpit and project lists too
+      void queryClient.invalidateQueries({ queryKey: ["factory", "cockpit"] });
+      void queryClient.invalidateQueries({ queryKey: ["products"] });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
   });
 }

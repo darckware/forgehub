@@ -1,10 +1,13 @@
 import { useState } from "react";
 import {
+  useClientFactory,
+  useCreateProjectFromItem,
   useWorkItem,
   useWorkItemAction,
   useWorkItems,
   type WorkItem,
   type WorkItemAction,
+  type FactoryProduct,
   type WorkItemDetail,
   type WorkItemFilters,
   type WorkItemKind,
@@ -52,6 +55,14 @@ export interface ActionDraft {
   to_email: string;
 }
 
+/** "Criar projeto" (Onda 3): an existing product of the client, or a new one. */
+export interface ProjectDraft {
+  productChoice: "existing" | "new";
+  productId: string;
+  newProductName: string;
+  projectName: string;
+}
+
 export interface ClientDemandsViewModel {
   status: ClientDemandsStatus;
   filters: WorkItemFilters;
@@ -66,6 +77,12 @@ export interface ClientDemandsViewModel {
   canSubmitAction: boolean;
   errorMessage?: string;
   lastQueuedEmail?: string;
+  /** Products the new project can go under: the client's own, then unlinked ones. */
+  projectProducts: FactoryProduct[];
+  projectDraft?: ProjectDraft;
+  canSubmitProject: boolean;
+  /** Why the item can't get a project (no client yet), if so. */
+  projectBlockedReason?: "noClient";
   setFilter<K extends keyof WorkItemFilters>(key: K, value: WorkItemFilters[K] | undefined): void;
   select(item: WorkItem | undefined): void;
   openAction(action: WorkItemAction): void;
@@ -73,6 +90,10 @@ export interface ClientDemandsViewModel {
   cancelAction(): void;
   submitAction(): Promise<void>;
   dismissError(): void;
+  openCreateProject(): void;
+  updateProjectDraft(patch: Partial<ProjectDraft>): void;
+  cancelCreateProject(): void;
+  submitCreateProject(): Promise<void>;
 }
 
 export function useClientDemandsViewModel(): ClientDemandsViewModel {
@@ -85,13 +106,17 @@ export function useClientDemandsViewModel(): ClientDemandsViewModel {
   const list = useWorkItems(filters);
   const detail = useWorkItem(selected?.kind, selected?.id);
   const act = useWorkItemAction();
+  const [projectDraft, setProjectDraft] = useState<ProjectDraft>();
+  const factory = useClientFactory(detail.data?.project ? undefined : detail.data?.client_account_id);
+  const createProject = useCreateProjectFromItem();
+  const projectProducts = [...(factory.data?.products ?? []), ...(factory.data?.unlinked_products ?? [])];
 
   const textOk = !draft || !ACTION_TEXT_REQUIRED[draft.action] || draft.text.trim().length > 0;
   const emailOk = !draft?.withEmail || (draft.subject.trim().length > 0 && draft.body_text.trim().length > 0);
 
   let status: ClientDemandsStatus;
-  if (act.isPending) status = "submitting";
-  else if (draft) status = "acting";
+  if (act.isPending || createProject.isPending) status = "submitting";
+  else if (draft || projectDraft) status = "acting";
   else if (errorMessage) status = "error";
   else if (list.isLoading) status = "loading";
   else status = "ready";
@@ -110,12 +135,21 @@ export function useClientDemandsViewModel(): ClientDemandsViewModel {
     canSubmitAction: Boolean(draft) && textOk && emailOk && !act.isPending,
     errorMessage,
     lastQueuedEmail,
+    projectProducts,
+    projectDraft,
+    canSubmitProject: Boolean(
+      projectDraft &&
+        !createProject.isPending &&
+        (projectDraft.productChoice === "existing" ? projectDraft.productId : projectDraft.newProductName.trim()),
+    ),
+    projectBlockedReason: detail.data && !detail.data.client_account_id ? "noClient" : undefined,
     setFilter(key, value) {
       setFilters((current) => ({ ...current, [key]: value || undefined }));
     },
     select(item) {
       setSelected(item ? { kind: item.kind, id: item.id } : undefined);
       setDraft(undefined);
+      setProjectDraft(undefined);
       setLastQueuedEmail(undefined);
     },
     openAction(action) {
@@ -152,5 +186,38 @@ export function useClientDemandsViewModel(): ClientDemandsViewModel {
       }
     },
     dismissError: () => setErrorMessage(undefined),
+    openCreateProject() {
+      if (!detail.data?.client_account_id) return;
+      setErrorMessage(undefined);
+      const own = factory.data?.products ?? [];
+      setProjectDraft({
+        // A client that already has a product most likely means another
+        // project of it; one without starts a product of its own.
+        productChoice: own.length > 0 ? "existing" : "new",
+        productId: own.length === 1 ? own[0].id : "",
+        newProductName: detail.data.company_name ?? "",
+        projectName: detail.data.title,
+      });
+    },
+    updateProjectDraft(patch) {
+      setProjectDraft((current) => (current ? { ...current, ...patch } : current));
+    },
+    cancelCreateProject: () => setProjectDraft(undefined),
+    async submitCreateProject() {
+      if (!selected || !projectDraft) return;
+      try {
+        await createProject.mutateAsync({
+          kind: selected.kind,
+          id: selected.id,
+          ...(projectDraft.productChoice === "existing"
+            ? { product_id: projectDraft.productId }
+            : { new_product_name: projectDraft.newProductName.trim() }),
+          project_name: projectDraft.projectName.trim() || undefined,
+        });
+        setProjectDraft(undefined);
+      } catch (error) {
+        setErrorMessage((error as Error).message);
+      }
+    },
   };
 }

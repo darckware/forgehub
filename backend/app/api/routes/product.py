@@ -114,6 +114,8 @@ async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_
         status=payload.status,
         application_url=payload.application_url,
         application_url_dev=payload.application_url_dev,
+        darckware_client_id=payload.darckware_client_id,
+        darckware_client_name=payload.darckware_client_name,
     )
 
     initial_version_payload = payload.initial_version or ProductVersionCreate(

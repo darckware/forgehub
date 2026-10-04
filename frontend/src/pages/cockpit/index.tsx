@@ -264,7 +264,14 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
       {cockpit.products.map((product) => (
         <Card key={product.product_id}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold">{product.product_name}</CardTitle>
+            <CardTitle className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+              {product.product_name}
+              {product.darckware_client_name && (
+                <Badge variant="outline" className="text-[10px] font-normal">
+                  {product.darckware_client_name}
+                </Badge>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {product.projects.length === 0 ? (
@@ -321,6 +328,9 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
 export default function CockpitPage() {
   const [tab, setTab] = useState("pipeline");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
+  // Darckware client filter (client demands Onda 3). Only offered once some
+  // product is linked to a client; empty = every product, internal included.
+  const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [selectedPhaseId, setSelectedPhaseId] = useState<number | null>(null); // null = All phases
 
@@ -333,13 +343,29 @@ export default function CockpitPage() {
 
   const activeProduct = products?.find((p) => p.id === selectedProductId);
 
-  // Filter projects by selected product
+  const clientOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const p of products ?? []) {
+      if (p.darckware_client_id) seen.set(p.darckware_client_id, p.darckware_client_name ?? p.darckware_client_id);
+    }
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [products]);
+  const visibleProducts = useMemo(
+    () => (selectedClientId ? (products ?? []).filter((p) => p.darckware_client_id === selectedClientId) : products ?? []),
+    [products, selectedClientId],
+  );
+
+  // Filter projects by selected product (or, with no product, by client)
   const productProjects = useMemo(() => {
+    if (!selectedProductId && selectedClientId) {
+      const versionIds = new Set(visibleProducts.flatMap((p) => (p.versions ?? []).map((v) => v.id)));
+      return (projects ?? []).filter((p) => Boolean(p.product_version_id) && versionIds.has(p.product_version_id!));
+    }
     if (!selectedProductId) return projects ?? [];
     return (projects ?? []).filter((p) =>
       activeProduct?.versions?.some((v) => v.id === p.product_version_id)
     );
-  }, [projects, selectedProductId, activeProduct]);
+  }, [projects, selectedProductId, activeProduct, selectedClientId, visibleProducts]);
 
   // Active focused project
   const activeProject = useMemo(() => {
@@ -427,6 +453,26 @@ export default function CockpitPage() {
           <div className="flex w-full items-center gap-2 bg-muted/30 p-1.5 rounded-lg border sm:w-auto">
             <Filter className="h-4 w-4 text-muted-foreground" />
 
+            {clientOptions.length > 0 && (
+              <select
+                aria-label="Cliente"
+                className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium focus-visible:ring-1 focus-visible:ring-primary sm:flex-none"
+                value={selectedClientId}
+                onChange={(e) => {
+                  setSelectedClientId(e.target.value);
+                  setSelectedProductId("");
+                  setSelectedProjectId("");
+                }}
+              >
+                <option value="">Todos os clientes</option>
+                {clientOptions.map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            )}
+
             {/* Seletor de Produto */}
             <select
               className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium focus-visible:ring-1 focus-visible:ring-primary sm:flex-none"
@@ -437,7 +483,7 @@ export default function CockpitPage() {
               }}
             >
               <option value="">Todos os Produtos</option>
-              {products?.map((p) => (
+              {visibleProducts.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
