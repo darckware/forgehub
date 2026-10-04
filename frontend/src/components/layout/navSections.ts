@@ -24,7 +24,9 @@ import {
   LayoutPanelLeft,
   Lightbulb,
   Boxes,
+  Briefcase,
   Mail,
+  MailCheck,
   Plug,
   Server,
   Share2,
@@ -126,6 +128,17 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/systems-hub", labelKey: "nav.systemsHub", icon: Boxes, module: "agents" },
       { type: "link", to: "/foundation", labelKey: "nav.foundation", icon: Landmark, module: "foundation" },
       { type: "link", to: "/obsidian", labelKey: "nav.knowledgeBase", icon: Gem, module: "obsidian" },
+    ],
+  },
+  {
+    // Client demands console (2026-10-04): Darckware stores clients, tickets,
+    // demands and e-mails; these screens operate them. Its own section, not
+    // Operations -- that one is infra/ops tooling (Nexo's /clients stays there).
+    type: "section",
+    labelKey: "nav.section.clientOps",
+    entries: [
+      { type: "link", to: "/client-demands", labelKey: "nav.clientDemands", icon: Briefcase, adminOnly: true },
+      { type: "link", to: "/client-emails", labelKey: "nav.clientEmails", icon: MailCheck, adminOnly: true },
     ],
   },
   {

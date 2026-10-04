@@ -101,6 +101,16 @@ class Settings(BaseSettings):
     FORGEROUTER_URL: str = "http://host.docker.internal:2100"
     FORGEROUTER_SSO_SECRET: str = ""
 
+    # Darckware CRM (client demands, contracts, outbound e-mail queue -- see
+    # api/routes/client_ops.py). Darckware stores, ForgeHub operates. Two
+    # credentials on purpose: the agent token is the same one Lara's MCP uses
+    # (read/write), the approver token is ForgeHub-only and is what lets an
+    # e-mail to a client actually leave -- the drafter can never approve.
+    # Empty URL/token = integration off (routes answer 503).
+    DARCKWARE_API_URL: str = "http://darckware-backend:8020"
+    DARCKWARE_AGENT_TOKEN: str = ""
+    DARCKWARE_APPROVER_TOKEN: str = ""
+
     # Hindsight/Foundation PostgreSQL instance.
     FOUNDATION_POSTGRES_HOST: str = "hindsight_postgres"
     FOUNDATION_POSTGRES_PORT: int = 5432

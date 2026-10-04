@@ -42,6 +42,8 @@ import SystemControlPage from "@/pages/system-control";
 import DeployPage from "@/pages/deploy";
 import ServersPage from "@/pages/servers";
 import ClientsPage from "@/pages/clients";
+import ClientDemandsPage from "@/pages/client-demands";
+import ClientEmailsPage from "@/pages/client-emails";
 import NexoAgentsPage from "@/pages/nexo-agents";
 import NewClientPage from "@/pages/clients/new";
 import ClientDetailPage from "@/pages/clients/[id]";
@@ -130,6 +132,8 @@ export default function App() {
         <Route path="deploy" element={<DeployPage />} />
         <Route path="servers" element={<ServersPage />} />
         <Route path="clients" element={<ClientsPage />} />
+        <Route path="client-demands" element={<ClientDemandsPage />} />
+        <Route path="client-emails" element={<ClientEmailsPage />} />
         <Route path="nexo-agents" element={<RequireAdmin><NexoAgentsPage /></RequireAdmin>} />
         <Route path="clients/new" element={<NewClientPage />} />
         <Route path="clients/:id" element={<ClientDetailPage />} />

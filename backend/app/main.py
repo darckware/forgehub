@@ -32,6 +32,7 @@ from app.api.routes import (
     channel,
     chat,
     client,
+    client_ops,
     client_access,
     client_report,
     cron_scripts,
@@ -329,6 +330,7 @@ app.include_router(backlog.router)
 app.include_router(client.router)
 app.include_router(client_report.router)
 app.include_router(client_access.router)
+app.include_router(client_ops.router)
 app.include_router(workstation.router)
 app.include_router(peer_grant.router)
 app.include_router(agent_report.router)
@@ -455,6 +457,7 @@ WORKSTATION_STALENESS_POLL_INTERVAL_SECONDS = 300
 # Reports are monthly documents; an hourly pass gives restarts and transient
 # database failures another chance without delaying ordinary app startup.
 CLIENT_REPORT_POLL_INTERVAL_SECONDS = 3600
+CLIENT_OPS_POLL_INTERVAL_SECONDS = 120
 
 _background_tasks: list[asyncio.Task[None]] = []
 
@@ -781,6 +784,22 @@ async def _client_report_poll_loop() -> None:
         await asyncio.sleep(CLIENT_REPORT_POLL_INTERVAL_SECONDS)
 
 
+async def _client_ops_poll_loop() -> None:
+    """Darckware arrivals (new client tickets/demands, e-mails awaiting
+    approval) -> Notification bell (2026-10-04). Own task: Darckware being
+    down must not stall any other pass, and vice versa."""
+    from app.api.routes.client_ops import run_client_ops_notification_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_client_ops_notification_pass(db)
+        except Exception:
+            logger.exception("Client ops notification poll failed")
+        await asyncio.sleep(CLIENT_OPS_POLL_INTERVAL_SECONDS)
+
+
 async def _start_background_tasks() -> None:
     """Start each independent maintenance loop exactly once."""
     global _background_tasks
@@ -795,6 +814,7 @@ async def _start_background_tasks() -> None:
         ("dispatch-timeout-poll", _dispatch_timeout_poll_loop),
         ("active-turn-sweep", _active_turn_sweep_loop),
         ("client-report-poll", _client_report_poll_loop),
+        ("client-ops-poll", _client_ops_poll_loop),
         ("feedback-poll", _feedback_poll_loop),
         ("incubation-maturation-poll", _incubation_maturation_poll_loop),
         ("routine-poll", _routine_poll_loop),

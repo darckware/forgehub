@@ -188,6 +188,10 @@ sub-conversion, ticked off independently.
 - [ ] `frontend/src/components/layout/NotificationBell.tsx` (123 lines)
 - [ ] `frontend/src/components/AgentTelemetryPanel.tsx` (211 lines)
 - [ ] `frontend/src/components/ProjectsForgeRouterCard.tsx` (409 lines)
+- [x] `frontend/src/pages/client-demands/index.tsx` — born converted 2026-10-04:
+  `useClientDemandsViewModel.ts` (filters, selection, action dialog with optional queued e-mail).
+- [x] `frontend/src/pages/client-emails/index.tsx` — born converted 2026-10-04:
+  `useClientEmailApprovalViewModel.ts` (approve exact version/hash, edit → new version, reject, cancel).
 
 ## Wave 5 — Simple domain CRUD (list + form pairs, already close to the pattern)
 
@@ -242,5 +246,5 @@ by hand.
 | 1 — Chat & Channels | 2 (7 sub-items) | ChannelPane.tsx fully done (3/3 sub-items, 2026-08-07); ChatPane.tsx not started (0/4) |
 | 2 — Software Factory | 21 | 0 |
 | 3 — Messages/Inbox | 8 | 0 |
-| 4 — Admin/Ops | 30 | 0 |
+| 4 — Admin/Ops | 32 | 2 (client-demands, client-emails — new screens, 2026-10-04) |
 | 5 — Simple CRUD | 25 | 1 (ProjectForm.tsx, 2026-08-07) |
