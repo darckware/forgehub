@@ -49,6 +49,21 @@ export const auditCheckSchema = z.object({
 
 export type AuditCheck = z.infer<typeof auditCheckSchema>;
 
+export const athosAuditMonitorSchema = z.object({
+  state: z.enum(["healthy", "degraded", "failed", "not_configured"]),
+  job_id: z.string().nullable(),
+  job_name: z.string().nullable(),
+  script: z.string().nullable(),
+  schedule: z.string().nullable(),
+  enabled: z.boolean().nullable(),
+  health: z.string().nullable(),
+  last_run_at: z.string().nullable(),
+  last_status: z.string().nullable(),
+  next_run_at: z.string().nullable(),
+  last_cron_run_at: z.string().nullable(),
+  issues: z.array(z.string()),
+});
+
 const auditStatusSchema = z.object({
   total: z.number(),
   enabled: z.number(),
@@ -56,6 +71,7 @@ const auditStatusSchema = z.object({
   fail: z.number(),
   never_ran: z.number(),
   last_run_at: z.string().nullable(),
+  athos_monitor: athosAuditMonitorSchema.nullish(),
 });
 
 export type AuditStatus = z.infer<typeof auditStatusSchema>;

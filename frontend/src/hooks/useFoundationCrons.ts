@@ -14,6 +14,8 @@ export const cronJobSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   script: z.string().nullable(),
+  script_state: z.enum(["ok", "missing", "broken", "none"]).default("none"),
+  is_audit_job: z.boolean().default(false),
   schedule_display: z.string().nullable(),
   enabled: z.boolean(),
   state: z.string(),

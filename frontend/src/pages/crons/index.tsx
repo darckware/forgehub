@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   Bot,
@@ -39,9 +40,8 @@ import {
   type CronJob,
 } from "@/hooks/useFoundationCrons";
 import {
-  fetchScriptContentWithFallback,
+  fetchScriptContent,
   scriptKeys,
-  useFoundationScripts,
   useScriptFileContent,
   useSyncScripts,
   type ScriptLocationRef,
@@ -49,6 +49,7 @@ import {
 import { useAssistantStore } from "@/store/assistantStore";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { useQueryClient } from "@tanstack/react-query";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // Keyed by `health` (real execution evidence), not `status` (which only
 // mirrors the enabled flag and used to show every job as "Active" while the
@@ -61,12 +62,8 @@ const CRON_HEALTH_VARIANT: Record<CronJob["health"], "success" | "warning" | "de
   off: "outline",
 };
 
-const CRON_HEALTH_LABEL: Record<CronJob["health"], string> = {
-  ok: "Working",
-  error: "Error",
-  overdue: "Not running",
-  never_ran: "Never ran",
-  off: "Off",
+const CRON_HEALTH_KEY: Record<CronJob["health"], string> = {
+  ok: "working", error: "error", overdue: "notRunning", never_ran: "neverRun", off: "off",
 };
 
 function formatTimestamp(value: string | null): string {
@@ -103,15 +100,16 @@ function buildCronChatMessage(job: CronJob, fileContent: string | null, filePath
 function FileViewerOverlay({
   title,
   subtitle,
-  candidates,
+  scriptRef,
   onClose,
 }: {
   title: string;
   subtitle?: string;
-  candidates: ScriptLocationRef[];
+  scriptRef: ScriptLocationRef;
   onClose: () => void;
 }) {
-  const { data, isLoading, isError, error } = useScriptFileContent(candidates, true);
+  const { t } = useTranslation("crons");
+  const { data, isLoading, isError, error } = useScriptFileContent(scriptRef, true);
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -142,9 +140,9 @@ function FileViewerOverlay({
               ) : (
                 <Copy className="mr-2 h-3.5 w-3.5" />
               )}
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("crons.copied") : t("crons.copy")}
             </Button>
-            <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
+            <Button variant="ghost" size="icon" aria-label={t("crons.close")} onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -153,11 +151,11 @@ function FileViewerOverlay({
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
-              Loading file…
+              {t("crons.loadingFile")}
             </div>
           )}
           {isError && (
-            <p className="text-sm text-destructive">{(error as Error)?.message ?? "Failed to load file."}</p>
+            <p className="text-sm text-destructive">{t("crons.loadFileError", { error: (error as Error)?.message ?? "" })}</p>
           )}
           {data?.content != null && (
             <pre className="whitespace-pre-wrap break-all text-xs">
@@ -185,6 +183,7 @@ function CronEditPanel({
   job: CronJob;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("crons");
   const updateJob = useUpdateCronJob();
   const [form, setForm] = useState<EditForm>({
     name: job.name,
@@ -214,8 +213,8 @@ function CronEditPanel({
     <Card className="border-primary/40">
       <CardContent className="space-y-4 py-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Edit task: {job.name}</h3>
-          <Button variant="ghost" size="icon" aria-label="Cancel" onClick={onClose}>
+          <h3 className="text-sm font-semibold">{t("crons.editTask", { name: job.name })}</h3>
+          <Button variant="ghost" size="icon" aria-label={t("crons.cancel")} onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -226,7 +225,7 @@ function CronEditPanel({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Name</label>
+            <label className="text-xs font-medium text-muted-foreground">{t("crons.name")}</label>
             <Input
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -234,7 +233,7 @@ function CronEditPanel({
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              Interval (cron expression)
+              {t("crons.cronExpression")}
             </label>
             <Input
               value={form.schedule_display}
@@ -243,7 +242,7 @@ function CronEditPanel({
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Delivery (deliver)</label>
+            <label className="text-xs font-medium text-muted-foreground">{t("crons.delivery")}</label>
             <Input
               value={form.deliver}
               onChange={(e) => setForm((f) => ({ ...f, deliver: e.target.value }))}
@@ -259,13 +258,13 @@ function CronEditPanel({
               onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
             />
             <label htmlFor={`enabled-${job.id}`} className="text-sm">
-              Enabled
+              {t("crons.enabled")}
             </label>
           </div>
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Description / prompt</label>
+          <label className="text-xs font-medium text-muted-foreground">{t("crons.prompt")}</label>
           <Textarea className="resize-none"
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
@@ -275,11 +274,11 @@ function CronEditPanel({
 
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t("crons.cancel")}
           </Button>
           <Button onClick={handleSave} disabled={updateJob.isPending}>
             {updateJob.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Save
+            {t("crons.save")}
           </Button>
         </div>
       </CardContent>
@@ -288,14 +287,10 @@ function CronEditPanel({
 }
 
 function CronsTab() {
+  const { t } = useTranslation("crons");
   const { data, isLoading, isError, error } = useFoundationCrons();
   const jobs = data?.jobs;
   const storeErrors = data?.store_errors ?? [];
-  // Script registry (cron-referenced only) joined by filename, to show each
-  // job's script inline -- there is no separate Scripts tab anymore; the
-  // full per-profile catalog lives in Agent Tools.
-  const { data: scripts } = useFoundationScripts();
-  const scriptsByName = new Map((scripts ?? []).map((s) => [s.name, s]));
   const deleteJob = useDeleteCronJob();
   const updateJob = useUpdateCronJob();
   const resetJob = useResetCronJob();
@@ -303,19 +298,16 @@ function CronsTab() {
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [viewingJob, setViewingJob] = useState<CronJob | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [deletingJob, setDeletingJob] = useState<CronJob | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
   const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
 
-  function handleDelete(job: CronJob) {
-    if (!window.confirm(`Delete the cron "${job.name}" (profile ${job.profile})? This action cannot be undone.`))
-      return;
-    deleteJob.mutate(job.id);
-  }
-
   function handleRun(job: CronJob) {
+    setRunError(null);
     runJob.mutate(job.id, {
       onError: (err) => {
-        window.alert(`Failed to run "${job.name}": ${(err as Error)?.message ?? "unknown error"}`);
+        setRunError(t("crons.runError", { name: job.name, error: (err as Error)?.message ?? t("crons.unknownError") }));
       },
     });
   }
@@ -323,13 +315,9 @@ function CronsTab() {
   async function handleSendToAssistant(job: CronJob) {
     setSendingId(job.id);
     try {
-      const candidates: ScriptLocationRef[] = job.script
-        ? [
-            { location: job.profile, name: job.script },
-            { location: "central", name: job.script },
-          ]
-        : [];
-      const fileResult = candidates.length > 0 ? await fetchScriptContentWithFallback(candidates) : null;
+      const fileResult = job.script
+        ? await fetchScriptContent({ location: job.profile, name: job.script }).catch(() => null)
+        : null;
       setPendingHiddenContext(buildCronChatMessage(job, fileResult?.content ?? null, fileResult?.path ?? null));
       setAssistantOpen(true);
     } finally {
@@ -339,18 +327,21 @@ function CronsTab() {
 
   return (
     <div className="space-y-4">
+      <ConfirmDialog
+        open={deletingJob !== null}
+        title={t("crons.deleteTitle")}
+        description={t("crons.deleteDescription", { name: deletingJob?.name, profile: deletingJob?.profile })}
+        confirmLabel={t("crons.delete")}
+        loading={deleteJob.isPending}
+        error={deleteJob.isError ? (deleteJob.error as Error)?.message : null}
+        onCancel={() => setDeletingJob(null)}
+        onConfirm={() => deletingJob && deleteJob.mutate(deletingJob.id, { onSuccess: () => setDeletingJob(null) })}
+      />
       {editingJob && <CronEditPanel job={editingJob} onClose={() => setEditingJob(null)} />}
       {viewingJob && (
         <FileViewerOverlay
-          title={`${viewingJob.name} — ${viewingJob.script ?? "no script"}`}
-          candidates={
-            viewingJob.script
-              ? [
-                  { location: viewingJob.profile, name: viewingJob.script },
-                  { location: "central", name: viewingJob.script },
-                ]
-              : []
-          }
+          title={`${viewingJob.name} — ${viewingJob.script ?? t("crons.noScript")}`}
+          scriptRef={{ location: viewingJob.profile, name: viewingJob.script ?? "" }}
           onClose={() => setViewingJob(null)}
         />
       )}
@@ -358,7 +349,7 @@ function CronsTab() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading crons…
+          {t("crons.loading")}
         </div>
       )}
 
@@ -366,9 +357,22 @@ function CronsTab() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load crons: {(error as Error)?.message}</span>
+            <span>{t("crons.loadError", { error: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
+      )}
+
+      {runError && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{runError}</p>}
+
+      {!isLoading && !isError && jobs && jobs.length > 0 && (
+        <section aria-label={t("crons.healthSummary")} className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          {(["ok", "error", "overdue", "never_ran", "off"] as const).map((health) => (
+            <div key={health} className="rounded-md border border-border bg-card px-3 py-2">
+              <span className="block text-xs text-muted-foreground">{t(`crons.${CRON_HEALTH_KEY[health]}`)}</span>
+              <strong className="text-xl tabular-nums">{jobs.filter((job) => job.health === health).length}</strong>
+            </div>
+          ))}
+        </section>
       )}
 
       {!isError && storeErrors.length > 0 && (
@@ -376,12 +380,10 @@ function CronsTab() {
           <CardContent className="space-y-2 py-4">
             <div className="flex items-center gap-2 font-medium text-destructive">
               <AlertCircle className="h-5 w-5" />
-              Corrupted cron store{storeErrors.length > 1 ? "s" : ""}
+              {t("crons.corruptedStores", { count: storeErrors.length })}
             </div>
             <p className="text-sm text-muted-foreground">
-              These profiles&apos; jobs are missing from the list below, and their scheduler has
-              stopped running them entirely — the gateway refuses to tick on a corrupted store.
-              Fix the file, then restart that profile&apos;s gateway.
+              {t("crons.corruptedDescription")}
             </p>
             <ul className="space-y-1 text-sm">
               {storeErrors.map((se) => (
@@ -401,11 +403,11 @@ function CronsTab() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <Clock className="h-10 w-10 text-muted-foreground" />
             <div>
-              <p className="font-medium">No crons found</p>
+              <p className="font-medium">{t("crons.noCrons")}</p>
               <p className="text-sm text-muted-foreground">
                 {storeErrors.length > 0
-                  ? "Every parsable per-profile `hermes cron` store is empty — see the corrupted stores above."
-                  : "No jobs registered in any per-profile `hermes cron` store."}
+                  ? t("crons.noCronsDescription")
+                  : t("crons.noJobsRegistered")}
               </p>
             </div>
           </CardContent>
@@ -414,17 +416,17 @@ function CronsTab() {
 
       {!isLoading && !isError && jobs && jobs.length > 0 && (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="overflow-x-auto p-0">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Task</TableHead>
-                  <TableHead className="whitespace-nowrap">Agent</TableHead>
-                  <TableHead className="whitespace-nowrap">Interval</TableHead>
-                  <TableHead className="whitespace-nowrap">Status</TableHead>
-                  <TableHead className="whitespace-nowrap">Next run</TableHead>
-                  <TableHead className="whitespace-nowrap">Last run</TableHead>
-                  <TableHead className="whitespace-nowrap text-right">Actions</TableHead>
+                  <TableHead>{t("crons.task")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{t("crons.agent")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{t("crons.interval")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{t("crons.status")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{t("crons.nextRun")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{t("crons.lastRun")}</TableHead>
+                  <TableHead className="whitespace-nowrap text-right">{t("crons.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -432,6 +434,7 @@ function CronsTab() {
                   <TableRow key={job.id}>
                     <TableCell>
                       <span className="font-medium">{job.name}</span>
+                      {job.is_audit_job && <Badge variant="outline" className="ml-2">{t("crons.auditJob")}</Badge>}
                       {job.description && (
                         <p
                           className="max-w-md truncate text-xs text-muted-foreground"
@@ -444,18 +447,13 @@ function CronsTab() {
                         <button
                           type="button"
                           onClick={() => setViewingJob(job)}
-                          title={scriptsByName.get(job.script)?.path ?? `View ${job.script}`}
+                          title={t("crons.viewScript", { name: job.script })}
                           className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                         >
                           <ScrollText className="h-3 w-3 shrink-0" />
                           <code>{job.script}</code>
-                          {scriptsByName.get(job.script)?.status === "broken" && (
-                            <span className="text-destructive">
-                              {scriptsByName.get(job.script)?.escapes_scripts_dir
-                                ? "— symlink escapes the scripts dir"
-                                : "— file not found"}
-                            </span>
-                          )}
+                          {job.script_state === "missing" && <span className="text-destructive">{t("crons.missingScript")}</span>}
+                          {job.script_state === "broken" && <span className="text-destructive">{t("crons.brokenScript")}</span>}
                         </button>
                       )}
                     </TableCell>
@@ -468,11 +466,11 @@ function CronsTab() {
                         variant={CRON_HEALTH_VARIANT[job.health]}
                         title={
                           job.last_log_at
-                            ? `Last execution log: ${formatTimestamp(job.last_log_at)}`
-                            : "No execution log yet (crons/logs/)"
+                            ? t("crons.lastLog", { date: formatTimestamp(job.last_log_at) })
+                            : t("crons.noLog")
                         }
                       >
-                        {CRON_HEALTH_LABEL[job.health]}
+                        {t(`crons.${CRON_HEALTH_KEY[job.health]}`)}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -493,8 +491,8 @@ function CronsTab() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={`Run ${job.name} now`}
-                          title="Run now (outside the schedule)"
+                          aria-label={t("crons.runNowLabel", { name: job.name })}
+                          title={t("crons.runNowTitle")}
                           disabled={runJob.isPending && runJob.variables === job.id}
                           onClick={() => handleRun(job)}
                         >
@@ -507,8 +505,8 @@ function CronsTab() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={`${job.enabled ? "Turn off" : "Turn on"} ${job.name}`}
-                          title={job.enabled ? "Turn off" : "Turn on"}
+                          aria-label={t(job.enabled ? "crons.turnOffLabel" : "crons.turnOnLabel", { name: job.name })}
+                          title={t(job.enabled ? "crons.turnOff" : "crons.turnOn")}
                           disabled={!job.id || (updateJob.isPending && updateJob.variables?.jobId === job.id)}
                           onClick={() => updateJob.mutate({ jobId: job.id, updates: { enabled: !job.enabled } })}
                         >
@@ -521,8 +519,8 @@ function CronsTab() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={`Reset ${job.name}`}
-                          title="Reset (clear errors and re-arm the schedule)"
+                          aria-label={t("crons.resetLabel", { name: job.name })}
+                          title={t("crons.resetTitle")}
                           disabled={!job.id || (resetJob.isPending && resetJob.variables === job.id)}
                           onClick={() => resetJob.mutate(job.id)}
                         >
@@ -535,9 +533,9 @@ function CronsTab() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={`View file for ${job.name}`}
+                          aria-label={t("crons.viewFileLabel", { name: job.name })}
                           disabled={!job.script}
-                          title={job.script ? `View ${job.script}` : "No script attached"}
+                          title={job.script ? t("crons.viewScript", { name: job.script }) : t("crons.noScript")}
                           onClick={() => setViewingJob(job)}
                         >
                           <Eye className="h-4 w-4" />
@@ -545,9 +543,9 @@ function CronsTab() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={`Send ${job.name} to the assistant`}
+                          aria-label={t("crons.sendLabel", { name: job.name })}
                           disabled={sendingId === job.id}
-                          title="Open the assistant with this job's data and script as context"
+                          title={t("crons.sendTitle")}
                           onClick={() => handleSendToAssistant(job)}
                         >
                           {sendingId === job.id ? (
@@ -559,7 +557,7 @@ function CronsTab() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={`Edit ${job.name}`}
+                          aria-label={t("crons.editLabel", { name: job.name })}
                           onClick={() => setEditingJob(job)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -567,9 +565,9 @@ function CronsTab() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={`Delete ${job.name}`}
+                          aria-label={t("crons.deleteLabel", { name: job.name })}
                           disabled={deleteJob.isPending}
-                          onClick={() => handleDelete(job)}
+                          onClick={() => setDeletingJob(job)}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
@@ -587,6 +585,7 @@ function CronsTab() {
 }
 
 export default function CronsPage() {
+  const { t } = useTranslation("crons");
   const queryClient = useQueryClient();
   const [isSyncing, setIsSyncing] = useState(false);
   const { sync: syncScripts } = useSyncScripts();
@@ -606,12 +605,11 @@ export default function CronsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Crons</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("crons.title")}</h1>
           <p className="text-muted-foreground">
-            Scheduled tasks and scripts (`hermes cron`) across every Hermes profile, with
-            description, interval, executing agent, and run status.
+            {t("crons.description")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -621,7 +619,7 @@ export default function CronsPage() {
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Sync
+            {t("crons.sync")}
           </Button>
           <AssistantToggleButton />
         </div>

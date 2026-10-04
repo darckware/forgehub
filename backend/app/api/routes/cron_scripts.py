@@ -12,8 +12,7 @@ Content reads still go through /api/v1/foundation/scripts/{location}/{name}/cont
 Scanned locations: each profile's /profiles/<profile>/scripts dir --
 `location` is the profile name. (The old central dirs, /root/.hermes/scripts
 and /root/.hermes/crons, were migrated into the athos profile on 2026-07-06
-and removed; DB rows with the legacy locations "main"/"central"/"profile"
-get re-pointed on the next sync.)
+and removed; a data migration reconciles rows still using "main".)
 
 'referenced_by' is computed at query time by cross-referencing the live
 jobs.json stores, so it reflects the current scheduler state without an
@@ -201,10 +200,8 @@ def _infer_category(name: str) -> str:
 
 
 def _load_all_cron_jobs() -> list[dict[str, Any]]:
-    """Load jobs from every store (central + per-profile), deduplicated by
-    id/name keeping the copy from the most recently modified store -- the
-    scheduler has moved between the central and per-profile stores across
-    hermes versions, and a stale snapshot must not shadow the live jobs.
+    """Load jobs from every per-profile store, deduplicated by id/name
+    keeping the copy from the most recently modified store.
     Same logic as foundation.py's _load_raw_jobs, duplicated here to avoid
     cross-module import between route files."""
     import json

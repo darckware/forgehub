@@ -2,9 +2,20 @@
 
 Route: `/auditor`; navigation: **Operations → Auditor**.
 
-The screen is the operational surface for the weekly Hermes/Foundation ecosystem audit. It shows
-the same `ECO-001`…`ECO-039` controls used by the Sunday 19:00 Athos cron, so scheduled and manual
-evidence cannot drift into separate checklists.
+The screen is the operational surface for the weekly Hermes/Foundation ecosystem audit. The
+canonical catalog v2 covers `ECO-001`…`ECO-057`; `ECO-021` is retired and stays disabled. The
+`ecosystem-weekly-audit` job in the Athos profile runs Sunday at 19:00 (`0 19 * * 0`) and triggers
+the same controls as manual runs.
+
+## Athos scheduler monitor
+
+`GET /api/v1/audit/status` includes `athos_monitor` alongside the existing checklist counts. The
+monitor reads the Athos cron store through the Foundation loader and compares the job name, script,
+schedule, enabled state, scheduler health, and latest ForgeHub run requested by `cron`. Its state is
+`healthy`, `degraded`, `failed`, or `not_configured`, with concrete reasons in `issues`. A missing or
+duplicate job, drift, overdue scheduler, or audit run older than eight days degrades it; a scheduler
+error or unreadable Athos store fails it. An individual failed control changes the checklist count,
+not the scheduler state. The existing bridge-token-protected endpoint remains the only cron trigger.
 
 ## Profile view
 

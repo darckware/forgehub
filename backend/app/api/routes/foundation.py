@@ -44,6 +44,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.cron_script_state import ScriptState, classify_script
 from app.db.base import get_db
 from app.db.models.audit import AuditCheck
 
@@ -155,6 +156,8 @@ class CronJobOut(BaseModel):
     name: str
     description: str | None = None
     script: str | None = None
+    script_state: ScriptState = "none"
+    is_audit_job: bool = False
     schedule_display: str | None = None
     enabled: bool
     state: str
@@ -573,6 +576,9 @@ def _raw_job_to_out(raw_job: dict[str, Any]) -> CronJobOut:
     state = raw_job.get("state") or "scheduled"
     script = raw_job.get("script")
     profile = raw_job.get("profile") or "default"
+    script_path = PROFILES_DIR / profile / "scripts" / script if script else None
+    resolved_script = _resolve_script_read_path(profile, script) if script else None
+    script_state = classify_script(resolved_script or script_path)
     last_log = _last_log_at(script, profile)
     return CronJobOut(
         profile=profile,
@@ -580,6 +586,8 @@ def _raw_job_to_out(raw_job: dict[str, Any]) -> CronJobOut:
         name=raw_job.get("name", ""),
         description=_truncate_description(raw_job.get("prompt")),
         script=script,
+        script_state=script_state,
+        is_audit_job=profile == "athos" and raw_job.get("name") == "ecosystem-weekly-audit",
         schedule_display=(raw_job.get("schedule") or {}).get("display") or raw_job.get("schedule_display"),
         enabled=enabled,
         state=state,
@@ -1179,18 +1187,8 @@ def _resolve_script_read_path(location: str, name: str) -> Path | None:
     """Resolve a script's actual readable path for content display, same
     symlink-remap logic as _build_script_out. Returns None if unreadable.
 
-    `location` is normally a profile name. The legacy values "central",
-    "main" and "profile" (pre-2026-07-06 central-dirs layout, still present
-    in old cron_scripts DB rows and frontend fallback candidates) resolve
-    by searching every profile's scripts dir for the name instead."""
-    if location in ("central", "main", "profile"):
-        bases = (
-            [p / "scripts" for p in sorted(PROFILES_DIR.iterdir()) if (p / "scripts").is_dir()]
-            if PROFILES_DIR.is_dir()
-            else []
-        )
-    else:
-        bases = [PROFILES_DIR / location / "scripts"]
+    `location` is an existing profile name."""
+    bases = [PROFILES_DIR / location / "scripts"]
 
     for base in bases:
         candidate = base / name
@@ -1532,7 +1530,7 @@ async def delete_cron_job(job_id: str) -> dict[str, str]:
 
 @router.get("/scripts", response_model=ScriptListOut)
 async def list_scripts(db: AsyncSession = Depends(get_db)) -> ScriptListOut:
-    """List the central scripts catalog plus every profile's own scripts/
+    """List every profile's own scripts/
     dir, each with its owning agent, description, and a health check
     (exists / symlink escapes its scripts dir / referenced by a cron job,
     an Auditor check, or another referenced script's chained call)."""
@@ -1543,12 +1541,13 @@ async def list_scripts(db: AsyncSession = Depends(get_db)) -> ScriptListOut:
 @router.get("/scripts/{location}/{name}/content", response_model=ScriptContentOut)
 async def get_script_content(location: str, name: str) -> ScriptContentOut:
     """Read a script's raw source -- used by the Crons/Scripts pages' file
-    viewer and "send to chat" actions. `location` is "central" or a profile
+    viewer and "send to chat" actions. `location` is an existing profile
     slug; `name` must be a bare filename (no path separators)."""
     if "/" in name or "\\" in name or name in (".", ".."):
         raise HTTPException(status_code=400, detail="Invalid script name")
-    if location != "central":
-        _get_profile_dir_or_404(location)
+    if location in ("central", "main", "profile"):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    _get_profile_dir_or_404(location)
 
     resolved = _resolve_script_read_path(location, name)
     if resolved is None:

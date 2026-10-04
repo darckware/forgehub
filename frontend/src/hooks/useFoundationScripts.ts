@@ -112,39 +112,17 @@ export interface ScriptLocationRef {
 const scriptContentSchema = z.object({ content: z.string(), path: z.string() });
 export type ScriptContent = z.infer<typeof scriptContentSchema>;
 
-async function fetchScriptContent(ref: ScriptLocationRef): Promise<ScriptContent> {
+export async function fetchScriptContent(ref: ScriptLocationRef): Promise<ScriptContent> {
   const data = await apiClient.get<unknown>(
     `/api/v1/foundation/scripts/${encodeURIComponent(ref.location)}/${encodeURIComponent(ref.name)}/content`
   );
   return scriptContentSchema.parse(data);
 }
 
-/**
- * A cron job's `script` filename can exist under the job's own profile
- * scripts/ dir, the central catalog, or neither (broken job) -- try each
- * candidate location in order and return the first readable hit.
- */
-export async function fetchScriptContentWithFallback(
-  candidates: ScriptLocationRef[]
-): Promise<ScriptContent | null> {
-  for (const candidate of candidates) {
-    try {
-      return await fetchScriptContent(candidate);
-    } catch {
-      // try the next candidate location
-    }
-  }
-  return null;
-}
-
-export function useScriptFileContent(candidates: ScriptLocationRef[], enabled: boolean) {
+export function useScriptFileContent(ref: ScriptLocationRef, enabled: boolean) {
   return useQuery({
-    queryKey: ["foundation-script-content", candidates],
-    queryFn: async () => {
-      const result = await fetchScriptContentWithFallback(candidates);
-      if (!result) throw new Error("Script file not found or unreadable");
-      return result;
-    },
+    queryKey: ["foundation-script-content", ref],
+    queryFn: () => fetchScriptContent(ref),
     enabled,
   });
 }

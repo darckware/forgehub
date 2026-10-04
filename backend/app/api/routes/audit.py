@@ -30,7 +30,9 @@ from app.api.schemas.audit import (
     AuditStatusOut,
 )
 from app.api.schemas.demand import DemandSubmitIn
+from app.api.routes import foundation
 from app.api.routes.demand import create_demand_and_notify
+from app.core.athos_audit_monitor import inspect_athos_audit_job
 from app.core.audit_remediation import (
     referenced_files,
     remediation_problems,
@@ -538,6 +540,17 @@ async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
     last_at = (
         await db.execute(select(func.max(AuditCheckRun.created_at)))
     ).scalar_one_or_none()
+    last_cron_run_at = (
+        await db.execute(
+            select(func.max(AuditCheckRun.created_at)).where(AuditCheckRun.requested_by == "cron")
+        )
+    ).scalar_one_or_none()
+    monitor = inspect_athos_audit_job(
+        foundation._list_cron_jobs(),
+        foundation._cron_store_errors(),
+        last_cron_run_at,
+        datetime.now(timezone.utc),
+    )
     return AuditStatusOut(
         total=len(checks),
         enabled=len(enabled),
@@ -545,4 +558,5 @@ async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
         fail=fail,
         never_ran=never,
         last_run_at=last_at,
+        athos_monitor=monitor,
     )

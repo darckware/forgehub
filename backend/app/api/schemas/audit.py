@@ -1,6 +1,7 @@
 """Pydantic schemas for the audit domain (ecosystem checkpoints)."""
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -68,6 +69,21 @@ class AuditCheckOut(AuditCheckBase):
     last_run: AuditRunOut | None = None
 
 
+class AthosAuditMonitorOut(BaseModel):
+    state: Literal["healthy", "degraded", "failed", "not_configured"]
+    job_id: str | None = None
+    job_name: str | None = None
+    script: str | None = None
+    schedule: str | None = None
+    enabled: bool | None = None
+    health: str | None = None
+    last_run_at: str | None = None
+    last_status: str | None = None
+    next_run_at: str | None = None
+    last_cron_run_at: datetime | None = None
+    issues: list[str] = Field(default_factory=list)
+
+
 class AuditStatusOut(BaseModel):
     """Header summary for the Auditor page."""
 
@@ -77,6 +93,7 @@ class AuditStatusOut(BaseModel):
     fail: int
     never_ran: int
     last_run_at: datetime | None = None
+    athos_monitor: AthosAuditMonitorOut | None = None
 
 
 class AuditRunAllOut(BaseModel):
