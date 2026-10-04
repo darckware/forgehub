@@ -12,6 +12,7 @@ import asyncio
 import shlex
 import time
 import uuid
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -39,6 +40,9 @@ from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.audit import AuditCheck, AuditCheckRun
+from app.db.models.agent import Agent
+from app.db.models.demand import AgentDemand
+from app.db.models.notification import Notification
 
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
@@ -231,12 +235,107 @@ async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[Audit
             return await _execute_check(check, requested_by)
 
     runs = await asyncio.gather(*(_one(c) for c in checks))
-    for run in runs:
+    dispatch_needed = False
+    for check, run in zip(checks, runs, strict=True):
         db.add(run)
+        dispatch_needed |= await _sync_check_incident(db, check, run)
     await db.commit()
+    if dispatch_needed:
+        from app.core.dispatch_signal import wake_scheduled_dispatch
+
+        wake_scheduled_dispatch()
     for run in runs:
         await db.refresh(run)
     return list(runs)
+
+
+_RECOVERY_MARKER = "[Auditor recovery]"
+
+
+async def _sync_check_incident(db: AsyncSession, check: AuditCheck, run: AuditCheckRun) -> bool:
+    """Keep one owner Task per uninterrupted failure, including concurrent triggers."""
+    await db.execute(select(AuditCheck.id).where(AuditCheck.id == check.id).with_for_update())
+    prefix = f"[Auditor:{check.id}]"
+    demand = (await db.execute(
+        select(AgentDemand)
+        .where(AgentDemand.subject.startswith(prefix))
+        .order_by(AgentDemand.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    active = demand is not None and _RECOVERY_MARKER not in demand.body
+
+    if run.status == "ok":
+        if active:
+            demand.body += f"\n\n{_RECOVERY_MARKER} Check passed.\nRun: {run.id}\nEvidence:\n{run.output or 'Exit 0, no output.'}"
+            demand.status = "archived"
+            # If the worker has not claimed this Task, remove it from the due
+            # queue. A running agent is left alone; its own result is retained.
+            if demand.dispatch_status is None:
+                demand.scheduled_at = None
+        return False
+
+    if active:
+        if demand.status == "archived":
+            demand.status = "new"
+        if demand.dispatch_status in ("completed", "failed"):
+            event_key = f"audit-escalation:{demand.id}"
+            already_escalated = (await db.execute(
+                select(Notification.id).where(Notification.event_key == event_key)
+            )).scalar_one_or_none()
+            if already_escalated is None:
+                db.add(Notification(
+                    source="system", severity="error",
+                    title=f"Audit still failing: {check.name}"[:255],
+                    message=(
+                        f"The owner's Task #{demand.number} ended ({demand.dispatch_status}), "
+                        f"but the check remains {run.status}. Escalate the correction.\n"
+                        f"Verification: {check.command}\nEvidence: {run.output or 'No output recorded.'}"
+                    ),
+                    event_key=event_key,
+                    occurred_at=datetime.now(timezone.utc),
+                ))
+        return False
+
+    owner_exists = (await db.execute(
+        select(Agent.id).where(Agent.profile_slug == check.agent_profile)
+    )).scalar_one_or_none()
+    if owner_exists is None:
+        event_key = f"audit-unowned:{check.id}"
+        warned = (await db.execute(
+            select(Notification.id).where(Notification.event_key == event_key)
+        )).scalar_one_or_none()
+        if warned is None:
+            db.add(Notification(
+                source="system", severity="error",
+                title=f"Audit control has no agent: {check.name}"[:255],
+                message=(
+                    f"Assign a registered agent to {check.name} ({check.id}). "
+                    f"Configured profile: {check.agent_profile}. Latest result: {run.status}."
+                ),
+                event_key=event_key, occurred_at=datetime.now(timezone.utc),
+            ))
+        return False
+
+    await create_demand_and_notify(
+        db,
+        DemandSubmitIn(
+            from_agent="athos",
+            origin_type="task",
+            target_agent_slug=check.agent_profile,
+            subject=f"{prefix} Restore {check.name}"[:255],
+            body=(
+                f"Audit control failed ({run.status}, exit={run.exit_code}).\n"
+                f"Control: {check.name}\nDescription: {check.description or 'Not provided'}\n"
+                f"Verification command: {check.command}\nWorking directory: {check.workdir or '/root'}\n"
+                f"Evidence:\n{run.output or 'No output recorded.'}\n\n"
+                "Diagnose within your charter, apply only authorized changes, and rerun the control. "
+                "Escalate unsafe or out-of-scope corrections."
+            ),
+        ),
+        commit=False,
+        notify=False,
+    )
+    return True
 
 
 async def _get_check_or_404(db: AsyncSession, check_id: uuid.UUID) -> AuditCheck:
@@ -327,7 +426,12 @@ async def run_check(check_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> 
     check = await _get_check_or_404(db, check_id)
     run = await _execute_check(check, "manual")
     db.add(run)
+    dispatch_needed = await _sync_check_incident(db, check, run)
     await db.commit()
+    if dispatch_needed:
+        from app.core.dispatch_signal import wake_scheduled_dispatch
+
+        wake_scheduled_dispatch()
     await db.refresh(run)
     return AuditRunOut.model_validate(run)
 

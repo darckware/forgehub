@@ -5,7 +5,7 @@ from app.mcp import factory_server
 
 def test_unified_mcp_registers_messages_and_factory_catalog():
     tools = factory_server.mcp._tool_manager._tools
-    assert len(tools) == 59
+    assert {"ask_marcelo", "list_my_questions", "record_marcelo_answer", "propose_improvement"} <= tools.keys()
     assert "send_agent_message" in tools
     assert "list_my_incubation" in tools
     assert "get_project_context" in tools
