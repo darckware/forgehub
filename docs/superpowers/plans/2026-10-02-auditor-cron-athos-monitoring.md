@@ -87,6 +87,17 @@ O `downgrade` restaura os valores anteriores literalmente.
 
 ### Tarefa 2: Catálogo de auditoria v2
 
+**Ativação gradual (2026-10-04):** ECO-048, ECO-050, ECO-055 e ECO-056 são
+persistidos desabilitados até existirem probes seguros e verificados: comparação
+do mesmo token de agente ForgeVault local/público sem registrar o segredo;
+conversa de teste da Lara no canal `site` sem contato com cliente; inventário
+dos homes e MCP dos três agentes externos; comparação das chaves dos agentes
+com o registro ForgeRouter sem expor material de chave. ECO-058 também fica
+desabilitado até o primeiro snapshot externo e uma restauração de amostra
+verificados. Esses cinco IDs ficam reservados e não entram na execução semanal
+enquanto desabilitados. A migração `c84e2f619ab0` os define com a condição de
+ativação na descrição; a habilitação exige prova individual e nova revisão.
+
 Lista completa, lacunas e justificativas: especificação, seção "Catálogo v2". **Esta tarefa só começa depois que o Marcelo aprovar a lista.**
 
 **Arquivos versionados:**

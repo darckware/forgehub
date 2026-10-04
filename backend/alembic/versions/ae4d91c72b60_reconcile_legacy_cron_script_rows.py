@@ -1,7 +1,7 @@
 """Reconcile cron script rows left at the retired central location.
 
 Revision ID: ae4d91c72b60
-Revises: d447cad24782
+Revises: d9185ca2e4f7
 """
 
 from pathlib import Path
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "ae4d91c72b60"
-down_revision: Union[str, Sequence[str], None] = "d447cad24782"
+down_revision: Union[str, Sequence[str], None] = "d9185ca2e4f7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

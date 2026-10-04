@@ -140,3 +140,17 @@ Estado ao fechar a sessão do Claude Code iniciada fora do ForgeHub (continua nu
 - O backend com as rotas de dúvidas foi testado (`test_agent_questions.py`: 11 passaram; Ruff passou), reconstruído e implantado. O container ficou `healthy`, e `GET /api/v1/operations/questions` respondeu `200 []` com token de teste.
 - Passo 6 da skill `forgehub-routine-execution` atualizado nos dez perfis Hermes para usar `propose_improvement`; as dez cópias foram conferidas. Os logs dos perfis já mostram o MCP `forgehub` registrando as ferramentas novas. Confirmar o ciclo completo de pergunta e resposta em operação antes de considerar a fase encerrada.
 - Runbook de recuperação criado em `docs/runbooks/offsite-backup-restore.md`. Seu teste prático depende do primeiro snapshot bem-sucedido.
+- Tela `/operations` com seis abas, ViewModel, formulários, confirmação, i18n e celular entregue no frontend (`ef6c106`); testes do frontend: 253 passaram. Frontend do ForgeHub publicado em 2026-10-04 e `/operations` respondeu HTTP 200. O Darckware não foi implantado nesta etapa.
+- Monitoramento → ação implementado (`f72e79f`): falha de check cria uma Task para o perfil responsável; falhas repetidas reutilizam o incidente; um check verde arquiva a Task com evidência; uma tentativa concluída sem recuperação gera um alerta único; perfil sem agente cadastrado gera alerta sem perder o run. Backend: 714 testes passaram e Ruff passou. Backend do ForgeHub publicado em 2026-10-04, container saudável e `/health` respondeu `ok`.
+
+**Estado em 2026-10-04:** Evolução 24x7 (A0/A1, proposta e aprovação A2,
+reversão, métricas, tendência e tela) registrada em `c4ecf31`; monitor do Athos,
+estado de scripts e telas Auditor/Cron registrados em `cd6026a`. Testes focados:
+32 backend e 22 frontend passaram; Ruff e build passaram. Migrações de Evolução
+`b29f76c8e10a` e `d9185ca2e4f7` estão aplicadas no schema `company`.
+
+**Ainda falta para fechar o objetivo central, sem incluir o backup (adiado pelo Marcelo):**
+1. Catálogo v2: candidato de 57 checks preparado; o verificador do Athos no host ainda usa o catálogo antigo. Não aplicar a migração nem publicar a auditoria v2 até atualizar e validar o verificador.
+2. Operações Hermes da Tarefa 7 e deploy integrado. O plano exige a skill `hermes-ecosystem-repair` antes de alterar `/root/.hermes`; ela não está disponível no ambiente atual. A migração dos scripts Cron também não foi aplicada.
+3. Validação do ciclo Telegram pergunta → resposta → retomada do agente e observação gradual antes de ativar os demais perfis.
+4. Backup externo: primeiro snapshot e restauração continuam pendentes devido ao limite da API Google Drive no client compartilhado do rclone; retomar após esta implementação.
