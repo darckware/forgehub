@@ -149,8 +149,26 @@ estado de scripts e telas Auditor/Cron registrados em `cd6026a`. Testes focados:
 32 backend e 22 frontend passaram; Ruff e build passaram. Migrações de Evolução
 `b29f76c8e10a` e `d9185ca2e4f7` estão aplicadas no schema `company`.
 
-**Ainda falta para fechar o objetivo central, sem incluir o backup (adiado pelo Marcelo):**
-1. Catálogo v2: candidato de 57 checks preparado; o verificador do Athos no host ainda usa o catálogo antigo. Não aplicar a migração nem publicar a auditoria v2 até atualizar e validar o verificador.
-2. Operações Hermes da Tarefa 7 e deploy integrado. O plano exige a skill `hermes-ecosystem-repair` antes de alterar `/root/.hermes`; ela não está disponível no ambiente atual. A migração dos scripts Cron também não foi aplicada.
-3. Validação do ciclo Telegram pergunta → resposta → retomada do agente e observação gradual antes de ativar os demais perfis.
-4. Backup externo: primeiro snapshot e restauração continuam pendentes devido ao limite da API Google Drive no client compartilhado do rclone; retomar após esta implementação.
+**Fechamento da implementação em 2026-10-04:** o catálogo v2 foi instalado no
+verificador do Athos e aplicado em Hindsight e no schema `company`, com 52
+checks ativos e cinco novos IDs reservados desabilitados. As migrações Cron e
+catálogo chegaram a `c84e2f619ab0 (head)`. `daily_hermes_update_check`,
+`foundation-clear` e `ecosystem-weekly-audit` executaram manualmente com estado
+`ok`. O último cron gravou 52 runs no ForgeHub (39 `ok`, 13 `fail`), separando
+saúde do scheduler de falhas reais do checklist. O job de smoke desativado foi
+removido. O runbook registra os detalhes e os achados.
+
+O ForgeHub foi publicado da revisão isolada `9cef077`, sem as mudanças
+simultâneas de Client Ops e sem deploy do Darckware. Na revisão publicada,
+742 testes backend e 272 frontend passaram; Ruff e build passaram. Os dois
+containers estão ativos, o backend está `healthy`, e `/operations`, `/auditor`
+e `/crons` responderam HTTP 200. O smoke autenticado confirmou monitor Athos
+`healthy`, 58 checks cadastrados, cron com script `ok`, Evolução HTTP 200,
+catálogo central de scripts HTTP 404 e token inválido da auditoria interna
+rejeitado com HTTP 401.
+
+**Pendências operacionais após a implementação:** tratar os 13 checks vermelhos
+conforme `docs/PENDENCIAS.md`; observar o ciclo real Telegram pergunta →
+resposta → retomada antes de ativar os demais perfis; e retomar o primeiro
+snapshot externo e a restauração de amostra quando o problema do backup for
+resolvido, como solicitado pelo Marcelo.

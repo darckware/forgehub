@@ -10,6 +10,7 @@
 - O job desativado `cron-worker-smoke-test` (`a4c7594034c9`) foi removido após conferir que só havia referência em saída histórica.
 - Verificador v2 instalado em `/root/.hermes/profiles/athos/scripts/checklist_verifier.py`; cópia anterior em `/tmp/checklist_verifier.py.pre-v2-20261004`. Store anterior em `/tmp/athos-jobs.pre-v2-20261004.json` (modo 0600).
 - Migrações `ae4d91c72b60` e `c84e2f619ab0` aplicadas ao schema `company`. As duas linhas legadas de `company.cron_scripts` foram preservadas em `/tmp/forgehub-legacy-cron-rows-20261004.jsonl` (modo 0600) antes da reconciliação.
+- Deploy do ForgeHub na revisão `9cef077`: backend `healthy`, frontend ativo, e rotas `/operations`, `/auditor` e `/crons` HTTP 200. O contrato autenticado de Auditor, Cron e Evolução respondeu 200; catálogo central de scripts respondeu 404 e token inválido no endpoint interno respondeu 401.
 
 ## Execução e diagnóstico
 

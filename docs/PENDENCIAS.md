@@ -262,6 +262,7 @@ e os resultados dos 52 checks ativos. A implementação do catálogo v2 e das te
 as falhas dos checks abaixo representam estado do ecossistema a corrigir:
 
 - `ECO-019`: restringir permissões do `.env` do ForgeVault após validar seu proprietário e consumo.
+- `ECO-003/004/027/031/033/034/035/038`: corrigir deriva dos contratos de Knowledge Base, perfis e memória indicada pelos runs do último cron.
 - `ECO-039`: corrigir rotação de logs dos três PostgreSQL apontados e aprovar limite de cache Docker.
 - `ECO-042/043`: completar os contratos dos perfis Kairos e Lara.
 - `ECO-047`: revisar listeners fora da allow-list e fechar `/docs`, `/redoc` e `/openapi.json` públicos do ForgeVault. Não alterar o deploy do Darckware nesta entrega.
