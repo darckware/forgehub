@@ -133,3 +133,10 @@ Estado ao fechar a sessão do Claude Code iniciada fora do ForgeHub (continua nu
 - `validate_agent_profiles.py`: daedalus sem `scripts/knowledge_cycle.py`.
 - Alterações sem commit nos repositórios darckware (9), forgevault (1), coreti (21), forgerouter (3).
 - Vector (OpenClaw) sem diretório de perfil e sem registro como agente.
+
+## Continuação (2026-10-04)
+
+- O primeiro backup terminou com `result=failed` na fase `backup` em 2026-10-03 00:09. O log mostra repetidos `rateLimitExceeded` da Google Drive API para o client compartilhado do rclone, até falhar ao salvar o snapshot. Ainda não há snapshot aceito nem teste de restauração. Solicitada a criação de um OAuth client dedicado; o rclone informa que o client compartilhado será aposentado em 2026.
+- O backend com as rotas de dúvidas foi testado (`test_agent_questions.py`: 11 passaram; Ruff passou), reconstruído e implantado. O container ficou `healthy`, e `GET /api/v1/operations/questions` respondeu `200 []` com token de teste.
+- Passo 6 da skill `forgehub-routine-execution` atualizado nos dez perfis Hermes para usar `propose_improvement`; as dez cópias foram conferidas. Os logs dos perfis já mostram o MCP `forgehub` registrando as ferramentas novas. Confirmar o ciclo completo de pergunta e resposta em operação antes de considerar a fase encerrada.
+- Runbook de recuperação criado em `docs/runbooks/offsite-backup-restore.md`. Seu teste prático depende do primeiro snapshot bem-sucedido.
