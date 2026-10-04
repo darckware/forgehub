@@ -209,6 +209,9 @@ async def test_sync_copies_messages_outcome_onto_run(agent, far_future_tasks):
         demand = await db.get(AgentDemand, run.demand_id)
         demand.dispatch_status = "failed"
         demand.dispatch_error = "runtime unavailable"
+        demand.dispatched_at = now - timedelta(minutes=2)
+        demand.task_execution_at = now
+        demand.dispatch_result = "## Resultado\nNada a fazer.\n## Evidência\nServiço indisponível."
         await db.commit()
     async with AsyncSessionLocal() as db:
         assert await ops.run_routine_sync_pass(db) >= 1
@@ -217,6 +220,10 @@ async def test_sync_copies_messages_outcome_onto_run(agent, far_future_tasks):
     assert run.status == "failed"
     assert run.detail == "runtime unavailable"
     assert run.finished_at is not None
+    assert run.duration_ms == 120_000
+    assert run.cost_usd is None
+    assert run.evidence_received is True
+    assert run.no_action is True
 
 
 def test_compose_routine_message_includes_charter_and_policy():

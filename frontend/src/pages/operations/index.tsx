@@ -17,13 +17,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/store/authStore";
 import {
   type Charter,
+  type OperationsChange,
   type OperationsTab,
   type Routine,
   type RoutineInput,
   useOperationsViewModel,
 } from "@/hooks/useOperationsViewModel";
 
-const TABS: OperationsTab[] = ["agents", "schedule", "runs", "improvements", "questions", "instructions"];
+const TABS: OperationsTab[] = ["agents", "schedule", "runs", "improvements", "questions", "instructions", "evolution"];
 const routineSchema = z.object({
   agent_id: z.string().min(1),
   title: z.string().trim().min(1).max(200),
@@ -149,12 +150,16 @@ export default function OperationsPage() {
   const [policyText, setPolicyText] = useState<string | null>(null);
   const [policyReason, setPolicyReason] = useState("");
   const [confirmPolicy, setConfirmPolicy] = useState(false);
+  const [confirmUndo, setConfirmUndo] = useState<OperationsChange | null>(null);
   const [agentFilter, setAgentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [notice, setNotice] = useState("");
 
   useEffect(() => { document.title = `${t("title")} · ForgeHub`; }, [t]);
   const date = (value: string | null | undefined) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
+  const trendDate = (value: string) => new Intl.DateTimeFormat(i18n.language, { day: "2-digit", month: "short", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
+  const cost = (value: number) => new Intl.NumberFormat(i18n.language, { style: "currency", currency: "USD" }).format(value);
+  const metric = (value: number | string | null) => value === null ? "—" : String(value);
   const agents = vm.overview.data?.agents ?? [];
   const charters = vm.charters.data ?? [];
   const routines = vm.routines.data ?? [];
@@ -168,7 +173,7 @@ export default function OperationsPage() {
     };
   }), [i18n.language]);
   const filteredRuns = (vm.runs.data ?? []).filter((run) => (!agentFilter || run.agent_id === agentFilter) && (!statusFilter || run.status === statusFilter));
-  const error = vm.saveCharter.error ?? vm.saveRoutine.error ?? vm.runNow.error ?? vm.answerQuestion.error ?? vm.cancelQuestion.error ?? vm.publishPolicy.error;
+  const error = vm.saveCharter.error ?? vm.saveRoutine.error ?? vm.runNow.error ?? vm.answerQuestion.error ?? vm.cancelQuestion.error ?? vm.publishPolicy.error ?? vm.undoChange.error;
 
   return <div className="space-y-5 max-md:break-words">
     <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -216,10 +221,27 @@ export default function OperationsPage() {
       <TabsContent value="questions" className="mt-5 space-y-4"><p className="text-sm text-muted-foreground">{t("questionsHint")}</p><StatusBlock loading={vm.questions.isLoading} error={vm.questions.isError} retry={() => void vm.questions.refetch()}>{(vm.questions.data ?? []).length === 0 ? <p className="rounded-md border p-5 text-sm text-muted-foreground">{t("noQuestions")}</p> : <div className="space-y-3">{vm.questions.data?.map((question) => <section key={question.id} className="rounded-md border p-4"><div className="flex flex-wrap items-center gap-2"><h2 className="font-medium">#{question.number} · {question.agent_name ?? "—"}</h2><Badge variant={question.status === "pending" ? "warning" : "outline"}>{t(`questionStatus.${question.status}`, { defaultValue: question.status })}</Badge>{question.blocking && <Badge variant="destructive">{t("blocking")}</Badge>}</div><p className="mt-2 whitespace-pre-wrap text-sm">{question.question}</p>{question.context && <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{question.context}</p>}{question.recommendation && <p className="mt-2 text-xs"><strong>{t("recommendation")}:</strong> {question.recommendation}</p>}{question.answer && <p className="mt-3 rounded-md bg-muted p-3 text-sm"><strong>{t("answer")}:</strong> {question.answer}</p>}{question.status === "pending" && isAdmin && <div className="mt-3 space-y-2"><label className="text-sm" htmlFor={`answer-${question.id}`}>{t("answer")}</label><Textarea id={`answer-${question.id}`} rows={3} className="resize-none" value={questionAnswer[question.id] ?? ""} onChange={(e) => setQuestionAnswer((old) => ({ ...old, [question.id]: e.target.value }))} /><div className="flex gap-2"><Button disabled={!questionAnswer[question.id]?.trim()} onClick={() => setConfirmQuestion(question.id)}>{t("sendAnswer")}</Button><Button variant="outline" onClick={() => setConfirmCancelQuestion(question.id)}>{t("cancelQuestion")}</Button></div></div>}</section>)}</div>}</StatusBlock></TabsContent>
       <TabsContent value="instructions" className="mt-5 space-y-4"><StatusBlock loading={vm.policy.isLoading} error={vm.policy.isError} retry={() => void vm.policy.refetch()}><p className="text-sm text-muted-foreground">{t("policyHint")}</p><p className="text-xs text-muted-foreground">{t("policyVersion", { version: vm.policy.data?.version ?? "—" })}</p>{isAdmin ? <div className="space-y-3"><label className="block text-sm" htmlFor="policy-content">{t("policyContent")}</label><Textarea id="policy-content" rows={14} className="resize-none font-mono text-xs" value={policyText ?? vm.policy.data?.content ?? ""} onChange={(e) => setPolicyText(e.target.value)} /><label className="block text-sm" htmlFor="policy-reason">{t("changeReason")}</label><Input id="policy-reason" value={policyReason} onChange={(e) => setPolicyReason(e.target.value)} /><Button disabled={!(policyText ?? "").trim() || policyText === vm.policy.data?.content} onClick={() => setConfirmPolicy(true)}>{t("publishPolicy")}</Button></div> : <pre className="whitespace-pre-wrap rounded-md border p-4 text-sm">{vm.policy.data?.content ?? t("noPolicy")}</pre>}
         <h2 className="pt-3 font-semibold">{t("history")}</h2>{(vm.policyVersions.data ?? []).map((version) => <div key={version.id} className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm"><span>v{version.version}</span><span className="text-muted-foreground">{date(version.created_at)} · {version.author}</span><span>{version.change_reason}</span>{isAdmin && version.id !== vm.policy.data?.id && <Button size="sm" variant="outline" onClick={() => { setPolicyText(version.content); setPolicyReason(t("restoreReason", { version: version.version })); }}>{t("restore")}</Button>}</div>)}</StatusBlock></TabsContent>
+      <TabsContent value="evolution" className="mt-5 space-y-6">
+        <StatusBlock loading={vm.evolution.isLoading} error={vm.evolution.isError} retry={() => void vm.evolution.refetch()}>
+          <section className="space-y-3" aria-label={t("evolutionChanges")}>
+            <div><h2 className="text-lg font-semibold">{t("evolutionChanges")}</h2><p className="text-sm text-muted-foreground">{t("evolutionHint")}</p></div>
+            {(vm.evolution.data?.changes ?? []).length === 0 ? <p className="rounded-md border p-5 text-sm text-muted-foreground">{t("noChanges")}</p> :
+              <div className="grid gap-3">{vm.evolution.data?.changes.map((change) => <article key={change.id} className="rounded-md border bg-card p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><h3 className="font-medium">{change.summary}</h3><p className="mt-1 text-sm text-muted-foreground">{change.rationale}</p></div><div className="flex gap-2"><Badge variant="outline">{change.autonomy_level}</Badge><Badge variant={change.status === "reverted" ? "destructive" : change.status === "kept" ? "success" : "outline"}>{t(`changeStatus.${change.status}`)}</Badge></div></div>
+                <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t pt-3 text-xs text-muted-foreground"><span>{t("changeTarget")}: {change.target_type} · {change.target_id}</span><span>{t("when")}: {date(change.created_at)}</span>{change.evaluation_ends_at && <span>{t("evaluationEnds")}: {date(change.evaluation_ends_at)}</span>}</div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-sm"><span className="text-muted-foreground">{change.metric_name ?? t("metric")}:</span> <span className="font-medium tabular-nums">{metric(change.before_value)} → {metric(change.after_value)}</span></p>{isAdmin && (change.status === "evaluating" || change.status === "kept") && <Button size="sm" variant="outline" onClick={() => setConfirmUndo(change)}>{t("undoChange")} <span className="sr-only">{change.summary}</span></Button>}</div>
+              </article>)}</div>}
+          </section>
+          <section className="space-y-3" aria-label={t("weeklyTrend")}><h2 className="text-lg font-semibold">{t("weeklyTrend")}</h2>
+            {(vm.evolution.data?.trend ?? []).length === 0 ? <p className="rounded-md border p-5 text-sm text-muted-foreground">{t("noTrend")}</p> : <div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>{t("day")}</TableHead><TableHead>{t("trendCompleted")}</TableHead><TableHead>{t("trendAuditOk")}</TableHead><TableHead>{t("trendFailures")}</TableHead><TableHead>{t("trendCost")}</TableHead><TableHead>{t("trendImprovements")}</TableHead></TableRow></TableHeader><TableBody>{vm.evolution.data?.trend.map((day) => <TableRow key={day.date}><TableCell className="whitespace-nowrap font-medium">{trendDate(day.date)}</TableCell><TableCell>{day.routines_completed}</TableCell><TableCell>{day.audit_ok}</TableCell><TableCell><span className="text-destructive">{day.routines_failed + day.audit_failed}</span><span className="block text-xs text-muted-foreground">{t("trendFailureDetail", { routines: day.routines_failed, checks: day.audit_failed })}</span></TableCell><TableCell className="whitespace-nowrap tabular-nums">{cost(day.cost_usd)}</TableCell><TableCell>{day.improvements_delivered}</TableCell></TableRow>)}</TableBody></Table></div>}
+          </section>
+        </StatusBlock>
+      </TabsContent>
     </Tabs>
     <ConfirmDialog open={!!confirmRun} title={t("confirmRunTitle")} description={t("confirmRunDescription", { title: confirmRun?.title })} confirmLabel={t("confirmRun")} variant="default" loading={vm.runNow.isPending} onCancel={() => setConfirmRun(null)} onConfirm={() => confirmRun && vm.runNow.mutate(confirmRun.id, { onSuccess: () => { setConfirmRun(null); setNotice(t("runQueued")); } })} />
     <ConfirmDialog open={!!confirmQuestion} title={t("confirmAnswerTitle")} description={t("confirmAnswerDescription")} confirmLabel={t("confirmAnswer")} variant="default" loading={vm.answerQuestion.isPending} onCancel={() => setConfirmQuestion(null)} onConfirm={() => confirmQuestion && vm.answerQuestion.mutate({ id: confirmQuestion, answer: questionAnswer[confirmQuestion].trim() }, { onSuccess: () => { setConfirmQuestion(null); setNotice(t("answerSent")); } })} />
     <ConfirmDialog open={!!confirmCancelQuestion} title={t("confirmCancelQuestionTitle")} description={t("confirmCancelQuestionDescription")} confirmLabel={t("cancelQuestion")} loading={vm.cancelQuestion.isPending} onCancel={() => setConfirmCancelQuestion(null)} onConfirm={() => confirmCancelQuestion && vm.cancelQuestion.mutate(confirmCancelQuestion, { onSuccess: () => { setConfirmCancelQuestion(null); setNotice(t("questionCancelled")); } })} />
     <ConfirmDialog open={confirmPolicy} title={t("confirmPolicyTitle")} description={t("confirmPolicyDescription")} confirmLabel={t("publishPolicy")} variant="default" loading={vm.publishPolicy.isPending} onCancel={() => setConfirmPolicy(false)} onConfirm={() => vm.publishPolicy.mutate({ content: (policyText ?? "").trim(), change_reason: policyReason.trim() || null }, { onSuccess: () => { setConfirmPolicy(false); setPolicyText(null); setPolicyReason(""); setNotice(t("policyPublished")); } })} />
+    <ConfirmDialog open={!!confirmUndo} title={t("confirmUndoTitle")} description={t("confirmUndoDescription", { summary: confirmUndo?.summary })} confirmLabel={t("confirmUndo")} loading={vm.undoChange.isPending} onCancel={() => setConfirmUndo(null)} onConfirm={() => confirmUndo && vm.undoChange.mutate(confirmUndo.id, { onSuccess: () => { setConfirmUndo(null); setNotice(t("changeUndone")); } })} />
   </div>;
 }

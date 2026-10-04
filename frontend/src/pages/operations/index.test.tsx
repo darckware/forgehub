@@ -7,7 +7,7 @@ import i18n from "@/i18n";
 import { useAuthStore } from "@/store/authStore";
 import OperationsPage from ".";
 
-const mocks = vi.hoisted(() => ({ vm: vi.fn(), runNow: vi.fn() }));
+const mocks = vi.hoisted(() => ({ vm: vi.fn(), runNow: vi.fn(), undoChange: vi.fn() }));
 vi.mock("@/hooks/useOperationsViewModel", () => ({
   useOperationsViewModel: () => mocks.vm(),
 }));
@@ -15,6 +15,7 @@ vi.mock("@/hooks/useOperationsViewModel", () => ({
 beforeEach(() => {
   void i18n.changeLanguage("pt-BR");
   mocks.runNow.mockReset();
+  mocks.undoChange.mockReset();
   useAuthStore.setState({ user: { id: "u1", username: "admin", email: null, full_name: null,
     avatar_data_url: null, totp_enabled: false, is_active: true, is_admin: true,
     profile_id: null, ui_language: "pt-BR" } });
@@ -35,6 +36,13 @@ beforeEach(() => {
     policy: { data: null, isLoading: false, isError: false },
     policyVersions: { data: [], isLoading: false, isError: false },
     improvements: { data: [], isLoading: false, isError: false },
+    evolution: { data: { changes: [{ id: "c1", target_type: "routine", target_id: "r1",
+      summary: "Ajustar horário da rotina", rationale: "Evitar concorrência", autonomy_level: "A1",
+      status: "evaluating", metric_name: "Taxa de sucesso", before_value: 72, after_value: 91,
+      evaluation_ends_at: "2026-10-11T00:00:00Z", created_at: "2026-10-04T00:00:00Z" }],
+      trend: [{ date: "2026-10-04", routines_completed: 12, routines_failed: 2,
+        audit_ok: 8, audit_failed: 1, cost_usd: 3.5, improvements_delivered: 4 }] },
+      isLoading: false, isError: false, refetch: vi.fn() },
     refresh: vi.fn(),
     saveCharter: { mutate: vi.fn(), isPending: false, error: null },
     saveRoutine: { mutate: vi.fn(), isPending: false, error: null },
@@ -43,6 +51,7 @@ beforeEach(() => {
     answerQuestion: { mutate: vi.fn(), isPending: false, error: null },
     cancelQuestion: { mutate: vi.fn(), isPending: false, error: null },
     publishPolicy: { mutate: vi.fn(), isPending: false, error: null },
+    undoChange: { mutate: mocks.undoChange, isPending: false, error: null },
   });
 });
 
@@ -50,9 +59,35 @@ it("shows the agent health and every planned control tab", () => {
   render(<MemoryRouter><OperationsPage /></MemoryRouter>);
   expect(screen.getByRole("heading", { name: "Operação 24x7" })).toBeInTheDocument();
   expect(screen.getByText("Athos")).toBeInTheDocument();
-  for (const tab of ["Agentes", "Programação", "Execuções", "Melhorias", "Dúvidas", "Instruções"]) {
+  for (const tab of ["Agentes", "Programação", "Execuções", "Melhorias", "Dúvidas", "Instruções", "Evolução"]) {
     expect(screen.getByRole("tab", { name: tab })).toBeInTheDocument();
   }
+});
+
+it("shows the change evidence and weekly trend in Evolution", () => {
+  render(<MemoryRouter><OperationsPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("tab", { name: "Evolução" }));
+  expect(screen.getByRole("heading", { name: "Ajustar horário da rotina" })).toBeInTheDocument();
+  expect(screen.getByText("Evitar concorrência")).toBeInTheDocument();
+  expect(screen.getByText("72 → 91")).toBeInTheDocument();
+  expect(screen.getByText("12")).toBeInTheDocument();
+  expect(screen.getByText(/US\$\s*3,50/)).toBeInTheDocument();
+});
+
+it("requires admin confirmation before undoing an applied change", () => {
+  render(<MemoryRouter><OperationsPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("tab", { name: "Evolução" }));
+  fireEvent.click(screen.getByRole("button", { name: "Desfazer Ajustar horário da rotina" }));
+  expect(mocks.undoChange).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar desfazer" }));
+  expect(mocks.undoChange).toHaveBeenCalledWith("c1", expect.any(Object));
+});
+
+it("hides undo for non-admin users", () => {
+  useAuthStore.setState((state) => ({ user: { ...state.user!, is_admin: false } }));
+  render(<MemoryRouter><OperationsPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("tab", { name: "Evolução" }));
+  expect(screen.queryByRole("button", { name: "Desfazer Ajustar horário da rotina" })).not.toBeInTheDocument();
 });
 
 it("requires confirmation before dispatching an extra routine run", () => {

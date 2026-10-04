@@ -100,6 +100,10 @@ class RoutineRunOut(BaseModel):
     demand_number: int | None = None
     detail: str | None
     finished_at: datetime | None
+    duration_ms: int | None = None
+    cost_usd: Decimal | None = None
+    evidence_received: bool | None = None
+    no_action: bool | None = None
     # Still waiting in the Messages queue past occurrence + deadline.
     overdue: bool = False
 
@@ -118,6 +122,16 @@ class PolicyOut(BaseModel):
     author: str
     change_reason: str | None
     created_at: datetime
+
+
+class AgentChangeProposalIn(BaseModel):
+    agent: str = Field(min_length=1, max_length=50)
+    target_type: Literal["charter", "policy"]
+    target_id: uuid.UUID | None = None
+    summary: str = Field(min_length=1, max_length=255)
+    rationale: str = Field(min_length=1)
+    metric_name: str = Field(default="approved_change", min_length=1, max_length=50)
+    new_state: dict[str, object]
 
 
 class AgentOperationsSummary(BaseModel):

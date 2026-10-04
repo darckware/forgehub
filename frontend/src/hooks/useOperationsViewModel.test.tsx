@@ -37,3 +37,14 @@ it("sends a question answer to its canonical endpoint", async () => {
   });
   expect(apiClient.post).toHaveBeenCalledWith("/api/v1/operations/questions/q1:answer", { answer: "Aprovado." });
 });
+
+it("loads evolution only on its tab and sends undo to the change endpoint", async () => {
+  vi.mocked(apiClient.get).mockImplementation(async (path) => path.endsWith("/evolution")
+    ? { changes: [], trend: [] } : { agents: [], policy_version: 1 });
+  vi.mocked(apiClient.post).mockResolvedValue({ id: "c1", status: "reverted" });
+  const { result } = renderHook(() => useOperationsViewModel("evolution"), { wrapper });
+  await waitFor(() => expect(result.current.evolution.data?.trend).toEqual([]));
+  expect(apiClient.get).toHaveBeenCalledWith("/api/v1/operations/evolution");
+  await act(async () => { await result.current.undoChange.mutateAsync("c1"); });
+  expect(apiClient.post).toHaveBeenCalledWith("/api/v1/operations/changes/c1:undo");
+});

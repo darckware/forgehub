@@ -522,7 +522,7 @@ async def _routine_poll_loop() -> None:
     it only touches ForgeHub's database, so a host-bridge outage that stalls
     dispatch must not also stop occurrences from being recorded (a missed
     occurrence is evidence the screen has to show)."""
-    from app.api.routes.operations import run_routine_generation_pass, run_routine_sync_pass
+    from app.api.routes.operations import run_evolution_pass, run_routine_generation_pass, run_routine_sync_pass
     from app.core.agent_questions import run_question_delivery_pass
     from app.db.base import AsyncSessionLocal
 
@@ -534,6 +534,11 @@ async def _routine_poll_loop() -> None:
                 await run_routine_sync_pass(db)
         except Exception:
             logger.exception("Routine poll failed")
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_evolution_pass(db)
+        except Exception:
+            logger.exception("Operations evolution pass failed")
         # Separate try: a Telegram/bridge failure must not stop routines,
         # and a routine failure must not hold an agent's question back.
         try:

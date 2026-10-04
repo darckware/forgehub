@@ -48,6 +48,8 @@ ROUTINE_RUN_STATUSES = ("scheduled", "running", "completed", "failed", "missed",
 ROUTINE_RUN_TERMINAL_STATUSES = ("completed", "failed", "missed", "skipped_budget")
 QUESTION_STATUSES = ("pending", "answered", "cancelled")
 QUESTION_ANSWER_CHANNELS = ("telegram", "screen")
+OPERATIONS_CHANGE_LEVELS = ("A0", "A1", "A2")
+OPERATIONS_CHANGE_STATUSES = ("proposed", "awaiting_approval", "evaluating", "kept", "reverted", "rejected")
 
 
 class AgentCharter(Base, TimestampMixin):
@@ -121,12 +123,49 @@ class AgentRoutineRun(Base, TimestampMixin):
     # failure reason copied from the Messages task.
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), nullable=True)
+    evidence_received: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    no_action: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     routine: Mapped[AgentRoutine] = relationship(back_populates="runs")
 
     __table_args__ = (
         UniqueConstraint("routine_id", "occurrence_at", name="uq_agent_routine_runs_occurrence"),
         CheckConstraint(f"status IN {ROUTINE_RUN_STATUSES!r}", name="ck_agent_routine_runs_status"),
+    )
+
+
+class OperationsChange(Base, TimestampMixin):
+    """A proposed or applied reversible change and its seven-day evaluation."""
+
+    __tablename__ = "operations_changes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    routine_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_routines.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    question_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_questions.id", ondelete="SET NULL"), nullable=True
+    )
+    target_type: Mapped[str] = mapped_column(String(30), nullable=False, default="routine")
+    summary: Mapped[str] = mapped_column(String(255), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    autonomy_level: Mapped[str] = mapped_column(String(2), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    metric_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    before_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    after_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    previous_state: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    new_state: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    evaluation_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    learning: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"autonomy_level IN {OPERATIONS_CHANGE_LEVELS!r}", name="ck_operations_changes_level"),
+        CheckConstraint(f"status IN {OPERATIONS_CHANGE_STATUSES!r}", name="ck_operations_changes_status"),
     )
 
 

@@ -4,7 +4,7 @@ import { apiClient } from "@/lib/api";
 import type { Demand } from "@/hooks/useDemands";
 
 const BASE = "/api/v1/operations";
-export type OperationsTab = "agents" | "schedule" | "runs" | "improvements" | "questions" | "instructions";
+export type OperationsTab = "agents" | "schedule" | "runs" | "improvements" | "questions" | "instructions" | "evolution";
 export type RoutineKind = "monitoring" | "maintenance" | "improvement" | "report" | "coordination";
 
 export interface AgentSummary {
@@ -103,6 +103,30 @@ export interface AgentQuestion {
   reply_demand_id: string | null;
   created_at: string;
 }
+export interface OperationsChange {
+  id: string;
+  target_type: string;
+  target_id: string;
+  summary: string;
+  rationale: string;
+  autonomy_level: "A0" | "A1" | "A2";
+  status: "proposed" | "awaiting_approval" | "evaluating" | "kept" | "reverted" | "rejected";
+  metric_name: string | null;
+  before_value: number | string | null;
+  after_value: number | string | null;
+  evaluation_ends_at: string | null;
+  created_at: string;
+}
+export interface OperationsTrendDay {
+  date: string;
+  routines_completed: number;
+  routines_failed: number;
+  audit_ok: number;
+  audit_failed: number;
+  cost_usd: number;
+  improvements_delivered: number;
+}
+export interface OperationsEvolution { changes: OperationsChange[]; trend: OperationsTrendDay[] }
 
 export const operationsKeys = {
   all: ["operations"] as const,
@@ -114,6 +138,7 @@ export const operationsKeys = {
   policy: ["operations", "policy"] as const,
   policyVersions: ["operations", "policy-versions"] as const,
   improvements: ["operations", "improvements"] as const,
+  evolution: ["operations", "evolution"] as const,
 };
 
 export function useOperationsViewModel(tab: OperationsTab) {
@@ -161,6 +186,11 @@ export function useOperationsViewModel(tab: OperationsTab) {
       .filter((d) => d.origin_type === "incubation" && d.subject.startsWith("[Melhoria]")),
     enabled: tab === "improvements",
   });
+  const evolution = useQuery({
+    queryKey: operationsKeys.evolution,
+    queryFn: () => apiClient.get<OperationsEvolution>(`${BASE}/evolution`),
+    enabled: tab === "evolution",
+  });
 
   const invalidate = (...keys: readonly (readonly string[])[]) => {
     keys.forEach((key) => void client.invalidateQueries({ queryKey: key }));
@@ -198,7 +228,11 @@ export function useOperationsViewModel(tab: OperationsTab) {
       apiClient.post<OperationsPolicy>(`${BASE}/policy`, data),
     onSuccess: () => invalidate(operationsKeys.policy, operationsKeys.policyVersions, operationsKeys.overview),
   });
+  const undoChange = useMutation({
+    mutationFn: (id: string) => apiClient.post<OperationsChange>(`${BASE}/changes/${id}:undo`),
+    onSuccess: () => invalidate(operationsKeys.evolution),
+  });
 
-  return { overview, charters, routines, runs, questions, policy, policyVersions, improvements,
-    refresh, saveCharter, saveRoutine, deleteRoutine, runNow, answerQuestion, cancelQuestion, publishPolicy };
+  return { overview, charters, routines, runs, questions, policy, policyVersions, improvements, evolution,
+    refresh, saveCharter, saveRoutine, deleteRoutine, runNow, answerQuestion, cancelQuestion, publishPolicy, undoChange };
 }

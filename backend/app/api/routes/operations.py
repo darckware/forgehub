@@ -18,6 +18,7 @@ where per-run cost from ForgeRouter is collected.
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -28,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.routes.demand import create_demand_and_notify
 from app.api.schemas.demand import DemandSubmitIn
 from app.api.schemas.operations import (
+    AgentChangeProposalIn,
     AgentOperationsSummary,
     QuestionAnswerIn,
     QuestionAskIn,
@@ -44,6 +46,7 @@ from app.api.schemas.operations import (
     RoutineUpdate,
 )
 from app.core import agent_questions
+from app.core.operations_evolution import execution_signals
 from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.core.routine_schedule import (
@@ -54,7 +57,7 @@ from app.core.routine_schedule import (
 )
 from app.db.base import get_db
 from app.db.models.agent import Agent
-from app.db.models.audit import AuditCheck
+from app.db.models.audit import AuditCheck, AuditCheckRun
 from app.db.models.demand import AgentDemand
 from app.db.models.notification import Notification
 from app.db.models.operations import (
@@ -63,6 +66,7 @@ from app.db.models.operations import (
     AgentQuestion,
     AgentRoutine,
     AgentRoutineRun,
+    OperationsChange,
     OperationsPolicy,
 )
 
@@ -302,10 +306,398 @@ async def run_routine_sync_pass(db: AsyncSession) -> int:
             run.status, run.detail = new_status, detail
             if new_status in ROUTINE_RUN_TERMINAL_STATUSES:
                 run.finished_at = now
+                if demand is not None and new_status in ("completed", "failed"):
+                    signals = execution_signals(demand)
+                    run.duration_ms = signals.duration_ms
+                    run.cost_usd = signals.cost_usd
+                    run.evidence_received = signals.evidence_received
+                    run.no_action = signals.no_action
             changed += 1
     if changed:
         await db.commit()
     return changed
+
+
+async def _routine_metric(
+    db: AsyncSession, routine_id: uuid.UUID, metric_name: str,
+    start: datetime, end: datetime,
+) -> Decimal | None:
+    runs = list((await db.execute(
+        select(AgentRoutineRun).where(
+            AgentRoutineRun.routine_id == routine_id,
+            AgentRoutineRun.occurrence_at >= start,
+            AgentRoutineRun.occurrence_at < end,
+        )
+    )).scalars())
+    if metric_name == "failed_runs":
+        return Decimal(sum(run.status == "failed" for run in runs))
+    if metric_name == "evidence_rate":
+        completed = [run for run in runs if run.status == "completed"]
+        return (Decimal(sum(run.evidence_received is True for run in completed)) / Decimal(len(completed))) if completed else None
+    return None
+
+
+async def run_evolution_pass(
+    db: AsyncSession, now: datetime | None = None,
+    routine_ids: list[uuid.UUID] | None = None,
+    change_ids: list[uuid.UUID] | None = None,
+) -> int:
+    """Evaluate due changes, then apply deduplicated A0/A1 proposals."""
+    from app.core.operations_evolution import suggest_routine_change
+
+    now = now or datetime.now(timezone.utc)
+    approval_query = select(OperationsChange).where(
+        OperationsChange.status == "awaiting_approval",
+        OperationsChange.question_id.is_not(None),
+    )
+    if change_ids is not None:
+        approval_query = approval_query.where(OperationsChange.id.in_(change_ids))
+    approvals = list((await db.execute(approval_query.with_for_update())).scalars())
+    decided = 0
+    for change in approvals:
+        question = await db.get(AgentQuestion, change.question_id)
+        if question is None or question.status != "answered" or not question.answer:
+            continue
+        answer = question.answer.strip().casefold()
+        approved = answer in ("sim", "aprovado", "aprovada", "yes", "approved") or answer.startswith(("sim,", "sim.", "aprovado,"))
+        rejected = answer in ("não", "nao", "no", "rejeitado", "rejeitada") or answer.startswith(("não,", "nao,", "no,"))
+        if not approved and not rejected:
+            continue
+        if rejected:
+            change.status = "rejected"
+            change.evaluated_at = now
+            change.learning = f"Marcelo não aprovou: {question.answer.strip()[:500]}"
+            decided += 1
+            continue
+        if change.target_type == "charter":
+            agent_id = uuid.UUID(change.previous_state["agent_id"])
+            charter = (await db.execute(
+                select(AgentCharter).where(AgentCharter.agent_id == agent_id).with_for_update()
+            )).scalar_one_or_none()
+            if charter is None or any(
+                str(getattr(charter, field)) != str(value)
+                for field, value in change.previous_state.items() if field != "agent_id"
+            ):
+                change.status = "rejected"
+                change.learning = "A carta mudou após a proposta; gere uma nova proposta sobre a versão atual."
+                change.evaluated_at = now
+                decided += 1
+                continue
+            for field, value in change.new_state.items():
+                setattr(charter, field, Decimal(str(value)) if field == "daily_cost_budget" else value)
+        elif change.target_type == "policy":
+            current = await _current_policy(db)
+            if (current.version if current else 0) != change.previous_state.get("version"):
+                change.status = "rejected"
+                change.learning = "A política mudou após a proposta; gere uma nova proposta sobre a versão atual."
+                change.evaluated_at = now
+                decided += 1
+                continue
+            db.add(OperationsPolicy(
+                version=(current.version + 1) if current else 1,
+                content=change.new_state["content"],
+                author="operations-a2",
+                change_reason=f"Aprovada na pergunta #{question.number}: {change.summary}",
+            ))
+        else:
+            continue
+        change.status = "evaluating"
+        change.applied_at = now
+        change.evaluation_ends_at = now + timedelta(days=7)
+        decided += 1
+
+    due_query = select(OperationsChange).where(
+        OperationsChange.status == "evaluating",
+        OperationsChange.evaluation_ends_at <= now,
+    )
+    if routine_ids is not None:
+        due_query = due_query.where(OperationsChange.routine_id.in_(routine_ids))
+    due = list((await db.execute(due_query.with_for_update())).scalars())
+    evaluated = 0
+    for change in due:
+        if change.target_type != "routine":
+            change.evaluated_at = now
+            change.status = "kept"
+            change.learning = "Janela de avaliação encerrada; mudança A2 mantida para revisão humana."
+            evaluated += 1
+            continue
+        after = await _routine_metric(
+            db, change.routine_id, change.metric_name,
+            change.applied_at, change.evaluation_ends_at,
+        )
+        change.after_value = after
+        change.evaluated_at = now
+        routine = await db.get(AgentRoutine, change.routine_id) if change.routine_id else None
+        worse = (
+            after is not None and change.before_value is not None and
+            ((change.metric_name == "failed_runs" and after > change.before_value) or
+             (change.metric_name == "evidence_rate" and after < change.before_value))
+        )
+        state_matches = routine is not None and all(
+            getattr(routine, field) == value for field, value in change.new_state.items()
+        )
+        if worse and change.autonomy_level in ("A0", "A1") and state_matches:
+            for field, value in change.previous_state.items():
+                setattr(routine, field, value)
+            if change.previous_state.get("enabled") is True:
+                routine.last_occurrence_at = now
+            change.status = "reverted"
+            change.learning = f"Métrica {change.metric_name} piorou de {change.before_value} para {after}; mudança desfeita automaticamente."
+        else:
+            change.status = "kept"
+            if not state_matches:
+                change.learning = "Estado alterado por outra intervenção; reversão automática ignorada."
+            elif after is None:
+                change.learning = "Sem amostra na janela de avaliação; mudança mantida para revisão humana."
+            else:
+                change.learning = f"Métrica {change.metric_name}: {change.before_value} → {after}; mudança mantida."
+        evaluated += 1
+
+    query = select(AgentRoutine.id).where(AgentRoutine.enabled.is_(True))
+    if routine_ids is not None:
+        query = query.where(AgentRoutine.id.in_(routine_ids))
+    ids = list((await db.execute(query)).scalars())
+    applied = 0
+    for routine_id in ids:
+        routine = (await db.execute(
+            select(AgentRoutine).where(AgentRoutine.id == routine_id).with_for_update()
+        )).scalar_one_or_none()
+        if routine is None or not routine.enabled:
+            continue
+        recent = list((await db.execute(
+            select(AgentRoutineRun)
+            .where(
+                AgentRoutineRun.routine_id == routine_id,
+                AgentRoutineRun.occurrence_at >= now - timedelta(days=7),
+            )
+            .order_by(AgentRoutineRun.occurrence_at.desc()).limit(3)
+        )).scalars())
+        proposal = suggest_routine_change(routine, recent)
+        if proposal is None:
+            continue
+        active = (await db.execute(
+            select(OperationsChange.id).where(
+                OperationsChange.routine_id == routine_id,
+                OperationsChange.metric_name == proposal.metric_name,
+                OperationsChange.status.in_(("proposed", "awaiting_approval", "evaluating")),
+            ).limit(1)
+        )).scalar_one_or_none()
+        if active is not None:
+            continue
+        before = await _routine_metric(db, routine_id, proposal.metric_name, now - timedelta(days=7), now)
+        change = OperationsChange(
+            routine_id=routine_id, target_type="routine", summary=proposal.summary,
+            rationale=proposal.rationale, autonomy_level=proposal.autonomy_level,
+            status="evaluating", metric_name=proposal.metric_name, before_value=before,
+            previous_state=proposal.previous_state, new_state=proposal.new_state,
+            applied_at=now, evaluation_ends_at=now + timedelta(days=7),
+        )
+        for field, value in proposal.new_state.items():
+            setattr(routine, field, value)
+        db.add(change)
+        await db.flush()
+        db.add(Notification(
+            source="system", severity="warning" if proposal.autonomy_level == "A0" else "info",
+            title=f"Operations {proposal.autonomy_level}: {routine.title}"[:255],
+            message=f"{proposal.summary}. {proposal.rationale} Avaliação até {change.evaluation_ends_at.date()}.",
+            event_key=f"operations-change:{change.id}", occurred_at=now,
+        ))
+        applied += 1
+    if applied or evaluated or decided:
+        await db.commit()
+    return applied + evaluated + decided
+
+
+def _change_out(change: OperationsChange) -> dict:
+    return {
+        "id": str(change.id), "target_type": change.target_type,
+        "target_id": str(change.routine_id) if change.routine_id else change.previous_state.get("agent_id"),
+        "summary": change.summary, "rationale": change.rationale,
+        "autonomy_level": change.autonomy_level, "status": change.status,
+        "metric_name": change.metric_name,
+        "before_value": float(change.before_value) if change.before_value is not None else None,
+        "after_value": float(change.after_value) if change.after_value is not None else None,
+        "evaluation_ends_at": change.evaluation_ends_at.isoformat() if change.evaluation_ends_at else None,
+        "created_at": change.created_at.isoformat(),
+    }
+
+
+@router.get("/evolution")
+async def get_evolution(db: AsyncSession = Depends(get_db)) -> dict:
+    """Seven days of outcomes and the reversible change ledger."""
+    local_tz = ZoneInfo("America/Sao_Paulo")
+    today = datetime.now(local_tz).date()
+    start = datetime.combine(today - timedelta(days=6), datetime.min.time(), tzinfo=local_tz).astimezone(timezone.utc)
+    changes = list((await db.execute(
+        select(OperationsChange).order_by(OperationsChange.created_at.desc()).limit(100)
+    )).scalars())
+    runs = (await db.execute(
+        select(AgentRoutineRun.occurrence_at, AgentRoutineRun.status, AgentRoutineRun.cost_usd)
+        .where(AgentRoutineRun.occurrence_at >= start)
+    )).all()
+    audit_runs = (await db.execute(
+        select(AuditCheckRun.created_at, AuditCheckRun.status)
+        .where(AuditCheckRun.created_at >= start)
+    )).all()
+    trend = {
+        (today - timedelta(days=offset)).isoformat(): {
+            "date": (today - timedelta(days=offset)).isoformat(),
+            "routines_completed": 0, "routines_failed": 0,
+            "audit_ok": 0, "audit_failed": 0,
+            "cost_usd": None, "improvements_delivered": 0,
+        }
+        for offset in range(6, -1, -1)
+    }
+    for occurred_at, state, cost in runs:
+        day = trend.get(occurred_at.astimezone(local_tz).date().isoformat())
+        if day is None:
+            continue
+        if state == "completed":
+            day["routines_completed"] += 1
+        elif state in ("failed", "missed", "skipped_budget"):
+            day["routines_failed"] += 1
+        if cost is not None:
+            day["cost_usd"] = (day["cost_usd"] or 0) + float(cost)
+    for occurred_at, state in audit_runs:
+        day = trend.get(occurred_at.astimezone(local_tz).date().isoformat())
+        if day is not None:
+            day["audit_ok" if state == "ok" else "audit_failed"] += 1
+    for change in changes:
+        if change.status == "kept" and change.evaluated_at:
+            day = trend.get(change.evaluated_at.astimezone(local_tz).date().isoformat())
+            if day is not None:
+                day["improvements_delivered"] += 1
+    return {"changes": [_change_out(change) for change in changes], "trend": list(trend.values())}
+
+
+@router.post("/agent-changes", status_code=status.HTTP_201_CREATED)
+async def propose_agent_change(
+    payload: AgentChangeProposalIn,
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """An agent proposes an A2 change; only Marcelo's answer may apply it."""
+    _require_bridge(x_bridge_token)
+    proposer = await _agent_by_slug_or_404(db, payload.agent)
+    if payload.target_type == "charter":
+        if payload.target_id is None:
+            raise HTTPException(422, "target_id is required for a charter change")
+        charter = (await db.execute(
+            select(AgentCharter).where(AgentCharter.agent_id == payload.target_id)
+        )).scalar_one_or_none()
+        if charter is None:
+            raise HTTPException(404, "Charter not found")
+        allowed = {"mission", "responsibilities", "monitored_domains", "coordinates_with",
+                   "never_does", "daily_run_budget", "daily_cost_budget", "escalation"}
+        if not payload.new_state or set(payload.new_state) - allowed:
+            raise HTTPException(422, "Unsupported charter fields")
+        baseline = {field: getattr(charter, field) for field in allowed}
+        validated = CharterIn.model_validate({**baseline, **payload.new_state}).model_dump(mode="json")
+        new_state = {field: validated[field] for field in payload.new_state}
+        previous_state = {"agent_id": str(payload.target_id), **{
+            field: str(baseline[field]) if isinstance(baseline[field], Decimal) else baseline[field]
+            for field in payload.new_state
+        }}
+    else:
+        if payload.target_id is not None or set(payload.new_state) != {"content"}:
+            raise HTTPException(422, "Policy change requires only content and no target_id")
+        policy = await _current_policy(db)
+        content = payload.new_state.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise HTTPException(422, "Policy content is required")
+        new_state = {"content": content.strip()}
+        previous_state = {"version": policy.version if policy else 0, "content": policy.content if policy else ""}
+    if all(previous_state.get(field) == value for field, value in new_state.items()):
+        raise HTTPException(409, "Proposal does not change the current state")
+    duplicate = (await db.execute(select(OperationsChange).where(
+        OperationsChange.target_type == payload.target_type,
+        OperationsChange.status == "awaiting_approval",
+        OperationsChange.new_state == new_state,
+        OperationsChange.previous_state == previous_state,
+    ).limit(1))).scalar_one_or_none()
+    if duplicate is not None:
+        raise HTTPException(409, "Equivalent change already awaits approval")
+
+    relay, chat = await agent_questions.resolve_relay(db, proposer)
+    now = datetime.now(timezone.utc)
+    question = AgentQuestion(
+        agent_id=proposer.id, relay_agent_id=relay.id if relay else None,
+        telegram_chat=chat,
+        question=f"Aprova a mudança A2? {payload.summary.strip()}",
+        context=f"Motivo: {payload.rationale.strip()}\nNovo estado: {new_state}",
+        recommendation="Responda SIM para aprovar ou NÃO para rejeitar.",
+        blocking=True, urgent=False,
+        notify_after=agent_questions.notify_after_for(now, False),
+    )
+    db.add(question)
+    await db.flush()
+    change = OperationsChange(
+        target_type=payload.target_type, routine_id=None, question_id=question.id,
+        summary=payload.summary.strip(), rationale=payload.rationale.strip(),
+        autonomy_level="A2", status="awaiting_approval",
+        metric_name=payload.metric_name, previous_state=previous_state,
+        new_state=new_state,
+    )
+    db.add(change)
+    db.add(Notification(
+        source="system", severity="warning", title=f"Pergunta #{question.number} de {proposer.name}",
+        message=question.question[:500], event_key=f"agent-question:{question.id}", occurred_at=now,
+    ))
+    await db.commit()
+    await db.refresh(change)
+    return _change_out(change)
+
+
+@router.post("/changes/{change_id}:undo")
+async def undo_change(
+    change_id: uuid.UUID, db: AsyncSession = Depends(get_db), _admin=Depends(get_current_admin)
+) -> dict:
+    change = (await db.execute(
+        select(OperationsChange).where(OperationsChange.id == change_id).with_for_update()
+    )).scalar_one_or_none()
+    if change is None:
+        raise HTTPException(status_code=404, detail="Operations change not found")
+    if change.status not in ("evaluating", "kept"):
+        raise HTTPException(status_code=409, detail="Only applied changes can be undone")
+    if change.target_type == "routine":
+        routine = await db.get(AgentRoutine, change.routine_id) if change.routine_id else None
+        if routine is None:
+            raise HTTPException(status_code=409, detail="Changed routine no longer exists")
+        if any(getattr(routine, field) != value for field, value in change.new_state.items()):
+            raise HTTPException(status_code=409, detail="Routine changed since this proposal was applied")
+        for field, value in change.previous_state.items():
+            setattr(routine, field, value)
+        if change.previous_state.get("enabled") is True:
+            routine.last_occurrence_at = datetime.now(timezone.utc)
+    elif change.target_type == "charter":
+        charter = (await db.execute(select(AgentCharter).where(
+            AgentCharter.agent_id == uuid.UUID(change.previous_state["agent_id"])
+        ).with_for_update())).scalar_one_or_none()
+        if charter is None or any(
+            str(getattr(charter, field)) != str(value) for field, value in change.new_state.items()
+        ):
+            raise HTTPException(status_code=409, detail="Charter changed since this proposal was applied")
+        for field, value in change.previous_state.items():
+            if field != "agent_id":
+                setattr(charter, field, Decimal(str(value)) if field == "daily_cost_budget" else value)
+    elif change.target_type == "policy":
+        current = await _current_policy(db)
+        if current is None or current.version != change.previous_state["version"] + 1 or current.content != change.new_state["content"]:
+            raise HTTPException(status_code=409, detail="Policy changed since this proposal was applied")
+        db.add(OperationsPolicy(
+            version=current.version + 1,
+            content=change.previous_state["content"],
+            author="operations-a2-undo",
+            change_reason=f"Reversão da mudança {change.id}",
+        ))
+    else:
+        raise HTTPException(status_code=409, detail="Unsupported change target")
+    change.status = "reverted"
+    change.evaluated_at = datetime.now(timezone.utc)
+    change.learning = "Desfeita manualmente pelo administrador."
+    await db.commit()
+    await db.refresh(change)
+    return _change_out(change)
 
 
 # ---------------------------------------------------------------- charters
