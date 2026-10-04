@@ -26,6 +26,7 @@ import SkillsPage from "@/pages/skills";
 import AuditorPage from "@/pages/auditor";
 import DemandsPage from "@/pages/demands";
 import AgentActivityPage from "@/pages/agent-activity";
+import OperationsPage from "@/pages/operations";
 import DocsPage from "@/pages/docs";
 import ArtifactPage from "@/pages/artifact";
 import ArtifactDetailPage from "@/pages/artifact/[id]";
@@ -124,6 +125,7 @@ export default function App() {
         <Route path="auditor" element={<AuditorPage />} />
         <Route path="demands" element={<DemandsPage />} />
         <Route path="agent-activity" element={<AgentActivityPage />} />
+        <Route path="operations" element={<OperationsPage />} />
         <Route path="docs" element={<DocsPage />} />
         <Route path="deploy" element={<DeployPage />} />
         <Route path="servers" element={<ServersPage />} />

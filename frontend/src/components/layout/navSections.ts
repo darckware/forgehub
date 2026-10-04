@@ -137,6 +137,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       // aggregates -- gated on the same "demands" module rather than a new
       // one, since it's a different view of identical rows/permissions.
       { type: "link", to: "/agent-activity", labelKey: "nav.agentActivity", icon: Activity, module: "demands" },
+      { type: "link", to: "/operations", labelKey: "nav.agentOperations", icon: Bot, module: "agents" },
       { type: "link", to: "/hindsight", labelKey: "nav.hindsight", icon: Brain, module: "foundation" },
       // Ecosystem checkpoints (audit_checks) -- admins always see it; grant
       // the "auditor" module in Access Profiles for non-admin visibility.
