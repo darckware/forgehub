@@ -1,0 +1,125 @@
+import { useState } from "react";
+import {
+  useCreateContract,
+  useDarckwareClient,
+  useUpdateContract,
+  type ClientSummary,
+  type Contract,
+  type ContractInput,
+  type ContractStatus,
+} from "@/hooks/useClientOps";
+
+/**
+ * ViewModel Hook (§21) for one Darckware client's file (2026-10-04, Onda 2):
+ * contacts, contracts and open work. Contract writes are commercial decisions
+ * and go through ForgeHub's approver credential; a status change (suspend,
+ * close, reactivate) always asks for confirmation first.
+ */
+export type ClientAccountStatus = "loading" | "ready" | "editing" | "confirming" | "submitting" | "error";
+
+export type ContractDialog = { mode: "create" } | { mode: "edit"; contract: Contract };
+
+export function contractDefaults(contract?: Contract): ContractInput {
+  if (!contract) return { contract_type: "suporte_horas", plan_name: "", billing_cycle_day: 1 };
+  return {
+    contract_type: contract.contract_type,
+    plan_name: contract.plan_name,
+    monthly_hours_quota: contract.monthly_hours_quota ?? undefined,
+    monthly_price: contract.monthly_price ?? undefined,
+    extra_hour_rate: contract.extra_hour_rate ?? undefined,
+    billing_cycle_day: contract.billing_cycle_day ?? undefined,
+    start_date: contract.start_date ?? "",
+    end_date: contract.end_date ?? "",
+    total_value: contract.total_value ?? undefined,
+    scope_summary: contract.scope_summary ?? "",
+    document_url: contract.document_url ?? "",
+  };
+}
+
+export interface ClientAccountViewModel {
+  status: ClientAccountStatus;
+  client?: ClientSummary;
+  loadError?: string;
+  contractDialog?: ContractDialog;
+  statusChange?: { contract: Contract; status: ContractStatus };
+  errorMessage?: string;
+  openCreateContract(): void;
+  openEditContract(contract: Contract): void;
+  closeContract(): void;
+  submitContract(input: ContractInput): Promise<void>;
+  requestStatusChange(contract: Contract, status: ContractStatus): void;
+  cancelStatusChange(): void;
+  confirmStatusChange(): Promise<void>;
+  dismiss(): void;
+}
+
+export function useClientAccountViewModel(clientId?: string): ClientAccountViewModel {
+  const [contractDialog, setContractDialog] = useState<ContractDialog>();
+  const [statusChange, setStatusChange] = useState<{ contract: Contract; status: ContractStatus }>();
+  const [errorMessage, setErrorMessage] = useState<string>();
+
+  const query = useDarckwareClient(clientId);
+  const create = useCreateContract();
+  const update = useUpdateContract();
+
+  let status: ClientAccountStatus;
+  if (create.isPending || update.isPending) status = "submitting";
+  else if (contractDialog) status = "editing";
+  else if (statusChange) status = "confirming";
+  else if (errorMessage) status = "error";
+  else if (query.isLoading) status = "loading";
+  else status = "ready";
+
+  return {
+    status,
+    client: query.data,
+    loadError: query.isError ? (query.error as Error).message : undefined,
+    contractDialog,
+    statusChange,
+    errorMessage,
+    openCreateContract() {
+      setErrorMessage(undefined);
+      setContractDialog({ mode: "create" });
+    },
+    openEditContract(contract) {
+      setErrorMessage(undefined);
+      setContractDialog({ mode: "edit", contract });
+    },
+    closeContract() {
+      setContractDialog(undefined);
+      setErrorMessage(undefined);
+    },
+    async submitContract(input) {
+      if (!clientId || !contractDialog) return;
+      setErrorMessage(undefined);
+      try {
+        if (contractDialog.mode === "create") {
+          await create.mutateAsync({ clientId, input });
+        } else {
+          // The type is fixed once created; only the terms change.
+          const { contract_type: _type, ...changes } = input;
+          await update.mutateAsync({ id: contractDialog.contract.id, changes });
+        }
+        setContractDialog(undefined);
+      } catch (error) {
+        setErrorMessage((error as Error).message);
+      }
+    },
+    requestStatusChange(contract, next) {
+      setErrorMessage(undefined);
+      setStatusChange({ contract, status: next });
+    },
+    cancelStatusChange: () => setStatusChange(undefined),
+    async confirmStatusChange() {
+      if (!statusChange) return;
+      try {
+        await update.mutateAsync({ id: statusChange.contract.id, changes: { status: statusChange.status } });
+      } catch (error) {
+        setErrorMessage((error as Error).message);
+      } finally {
+        setStatusChange(undefined);
+      }
+    },
+    dismiss: () => setErrorMessage(undefined),
+  };
+}

@@ -16,6 +16,7 @@ import {
   FolderKanban,
   Gauge,
   Gem,
+  Handshake,
   GitBranch,
   Landmark,
   Layout,
@@ -139,6 +140,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     entries: [
       { type: "link", to: "/client-demands", labelKey: "nav.clientDemands", icon: Briefcase, adminOnly: true },
       { type: "link", to: "/client-emails", labelKey: "nav.clientEmails", icon: MailCheck, adminOnly: true },
+      { type: "link", to: "/client-accounts", labelKey: "nav.clientAccounts", icon: Handshake, adminOnly: true },
     ],
   },
   {

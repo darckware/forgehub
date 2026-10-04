@@ -34,7 +34,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.client_ops import (
+    ContractIn,
+    ContractPatch,
+    ConversionApprove,
+    ConversionReject,
     EmailDraftIn,
+    LeadConvert,
     OutboundEmailApprove,
     OutboundEmailCreate,
     OutboundEmailReject,
@@ -208,7 +213,8 @@ async def list_clients(
 
 @router.get("/clients/{client_id}")
 async def get_client(client_id: uuid.UUID, _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
-    return await dw.request("GET", f"/clients/{client_id}")
+    """Client file: contacts, contracts (with the current cycle's hours), open counts."""
+    return await dw.request("GET", f"/clients/{client_id}/summary")
 
 
 # ---------------------------------------------------------------------------
@@ -577,6 +583,144 @@ async def cancel_email(
 
 
 # ---------------------------------------------------------------------------
+# Contracts and lead conversion (Onda 2)
+#
+# Contract writes and conversion decisions are commercial decisions, so they go
+# through the approver credential like e-mail approval. Lara can only propose a
+# conversion (Darckware's agent route); approving one creates the client, its
+# primary contact, the contract and a welcome e-mail draft -- which still waits
+# in the e-mail queue for its own approval.
+# ---------------------------------------------------------------------------
+
+
+def _conversion_body(data: Any) -> dict[str, Any]:
+    body = data.model_dump(exclude_none=True)
+    body["contract"] = data.contract.model_dump(exclude_none=True)
+    return body
+
+
+@router.post("/clients/{client_id}/contracts", status_code=status.HTTP_201_CREATED)
+async def create_contract(
+    client_id: uuid.UUID,
+    payload: ContractIn,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    created = await dw.request(
+        "POST",
+        f"/clients/{client_id}/contracts",
+        credential="approver",
+        json={**payload.model_dump(exclude_none=True), "created_by": admin.username},
+    )
+    await _audit(db, "contract", created["id"], "created", admin, {"client_id": str(client_id), **payload.model_dump(exclude_none=True)})
+    return created
+
+
+@router.patch("/contracts/{contract_id}")
+async def update_contract(
+    contract_id: uuid.UUID,
+    payload: ContractPatch,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    changes = payload.model_dump(exclude_unset=True)
+    updated = await dw.request("PATCH", f"/contracts/{contract_id}", credential="approver", json=changes)
+    await _audit(db, "contract", str(contract_id), "updated", admin, changes)
+    return updated
+
+
+@router.get("/conversions")
+async def list_conversions(
+    status_filter: str | None = Query("proposta", alias="status"),
+    _admin: User = Depends(get_current_admin),
+) -> dict[str, Any]:
+    return await dw.request("GET", "/conversion-proposals", params={"status": status_filter or None})
+
+
+@router.get("/conversions/{proposal_id}")
+async def get_conversion(proposal_id: uuid.UUID, _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    return await dw.request("GET", f"/conversion-proposals/{proposal_id}")
+
+
+async def _approve_conversion(
+    proposal_id: str, data: Any, existing: uuid.UUID | None, admin: User, db: AsyncSession
+) -> dict[str, Any]:
+    result = await dw.request(
+        "POST",
+        f"/conversion-proposals/{proposal_id}/approve",
+        credential="approver",
+        json={
+            "decided_by": admin.username,
+            "overrides": _conversion_body(data),
+            "existing_client_account_id": str(existing) if existing else None,
+        },
+    )
+    await _audit(
+        db,
+        "conversion",
+        proposal_id,
+        "approved",
+        admin,
+        {"client_account_id": result["client_account_id"], "contract_id": result["contract"]["id"], "welcome_email_id": result["welcome_email_id"]},
+    )
+    return result
+
+
+@router.post("/conversions/{proposal_id}:approve")
+async def approve_conversion(
+    proposal_id: uuid.UUID,
+    payload: ConversionApprove,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Approve the conversion as shown (with any edits) -- Darckware does it atomically."""
+    return await _approve_conversion(str(proposal_id), payload.data, payload.existing_client_account_id, admin, db)
+
+
+@router.post("/conversions/{proposal_id}:reject")
+async def reject_conversion(
+    proposal_id: uuid.UUID,
+    payload: ConversionReject,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    rejected = await dw.request(
+        "POST",
+        f"/conversion-proposals/{proposal_id}/reject",
+        credential="approver",
+        json={"decided_by": admin.username, "reason": payload.reason},
+    )
+    await _audit(db, "conversion", str(proposal_id), "rejected", admin, {"reason": payload.reason})
+    return rejected
+
+
+@router.get("/leads")
+async def list_leads(search: str | None = None, _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    return await dw.request("GET", "/leads", params={"search": search, "limit": 50})
+
+
+@router.post("/leads/{lead_id}:convert")
+async def convert_lead(
+    lead_id: uuid.UUID,
+    payload: LeadConvert,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Marcelo launches the conversion himself: propose (as ForgeHub) then approve.
+
+    Two Darckware calls, but nothing is created by the first one -- if the
+    approval fails, the proposal is left pending in the list for a retry, not
+    a half-made client.
+    """
+    proposal = await dw.request(
+        "POST",
+        f"/leads/{lead_id}/conversion-proposals",
+        json={**_conversion_body(payload.data), "notes": payload.notes, "proposed_by": f"forgehub:{admin.username}"},
+    )
+    return await _approve_conversion(proposal["id"], payload.data, payload.existing_client_account_id, admin, db)
+
+
+# ---------------------------------------------------------------------------
 # Notification pass (background loop in main.py)
 # ---------------------------------------------------------------------------
 
@@ -584,7 +728,8 @@ async def cancel_email(
 async def run_client_ops_notification_pass(db: AsyncSession) -> int:
     """Surface Darckware arrivals in ForgeHub's bell, once each.
 
-    New tickets/demands and e-mails waiting for approval become a
+    New tickets/demands, e-mails waiting for approval and lead conversion
+    proposals become a
     `Notification(source="system")`, deduplicated by `event_key` (an e-mail
     key carries its version: an edited text needs a fresh look). Silent
     no-op when the integration isn't configured; an unreachable Darckware
@@ -592,10 +737,11 @@ async def run_client_ops_notification_pass(db: AsyncSession) -> int:
     """
     if not dw.is_configured():
         return 0
-    emails, tickets, demands = await asyncio.gather(
+    emails, tickets, demands, conversions = await asyncio.gather(
         dw.request("GET", "/outbound-emails", params={"status": "aguardando_aprovacao", "limit": 200}),
         dw.request("GET", "/tickets", params={"status": "aberto", "limit": 200}),
         dw.request("GET", "/demands", params={"status": "aberta", "limit": 200}),
+        dw.request("GET", "/conversion-proposals", params={"status": "proposta", "limit": 200}),
     )
     now = datetime.now(timezone.utc)
     rows: list[dict[str, Any]] = []
@@ -624,6 +770,15 @@ async def run_client_ops_notification_pass(db: AsyncSession) -> int:
                 "severity": "info",
                 "title": "Nova demanda de cliente",
                 "message": d["title"],
+            }
+        )
+    for c in conversions.get("items", []):
+        rows.append(
+            {
+                "event_key": f"darckware:conversion:{c['id']}",
+                "severity": "warning",
+                "title": "Lead pronto para virar cliente",
+                "message": f"{c['payload'].get('company_name') or ''} — proposto por {c['proposed_by']}".strip(" —"),
             }
         )
     if not rows:

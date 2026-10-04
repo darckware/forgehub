@@ -2,8 +2,14 @@
   "notConfigured": "Darckware integration is not configured (DARCKWARE_API_URL / DARCKWARE_AGENT_TOKEN).",
   "unreachable": "Darckware unavailable: {{error}}",
   "approverMissing": "Approver token (DARCKWARE_APPROVER_TOKEN) is not configured — e-mails cannot be approved.",
-  "kind": { "ticket": "Ticket", "demand": "Demand" },
-  "tipo": { "desenvolvimento": "Development", "servico": "Service" },
+  "kind": {
+    "ticket": "Ticket",
+    "demand": "Demand"
+  },
+  "tipo": {
+    "desenvolvimento": "Development",
+    "servico": "Service"
+  },
   "stage": {
     "open": "Open",
     "all": "All",
@@ -13,13 +19,26 @@
     "resolvido": "Resolved",
     "fechado": "Closed"
   },
-  "priority": { "baixa": "Low", "media": "Medium", "alta": "High", "urgente": "Urgent" },
+  "priority": {
+    "baixa": "Low",
+    "media": "Medium",
+    "alta": "High",
+    "urgente": "Urgent"
+  },
   "demands": {
     "title": "Client demands",
     "description": "Development and service tickets and demands, stored in Darckware.",
     "new": "New demand",
     "emailsPending": "E-mails to approve",
-    "filters": { "client": "Client", "allClients": "All clients", "kind": "Source", "allKinds": "Tickets and demands", "tipo": "Type", "allTipos": "All types", "stage": "Status" },
+    "filters": {
+      "client": "Client",
+      "allClients": "All clients",
+      "kind": "Source",
+      "allKinds": "Tickets and demands",
+      "tipo": "Type",
+      "allTipos": "All types",
+      "stage": "Status"
+    },
     "empty": "No demands in this view.",
     "selectHint": "Select a demand to see its details.",
     "back": "Back to list",
@@ -39,7 +58,12 @@
       "reopen": "Reopen"
     },
     "dialog": {
-      "text": { "start": "Note (optional)", "wait-customer": "What is missing from the customer (internal note)", "resolve": "Resolution", "reopen": "Reason" },
+      "text": {
+        "start": "Note (optional)",
+        "wait-customer": "What is missing from the customer (internal note)",
+        "resolve": "Resolution",
+        "reopen": "Reason"
+      },
       "withEmail": "Queue an e-mail to the customer (sent only after approval)",
       "to": "To",
       "subject": "Subject",
@@ -65,7 +89,12 @@
   "emails": {
     "title": "E-mail approval",
     "description": "Every e-mail to a client is sent by Lara only after it is approved here, in the exact version shown.",
-    "filter": { "pending": "To approve", "aprovado": "Approved", "enviado": "Sent", "all": "All" },
+    "filter": {
+      "pending": "To approve",
+      "aprovado": "Approved",
+      "enviado": "Sent",
+      "all": "All"
+    },
     "empty": "No e-mails in this view.",
     "selectHint": "Select an e-mail to review.",
     "back": "Back to list",
@@ -112,5 +141,100 @@
       "cancelado": "Cancelled"
     }
   },
-  "nav": { "section": "Clients", "demands": "Client demands", "emails": "E-mail approval" }
+  "nav": {
+    "section": "Clients",
+    "demands": "Client demands",
+    "emails": "E-mail approval",
+    "accounts": "Clients and contracts"
+  },
+  "accounts": {
+    "title": "Clients and contracts",
+    "description": "Darckware clients, their contracts and turning leads into clients.",
+    "search": "Search client",
+    "empty": "No clients yet.",
+    "openTickets": "Open tickets",
+    "openDemands": "Open demands",
+    "contacts": "Contacts",
+    "authorized": "Authorized",
+    "notAuthorized": "Not authorized",
+    "primary": "Primary",
+    "contracts": "Contracts",
+    "noContracts": "No contracts.",
+    "newContract": "New contract",
+    "editContract": "Edit contract",
+    "seeDemands": "See demands",
+    "back": "Back to clients",
+    "convertedFrom": "Converted from lead",
+    "hoursCycle": "{{used}} of {{quota}} h used this cycle · {{extra}} h extra",
+    "changeStatus": {
+      "suspenso": "Suspend",
+      "encerrado": "Close",
+      "ativo": "Reactivate"
+    },
+    "confirmStatusTitle": "Change the contract status?",
+    "confirmStatusBody": "Contract \"{{plan}}\" becomes {{status}}."
+  },
+  "contract": {
+    "type": {
+      "suporte_horas": "Hourly support",
+      "desenvolvimento": "Development"
+    },
+    "status": {
+      "ativo": "Active",
+      "suspenso": "Suspended",
+      "encerrado": "Closed"
+    },
+    "fields": {
+      "contract_type": "Contract type",
+      "plan_name": "Plan / project",
+      "monthly_hours_quota": "Hours per month",
+      "monthly_price": "Monthly price (R$)",
+      "extra_hour_rate": "Extra hour (R$)",
+      "billing_cycle_day": "Cycle day (1–28)",
+      "start_date": "Start",
+      "end_date": "End",
+      "total_value": "Total value (R$)",
+      "scope_summary": "Scope",
+      "document_url": "Document link"
+    },
+    "errors": {
+      "required": "Required",
+      "endBeforeStart": "End before start",
+      "email": "Invalid e-mail",
+      "invalid": "Invalid value"
+    },
+    "save": "Save to Darckware",
+    "cancel": "Cancel"
+  },
+  "conversions": {
+    "title": "Leads ready to become clients",
+    "empty": "No proposals from Lara waiting.",
+    "convertLead": "Convert lead",
+    "proposedBy": "Proposed by {{who}}",
+    "review": "Review and approve",
+    "reject": "Reject",
+    "pickTitle": "Choose the lead",
+    "pickSearch": "Search by name, company or e-mail",
+    "noLeads": "No leads found.",
+    "approveTitle": "Approve conversion to client",
+    "convertTitle": "Convert lead to client",
+    "explain": "Creates the client, its authorized primary contact and the contract in Darckware, and queues the welcome e-mail for approval.",
+    "client": "Client",
+    "company": "Company",
+    "contact": "Primary contact",
+    "email": "E-mail",
+    "phone": "Phone",
+    "department": "Department",
+    "linkExisting": "Link to an existing client (optional)",
+    "newClient": "Create a new client",
+    "notes": "Notes (what was agreed)",
+    "leadNotes": "Lara's notes",
+    "approve": "Approve conversion",
+    "convert": "Convert",
+    "rejectTitle": "Reject this proposal?",
+    "rejectReason": "Reason",
+    "done": "Client created. The welcome e-mail is in the approval queue.",
+    "openEmails": "Open approval",
+    "openClient": "Open client"
+  }
 }

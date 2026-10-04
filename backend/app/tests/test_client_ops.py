@@ -26,6 +26,9 @@ CLIENT_ID = str(uuid.uuid4())
 TICKET_ID = str(uuid.uuid4())
 DEMAND_ID = str(uuid.uuid4())
 EMAIL_ID = str(uuid.uuid4())
+PROPOSAL_ID = str(uuid.uuid4())
+LEAD_ID = str(uuid.uuid4())
+CONTRACT_ID = str(uuid.uuid4())
 HASH = "a" * 64
 
 
@@ -85,6 +88,22 @@ class FakeDarckware:
         if path.startswith("/api/internal/approver/"):
             if auth != "Bearer approver-token":
                 return httpx.Response(403, json={"detail": "Credencial de aprovação inválida"})
+            if path.endswith("/contracts") and request.method == "POST":
+                return httpx.Response(201, json={"id": CONTRACT_ID, **body})
+            if path == f"/api/internal/approver/contracts/{CONTRACT_ID}":
+                return httpx.Response(200, json={"id": CONTRACT_ID, **body})
+            if path.endswith(f"/conversion-proposals/{PROPOSAL_ID}/approve"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "proposal": {"id": PROPOSAL_ID, "status": "aprovada"},
+                        "client_account_id": CLIENT_ID,
+                        "contract": {"id": CONTRACT_ID, **body["overrides"]["contract"]},
+                        "welcome_email_id": EMAIL_ID,
+                    },
+                )
+            if path.endswith(f"/conversion-proposals/{PROPOSAL_ID}/reject"):
+                return httpx.Response(200, json={"id": PROPOSAL_ID, "status": "rejeitada"})
             if body["version"] != self.email["version"]:
                 return httpx.Response(409, json={"detail": "O texto mudou"})
             return httpx.Response(200, json={**self.email, "status": "aprovado"})
@@ -109,6 +128,13 @@ class FakeDarckware:
             if not self.recipient_ok:
                 return httpx.Response(422, json={"detail": "Destinatário não vinculado"})
             return httpx.Response(201, json={**self.email, **{k: body[k] for k in ("subject", "kind", "to_email")}})
+        if path == f"{a}/leads/{LEAD_ID}/conversion-proposals":
+            return httpx.Response(201, json={"id": PROPOSAL_ID, "status": "proposta", "payload": body})
+        if path == f"{a}/conversion-proposals":
+            return httpx.Response(
+                200,
+                json={"items": [{"id": PROPOSAL_ID, "proposed_by": "lara", "payload": {"company_name": "Gatling"}}]},
+            )
         if path == f"{a}/outbound-emails/{EMAIL_ID}/cancel":
             return httpx.Response(200, json={**self.email, "status": "cancelado"})
         return httpx.Response(404, json={"detail": f"unmocked {request.method} {path}"})
@@ -130,12 +156,17 @@ async def client(admin_headers):
     async with AsyncClient(transport=transport, base_url="http://test", headers=admin_headers) as ac:
         yield ac
     async with AsyncSessionLocal() as db:
-        ids = [uuid.UUID(x) for x in (TICKET_ID, DEMAND_ID, EMAIL_ID)]
+        ids = [uuid.UUID(x) for x in (TICKET_ID, DEMAND_ID, EMAIL_ID, PROPOSAL_ID, CONTRACT_ID)]
         await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(ids)))
         await db.execute(
             delete(Notification).where(
                 Notification.event_key.in_(
-                    [f"darckware:email:{EMAIL_ID}:v1", f"darckware:ticket:{TICKET_ID}", f"darckware:demand:{DEMAND_ID}"]
+                    [
+                        f"darckware:email:{EMAIL_ID}:v1",
+                        f"darckware:ticket:{TICKET_ID}",
+                        f"darckware:demand:{DEMAND_ID}",
+                        f"darckware:conversion:{PROPOSAL_ID}",
+                    ]
                 )
             )
         )
@@ -257,5 +288,64 @@ async def test_notification_pass_is_deduplicated(client, darckware):
     async with AsyncSessionLocal() as db:
         first = await run_client_ops_notification_pass(db)
         second = await run_client_ops_notification_pass(db)
-    assert first == 3
+    assert first == 4
     assert second == 0
+
+
+SUPPORT = {"contract_type": "suporte_horas", "plan_name": "Plano 8 Horas", "monthly_hours_quota": 8, "monthly_price": 900}
+
+
+@pytest.mark.asyncio
+async def test_contract_writes_use_approver_and_are_audited(client, darckware):
+    r = await client.post(f"/api/v1/client-ops/clients/{CLIENT_ID}/contracts", json=SUPPORT)
+    assert r.status_code == 201, r.text
+    call = next(c for c in darckware.calls if c[1].endswith("/contracts"))
+    assert call[1] == f"/api/internal/approver/clients/{CLIENT_ID}/contracts"
+    assert call[3] == "Bearer approver-token"
+    assert call[2]["created_by"].startswith("test-admin-")
+
+    bad = await client.post(f"/api/v1/client-ops/clients/{CLIENT_ID}/contracts", json={**SUPPORT, "billing_cycle_day": 31})
+    assert bad.status_code == 422
+
+    patched = await client.patch(f"/api/v1/client-ops/contracts/{CONTRACT_ID}", json={"status": "encerrado"})
+    assert patched.status_code == 200
+    async with AsyncSessionLocal() as db:
+        events = (
+            await db.execute(select(AuditEvent).where(AuditEvent.entity_id == uuid.UUID(CONTRACT_ID)))
+        ).scalars().all()
+    assert sorted(e.event_type for e in events) == ["created", "updated"]
+
+
+@pytest.mark.asyncio
+async def test_approve_conversion_sends_edited_data(client, darckware):
+    r = await client.post(
+        f"/api/v1/client-ops/conversions/{PROPOSAL_ID}:approve",
+        json={"data": {"company_name": "Clube Gatling", "email": "r@g.com", "contract": {**SUPPORT, "monthly_price": 950}}},
+    )
+    assert r.status_code == 200, r.text
+    call = next(c for c in darckware.calls if c[1].endswith("/approve"))
+    assert call[3] == "Bearer approver-token"
+    assert call[2]["overrides"]["contract"]["monthly_price"] == 950
+    assert call[2]["overrides"]["company_name"] == "Clube Gatling"
+    assert r.json()["welcome_email_id"] == EMAIL_ID
+
+
+@pytest.mark.asyncio
+async def test_convert_lead_proposes_then_approves(client, darckware):
+    r = await client.post(
+        f"/api/v1/client-ops/leads/{LEAD_ID}:convert",
+        json={"data": {"contract": SUPPORT}, "notes": "Fechado em reunião"},
+    )
+    assert r.status_code == 200, r.text
+    paths = [p for _, p, _, _ in darckware.calls]
+    propose = paths.index(f"/api/internal/agent/leads/{LEAD_ID}/conversion-proposals")
+    approve = paths.index(f"/api/internal/approver/conversion-proposals/{PROPOSAL_ID}/approve")
+    assert propose < approve
+    assert darckware.calls[propose][2]["proposed_by"].startswith("forgehub:")
+
+
+@pytest.mark.asyncio
+async def test_reject_conversion(client, darckware):
+    r = await client.post(f"/api/v1/client-ops/conversions/{PROPOSAL_ID}:reject", json={"reason": "Ainda negociando"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "rejeitada"

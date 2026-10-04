@@ -239,3 +239,204 @@ export function useCancelOutboundEmail() {
     onSettled: invalidate,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Onda 2 -- clients, contracts and lead conversion
+// ---------------------------------------------------------------------------
+
+export type ContractType = "suporte_horas" | "desenvolvimento";
+export type ContractStatus = "ativo" | "suspenso" | "encerrado";
+
+export interface Contract {
+  id: string;
+  client_account_id: string;
+  contract_type: ContractType;
+  status: ContractStatus;
+  is_active: boolean;
+  plan_name: string;
+  monthly_hours_quota?: number | null;
+  monthly_price?: number | null;
+  extra_hour_rate?: number | null;
+  billing_cycle_day?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  total_value?: number | null;
+  scope_summary?: string | null;
+  document_url?: string | null;
+  created_by?: string | null;
+  hours_used_current_cycle?: number;
+  hours_remaining?: number;
+  extra_hours?: number;
+}
+
+export interface ClientSummary {
+  id: string;
+  company_name: string;
+  contact_name: string;
+  email: string;
+  is_active: boolean;
+  contacts: { id: string; name: string; email: string; phone: string; department: string; is_authorized: boolean; is_primary: boolean }[];
+  contracts: Contract[];
+  open_tickets: number;
+  open_demands: number;
+  converted_from_leads: { id: string; name?: string | null; converted_at?: string | null }[];
+}
+
+export interface DarckwareLead {
+  id: string;
+  name?: string | null;
+  company?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  need_summary?: string | null;
+  client_account_id?: string | null;
+  converted_at?: string | null;
+}
+
+export interface ConversionProposal {
+  id: string;
+  lead_id: string;
+  lead?: DarckwareLead | null;
+  proposed_by: string;
+  payload: {
+    company_name?: string | null;
+    contact_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    department?: string | null;
+    notes?: string | null;
+    contract?: Partial<ContractInput>;
+  };
+  status: "proposta" | "aprovada" | "rejeitada";
+  created_at?: string | null;
+}
+
+/** Empty inputs come through as "", NaN (valueAsNumber) or a missing key -- all mean "not set". */
+const optionalNumber = (schema: z.ZodNumber) =>
+  z.preprocess(
+    (v) => (v === undefined || v === "" || v === null || (typeof v === "number" && Number.isNaN(v)) ? undefined : Number(v)),
+    schema.optional(),
+  );
+
+export const contractSchema = z
+  .object({
+    contract_type: z.enum(["suporte_horas", "desenvolvimento"]),
+    plan_name: z.string().trim().min(1, "required").max(100),
+    monthly_hours_quota: optionalNumber(z.number().positive()),
+    monthly_price: optionalNumber(z.number().min(0)),
+    extra_hour_rate: optionalNumber(z.number().min(0)),
+    billing_cycle_day: optionalNumber(z.number().int().min(1).max(28)),
+    start_date: z.string().optional(),
+    end_date: z.string().optional(),
+    total_value: optionalNumber(z.number().min(0)),
+    scope_summary: z.string().optional(),
+    document_url: z.string().optional(),
+  })
+  .superRefine((c, ctx) => {
+    // Same rule Darckware enforces: a support contract needs its monthly quota and price.
+    if (c.contract_type === "suporte_horas") {
+      if (c.monthly_hours_quota === undefined) ctx.addIssue({ code: "custom", path: ["monthly_hours_quota"], message: "required" });
+      if (c.monthly_price === undefined) ctx.addIssue({ code: "custom", path: ["monthly_price"], message: "required" });
+    }
+    if (c.start_date && c.end_date && c.end_date < c.start_date) {
+      ctx.addIssue({ code: "custom", path: ["end_date"], message: "endBeforeStart" });
+    }
+  });
+export type ContractInput = z.infer<typeof contractSchema>;
+
+export const conversionSchema = z.object({
+  company_name: z.string().trim().min(1, "required").max(200),
+  contact_name: z.string().trim().min(1, "required").max(200),
+  email: z.string().trim().email("email"),
+  phone: z.string().optional(),
+  department: z.string().optional(),
+  existing_client_account_id: z.string().optional(),
+  contract: contractSchema,
+});
+export type ConversionInput = z.infer<typeof conversionSchema>;
+
+/** Drops empty strings so Darckware never receives "" for an optional field. */
+export function compact<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== "")) as Partial<T>;
+}
+
+export function conversionBody(input: ConversionInput) {
+  const { existing_client_account_id, contract, ...data } = input;
+  return {
+    data: { ...compact(data), contract: compact(contract) },
+    existing_client_account_id: existing_client_account_id || undefined,
+  };
+}
+
+export function useDarckwareClient(id?: string) {
+  return useQuery<ClientSummary>({
+    queryKey: ["client-ops", "client", id],
+    queryFn: () => apiClient.get(`${BASE}/clients/${id}`),
+    enabled: Boolean(id),
+    retry: false,
+  });
+}
+
+export function useConversions(status = "proposta") {
+  return useQuery<{ items: ConversionProposal[] }>({
+    queryKey: ["client-ops", "conversions", status],
+    queryFn: () => apiClient.get(`${BASE}/conversions${qs({ status })}`),
+    retry: false,
+  });
+}
+
+export function useDarckwareLeads(search: string, enabled: boolean) {
+  return useQuery<{ leads: DarckwareLead[] }>({
+    queryKey: ["client-ops", "leads", search],
+    queryFn: () => apiClient.get(`${BASE}/leads${qs({ search: search || undefined })}`),
+    enabled,
+    retry: false,
+  });
+}
+
+export interface ConversionResult {
+  client_account_id: string;
+  contract: Contract;
+  welcome_email_id: string;
+}
+
+export function useApproveConversion() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<ConversionResult, Error, { id: string; input: ConversionInput }>({
+    mutationFn: ({ id, input }) => apiClient.post(`${BASE}/conversions/${id}:approve`, conversionBody(input)),
+    onSettled: invalidate,
+  });
+}
+
+export function useConvertLead() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<ConversionResult, Error, { leadId: string; input: ConversionInput; notes?: string }>({
+    mutationFn: ({ leadId, input, notes }) =>
+      apiClient.post(`${BASE}/leads/${leadId}:convert`, { ...conversionBody(input), notes: notes || undefined }),
+    onSettled: invalidate,
+  });
+}
+
+export function useRejectConversion() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<ConversionProposal, Error, { id: string; reason: string }>({
+    mutationFn: ({ id, reason }) => apiClient.post(`${BASE}/conversions/${id}:reject`, { reason }),
+    onSettled: invalidate,
+  });
+}
+
+export function useCreateContract() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<Contract, Error, { clientId: string; input: ContractInput }>({
+    mutationFn: ({ clientId, input }) => apiClient.post(`${BASE}/clients/${clientId}/contracts`, compact(input)),
+    onSettled: invalidate,
+  });
+}
+
+export function useUpdateContract() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<Contract, Error, { id: string; changes: Partial<ContractInput> & { status?: ContractStatus } }>({
+    mutationFn: ({ id, changes }) => apiClient.patch(`${BASE}/contracts/${id}`, changes),
+    onSettled: invalidate,
+  });
+}

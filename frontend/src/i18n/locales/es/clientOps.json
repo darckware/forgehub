@@ -2,8 +2,14 @@
   "notConfigured": "La integración con Darckware no está configurada (DARCKWARE_API_URL / DARCKWARE_AGENT_TOKEN).",
   "unreachable": "Darckware no disponible: {{error}}",
   "approverMissing": "El token de aprobación (DARCKWARE_APPROVER_TOKEN) no está configurado: los correos no pueden aprobarse.",
-  "kind": { "ticket": "Ticket", "demand": "Demanda" },
-  "tipo": { "desenvolvimento": "Desarrollo", "servico": "Servicio" },
+  "kind": {
+    "ticket": "Ticket",
+    "demand": "Demanda"
+  },
+  "tipo": {
+    "desenvolvimento": "Desarrollo",
+    "servico": "Servicio"
+  },
   "stage": {
     "open": "Abiertas",
     "all": "Todas",
@@ -13,13 +19,26 @@
     "resolvido": "Resuelta",
     "fechado": "Cerrada"
   },
-  "priority": { "baixa": "Baja", "media": "Media", "alta": "Alta", "urgente": "Urgente" },
+  "priority": {
+    "baixa": "Baja",
+    "media": "Media",
+    "alta": "Alta",
+    "urgente": "Urgente"
+  },
   "demands": {
     "title": "Demandas de clientes",
     "description": "Tickets y demandas de desarrollo y servicio, guardados en Darckware.",
     "new": "Nueva demanda",
     "emailsPending": "Correos por aprobar",
-    "filters": { "client": "Cliente", "allClients": "Todos los clientes", "kind": "Origen", "allKinds": "Tickets y demandas", "tipo": "Tipo", "allTipos": "Todos los tipos", "stage": "Estado" },
+    "filters": {
+      "client": "Cliente",
+      "allClients": "Todos los clientes",
+      "kind": "Origen",
+      "allKinds": "Tickets y demandas",
+      "tipo": "Tipo",
+      "allTipos": "Todos los tipos",
+      "stage": "Estado"
+    },
     "empty": "No hay demandas en esta vista.",
     "selectHint": "Seleccione una demanda para ver el detalle.",
     "back": "Volver a la lista",
@@ -39,7 +58,12 @@
       "reopen": "Reabrir"
     },
     "dialog": {
-      "text": { "start": "Observación (opcional)", "wait-customer": "Qué falta del cliente (nota interna)", "resolve": "Resolución", "reopen": "Motivo" },
+      "text": {
+        "start": "Observación (opcional)",
+        "wait-customer": "Qué falta del cliente (nota interna)",
+        "resolve": "Resolución",
+        "reopen": "Motivo"
+      },
       "withEmail": "Encolar correo al cliente (solo sale después de aprobado)",
       "to": "Para",
       "subject": "Asunto",
@@ -65,7 +89,12 @@
   "emails": {
     "title": "Aprobación de correos",
     "description": "Todo correo al cliente lo envía Lara solo después de aprobarlo aquí, en la versión exacta mostrada.",
-    "filter": { "pending": "Por aprobar", "aprovado": "Aprobados", "enviado": "Enviados", "all": "Todos" },
+    "filter": {
+      "pending": "Por aprobar",
+      "aprovado": "Aprobados",
+      "enviado": "Enviados",
+      "all": "Todos"
+    },
     "empty": "No hay correos en esta vista.",
     "selectHint": "Seleccione un correo para revisar.",
     "back": "Volver a la lista",
@@ -112,5 +141,100 @@
       "cancelado": "Cancelado"
     }
   },
-  "nav": { "section": "Clientes", "demands": "Demandas de clientes", "emails": "Aprobación de correos" }
+  "nav": {
+    "section": "Clientes",
+    "demands": "Demandas de clientes",
+    "emails": "Aprobación de correos",
+    "accounts": "Clientes y contratos"
+  },
+  "accounts": {
+    "title": "Clientes y contratos",
+    "description": "Clientes de Darckware, sus contratos y la conversión de leads en clientes.",
+    "search": "Buscar cliente",
+    "empty": "No hay clientes registrados.",
+    "openTickets": "Tickets abiertos",
+    "openDemands": "Demandas abiertas",
+    "contacts": "Contactos",
+    "authorized": "Autorizado",
+    "notAuthorized": "No autorizado",
+    "primary": "Principal",
+    "contracts": "Contratos",
+    "noContracts": "Ningún contrato.",
+    "newContract": "Nuevo contrato",
+    "editContract": "Editar contrato",
+    "seeDemands": "Ver demandas",
+    "back": "Volver a clientes",
+    "convertedFrom": "Convertido del lead",
+    "hoursCycle": "{{used}} de {{quota}} h usadas en el ciclo · {{extra}} h extra",
+    "changeStatus": {
+      "suspenso": "Suspender",
+      "encerrado": "Cerrar",
+      "ativo": "Reactivar"
+    },
+    "confirmStatusTitle": "¿Cambiar el estado del contrato?",
+    "confirmStatusBody": "El contrato \"{{plan}}\" pasa a {{status}}."
+  },
+  "contract": {
+    "type": {
+      "suporte_horas": "Soporte por horas",
+      "desenvolvimento": "Desarrollo"
+    },
+    "status": {
+      "ativo": "Activo",
+      "suspenso": "Suspendido",
+      "encerrado": "Cerrado"
+    },
+    "fields": {
+      "contract_type": "Tipo de contrato",
+      "plan_name": "Plan / proyecto",
+      "monthly_hours_quota": "Horas por mes",
+      "monthly_price": "Valor mensual (R$)",
+      "extra_hour_rate": "Hora extra (R$)",
+      "billing_cycle_day": "Día del ciclo (1–28)",
+      "start_date": "Inicio",
+      "end_date": "Fin",
+      "total_value": "Valor total (R$)",
+      "scope_summary": "Alcance",
+      "document_url": "Enlace del documento"
+    },
+    "errors": {
+      "required": "Obligatorio",
+      "endBeforeStart": "Fin antes del inicio",
+      "email": "Correo inválido",
+      "invalid": "Valor inválido"
+    },
+    "save": "Guardar en Darckware",
+    "cancel": "Cancelar"
+  },
+  "conversions": {
+    "title": "Leads listos para ser clientes",
+    "empty": "Ninguna propuesta de Lara pendiente.",
+    "convertLead": "Convertir lead",
+    "proposedBy": "Propuesto por {{who}}",
+    "review": "Revisar y aprobar",
+    "reject": "Rechazar",
+    "pickTitle": "Elija el lead",
+    "pickSearch": "Buscar por nombre, empresa o correo",
+    "noLeads": "Ningún lead encontrado.",
+    "approveTitle": "Aprobar conversión en cliente",
+    "convertTitle": "Convertir lead en cliente",
+    "explain": "Crea en Darckware el cliente, el contacto principal autorizado y el contrato, y deja el correo de bienvenida en la cola de aprobación.",
+    "client": "Cliente",
+    "company": "Empresa",
+    "contact": "Contacto principal",
+    "email": "Correo",
+    "phone": "Teléfono",
+    "department": "Área",
+    "linkExisting": "Vincular a un cliente existente (opcional)",
+    "newClient": "Crear nuevo cliente",
+    "notes": "Observaciones (lo acordado)",
+    "leadNotes": "Notas de Lara",
+    "approve": "Aprobar conversión",
+    "convert": "Convertir",
+    "rejectTitle": "¿Rechazar esta propuesta?",
+    "rejectReason": "Motivo",
+    "done": "Cliente creado. El correo de bienvenida está en la cola de aprobación.",
+    "openEmails": "Abrir aprobación",
+    "openClient": "Abrir cliente"
+  }
 }

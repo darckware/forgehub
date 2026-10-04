@@ -80,3 +80,67 @@ class OutboundEmailApprove(BaseModel):
 
 class OutboundEmailReject(BaseModel):
     reason: str = Field(..., min_length=1, max_length=2000)
+
+
+# ---------------------------------------------------------------------------
+# Onda 2 -- contracts and lead conversion
+# ---------------------------------------------------------------------------
+
+ContractType = Literal["suporte_horas", "desenvolvimento"]
+ContractStatus = Literal["ativo", "suspenso", "encerrado"]
+
+
+class ContractIn(BaseModel):
+    contract_type: ContractType = "suporte_horas"
+    plan_name: str = Field(..., min_length=1, max_length=100)
+    monthly_hours_quota: float | None = Field(default=None, gt=0)
+    monthly_price: float | None = Field(default=None, ge=0)
+    extra_hour_rate: float | None = Field(default=None, ge=0)
+    billing_cycle_day: int | None = Field(default=None, ge=1, le=28)
+    start_date: str | None = None
+    end_date: str | None = None
+    total_value: float | None = Field(default=None, ge=0)
+    scope_summary: str | None = None
+    document_url: str | None = Field(default=None, max_length=500)
+
+
+class ContractPatch(BaseModel):
+    status: ContractStatus | None = None
+    plan_name: str | None = Field(default=None, max_length=100)
+    monthly_hours_quota: float | None = Field(default=None, gt=0)
+    monthly_price: float | None = Field(default=None, ge=0)
+    extra_hour_rate: float | None = Field(default=None, ge=0)
+    billing_cycle_day: int | None = Field(default=None, ge=1, le=28)
+    start_date: str | None = None
+    end_date: str | None = None
+    total_value: float | None = Field(default=None, ge=0)
+    scope_summary: str | None = None
+    document_url: str | None = Field(default=None, max_length=500)
+
+
+class ConversionData(BaseModel):
+    """What the approver confirms (possibly edited from Lara's proposal)."""
+
+    company_name: str | None = Field(default=None, max_length=200)
+    contact_name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=40)
+    department: str | None = Field(default=None, max_length=100)
+    contract: ContractIn
+
+
+class ConversionApprove(BaseModel):
+    data: ConversionData
+    existing_client_account_id: uuid.UUID | None = None
+
+
+class ConversionReject(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=2000)
+
+
+class LeadConvert(BaseModel):
+    """Marcelo converting a lead directly from ForgeHub (propose + approve)."""
+
+    data: ConversionData
+    notes: str | None = Field(default=None, max_length=2000)
+    existing_client_account_id: uuid.UUID | None = None
