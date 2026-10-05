@@ -7,6 +7,7 @@ import { Check, ChevronRight, Copy, ExternalLink, HelpCircle, Keyboard, Keyboard
 import "@xterm/xterm/css/xterm.css";
 import { JumpToBottomButton } from "@/components/JumpToBottomButton";
 import { apiClient, getToken } from "@/lib/api";
+import { attachTerminalImeInput } from "@/lib/terminalImeInput";
 import {
   copyTerminalText,
   findLastHttpUrl,
@@ -339,6 +340,12 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     const webLinksAddon = new WebLinksAddon((_event, uri) => openLink(uri));
     term.loadAddon(webLinksAddon);
     term.open(container);
+    // Typing straight into xterm with a phone keyboard: IME edits go out as
+    // diffs instead of through xterm, which re-sent the whole line on "."
+    // (see terminalImeInput.ts). term.input keeps them on the onData path.
+    const detachImeInput = isCoarsePointer()
+      ? attachTerminalImeInput(container, () => term.textarea, (data) => term.input(data, true))
+      : null;
 
     // Touch scrolling (2026-09-26, Marcelo: "no terminal no celular ... a
     // barra de rolagem vertical dentro do display. Não estou conseguindo").
@@ -672,6 +679,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       wsRef.current = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       inputDisposable.dispose();
+      detachImeInput?.();
       container.removeEventListener("contextmenu", handleContextMenu);
       container.removeEventListener("paste", handlePaste, true);
       container.removeEventListener("dragover", handleDragOver);
@@ -757,8 +765,8 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
           onClick={handleZoomOut}
           disabled={fontSize <= MIN_FONT_SIZE}
           className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-          title="Diminuir zoom do terminal (-)"
-          aria-label="Diminuir zoom"
+          title={t("terminal.zoomOutTitle")}
+          aria-label={t("terminal.zoomOut")}
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
@@ -767,7 +775,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
           type="button"
           onClick={handleZoomReset}
           className="px-1.5 py-0.5 text-[11px] font-mono font-medium text-muted-foreground hover:text-foreground hover:bg-accent rounded"
-          title={`Tamanho atual: ${fontSize}px. Clique para restaurar o padrão (${DEFAULT_FONT_SIZE}px).`}
+          title={t("terminal.zoomReset", { size: fontSize, defaultSize: DEFAULT_FONT_SIZE })}
         >
           {fontSize}px
         </button>
@@ -777,8 +785,8 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
           onClick={handleZoomIn}
           disabled={fontSize >= MAX_FONT_SIZE}
           className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-          title="Aumentar zoom do terminal (+)"
-          aria-label="Aumentar zoom"
+          title={t("terminal.zoomInTitle")}
+          aria-label={t("terminal.zoomIn")}
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
