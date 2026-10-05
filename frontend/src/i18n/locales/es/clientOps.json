@@ -304,5 +304,38 @@
     "generated": "Informe del ciclo {{start}} a {{end}} en la cola de aprobación.",
     "exists": "El informe de este ciclo ya estaba en la cola.",
     "open": "Abrir aprobación"
+  },
+  "errors": {
+    "generic": "No se pudo completar la operación.",
+    "server": "Error del servidor. Inténtelo de nuevo en unos instantes.",
+    "forbidden": "No tiene permiso para esta acción.",
+    "integration_not_configured": "La integración con Darckware no está configurada ({{setting}}).",
+    "darckware_unreachable": "Darckware no está disponible en este momento.",
+    "darckware_error": "Darckware respondió con un error ({{status}}).",
+    "darckware_credential": "Darckware rechazó la credencial de ForgeHub ({{credential}}).",
+    "darckware_rejected": "Darckware rechazó: {{reason}}",
+    "invalid_stage": "Estado no válido en el filtro.",
+    "unknown_kind": "Tipo de elemento desconocido.",
+    "no_recipient": "Este elemento no tiene correo del solicitante: indique el destinatario.",
+    "hours_required": "Indique el tiempo dedicado: cerrar un elemento del cliente consume su franquicia.",
+    "product_not_found": "Producto no encontrado.",
+    "product_choice": "Elija un producto existente o indique el nombre de uno nuevo.",
+    "product_other_client": "El producto \"{{product}}\" ya pertenece a otro cliente ({{client}}).",
+    "no_client": "Esta demanda aún no tiene cliente (vino de un lead): convierta el lead en cliente primero.",
+    "project_exists": "Ya existe el proyecto \"{{project}}\" para este elemento.",
+    "version_not_in_product": "La versión elegida no pertenece a este producto.",
+    "all_versions_published": "Todas las versiones de este producto están publicadas: cree una nueva versión en el Cockpit."
+  },
+  "source": {
+    "portal": "Portal del cliente",
+    "email": "Correo",
+    "forgehub": "ForgeHub",
+    "lara": "Lara",
+    "site": "Sitio web",
+    "whatsapp": "WhatsApp",
+    "chat": "Chat del sitio"
+  },
+  "units": {
+    "hours": "{{value}} h"
   }
 }

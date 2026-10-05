@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useClientOpsStatus,
+  useClientOpsText,
   useDarckwareClients,
   WORK_ITEM_STAGES,
   type WorkItemKind,
@@ -177,6 +178,7 @@ export default function ClientDemandsPage() {
 
 function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
   const { t } = useTranslation("clientOps");
+  const fmt = useClientOpsText();
   const detail = vm.detail;
   if (!vm.selected) return <p className="text-sm text-muted-foreground">{t("demands.selectHint")}</p>;
   return (
@@ -225,11 +227,11 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
               {[detail.requester_name, detail.requester_email].filter(Boolean).join(" · ") || "—"}
             </dd>
             <dt className="text-muted-foreground">{t("demands.source")}</dt>
-            <dd>{detail.source ?? "—"}</dd>
+            <dd>{detail.source ? t(`source.${detail.source}`, { defaultValue: detail.source }) : "—"}</dd>
             {detail.billable_hours != null && (
               <>
                 <dt className="text-muted-foreground">{t("demands.hours")}</dt>
-                <dd>{detail.billable_hours}</dd>
+                <dd>{fmt.hours(detail.billable_hours)}</dd>
               </>
             )}
           </dl>
@@ -279,10 +281,10 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
               <ul className="space-y-1 text-sm">
                 {detail.time_entries.map((e) => (
                   <li key={e.id} className="flex flex-wrap gap-x-2">
-                    <span className="font-medium tabular-nums">{e.billable_hours} h</span>
+                    <span className="font-medium tabular-nums">{fmt.hours(e.billable_hours)}</span>
                     <span className="break-words">{e.description}</span>
                     <span className="text-xs text-muted-foreground">
-                      {e.start_time ? new Date(e.start_time).toLocaleDateString() : ""}
+                      {e.start_time ? fmt.date(e.start_time) : ""}
                       {e.recorded_by ? ` · ${t("time.by", { who: e.recorded_by })}` : ""}
                     </span>
                   </li>
@@ -318,7 +320,7 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
                 {[...detail.timeline].reverse().map((ev, i) => (
                   <li key={`${ev.at}-${i}`} className="text-sm">
                     <div className="text-xs text-muted-foreground">
-                      {new Date(ev.at).toLocaleString()} · {ev.actor}
+                      {fmt.dateTime(ev.at)} · {ev.actor}
                     </div>
                     {ev.note && <p className="whitespace-pre-wrap break-words">{ev.note}</p>}
                   </li>

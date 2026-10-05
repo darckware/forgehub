@@ -2,9 +2,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import "@/i18n";
 import { apiClient } from "@/lib/api";
+
 import { actionBody } from "./useClientOps";
 import { hoursToMinutes, timeDraftError, useClientDemandsViewModel } from "./useClientDemandsViewModel";
+
+/** What apiClient throws when Darckware refuses: the coded detail from client_ops. */
+function darckwareRefusal(reason: string) {
+  return Object.assign(new Error("Request failed with status 422"), {
+    status: 422,
+    body: { detail: { code: "darckware_rejected", message: reason, params: { reason } } },
+  });
+}
 
 vi.mock("@/lib/api", () => ({
   apiClient: { get: vi.fn(), post: vi.fn() },
@@ -88,7 +98,7 @@ describe("useClientDemandsViewModel", () => {
   });
 
   it("keeps the dialog open with the error when the action fails", async () => {
-    vi.mocked(apiClient.post).mockRejectedValue(new Error("Destinatário não vinculado"));
+    vi.mocked(apiClient.post).mockRejectedValue(darckwareRefusal("Destinatário não vinculado"));
     const { result } = renderHook(() => useClientDemandsViewModel(), { wrapper });
     await waitFor(() => expect(result.current.items).toHaveLength(1));
     act(() => result.current.select(result.current.items[0]));
@@ -96,7 +106,7 @@ describe("useClientDemandsViewModel", () => {
     act(() => result.current.openAction("start"));
     await act(() => result.current.submitAction());
     expect(result.current.draft?.action).toBe("start");
-    expect(result.current.errorMessage).toBe("Destinatário não vinculado");
+    expect(result.current.errorMessage).toContain("Destinatário não vinculado");
   });
 
   it("opens a project under the client's only product by default", async () => {

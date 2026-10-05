@@ -304,5 +304,38 @@
     "generated": "Report for {{start}} to {{end}} queued for approval.",
     "exists": "This cycle's report was already in the queue.",
     "open": "Open approval"
+  },
+  "errors": {
+    "generic": "The operation could not be completed.",
+    "server": "Server error. Please try again shortly.",
+    "forbidden": "You are not allowed to do this.",
+    "integration_not_configured": "Darckware integration is not configured ({{setting}}).",
+    "darckware_unreachable": "Darckware is unavailable right now.",
+    "darckware_error": "Darckware answered with an error ({{status}}).",
+    "darckware_credential": "Darckware refused ForgeHub's credential ({{credential}}).",
+    "darckware_rejected": "Darckware refused: {{reason}}",
+    "invalid_stage": "Invalid status in the filter.",
+    "unknown_kind": "Unknown item type.",
+    "no_recipient": "This item has no requester e-mail: enter the recipient.",
+    "hours_required": "Enter the time spent: resolving a client's item consumes their quota.",
+    "product_not_found": "Product not found.",
+    "product_choice": "Pick an existing product or enter the name of a new one.",
+    "product_other_client": "Product \"{{product}}\" already belongs to another client ({{client}}).",
+    "no_client": "This demand has no client yet (it came from a lead): convert the lead into a client first.",
+    "project_exists": "Project \"{{project}}\" already exists for this item.",
+    "version_not_in_product": "The chosen version does not belong to this product.",
+    "all_versions_published": "Every version of this product is published: create a new version in the Cockpit."
+  },
+  "source": {
+    "portal": "Client portal",
+    "email": "E-mail",
+    "forgehub": "ForgeHub",
+    "lara": "Lara",
+    "site": "Website",
+    "whatsapp": "WhatsApp",
+    "chat": "Website chat"
+  },
+  "units": {
+    "hours": "{{value}} h"
   }
 }

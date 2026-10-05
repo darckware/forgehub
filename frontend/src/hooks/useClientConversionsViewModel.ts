@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  useClientOpsText,
   useApproveConversion,
   useConversions,
   useConvertLead,
@@ -85,6 +86,7 @@ export interface ClientConversionsViewModel {
 }
 
 export function useClientConversionsViewModel(): ClientConversionsViewModel {
+  const { errorText } = useClientOpsText();
   const [picking, setPicking] = useState(false);
   const [leadSearch, setLeadSearch] = useState("");
   const [dialog, setDialog] = useState<ConversionDialog>();
@@ -112,7 +114,7 @@ export function useClientConversionsViewModel(): ClientConversionsViewModel {
   return {
     status,
     proposals: proposals.data?.items ?? [],
-    loadError: proposals.isError ? (proposals.error as Error).message : undefined,
+    loadError: proposals.isError ? errorText(proposals.error) : undefined,
     dialog,
     leadSearch,
     // A lead already turned into a client is not offered again.
@@ -156,7 +158,7 @@ export function useClientConversionsViewModel(): ClientConversionsViewModel {
       } catch (error) {
         // The dialog stays open with what was typed: a 409 (e-mail already a
         // client) is fixed by linking to that client, not by retyping.
-        setErrorMessage((error as Error).message);
+        setErrorMessage(errorText(error));
       }
     },
     requestReject(proposal) {
@@ -170,7 +172,7 @@ export function useClientConversionsViewModel(): ClientConversionsViewModel {
         await reject.mutateAsync({ id: rejecting.id, reason: rejectReason.trim() });
         setRejecting(undefined);
       } catch (error) {
-        setErrorMessage((error as Error).message);
+        setErrorMessage(errorText(error));
         setRejecting(undefined);
       }
     },

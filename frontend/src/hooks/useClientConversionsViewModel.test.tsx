@@ -2,10 +2,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import "@/i18n";
 import { apiClient } from "@/lib/api";
+
 import { contractSchema, conversionBody, type ConversionInput } from "./useClientOps";
 import { conversionDefaults, useClientConversionsViewModel } from "./useClientConversionsViewModel";
 import { contractDefaults, useClientAccountViewModel } from "./useClientAccountViewModel";
+
+/** What apiClient throws when Darckware refuses: the coded detail from client_ops. */
+function darckwareRefusal(reason: string) {
+  return Object.assign(new Error("Request failed with status 422"), {
+    status: 422,
+    body: { detail: { code: "darckware_rejected", message: reason, params: { reason } } },
+  });
+}
 
 vi.mock("@/lib/api", () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
@@ -99,7 +109,7 @@ describe("useClientConversionsViewModel", () => {
   });
 
   it("keeps the dialog open on a conflict and hides already converted leads", async () => {
-    vi.mocked(apiClient.post).mockRejectedValue(new Error("Já existe cliente com o e-mail"));
+    vi.mocked(apiClient.post).mockRejectedValue(darckwareRefusal("Já existe cliente com o e-mail"));
     const { result } = renderHook(() => useClientConversionsViewModel(), { wrapper });
     act(() => result.current.openLeadPicker());
     await waitFor(() => expect(result.current.leads.map((l) => l.id)).toEqual(["l2"]));

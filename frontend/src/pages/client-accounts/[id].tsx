@@ -7,7 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
-import { clientDemandsLink, type Contract, type ContractStatus, type OutboundEmail } from "@/hooks/useClientOps";
+import { clientDemandsLink, useClientOpsText, type Contract, type ContractStatus, type OutboundEmail } from "@/hooks/useClientOps";
 import { emailStatusVariant, stageVariant } from "@/pages/client-demands/shared";
 import { useClientAccountViewModel, type ClientAccountViewModel } from "@/hooks/useClientAccountViewModel";
 import { ContractDialog } from "./ContractDialog";
@@ -294,6 +294,7 @@ function FactorySection({ vm }: { vm: ClientAccountViewModel }) {
 
 function OpenWorkSection({ vm, clientId }: { vm: ClientAccountViewModel; clientId: string }) {
   const { t } = useTranslation("clientOps");
+  const fmt = useClientOpsText();
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
@@ -315,7 +316,7 @@ function OpenWorkSection({ vm, clientId }: { vm: ClientAccountViewModel; clientI
                   <span>{t(`kind.${item.kind}`)}</span>
                   <span>· {t(`tipo.${item.tipo}`)}</span>
                   {item.priority && <span>· {t(`priority.${item.priority}`, item.priority)}</span>}
-                  {item.created_at && <span>· {new Date(item.created_at).toLocaleDateString()}</span>}
+                  {item.created_at && <span>· {fmt.date(item.created_at)}</span>}
                 </div>
               </div>
               <Link
@@ -334,6 +335,7 @@ function OpenWorkSection({ vm, clientId }: { vm: ClientAccountViewModel; clientI
 
 function EmailsSection({ title, empty, emails }: { title: string; empty: string; emails: OutboundEmail[] }) {
   const { t } = useTranslation("clientOps");
+  const fmt = useClientOpsText();
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
@@ -346,7 +348,7 @@ function EmailsSection({ title, empty, emails }: { title: string; empty: string;
                 <div className="break-words text-sm font-medium">{e.subject}</div>
                 <div className="text-xs text-muted-foreground">
                   {t(`emails.kind.${e.kind}`, e.kind)} · v{e.version}
-                  {e.sent_at ? ` · ${new Date(e.sent_at).toLocaleString()}` : e.created_at ? ` · ${new Date(e.created_at).toLocaleString()}` : ""}
+                  {e.sent_at ? ` · ${fmt.dateTime(e.sent_at)}` : e.created_at ? ` · ${fmt.dateTime(e.created_at)}` : ""}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">

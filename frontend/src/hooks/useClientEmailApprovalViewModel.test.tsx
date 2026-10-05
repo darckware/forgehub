@@ -2,8 +2,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import "@/i18n";
 import { apiClient } from "@/lib/api";
+
 import { useClientEmailApprovalViewModel } from "./useClientEmailApprovalViewModel";
+
+/** What apiClient throws when Darckware refuses: the coded detail from client_ops. */
+function darckwareRefusal(reason: string) {
+  return Object.assign(new Error("Request failed with status 422"), {
+    status: 422,
+    body: { detail: { code: "darckware_rejected", message: reason, params: { reason } } },
+  });
+}
 
 vi.mock("@/lib/api", () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
@@ -66,7 +76,7 @@ describe("useClientEmailApprovalViewModel", () => {
   });
 
   it("keeps the edit form open when saving fails", async () => {
-    vi.mocked(apiClient.patch).mockRejectedValue(new Error("Destinatário não vinculado"));
+    vi.mocked(apiClient.patch).mockRejectedValue(darckwareRefusal("Destinatário não vinculado"));
     const { result } = renderHook(() => useClientEmailApprovalViewModel(), { wrapper });
     act(() => result.current.select("e1"));
     await waitFor(() => expect(result.current.selected?.id).toBe("e1"));
@@ -74,7 +84,7 @@ describe("useClientEmailApprovalViewModel", () => {
     act(() => result.current.setDraft({ to_email: "outro@x.com" }));
     await act(() => result.current.saveEdit());
     expect(result.current.editing).toBe(true);
-    expect(result.current.errorMessage).toBe("Destinatário não vinculado");
+    expect(result.current.errorMessage).toContain("Destinatário não vinculado");
     expect(result.current.draft.to_email).toBe("outro@x.com");
   });
 

@@ -205,7 +205,8 @@ async def integration_status(_admin: User = Depends(get_current_admin)) -> dict[
     try:
         data = await dw.request("GET", "/outbound-emails", params={"status": "aguardando_aprovacao", "limit": 1})
     except HTTPException as exc:
-        return {"configured": True, "reachable": False, "error": exc.detail, "pending_emails": 0}
+        detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+        return {"configured": True, "reachable": False, "error": detail.get("message"), "error_code": detail.get("code"), "pending_emails": 0}
     return {
         "configured": True,
         "reachable": True,
@@ -243,7 +244,7 @@ async def list_work_items(
 ) -> dict[str, Any]:
     stages = list(OPEN_STAGES) if stage == "open" else ([stage] if stage else None)
     if stages and any(s not in STAGES for s in stages):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"stage must be one of {STAGES} or 'open'")
+        raise dw.client_ops_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid_stage", f"stage must be one of {STAGES} or 'open'")
 
     def raw_statuses(k: str) -> list[str] | None:
         return _raw_statuses(k, stages) if stages else None
@@ -314,7 +315,7 @@ async def _load_item(kind: str, item_id: uuid.UUID) -> dict[str, Any]:
 
 def _check_kind(kind: str) -> str:
     if kind not in ("ticket", "demand"):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown work item kind")
+        raise dw.client_ops_error(status.HTTP_404_NOT_FOUND, "unknown_kind", "Unknown work item kind")
     return kind
 
 
@@ -384,7 +385,7 @@ async def _queue_email(
 ) -> dict[str, Any]:
     to_email = (draft.to_email or item.get("requester_email") or "").strip()
     if not to_email:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No recipient: this item has no requester e-mail")
+        raise dw.client_ops_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "no_recipient", "No recipient: this item has no requester e-mail")
     return await dw.request(
         "POST",
         "/outbound-emails",
@@ -500,9 +501,10 @@ async def resolve_work_item(
     email_kind = "servico_realizado" if kind == "ticket" and current["tipo"] == "servico" else "solucao"
     has_client = bool(current.get("client_account_id"))
     if has_client and payload.minutes == 0:
-        raise HTTPException(
+        raise dw.client_ops_error(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Informe o tempo gasto na solução: demanda concluída consome a franquia do cliente.",
+            "hours_required",
+            "Time spent is required: resolving a client's item consumes their quota.",
         )
     time_entry = (
         {"minutes": payload.minutes, "service_type": payload.service_type, "description": f"Solução: {payload.resolution}"[:4000]}
@@ -827,9 +829,12 @@ async def client_factory(
 
 async def _link_product(db: AsyncSession, product: Product, client_id: uuid.UUID, company_name: str | None) -> None:
     if product.darckware_client_id not in (None, client_id):
-        raise HTTPException(
+        raise dw.client_ops_error(
             status.HTTP_409_CONFLICT,
+            "product_other_client",
             f"Product '{product.name}' already belongs to another client ({product.darckware_client_name})",
+            product=product.name,
+            client=product.darckware_client_name,
         )
     product.darckware_client_id = client_id
     product.darckware_client_name = company_name
@@ -847,7 +852,7 @@ async def link_product_to_client(
     client = await dw.request("GET", f"/clients/{client_id}/summary")
     product = await db.get(Product, payload.product_id)
     if product is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+        raise dw.client_ops_error(status.HTTP_404_NOT_FOUND, "product_not_found", "Product not found")
     await _link_product(db, product, client_id, client["company_name"])
     projects = (
         await db.execute(
@@ -891,11 +896,12 @@ async def create_project_from_item(
 
     _check_kind(kind)
     if (payload.product_id is None) == (payload.new_product_name is None):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Give exactly one of product_id or new_product_name")
+        raise dw.client_ops_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "product_choice", "Give exactly one of product_id or new_product_name")
     item = await _load_item(kind, item_id)
     if not item.get("client_account_id"):
-        raise HTTPException(
+        raise dw.client_ops_error(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "no_client",
             "This demand has no client yet (it came from a lead) -- convert the lead to a client first",
         )
     client_id = uuid.UUID(item["client_account_id"])
@@ -906,12 +912,17 @@ async def create_project_from_item(
         )
     ).scalars().first()
     if existing is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"Project '{existing.name}' ({existing.id}) already exists for this {kind}")
+        raise dw.client_ops_error(
+            status.HTTP_409_CONFLICT,
+            "project_exists",
+            f"Project '{existing.name}' ({existing.id}) already exists for this {kind}",
+            project=existing.name,
+        )
 
     if payload.product_id is not None:
         product = await db.get(Product, payload.product_id)
         if product is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+            raise dw.client_ops_error(status.HTTP_404_NOT_FOUND, "product_not_found", "Product not found")
         await _link_product(db, product, client_id, item.get("company_name"))
         await db.commit()
     else:
@@ -935,13 +946,14 @@ async def create_project_from_item(
     if payload.product_version_id is not None:
         version = next((v for v in versions if v.id == payload.product_version_id), None)
         if version is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Version does not belong to this product")
+            raise dw.client_ops_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "version_not_in_product", "Version does not belong to this product")
     else:
         # A published version is locked for scope/planning edits; prefer one that isn't.
         version = next((v for v in versions if v.status not in ("published", "deprecated")), None)
         if version is None:
-            raise HTTPException(
+            raise dw.client_ops_error(
                 status.HTTP_409_CONFLICT,
+                "all_versions_published",
                 "Every version of this product is published -- create a new version in the Cockpit, then pick it",
             )
 

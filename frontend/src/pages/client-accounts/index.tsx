@@ -10,7 +10,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useClientOpsStatus, useDarckwareClients } from "@/hooks/useClientOps";
+import { useClientOpsStatus, useClientOpsText, useDarckwareClients } from "@/hooks/useClientOps";
 import { useClientConversionsViewModel, type ClientConversionsViewModel } from "@/hooks/useClientConversionsViewModel";
 import { ClientOpsStatusBanner } from "@/pages/client-demands/shared";
 import { ConversionDialog } from "./ConversionDialog";
@@ -18,6 +18,7 @@ import { DialogShell } from "./ContractFields";
 
 export default function ClientAccountsPage() {
   const { t } = useTranslation("clientOps");
+  const { errorText } = useClientOpsText();
   const integration = useClientOpsStatus();
   const clients = useDarckwareClients();
   const vm = useClientConversionsViewModel();
@@ -72,7 +73,7 @@ export default function ClientAccountsPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
           {clients.isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
-          {clients.isError && <p className="break-words text-sm text-destructive">{(clients.error as Error).message}</p>}
+          {clients.isError && <p className="break-words text-sm text-destructive">{errorText(clients.error)}</p>}
           {clients.isSuccess && visible.length === 0 && <p className="text-sm text-muted-foreground">{t("accounts.empty")}</p>}
           <ul className="divide-y">
             {visible.map((c) => (

@@ -304,5 +304,38 @@
     "generated": "Informe do ciclo {{start}} a {{end}} na fila de aprovação.",
     "exists": "O informe deste ciclo já estava na fila.",
     "open": "Abrir aprovação"
+  },
+  "errors": {
+    "generic": "Não foi possível concluir a operação.",
+    "server": "Erro no servidor. Tente novamente em instantes.",
+    "forbidden": "Você não tem permissão para esta ação.",
+    "integration_not_configured": "Integração com a Darckware não configurada ({{setting}}).",
+    "darckware_unreachable": "Darckware indisponível no momento.",
+    "darckware_error": "A Darckware respondeu com erro ({{status}}).",
+    "darckware_credential": "A Darckware recusou a credencial do ForgeHub ({{credential}}).",
+    "darckware_rejected": "A Darckware recusou: {{reason}}",
+    "invalid_stage": "Situação inválida no filtro.",
+    "unknown_kind": "Tipo de item desconhecido.",
+    "no_recipient": "Este item não tem e-mail do solicitante: informe o destinatário.",
+    "hours_required": "Informe o tempo gasto: concluir um item do cliente consome a franquia.",
+    "product_not_found": "Produto não encontrado.",
+    "product_choice": "Escolha um produto existente ou informe o nome de um novo.",
+    "product_other_client": "O produto \"{{product}}\" já pertence a outro cliente ({{client}}).",
+    "no_client": "Esta demanda ainda não tem cliente (veio de um lead): converta o lead em cliente primeiro.",
+    "project_exists": "Já existe o projeto \"{{project}}\" para este item.",
+    "version_not_in_product": "A versão escolhida não pertence a este produto.",
+    "all_versions_published": "Todas as versões deste produto estão publicadas: crie uma nova versão no Cockpit."
+  },
+  "source": {
+    "portal": "Portal do cliente",
+    "email": "E-mail",
+    "forgehub": "ForgeHub",
+    "lara": "Lara",
+    "site": "Site",
+    "whatsapp": "WhatsApp",
+    "chat": "Chat do site"
+  },
+  "units": {
+    "hours": "{{value}} h"
   }
 }

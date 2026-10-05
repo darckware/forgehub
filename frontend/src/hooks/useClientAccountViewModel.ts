@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  useClientOpsText,
   useClientEmails,
   useClientFactory,
   useWorkItems,
@@ -80,6 +81,7 @@ export interface ClientAccountViewModel {
 }
 
 export function useClientAccountViewModel(clientId?: string): ClientAccountViewModel {
+  const { errorText } = useClientOpsText();
   const [contractDialog, setContractDialog] = useState<ContractDialog>();
   const [statusChange, setStatusChange] = useState<{ contract: Contract; status: ContractStatus }>();
   const [errorMessage, setErrorMessage] = useState<string>();
@@ -107,7 +109,7 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
   return {
     status,
     client: query.data,
-    loadError: query.isError ? (query.error as Error).message : undefined,
+    loadError: query.isError ? errorText(query.error) : undefined,
     contractDialog,
     statusChange,
     errorMessage,
@@ -129,7 +131,7 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
         await link.mutateAsync({ clientId, productId: linkProductId });
         setLinkProductId("");
       } catch (error) {
-        setErrorMessage((error as Error).message);
+        setErrorMessage(errorText(error));
       }
     },
     reportPending: report.isPending,
@@ -140,7 +142,7 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
       try {
         setReportResult(await report.mutateAsync({ clientId }));
       } catch (error) {
-        setErrorMessage((error as Error).message);
+        setErrorMessage(errorText(error));
       }
     },
     openCreateContract() {
@@ -168,7 +170,7 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
         }
         setContractDialog(undefined);
       } catch (error) {
-        setErrorMessage((error as Error).message);
+        setErrorMessage(errorText(error));
       }
     },
     requestStatusChange(contract, next) {
@@ -181,7 +183,7 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
       try {
         await update.mutateAsync({ id: statusChange.contract.id, changes: { status: statusChange.status } });
       } catch (error) {
-        setErrorMessage((error as Error).message);
+        setErrorMessage(errorText(error));
       } finally {
         setStatusChange(undefined);
       }

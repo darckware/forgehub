@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  useClientOpsText,
   useApproveOutboundEmail,
   useCancelOutboundEmail,
   useOutboundEmail,
@@ -77,6 +78,7 @@ const EDITABLE = new Set(["rascunho", "aguardando_aprovacao", "aprovado", "falho
 /** `initialId` comes from a deep link (`/client-emails?id=`): open on that e-mail,
  * in the "all" list so it is found whatever its status. */
 export function useClientEmailApprovalViewModel(initialId?: string): EmailApprovalViewModel {
+  const { errorText } = useClientOpsText();
   const [filter, setFilter] = useState<EmailListFilter>(initialId ? "all" : "pending");
   const [selectedId, setSelectedId] = useState<string | undefined>(initialId);
   const [mode, setMode] = useState<"view" | "editing" | "confirming" | "rejecting" | "cancelling">("view");
@@ -111,7 +113,7 @@ export function useClientEmailApprovalViewModel(initialId?: string): EmailApprov
       await action();
       setMode("view");
     } catch (error) {
-      setErrorMessage((error as Error).message);
+      setErrorMessage(errorText(error));
       setMode(modeOnError);
     }
   }
@@ -120,7 +122,7 @@ export function useClientEmailApprovalViewModel(initialId?: string): EmailApprov
     status,
     filter,
     emails: list.data?.items ?? [],
-    loadError: list.isError ? (list.error as Error).message : undefined,
+    loadError: list.isError ? errorText(list.error) : undefined,
     selectedId,
     selected,
     dialog:

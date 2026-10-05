@@ -31,6 +31,13 @@ _BASE_PATHS: dict[Credential, str] = {
     "approver": "/api/internal/approver",
 }
 
+def client_ops_error(status_code: int, code: str, message: str, **params: Any) -> HTTPException:
+    """Error the Clients screens translate: `code` picks the text in the user's
+    language (pt-BR/en/es, `clientOps.errors.<code>`), `params` fills it, and
+    `message` (English) is only the fallback for other callers."""
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message, "params": params})
+
+
 #: Swapped by tests for an `httpx.MockTransport`.
 transport: httpx.AsyncBaseTransport | None = None
 
@@ -55,9 +62,11 @@ async def request(
     token = _token(credential)
     if not settings.DARCKWARE_API_URL or not token:
         which = "DARCKWARE_APPROVER_TOKEN" if credential == "approver" else "DARCKWARE_AGENT_TOKEN"
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Darckware integration is not configured ({which} / DARCKWARE_API_URL).",
+        raise client_ops_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "integration_not_configured",
+            f"Darckware integration is not configured ({which} / DARCKWARE_API_URL).",
+            setting=which,
         )
     clean_params = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
     url = f"{settings.DARCKWARE_API_URL.rstrip('/')}{_BASE_PATHS[credential]}{path}"
@@ -71,15 +80,19 @@ async def request(
                 headers={"Authorization": f"Bearer {token}"},
             )
     except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Darckware unreachable: {exc.__class__.__name__}",
+        raise client_ops_error(
+            status.HTTP_502_BAD_GATEWAY,
+            "darckware_unreachable",
+            f"Darckware unreachable: {exc.__class__.__name__}",
+            error=exc.__class__.__name__,
         ) from exc
 
     if resp.status_code >= 500:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Darckware error {resp.status_code}: {resp.text[:300]}",
+        raise client_ops_error(
+            status.HTTP_502_BAD_GATEWAY,
+            "darckware_error",
+            f"Darckware error {resp.status_code}: {resp.text[:300]}",
+            status=resp.status_code,
         )
     if resp.status_code >= 400:
         try:
@@ -89,9 +102,13 @@ async def request(
         if resp.status_code in (401, 403):
             # A credential problem on our side is an integration failure, not
             # the logged-in user's lack of permission.
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Darckware refused ForgeHub's credential ({credential}): {detail}",
+            raise client_ops_error(
+                status.HTTP_502_BAD_GATEWAY,
+                "darckware_credential",
+                f"Darckware refused ForgeHub's credential ({credential}): {detail}",
+                credential=credential,
             )
-        raise HTTPException(status_code=resp.status_code, detail=detail)
+        # Darckware's own reason (Portuguese, its data): shown as-is under a
+        # translated "Darckware refused" prefix.
+        raise client_ops_error(resp.status_code, "darckware_rejected", str(detail), reason=str(detail))
     return resp.json()

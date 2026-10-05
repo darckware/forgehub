@@ -39,7 +39,10 @@ export function ClientOpsStatusBanner({ status }: { status?: ClientOpsStatus }) 
   if (!status) return null;
   let message: string | undefined;
   if (!status.configured) message = t("notConfigured");
-  else if (!status.reachable) message = t("unreachable", { error: status.error ?? "" });
+  else if (!status.reachable)
+    message = status.error_code
+      ? t(`errors.${status.error_code}`, { defaultValue: status.error ?? "" })
+      : t("unreachable", { error: status.error ?? "" });
   else if (status.approver_configured === false) message = t("approverMissing");
   if (!message) return null;
   return (

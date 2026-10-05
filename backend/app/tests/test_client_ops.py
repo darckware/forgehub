@@ -324,7 +324,7 @@ async def test_darckware_down_is_502(client, monkeypatch, darckware):
     monkeypatch.setattr(darckware_client, "transport", httpx.MockTransport(boom))
     r = await client.get("/api/v1/client-ops/emails")
     assert r.status_code == 502
-    assert "unreachable" in r.json()["detail"]
+    assert r.json()["detail"]["code"] == "darckware_unreachable"
 
 
 @pytest.mark.asyncio
@@ -479,7 +479,7 @@ async def test_create_project_needs_client_and_one_product_choice(client, darckw
         f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:create-project", json={"new_product_name": "x"}
     )
     assert lead_only.status_code == 422
-    assert "convert the lead" in lead_only.json()["detail"]
+    assert lead_only.json()["detail"]["code"] == "no_client"
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +562,7 @@ async def test_log_time_records_who(client, darckware):
 async def test_resolve_requires_hours_for_a_client_item(client, darckware):
     r = await client.post(f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:resolve", json={"resolution": "Feito", "minutes": 0})
     assert r.status_code == 422
-    assert "franquia" in r.json()["detail"]
+    assert r.json()["detail"]["code"] == "hours_required"
     assert not any(m in ("POST", "PATCH") for m, *_ in darckware.calls)
 
     missing = await client.post(f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:resolve", json={"resolution": "Feito"})
@@ -583,3 +583,19 @@ async def test_resolve_logs_hours_before_the_status_change(client, darckware):
     body = darckware.calls[entry][2]
     assert body["minutes"] == 90 and body["service_type"] == "presencial"
     assert body["description"].startswith("Solução: Driver reinstalado")
+
+
+
+@pytest.mark.asyncio
+async def test_darckware_refusal_keeps_its_reason_under_a_code(client, darckware):
+    """A Darckware 4xx keeps Darckware's own text as `reason`, so the screen can
+    show it under a prefix in the user's language."""
+    darckware.recipient_ok = False
+    r = await client.post(
+        f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:wait-customer",
+        json={"email": {"subject": "x", "body_text": "y", "to_email": "estranho@x.com"}},
+    )
+    detail = r.json()["detail"]
+    assert r.status_code == 422
+    assert detail["code"] == "darckware_rejected"
+    assert detail["params"]["reason"] == "Destinatário não vinculado"

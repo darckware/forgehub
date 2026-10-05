@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { apiClient } from "@/lib/api";
 
@@ -107,6 +108,7 @@ export interface ClientOpsStatus {
   approver_configured?: boolean;
   pending_emails: number;
   error?: string;
+  error_code?: string;
 }
 
 export interface DarckwareClient {
@@ -589,4 +591,45 @@ export function useGenerateMonthlyReport() {
 /** Local date + "HH:MM" -> ISO instant (the browser's own timezone). */
 export function localDateTimeToIso(day: string, hhmm: string): string {
   return new Date(`${day}T${hhmm}:00`).toISOString();
+}
+
+// ---------------------------------------------------------------------------
+// Language: everything the Clients screens show follows the account language
+// (pt-BR / en / es, chosen in the sidebar's account settings) -- texts, dates,
+// money, hours and errors. Darckware's own data (titles, notes, its refusal
+// reasons) is shown as it was written.
+// ---------------------------------------------------------------------------
+
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+/** A failed request as a sentence in the user's language. */
+export function describeClientOpsError(error: unknown, t: Translate): string {
+  const body = (error as { body?: unknown } | null)?.body as { detail?: unknown } | undefined;
+  const detail = body?.detail;
+  if (detail && typeof detail === "object" && "code" in detail) {
+    const { code, message, params } = detail as { code: string; message?: string; params?: Record<string, unknown> };
+    return t(`errors.${code}`, { ...(params ?? {}), defaultValue: message ?? t("errors.generic") });
+  }
+  if (typeof detail === "string" && detail) return detail;
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 401 || status === 403) return t("errors.forbidden");
+  if (status && status >= 500) return t("errors.server");
+  return t("errors.generic");
+}
+
+/** Formatting and error text bound to the active UI language. */
+export function useClientOpsText() {
+  const { t, i18n } = useTranslation("clientOps");
+  const locale = i18n.resolvedLanguage || i18n.language || "pt-BR";
+  return {
+    t,
+    locale,
+    errorText: (error: unknown) => describeClientOpsError(error, t as Translate),
+    dateTime: (value?: string | null) => (value ? new Date(value).toLocaleString(locale) : "—"),
+    date: (value?: string | null) => (value ? new Date(value.length === 10 ? `${value}T12:00:00` : value).toLocaleDateString(locale) : "—"),
+    /** Contracts are in reais whatever the UI language; only the formatting changes. */
+    money: (value?: number | null) =>
+      value == null ? "—" : value.toLocaleString(locale, { style: "currency", currency: "BRL" }),
+    hours: (value?: number | null) => t("units.hours", { value: (value ?? 0).toLocaleString(locale) }),
+  };
 }

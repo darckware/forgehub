@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useCreateWorkItem,
+  useClientOpsText,
   useDarckwareClients,
   workItemCreateSchema,
   type WorkItemCreateInput,
@@ -26,6 +27,7 @@ export function NewWorkItemDialog({
   onCreated: (item: WorkItemDetail) => void;
 }) {
   const { t } = useTranslation("clientOps");
+  const { errorText } = useClientOpsText();
   const clients = useDarckwareClients();
   const create = useCreateWorkItem();
   const {
@@ -115,7 +117,7 @@ export function NewWorkItemDialog({
           </div>
         </div>
 
-        {create.isError && <p className="text-sm text-destructive">{create.error.message}</p>}
+        {create.isError && <p className="text-sm text-destructive">{errorText(create.error)}</p>}
 
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>

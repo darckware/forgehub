@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  useClientOpsText,
   localDateTimeToIso,
   useClientFactory,
   useLogTime,
@@ -144,6 +145,7 @@ export function parseDemandsSearch(search: URLSearchParams): ClientDemandsInitia
 }
 
 export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): ClientDemandsViewModel {
+  const { errorText } = useClientOpsText();
   const [filters, setFilters] = useState<WorkItemFilters>({ stage: "open", client_account_id: initial.clientId });
   const [selected, setSelected] = useState<{ kind: WorkItemKind; id: string } | undefined>(initial.item);
   const [draft, setDraft] = useState<ActionDraft>();
@@ -180,11 +182,11 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
     filters,
     items: list.data?.items ?? [],
     byStage: list.data?.by_stage,
-    loadError: list.isError ? (list.error as Error).message : undefined,
+    loadError: list.isError ? errorText(list.error) : undefined,
     selected,
     detail: detail.data,
     detailLoading: detail.isLoading && Boolean(selected),
-    detailError: detail.isError ? (detail.error as Error).message : undefined,
+    detailError: detail.isError ? errorText(detail.error) : undefined,
     draft,
     canSubmitAction: Boolean(draft) && textOk && emailOk && hoursOk && !act.isPending,
     hoursRequired,
@@ -247,7 +249,7 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
         setLastQueuedEmail(result.queued_email?.id);
         setDraft(undefined);
       } catch (error) {
-        setErrorMessage((error as Error).message);
+        setErrorMessage(errorText(error));
       }
     },
     dismissError: () => setErrorMessage(undefined),
@@ -293,7 +295,7 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
         });
         setTimeDraft(undefined);
       } catch (error) {
-        setErrorMessage((error as Error).message);
+        setErrorMessage(errorText(error));
       }
     },
     async submitCreateProject() {
@@ -309,7 +311,7 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
         });
         setProjectDraft(undefined);
       } catch (error) {
-        setErrorMessage((error as Error).message);
+        setErrorMessage(errorText(error));
       }
     },
   };
