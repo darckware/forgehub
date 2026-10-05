@@ -284,7 +284,7 @@ async def test_failed_status_change_cancels_queued_email(client, darckware):
     darckware.fail_patch = True
     r = await client.post(
         f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:resolve",
-        json={"resolution": "Trocado o toner", "email": {"subject": "Resolvido", "body_text": "Feito"}},
+        json={"resolution": "Trocado o toner", "minutes": 60, "email": {"subject": "Resolvido", "body_text": "Feito"}},
     )
     assert r.status_code == 502
     assert ("POST", f"/api/internal/agent/outbound-emails/{EMAIL_ID}/cancel") in [
@@ -550,3 +550,36 @@ async def test_log_time_records_who(client, darckware):
     call = next(c for c in darckware.calls if c[1].endswith("/time-entries"))
     assert call[2]["recorded_by"].startswith("forgehub:test-admin-")
     assert call[2]["service_type"] == "presencial"
+
+
+
+# ---------------------------------------------------------------------------
+# Resolving consumes the quota (2026-10-04)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_requires_hours_for_a_client_item(client, darckware):
+    r = await client.post(f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:resolve", json={"resolution": "Feito", "minutes": 0})
+    assert r.status_code == 422
+    assert "franquia" in r.json()["detail"]
+    assert not any(m in ("POST", "PATCH") for m, *_ in darckware.calls)
+
+    missing = await client.post(f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:resolve", json={"resolution": "Feito"})
+    assert missing.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_resolve_logs_hours_before_the_status_change(client, darckware):
+    r = await client.post(
+        f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:resolve",
+        json={"resolution": "Driver reinstalado", "minutes": 90, "service_type": "presencial"},
+    )
+    assert r.status_code == 200, r.text
+    calls = [(m, p) for m, p, _, _ in darckware.calls]
+    entry = calls.index(("POST", f"/api/internal/agent/tickets/{TICKET_ID}/time-entries"))
+    status_change = calls.index(("PATCH", f"/api/internal/agent/tickets/{TICKET_ID}"))
+    assert entry < status_change
+    body = darckware.calls[entry][2]
+    assert body["minutes"] == 90 and body["service_type"] == "presencial"
+    assert body["description"].startswith("Solução: Driver reinstalado")

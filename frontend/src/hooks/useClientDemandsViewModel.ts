@@ -51,6 +51,9 @@ export const ACTION_TEXT_REQUIRED: Record<WorkItemAction, boolean> = {
 export interface ActionDraft {
   action: WorkItemAction;
   text: string;
+  /** Resolve only: hours spent, as typed ("1,5" or "1.5"). */
+  hours: string;
+  serviceType: "remoto" | "presencial";
   withEmail: boolean;
   subject: string;
   body_text: string;
@@ -74,6 +77,12 @@ export interface TimeDraft {
   serviceType: "remoto" | "presencial";
 }
 
+/** "1,5" / "1.5" / "2" hours -> whole minutes; anything unparsable or negative -> 0. */
+export function hoursToMinutes(hours: string): number {
+  const value = Number(hours.trim().replace(",", "."));
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 60) : 0;
+}
+
 export function timeDraftError(d: TimeDraft): "endBeforeStart" | undefined {
   return d.start && d.end && d.end <= d.start ? "endBeforeStart" : undefined;
 }
@@ -90,6 +99,8 @@ export interface ClientDemandsViewModel {
   detailError?: string;
   draft?: ActionDraft;
   canSubmitAction: boolean;
+  /** Whether the open "Dar baixa" dialog must carry hours (item has a client). */
+  hoursRequired: boolean;
   errorMessage?: string;
   lastQueuedEmail?: string;
   /** Products the new project can go under: the client's own, then unlinked ones. */
@@ -151,6 +162,10 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
   const projectProducts = [...(factory.data?.products ?? []), ...(factory.data?.unlinked_products ?? [])];
 
   const textOk = !draft || !ACTION_TEXT_REQUIRED[draft.action] || draft.text.trim().length > 0;
+  // "Dar baixa" on a client's item must say how long it took: it consumes the quota.
+  const resolveMinutes = draft?.action === "resolve" ? hoursToMinutes(draft.hours) : 0;
+  const hoursRequired = draft?.action === "resolve" && Boolean(detail.data?.client_account_id);
+  const hoursOk = !hoursRequired || resolveMinutes > 0;
   const emailOk = !draft?.withEmail || (draft.subject.trim().length > 0 && draft.body_text.trim().length > 0);
 
   let status: ClientDemandsStatus;
@@ -171,7 +186,8 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
     detailLoading: detail.isLoading && Boolean(selected),
     detailError: detail.isError ? (detail.error as Error).message : undefined,
     draft,
-    canSubmitAction: Boolean(draft) && textOk && emailOk && !act.isPending,
+    canSubmitAction: Boolean(draft) && textOk && emailOk && hoursOk && !act.isPending,
+    hoursRequired,
     errorMessage,
     lastQueuedEmail,
     projectProducts,
@@ -202,6 +218,8 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
       setDraft({
         action,
         text: "",
+        hours: "",
+        serviceType: "remoto",
         withEmail: ACTION_EMAIL[action],
         subject: detail.data ? `Re: ${detail.data.title}` : "",
         body_text: "",
@@ -213,13 +231,15 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
     },
     cancelAction: () => setDraft(undefined),
     async submitAction() {
-      if (!selected || !draft || !textOk || !emailOk) return;
+      if (!selected || !draft || !textOk || !emailOk || !hoursOk) return;
       try {
         const result = await act.mutateAsync({
           kind: selected.kind,
           id: selected.id,
           action: draft.action,
           text: draft.text.trim() || undefined,
+          minutes: resolveMinutes,
+          serviceType: draft.serviceType,
           email: draft.withEmail
             ? { subject: draft.subject.trim(), body_text: draft.body_text.trim(), to_email: draft.to_email.trim() || undefined }
             : undefined,
@@ -249,7 +269,7 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
     },
     cancelCreateProject: () => setProjectDraft(undefined),
     openLogTime() {
-      if (selected?.kind !== "ticket") return;
+      if (!selected) return;
       setErrorMessage(undefined);
       const now = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
@@ -264,7 +284,8 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
       if (!selected || !timeDraft || timeError) return;
       try {
         await logTime.mutateAsync({
-          ticketId: selected.id,
+          kind: selected.kind,
+          id: selected.id,
           start_time: localDateTimeToIso(timeDraft.day, timeDraft.start),
           end_time: localDateTimeToIso(timeDraft.day, timeDraft.end),
           description: timeDraft.description.trim(),

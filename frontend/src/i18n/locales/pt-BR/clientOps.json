@@ -277,7 +277,7 @@
   },
   "time": {
     "log": "Apontar horas",
-    "title": "Apontar horas no chamado",
+    "title": "Apontar horas",
     "date": "Data",
     "start": "Início",
     "end": "Fim",
@@ -290,7 +290,10 @@
     "entries": "Horas apontadas",
     "by": "por {{who}}",
     "save": "Apontar",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "spent": "Horas gastas na solução",
+    "spentHelp": "Obrigatório: consome a franquia do contrato (blocos de 30 min).",
+    "spentNoClient": "Sem cliente vinculado: não há franquia a consumir."
   },
   "report": {
     "generate": "Gerar informe do mês",

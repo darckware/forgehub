@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient } from "@/lib/api";
 import { actionBody } from "./useClientOps";
-import { timeDraftError, useClientDemandsViewModel } from "./useClientDemandsViewModel";
+import { hoursToMinutes, timeDraftError, useClientDemandsViewModel } from "./useClientDemandsViewModel";
 
 vi.mock("@/lib/api", () => ({
   apiClient: { get: vi.fn(), post: vi.fn() },
@@ -27,7 +27,12 @@ function wrapper({ children }: { children: ReactNode }) {
 
 describe("actionBody", () => {
   it("sends the text under the field each action expects", () => {
-    expect(actionBody("resolve", "Trocado o toner")).toEqual({ resolution: "Trocado o toner", email: undefined });
+    expect(actionBody("resolve", "Trocado o toner", undefined, 90)).toEqual({
+      resolution: "Trocado o toner",
+      minutes: 90,
+      service_type: "remoto",
+      email: undefined,
+    });
     expect(actionBody("reopen", "Voltou")).toEqual({ reason: "Voltou" });
     expect(actionBody("wait-customer", "")).toEqual({ note: undefined, email: undefined });
   });
@@ -66,11 +71,16 @@ describe("useClientDemandsViewModel", () => {
     act(() => result.current.updateDraft({ text: "Trocado o toner" }));
     expect(result.current.canSubmitAction).toBe(false); // e-mail body still empty
     act(() => result.current.updateDraft({ body_text: "Resolvido." }));
+    expect(result.current.hoursRequired).toBe(true); // the item has a client: resolving consumes its quota
+    expect(result.current.canSubmitAction).toBe(false);
+    act(() => result.current.updateDraft({ hours: "1,5" }));
     expect(result.current.canSubmitAction).toBe(true);
 
     await act(() => result.current.submitAction());
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/client-ops/work-items/ticket/t1:resolve", {
       resolution: "Trocado o toner",
+      minutes: 90,
+      service_type: "remoto",
       email: { subject: "Re: Impressora parada", body_text: "Resolvido.", to_email: "ana@acme.com.br" },
     });
     expect(result.current.draft).toBeUndefined();
@@ -120,7 +130,7 @@ describe("useClientDemandsViewModel", () => {
     expect(result.current.canSubmitTime).toBe(true);
     await act(() => result.current.submitLogTime());
     const [path, body] = vi.mocked(apiClient.post).mock.calls[0] as [string, Record<string, string>];
-    expect(path).toBe("/api/v1/client-ops/work-items/ticket/t1:log-time");
+    expect(path).toBe("/api/v1/client-ops/work-items/ticket/t1:log-time"); // same route shape serves demands
     expect(new Date(body.end_time).getTime() - new Date(body.start_time).getTime()).toBe(90 * 60 * 1000);
     expect(body.service_type).toBe("remoto");
     expect(result.current.timeDraft).toBeUndefined();
@@ -133,5 +143,14 @@ describe("timeDraftError", () => {
     expect(timeDraftError({ ...base, start: "09:00", end: "09:00" })).toBe("endBeforeStart");
     expect(timeDraftError({ ...base, start: "09:00", end: "09:30" })).toBeUndefined();
     expect(timeDraftError({ ...base, start: "", end: "09:30" })).toBeUndefined();
+  });
+});
+
+describe("hoursToMinutes", () => {
+  it("accepts comma or dot and rejects nonsense", () => {
+    expect(hoursToMinutes("1,5")).toBe(90);
+    expect(hoursToMinutes("0.25")).toBe(15);
+    expect(hoursToMinutes("abc")).toBe(0);
+    expect(hoursToMinutes("-2")).toBe(0);
   });
 });

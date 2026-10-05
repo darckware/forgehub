@@ -171,7 +171,7 @@ def _demand_item(d: dict[str, Any], companies: dict[str, str]) -> dict[str, Any]
         "requester_name": lead.get("name") or account.get("contact_name"),
         "requester_email": lead.get("email") or account.get("email"),
         "source": d.get("source_channel") or "lara",
-        "billable_hours": None,
+        "billable_hours": d.get("total_billable_hours"),
         "created_at": d.get("created_at"),
         "updated_at": d.get("updated_at"),
     }
@@ -303,11 +303,12 @@ async def _load_item(kind: str, item_id: uuid.UUID) -> dict[str, Any]:
     else:
         raw = await dw.request("GET", f"/demands/{item_id}")
         item = _demand_item(raw, {})
+        item["billable_hours"] = raw.get("total_billable_hours")
         item["timeline"] = [
             {"at": e["created_at"], "actor": e["actor"], "type": e["event_type"], "note": e["note"]}
             for e in raw.get("events", [])
         ]
-        item["time_entries"] = []
+        item["time_entries"] = raw.get("time_entries", [])
     return item
 
 
@@ -415,8 +416,9 @@ async def _transition(
     email_kind: str,
     admin: User,
     db: AsyncSession,
+    time_entry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Status change plus an optional queued e-mail, in the safe order.
+    """Status change plus an optional queued e-mail (and hours), in the safe order.
 
     The e-mail is queued first: Darckware validates the recipient there, and
     a refused recipient should block the action rather than leave the item
@@ -430,6 +432,8 @@ async def _transition(
     if draft is not None:
         queued = await _queue_email(kind, item, draft, email_kind, actor)
     try:
+        if time_entry is not None:
+            await _post_time_entry(kind, item_id, {**time_entry, "recorded_by": actor})
         await _set_status(kind, item_id, _ACTION_STATUS[action][kind], note, actor)
     except HTTPException:
         if queued is not None:
@@ -444,7 +448,12 @@ async def _transition(
         str(item_id),
         action,
         admin,
-        {"from": item["status"], "note": note, "email_id": queued["id"] if queued else None},
+        {
+            "from": item["status"],
+            "note": note,
+            "email_id": queued["id"] if queued else None,
+            "minutes": time_entry["minutes"] if time_entry else None,
+        },
     )
     updated = await _load_item(kind, item_id)
     updated["queued_email"] = queued
@@ -482,14 +491,34 @@ async def resolve_work_item(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """"Dar baixa": record the resolution; the optional e-mail reports it."""
-    email_kind = "solucao"
-    if kind == "ticket":
-        current = await _load_item(kind, item_id)
-        if current["tipo"] == "servico":
-            email_kind = "servico_realizado"
+    """"Dar baixa": record the resolution and the time it took; the optional
+    e-mail reports it. The hours are logged against the client's quota
+    (2026-10-04, "demanda concluída consome a franquia") before the status
+    changes, so a resolved item never exists without its hours."""
+    _check_kind(kind)
+    current = await _load_item(kind, item_id)
+    email_kind = "servico_realizado" if kind == "ticket" and current["tipo"] == "servico" else "solucao"
+    has_client = bool(current.get("client_account_id"))
+    if has_client and payload.minutes == 0:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Informe o tempo gasto na solução: demanda concluída consome a franquia do cliente.",
+        )
+    time_entry = (
+        {"minutes": payload.minutes, "service_type": payload.service_type, "description": f"Solução: {payload.resolution}"[:4000]}
+        if payload.minutes > 0 and has_client
+        else None
+    )
     return await _transition(
-        kind, item_id, "resolve", f"Resolução: {payload.resolution}", payload.email, email_kind, admin, db
+        kind,
+        item_id,
+        "resolve",
+        f"Resolução: {payload.resolution}",
+        payload.email,
+        email_kind,
+        admin,
+        db,
+        time_entry=time_entry,
     )
 
 
@@ -956,29 +985,32 @@ async def create_project_from_item(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/work-items/ticket/{ticket_id}:log-time", status_code=status.HTTP_201_CREATED)
-async def log_ticket_time(
-    ticket_id: uuid.UUID,
+async def _post_time_entry(kind: str, item_id: uuid.UUID, body: dict[str, Any]) -> None:
+    path = f"/tickets/{item_id}/time-entries" if kind == "ticket" else f"/demands/{item_id}/time-entries"
+    await dw.request("POST", path, json=body)
+
+
+@router.post("/work-items/{kind}/{item_id}:log-time", status_code=status.HTTP_201_CREATED)
+async def log_work_item_time(
+    kind: str,
+    item_id: uuid.UUID,
     payload: LogTimeIn,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Record worked hours on a client ticket -- counted against the support
-    quota by Darckware (same 30-minute rounding as its own admin)."""
-    await dw.request(
-        "POST",
-        f"/tickets/{ticket_id}/time-entries",
-        json={**payload.model_dump(mode="json"), "recorded_by": f"forgehub:{admin.username}"},
-    )
+    """Record worked hours on a client ticket or demand -- counted against the
+    support quota by Darckware (same 30-minute rounding as its own admin)."""
+    _check_kind(kind)
+    await _post_time_entry(kind, item_id, {**payload.model_dump(mode="json"), "recorded_by": f"forgehub:{admin.username}"})
     await _audit(
         db,
-        "ticket",
-        str(ticket_id),
+        kind,
+        str(item_id),
         "time_logged",
         admin,
         {"start": payload.start_time.isoformat(), "end": payload.end_time.isoformat(), "description": payload.description},
     )
-    return await _load_item("ticket", ticket_id)
+    return await _load_item(kind, item_id)
 
 
 @router.post("/clients/{client_id}/monthly-report")

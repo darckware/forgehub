@@ -201,11 +201,20 @@ export interface WorkItemActionInput {
   action: WorkItemAction;
   text?: string;
   email?: EmailDraft;
+  /** Resolve only: time the solution took (consumes the client's quota). */
+  minutes?: number;
+  serviceType?: "remoto" | "presencial";
 }
 
-/** Body shape per action: resolve takes `resolution`, reopen `reason`, the rest `note`. */
-export function actionBody(action: WorkItemAction, text: string | undefined, email?: EmailDraft) {
-  if (action === "resolve") return { resolution: text ?? "", email };
+/** Body shape per action: resolve takes `resolution` + time spent, reopen `reason`, the rest `note`. */
+export function actionBody(
+  action: WorkItemAction,
+  text: string | undefined,
+  email?: EmailDraft,
+  minutes = 0,
+  serviceType: "remoto" | "presencial" = "remoto",
+) {
+  if (action === "resolve") return { resolution: text ?? "", minutes, service_type: serviceType, email };
   if (action === "reopen") return { reason: text ?? "" };
   return { note: text || undefined, email };
 }
@@ -213,8 +222,8 @@ export function actionBody(action: WorkItemAction, text: string | undefined, ema
 export function useWorkItemAction() {
   const invalidate = useInvalidateClientOps();
   return useMutation<WorkItemDetail & { queued_email?: OutboundEmail | null }, Error, WorkItemActionInput>({
-    mutationFn: ({ kind, id, action, text, email }) =>
-      apiClient.post(`${BASE}/work-items/${kind}/${id}:${action}`, actionBody(action, text, email)),
+    mutationFn: ({ kind, id, action, text, email, minutes, serviceType }) =>
+      apiClient.post(`${BASE}/work-items/${kind}/${id}:${action}`, actionBody(action, text, email, minutes, serviceType)),
     onSettled: invalidate,
   });
 }
@@ -546,7 +555,8 @@ export function useCreateProjectFromItem() {
 // ---------------------------------------------------------------------------
 
 export interface LogTimeInput {
-  ticketId: string;
+  kind: WorkItemKind;
+  id: string;
   start_time: string;
   end_time: string;
   description: string;
@@ -556,7 +566,7 @@ export interface LogTimeInput {
 export function useLogTime() {
   const invalidate = useInvalidateClientOps();
   return useMutation<WorkItemDetail, Error, LogTimeInput>({
-    mutationFn: ({ ticketId, ...body }) => apiClient.post(`${BASE}/work-items/ticket/${ticketId}:log-time`, body),
+    mutationFn: ({ kind, id, ...body }) => apiClient.post(`${BASE}/work-items/${kind}/${id}:log-time`, body),
     onSettled: invalidate,
   });
 }

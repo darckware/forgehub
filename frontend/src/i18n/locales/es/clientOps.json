@@ -277,7 +277,7 @@
   },
   "time": {
     "log": "Registrar horas",
-    "title": "Registrar horas en el ticket",
+    "title": "Registrar horas",
     "date": "Fecha",
     "start": "Inicio",
     "end": "Fin",
@@ -290,7 +290,10 @@
     "entries": "Horas registradas",
     "by": "por {{who}}",
     "save": "Registrar",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "spent": "Horas dedicadas a la solución",
+    "spentHelp": "Obligatorio: consume la franquicia del contrato (bloques de 30 min).",
+    "spentNoClient": "Sin cliente vinculado: no hay franquicia que consumir."
   },
   "report": {
     "generate": "Generar informe del mes",

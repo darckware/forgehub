@@ -277,7 +277,7 @@
   },
   "time": {
     "log": "Log hours",
-    "title": "Log hours on the ticket",
+    "title": "Log hours",
     "date": "Date",
     "start": "Start",
     "end": "End",
@@ -290,7 +290,10 @@
     "entries": "Logged hours",
     "by": "by {{who}}",
     "save": "Log",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "spent": "Hours spent on the solution",
+    "spentHelp": "Required: consumes the contract quota (30-minute blocks).",
+    "spentNoClient": "No client linked: there is no quota to consume."
   },
   "report": {
     "generate": "Generate monthly report",

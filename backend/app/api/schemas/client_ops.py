@@ -45,6 +45,11 @@ class WorkItemAction(BaseModel):
 
 class WorkItemResolve(BaseModel):
     resolution: str = Field(..., min_length=1, max_length=4000)
+    #: Time spent on the solution (2026-10-04: a resolved demand consumes the
+    #: client's quota). Required; 0 only for an item with no client (a lead's
+    #: demand has no quota to consume).
+    minutes: int = Field(..., ge=0, le=24 * 60)
+    service_type: Literal["remoto", "presencial"] = "remoto"
     email: EmailDraftIn | None = None
 
 

@@ -250,7 +250,7 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
           )}
 
           <div className="flex flex-wrap gap-2">
-            {detail.kind === "ticket" && detail.stage !== "fechado" && (
+            {detail.client_account_id && detail.stage !== "fechado" && (
               <Button size="sm" variant="outline" className="max-md:h-auto max-md:whitespace-normal" onClick={vm.openLogTime}>
                 <Clock className="mr-2 h-4 w-4" /> {t("time.log")}
               </Button>
@@ -351,6 +351,36 @@ function ActionDialog({ vm }: { vm: ClientDemandsViewModel }) {
             onChange={(e) => vm.updateDraft({ text: e.target.value })}
           />
         </div>
+        {draft.action === "resolve" && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="action-hours">{t("time.spent")}</Label>
+              <Input
+                id="action-hours"
+                inputMode="decimal"
+                placeholder="1,5"
+                className="max-md:text-base"
+                value={draft.hours}
+                onChange={(e) => vm.updateDraft({ hours: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                {vm.hoursRequired ? t("time.spentHelp") : t("time.spentNoClient")}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="action-service">{t("time.serviceType")}</Label>
+              <Select
+                id="action-service"
+                className="max-md:text-base"
+                value={draft.serviceType}
+                onChange={(e) => vm.updateDraft({ serviceType: e.target.value as "remoto" | "presencial" })}
+              >
+                <option value="remoto">{t("time.remoto")}</option>
+                <option value="presencial">{t("time.presencial")}</option>
+              </Select>
+            </div>
+          </div>
+        )}
         {ACTION_EMAIL[draft.action] && (
           <label className="flex items-center gap-2 text-sm">
             <input
