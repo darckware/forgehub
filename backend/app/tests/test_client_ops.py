@@ -29,6 +29,9 @@ EMAIL_ID = str(uuid.uuid4())
 PROPOSAL_ID = str(uuid.uuid4())
 LEAD_ID = str(uuid.uuid4())
 CONTRACT_ID = str(uuid.uuid4())
+ESCALATION_ID = str(uuid.uuid4())
+NEW_LEAD_ID = str(uuid.uuid4())
+OLD_LEAD_ID = str(uuid.uuid4())
 
 CYCLE_REPORT = {
     "client": {"id": CLIENT_ID, "company_name": "ACME", "contact_name": "Ana Souza", "email": "ana@acme.com.br"},
@@ -144,6 +147,22 @@ class FakeDarckware:
         if path == f"{a}/clients/{CLIENT_ID}/cycle-report":
             self.report_refs.append(request.url.params.get("reference"))
             return httpx.Response(200, json=CYCLE_REPORT)
+        if path == f"{a}/escalations":
+            return httpx.Response(200, json={"items": [{"id": ESCALATION_ID, "topic": "preco", "question": "Quanto custa?"}]})
+        if path == f"{a}/leads" and request.method == "GET":
+            from datetime import datetime, timedelta, timezone
+
+            fresh = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+            old_ = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+            return httpx.Response(
+                200,
+                json={
+                    "leads": [
+                        {"id": NEW_LEAD_ID, "name": "Bruno", "company": "Oficina", "created_at": fresh},
+                        {"id": OLD_LEAD_ID, "name": "Velho", "created_at": old_},
+                    ]
+                },
+            )
         if path == f"{a}/clients-with-contracts":
             return httpx.Response(200, json={"items": [{"id": CLIENT_ID, "company_name": "ACME", "billing_cycle_day": 5}]})
         if path == f"{a}/tickets/{TICKET_ID}/time-entries":
@@ -189,6 +208,9 @@ async def client(admin_headers):
                         f"darckware:ticket:{TICKET_ID}",
                         f"darckware:demand:{DEMAND_ID}",
                         f"darckware:conversion:{PROPOSAL_ID}",
+                        f"darckware:escalation:{ESCALATION_ID}",
+                        f"darckware:lead:{NEW_LEAD_ID}",
+                        f"darckware:lead:{OLD_LEAD_ID}",
                     ]
                 )
             )
@@ -311,7 +333,7 @@ async def test_notification_pass_is_deduplicated(client, darckware):
     async with AsyncSessionLocal() as db:
         first = await run_client_ops_notification_pass(db)
         second = await run_client_ops_notification_pass(db)
-    assert first == 4
+    assert first == 6  # email, ticket, demand, conversion, escalation, the recent lead only
     assert second == 0
 
 

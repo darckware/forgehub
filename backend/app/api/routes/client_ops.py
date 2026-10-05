@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -68,6 +68,10 @@ from app.db.models.user import User
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/client-ops", tags=["client-ops"])
+
+#: Darckware stopped notifying anyone itself (its Telegram code was removed on
+#: 2026-10-04); a lead only counts as news within this window.
+LEAD_NOTIFY_WINDOW = timedelta(hours=48)
 
 # ---------------------------------------------------------------------------
 # Vocabulary
@@ -1015,8 +1019,8 @@ async def run_monthly_reports_internal(
 async def run_client_ops_notification_pass(db: AsyncSession) -> int:
     """Surface Darckware arrivals in ForgeHub's bell, once each.
 
-    New tickets/demands, e-mails waiting for approval and lead conversion
-    proposals become a
+    New tickets/demands, e-mails waiting for approval, lead conversion
+    proposals, pending CEO escalations and leads from the last 48 h become a
     `Notification(source="system")`, deduplicated by `event_key` (an e-mail
     key carries its version: an edited text needs a fresh look). Silent
     no-op when the integration isn't configured; an unreachable Darckware
@@ -1024,11 +1028,13 @@ async def run_client_ops_notification_pass(db: AsyncSession) -> int:
     """
     if not dw.is_configured():
         return 0
-    emails, tickets, demands, conversions = await asyncio.gather(
+    emails, tickets, demands, conversions, escalations, leads = await asyncio.gather(
         dw.request("GET", "/outbound-emails", params={"status": "aguardando_aprovacao", "limit": 200}),
         dw.request("GET", "/tickets", params={"status": "aberto", "limit": 200}),
         dw.request("GET", "/demands", params={"status": "aberta", "limit": 200}),
         dw.request("GET", "/conversion-proposals", params={"status": "proposta", "limit": 200}),
+        dw.request("GET", "/escalations", params={"status": "pending", "limit": 100}),
+        dw.request("GET", "/leads", params={"limit": 100}),
     )
     now = datetime.now(timezone.utc)
     rows: list[dict[str, Any]] = []
@@ -1057,6 +1063,36 @@ async def run_client_ops_notification_pass(db: AsyncSession) -> int:
                 "severity": "info",
                 "title": "Nova demanda de cliente",
                 "message": d["title"],
+            }
+        )
+    for e in escalations.get("items", []):
+        rows.append(
+            {
+                "event_key": f"darckware:escalation:{e['id']}",
+                "severity": "warning",
+                "title": f"Escalonamento para o CEO ({e.get('topic') or 'outro'})",
+                "message": (e.get("question") or "")[:500],
+            }
+        )
+    # Leads have no date filter on Darckware's side; only recent ones are news
+    # (the first run must not dump the whole lead history into the bell).
+    recent = now - LEAD_NOTIFY_WINDOW
+    for lead in leads.get("leads", []):
+        created = lead.get("created_at")
+        if not created or lead.get("client_account_id"):
+            continue
+        created_at = datetime.fromisoformat(created)
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if created_at < recent:
+            continue
+        who = " — ".join(x for x in (lead.get("company"), lead.get("name")) if x)
+        rows.append(
+            {
+                "event_key": f"darckware:lead:{lead['id']}",
+                "severity": "info",
+                "title": "Novo lead",
+                "message": f"{who}: {lead.get('need_summary') or ''}".strip(": ")[:500],
             }
         )
     for c in conversions.get("items", []):
