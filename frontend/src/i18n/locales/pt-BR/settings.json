@@ -2,7 +2,6 @@
   "settings": {
     "title": "Configurações",
     "description": "Padrões do sistema de forgehub.config -- não são credenciais (essas vivem em .env). Salvar reescreve esse arquivo e aplica imediatamente, sem reiniciar.",
-
     "tabs": {
       "forgeRouterModels": "Modelos virtuais do ForgeRouter",
       "forgeRouterModelsDescription": "IDs de modelos disponíveis para agentes. Auto é o modelo principal recomendado; classes explícitas são úteis quando o planejamento já conhece a carga de trabalho.",
@@ -15,12 +14,11 @@
       "cleanup": "Limpeza & Lixeira",
       "cleanupDescription": "\"Executar limpeza\" chama a mesma política limitada do Athos usada pelo cron semanal foundation-clear.",
       "aiChat": "Idioma",
-      "aiChatDescription": "Idioma padrão da interface para novos usuários e idioma de resposta do chat de IA (abas Workspace e painel Assistente). O do chat é enviado ao agente como instrução oculta em cada mensagem -- nunca aparece na conversa.",
+      "aiChatDescription": "O idioma da sua conta muda os menus e telas atuais. O padrão vale apenas para novos usuários; o idioma do chat define as respostas da IA e é enviado ao agente como instrução oculta.",
       "general": "Geral",
       "openclaw": "OpenClaw",
       "openclawDescription": "Token do gateway do OpenClaw (Vector), lido/gravado direto em /root/.openclaw/.env no host. Não faz parte de forgehub.config -- salva e recarrega imediatamente, com card e botão próprios."
     },
-
     "forgeRouterModels": {
       "defaultAgent": {
         "label": "Agente padrão para chaves de API dos projetos",
@@ -28,7 +26,6 @@
         "help": "Pré-preenche o campo \"Enter the ForgeRouter API key...\" do Dashboard com a chave deste serviço, direto do registro do próprio ForgeRouter (ai_router.agents, entradas do tipo service como \"Hindsight\") -- para não precisar colar a chave manualmente toda vez que habilitar o ForgeRouter num projeto. Ainda é editável por projeto/ferramenta antes de confirmar."
       }
     },
-
     "gitControl": {
       "hermesSourcePath": {
         "label": "Caminho do checkout do Hermes",
@@ -40,14 +37,12 @@
         "help": "O que o Controle Git cai como fallback quando nenhum repositório é selecionado -- deve resolver a uma entrada que ele pode encontrar (\"hermes\" ou uma chave de projeto registrada), ou as solicitações de status falharão."
       }
     },
-
     "backups": {
       "backupRoot": {
         "label": "Diretório raiz dos backups",
         "inputId": "backup_root"
       }
     },
-
     "cleanup": {
       "trashRoot": {
         "label": "Pasta da lixeira",
@@ -67,31 +62,24 @@
         "textareaId": "cleanup_prune_names"
       }
     },
-
     "aiChat": {
+      "myUiLanguage": {
+        "label": "Idioma da minha interface",
+        "help": "Altera agora menus e telas desta conta. A escolha fica salva para seus próximos acessos.",
+        "saveError": "Não foi possível salvar seu idioma. Tente novamente."
+      },
       "defaultUiLanguage": {
-        "label": "Idioma padrão do sistema",
+        "label": "Idioma padrão para novos usuários",
         "inputId": "default_ui_language",
         "help": "Idioma inicial da interface (menus, telas, formulários) para usuários recém-criados. Cada usuário pode trocar o próprio idioma depois; isto só define o valor com que ele começa."
       },
       "chatResponseLanguage": {
-        "label": "Idioma do Chat",
-        "inputId": "chat_response_language"
-      },
-      "uiLanguages": [
-        { "value": "pt-BR", "label": "Português (Brasil)" },
-        { "value": "en", "label": "English" }
-      ],
-      "languages": [
-        { "value": "pt-BR", "label": "Português (Brasil)" },
-        { "value": "en", "label": "English" },
-        { "value": "es", "label": "Espanhol" },
-        { "value": "fr", "label": "Francês" },
-        { "value": "de", "label": "Alemão" },
-        { "value": "it", "label": "Italiano" }
-      ]
+        "label": "Idioma das respostas do chat",
+        "inputId": "chat_response_language",
+        "legacyOption": "{{language}} (configuração anterior)",
+        "legacyHelp": "Este idioma anterior continua ativo até você escolher português, inglês ou espanhol."
+      }
     },
-
     "openclaw": {
       "gatewayToken": {
         "label": "Token do gateway",
@@ -99,7 +87,6 @@
         "help": "Usado para autenticar o Console Web do OpenClaw (WebSocket do gateway). Alterar aqui só tem efeito depois que o serviço openclaw-gateway for reiniciado no host."
       }
     },
-
     "general": {
       "timezone": {
         "cardDescription": "Fuso horário usado nos timestamps que o próprio ForgeHub gera (ex: nomes de arquivos de backup).",
@@ -117,7 +104,6 @@
         "help": "Nome de zona IANA (ex: America/Sao_Paulo para UTC-3). Validado ao salvar."
       }
     },
-
     "messages": {
       "loading": "Carregando configurações...",
       "loadingModels": "Carregando modelos...",

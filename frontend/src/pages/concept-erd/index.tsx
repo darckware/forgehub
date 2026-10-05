@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   CheckCircle2,
   Database,
@@ -61,6 +62,7 @@ const SQL_TYPES = [
 ];
 
 export default function ConceptErdViewerPage() {
+  const { t, i18n } = useTranslation(["conceptErd", "screenInspector"]);
   const projects = useProjects();
   const [projectId, setProjectId] = useState("");
   const scopes = useProjectScopes(projectId);
@@ -149,7 +151,7 @@ export default function ConceptErdViewerPage() {
 
   const docFilePath =
     databaseDoc.data?.file_path ||
-    `projects/${activeProject?.name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-") ?? "projeto"}/database/data-model.md`;
+    `projects/${activeProject?.name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-") ?? t("screenInspector:common.project")}/database/data-model.md`;
 
   const handleCopyPath = async () => {
     await navigator.clipboard.writeText(docFilePath);
@@ -158,8 +160,8 @@ export default function ConceptErdViewerPage() {
   };
 
   const handleCopyAgentPrompt = async () => {
-    const tablesList = schema?.tables.map((t) => `- ${t.name} (${t.columns.length} colunas)`).join("\n") || "(nenhuma tabela cadastrada)";
-    const prompt = `Por favor, leia a modelagem e as regras de banco de dados do projeto "${activeProject?.name}" no arquivo:\n\`${docFilePath}\`\n\nTabelas principais:\n${tablesList}`;
+    const tablesList = schema?.tables.map((table) => `- ${table.name} (${t("tables.columnsCount", { count: table.columns.length })})`).join("\n") || t("prompt.noTables");
+    const prompt = t("prompt.template", { name: activeProject?.name ?? "", path: docFilePath, tables: tablesList });
     await navigator.clipboard.writeText(prompt);
     setCopiedPrompt(true);
     setTimeout(() => setCopiedPrompt(false), 2000);
@@ -201,7 +203,7 @@ export default function ConceptErdViewerPage() {
 
   const handleDeleteTable = async () => {
     if (!selectedTableElement || !scopeId) return;
-    if (confirm(`Tem certeza que deseja excluir a tabela "${selectedTableName}" e seus campos?`)) {
+    if (confirm(t("tables.deleteConfirm", { name: selectedTableName }))) {
       await deleteTable.mutateAsync({
         scopeId,
         tableId: selectedTableElement.element.id,
@@ -217,10 +219,10 @@ export default function ConceptErdViewerPage() {
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
             <Share2 className="h-6 w-6 text-primary" />
-            3. Banco de Dados & ERD
+            {t("page.title")}
           </h1>
           <p className="text-xs text-muted-foreground mt-1 max-w-3xl leading-relaxed">
-            Modelo relacional de dados e especificação conceitual. Crie tabelas e colunas, derive a partir das telas e registre as diretrizes no documento Markdown.
+            {t("page.description")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -232,14 +234,14 @@ export default function ConceptErdViewerPage() {
             className="gap-1.5 text-xs"
           >
             {deriveDatabase.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4 text-primary" />}
-            Derivar a partir das Telas
+            {t("page.deriveFromScreens")}
           </Button>
           <Link
             to="/screen-inspector"
             className="inline-flex items-center gap-1.5 text-xs rounded-md border border-input bg-background px-3 py-1.5 font-medium hover:bg-accent"
           >
             <Layers className="h-4 w-4 text-primary" />
-            Telas & Regras
+            {t("page.screensAndRules")}
           </Link>
         </div>
       </div>
@@ -248,9 +250,9 @@ export default function ConceptErdViewerPage() {
       <Card className="border-border/60 bg-card/60">
         <CardContent className="grid gap-4 py-4 md:grid-cols-2">
           <div>
-            <Label className="text-xs font-semibold text-muted-foreground">Projeto</Label>
+            <Label className="text-xs font-semibold text-muted-foreground">{t("screenInspector:selectors.project")}</Label>
             <Select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="mt-1">
-              <option value="">Selecione um projeto...</option>
+              <option value="">{t("screenInspector:selectors.selectProject")}</option>
               {projects.data?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -259,12 +261,12 @@ export default function ConceptErdViewerPage() {
             </Select>
           </div>
           <div>
-            <Label className="text-xs font-semibold text-muted-foreground">Escopo do Projeto</Label>
+            <Label className="text-xs font-semibold text-muted-foreground">{t("screenInspector:selectors.scope")}</Label>
             <Select value={scopeId} onChange={(e) => setScopeId(e.target.value)} disabled={!projectId} className="mt-1">
-              <option value="">Selecione um escopo...</option>
+              <option value="">{t("screenInspector:selectors.selectScope")}</option>
               {scopes.data?.map((s) => (
                 <option key={s.id} value={s.id}>
-                  Revisão {s.revision} · {s.status}
+                  {t("screenInspector:selectors.revision", { revision: s.revision, status: s.status })}
                 </option>
               ))}
             </Select>
@@ -276,16 +278,16 @@ export default function ConceptErdViewerPage() {
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             <Database className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
-            Selecione um projeto acima para visualizar e gerenciar a modelagem relacional de banco de dados.
+            {t("empty.selectProject")}
           </CardContent>
         </Card>
       ) : !scopeId ? (
         <Card className="border-primary/30 bg-primary/5">
           <CardContent className="py-10 text-center space-y-3">
             <Database className="mx-auto h-10 w-10 text-primary" />
-            <h3 className="text-sm font-bold">Nenhum escopo encontrado para este projeto</h3>
+            <h3 className="text-sm font-bold">{t("empty.noScopeTitle")}</h3>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              Para modelar tabelas e visualizar o diagrama ERD, inicialize o escopo do projeto.
+              {t("empty.noScopeDescription")}
             </p>
             <Button
               onClick={() => ensureScope.mutate(projectId)}
@@ -293,7 +295,7 @@ export default function ConceptErdViewerPage() {
               className="text-xs gap-1.5"
             >
               {ensureScope.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Inicializar Escopo e Começar
+              {t("screenInspector:empty.initializeScope")}
             </Button>
           </CardContent>
         </Card>
@@ -303,11 +305,11 @@ export default function ConceptErdViewerPage() {
           <TabsList className="grid grid-cols-2 w-full max-w-md bg-muted/60 p-1">
             <TabsTrigger value="modeling" className="gap-1.5 text-xs">
               <Database className="h-3.5 w-3.5" />
-              Modelagem & Diagrama ERD
+              {t("tabs.modeling")}
             </TabsTrigger>
             <TabsTrigger value="markdown" className="gap-1.5 text-xs">
               <FileText className="h-3.5 w-3.5" />
-              Documentação do Banco (.md)
+              {t("tabs.documentation")}
             </TabsTrigger>
           </TabsList>
 
@@ -320,7 +322,7 @@ export default function ConceptErdViewerPage() {
                   <CardHeader className="p-3 border-b flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
                       <Database className="h-4 w-4 text-primary" />
-                      Tabelas ({schema?.tables.length ?? 0})
+                      {t("tables.title", { count: schema?.tables.length ?? 0 })}
                     </CardTitle>
                     <Button
                       size="sm"
@@ -328,22 +330,22 @@ export default function ConceptErdViewerPage() {
                       className="h-7 text-xs gap-1"
                       onClick={() => setShowNewTableForm((v) => !v)}
                     >
-                      <Plus className="h-3.5 w-3.5" /> Nova Tabela
+                      <Plus className="h-3.5 w-3.5" /> {t("tables.new")}
                     </Button>
                   </CardHeader>
                   <CardContent className="p-3 space-y-2">
                     {showNewTableForm && (
                       <div className="p-3 rounded-lg border border-primary/40 bg-primary/5 space-y-2.5">
-                        <Label className="text-xs font-bold text-primary">Cadastrar Nova Tabela</Label>
+                        <Label className="text-xs font-bold text-primary">{t("tables.register")}</Label>
                         <Input
                           className="h-8 text-xs font-mono"
-                          placeholder="nome_da_tabela (snake_case)"
+                          placeholder={t("tables.namePlaceholder")}
                           value={newTableName}
                           onChange={(e) => setNewTableName(e.target.value)}
                         />
                         <Input
                           className="h-8 text-xs"
-                          placeholder="Descrição / finalidade..."
+                          placeholder={t("tables.descriptionPlaceholder")}
                           value={newTableDesc}
                           onChange={(e) => setNewTableDesc(e.target.value)}
                         />
@@ -354,7 +356,7 @@ export default function ConceptErdViewerPage() {
                             className="h-7 text-xs"
                             onClick={() => setShowNewTableForm(false)}
                           >
-                            Cancelar
+                            {t("actions.cancel")}
                           </Button>
                           <Button
                             size="sm"
@@ -363,7 +365,7 @@ export default function ConceptErdViewerPage() {
                             onClick={handleCreateTable}
                           >
                             {createTable.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                            Criar Tabela
+                            {t("tables.create")}
                           </Button>
                         </div>
                       </div>
@@ -371,7 +373,7 @@ export default function ConceptErdViewerPage() {
 
                     {schema?.tables.length === 0 ? (
                       <div className="py-8 text-center text-xs text-muted-foreground border border-dashed rounded-md">
-                        Nenhuma tabela cadastrada. Clique em "+ Nova Tabela" ou derive das telas.
+                        {t("tables.empty")}
                       </div>
                     ) : (
                       <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-1">
@@ -392,7 +394,7 @@ export default function ConceptErdViewerPage() {
                                 {table.name}
                               </span>
                               <Badge variant="secondary" className="text-[10px] px-1.5 h-4">
-                                {table.columns.length} cols
+                                {t("tables.columnsShort", { count: table.columns.length })}
                               </Badge>
                             </button>
                           );
@@ -405,7 +407,7 @@ export default function ConceptErdViewerPage() {
                 {namingIssues.length > 0 && (
                   <Card className="border-amber-500/30 bg-amber-500/5">
                     <CardHeader className="p-3 pb-1">
-                      <CardTitle className="text-xs font-semibold text-amber-600">Avisos de Nomenclatura</CardTitle>
+                      <CardTitle className="text-xs font-semibold text-amber-600">{t("tables.namingWarnings")}</CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-1 text-[11px] text-muted-foreground space-y-1">
                       {namingIssues.map((msg, i) => (
@@ -427,7 +429,7 @@ export default function ConceptErdViewerPage() {
                           {selectedTable.name}
                         </CardTitle>
                         <CardDescription className="text-xs">
-                          {selectedTable.columns.length} coluna(s) cadastradas
+                          {t("tables.columnsRegistered", { count: selectedTable.columns.length })}
                         </CardDescription>
                       </div>
                       <div className="flex items-center gap-2">
@@ -437,14 +439,14 @@ export default function ConceptErdViewerPage() {
                           className="h-8 text-xs gap-1"
                           onClick={() => setShowNewColForm((v) => !v)}
                         >
-                          <Plus className="h-3.5 w-3.5" /> Adicionar Coluna
+                          <Plus className="h-3.5 w-3.5" /> {t("columns.add")}
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
                           className="h-8 text-xs text-destructive hover:bg-destructive/10"
                           onClick={handleDeleteTable}
-                          title="Excluir tabela"
+                          title={t("tables.delete")}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -454,19 +456,19 @@ export default function ConceptErdViewerPage() {
                     <CardContent className="p-4 space-y-4">
                       {showNewColForm && (
                         <div className="p-3.5 rounded-lg border border-primary/30 bg-primary/5 space-y-3">
-                          <div className="font-semibold text-xs text-primary">Nova Coluna na Tabela "{selectedTable.name}"</div>
+                          <div className="font-semibold text-xs text-primary">{t("columns.newInTable", { name: selectedTable.name })}</div>
                           <div className="grid gap-3 sm:grid-cols-3">
                             <div>
-                              <Label className="text-[11px] text-muted-foreground">Nome da Coluna</Label>
+                              <Label className="text-[11px] text-muted-foreground">{t("columns.name")}</Label>
                               <Input
                                 className="h-8 text-xs font-mono mt-1"
-                                placeholder="ex: created_at, user_id"
+                                placeholder={t("columns.namePlaceholder")}
                                 value={newColName}
                                 onChange={(e) => setNewColName(e.target.value)}
                               />
                             </div>
                             <div>
-                              <Label className="text-[11px] text-muted-foreground">Tipo SQL</Label>
+                              <Label className="text-[11px] text-muted-foreground">{t("columns.sqlType")}</Label>
                               <Select
                                 className="h-8 text-xs mt-1"
                                 value={newColType}
@@ -503,7 +505,7 @@ export default function ConceptErdViewerPage() {
                               {newColIsFk && (
                                 <Input
                                   className="h-7 text-xs font-mono"
-                                  placeholder="Tabela de referência..."
+                                  placeholder={t("columns.referenceTable")}
                                   value={newColFkTable}
                                   onChange={(e) => setNewColFkTable(e.target.value)}
                                 />
@@ -513,11 +515,11 @@ export default function ConceptErdViewerPage() {
 
                           <div className="flex justify-end gap-2 pt-1">
                             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowNewColForm(false)}>
-                              Cancelar
+                              {t("actions.cancel")}
                             </Button>
                             <Button size="sm" className="h-7 text-xs gap-1" disabled={!newColName.trim() || addColumn.isPending} onClick={handleAddColumn}>
                               {addColumn.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                              Salvar Coluna
+                              {t("columns.save")}
                             </Button>
                           </div>
                         </div>
@@ -527,9 +529,9 @@ export default function ConceptErdViewerPage() {
                         <table className="w-full text-left text-xs">
                           <thead className="bg-muted/50 border-b font-semibold text-muted-foreground">
                             <tr>
-                              <th className="p-2.5">Coluna</th>
-                              <th className="p-2.5">Tipo SQL</th>
-                              <th className="p-2.5">Atributos</th>
+                              <th className="p-2.5">{t("columns.column")}</th>
+                              <th className="p-2.5">{t("columns.sqlType")}</th>
+                              <th className="p-2.5">{t("columns.attributes")}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y">
@@ -558,7 +560,7 @@ export default function ConceptErdViewerPage() {
                   <CardHeader className="p-4 border-b flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
                       <Share2 className="h-4 w-4 text-primary" />
-                      Diagrama Relacional (Mermaid ERD)
+                      {t("diagram.title")}
                     </CardTitle>
                     <div className="flex items-center gap-2">
                       <Button
@@ -569,14 +571,14 @@ export default function ConceptErdViewerPage() {
                         onClick={() => screensRevisionId && validate.mutate(screensRevisionId)}
                       >
                         <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                        Validar Modelagem
+                        {t("diagram.validate")}
                       </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="p-4">
                     {schema?.tables.length === 0 ? (
                       <div className="py-12 text-center text-xs text-muted-foreground">
-                        Cadastre tabelas ou execute "Derivar a partir das Telas" para visualizar o diagrama interativo.
+                        {t("diagram.empty")}
                       </div>
                     ) : (
                       <div ref={diagramRef} className="w-full overflow-x-auto min-h-[300px] flex justify-center p-2" />
@@ -585,8 +587,8 @@ export default function ConceptErdViewerPage() {
                     {validate.data && (
                       <div className={`mt-4 p-3 rounded-lg border text-xs ${validate.data.valid ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-destructive/30 bg-destructive/10 text-destructive"}`}>
                         {validate.data.valid
-                          ? "✓ Modelagem de dados validada com sucesso sem inconformidades."
-                          : `⚠ ${validate.data.issues.length} problema(s) encontrado(s) na modelagem.`}
+                          ? t("diagram.valid")
+                          : t("diagram.issues", { count: validate.data.issues.length })}
                       </div>
                     )}
                   </CardContent>
@@ -602,13 +604,13 @@ export default function ConceptErdViewerPage() {
               <CardContent className="p-3.5 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-primary">Local do Arquivo MD:</span>
+                    <span className="font-semibold text-primary">{t("screenInspector:rules.fileLocation")}</span>
                     <code className="rounded bg-background/80 px-2 py-0.5 font-mono text-[11px] border">
                       {docFilePath}
                     </code>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Documento de especificação técnica e contexto da modelagem de dados para os agentes de banco e backend.
+                    {t("documentation.description")}
                   </p>
                 </div>
 
@@ -620,7 +622,7 @@ export default function ConceptErdViewerPage() {
                     onClick={handleCopyPath}
                   >
                     {copiedPath ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-                    {copiedPath ? "Caminho Copiado!" : "Copiar Caminho"}
+                    {copiedPath ? t("screenInspector:rules.pathCopied") : t("screenInspector:rules.copyPath")}
                   </Button>
                   <Button
                     size="sm"
@@ -629,7 +631,7 @@ export default function ConceptErdViewerPage() {
                     onClick={handleCopyAgentPrompt}
                   >
                     {copiedPrompt ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Sparkles className="h-3.5 w-3.5 text-primary" />}
-                    {copiedPrompt ? "Prompt Copiado!" : "Copiar Prompt p/ Agente"}
+                    {copiedPrompt ? t("screenInspector:rules.promptCopied") : t("screenInspector:rules.copyPrompt")}
                   </Button>
                 </div>
               </CardContent>
@@ -639,7 +641,7 @@ export default function ConceptErdViewerPage() {
             <Card className="border-border/70">
               <CardHeader className="p-4 border-b flex flex-row items-center justify-between space-y-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-muted-foreground">Visualização:</span>
+                  <span className="text-xs font-semibold text-muted-foreground">{t("screenInspector:rules.view")}</span>
                   <div className="flex gap-1">
                     <Button
                       size="sm"
@@ -647,7 +649,7 @@ export default function ConceptErdViewerPage() {
                       className="h-7 text-xs"
                       onClick={() => setMdTab("edit")}
                     >
-                      <Code className="mr-1 h-3.5 w-3.5" /> Editar (.md)
+                      <Code className="mr-1 h-3.5 w-3.5" /> {t("screenInspector:rules.edit")}
                     </Button>
                     <Button
                       size="sm"
@@ -655,7 +657,7 @@ export default function ConceptErdViewerPage() {
                       className="h-7 text-xs"
                       onClick={() => setMdTab("preview")}
                     >
-                      <Eye className="mr-1 h-3.5 w-3.5" /> Renderizado
+                      <Eye className="mr-1 h-3.5 w-3.5" /> {t("screenInspector:rules.rendered")}
                     </Button>
                     <Button
                       size="sm"
@@ -663,7 +665,7 @@ export default function ConceptErdViewerPage() {
                       className="h-7 text-xs"
                       onClick={() => setMdTab("split")}
                     >
-                      <Columns className="mr-1 h-3.5 w-3.5" /> Lado a Lado
+                      <Columns className="mr-1 h-3.5 w-3.5" /> {t("screenInspector:rules.sideBySide")}
                     </Button>
                   </div>
                 </div>
@@ -671,7 +673,7 @@ export default function ConceptErdViewerPage() {
                 <div className="flex items-center gap-2">
                   {databaseDoc.data?.updated_at && (
                     <span className="text-[10px] text-muted-foreground">
-                      Salvo em: {new Date(databaseDoc.data.updated_at).toLocaleString("pt-BR")}
+                      {t("screenInspector:rules.savedAt", { date: new Date(databaseDoc.data.updated_at).toLocaleString(i18n.language) })}
                     </span>
                   )}
                   <Button
@@ -681,7 +683,7 @@ export default function ConceptErdViewerPage() {
                     className="h-7 text-xs gap-1.5"
                   >
                     {saveDatabaseDoc.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    Salvar Documento (.md)
+                    {t("documentation.save")}
                   </Button>
                 </div>
               </CardHeader>
@@ -690,7 +692,7 @@ export default function ConceptErdViewerPage() {
                 {databaseDoc.isLoading ? (
                   <div className="py-12 text-center text-xs text-muted-foreground">
                     <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin text-primary" />
-                    Carregando documentação do banco de dados...
+                    {t("documentation.loading")}
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -698,13 +700,7 @@ export default function ConceptErdViewerPage() {
                       <Textarea
                         rows={20}
                         className="resize-none bg-muted/20 font-mono text-xs leading-relaxed"
-                        placeholder="# Modelagem de Dados e Regras de Banco
-
-## 1. Visão Geral do Schema
-
-## 2. Tabelas e Relacionamentos
-
-## 3. Índices e Restrições de Integridade"
+                        placeholder={t("documentation.editorPlaceholder")}
                         value={docContent}
                         onChange={(e) => setDocContent(e.target.value)}
                       />
@@ -715,7 +711,7 @@ export default function ConceptErdViewerPage() {
                         {docContent.trim() ? (
                           <Markdown content={docContent} />
                         ) : (
-                          <p className="text-muted-foreground italic">Nenhum conteúdo de documentação cadastrado ainda.</p>
+                          <p className="text-muted-foreground italic">{t("documentation.noContent")}</p>
                         )}
                       </div>
                     )}
@@ -723,22 +719,22 @@ export default function ConceptErdViewerPage() {
                     {mdTab === "split" && (
                       <div className="grid gap-4 lg:grid-cols-2">
                         <div className="space-y-1.5">
-                          <Label className="text-xs text-muted-foreground">Editor Markdown (.md)</Label>
+                          <Label className="text-xs text-muted-foreground">{t("screenInspector:rules.markdownEditor")}</Label>
                           <Textarea
                             rows={20}
                             className="resize-none bg-muted/20 font-mono text-xs leading-relaxed"
-                            placeholder="# Modelagem de Dados e Regras de Banco..."
+                            placeholder={t("documentation.shortPlaceholder")}
                             value={docContent}
                             onChange={(e) => setDocContent(e.target.value)}
                           />
                         </div>
                         <div className="space-y-1.5 flex flex-col">
-                          <Label className="text-xs text-muted-foreground">Preview Renderizado</Label>
+                          <Label className="text-xs text-muted-foreground">{t("screenInspector:rules.renderedPreview")}</Label>
                           <div className="flex-1 rounded-md border p-4 bg-card text-xs overflow-y-auto max-h-[440px]">
                             {docContent.trim() ? (
                               <Markdown content={docContent} />
                             ) : (
-                              <p className="text-muted-foreground italic">Nenhum conteúdo para renderizar.</p>
+                              <p className="text-muted-foreground italic">{t("screenInspector:rules.nothingToRender")}</p>
                             )}
                           </div>
                         </div>

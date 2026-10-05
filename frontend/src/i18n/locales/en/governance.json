@@ -147,5 +147,50 @@
       "cancel": "Cancel",
       "save": "Save"
     }
+  },
+  "gate": {
+    "title": "5. Governance gate",
+    "description": "Validate and release planned work into the agents’ execution pipeline.",
+    "seeAlso": "See also",
+    "policies": "Policies",
+    "bannerTitle": "Execution release gate",
+    "bannerDescription": "<strong>Unvalidated items remain in the Backlog</strong>. After moving through <strong>In analysis</strong> and <strong>Released</strong>, they enter the agents’ and developers’ <strong>Execution</strong> pipeline.",
+    "projectFilter": "Filter project:",
+    "allProjects": "All projects",
+    "loading": "Loading governance items...",
+    "emptyTitle": "No items found in this governance category",
+    "emptyDescription": "Change the filters above to view Backlog, In analysis or Released items.",
+    "projectFallback": "Project",
+    "priority": "Priority",
+    "assignedAgent": "Assigned agent",
+    "selectAgent": "Select an agent *",
+    "selectAgentFirst": "Select an executor agent before releasing this item",
+    "releaseHelp": "Release item for execution",
+    "release": "Release for execution",
+    "moveToAnalysis": "Move to analysis",
+    "backToBacklog": "Return to Backlog",
+    "reject": "Reject",
+    "taskCount_one": "{{count}} task",
+    "taskCount_other": "{{count}} tasks",
+    "categories": {
+      "in_analysis": "In analysis",
+      "backlog": "In Backlog (unvalidated)",
+      "released": "Released for execution",
+      "rejected": "Rejected / Blocked",
+      "all": "All"
+    },
+    "badges": {
+      "released": "✓ Released for execution",
+      "in_analysis": "⏳ In analysis",
+      "rejected": "✗ Rejected",
+      "backlog": "📋 In Backlog"
+    },
+    "priorities": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical",
+      "urgent": "Urgent"
+    }
   }
 }

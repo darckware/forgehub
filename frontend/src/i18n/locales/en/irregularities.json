@@ -1,0 +1,21 @@
+{
+  "title": "Irregularities",
+  "description": "Client workstation monitoring findings requiring review.",
+  "filters": {
+    "status": { "all": "All statuses", "open": "Open", "acknowledged": "Acknowledged", "resolved": "Resolved" },
+    "severity": { "all": "All severities", "critical": "Critical", "warning": "Warning", "info": "Info" },
+    "rule": {
+      "all": "All rules",
+      "disk_space_low": "Low disk space",
+      "backup_stale": "Outdated backup",
+      "unauthorized_remote_tool": "Unauthorized remote tool",
+      "critical_service_down": "Critical service down",
+      "collection_failed": "Collection failed",
+      "agent_unreachable": "Agent unreachable"
+    }
+  },
+  "table": { "workstationClient": "Workstation / Client", "rule": "Rule", "severity": "Severity", "detail": "Detail", "status": "Status", "detectedAt": "Detected at", "actions": "Actions" },
+  "empty": "No irregularities found.",
+  "resolve": "Mark as resolved",
+  "confirmResolve": "Mark “{{detail}}” as resolved?"
+}

@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import ReCAPTCHA from "react-google-recaptcha";
 import { motion } from "framer-motion";
 import {
@@ -208,18 +209,18 @@ function ForgeBackdrop() {
 const PILLARS = [
   {
     icon: GitBranch,
-    title: "Governed pipelines",
-    text: "Stage gates with mandatory artifacts and explicit approvals before anything moves forward.",
+    title: "pillarGovernedTitle",
+    text: "pillarGovernedText",
   },
   {
     icon: Bot,
-    title: "Agent execution",
-    text: "AI agents pick up planned tasks and execute them under recorded, auditable runs.",
+    title: "pillarExecutionTitle",
+    text: "pillarExecutionText",
   },
   {
     icon: ShieldCheck,
-    title: "End-to-end traceability",
-    text: "Every feature, task and artifact stays linked to product, version, owner and audit trail.",
+    title: "pillarTraceabilityTitle",
+    text: "pillarTraceabilityText",
   },
 ];
 
@@ -229,6 +230,7 @@ const PILLARS = [
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
 
 export default function LoginPage() {
+  const { t } = useTranslation("common");
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string })?.from ?? "/";
@@ -293,10 +295,10 @@ export default function LoginPage() {
           >
             <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-500/10 px-3 py-1 text-xs font-medium tracking-wide text-indigo-300">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              AI delivery control plane
+              {t("auth.tagline")}
             </p>
             <h1 className="text-4xl font-semibold leading-tight tracking-tight">
-              Plan, govern and execute software with AI agents.
+              {t("auth.heroTitle")}
             </h1>
 
             <div className="mt-10 flex flex-col gap-6">
@@ -312,8 +314,8 @@ export default function LoginPage() {
                     <p.icon className="h-5 w-5 text-indigo-300" />
                   </div>
                   <div>
-                    <p className="font-medium">{p.title}</p>
-                    <p className="text-sm text-muted-foreground">{p.text}</p>
+                    <p className="font-medium">{t(`auth.${p.title}`)}</p>
+                    <p className="text-sm text-muted-foreground">{t(`auth.${p.text}`)}</p>
                   </div>
                 </motion.div>
               ))}
@@ -321,7 +323,7 @@ export default function LoginPage() {
           </motion.div>
 
           <p className="font-mono text-xs text-muted-foreground/70">
-            ForgeHub · API v1 · products → pipelines → tasks → agents → audit
+            {t("auth.footer")}
           </p>
         </div>
 
@@ -341,9 +343,9 @@ export default function LoginPage() {
 
             <div className="rounded-xl border border-white/10 bg-card/60 p-8 shadow-2xl shadow-indigo-950/40 backdrop-blur-xl">
               <div className="mb-6">
-                <h2 className="text-2xl font-semibold tracking-tight">Welcome back</h2>
+                <h2 className="text-2xl font-semibold tracking-tight">{t("auth.welcomeBack")}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Sign in to your workspace
+                  {t("auth.signInToWorkspace")}
                 </p>
               </div>
 
@@ -352,17 +354,17 @@ export default function LoginPage() {
                   <div className="flex flex-col items-center gap-2 text-center">
                     <ShieldAlert className="h-8 w-8 text-amber-400" />
                     <p className="text-sm font-medium text-foreground">
-                      Two-factor authentication
+                      {t("auth.twoFactorTitle")}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {useRecoveryCode
-                        ? "Enter one of your 8-character recovery codes."
-                        : "Open your authenticator app (Google Authenticator, Authy, etc.) and enter the 6-digit code."}
+                        ? t("auth.recoveryInstructions")
+                        : t("auth.authenticatorInstructions")}
                     </p>
                   </div>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor="totp-code" className="text-center">
-                      {useRecoveryCode ? "Recovery code" : "Authenticator 6-digit code"}
+                      {useRecoveryCode ? t("auth.recoveryCode") : t("auth.authenticatorCode")}
                     </Label>
                     {useRecoveryCode ? (
                       <Input
@@ -387,8 +389,8 @@ export default function LoginPage() {
                     )}
                     <p className="text-[11px] text-muted-foreground/80 text-center">
                       {useRecoveryCode
-                        ? "Each recovery code can only be used once."
-                        : "Codes change every 30 seconds. No SMS or email is sent."}
+                        ? t("auth.recoveryCodeOnce")
+                        : t("auth.authenticatorCodeHelp")}
                     </p>
                   </div>
                   <div className="flex items-center justify-between pt-1">
@@ -403,7 +405,7 @@ export default function LoginPage() {
                       }}
                     >
                       <ArrowLeft className="h-3 w-3" />
-                      Back to sign in
+                      {t("auth.backToSignIn")}
                     </button>
                     <button
                       type="button"
@@ -413,7 +415,7 @@ export default function LoginPage() {
                         setTotpCode("");
                       }}
                     >
-                      {useRecoveryCode ? "Use authenticator app" : "Use a recovery code"}
+                      {useRecoveryCode ? t("auth.useAuthenticator") : t("auth.useRecoveryCode")}
                     </button>
                   </div>
                   {verifyTotp.error && (
@@ -430,7 +432,7 @@ export default function LoginPage() {
                             setUseRecoveryCode(false);
                           }}
                         >
-                          ← Clique aqui para entrar com usuário e senha novamente
+                          {t("auth.restartSignIn")}
                         </button>
                       )}
                     </div>
@@ -448,13 +450,13 @@ export default function LoginPage() {
                     ) : (
                       <ShieldCheck className="h-4 w-4" />
                     )}
-                    Verify & Sign in
+                    {t("auth.verifyAndSignIn")}
                   </Button>
                 </form>
               ) : (
                 <form noValidate onSubmit={handleSubmit} className="flex flex-col gap-4">
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="username">Username</Label>
+                    <Label htmlFor="username">{t("auth.username")}</Label>
                     <div className="relative">
                       <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -463,13 +465,13 @@ export default function LoginPage() {
                         autoComplete="username"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
-                        placeholder="Enter your username"
+                        placeholder={t("auth.enterUsername")}
                         className="pl-9"
                       />
                     </div>
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="password">Password</Label>
+                    <Label htmlFor="password">{t("auth.password")}</Label>
                     <div className="relative">
                       <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -498,7 +500,7 @@ export default function LoginPage() {
                       onChange={(e) => setRememberMeChecked(e.target.checked)}
                       className="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-indigo-500"
                     />
-                    Stay logged in
+                    {t("auth.stayLoggedIn")}
                   </label>
 
                   {RECAPTCHA_SITE_KEY && (
@@ -527,14 +529,14 @@ export default function LoginPage() {
                     ) : (
                       <LogIn className="h-4 w-4" />
                     )}
-                    Sign in
+                    {t("auth.signIn")}
                   </Button>
                 </form>
               )}
             </div>
 
             <p className="mt-6 text-center text-xs text-muted-foreground/70">
-              Restricted access — activity on this platform is audited.
+              {t("auth.restrictedAccess")}
             </p>
           </motion.div>
         </div>

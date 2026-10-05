@@ -1,4 +1,8 @@
 {
+  "linkPanel": {
+    "title": "Vínculos do planejamento", "empty": "Nenhum vínculo ainda.", "remove": "Remover vínculo", "loading": "Carregando…", "select": "Selecionar…", "link": "Vincular",
+    "entity": { "product": "Produto", "product_version": "Versão", "project": "Projeto", "pipeline": "Pipeline", "planning_item": "Planejamento", "task": "Tarefa", "artifact": "Artefato" }
+  },
   "pathPrompt": {
     "ok": "OK",
     "cancel": "Cancelar"

@@ -47,6 +47,7 @@
     "selectDocumentFirst": "Select a document first."
   },
   "scriptForm": {
+    "descriptionExample": "Transcribes Telegram voice notes before handing them to the agent",
     "enterFilename": "Enter a script filename, e.g. telegram_audio_transcriber.py",
     "couldNotSave": "Could not save.",
     "editScript": "Edit script",

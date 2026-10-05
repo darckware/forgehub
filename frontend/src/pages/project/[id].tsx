@@ -97,10 +97,10 @@ export default function ProjectDetailPage() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <Settings className="h-5 w-5 shrink-0 text-primary" />
-                <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight">Configurações do Projeto: {project.name}</h1>
+                <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight">{t("detail.settingsFor", { name: project.name })}</h1>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {project.description || "Gerencie configurações de repositório, diretório de trabalho e especificações do projeto."}
+                {project.description || t("detail.settingsDescription")}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -130,7 +130,7 @@ export default function ProjectDetailPage() {
                 className={buttonVariants({ variant: "default", size: "sm" }) + " text-xs gap-1.5"}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                Voltar à Central de Backlog
+                {t("detail.backToBacklog")}
               </Link>
             </div>
           </div>
@@ -174,7 +174,7 @@ export default function ProjectDetailPage() {
                 <div>
                   <CardTitle className="flex items-center gap-2 text-base font-semibold">
                     <ListTodo className="h-4 w-4 text-primary" />
-                    Itens de Planejamento & Backlog
+                    {t("detail.planningBacklog")}
                     {projectPlanningItems && (
                       <span className="text-xs font-normal text-muted-foreground">
                         ({projectPlanningItems.length})
@@ -182,7 +182,7 @@ export default function ProjectDetailPage() {
                     )}
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Planejamentos e features vinculados a este projeto.
+                    {t("detail.planningDescription")}
                   </CardDescription>
                 </div>
                 <Link
@@ -190,24 +190,24 @@ export default function ProjectDetailPage() {
                   className={buttonVariants({ variant: "outline", size: "sm" }) + " text-xs gap-1.5 h-8"}
                 >
                   <ListTodo className="h-3.5 w-3.5" />
-                  Gerenciar Backlog
+                  {t("detail.manageBacklog")}
                 </Link>
               </CardHeader>
               <CardContent className="flex-1 space-y-3">
                 {isLoadingPlanning ? (
                   <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando planejamentos...
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("detail.loadingPlanning")}
                   </div>
                 ) : !projectPlanningItems || projectPlanningItems.length === 0 ? (
                   <div className="rounded-md border border-dashed p-4 text-center">
                     <p className="text-xs italic text-muted-foreground">
-                      Nenhum item de planejamento cadastrado para este projeto.
+                      {t("detail.noPlanning")}
                     </p>
                     <Link
                       to={`/projects?view=project_detail&project_id=${project.id}`}
                       className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium"
                     >
-                      <Plus className="h-3 w-3" /> Criar planejamento na Central de Backlog
+                      <Plus className="h-3 w-3" /> {t("detail.createPlanning")}
                     </Link>
                   </div>
                 ) : (
@@ -223,12 +223,12 @@ export default function ProjectDetailPage() {
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
                               <Badge variant="outline" className="text-[10px] capitalize shrink-0 font-normal">
-                                {item.item_type}
+                                {t(`central.itemTypes.${item.item_type}`, item.item_type)}
                               </Badge>
                               <span className="font-semibold truncate text-foreground">{item.title}</span>
                             </div>
                             <Badge variant="secondary" className="text-[10px] capitalize shrink-0">
-                              {item.status}
+                              {t(`central.planningStatus.${item.status}`, item.status)}
                             </Badge>
                           </div>
                           {item.description && (
@@ -238,8 +238,8 @@ export default function ProjectDetailPage() {
                             <span className="flex items-center gap-1">
                               <CheckSquare className="h-3 w-3 text-emerald-500" />
                               {tasks.length === 0
-                                ? "Sem tarefas vinculadas"
-                                : `${doneTasks}/${tasks.length} tarefas concluídas`}
+                                ? t("detail.noLinkedTasks")
+                                : t("detail.completedTasksCount", { done: doneTasks, total: tasks.length })}
                             </span>
                             {item.output_path && (
                               <span className="font-mono text-[10px] truncate max-w-[140px]" title={item.output_path}>
@@ -269,14 +269,14 @@ export default function ProjectDetailPage() {
                   productVersion ? (
                     <div className="rounded-md border p-3 bg-muted/20 space-y-2 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-sm text-foreground">Versão {productVersion.version}</span>
+                        <span className="font-bold text-sm text-foreground">{t("detail.versionNumber", { version: productVersion.version })}</span>
                         <Badge variant="outline" className="capitalize text-[10px]">
                           {t(`enums.productVersionStatus.${productVersion.status}`, productVersion.status)}
                         </Badge>
                       </div>
                       {productVersion.release_notes && (
                         <div className="text-muted-foreground pt-1 border-t text-[11px]">
-                          <p className="font-medium text-foreground mb-0.5">Notas da versão:</p>
+                          <p className="font-medium text-foreground mb-0.5">{t("detail.releaseNotes")}</p>
                           <p className="line-clamp-3">{productVersion.release_notes}</p>
                         </div>
                       )}

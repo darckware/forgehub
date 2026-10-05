@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { Trans, useTranslation } from "react-i18next";
 import {
   Bot,
   CheckSquare,
@@ -31,6 +32,7 @@ import { useAgents } from "@/hooks/useAgent";
 type PlanningGateCategory = "all" | "in_analysis" | "backlog" | "released" | "rejected";
 
 function PlanningGateTab() {
+  const { t } = useTranslation("governance");
   const { data: planningItems, isLoading: isLoadingPlanning } = usePlanningItems();
   const { data: projects } = useProjects();
   const { data: tasks } = useTasks();
@@ -115,23 +117,23 @@ function PlanningGateTab() {
           <div>
             <h3 className="font-semibold text-sm flex items-center gap-1.5">
               <ShieldCheck className="h-4 w-4 text-primary" />
-              Gate de Liberação para Execução
+              {t("gate.bannerTitle")}
             </h3>
             <p className="text-muted-foreground mt-0.5">
-              Itens <strong>não validados permanecem no Backlog</strong>. Ao serem colocados <strong>Em Análise</strong> e <strong>Liberados</strong>, eles transitam diretamente para a esteira de <strong>Execução</strong> dos agentes e desenvolvedores.
+              <Trans ns="governance" i18nKey="gate.bannerDescription" components={{ strong: <strong /> }} />
             </p>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
             <Label className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">
-              Filtrar Projeto:
+              {t("gate.projectFilter")}
             </Label>
             <Select
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
               className="h-8 text-xs w-48 bg-background"
             >
-              <option value="">Todos os Projetos</option>
+              <option value="">{t("gate.allProjects")}</option>
               {projects?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -151,7 +153,7 @@ function PlanningGateTab() {
           onClick={() => setCategoryFilter("in_analysis")}
         >
           <span className="h-2 w-2 rounded-full bg-amber-500" />
-          Em Análise <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.in_analysis}</Badge>
+          {t("gate.categories.in_analysis")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.in_analysis}</Badge>
         </Button>
         <Button
           size="sm"
@@ -160,7 +162,7 @@ function PlanningGateTab() {
           onClick={() => setCategoryFilter("backlog")}
         >
           <span className="h-2 w-2 rounded-full bg-zinc-400" />
-          No Backlog (Não Validados) <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.backlog}</Badge>
+          {t("gate.categories.backlog")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.backlog}</Badge>
         </Button>
         <Button
           size="sm"
@@ -169,7 +171,7 @@ function PlanningGateTab() {
           onClick={() => setCategoryFilter("released")}
         >
           <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          Liberados para Execução <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.released}</Badge>
+          {t("gate.categories.released")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.released}</Badge>
         </Button>
         <Button
           size="sm"
@@ -178,7 +180,7 @@ function PlanningGateTab() {
           onClick={() => setCategoryFilter("rejected")}
         >
           <span className="h-2 w-2 rounded-full bg-rose-500" />
-          Rejeitados / Bloqueados <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.rejected}</Badge>
+          {t("gate.categories.rejected")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.rejected}</Badge>
         </Button>
         <Button
           size="sm"
@@ -186,7 +188,7 @@ function PlanningGateTab() {
           className="h-8 text-xs gap-1.5"
           onClick={() => setCategoryFilter("all")}
         >
-          Todos <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.all}</Badge>
+          {t("gate.categories.all")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.all}</Badge>
         </Button>
       </div>
 
@@ -194,17 +196,17 @@ function PlanningGateTab() {
       {isLoadingPlanning ? (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground text-xs">
           <Loader2 className="h-5 w-5 animate-spin text-primary" />
-          Carregando itens de governança...
+          {t("gate.loading")}
         </div>
       ) : filteredItems.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="py-12 text-center text-xs text-muted-foreground space-y-2">
             <ShieldCheck className="mx-auto h-8 w-8 text-muted-foreground/30" />
             <p className="font-semibold text-sm text-foreground">
-              Nenhum item encontrado nesta categoria de governança
+              {t("gate.emptyTitle")}
             </p>
             <p className="text-[11px] text-muted-foreground">
-              Alterne os filtros acima para visualizar itens no Backlog, Em Análise ou Liberados.
+              {t("gate.emptyDescription")}
             </p>
           </CardContent>
         </Card>
@@ -214,7 +216,7 @@ function PlanningGateTab() {
             const isActing = actingItemId === item.id && updatePlanning.isPending;
             const gateCat = getGateCategory(item);
             const taskCount = tasksCountMap.get(item.id) || 0;
-            const projectName = (item.project_id && projectMap.get(item.project_id)) || "Projeto";
+            const projectName = (item.project_id && projectMap.get(item.project_id)) || t("gate.projectFallback");
 
             return (
               <Card key={item.id} className="border-border/80 hover:border-primary/30 transition-colors">
@@ -240,12 +242,12 @@ function PlanningGateTab() {
                         className="text-[10px]"
                       >
                         {gateCat === "released"
-                          ? "✓ Liberado para Execução"
+                          ? t("gate.badges.released")
                           : gateCat === "in_analysis"
-                          ? "⏳ Em Análise"
+                          ? t("gate.badges.in_analysis")
                           : gateCat === "rejected"
-                          ? "✗ Rejeitado"
-                          : "📋 No Backlog"}
+                          ? t("gate.badges.rejected")
+                          : t("gate.badges.backlog")}
                       </Badge>
                       <h4 className="font-semibold text-sm text-foreground truncate max-w-lg">
                         {item.title}
@@ -253,17 +255,17 @@ function PlanningGateTab() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3 text-muted-foreground text-[11px]">
-                      <span>Prioridade: <strong className="text-foreground uppercase">{item.priority}</strong></span>
+                      <span>{t("gate.priority")}: <strong className="text-foreground uppercase">{t(`gate.priorities.${item.priority}`, { defaultValue: item.priority })}</strong></span>
                       <span>·</span>
                       <span className="flex items-center gap-1">
-                        <CheckSquare className="h-3 w-3 text-primary" /> {taskCount} tarefa(s)
+                        <CheckSquare className="h-3 w-3 text-primary" /> {t("gate.taskCount", { count: taskCount })}
                       </span>
                       {assignedAgents[item.id] && (
                         <>
                           <span>·</span>
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary font-semibold">
                             <Bot className="h-3 w-3" />
-                            {agents?.find((a) => a.id === assignedAgents[item.id])?.name ?? "Agente Atribuído"}
+                            {agents?.find((a) => a.id === assignedAgents[item.id])?.name ?? t("gate.assignedAgent")}
                           </span>
                         </>
                       )}
@@ -294,7 +296,7 @@ function PlanningGateTab() {
                         }
                         className="h-7 text-xs border-0 bg-transparent p-0 w-40 font-medium focus:ring-0"
                       >
-                        <option value="">Selecione o Agente *</option>
+                        <option value="">{t("gate.selectAgent")}</option>
                         {agents?.map((agent) => (
                           <option key={agent.id} value={agent.id}>
                             {agent.name} ({agent.agent_type})
@@ -311,12 +313,12 @@ function PlanningGateTab() {
                         onClick={() => handleSetStatus(item, "in_progress")}
                         title={
                           !assignedAgents[item.id]
-                            ? "Selecione um Agente Executor antes de liberar para execução"
-                            : "Liberar item para execução"
+                            ? t("gate.selectAgentFirst")
+                            : t("gate.releaseHelp")
                         }
                       >
                         {isActing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlayCircle className="h-3.5 w-3.5" />}
-                        Liberar p/ Execução
+                        {t("gate.release")}
                       </Button>
                     )}
 
@@ -329,7 +331,7 @@ function PlanningGateTab() {
                         onClick={() => handleSetStatus(item, "triaged")}
                       >
                         <Clock className="h-3.5 w-3.5" />
-                        Colocar Em Análise
+                        {t("gate.moveToAnalysis")}
                       </Button>
                     )}
 
@@ -342,7 +344,7 @@ function PlanningGateTab() {
                         onClick={() => handleSetStatus(item, "new")}
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
-                        Voltar p/ Backlog
+                        {t("gate.backToBacklog")}
                       </Button>
                     )}
 
@@ -355,7 +357,7 @@ function PlanningGateTab() {
                         onClick={() => handleSetStatus(item, "rejected")}
                       >
                         <XCircle className="h-3.5 w-3.5" />
-                        Rejeitar
+                        {t("gate.reject")}
                       </Button>
                     )}
                   </div>
@@ -370,15 +372,16 @@ function PlanningGateTab() {
 }
 
 export default function GovernancePage() {
+  const { t } = useTranslation("governance");
   return (
     <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
           <ShieldCheck className="h-6 w-6 text-primary" />
-          5. Gate de Governança
+          {t("gate.title")}
         </h1>
         <p className="text-xs text-muted-foreground mt-1">
-          Validação e controle de liberação do planejamento para a esteira de execução dos agentes. Ver também <Link to="/governance/policies" className="text-primary font-semibold hover:underline">Políticas</Link>.
+          {t("gate.description")} {t("gate.seeAlso")} <Link to="/governance/policies" className="text-primary font-semibold hover:underline">{t("gate.policies")}</Link>.
         </p>
       </div>
 

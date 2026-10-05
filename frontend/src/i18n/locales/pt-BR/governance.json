@@ -147,5 +147,50 @@
       "cancel": "Cancelar",
       "save": "Salvar"
     }
+  },
+  "gate": {
+    "title": "5. Gate de Governança",
+    "description": "Validação e controle de liberação do planejamento para a esteira de execução dos agentes.",
+    "seeAlso": "Veja também",
+    "policies": "Políticas",
+    "bannerTitle": "Gate de Liberação para Execução",
+    "bannerDescription": "Itens <strong>não validados permanecem no Backlog</strong>. Ao serem colocados <strong>Em Análise</strong> e <strong>Liberados</strong>, eles transitam diretamente para a esteira de <strong>Execução</strong> dos agentes e desenvolvedores.",
+    "projectFilter": "Filtrar projeto:",
+    "allProjects": "Todos os projetos",
+    "loading": "Carregando itens de governança...",
+    "emptyTitle": "Nenhum item encontrado nesta categoria de governança",
+    "emptyDescription": "Alterne os filtros acima para visualizar itens no Backlog, Em Análise ou Liberados.",
+    "projectFallback": "Projeto",
+    "priority": "Prioridade",
+    "assignedAgent": "Agente atribuído",
+    "selectAgent": "Selecione o agente *",
+    "selectAgentFirst": "Selecione um agente executor antes de liberar para execução",
+    "releaseHelp": "Liberar item para execução",
+    "release": "Liberar para execução",
+    "moveToAnalysis": "Colocar em análise",
+    "backToBacklog": "Voltar para o Backlog",
+    "reject": "Rejeitar",
+    "taskCount_one": "{{count}} tarefa",
+    "taskCount_other": "{{count}} tarefas",
+    "categories": {
+      "in_analysis": "Em análise",
+      "backlog": "No Backlog (não validados)",
+      "released": "Liberados para execução",
+      "rejected": "Rejeitados / Bloqueados",
+      "all": "Todos"
+    },
+    "badges": {
+      "released": "✓ Liberado para execução",
+      "in_analysis": "⏳ Em análise",
+      "rejected": "✗ Rejeitado",
+      "backlog": "📋 No Backlog"
+    },
+    "priorities": {
+      "low": "Baixa",
+      "medium": "Média",
+      "high": "Alta",
+      "critical": "Crítica",
+      "urgent": "Urgente"
+    }
   }
 }

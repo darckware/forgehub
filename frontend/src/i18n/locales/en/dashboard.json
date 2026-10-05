@@ -112,6 +112,7 @@
     "loading": "Loading CLI router status...",
     "loadError": "Failed to connect to host bridge to check CLI router configurations.",
     "toggleSuccess": "Successfully updated {{tool}} configuration.",
-    "toggleError": "Failed to update {{tool}} configuration."
+    "toggleError": "Failed to update {{tool}} configuration.",
+    "status": "Status"
   }
 }

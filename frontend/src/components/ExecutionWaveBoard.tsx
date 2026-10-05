@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useTasks } from "@/hooks/useTask";
 import { usePlanningItems } from "@/hooks/useBacklog";
+import { useTranslation } from "react-i18next";
 
 const COLUMNS: {
   key: "planned" | "in_progress" | "blocked" | "failed" | "done";
@@ -25,6 +26,7 @@ const COLUMNS: {
 ];
 
 export function ExecutionWaveBoard({ projectId }: { projectId?: string }) {
+  const { t } = useTranslation("executionWave");
   const { data: allTasks = [], isLoading } = useTasks();
   const { data: planningItems = [] } = usePlanningItems();
 
@@ -62,9 +64,9 @@ export function ExecutionWaveBoard({ projectId }: { projectId?: string }) {
         <div className="flex items-center gap-2">
           <Kanban className="h-5 w-5 text-primary" />
           <div>
-            <h4 className="text-sm font-semibold text-foreground">Fluxo de Execução de Tarefas</h4>
+            <h4 className="text-sm font-semibold text-foreground">{t("title")}</h4>
             <p className="text-xs text-muted-foreground">
-              Acompanhe o estado das tarefas deliberadas e governadas pelo Governance Gate.
+              {t("description")}
             </p>
           </div>
         </div>
@@ -73,7 +75,7 @@ export function ExecutionWaveBoard({ projectId }: { projectId?: string }) {
           <div className="relative w-64">
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Buscar tarefas no quadro..."
+              placeholder={t("search")}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="h-8 pl-8 text-xs"
@@ -84,15 +86,15 @@ export function ExecutionWaveBoard({ projectId }: { projectId?: string }) {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-16 text-muted-foreground text-xs gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-primary" /> Carregando quadro de execução...
+          <Loader2 className="h-4 w-4 animate-spin text-primary" /> {t("loading")}
         </div>
       ) : projectTasks.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="py-12 text-center space-y-2">
             <Clock className="h-8 w-8 mx-auto text-muted-foreground/50" />
-            <p className="text-sm font-medium">Nenhuma tarefa encontrada para este projeto</p>
+            <p className="text-sm font-medium">{t("noTasks")}</p>
             <p className="text-xs text-muted-foreground">
-              Cadastre itens de planejamento e adicione tarefas na aba "Planejamento & Tarefas".
+              {t("noTasksHint")}
             </p>
           </CardContent>
         </Card>
@@ -130,7 +132,7 @@ export function ExecutionWaveBoard({ projectId }: { projectId?: string }) {
                 {/* Header da Coluna */}
                 <div className="flex items-center justify-between pb-2 border-b mb-3">
                   <span className="text-xs font-bold tracking-tight text-foreground flex items-center gap-1.5">
-                    {col.label}
+                    {t(`columns.${col.key}`)}
                   </span>
                   <Badge variant={col.badgeVariant} className="text-[10px] px-1.5 py-0 h-4">
                     {columnTasks.length}
@@ -141,7 +143,7 @@ export function ExecutionWaveBoard({ projectId }: { projectId?: string }) {
                 <div className="space-y-2.5 flex-1 overflow-y-auto max-h-[580px] pr-0.5">
                   {columnTasks.length === 0 ? (
                     <div className="h-24 flex items-center justify-center text-[11px] text-muted-foreground/60 italic border border-dashed rounded-md">
-                      Vazio
+                      {t("empty")}
                     </div>
                   ) : (
                     columnTasks.map((task) => {

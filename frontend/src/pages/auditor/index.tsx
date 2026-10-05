@@ -243,7 +243,7 @@ function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onCl
                 onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
               />
               <label htmlFor={enabledId} className="text-sm">
-                Enabled
+                {t("auditor.enabled")}
               </label>
             </div>
           </div>

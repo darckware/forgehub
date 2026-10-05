@@ -53,6 +53,7 @@
       "screens": "Telas e Navegação"
     },
     "panel": {
+      "platformHint": "Plataforma (vazio = web + mobile)",
       "descriptionLabel": "Descrição",
       "relationsTitle": "Relações",
       "noRelations": "Nenhuma relação ainda.",
@@ -100,6 +101,7 @@
     "database": "Banco de Dados"
   },
   "detailCards": {
+    "coverageCounts": "{{elements}} elementos · {{links}} vínculos",
     "map": "Mapa",
     "revision": "Revisão",
     "coverage": "Cobertura",

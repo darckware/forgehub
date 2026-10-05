@@ -61,10 +61,10 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
           <div>
             <h2 className="text-base font-bold flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
-              Abertura de Concepção de Projeto
+              {t("captureDialog.title")}
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Vincule a concepção a um Produto existente para manter o histórico evolutivo de versões.
+              {t("captureDialog.description")}
             </p>
           </div>
 
@@ -73,7 +73,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
             <div>
               <Label className="text-xs font-semibold flex items-center gap-1.5 mb-1">
                 <Package className="h-3.5 w-3.5 text-primary" />
-                Produto Associado
+                {t("captureDialog.associatedProduct")}
               </Label>
               <Select
                 value={isCustomProduct ? "__new__" : form.selected_product_id}
@@ -93,27 +93,27 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
                 }}
                 className="text-xs"
               >
-                <option value="">Selecione um Produto...</option>
+                <option value="">{t("captureDialog.selectProduct")}</option>
                 {products?.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
                 ))}
-                <option value="__new__">+ Novo Produto</option>
+                <option value="__new__">{t("captureDialog.newProduct")}</option>
               </Select>
             </div>
 
             <div>
               <Label className="text-xs font-semibold flex items-center gap-1.5 mb-1">
-                Tipo de Abertura
+                {t("captureDialog.openingType")}
               </Label>
               <Select
                 value={form.opening_type}
                 onChange={(e) => setForm({ ...form, opening_type: e.target.value })}
                 className="text-xs font-medium"
               >
-                <option value="new_implementation">🚀 Nova Implementação</option>
-                <option value="maintenance">🔧 Manutenção</option>
+                <option value="new_implementation">{t("captureDialog.newImplementation")}</option>
+                <option value="maintenance">{t("captureDialog.maintenance")}</option>
               </Select>
             </div>
           </div>
@@ -123,7 +123,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
             <Label className="text-xs">{t("captureIdea.fields.name")}</Label>
             <Input
               required
-              placeholder={form.opening_type === "maintenance" ? "Ex: Correção de autenticação e otimização de consultas" : "Ex: Módulo de Cobrança Recorrente PIX"}
+              placeholder={form.opening_type === "maintenance" ? t("captureDialog.maintenanceNameExample") : t("captureDialog.newNameExample")}
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               className="text-xs font-medium"
@@ -136,7 +136,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
             <Textarea
               required
               rows={3}
-              placeholder="Descreva o problema a ser resolvido ou o objetivo desta abertura..."
+              placeholder={t("captureDialog.problemPlaceholder")}
               value={form.problem_statement}
               onChange={(e) => setForm({ ...form, problem_statement: e.target.value })}
               className="resize-none text-xs"
@@ -149,7 +149,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
               <Label className="text-xs">{t("captureIdea.fields.vision")}</Label>
               <Textarea
                 rows={2}
-                placeholder="Visão da solução..."
+                placeholder={t("captureDialog.visionPlaceholder")}
                 value={form.vision}
                 onChange={(e) => setForm({ ...form, vision: e.target.value })}
                 className="resize-none text-xs"
@@ -159,7 +159,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
               <Label className="text-xs">{t("captureIdea.fields.initialScope")}</Label>
               <Textarea
                 rows={2}
-                placeholder="Resumo do escopo..."
+                placeholder={t("captureDialog.scopePlaceholder")}
                 value={form.scope_summary}
                 onChange={(e) => setForm({ ...form, scope_summary: e.target.value })}
                 className="resize-none text-xs"
@@ -185,7 +185,7 @@ export function CaptureIdeaDialog({ open, onClose }: { open: boolean; onClose: (
             <div>
               <Label className="text-xs">{t("captureIdea.fields.requestedBy")}</Label>
               <Input
-                placeholder="Ex: Usuário / Product Owner"
+                placeholder={t("captureDialog.requesterPlaceholder")}
                 value={form.requested_by}
                 onChange={(e) => setForm({ ...form, requested_by: e.target.value })}
                 className="text-xs"

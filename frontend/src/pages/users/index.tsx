@@ -73,7 +73,7 @@ export default function UsersPage() {
                       <td className="px-4 py-2.5 font-mono font-medium">
                         {u.username}
                         {u.id === currentUser?.id && (
-                          <span className="ml-1.5 text-[10px] text-muted-foreground">(you)</span>
+                          <span className="ml-1.5 text-[10px] text-muted-foreground">{t("users.list.you")}</span>
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground">{u.full_name ?? "—"}</td>

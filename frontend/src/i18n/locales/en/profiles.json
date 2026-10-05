@@ -15,6 +15,64 @@
         "write": "Write",
         "delete": "Delete"
       }
+    },
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "E.g. Developer",
+      "description": "Description",
+      "descriptionPlaceholder": "Optional description",
+      "sensitiveTitle": "Sensitive action permissions",
+      "sensitiveHelp": "These actions are denied by default and checked by the backend.",
+      "permissionAria": "{{operation}} — {{module}}",
+      "cancel": "Cancel",
+      "save": "Save",
+      "edit": "Edit",
+      "delete": "Delete",
+      "operations": {
+        "can_view": "View",
+        "can_query": "Query",
+        "can_write": "Write",
+        "can_delete": "Delete"
+      },
+      "modules": {
+        "product": "Products",
+        "projects": "Projects",
+        "pipeline": "Pipelines",
+        "backlog": "Planning",
+        "tasks": "Execution",
+        "agents": "Agents",
+        "artifacts": "Artifacts",
+        "governance": "Governance",
+        "forgerouter": "ForgeRouter",
+        "obsidian": "Knowledge Base",
+        "foundation": "Foundation",
+        "crons": "Crons",
+        "deploy": "Deploy Control",
+        "servers": "Servers",
+        "database": "Database",
+        "users": "Users",
+        "profiles": "Profiles"
+      },
+      "actions": {
+        "planning_concept_view": "View concept details",
+        "planning_concept_edit": "Create and revise concepts",
+        "planning_concept_submit": "Submit concepts for approval",
+        "planning_concept_decide": "Legacy concept decision (disabled)",
+        "planning_blueprint_edit": "Edit System Maps",
+        "planning_blueprint_approve": "Approve System Maps",
+        "planning_delivery_authorize": "Authorize delivery planning",
+        "planning_progress_view": "View project progress and checkpoints",
+        "planning_progress_manage": "Manage checkpoints and recovery",
+        "planning_stage_complete": "Complete pipeline stages",
+        "planning_execution_view": "View execution waves and runner state",
+        "planning_execution_manage": "Create and manage execution waves",
+        "planning_execution_release": "Approve execution waves",
+        "planning_execution_dispatch": "Issue and dispatch work packages",
+        "planning_execution_cancel": "Cancel and reconcile CLI executions",
+        "governance_approval_view": "View governed approvals",
+        "governance_approval_decide": "Decide governed approvals",
+        "governance_delegation_manage": "Manage Athos delegations"
+      }
     }
   }
 }

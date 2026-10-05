@@ -673,7 +673,7 @@ function ScriptFormModal({
             <Textarea className="resize-none"
               value={draft.description}
               onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-              placeholder="Transcribes Telegram voice notes before handing them to the agent"
+              placeholder={t("scriptForm.descriptionExample")}
             />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}

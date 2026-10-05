@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   ArrowUpDown,
@@ -26,25 +27,27 @@ interface ValidateResult {
 }
 
 const EXAMPLES = [
-  { label: "Tables", sql: "SELECT table_name, table_type\nFROM information_schema.tables\nWHERE table_schema = 'company'\nORDER BY table_name" },
-  { label: "Products", sql: "SELECT id, name, created_at\nFROM company.products\nORDER BY created_at DESC" },
-  { label: "Projects", sql: "SELECT p.name, p.status, v.version\nFROM company.projects p\nJOIN company.product_versions v ON v.id = p.product_version_id\nORDER BY p.created_at DESC" },
-  { label: "Recent tasks", sql: "SELECT title, status, created_at\nFROM company.project_tasks\nORDER BY created_at DESC\nLIMIT 20" },
+  { label: "tables", sql: "SELECT table_name, table_type\nFROM information_schema.tables\nWHERE table_schema = 'company'\nORDER BY table_name" },
+  { label: "products", sql: "SELECT id, name, created_at\nFROM company.products\nORDER BY created_at DESC" },
+  { label: "projects", sql: "SELECT p.name, p.status, v.version\nFROM company.projects p\nJOIN company.product_versions v ON v.id = p.product_version_id\nORDER BY p.created_at DESC" },
+  { label: "recentTasks", sql: "SELECT title, status, created_at\nFROM company.project_tasks\nORDER BY created_at DESC\nLIMIT 20" },
 ];
 
 type ValidationState = "idle" | "checking" | "valid" | "invalid";
 
 function ValidationIcon({ state, error }: { state: ValidationState; error: string | null }) {
+  const { t } = useTranslation("database");
   if (state === "checking")
-    return <span title="Validating syntax…"><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" /></span>;
+    return <span title={t("query.validatingSyntax")}><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" /></span>;
   if (state === "valid")
-    return <span title="Valid syntax"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" /></span>;
+    return <span title={t("query.validSyntax")}><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" /></span>;
   if (state === "invalid")
-    return <span title={error ?? "Syntax error"}><XCircle className="h-3.5 w-3.5 text-destructive shrink-0" /></span>;
+    return <span title={error ?? t("query.syntaxError")}><XCircle className="h-3.5 w-3.5 text-destructive shrink-0" /></span>;
   return null;
 }
 
 export function ResultsTable({ result }: { result: QueryResult }) {
+  const { t, i18n } = useTranslation("database");
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
@@ -63,10 +66,10 @@ export function ResultsTable({ result }: { result: QueryResult }) {
       const an = Number(av), bn = Number(bv);
       if (!isNaN(an) && !isNaN(bn)) return sortDir === "asc" ? an - bn : bn - an;
       return sortDir === "asc"
-        ? String(av).localeCompare(String(bv))
-        : String(bv).localeCompare(String(av));
+        ? String(av).localeCompare(String(bv), i18n.language)
+        : String(bv).localeCompare(String(av), i18n.language);
     });
-  }, [result.rows, result.columns, sortCol, sortDir]);
+  }, [result.rows, result.columns, sortCol, sortDir, i18n.language]);
 
   const handleSort = (col: string) => {
     if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -156,13 +159,14 @@ export function ResultsTable({ result }: { result: QueryResult }) {
       </table>
 
       {result.rows.length === 0 && (
-        <div className="py-12 text-center text-xs text-muted-foreground">No results returned.</div>
+        <div className="py-12 text-center text-xs text-muted-foreground">{t("query.noResults")}</div>
       )}
     </>
   );
 }
 
 export default function QueryPage() {
+  const { t, i18n } = useTranslation("database");
   const { instance, db, schema } = useSchema();
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -194,14 +198,14 @@ export default function QueryPage() {
       try {
         const r = await apiClient.post<ValidateResult>("/api/v1/database/validate", { sql, instance, db, schema });
         if (r.valid) { setValidationState("valid"); setValidationError(null); }
-        else { setValidationState("invalid"); setValidationError(r.error ?? "Syntax error"); }
+        else { setValidationState("invalid"); setValidationError(r.error ?? t("query.syntaxError")); }
       } catch {
         setValidationState("idle");
         setValidationError(null);
       }
     }, 600);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [sql, instance, db, schema]);
+  }, [sql, instance, db, schema, t]);
 
   const run = async () => {
     if (!sql.trim()) return;
@@ -229,14 +233,14 @@ export default function QueryPage() {
     <div className="flex flex-col p-4 gap-3">
       <div className="flex flex-col gap-2 shrink-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SQL Editor</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t("query.sqlEditor")}</span>
           <ValidationIcon state={validationState} error={validationError} />
           <span className="flex-1" />
-          <span className="text-[10px] text-muted-foreground">Ctrl+Enter to run · SELECT/WITH/EXPLAIN only</span>
+          <span className="text-[10px] text-muted-foreground">{t("query.ctrlEnterToRun")}</span>
           <div className="flex flex-wrap gap-1">
             {EXAMPLES.map((ex) => (
               <Button key={ex.label} size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setSql(ex.sql)}>
-                {ex.label}
+                {t(`query.examples.${ex.label}`)}
               </Button>
             ))}
           </div>
@@ -257,7 +261,7 @@ export default function QueryPage() {
             <div className="absolute top-2 right-2 flex gap-0.5">
               <button
                 type="button"
-                title={sqlCopied ? "Copied!" : "Copy query"}
+                title={sqlCopied ? t("query.copied") : t("query.copyQuery")}
                 onClick={copySql}
                 className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
               >
@@ -265,7 +269,7 @@ export default function QueryPage() {
               </button>
               <button
                 type="button"
-                title="Clear editor"
+                title={t("query.clearEditor")}
                 onClick={() => { setSql(""); setResult(null); setQueryError(null); }}
                 className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
               >
@@ -285,11 +289,11 @@ export default function QueryPage() {
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={run} disabled={executeMut.isPending || !sql.trim()} className="gap-1.5">
             {executeMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            Run
+            {t("query.run")}
           </Button>
           {result && (
             <Badge variant="outline" className="text-emerald-600 border-emerald-500/30 gap-1">
-              <CheckCircle2 className="h-3 w-3" /> {result.row_count} row(s) · {result.elapsed_ms}ms
+              <CheckCircle2 className="h-3 w-3" /> {t("query.rows", { count: result.row_count })} · {t("query.ms", { ms: new Intl.NumberFormat(i18n.language).format(result.elapsed_ms) })}
             </Badge>
           )}
           {queryError && (
@@ -303,13 +307,13 @@ export default function QueryPage() {
 
       {!result && !queryError && (
         <div className="flex items-center justify-center rounded-lg border border-border bg-muted/10 py-12">
-          <p className="text-xs text-muted-foreground">Run a query to see the results</p>
+          <p className="text-xs text-muted-foreground">{t("query.runAQuery")}</p>
         </div>
       )}
       {queryError && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
           <p className="text-xs font-semibold text-destructive mb-1 flex items-center gap-1.5">
-            <AlertCircle className="h-3.5 w-3.5" /> Query error
+            <AlertCircle className="h-3.5 w-3.5" /> {t("query.queryError")}
           </p>
           <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono">{queryError}</pre>
         </div>
@@ -319,8 +323,8 @@ export default function QueryPage() {
           <div className="flex items-center gap-2 px-1 -mb-1">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
             <span className="text-xs text-muted-foreground flex-1">
-              {result.row_count.toLocaleString()} row(s) · {result.elapsed_ms.toFixed(1)} ms
-              {result.truncated && <span className="ml-2 text-amber-600 font-medium">(truncated to 1000 rows)</span>}
+              {t("query.rows", { count: result.row_count })} · {t("query.ms", { ms: new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 1 }).format(result.elapsed_ms) })}
+              {result.truncated && <span className="ml-2 text-amber-600 font-medium">{t("query.truncated")}</span>}
             </span>
             <Button
               size="sm" variant="ghost" className="h-6 px-2 gap-1 text-xs"
@@ -332,7 +336,7 @@ export default function QueryPage() {
                 setTimeout(() => setCsvCopied(false), 2000);
               }}
             >
-              <ClipboardCopy className="h-3 w-3" /> {csvCopied ? "Copied!" : "CSV"}
+              <ClipboardCopy className="h-3 w-3" /> {csvCopied ? t("query.copiedCsv") : t("query.csv")}
             </Button>
           </div>
           <div className="rounded-lg border border-border" style={{ maxHeight: "calc(100vh - 370px)", overflow: "auto" }}>

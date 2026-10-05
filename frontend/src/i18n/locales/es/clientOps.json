@@ -1,4 +1,7 @@
 {
+  "common": {
+    "dismiss": "Descartar"
+  },
   "notConfigured": "La integración con Darckware no está configurada (DARCKWARE_API_URL / DARCKWARE_AGENT_TOKEN).",
   "unreachable": "Darckware no disponible: {{error}}",
   "approverMissing": "El token de aprobación (DARCKWARE_APPROVER_TOKEN) no está configurado: los correos no pueden aprobarse.",
@@ -212,7 +215,8 @@
       "invalid": "Valor inválido"
     },
     "save": "Guardar en Darckware",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "hoursPerMonth": "h/mes"
   },
   "conversions": {
     "title": "Leads listos para ser clientes",

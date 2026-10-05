@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ChatPane, clearChatTabStaging } from "@/components/chat/ChatPane";
 import { useChattableAgents } from "@/hooks/useAgent";
 import { useChatLanguage } from "@/hooks/useChatLanguage";
+import { useTranslation } from "react-i18next";
 import { useAssistantStore, type AssistantForm } from "@/store/assistantStore";
 
 // The greeting shown while the chat is empty comes from useChatLanguage's
@@ -60,6 +61,7 @@ function buildFormInstruction(form: AssistantForm): string {
  * you're looking at the Inbox instead.
  */
 export function AssistantDrawer() {
+  const { t } = useTranslation("chat");
   const open = useAssistantStore((s) => s.open);
   const setOpen = useAssistantStore((s) => s.setOpen);
   const context = useAssistantStore((s) => s.context);
@@ -184,14 +186,14 @@ export function AssistantDrawer() {
     <div className="flex h-full w-full max-w-xl shrink-0 flex-col border-l border-border bg-background">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <p className="flex items-center gap-2 text-sm font-medium">
-          <Bot className="h-4 w-4" /> Assistant
+          <Bot className="h-4 w-4" /> {t("assistantDrawer.title")}
         </p>
         <div className="flex items-center gap-1.5">
           {context && (
             <Button
               size="sm"
               variant="outline"
-              title="Starts a fresh chat with the screen's context attached -- sent to the agent invisibly with your first message"
+              title={t("assistantDrawer.contextTooltip")}
               onClick={handleUseContext}
             >
               📄 {context.label}
@@ -201,8 +203,8 @@ export function AssistantDrawer() {
             variant="outline"
             size="icon"
             className="shrink-0"
-            aria-label="Close assistant"
-            title="Close assistant"
+            aria-label={t("assistantDrawer.close")}
+            title={t("assistantDrawer.close")}
             onClick={onClose}
           >
             <X className="h-4 w-4" />
@@ -241,7 +243,7 @@ export function AssistantDrawer() {
             onAssistantMessage={handleAssistantMessage}
           />
         ) : (
-          <p className="p-4 text-sm text-muted-foreground">No agent with a profile available.</p>
+          <p className="p-4 text-sm text-muted-foreground">{t("assistantDrawer.noAgent")}</p>
         )}
       </div>
     </div>

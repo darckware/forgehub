@@ -1,0 +1,34 @@
+{
+  "title": "Comandos do chat",
+  "description": "Cadastre prompts reutilizáveis para aparecerem junto aos comandos do Hermes quando você digitar / no chat.",
+  "newCommand": "Novo comando",
+  "table": { "command": "Comando", "description": "Descrição", "prompt": "Prompt", "actions": "Ações" },
+  "loading": "Carregando comandos...",
+  "loadError": "Falha ao carregar: {{message}}",
+  "empty": "Nenhum comando cadastrado ainda.",
+  "edit": "Editar",
+  "delete": "Excluir",
+  "close": "Fechar",
+  "cancel": "Cancelar",
+  "save": "Salvar",
+  "create": "Criar",
+  "deleteTitle": "Excluir comando",
+  "deleteDescription": "Excluir /{{name}}? Ele deixará de aparecer no chat.",
+  "form": {
+    "editTitle": "Editar comando",
+    "newTitle": "Novo comando",
+    "chatHint": "Aparece no chat como /{{name}}.",
+    "name": "Nome curto",
+    "description": "Descrição",
+    "descriptionPlaceholder": "Revisar um PR com foco em riscos e testes",
+    "prompt": "Prompt em Markdown",
+    "promptPlaceholder": "## Objetivo\nRevise o código atual e liste bugs, riscos e testes ausentes.\n\n## Resultado esperado\n- Achados por severidade\n- Arquivos afetados\n- Comandos de verificação"
+  },
+  "validation": {
+    "name": "Digite um nome curto, como review-pr ou plan.",
+    "reserved": "/{{name}} já é um comando reservado do Hermes.",
+    "description": "Digite uma descrição curta.",
+    "prompt": "Digite o prompt em Markdown.",
+    "saveError": "Não foi possível salvar."
+  }
+}

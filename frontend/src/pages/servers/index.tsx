@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
   CheckCircle2,
@@ -64,6 +65,7 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
  * .pub via ssh-copy-id and verifies BatchMode auth. Mirrors the manual
  * procedure in /root/.hermes/scripts/configure_ssh.sh, parameterized. */
 function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onClose: () => void; onInstalled: () => void }) {
+  const { t } = useTranslation("servers");
   // The account to log in with (and create, in admin mode) is the server
   // record's own remote_user -- not re-typed here.
   const remoteUser = server.remote_user;
@@ -92,12 +94,10 @@ function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onC
   }
 
   return (
-    <ModalShell title={`Install SSH key — ${server.name}`} onClose={onClose}>
+    <ModalShell title={t("install.title", { name: server.name })} onClose={onClose}>
       <div className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          Generates a dedicated <code className="font-mono">ed25519</code> key on this host (reused if it already
-          exists) and installs the public key on <code className="font-mono">{server.ip_address}</code>, then verifies
-          key authentication. Passwords are used only for this installation — never stored or logged.
+          {t("install.description", { ip: server.ip_address })}
         </p>
 
         {!done && (
@@ -112,27 +112,24 @@ function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onC
                   className="mt-0.5"
                 />
                 <span>
-                  <span className="font-medium text-foreground">Use a server admin account</span> to create the user and
-                  install the key. Enable this when <code className="font-mono">{remoteUser}</code> isn't provisioned on the
-                  server yet. The admin must be <code className="font-mono">root</code> or have passwordless{" "}
-                  <code className="font-mono">sudo</code>.
+                  {t("install.adminDescription", { user: remoteUser })}
                 </span>
               </label>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>{useAdmin ? "Registered user (created if missing)" : "Registered user"}</Label>
+                <Label>{useAdmin ? t("install.registeredUserCreate") : t("install.registeredUser")}</Label>
                 <Input value={remoteUser} disabled readOnly className="font-mono" />
               </div>
               {useAdmin && (
                 <div className="space-y-1">
-                  <Label>Admin account</Label>
+                  <Label>{t("install.adminAccount")}</Label>
                   <Input value={adminUser} onChange={(e) => setAdminUser(e.target.value)} placeholder="root" disabled={installKey.isPending} />
                 </div>
               )}
               <div className={useAdmin ? "col-span-2 space-y-1" : "space-y-1"}>
-                <Label>{useAdmin ? `Password for "${adminUser || "admin"}"` : `Password for "${remoteUser}"`}</Label>
+                <Label>{t("install.passwordFor", { user: useAdmin ? (adminUser || "admin") : remoteUser })}</Label>
                 <div className="relative">
                   <Input
                     type={showPassword ? "text" : "password"}
@@ -148,8 +145,8 @@ function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onC
                     onClick={() => setShowPassword((s) => !s)}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     tabIndex={-1}
-                    title={showPassword ? "Hide password" : "Show password"}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    title={showPassword ? t("install.hidePassword") : t("install.showPassword")}
+                    aria-label={showPassword ? t("install.hidePassword") : t("install.showPassword")}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -161,7 +158,7 @@ function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onC
 
         {installKey.isPending && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating key, installing on the server and verifying…
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("install.installing")}
           </p>
         )}
 
@@ -175,12 +172,12 @@ function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onC
             {!result.ok && (
               <p className="flex items-start gap-1.5 text-destructive">
                 <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Failed at "{result.failed_step}": {result.error}
+                {t("install.failedAt", { step: result.failed_step, error: result.error })}
               </p>
             )}
             {result.ok && result.public_key && (
               <div className="space-y-1 pt-1">
-                <Label className="text-[11px]">Installed public key (saved on the server record)</Label>
+                <Label className="text-[11px]">{t("install.installedPublicKey")}</Label>
                 <Textarea readOnly value={result.public_key} className="resize-none min-h-[64px] font-mono text-[10px]" />
               </div>
             )}
@@ -191,11 +188,11 @@ function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onC
         )}
 
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={onClose}>{done ? "Close" : "Cancel"}</Button>
+          <Button variant="outline" size="sm" onClick={onClose}>{done ? t("page.close") : t("form.cancel")}</Button>
           {!done && (
             <Button size="sm" onClick={handleInstall} disabled={installKey.isPending || !canSubmit}>
               {installKey.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <KeyRound className="mr-1.5 h-3.5 w-3.5" />}
-              Install key
+              {t("install.action")}
             </Button>
           )}
         </div>
@@ -208,40 +205,41 @@ function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onC
  * (unreachable or key rejected), no_key (no ssh_key_path configured), or
  * "checking"/unknown while a probe is in flight or hasn't run yet. */
 function StatusBadge({ result, checking }: { result: ServerCheckResult | undefined; checking: boolean }) {
+  const { t } = useTranslation("servers");
   if (checking) {
     return (
       <Badge variant="outline" className="gap-1 text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" /> Checking…
+        <Loader2 className="h-3 w-3 animate-spin" /> {t("status.checking")}
       </Badge>
     );
   }
   if (!result) {
-    return <span className="text-xs italic text-muted-foreground/60">not checked</span>;
+    return <span className="text-xs italic text-muted-foreground/60">{t("status.notChecked")}</span>;
   }
   if (result.status === "disabled") {
     return (
       <Badge variant="outline" className="gap-1 text-muted-foreground" title={result.detail}>
-        <PowerOff className="h-3 w-3" /> Off
+        <PowerOff className="h-3 w-3" /> {t("status.off")}
       </Badge>
     );
   }
   if (result.status === "online") {
     return (
       <Badge variant="outline" className="gap-1 text-emerald-600 border-emerald-500/30" title={result.detail}>
-        <Wifi className="h-3 w-3" /> Online
+        <Wifi className="h-3 w-3" /> {t("status.online")}
       </Badge>
     );
   }
   if (result.status === "no_key") {
     return (
       <Badge variant="outline" className="gap-1 text-amber-600 border-amber-500/30" title={result.detail}>
-        <KeyRound className="h-3 w-3" /> No key
+        <KeyRound className="h-3 w-3" /> {t("status.noKey")}
       </Badge>
     );
   }
   return (
     <Badge variant="outline" className="gap-1 text-red-600 border-red-500/30" title={result.detail}>
-      <WifiOff className="h-3 w-3" /> Offline
+      <WifiOff className="h-3 w-3" /> {t("status.offline")}
     </Badge>
   );
 }
@@ -250,6 +248,7 @@ const CSV_PLACEHOLDER = `SERVER_NAME,SERVER_IP,REMOTE_USER,DESCRIPTION
 srv-app01,172.15.2.2,aegis,"Main application server"`;
 
 function ImportCsvModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation("servers");
   const [csvText, setCsvText] = useState("");
   const [result, setResult] = useState<{ created: number; updated: number; errors: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -269,11 +268,10 @@ function ImportCsvModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalShell title="Import servers (CSV)" onClose={onClose}>
+    <ModalShell title={t("import.title")} onClose={onClose}>
       <div className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Paste the CSV or pick a file. Required header: <code className="font-mono">SERVER_NAME,SERVER_IP,REMOTE_USER,DESCRIPTION</code>.
-          Existing servers (same name) are updated.
+          {t("import.description")}
         </p>
         <Textarea
           value={csvText}
@@ -285,13 +283,13 @@ function ImportCsvModal({ onClose }: { onClose: () => void }) {
           <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handlePickFile} />
           <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
             <Upload className="mr-1.5 h-3.5 w-3.5" />
-            Choose file
+            {t("import.chooseFile")}
           </Button>
         </div>
         {result && (
           <div className="rounded-md border border-border bg-muted/40 p-3 text-xs">
             <p>
-              Created: <strong>{result.created}</strong> · Updated: <strong>{result.updated}</strong>
+              {t("import.created", { count: result.created })} · {t("import.updated", { count: result.updated })}
             </p>
             {result.errors.length > 0 && (
               <ul className="mt-1 list-disc pl-4 text-destructive">
@@ -302,14 +300,14 @@ function ImportCsvModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
         )}
-        {importServers.isError && <p className="text-xs text-destructive">Import failed. Check the CSV format.</p>}
+        {importServers.isError && <p className="text-xs text-destructive">{t("import.failed")}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" size="sm" onClick={onClose}>
-            Close
+            {t("page.close")}
           </Button>
           <Button size="sm" onClick={handleImport} disabled={importServers.isPending || !csvText.trim()}>
             {importServers.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            Import
+            {t("import.action")}
           </Button>
         </div>
       </div>
@@ -318,6 +316,7 @@ function ImportCsvModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function ServersPage() {
+  const { t } = useTranslation("servers");
   const navigate = useNavigate();
   const { data: servers, isLoading } = useServers();
   const deleteServer = useDeleteServer();
@@ -378,22 +377,22 @@ export default function ServersPage() {
         <div>
           <h1 className="flex items-center gap-2 text-xl font-semibold">
             <ServerIcon className="h-5 w-5" />
-            Servers
+            {t("page.title")}
           </h1>
-          <p className="text-sm text-muted-foreground">Inventory of servers with SSH access.</p>
+          <p className="text-sm text-muted-foreground">{t("page.description")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => probe.checkAll(servers ?? [])} disabled={probe.isChecking}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${probe.isChecking ? "animate-spin" : ""}`} />
-            Check status
+            {t("page.checkStatus")}
           </Button>
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
             <Upload className="mr-1.5 h-3.5 w-3.5" />
-            Import CSV
+            {t("page.importCsv")}
           </Button>
           <Button size="sm" onClick={() => setFormTarget("new")}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
-            New server
+            {t("form.newTitle")}
           </Button>
           <AssistantToggleButton size="sm" />
         </div>
@@ -407,7 +406,7 @@ export default function ServersPage() {
           onClick={() => setEnvironmentFilter("all")}
           className="text-xs font-medium"
         >
-          Todos ({servers?.length ?? 0})
+          {t("page.allCount", { count: servers?.length ?? 0 })}
         </Button>
         <Button
           variant={environmentFilter === "vps" ? "secondary" : "ghost"}
@@ -416,7 +415,7 @@ export default function ServersPage() {
           className="text-xs font-medium gap-1.5"
         >
           <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          VPS / Produção ({vpsServers.length})
+          {t("page.vpsCount", { count: vpsServers.length })}
         </Button>
         <Button
           variant={environmentFilter === "semed" ? "secondary" : "ghost"}
@@ -425,7 +424,7 @@ export default function ServersPage() {
           className="text-xs font-medium gap-1.5"
         >
           <span className="h-2 w-2 rounded-full bg-blue-500" />
-          SEMED (Cliente / Cloudflare) ({semedServers.length})
+          {t("page.semedCount", { count: semedServers.length })}
         </Button>
       </div>
 
@@ -435,14 +434,14 @@ export default function ServersPage() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Grupo</th>
-              <th className="px-4 py-2">Name</th>
+              <th className="px-4 py-2">{t("page.columns.group")}</th>
+              <th className="px-4 py-2">{t("page.columns.name")}</th>
               <th className="px-4 py-2">IP</th>
-              <th className="px-4 py-2">User</th>
-              <th className="px-4 py-2">Port</th>
-              <th className="px-4 py-2">Description</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2 text-right">Actions</th>
+              <th className="px-4 py-2">{t("page.columns.user")}</th>
+              <th className="px-4 py-2">{t("page.columns.port")}</th>
+              <th className="px-4 py-2">{t("page.columns.description")}</th>
+              <th className="px-4 py-2">{t("page.columns.status")}</th>
+              <th className="px-4 py-2 text-right">{t("page.columns.actions")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -456,7 +455,7 @@ export default function ServersPage() {
             {!isLoading && filteredServers.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-6 text-center italic text-muted-foreground">
-                  Nenhum servidor encontrado neste grupo.
+                  {t("page.emptyGroup")}
                 </td>
               </tr>
             )}
@@ -467,7 +466,7 @@ export default function ServersPage() {
                   expandedId === s.id ? "bg-accent/20" : ""
                 }`}
                 onClick={() => setExpandedId((prev) => (prev === s.id ? null : s.id))}
-                title="Show the services published by this server"
+                title={t("page.showServices")}
               >
                 <td className="px-4 py-2">
                   <Badge variant="outline" className={`text-[10px] ${s.environment === "vps" ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/5" : "border-blue-500/40 text-blue-600 bg-blue-500/5"}`}>
@@ -497,8 +496,8 @@ export default function ServersPage() {
                       disabled={toggleAccess.isPending}
                       title={
                         s.access_enabled
-                          ? `Turn off ForgeHub's access to ${s.name} (the key is kept)`
-                          : `Turn ForgeHub's access to ${s.name} back on`
+                          ? t("page.turnOffNamed", { name: s.name })
+                          : t("page.turnOnNamed", { name: s.name })
                       }
                     >
                       {s.access_enabled ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
@@ -519,7 +518,7 @@ export default function ServersPage() {
                             },
                           })
                         }
-                        title={`Open SSH terminal to ${s.name} in Workspace`}
+                        title={t("page.openSshNamed", { name: s.name })}
                       >
                         <SquareTerminal className="h-3.5 w-3.5" />
                       </Button>
@@ -532,7 +531,7 @@ export default function ServersPage() {
                         size="icon"
                         className="h-7 w-7 text-amber-500 hover:text-amber-400"
                         onClick={() => setInstallTarget(s)}
-                        title={`Install SSH key on ${s.name}`}
+                        title={t("page.installKeyNamed", { name: s.name })}
                       >
                         <KeyRound className="h-3.5 w-3.5" />
                       </Button>
@@ -543,11 +542,11 @@ export default function ServersPage() {
                       className="h-7 w-7"
                       onClick={() => probe.checkOne(s.id)}
                       disabled={probe.checkingIds.has(s.id) || !s.access_enabled}
-                      title={s.access_enabled ? "Check status" : "Access is turned off"}
+                      title={s.access_enabled ? t("page.checkStatus") : t("page.accessOff")}
                     >
                       <RefreshCw className={`h-3.5 w-3.5 ${probe.checkingIds.has(s.id) ? "animate-spin" : ""}`} />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setFormTarget(s)} title="Edit">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setFormTarget(s)} title={t("page.edit")}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
                     <Button
@@ -555,7 +554,7 @@ export default function ServersPage() {
                       size="icon"
                       className="h-7 w-7 text-destructive hover:text-destructive"
                       onClick={() => setDeleteTarget(s)}
-                      title="Delete"
+                      title={t("page.delete")}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -588,8 +587,9 @@ export default function ServersPage() {
       )}
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="Delete server"
-        description={deleteTarget ? `Delete "${deleteTarget.name}" from the inventory?` : ""}
+        title={t("page.deleteTitle")}
+        description={deleteTarget ? t("page.deleteDescription", { name: deleteTarget.name }) : ""}
+        confirmLabel={t("page.delete")}
         loading={deleteServer.isPending}
         onConfirm={() => {
           if (!deleteTarget) return;

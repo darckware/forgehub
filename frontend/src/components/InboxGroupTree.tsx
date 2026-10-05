@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { AgentRow, DEMAND_DRAG_MIME, InlineMessageList, NO_AGENT_ID } from "@/components/AgentInboxTree";
 import { useAgents } from "@/hooks/useAgent";
+import { useTranslation } from "react-i18next";
 import {
   useCreateDemandGroup,
   useDeleteDemandGroup,
@@ -78,13 +79,14 @@ export function ActionIcon({
 /** Inline "new subfolder" row -- name input in place of a tree row,
  * confirmed with Enter/blur, cancelled with Escape. */
 function NewGroupRow({ depth, onConfirm, onCancel }: { depth: number; onConfirm: (name: string) => void; onCancel: () => void }) {
+  const { t } = useTranslation("demands");
   const [value, setValue] = useState("");
   return (
     <div className="flex items-center gap-1 py-1 pr-1" style={{ paddingLeft: `${depth * 0.9 + 0.5}rem` }}>
       <Input
         autoFocus
         value={value}
-        placeholder="Folder name"
+        placeholder={t("inbox.folderName")}
         className="h-6 text-xs"
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => (value.trim() ? onConfirm(value.trim()) : onCancel())}

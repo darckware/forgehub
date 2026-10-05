@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Gauge,
   Layers,
@@ -22,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AgentTelemetryPanel } from "@/components/AgentTelemetryPanel";
 import { useProducts } from "@/hooks/useProduct";
-import { useProjects, PROJECT_SOLUTION_TYPE_LABELS, type Project } from "@/hooks/useProject";
+import { useProjects, type Project } from "@/hooks/useProject";
 import { usePlanningItems } from "@/hooks/useBacklog";
 import { useTasks, type ProjectTask } from "@/hooks/useTask";
 import { useAgentTelemetry, useCockpit, type Cockpit, type PhaseKey } from "@/hooks/useFactory";
@@ -42,15 +43,15 @@ const PHASE_BADGE_VARIANT: Record<string, "success" | "warning" | "outline" | "d
   blocked: "destructive",
 };
 
-function formatCost(cost: number): string {
-  return cost.toLocaleString("pt-BR", { style: "currency", currency: "USD" });
+function formatCost(cost: number, locale: string): string {
+  return cost.toLocaleString(locale, { style: "currency", currency: "USD" });
 }
 
-function formatDateTime(dateStr?: string | null): string {
+function formatDateTime(dateStr?: string | null, locale = "pt-BR"): string {
   if (!dateStr) return "—";
   try {
     const d = new Date(dateStr);
-    return d.toLocaleString("pt-BR", {
+    return d.toLocaleString(locale, {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -233,28 +234,30 @@ function computeProjectPhaseEvolution(
 }
 
 function TeamBadge({ projectId, teamSize }: { projectId: string; teamSize: number }) {
+  const { t } = useTranslation("cockpit");
   const navigate = useNavigate();
   return (
     <button
       type="button"
       className="shrink-0"
       onClick={() => navigate("/workspace", { state: { openChannel: { projectId } } })}
-      title="Abrir o canal deste projeto"
+      title={t("project.openChannel")}
     >
       <Badge variant={teamSize > 0 ? "secondary" : "outline"} className="gap-1 text-[10px]">
         <Users className="h-3 w-3" />
-        {teamSize} {teamSize === 1 ? "agente" : "agentes"}
+        {t("project.agentsCount", { count: teamSize })}
       </Badge>
     </button>
   );
 }
 
 function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
+  const { t, i18n } = useTranslation("cockpit");
   if (!cockpit || cockpit.products.length === 0) {
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          Nenhum produto cadastrado ainda.
+          {t("progress.noProducts")}
         </CardContent>
       </Card>
     );
@@ -275,7 +278,7 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
           </CardHeader>
           <CardContent className="space-y-2">
             {product.projects.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Nenhum projeto ainda.</p>
+              <p className="text-xs text-muted-foreground">{t("progress.noProjects")}</p>
             ) : (
               product.projects.map((project) => (
                 <div key={project.project_id} className="space-y-2 rounded-lg border p-3">
@@ -287,20 +290,20 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
                           variant="outline"
                           className={`shrink-0 text-[10px] ${project.project_type === "maintenance" ? "border-amber-500/40 text-amber-600" : "border-sky-500/40 text-sky-600"}`}
                         >
-                          {project.project_type === "maintenance" ? "Manutenção" : "Nova Implementação"}
+                          {project.project_type === "maintenance" ? t("project.maintenance") : t("project.newImplementation")}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
                         v{project.version_number} · {project.version_status}
                         {project.pipeline_name && (
-                          <> · pipeline: {project.pipeline_name}{project.pipeline_template_name && ` (${project.pipeline_template_name})`}</>
+                          <> · {t("project.pipeline")}: {project.pipeline_name}{project.pipeline_template_name && ` (${project.pipeline_template_name})`}</>
                         )}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <TeamBadge projectId={project.project_id} teamSize={project.team_size} />
                       <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                        {formatCost(project.total_cost)}
+                        {formatCost(project.total_cost, i18n.language)}
                       </span>
                     </div>
                   </div>
@@ -311,7 +314,7 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
                         variant={PHASE_BADGE_VARIANT[phase.state] ?? "outline"}
                         className="text-[10px]"
                       >
-                        {PHASE_LABEL[phase.key as PhaseKey] ?? phase.key}
+                        {t(`phases.${phase.key}.label`, PHASE_LABEL[phase.key as PhaseKey] ?? phase.key)}
                       </Badge>
                     ))}
                   </div>
@@ -326,6 +329,7 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
 }
 
 export default function CockpitPage() {
+  const { t, i18n } = useTranslation(["cockpit", "project", "conception"]);
   const [tab, setTab] = useState("pipeline");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   // Darckware client filter (client demands Onda 3). Only offered once some
@@ -441,10 +445,10 @@ export default function CockpitPage() {
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
             <Gauge className="h-6 w-6 text-primary" />
-            Cockpit de Execução
+            {t("page.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Acompanhamento em tempo real da esteira de desenvolvimento, ondas de tarefas e transição automática de fases.
+            {t("page.description")}
           </p>
         </div>
 
@@ -455,7 +459,7 @@ export default function CockpitPage() {
 
             {clientOptions.length > 0 && (
               <select
-                aria-label="Cliente"
+                aria-label={t("filters.client")}
                 className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium focus-visible:ring-1 focus-visible:ring-primary sm:flex-none"
                 value={selectedClientId}
                 onChange={(e) => {
@@ -464,7 +468,7 @@ export default function CockpitPage() {
                   setSelectedProjectId("");
                 }}
               >
-                <option value="">Todos os clientes</option>
+                <option value="">{t("filters.allClients")}</option>
                 {clientOptions.map(([id, name]) => (
                   <option key={id} value={id}>
                     {name}
@@ -482,7 +486,7 @@ export default function CockpitPage() {
                 setSelectedProjectId("");
               }}
             >
-              <option value="">Todos os Produtos</option>
+              <option value="">{t("filters.allProducts")}</option>
               {visibleProducts.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -496,10 +500,10 @@ export default function CockpitPage() {
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
             >
-              <option value="">Todos os Projetos</option>
+              <option value="">{t("filters.allProjects")}</option>
               {productProjects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({p.status})
+                  {p.name} ({t(`project:enums.projectStatus.${p.status}`, p.status)})
                 </option>
               ))}
             </select>
@@ -509,9 +513,9 @@ export default function CockpitPage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="pipeline">Pipeline & Esteira (6 Fases)</TabsTrigger>
-          <TabsTrigger value="tarefas">Execução de Tarefas ({relevantTasks.length})</TabsTrigger>
-          <TabsTrigger value="telemetria">Telemetria & Agentes</TabsTrigger>
+          <TabsTrigger value="pipeline">{t("tabs.pipeline")}</TabsTrigger>
+          <TabsTrigger value="tarefas">{t("tabs.tasks", { count: relevantTasks.length })}</TabsTrigger>
+          <TabsTrigger value="telemetria">{t("tabs.telemetry")}</TabsTrigger>
         </TabsList>
 
         {/* ABA 1: PIPELINE COMPLETO 6 FASES */}
@@ -522,14 +526,14 @@ export default function CockpitPage() {
                 <div>
                   <CardTitle className="text-sm font-semibold flex items-center gap-2">
                     <Layers className="h-4 w-4 text-primary" />
-                    Fluxo Sequencial da Software Factory (1 a 6)
+                    {t("pipeline.title")}
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Clique em qualquer fase para filtrar os projetos correspondentes. A esteira evolui automaticamente.
+                    {t("pipeline.description")}
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="text-muted-foreground font-medium">Progresso Geral:</span>
+                  <span className="text-muted-foreground font-medium">{t("pipeline.overallProgress")}</span>
                   <span className="font-bold text-primary">{progressPercent}%</span>
                   <div className="w-24 h-2 rounded-full bg-muted overflow-hidden">
                     <div
@@ -561,7 +565,7 @@ export default function CockpitPage() {
                         <div className="flex items-center justify-between text-xs font-bold">
                           <span className="flex items-center gap-1.5">
                             <Icon className="h-3.5 w-3.5" />
-                            {phase.shortName}
+                            {t(`phases.${phase.key}.shortName`)}
                           </span>
                           <Badge
                             className={`text-[9px] px-1.5 py-0 font-bold ${
@@ -572,25 +576,25 @@ export default function CockpitPage() {
                                 : "bg-muted text-muted-foreground"
                             }`}
                           >
-                            {count} {count === 1 ? "proj" : "projs"}
+                            {t("pipeline.projectCountShort", { count })}
                           </Badge>
                         </div>
                         <p className="text-[11px] text-muted-foreground line-clamp-2">
-                          {phase.description}
+                          {t(`phases.${phase.key}.description`)}
                         </p>
                       </div>
 
                       <div className="pt-3 flex items-center justify-between text-[10px] font-semibold">
                         <span className="text-muted-foreground group-hover:text-foreground">
-                          {isSelected ? "Ativa (Clique p/ limpar)" : "Filtrar fase"}
+                          {isSelected ? t("pipeline.selectedPhase") : t("pipeline.filterPhase")}
                         </span>
                         <Link
                           to={phase.route}
                           onClick={(e) => e.stopPropagation()}
                           className="hover:underline flex items-center gap-0.5 text-primary font-bold"
-                          title={`Ir para tela ${phase.name}`}
+                          title={t("pipeline.goToPhase", { name: t(`phases.${phase.key}.name`) })}
                         >
-                          <span>Acessar</span>
+                          <span>{t("pipeline.access")}</span>
                           <ExternalLink className="h-3 w-3" />
                         </Link>
                       </div>
@@ -610,11 +614,11 @@ export default function CockpitPage() {
                     )}
                     <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                       {selectedPhase
-                        ? `Acompanhamento: ${selectedPhase.name}`
-                        : "Acompanhamento: Todos os Projetos na Esteira"}
+                        ? t("pipeline.followingPhase", { name: t(`phases.${selectedPhase.key}.name`) })
+                        : t("pipeline.followingAll")}
                     </h3>
                     <Badge variant="secondary" className="text-[10px]">
-                      {displayedProjects.length} {displayedProjects.length === 1 ? "projeto" : "projetos"}
+                      {t("pipeline.projectCount", { count: displayedProjects.length })}
                     </Badge>
                   </div>
 
@@ -624,13 +628,13 @@ export default function CockpitPage() {
                         onClick={() => setSelectedPhaseId(null)}
                         className="text-xs text-muted-foreground hover:text-foreground underline"
                       >
-                        Ver todas as fases
+                        {t("pipeline.viewAllPhases")}
                       </button>
                       <Link
                         to={selectedPhase.route}
                         className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
                       >
-                        Acessar Módulo Completo <ArrowRight className="h-3.5 w-3.5" />
+                        {t("pipeline.openModule")} <ArrowRight className="h-3.5 w-3.5" />
                       </Link>
                     </div>
                   )}
@@ -638,7 +642,7 @@ export default function CockpitPage() {
 
                 {displayedProjects.length === 0 ? (
                   <div className="py-8 text-center text-xs text-muted-foreground">
-                    Nenhum projeto associado a esta fase no momento.
+                    {t("pipeline.noProjectsInPhase")}
                   </div>
                 ) : (
                   <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -664,36 +668,36 @@ export default function CockpitPage() {
                                 {proj.name}
                               </p>
                               <p className="text-[11px] text-muted-foreground">
-                                {proj.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[proj.solution_type] : "Aplicação"}
+                                {proj.solution_type ? t(`conception:projectPlanning.solutionTypes.${proj.solution_type}`, proj.solution_type) : t("project.application")}
                               </p>
                             </div>
                             {/* Status do Ciclo de Vida: Conception | Planejamento | Em Execução | Finalizado */}
                             <Badge variant={evo.lifecycleStatus.variant} className={`text-[10px] px-1.5 py-0.5 shrink-0 ${evo.lifecycleStatus.className}`}>
-                              {evo.lifecycleStatus.label}
+                              {t(`lifecycle.${evo.lifecycleStatus.key}`)}
                             </Badge>
                           </div>
 
                           {/* Fase Atual Automática da Esteira */}
                           <div className="flex items-center justify-between text-[11px] bg-muted/40 px-2 py-1 rounded">
-                            <span className="text-muted-foreground">Fase Atual:</span>
+                            <span className="text-muted-foreground">{t("project.currentPhase")}</span>
                             <span className="font-semibold text-primary">
-                              {evo.currentPhaseName}
+                              {t(`phases.${phaseConfig.key}.name`)}
                             </span>
                           </div>
 
                           {/* Data/Hora de Inicialização */}
                           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground pt-1 border-t">
                             <Clock className="h-3 w-3 shrink-0 text-primary/70" />
-                            <span>Inicializado em:</span>
+                            <span>{t("project.startedAt")}</span>
                             <span className="font-medium text-foreground">
-                              {formatDateTime(evo.phaseStartedAt || proj.created_at)}
+                              {formatDateTime(evo.phaseStartedAt || proj.created_at, i18n.language)}
                             </span>
                           </div>
 
                           {/* Progresso de Tarefas do Projeto */}
                           <div className="space-y-1 pt-0.5">
                             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                              <span>Tarefas: {projDoneTasks.length}/{projTasks.length}</span>
+                              <span>{t("project.tasksProgress", { done: projDoneTasks.length, total: projTasks.length })}</span>
                               <span className="font-bold text-foreground">{projProgress}%</span>
                             </div>
                             <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
@@ -707,14 +711,14 @@ export default function CockpitPage() {
                           {/* Botão de Ação Direta */}
                           <div className="pt-1 flex items-center justify-between border-t">
                             <span className="text-[10px] text-muted-foreground">
-                              {isFocused ? "Em foco" : "Clique p/ focar"}
+                              {isFocused ? t("project.focused") : t("project.focusHint")}
                             </span>
                             <Link
                               to={phaseConfig.route}
                               onClick={(e) => e.stopPropagation()}
                               className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5"
                             >
-                              Acessar Fase Atual →
+                              {t("project.openCurrentPhase")}
                             </Link>
                           </div>
                         </div>
@@ -734,35 +738,35 @@ export default function CockpitPage() {
                   <div className="flex items-center gap-2">
                     <FolderKanban className="h-4 w-4 text-primary" />
                     <CardTitle className="text-sm font-semibold">
-                      Projeto em Destaque: {activeProject.name}
+                      {t("project.featured", { name: activeProject.name })}
                     </CardTitle>
                     <Badge variant="outline" className="text-[10px]">
-                      {activeProject.status}
+                      {t(`project:enums.projectStatus.${activeProject.status}`, activeProject.status)}
                     </Badge>
                   </div>
                   <Link
                     to={`/projects`}
                     className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
                   >
-                    Abrir na Central de Projetos <ExternalLink className="h-3 w-3" />
+                    {t("project.openCentral")} <ExternalLink className="h-3 w-3" />
                   </Link>
                 </div>
               </CardHeader>
               <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
                 <div className="p-3 rounded-lg bg-muted/30 border">
-                  <span className="text-xs text-muted-foreground">Planejamentos</span>
+                  <span className="text-xs text-muted-foreground">{t("project.planningItems")}</span>
                   <p className="text-xl font-bold text-foreground mt-0.5">{relevantPlanningItems.length}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-sky-500/10 border border-sky-500/20">
-                  <span className="text-xs text-sky-600 font-semibold">Em Execução</span>
+                  <span className="text-xs text-sky-600 font-semibold">{t("project.inProgress")}</span>
                   <p className="text-xl font-bold text-sky-600 mt-0.5">{inProgressTasks.length}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                  <span className="text-xs text-amber-600 font-semibold">Bloqueadas</span>
+                  <span className="text-xs text-amber-600 font-semibold">{t("project.blocked")}</span>
                   <p className="text-xl font-bold text-amber-600 mt-0.5">{blockedTasks.length}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                  <span className="text-xs text-emerald-600 font-semibold">Concluídas</span>
+                  <span className="text-xs text-emerald-600 font-semibold">{t("project.completed")}</span>
                   <p className="text-xl font-bold text-emerald-600 mt-0.5">{doneTasks.length}</p>
                 </div>
               </CardContent>
@@ -776,56 +780,56 @@ export default function CockpitPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <CheckSquare className="h-4 w-4 text-primary" />
-                Tarefas do Projeto em Andamento ({relevantTasks.length})
+                {t("tasks.title", { count: relevantTasks.length })}
               </CardTitle>
               <CardDescription className="text-xs">
-                Acompanhe o estado de execução de cada tarefa com o agente responsável e status em tempo real.
+                {t("tasks.description")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {relevantTasks.length === 0 ? (
                 <div className="py-12 text-center text-sm text-muted-foreground">
-                  Nenhuma tarefa registrada para o projeto selecionado.
+                  {t("tasks.empty")}
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {relevantTasks.map((t) => (
-                    <div key={t.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  {relevantTasks.map((task) => (
+                    <div key={task.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                       <div className="space-y-1 flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <Badge
                             variant={
-                              t.status === "done" || t.status === "deployed"
+                              task.status === "done" || task.status === "deployed"
                                 ? "success"
-                                : t.status === "in_progress"
+                                : task.status === "in_progress"
                                 ? "default"
-                                : t.status === "blocked"
+                                : task.status === "blocked"
                                 ? "destructive"
                                 : "outline"
                             }
                             className="text-[10px]"
                           >
-                            {t.status}
+                            {t(`project:central.taskStatus.${task.status}`, task.status)}
                           </Badge>
                           <span className="font-semibold text-foreground truncate">
-                            {t.title}
+                            {task.title}
                           </span>
                         </div>
-                        {t.description && (
+                        {task.description && (
                           <p className="text-[11px] text-muted-foreground truncate max-w-xl">
-                            {t.description}
+                            {task.description}
                           </p>
                         )}
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <Badge variant="outline" className="text-[10px] capitalize">
-                          Prioridade: {t.priority}
+                          {t("tasks.priority", { priority: task.priority })}
                         </Badge>
                         <Link
                           to="/projects"
                           className="text-[11px] font-semibold text-primary hover:underline"
                         >
-                          Ver no Projeto →
+                          {t("tasks.viewInProject")}
                         </Link>
                       </div>
                     </div>
@@ -843,7 +847,7 @@ export default function CockpitPage() {
           <div>
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
               <TrendingUp className="h-4 w-4 text-primary" />
-              Andamento Consolidado por Produto
+              {t("progress.title")}
             </h2>
             <ProjectProgressList cockpit={cockpit} />
           </div>

@@ -50,7 +50,7 @@ export default function ClientAccountsPage() {
           <Link to={`/client-accounts/${vm.lastResult.client_account_id}`} className="underline">
             {t("conversions.openClient")}
           </Link>
-          <button type="button" className="ml-auto" onClick={vm.dismiss} aria-label="dismiss">
+          <button type="button" className="ml-auto" onClick={vm.dismiss} aria-label={t("common.dismiss") }>
             <X className="h-4 w-4" />
           </button>
         </div>

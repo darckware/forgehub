@@ -1,5 +1,6 @@
 {
   "form": {
+    "categoryPlaceholder": "network, monitoring, reporting…", "descriptionPlaceholder": "Scans the local network and reports open ports",
     "editTool": "Edit tool",
     "registerTool": "Register tool",
     "requiredFields": "Responsible agent, name, file path and description are required.",

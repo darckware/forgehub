@@ -99,6 +99,7 @@
       "placeholder": "Observações, credenciais, referências..."
     },
     "containerDetails": {
+      "containerId": "ID do contêiner",
       "container": "Container",
       "image": "Imagem",
       "status": "Status",
@@ -168,6 +169,13 @@
     }
   },
   "volumesTab": {
+    "summary": "{{volumes}} volumes · {{binds}} montagens bind",
+    "activeTitle": "Ativo — usado por um contêiner em execução",
+    "inactiveTitle": "Inativo — nenhum contêiner em execução",
+    "dockerVolumes": "Volumes Docker ({{count}})",
+    "noDockerVolumes": "Nenhum volume Docker.",
+    "bindMounts": "Montagens bind — pastas e arquivos do host compartilhados com contêineres ({{count}})",
+    "bindDescription": "Estas montagens não são volumes Docker: ficam no sistema de arquivos do host e não são removidas aqui.",
     "header": "{{count}} volume(s)",
     "refresh": "Atualizar",
     "error": {
@@ -198,6 +206,12 @@
     }
   },
   "networksTab": {
+    "activeTitle": "Ativa — conectada a um contêiner em execução",
+    "inactiveTitle": "Inativa — nenhum contêiner em execução",
+    "subnets": "Sub-redes",
+    "connectedContainers": "Contêineres conectados",
+    "container": "Contêiner",
+    "emptyDetails": "Nenhum contêiner ou sub-rede configurado.",
     "header": "{{count}} rede(s)",
     "refresh": "Atualizar",
     "error": {
@@ -228,6 +242,17 @@
     }
   },
   "imagesTab": {
+    "headerSelected": "{{count}} selecionadas",
+    "selectDangling": "Selecionar sem tag ({{count}})",
+    "deleteSelected": "Excluir selecionadas ({{count}})",
+    "selectAll": "Selecionar todas as imagens que podem ser excluídas",
+    "selectNamed": "Selecionar {{name}}",
+    "deleteFailedCount_one": "Não foi possível excluir {{count}} imagem:",
+    "deleteFailedCount_other": "Não foi possível excluir {{count}} imagens:",
+    "bulkTitle": "Excluir imagens selecionadas",
+    "bulkDescription_one": "Remover {{count}} imagem do Docker? Esta ação não pode ser desfeita.",
+    "bulkDescription_other": "Remover {{count}} imagens do Docker? Esta ação não pode ser desfeita.",
+    "bulkConfirm": "Excluir {{count}}",
     "header": "{{count}} imagem(s)",
     "headerUnused": "{{count}} não usadas",
     "refresh": "Atualizar",
@@ -263,6 +288,11 @@
     }
   },
   "mainPage": {
+    "ungrouped": "Sem grupo",
+    "removeFailed": "Erro ao remover instalação: {{error}}",
+    "containerTitle": "Contêiner",
+    "removeTitle": "Remover instalação",
+    "restartTitle": "Reiniciar contêiner",
     "header": {
       "title": "Controle de Deploy",
       "description": "Monitoramento e controle de instalações Docker"

@@ -1,4 +1,8 @@
 {
+  "linkPanel": {
+    "title": "Planning links", "empty": "No links yet.", "remove": "Remove link", "loading": "Loading…", "select": "Select…", "link": "Link",
+    "entity": { "product": "Product", "product_version": "Version", "project": "Project", "pipeline": "Pipeline", "planning_item": "Planning", "task": "Task", "artifact": "Artifact" }
+  },
   "pathPrompt": {
     "ok": "OK",
     "cancel": "Cancel"

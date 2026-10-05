@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { TokenField } from "@/components/ui/token-field";
+import { MyLanguageControl } from "@/components/MyLanguageControl";
+import { UI_LANGUAGE_OPTIONS } from "@/i18n";
 import { type AppConfig, useAppConfig, useUpdateAppConfig } from "@/hooks/useAppConfig";
 import { useForgeRouterServices } from "@/hooks/useAgent";
 import { useForgeRouterVirtualModels } from "@/hooks/useOrchestration";
@@ -56,34 +58,11 @@ const TIMEZONE_OPTIONS: { tz: string; label: string }[] = ALL_TIMEZONES.map((tz)
   label: `${tz} (${utcOffsetLabel(tz)})`,
 }));
 
-// Languages the AI chat (Workspace tabs + Assistant drawer) can answer in
-// -- mirrors the keys of backend core/config.py's
-// CHAT_RESPONSE_LANGUAGE_NOTES (the PUT validator rejects anything else).
-// To add a language: add its hidden instruction there, then its label
-// here. The backend appends that instruction to each outgoing agent call;
-// nothing visible changes in the transcript.
-const CHAT_RESPONSE_LANGUAGES = [
-  { value: "pt-BR", label: "Português (Brasil)" },
-  { value: "en", label: "English" },
-  { value: "es", label: "Español" },
-  { value: "fr", label: "Français" },
-  { value: "de", label: "Deutsch" },
-  { value: "it", label: "Italiano" },
-];
-
 // App shell language new users get on creation -- constrained by
 // User.ui_language's own CheckConstraint (ck_users_ui_language, backend
 // UI_LANGUAGES = ("en", "pt-BR", "es")); the PUT validator rejects
-// anything outside that set. Not the full CHAT_RESPONSE_LANGUAGES list
-// above -- the app shell itself (menus, screens, forms) only has en/pt-BR/
-// es locale files (src/i18n/locales/), unlike the chat instruction, which
-// just needs a language name in a hidden prompt note.
-const DEFAULT_UI_LANGUAGES = [
-  { value: "pt-BR", label: "Português (Brasil)" },
-  { value: "en", label: "English" },
-  { value: "es", label: "Español" },
-];
-
+// anything outside that set. The chat dropdown uses the same three
+// selectable languages; older chat settings remain readable until changed.
 function linesToList(value: string): string[] {
   return value
     .split("\n")
@@ -414,6 +393,7 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          <MyLanguageControl />
           <div className="max-w-sm space-y-2">
             <div className="flex items-center gap-2">
               <Label htmlFor="default_ui_language">{t("settings.aiChat.defaultUiLanguage.label")}</Label>
@@ -425,7 +405,7 @@ export default function SettingsPage() {
               value={form.default_ui_language}
               onChange={(e) => saveLanguageField("default_ui_language", e.target.value)}
             >
-              {DEFAULT_UI_LANGUAGES.map((lang) => (
+              {UI_LANGUAGE_OPTIONS.map((lang) => (
                 <option key={lang.value} value={lang.value}>
                   {lang.label}
                 </option>
@@ -445,12 +425,22 @@ export default function SettingsPage() {
               value={form.chat_response_language}
               onChange={(e) => saveLanguageField("chat_response_language", e.target.value)}
             >
-              {CHAT_RESPONSE_LANGUAGES.map((lang) => (
+              {!UI_LANGUAGE_OPTIONS.some((lang) => lang.value === form.chat_response_language) && (
+                <option value={form.chat_response_language} disabled>
+                  {t("settings.aiChat.chatResponseLanguage.legacyOption", { language: form.chat_response_language })}
+                </option>
+              )}
+              {UI_LANGUAGE_OPTIONS.map((lang) => (
                 <option key={lang.value} value={lang.value}>
                   {lang.label}
                 </option>
               ))}
             </Select>
+            {!UI_LANGUAGE_OPTIONS.some((lang) => lang.value === form.chat_response_language) && (
+              <p className="text-sm text-amber-400">
+                {t("settings.aiChat.chatResponseLanguage.legacyHelp")}
+              </p>
+            )}
           </div>
           {languageSaveError && <p className="text-sm text-destructive">{languageSaveError}</p>}
         </CardContent>

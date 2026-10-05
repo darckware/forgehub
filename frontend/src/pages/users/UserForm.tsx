@@ -181,14 +181,14 @@ export default function UserForm({ user, onClose }: Props) {
 
       {!isAdmin && (
         <div className="flex flex-col gap-1 col-span-2">
-          <Label>Access Profile</Label>
+          <Label>{t("users.form.profileLabel")}</Label>
           <select
             value={profileId}
             onChange={(e) => setProfileId(e.target.value)}
             className="flex h-9 w-full rounded-md border border-input px-3 py-1 text-sm shadow-sm text-foreground"
             style={{ backgroundColor: "hsl(var(--background))" }}
           >
-            <option value="">— no profile —</option>
+            <option value="">{t("users.form.profilePlaceholder")}</option>
             {profiles?.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
@@ -199,10 +199,10 @@ export default function UserForm({ user, onClose }: Props) {
       {error && <p className="col-span-2 text-xs text-destructive">{error.message}</p>}
 
       <div className="col-span-2 flex gap-2 justify-end">
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>{t("users.form.cancel")}</Button>
         <Button type="submit" size="sm" disabled={!canSubmit} className="gap-1.5">
           {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          Save
+          {t("users.form.save")}
         </Button>
       </div>
     </form>

@@ -2,7 +2,8 @@
   "users": {
     "list": {
       "title": "Usuários",
-      "create": "Novo usuário"
+      "create": "Novo usuário",
+      "you": "(você)"
     },
     "column": {
       "user": "Usuário",
@@ -52,7 +53,9 @@
       "superAdminDesc": "acesso total, ignora perfis",
       "activeLabel": "Ativo",
       "profileLabel": "Perfil de acesso",
-      "profilePlaceholder": "— sem perfil —"
+      "profilePlaceholder": "— sem perfil —",
+      "cancel": "Cancelar",
+      "save": "Salvar"
     }
   }
 }

@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   Bot,
-  Check,
   ChevronDown,
   Feather,
   FolderOpen,
@@ -21,7 +20,6 @@ import {
   SquareTerminal,
   Trash2,
   Unplug,
-  Upload,
   Users,
   X,
 } from "lucide-react";
@@ -35,7 +33,6 @@ import piIcon from "@/assets/icons/pi.svg";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TerminalPane } from "@/components/TerminalPane";
-import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { apiClient } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -372,7 +369,7 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
                   <div>
                     <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-500 bg-emerald-500/10">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      VPS / Produção (Darckware)
+                      {t("toolbar.vpsProduction")}
                     </div>
                     {vpsList.map(renderServerButton)}
                   </div>
@@ -381,7 +378,7 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
                   <div className={vpsList.length > 0 ? "mt-1 border-t border-border pt-1" : ""}>
                     <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-500 bg-blue-500/10">
                       <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                      SEMED (Cliente / Cloudflare)
+                      {t("toolbar.semedClient")}
                     </div>
                     {semedList.map(renderServerButton)}
                   </div>
@@ -802,10 +799,6 @@ export default function WorkspacePage() {
   const [tabs, setTabs] = useState<WorkspaceTab[]>(restoredState.tabs);
   const [activeTabId, setActiveTabId] = useState<string>(restoredState.activeTabId);
   const [workingDir, setWorkingDir] = useState<string | undefined>(restoredState.workingDir);
-  const workspaceUploadInputRef = useRef<HTMLInputElement>(null);
-  const [workspaceUploadStatus, setWorkspaceUploadStatus] = useState<"idle" | "uploading" | "success" | "error">(
-    "idle"
-  );
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
   const [terminateTarget, setTerminateTarget] = useState<{
     kind: "terminal" | "chat";
@@ -816,24 +809,6 @@ export default function WorkspacePage() {
   } | null>(null);
   const [terminatingTab, setTerminatingTab] = useState(false);
   const queryClient = useQueryClient();
-
-  async function handleWorkspaceFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = ""; // allow picking the same file(s) again to re-trigger onChange
-    if (files.length === 0 || !workingDir) return;
-    setWorkspaceUploadStatus("uploading");
-    const formData = new FormData();
-    formData.append("dir", workingDir);
-    files.forEach((f) => formData.append("files", f));
-    try {
-      await apiClient.postForm("/api/v1/terminal/upload-to-dir", formData);
-      setWorkspaceUploadStatus("success");
-    } catch {
-      setWorkspaceUploadStatus("error");
-    } finally {
-      setTimeout(() => setWorkspaceUploadStatus("idle"), 1500);
-    }
-  }
 
   // Native HTML5 drag-and-drop for tab reordering -- a ref (not state) so
   // dragging doesn't trigger re-renders; only the drop commits a change.
@@ -995,10 +970,12 @@ export default function WorkspacePage() {
   }
 
   const updateExplorerTabPath = useCallback((tabId: string, path: string) => {
+    const explorerTab = tabs.find((tab) => tab.id === tabId && tab.kind === "explorer");
     setTabs((current) =>
       current.map((tab) => (tab.id === tabId && tab.kind === "explorer" ? { ...tab, path } : tab))
     );
-  }, []);
+    if (explorerTab?.kind === "explorer" && !explorerTab.server) setWorkingDir(path);
+  }, [tabs]);
 
   const explorerQuickAccess = useMemo<QuickAccessItem[]>(() => {
     const items: QuickAccessItem[] = [
@@ -1382,9 +1359,9 @@ export default function WorkspacePage() {
       ) : (
       <>
       <div className="flex flex-col border-b border-border">
-        {/* Toolbar: static actions on the left, working-dir/launchers on the right.
+        {/* Toolbar: static actions on the left, launchers on the right.
             Wraps below md -- kept on one line, a phone clipped everything
-            past the SSH menu (launchers, working folder, upload). Not
+            past the SSH menu (launchers and runtimes). Not
             overflow-x-auto: that would also clip the dropdowns hanging off
             these buttons. Those dropdowns (SSH, launchers, runtimes, tabs,
             sessions) are `max-md:fixed max-md:inset-x-2` on a phone: anchored
@@ -1427,8 +1404,8 @@ export default function WorkspacePage() {
             variant="outline"
             size="icon"
             className="h-8 w-8 shrink-0"
-            title="Abrir Telegram do agente"
-            aria-label="Abrir Telegram do agente"
+            title={t("toolbar.openAgentTelegram")}
+            aria-label={t("toolbar.openAgentTelegram")}
             disabled={!activeChatTab}
             onClick={() => activeChatTab && openTelegramTab(activeChatTab.agentId)}
           >
@@ -1476,33 +1453,6 @@ export default function WorkspacePage() {
           <SshLauncherMenu onLaunch={(label, command, server) => openTerminalTab(label, command, undefined, server)} />
           <LaunchersMenu onLaunch={openTerminalTab} />
           <div className="flex-1" />
-          <WorkingDirPicker workingDir={workingDir} onSelect={setWorkingDir} />
-          <input
-            ref={workspaceUploadInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleWorkspaceFileUpload}
-          />
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-7 w-7 shrink-0"
-            disabled={!workingDir || workspaceUploadStatus === "uploading"}
-            title={workingDir ? t("toolbar.uploadFiles") : t("toolbar.selectWorkingFolderFirst")}
-            aria-label={t("toolbar.uploadFiles")}
-            onClick={() => workspaceUploadInputRef.current?.click()}
-          >
-            {workspaceUploadStatus === "uploading" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : workspaceUploadStatus === "success" ? (
-              <Check className="h-3.5 w-3.5 text-green-500" />
-            ) : workspaceUploadStatus === "error" ? (
-              <X className="h-3.5 w-3.5 text-destructive" />
-            ) : (
-              <Upload className="h-3.5 w-3.5" />
-            )}
-          </Button>
           <div className="hidden items-center gap-1 2xl:flex">
           <div className="mx-1 h-5 w-px bg-border" />
           <span className="text-[10px] font-medium uppercase text-muted-foreground" title={t("toolbar.cliLaunchers")}>

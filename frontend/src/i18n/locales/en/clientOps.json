@@ -1,4 +1,7 @@
 {
+  "common": {
+    "dismiss": "Dismiss"
+  },
   "notConfigured": "Darckware integration is not configured (DARCKWARE_API_URL / DARCKWARE_AGENT_TOKEN).",
   "unreachable": "Darckware unavailable: {{error}}",
   "approverMissing": "Approver token (DARCKWARE_APPROVER_TOKEN) is not configured — e-mails cannot be approved.",
@@ -212,7 +215,8 @@
       "invalid": "Invalid value"
     },
     "save": "Save to Darckware",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "hoursPerMonth": "h/month"
   },
   "conversions": {
     "title": "Leads ready to become clients",

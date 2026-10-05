@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { AlertCircle, CheckCircle2, Clock, DollarSign, Timer, Users, Zap } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { AgentTelemetryRow } from "@/hooks/useFactory";
+import { useTranslation } from "react-i18next";
 
 const HISTORY_DAYS = 14;
 
@@ -53,11 +54,12 @@ function formatDuration(seconds: number | null | undefined): string {
   return remaining > 0 ? `${minutes}m ${remaining}s` : `${minutes}m`;
 }
 
-function formatCost(cost: number): string {
-  return cost.toLocaleString("pt-BR", { style: "currency", currency: "USD" });
+function formatCost(cost: number, locale: string): string {
+  return cost.toLocaleString(locale, { style: "currency", currency: "USD" });
 }
 
 function AgentSparkline({ history }: { history: AgentTelemetryRow["history"] }) {
+  const { t } = useTranslation("agentTelemetry");
   const buckets = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -73,7 +75,7 @@ function AgentSparkline({ history }: { history: AgentTelemetryRow["history"] }) 
   const max = Math.max(1, ...buckets.map((b) => b.count));
 
   return (
-    <svg viewBox="0 0 280 40" className="h-8 w-full" role="img" aria-label="Execuções nos últimos 14 dias">
+    <svg viewBox="0 0 280 40" className="h-8 w-full" role="img" aria-label={t("historyAria")}>
       {buckets.map((bucket, i) => {
         const barWidth = 280 / HISTORY_DAYS - 2;
         const x = i * (280 / HISTORY_DAYS) + 1;
@@ -98,8 +100,9 @@ function AgentSparkline({ history }: { history: AgentTelemetryRow["history"] }) 
 }
 
 function AgentStatusBar({ agent }: { agent: AgentTelemetryRow }) {
+  const { t } = useTranslation("agentTelemetry");
   const total = agent.executions_total;
-  if (total === 0) return <p className="text-xs text-muted-foreground">Sem execuções registradas.</p>;
+  if (total === 0) return <p className="text-xs text-muted-foreground">{t("noExecutions")}</p>;
   return (
     <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
       {agent.executions_successful > 0 && (
@@ -125,6 +128,7 @@ function AgentStatusBar({ agent }: { agent: AgentTelemetryRow }) {
 }
 
 export function AgentTelemetryPanel({ agents }: { agents: AgentTelemetryRow[] }) {
+  const { t, i18n } = useTranslation("agentTelemetry");
   const totals = useMemo(() => {
     const executions = agents.reduce((sum, a) => sum + a.executions_total, 0);
     const successful = agents.reduce((sum, a) => sum + a.executions_successful, 0);
@@ -148,7 +152,7 @@ export function AgentTelemetryPanel({ agents }: { agents: AgentTelemetryRow[] })
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          Nenhuma execução de agente registrada ainda.
+          {t("empty")}
         </CardContent>
       </Card>
     );
@@ -157,20 +161,20 @@ export function AgentTelemetryPanel({ agents }: { agents: AgentTelemetryRow[] })
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile icon={<Users className="h-4 w-4" />} label="Agentes ativos" value={String(agents.length)} />
-        <StatTile icon={<Zap className="h-4 w-4" />} label="Execuções totais" value={String(totals.executions)} />
+        <StatTile icon={<Users className="h-4 w-4" />} label={t("activeAgents")} value={String(agents.length)} />
+        <StatTile icon={<Zap className="h-4 w-4" />} label={t("totalExecutions")} value={String(totals.executions)} />
         <StatTile
           icon={totals.successRate !== null && totals.successRate < 0.8 ? <AlertCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-          label="Taxa de sucesso"
+          label={t("successRate")}
           value={totals.successRate !== null ? `${Math.round(totals.successRate * 100)}%` : "—"}
-          hint={totals.successRate === null ? "Sem execuções terminais" : undefined}
+          hint={totals.successRate === null ? t("noTerminalExecutions") : undefined}
         />
-        <StatTile icon={<DollarSign className="h-4 w-4" />} label="Custo total" value={formatCost(totals.cost)} />
+        <StatTile icon={<DollarSign className="h-4 w-4" />} label={t("totalCost")} value={formatCost(totals.cost, i18n.language)} />
       </div>
 
       <Card>
         <CardContent className="space-y-3 p-4">
-          <h3 className="text-sm font-semibold">Volume por agente</h3>
+          <h3 className="text-sm font-semibold">{t("volumeByAgent")}</h3>
           <div className="space-y-2.5">
             {volumeByAgent.map((a) => (
               <BarRow key={a.agent_id} label={a.agent_name} value={a.executions_total} max={maxVolume} />
@@ -186,17 +190,17 @@ export function AgentTelemetryPanel({ agents }: { agents: AgentTelemetryRow[] })
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">{agent.agent_name}</h3>
                 <span className="text-xs tabular-nums text-muted-foreground">
-                  {agent.success_rate !== null ? `${Math.round((agent.success_rate ?? 0) * 100)}% sucesso` : "sem histórico"}
+                  {agent.success_rate !== null ? t("successPercent", { percent: Math.round((agent.success_rate ?? 0) * 100) }) : t("noHistory")}
                 </span>
               </div>
               <AgentStatusBar agent={agent} />
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{agent.executions_total} execuções</span>
-                <span className="flex items-center gap-1"><Timer className="h-3 w-3" />{formatDuration(agent.avg_duration_seconds)} médio</span>
-                <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{formatCost(agent.total_cost)}</span>
+                <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{t("executions", { count: agent.executions_total })}</span>
+                <span className="flex items-center gap-1"><Timer className="h-3 w-3" />{formatDuration(agent.avg_duration_seconds)} {t("average")}</span>
+                <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{formatCost(agent.total_cost, i18n.language)}</span>
                 {agent.dispatch_total > 0 && (
                   <span>
-                    Despachos: {agent.dispatch_completed}/{agent.dispatch_total}
+                    {t("dispatches")}: {agent.dispatch_completed}/{agent.dispatch_total}
                     {agent.dispatch_success_rate !== null && ` (${Math.round((agent.dispatch_success_rate ?? 0) * 100)}%)`}
                   </span>
                 )}

@@ -226,9 +226,9 @@ function cleanupTargetIds(target: CleanupTarget, demands: Demand[]): string[] {
   return demands.filter((d) => d.status === "archived").map((d) => d.id);
 }
 
-function formatTimestamp(value: string): string {
+function formatTimestamp(value: string, locale: string): string {
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString(locale);
 }
 
 function formatBytes(bytes: number): string {
@@ -239,6 +239,7 @@ function formatBytes(bytes: number): string {
 }
 
 function AttachmentRow({ demand, attachment }: { demand: Demand; attachment: Demand["attachments"][number] }) {
+  const { t } = useTranslation("demands");
   const deleteAttachment = useDeleteDemandAttachment();
   return (
     <div className="flex items-start justify-between gap-2 rounded-md bg-muted/30 px-2.5 py-1.5 text-xs">
@@ -265,7 +266,7 @@ function AttachmentRow({ demand, attachment }: { demand: Demand; attachment: Dem
           type="button"
           className="text-muted-foreground hover:text-foreground"
           onClick={() => downloadDemandAttachment(demand.id, attachment)}
-          title="Download"
+          title={t("attachment.download")}
         >
           <Download className="h-3.5 w-3.5" />
         </button>
@@ -273,7 +274,7 @@ function AttachmentRow({ demand, attachment }: { demand: Demand; attachment: Dem
           type="button"
           className="text-muted-foreground hover:text-destructive"
           onClick={() => deleteAttachment.mutate({ demandId: demand.id, attachmentId: attachment.id })}
-          title="Remove attachment"
+          title={t("attachment.remove")}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -369,7 +370,7 @@ function ReadingPane({
    * left to relay onward from those views. */
   canSendToOutgoing: boolean;
 }) {
-  const { t } = useTranslation("demands");
+  const { t, i18n } = useTranslation("demands");
   const updateStatus = useUpdateDemandStatus();
   const promoteToTask = useUpdateDemand();
   const reprocessOne = useReprocessDemands();
@@ -395,8 +396,8 @@ function ReadingPane({
     <div className="flex h-full min-h-0 flex-col">
       <ConfirmDialog
         open={confirmDelete}
-        title={`Delete "${demand.subject}"`}
-        description="Permanently removes the message from the inbox."
+        title={t("reading.deleteTitle", { subject: demand.subject })}
+        description={t("reading.deleteDescription")}
         loading={deleteDemand.isPending}
         onConfirm={() => deleteDemand.mutate(demand.id, { onSuccess: () => setConfirmDelete(false) })}
         onCancel={() => setConfirmDelete(false)}
@@ -413,13 +414,13 @@ function ReadingPane({
                 {t("pending.sigla")}
               </Badge>
             )}
-            <Badge variant={STATUS_BADGE[demand.status].variant}>{STATUS_BADGE[demand.status].label}</Badge>
+            <Badge variant={STATUS_BADGE[demand.status].variant}>{t(`reading.status.${demand.status}`)}</Badge>
           </span>
         </div>
         <div className="mt-1.5 flex items-center gap-1.5 text-sm text-muted-foreground">
           <User className="h-3.5 w-3.5" />
           <span className="font-medium text-foreground">{demand.from_agent}</span>
-          <span>· {formatTimestamp(demand.created_at)}</span>
+          <span>· {formatTimestamp(demand.created_at, i18n.language)}</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="outline" className="gap-1.5" onClick={onEdit}>
@@ -495,7 +496,7 @@ function ReadingPane({
               className="gap-1.5"
               onClick={() => updateStatus.mutate({ id: demand.id, status: "archived" })}
             >
-              <Archive className="h-3.5 w-3.5" /> Archive
+              <Archive className="h-3.5 w-3.5" /> {t("reading.archive")}
             </Button>
           )}
           {canSendToOutgoing && (
@@ -509,7 +510,7 @@ function ReadingPane({
             </Button>
           )}
           <Button size="sm" variant="outline" className="gap-1.5 text-destructive" onClick={() => setConfirmDelete(true)}>
-            <Trash2 className="h-3.5 w-3.5" /> Delete
+            <Trash2 className="h-3.5 w-3.5" /> {t("reading.delete")}
           </Button>
         </div>
         {canSendToOutgoing && sendToOutgoingOpen && (
@@ -522,7 +523,7 @@ function ReadingPane({
 
         {demand.attachments.length > 0 && (
           <div className="space-y-1.5">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Attachments</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">{t("reading.attachments")}</p>
             {demand.attachments.map((a) => (
               <AttachmentRow key={a.id} demand={demand} attachment={a} />
             ))}
@@ -533,7 +534,7 @@ function ReadingPane({
           <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
             <span>
-              Done — converted to <strong>{CONVERT_TARGET_LABELS[demand.converted_entity_type as ConvertTarget]}</strong>: {demand.converted_reference}
+              {t("reading.convertedTo")} <strong>{t(`reading.convertTargets.${demand.converted_entity_type as ConvertTarget}`, CONVERT_TARGET_LABELS[demand.converted_entity_type as ConvertTarget])}</strong>: {demand.converted_reference}
             </span>
           </div>
         )}
@@ -572,7 +573,7 @@ function DemandListRow({
   /** requires_response=true and no reply has landed yet. */
   awaitingResponse: boolean;
 }) {
-  const { t } = useTranslation("demands");
+  const { t, i18n } = useTranslation("demands");
   return (
     <button
       type="button"
@@ -611,7 +612,7 @@ function DemandListRow({
               <Loader2 className="h-3 w-3 shrink-0 animate-spin text-amber-500" />
             </span>
           )}
-          {new Date(demand.created_at).toLocaleDateString()}
+          {new Date(demand.created_at).toLocaleDateString(i18n.language)}
         </span>
       </div>
       <span className="truncate text-xs text-muted-foreground">
@@ -1172,7 +1173,7 @@ export default function DemandsPage() {
             title={t("cleanup.keep30")}
           >
             <Trash2 className="h-3.5 w-3.5" />
-            <span className="text-xs">30d</span>
+            <span className="text-xs">{t("cleanup.daysShort", { count: 30 })}</span>
           </Button>
           <Button
             size="icon"
@@ -1183,7 +1184,7 @@ export default function DemandsPage() {
             title={t("cleanup.keep15")}
           >
             <Trash2 className="h-3.5 w-3.5" />
-            <span className="text-xs">15d</span>
+            <span className="text-xs">{t("cleanup.daysShort", { count: 15 })}</span>
           </Button>
           <Button
             size="icon"
@@ -1201,7 +1202,7 @@ export default function DemandsPage() {
             className="h-8 w-8"
             onClick={() => refetch()}
             disabled={isFetching}
-            title="Refresh inbox"
+            title={t("reading.refreshInbox")}
           >
             {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           </Button>
@@ -1245,7 +1246,7 @@ export default function DemandsPage() {
       {activeTab === "messages" && isError && (
         <div className="flex flex-1 items-center justify-center gap-3 p-6 text-destructive">
           <AlertCircle className="h-5 w-5" />
-          <span>Failed to load the inbox: {(error as Error)?.message}</span>
+          <span>{t("reading.loadInboxFailed", { error: (error as Error)?.message })}</span>
         </div>
       )}
 

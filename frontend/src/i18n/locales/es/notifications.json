@@ -1,0 +1,25 @@
+{
+  "title": "Notificaciones",
+  "unreadCount": "{{count}} no leído",
+  "markAllRead": "Marque todos como leídos",
+  "cleanup": {
+    "keep30Label": "Mantener los últimos 30 días",
+    "keep30Description": "Eliminar cada notificación de más de 30 días.",
+    "keep15Label": "Mantener durante 15 días",
+    "keep15Description": "Eliminar cada notificación de más de 15 días.",
+    "clearAllLabel": "Limpiar todo",
+    "clearAllDescription": "Borrar todo el registro de notificación. Esto no se puede deshacer.",
+    "confirmLabel": "Eliminar"
+  },
+  "filters": {
+    "all": "Todos",
+    "unread": "No leído",
+    "error": "Errores"
+  },
+  "totalRecorded": "{{count}} registrado",
+  "empty": "No se han registrado notificaciones.",
+  "read": "Leer",
+  "errorLabel": "Error",
+  "runSummary": "Ejecutar resumen",
+  "noRunOutput": "No se ha registrado ninguna salida de ejecución para esta ejecución."
+}

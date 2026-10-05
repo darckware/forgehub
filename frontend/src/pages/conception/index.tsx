@@ -43,7 +43,6 @@ import { usePromptTemplate, useStreamAgentDraft } from "@/hooks/useAiDraft";
 import { useDeleteProduct, useProductVersions, useUpdateProduct } from "@/hooks/useProduct";
 import {
   PROJECT_SOLUTION_TYPES,
-  PROJECT_SOLUTION_TYPE_LABELS,
   useDeleteProject,
   useProjects,
 } from "@/hooks/useProject";
@@ -222,7 +221,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
             conceptId,
             file: pastedFile,
             category: "screens",
-            description: "Mockup / Imagem de Tela Colada",
+            description: t("wizard.documentation.pastedImageDescription"),
           });
           setSelectedFilename(result.filename);
           break;
@@ -232,7 +231,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
 
     window.addEventListener("paste", handleGlobalPaste);
     return () => window.removeEventListener("paste", handleGlobalPaste);
-  }, [conceptId, uploadDocument]);
+  }, [conceptId, uploadDocument, t]);
 
   if (!conceptId) {
     return <p className="text-sm text-muted-foreground">{t("wizard.documentation.saveFirst")}</p>;
@@ -243,13 +242,14 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
     if (!trimmed) return;
     const filename = /\.(md|markdown|txt|json)$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
     const cat = DOCUMENT_CATEGORIES.find((c) => c.id === selectedCategory);
-    const initialContent = `# ${cat?.label ?? "Documento"}\n\n${cat?.description ?? ""}\n\n## Detalhes\n\n`;
+    const description = cat ? t(`wizard.documentation.categories.${cat.id}.description`) : "";
+    const initialContent = `# ${cat ? t(`wizard.documentation.categories.${cat.id}.label`) : t("wizard.documentation.document")}\n\n${description}\n\n## ${t("wizard.documentation.details")}\n\n`;
     const result = await saveDocument.mutateAsync({
       conceptId,
       filename,
       content: initialContent,
       category: selectedCategory,
-      description: cat?.description ?? "",
+      description,
     });
     setNewFilename("");
     setCreating(false);
@@ -258,13 +258,14 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
 
   const addTemplateDocument = async (category: typeof DOCUMENT_CATEGORIES[number]) => {
     const filename = category.defaultFilename;
-    const initialContent = `# ${category.label}\n\n${category.description}\n\n## 1. Visão Geral\n\n## 2. Especificação Detalhada\n\n`;
+    const description = t(`wizard.documentation.categories.${category.id}.description`);
+    const initialContent = `# ${t(`wizard.documentation.categories.${category.id}.label`)}\n\n${description}\n\n## 1. ${t("wizard.documentation.overview")}\n\n## 2. ${t("wizard.documentation.detailedSpecification")}\n\n`;
     const result = await saveDocument.mutateAsync({
       conceptId,
       filename,
       content: initialContent,
       category: category.id,
-      description: category.description,
+      description,
     });
     setSelectedFilename(result.filename);
   };
@@ -302,7 +303,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
     <div className="space-y-4">
       {/* Atalhos Rápidos para Catalogar Documentação Padrão */}
       <div className="flex flex-wrap items-center gap-2 pb-2 border-b">
-        <span className="text-xs font-semibold text-muted-foreground mr-1">Catalogar Modelo:</span>
+        <span className="text-xs font-semibold text-muted-foreground mr-1">{t("wizard.documentation.catalogTemplate")}</span>
         {DOCUMENT_CATEGORIES.map((cat) => {
           const alreadyExists = documents.data?.some((d) => d.filename.toLowerCase() === cat.defaultFilename.toLowerCase());
           const Icon = cat.icon;
@@ -322,7 +323,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
               }}
             >
               <Icon className={`h-3.5 w-3.5 ${alreadyExists ? "text-primary" : ""}`} />
-              {cat.label}
+              {t(`wizard.documentation.categories.${cat.id}.label`)}
             </Button>
           );
         })}
@@ -331,7 +332,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
       {/* Filtros Rápidos por Classificação */}
       <div className="flex flex-wrap items-center gap-1.5 pb-1">
         <span className="text-[11px] font-medium text-muted-foreground mr-1 flex items-center gap-1">
-          <Filter className="h-3 w-3" /> Filtrar:
+          <Filter className="h-3 w-3" /> {t("wizard.documentation.filter")}
         </span>
         <Button
           type="button"
@@ -340,7 +341,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
           className="h-6 text-[11px] px-2"
           onClick={() => setActiveFilter("all")}
         >
-          Todos ({allDocs.length})
+          {t("wizard.documentation.all", { count: allDocs.length })}
         </Button>
         {DOCUMENT_CATEGORIES.map((cat) => {
           const count = allDocs.filter((d) => (d.category || inferDocCategory(d.filename)) === cat.id).length;
@@ -356,7 +357,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
               onClick={() => setActiveFilter(cat.id)}
             >
               <Icon className="h-3 w-3" />
-              {cat.label} ({count})
+              {t(`wizard.documentation.categories.${cat.id}.label`)} ({count})
             </Button>
           );
         })}
@@ -378,18 +379,18 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                     conceptId,
                     file,
                     category: cat,
-                    description: DOCUMENT_CATEGORIES.find((c) => c.id === cat)?.description ?? "",
+                    description: t(`wizard.documentation.categories.${cat}.description`),
                   });
                   setSelectedFilename(result.filename);
                 }}
               />
               <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" title={t("wizard.documentation.upload")} onClick={() => fileInputRef.current?.click()} disabled={uploadDocument.isPending}>
                 {uploadDocument.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Upload className="h-3.5 w-3.5"/>}
-                Upload
+                {t("wizard.documentation.upload")}
               </Button>
               <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" title={t("wizard.documentation.newDocument")} onClick={() => setCreating((v) => !v)}>
                 <Plus className="h-3.5 w-3.5"/>
-                Novo
+                {t("wizard.documentation.newDocument")}
               </Button>
             </div>
           </div>
@@ -397,7 +398,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
           {creating && (
             <div className="space-y-2 rounded-lg border p-2 bg-muted/30">
               <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-muted-foreground">Classificação do Documento</Label>
+                <Label className="text-[11px] font-semibold text-muted-foreground">{t("wizard.documentation.classification")}</Label>
                 <Select value={selectedCategory} onChange={(e) => {
                   const catKey = e.target.value as DocCategoryKey;
                   setSelectedCategory(catKey);
@@ -407,14 +408,14 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                   }
                 }}>
                   {DOCUMENT_CATEGORIES.map((c) => (
-                    <option key={c.id} value={c.id}>{c.label}</option>
+                    <option key={c.id} value={c.id}>{t(`wizard.documentation.categories.${c.id}.label`)}</option>
                   ))}
                 </Select>
               </div>
               <div className="flex gap-1">
                 <Input
                   className="h-8 text-xs"
-                  placeholder="Nome do arquivo (ex: PRD.md)"
+                  placeholder={t("wizard.documentation.filenamePlaceholder")}
                   value={newFilename}
                   onChange={(e) => setNewFilename(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void createDocument(); } }}
@@ -429,7 +430,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
           {documents.isLoading && <p className="text-xs text-muted-foreground">{t("wizard.documentation.loading")}</p>}
           {filteredDocs.length === 0 && !creating && (
             <p className="text-xs text-muted-foreground">
-              {activeFilter === "all" ? t("wizard.documentation.empty") : "Nenhum documento nesta classificação."}
+              {activeFilter === "all" ? t("wizard.documentation.empty") : t("wizard.documentation.emptyCategory")}
             </p>
           )}
           <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
@@ -459,7 +460,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                         onChange={(e) => handleCategoryChange(doc.filename, e.target.value)}
                       >
                         {DOCUMENT_CATEGORIES.map((c) => (
-                          <option key={c.id} value={c.id}>{c.label}</option>
+                          <option key={c.id} value={c.id}>{t(`wizard.documentation.categories.${c.id}.label`)}</option>
                         ))}
                       </Select>
                     </div>
@@ -469,7 +470,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                   <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
                     <Input
                       className="h-6 text-[11px] px-2 bg-background/80 placeholder:text-muted-foreground/60"
-                      placeholder="Descreva o propósito deste documento..."
+                      placeholder={t("wizard.documentation.purposePlaceholder")}
                       value={desc}
                       onChange={(e) => setLocalDescriptions((prev) => ({ ...prev, [doc.filename]: e.target.value }))}
                       onBlur={(e) => handleDescriptionBlur(doc.filename, e.target.value)}
@@ -487,10 +488,10 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
               <FileText className="h-10 w-10 text-muted-foreground/40" />
               <p className="text-sm font-semibold">{t("wizard.documentation.selectHint")}</p>
               <p className="text-xs text-muted-foreground max-w-md">
-                Selecione um documento catalogado ao lado para visualizar e editar, ou use os botões rápidos no topo para criar <strong>PRD</strong>, <strong>Design System</strong>, <strong>Modelagem de Banco</strong>, <strong>SPEC de Arquitetura</strong>, <strong>Telas</strong> ou <strong>APIs</strong>.
+                {t("wizard.documentation.selectDescription")}
               </p>
               <p className="text-[11px] text-muted-foreground/80 bg-muted/40 px-3 py-1.5 rounded-full border">
-                💡 Dica: Você pode colar prints de tela diretamente com <kbd className="font-mono bg-muted px-1 rounded">Ctrl+V</kbd> / <kbd className="font-mono bg-muted px-1 rounded">Cmd+V</kbd>.
+                {t("wizard.documentation.pasteTip")}
               </p>
             </div>
           ) : (
@@ -510,7 +511,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                         <div>
                           <p className="text-sm font-bold">{selectedFilename}</p>
                           <p className="text-xs text-muted-foreground">
-                            {currentDesc || currentCatObj.description}
+                            {currentDesc || t(`wizard.documentation.categories.${currentCatKey}.description`)}
                           </p>
                         </div>
                       </div>
@@ -518,14 +519,14 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                       <div className="flex items-center gap-2">
                         {/* Seletor de Categoria no Cabeçalho */}
                         <div className="flex items-center gap-1.5">
-                          <Label className="text-xs text-muted-foreground">Classificação:</Label>
+                          <Label className="text-xs text-muted-foreground">{t("wizard.documentation.classificationShort")}</Label>
                           <Select
                             className="h-7 text-xs font-medium w-48"
                             value={currentCatKey}
                             onChange={(e) => handleCategoryChange(selectedFilename, e.target.value)}
                           >
                             {DOCUMENT_CATEGORIES.map((c) => (
-                              <option key={c.id} value={c.id}>{c.label}</option>
+                              <option key={c.id} value={c.id}>{t(`wizard.documentation.categories.${c.id}.label`)}</option>
                             ))}
                           </Select>
                         </div>
@@ -570,7 +571,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
               ) : isImageFile(selectedFilename) ? (
                 <div className="flex flex-col items-center justify-center p-4 border rounded-lg bg-muted/10 min-h-[340px]">
                   <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                    <ImageIcon className="h-3.5 w-3.5 text-amber-500" /> Visualização do Asset / Mockup de Tela
+                    <ImageIcon className="h-3.5 w-3.5 text-amber-500" /> {t("wizard.documentation.assetPreview")}
                   </p>
                   <img
                     src={`/api/v1/product-concepts/${conceptId}/documents/${selectedFilename}`}
@@ -584,7 +585,7 @@ function ConceptDocumentsPanel({ conceptId }: { conceptId: string | undefined })
                   className="resize-none font-mono text-xs leading-relaxed"
                   value={editedContent}
                   onChange={(e) => setEditedContent(e.target.value)}
-                  placeholder="Conteúdo do documento em Markdown..."
+                  placeholder={t("wizard.documentation.markdownPlaceholder")}
                 />
               )}
             </>
@@ -676,7 +677,7 @@ function ProjectPlanningPanel({
   }, [actionType, productProjects, selectedProjectId, productVersions]);
 
   if (!conceptId) {
-    return <p className="text-sm text-muted-foreground">Salve a ideia primeiro para poder criar o projeto.</p>;
+    return <p className="text-sm text-muted-foreground">{t("projectPlanning.saveFirst")}</p>;
   }
 
   const handleSelectExistingProject = (projId: string) => {
@@ -783,7 +784,7 @@ function ProjectPlanningPanel({
           <TabsList className="bg-muted/60 p-1">
             <TabsTrigger value="existing" className="gap-2 px-3 py-1.5 text-xs font-semibold">
               <FolderGit2 className="h-4 w-4" />
-              Projetos Existentes
+              {t("projectPlanning.existing")}
               {productProjects.length > 0 && (
                 <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] font-bold">
                   {productProjects.length}
@@ -792,14 +793,14 @@ function ProjectPlanningPanel({
             </TabsTrigger>
             <TabsTrigger value="manage" className="gap-2 px-3 py-1.5 text-xs font-semibold">
               <Boxes className="h-4 w-4" />
-              {actionType === "creation" ? "Criar Novo Projeto" : "Manutenção de Projeto"}
+              {actionType === "creation" ? t("projectPlanning.createNew") : t("projectPlanning.maintenance")}
             </TabsTrigger>
           </TabsList>
 
           <p className="text-xs text-muted-foreground hidden sm:block">
             {activeTab === "existing"
-              ? "Visualize e sincronize a documentação dos projetos vinculados."
-              : "Defina novos projetos ou realize a manutenção evolutiva."}
+              ? t("projectPlanning.existingDescription")
+              : t("projectPlanning.manageDescription")}
           </p>
         </div>
 
@@ -809,9 +810,9 @@ function ProjectPlanningPanel({
             <div className="rounded-lg border border-dashed p-8 text-center bg-muted/10 space-y-3">
               <FolderGit2 className="h-8 w-8 mx-auto text-muted-foreground/60" />
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-foreground">Nenhum projeto existente no produto</p>
+                <p className="text-sm font-semibold text-foreground">{t("projectPlanning.noExisting")}</p>
                 <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                  Este produto ainda não possui projetos vinculados. Use a aba ao lado para criar o primeiro projeto.
+                  {t("projectPlanning.noExistingDescription")}
                 </p>
               </div>
               <Button
@@ -825,7 +826,7 @@ function ProjectPlanningPanel({
                 }}
               >
                 <Rocket className="h-3.5 w-3.5 text-primary" />
-                Criar Primeiro Projeto
+                {t("projectPlanning.createFirst")}
               </Button>
             </div>
           ) : (
@@ -841,7 +842,7 @@ function ProjectPlanningPanel({
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <Badge variant="outline" className="shrink-0 text-xs">
-                          {p.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[p.solution_type] : "Geral"}
+                          {p.solution_type ? t(`projectPlanning.solutionTypes.${p.solution_type}`) : t("projectPlanning.general")}
                         </Badge>
                         {versionObj && (
                           <Badge variant="secondary" className="shrink-0 text-xs font-mono">
@@ -856,7 +857,7 @@ function ProjectPlanningPanel({
                         </Link>
                         {resultInfo && (
                           <span className="text-xs text-muted-foreground shrink-0">
-                            ({resultInfo.scope_items_created} escopos, {resultInfo.tasks_created} tasks)
+                            {t("projectPlanning.createdCounts", { scopes: resultInfo.scope_items_created, tasks: resultInfo.tasks_created })}
                           </span>
                         )}
                       </div>
@@ -869,10 +870,10 @@ function ProjectPlanningPanel({
                           className="h-8 text-xs gap-1.5"
                           disabled={sync.isPending}
                           onClick={() => sync.mutate({ conceptId, projectId: p.id })}
-                          title="Sincronizar documentos da concepção para o projeto"
+                          title={t("projectPlanning.syncTitle")}
                         >
                           {sync.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                          Sincronizar docs
+                          {t("projectPlanning.syncDocs")}
                         </Button>
                         <Button
                           type="button"
@@ -887,10 +888,10 @@ function ProjectPlanningPanel({
                             setActionType("maintenance");
                             setActiveTab("manage");
                           }}
-                          title="Abrir manutenção para este projeto"
+                          title={t("projectPlanning.openMaintenance")}
                         >
                           <Wrench className="h-3.5 w-3.5" />
-                          Evoluir
+                          {t("projectPlanning.evolve")}
                         </Button>
                         <Button
                           type="button"
@@ -910,7 +911,7 @@ function ProjectPlanningPanel({
 
               {sync.isSuccess && (
                 <div className="p-2.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                  Documentos sincronizados com sucesso: {sync.data.files_written.join(", ") || "(nenhum documento gerado ainda)"}
+                  {t("projectPlanning.syncSuccess", { files: sync.data.files_written.join(", ") || t("projectPlanning.noGeneratedDocs") })}
                 </div>
               )}
 
@@ -918,7 +919,7 @@ function ProjectPlanningPanel({
                 <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                 <div className="space-y-1 leading-relaxed">
                   <p>
-                    <strong className="text-foreground">Sincronizar docs:</strong> Copia os documentos gerados na Concepção (PRD, especificações técnicas, design system e telas) diretamente para a pasta <code className="px-1 py-0.5 rounded bg-muted font-mono text-[11px]">docs/</code> no repositório de trabalho do projeto, disponibilizando o contexto completo para os agentes de desenvolvimento.
+                    {t("projectPlanning.syncExplanation")}
                   </p>
                 </div>
               </div>
@@ -930,7 +931,7 @@ function ProjectPlanningPanel({
         <TabsContent value="manage" className="pt-3 space-y-4">
           {/* Seletor de Modalidade: Novo Projeto vs Manutenção */}
           <div className="space-y-2">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tipo de Ação</Label>
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t("projectPlanning.actionType")}</Label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
               <button
                 type="button"
@@ -945,8 +946,8 @@ function ProjectPlanningPanel({
                   <Rocket className="h-4 w-4 shrink-0" />
                 </div>
                 <div>
-                  <p className="text-xs font-bold">Novo Projeto</p>
-                  <p className="text-[11px] opacity-80">Criar nova aplicação ou camada</p>
+                  <p className="text-xs font-bold">{t("projectPlanning.newProject")}</p>
+                  <p className="text-[11px] opacity-80">{t("projectPlanning.newProjectDescription")}</p>
                 </div>
               </button>
 
@@ -963,8 +964,8 @@ function ProjectPlanningPanel({
                   <Wrench className="h-4 w-4 shrink-0" />
                 </div>
                 <div>
-                  <p className="text-xs font-bold">Manutenção</p>
-                  <p className="text-[11px] opacity-80">Evoluir projeto existente</p>
+                  <p className="text-xs font-bold">{t("projectPlanning.maintenanceShort")}</p>
+                  <p className="text-[11px] opacity-80">{t("projectPlanning.maintenanceDescription")}</p>
                 </div>
               </button>
             </div>
@@ -974,8 +975,8 @@ function ProjectPlanningPanel({
           {actionType === "creation" && (
             <div className="space-y-3.5 rounded-lg border p-4 bg-muted/10">
               <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs font-semibold text-foreground">Definir Novos Projetos / Camadas</Label>
-                <span className="text-[11px] text-muted-foreground">Cada camada gera um projeto versionado independente.</span>
+                <Label className="text-xs font-semibold text-foreground">{t("projectPlanning.defineProjects")}</Label>
+                <span className="text-[11px] text-muted-foreground">{t("projectPlanning.eachLayer")}</span>
               </div>
 
               <div className="space-y-2.5">
@@ -987,12 +988,12 @@ function ProjectPlanningPanel({
                         onChange={(e) => updateSpec(i, { solution_type: e.target.value as ProjectSpecForm["solution_type"] })}
                         className="text-xs font-medium"
                       >
-                        {PROJECT_SOLUTION_TYPES.map((t) => (
-                          <option key={t} value={t}>{PROJECT_SOLUTION_TYPE_LABELS[t]}</option>
+                        {PROJECT_SOLUTION_TYPES.map((solutionType) => (
+                          <option key={solutionType} value={solutionType}>{t(`projectPlanning.solutionTypes.${solutionType}`)}</option>
                         ))}
                       </Select>
                       <Input
-                        placeholder="Nome do projeto (ex: Portal Web Factory)"
+                        placeholder={t("projectPlanning.projectNameExample")}
                         value={spec.project_name}
                         onChange={(e) => updateSpec(i, { project_name: e.target.value })}
                         className="text-xs"
@@ -1010,7 +1011,7 @@ function ProjectPlanningPanel({
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-border/50">
                       <div className="space-y-1">
-                        <Label className="text-[11px] font-medium text-muted-foreground">Versão Inicial</Label>
+                        <Label className="text-[11px] font-medium text-muted-foreground">{t("projectPlanning.initialVersion")}</Label>
                         <Input
                           placeholder="0.1.0"
                           value={spec.version}
@@ -1019,9 +1020,9 @@ function ProjectPlanningPanel({
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[11px] font-medium text-muted-foreground">Tipo de Operação</Label>
+                        <Label className="text-[11px] font-medium text-muted-foreground">{t("projectPlanning.operationType")}</Label>
                         <Input
-                          value="Nova Implementação (Criação)"
+                          value={t("projectPlanning.newImplementation")}
                           disabled
                           className="h-8 bg-muted/60 text-muted-foreground text-xs"
                         />
@@ -1040,7 +1041,7 @@ function ProjectPlanningPanel({
                   className="gap-1.5 text-xs"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Adicionar tipo de aplicação
+                  {t("projectPlanning.addApplicationType")}
                 </Button>
               </div>
 
@@ -1053,7 +1054,7 @@ function ProjectPlanningPanel({
                 >
                   {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   <Rocket className="h-4 w-4" />
-                  Criar Novo Projeto
+                  {t("projectPlanning.createNew")}
                 </Button>
               </div>
             </div>
@@ -1062,17 +1063,17 @@ function ProjectPlanningPanel({
           {/* CASO 2: MANUTENÇÃO DE PROJETO EXISTENTE */}
           {actionType === "maintenance" && (
             <div className="space-y-4 rounded-lg border p-4 bg-muted/10">
-              <Label className="text-xs font-semibold text-foreground">Selecionar Projeto Existente para Manutenção</Label>
+              <Label className="text-xs font-semibold text-foreground">{t("projectPlanning.selectForMaintenance")}</Label>
 
               {productProjects.length === 0 ? (
                 <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400 space-y-2">
-                  <p className="font-semibold">Nenhum projeto existente encontrado para este produto.</p>
-                  <p>Para realizar manutenção, o produto precisa ter ao menos um projeto já criado. Alterne para a opção <strong>Novo Projeto</strong> acima para criar o projeto inicial.</p>
+                  <p className="font-semibold">{t("projectPlanning.noExistingForMaintenance")}</p>
+                  <p>{t("projectPlanning.maintenanceNeedsProject")}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Projeto a receber a manutenção:</Label>
+                    <Label className="text-xs text-muted-foreground">{t("projectPlanning.projectForMaintenance")}</Label>
                     <Select
                       value={selectedProjectId}
                       onChange={(e) => handleSelectExistingProject(e.target.value)}
@@ -1082,7 +1083,7 @@ function ProjectPlanningPanel({
                         const v = productVersions?.find((x) => x.id === p.product_version_id);
                         return (
                           <option key={p.id} value={p.id}>
-                            {p.name} ({p.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[p.solution_type] : "Geral"} · v{v?.version || "0.1.0"})
+                            {p.name} ({p.solution_type ? t(`projectPlanning.solutionTypes.${p.solution_type}`) : t("projectPlanning.general")} · v{v?.version || "0.1.0"})
                           </option>
                         );
                       })}
@@ -1095,26 +1096,26 @@ function ProjectPlanningPanel({
                         <div className="space-y-0.5">
                           <p className="text-xs font-bold text-foreground">{selectedExistingProject.name}</p>
                           <p className="text-[11px] text-muted-foreground">
-                            {selectedExistingProject.solution_type ? PROJECT_SOLUTION_TYPE_LABELS[selectedExistingProject.solution_type] : "Geral"} · Versão Atual: v{selectedProjectVersion?.version || "0.1.0"}
+                            {selectedExistingProject.solution_type ? t(`projectPlanning.solutionTypes.${selectedExistingProject.solution_type}`) : t("projectPlanning.general")} · {t("projectPlanning.currentVersion", { version: selectedProjectVersion?.version || "0.1.0" })}
                           </p>
                         </div>
                         <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 bg-amber-500/10 font-semibold">
-                          Modo: Manutenção
+                          {t("projectPlanning.maintenanceMode")}
                         </Badge>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <Label className="text-[11px] font-medium text-muted-foreground">Nome / Identificação do Projeto</Label>
+                          <Label className="text-[11px] font-medium text-muted-foreground">{t("projectPlanning.projectIdentification")}</Label>
                           <Input
                             value={maintenanceProjectName}
                             onChange={(e) => setMaintenanceProjectName(e.target.value)}
-                            placeholder="Nome do projeto"
+                            placeholder={t("projectPlanning.projectName")}
                             className="text-xs"
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[11px] font-medium text-muted-foreground">Nova Versão da Manutenção (Patch / Minor)</Label>
+                          <Label className="text-[11px] font-medium text-muted-foreground">{t("projectPlanning.maintenanceVersion")}</Label>
                           <Input
                             value={maintenanceVersion}
                             onChange={(e) => setMaintenanceVersion(e.target.value)}
@@ -1133,7 +1134,7 @@ function ProjectPlanningPanel({
                         >
                           {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                           <Wrench className="h-4 w-4" />
-                          Autorizar Manutenção do Projeto
+                          {t("projectPlanning.authorizeMaintenance")}
                         </Button>
 
                         <Button
@@ -1145,7 +1146,7 @@ function ProjectPlanningPanel({
                           className="text-xs gap-1.5"
                         >
                           {sync.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                          Sincronizar Docs c/ Projeto
+                          {t("projectPlanning.syncDocsWithProject")}
                         </Button>
                       </div>
                     </div>
@@ -1157,13 +1158,13 @@ function ProjectPlanningPanel({
         </TabsContent>
       </Tabs>
 
-      {submitError && <p className="text-sm text-destructive">Falha ao processar: {submitError}</p>}
+      {submitError && <p className="text-sm text-destructive">{t("projectPlanning.processFailed", { error: submitError })}</p>}
 
       <ConfirmDialog
         open={pendingDeleteProject !== null}
-        title={`Excluir projeto "${pendingDeleteProject?.name ?? ""}"?`}
-        description="Isso excluirá o projeto permanentemente junto com suas tarefas e configurações. Esta ação não pode ser desfeita."
-        confirmLabel="Excluir"
+        title={t("projectPlanning.deleteTitle", { name: pendingDeleteProject?.name ?? "" })}
+        description={t("projectPlanning.deleteDescription")}
+        confirmLabel={t("developmentRequests.delete")}
         loading={deleteProject.isPending}
         onConfirm={confirmDeleteProject}
         onCancel={() => setPendingDeleteProject(null)}
@@ -1676,7 +1677,7 @@ export default function ConceptionPage() {
                 onClick={(e) => { e.stopPropagation(); startEdit(item); }}
               >
                 <Pencil className="h-3 w-3" />
-                Editar
+                {t("developmentRequests.edit")}
               </Button>
               <Button
                 variant="ghost"

@@ -6,12 +6,14 @@ import { AlertTriangle, Check, Code2, Copy, Maximize2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
 import { SecretBadge } from "@/components/chat/SecretBadge";
+import { useTranslation } from "react-i18next";
 
 /** Code blocks (```...```) get a hover-reveal copy button -- reads
  * .textContent off the rendered <pre> rather than re-serializing the
  * markdown AST, so it copies exactly what's on screen regardless of
  * nested inline markup. */
 function CodeBlock({ children }: { children?: React.ReactNode }) {
+  const { t } = useTranslation("markdown");
   const [copied, setCopied] = useState(false);
   const preRef = useRef<HTMLPreElement>(null);
 
@@ -29,8 +31,8 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
       </pre>
       <button
         type="button"
-        aria-label="Copy code"
-        title="Copy code"
+        aria-label={t("copyCode")}
+        title={t("copyCode")}
         onClick={handleCopy}
         className="absolute right-1.5 top-1.5 rounded bg-black/20 p-1 opacity-0 transition-opacity group-hover/code:opacity-100 hover:bg-black/30"
       >
@@ -43,6 +45,7 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
 /** Full-screen overlay for a rendered diagram -- same fixed-backdrop pattern
  * as ConfirmDialog (no Radix Dialog dependency in this codebase yet). */
 function MermaidFullscreen({ svg, onClose }: { svg: string; onClose: () => void }) {
+  const { t } = useTranslation("markdown");
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -57,8 +60,8 @@ function MermaidFullscreen({ svg, onClose }: { svg: string; onClose: () => void 
       <div className="relative z-10 max-h-full max-w-full overflow-auto rounded-lg bg-background p-6 shadow-2xl">
         <button
           type="button"
-          aria-label="Close"
-          title="Close"
+          aria-label={t("close")}
+          title={t("close")}
           onClick={onClose}
           className="absolute right-2 top-2 rounded p-1 hover:bg-black/10"
         >
@@ -74,6 +77,7 @@ function MermaidFullscreen({ svg, onClose }: { svg: string; onClose: () => void 
  * toggle to view the raw source and a fullscreen expand -- mirrors the
  * Mermaid block UX users already know from ChatGPT/Claude canvases. */
 function MermaidDiagram({ source }: { source: string }) {
+  const { t } = useTranslation("markdown");
   const { resolvedTheme } = useTheme();
   const rawId = useId().replace(/[^a-zA-Z0-9-]/g, "");
   const [svg, setSvg] = useState<string | null>(null);
@@ -99,7 +103,7 @@ function MermaidDiagram({ source }: { source: string }) {
         if (!valid) {
           if (!cancelled) {
             setSvg(null);
-            setError("Invalid Mermaid syntax");
+            setError(t("invalidSyntax"));
           }
           return;
         }
@@ -118,7 +122,7 @@ function MermaidDiagram({ source }: { source: string }) {
     return () => {
       cancelled = true;
     };
-  }, [source, resolvedTheme, rawId]);
+  }, [source, resolvedTheme, rawId, t]);
 
   return (
     <div className="mb-2 overflow-hidden rounded-md border border-current/15 last:mb-0">
@@ -127,8 +131,8 @@ function MermaidDiagram({ source }: { source: string }) {
         <div className="flex items-center gap-1">
           <button
             type="button"
-            aria-label={showSource ? "Show diagram" : "Show source"}
-            title={showSource ? "Show diagram" : "Show source"}
+            aria-label={showSource ? t("showDiagram") : t("showSource")}
+            title={showSource ? t("showDiagram") : t("showSource")}
             onClick={() => setShowSource((v) => !v)}
             className="rounded p-1 hover:bg-black/10"
           >
@@ -137,8 +141,8 @@ function MermaidDiagram({ source }: { source: string }) {
           {svg && !error && (
             <button
               type="button"
-              aria-label="Fullscreen"
-              title="Fullscreen"
+              aria-label={t("fullscreen")}
+              title={t("fullscreen")}
               onClick={() => setFullscreen(true)}
               className="rounded p-1 hover:bg-black/10"
             >
@@ -151,7 +155,7 @@ function MermaidDiagram({ source }: { source: string }) {
         {error ? (
           <div className="flex items-start gap-2 text-xs text-destructive">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>Could not render Mermaid diagram: {error}</span>
+            <span>{t("renderError")} {error}</span>
           </div>
         ) : showSource || !svg ? (
           <pre className="overflow-x-auto text-xs">

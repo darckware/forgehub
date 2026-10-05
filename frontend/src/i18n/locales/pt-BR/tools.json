@@ -1,5 +1,6 @@
 {
   "form": {
+    "categoryPlaceholder": "rede, monitoramento, relatórios…", "descriptionPlaceholder": "Verifica a rede local e informa as portas abertas",
     "editTool": "Editar ferramenta",
     "registerTool": "Registrar ferramenta",
     "requiredFields": "Agente responsável, nome, caminho do arquivo e descrição são obrigatórios.",

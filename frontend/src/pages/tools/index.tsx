@@ -152,7 +152,7 @@ function ToolFormModal({
               <Input
                 value={form.category}
                 onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                placeholder="network, monitoring, reporting…"
+                placeholder={t("form.categoryPlaceholder")}
                 list="tool-categories"
               />
               <datalist id="tool-categories">
@@ -189,7 +189,7 @@ function ToolFormModal({
             <Textarea className="resize-none"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              placeholder="Scans the local network and reports open ports"
+              placeholder={t("form.descriptionPlaceholder")}
             />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}

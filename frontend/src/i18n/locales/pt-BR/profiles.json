@@ -15,6 +15,64 @@
         "write": "Escrever",
         "delete": "Excluir"
       }
+    },
+    "form": {
+      "name": "Nome",
+      "namePlaceholder": "Ex.: Desenvolvedor",
+      "description": "Descrição",
+      "descriptionPlaceholder": "Descrição opcional",
+      "sensitiveTitle": "Permissões para ações sensíveis",
+      "sensitiveHelp": "Essas ações são negadas por padrão e verificadas pelo backend.",
+      "permissionAria": "{{operation}} — {{module}}",
+      "cancel": "Cancelar",
+      "save": "Salvar",
+      "edit": "Editar",
+      "delete": "Excluir",
+      "operations": {
+        "can_view": "Ver",
+        "can_query": "Consultar",
+        "can_write": "Escrever",
+        "can_delete": "Excluir"
+      },
+      "modules": {
+        "product": "Produtos",
+        "projects": "Projetos",
+        "pipeline": "Pipelines",
+        "backlog": "Planejamento",
+        "tasks": "Execução",
+        "agents": "Agentes",
+        "artifacts": "Artefatos",
+        "governance": "Governança",
+        "forgerouter": "ForgeRouter",
+        "obsidian": "Base de Conhecimento",
+        "foundation": "Fundação",
+        "crons": "Agendamentos",
+        "deploy": "Controle de Deploy",
+        "servers": "Servidores",
+        "database": "Banco de Dados",
+        "users": "Usuários",
+        "profiles": "Perfis"
+      },
+      "actions": {
+        "planning_concept_view": "Ver detalhes do conceito",
+        "planning_concept_edit": "Criar e revisar conceitos",
+        "planning_concept_submit": "Enviar conceitos para aprovação",
+        "planning_concept_decide": "Decisão legada de conceito (desativada)",
+        "planning_blueprint_edit": "Editar Mapas do Sistema",
+        "planning_blueprint_approve": "Aprovar Mapas do Sistema",
+        "planning_delivery_authorize": "Autorizar planejamento da entrega",
+        "planning_progress_view": "Ver progresso e marcos do projeto",
+        "planning_progress_manage": "Gerenciar marcos e recuperação",
+        "planning_stage_complete": "Concluir etapas do pipeline",
+        "planning_execution_view": "Ver ondas de execução e estado dos executores",
+        "planning_execution_manage": "Criar e gerenciar ondas de execução",
+        "planning_execution_release": "Aprovar ondas de execução",
+        "planning_execution_dispatch": "Emitir e distribuir pacotes de trabalho",
+        "planning_execution_cancel": "Cancelar e reconciliar execuções de CLI",
+        "governance_approval_view": "Ver aprovações governadas",
+        "governance_approval_decide": "Decidir aprovações governadas",
+        "governance_delegation_manage": "Gerenciar delegações do Athos"
+      }
     }
   }
 }

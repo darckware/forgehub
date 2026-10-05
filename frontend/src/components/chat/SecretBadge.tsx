@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Copy, Eye, EyeOff, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 /**
  * Renders a masked secret token or password inside chat messages.
@@ -18,6 +19,7 @@ export function SecretBadge({
   value: string;
   className?: string;
 }) {
+  const { t } = useTranslation("chat");
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -71,8 +73,8 @@ export function SecretBadge({
           type="button"
           onClick={() => setRevealed((v) => !v)}
           className="rounded p-1 text-muted-foreground hover:bg-black/10 dark:hover:bg-white/10 hover:text-foreground transition-colors"
-          title={revealed ? "Ocultar segredo" : "Revelar segredo"}
-          aria-label={revealed ? "Ocultar segredo" : "Revelar segredo"}
+          title={revealed ? t("secret.hide") : t("secret.reveal")}
+          aria-label={revealed ? t("secret.hide") : t("secret.reveal")}
           data-testid="secret-toggle"
         >
           {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -82,8 +84,8 @@ export function SecretBadge({
           type="button"
           onClick={handleCopy}
           className="rounded p-1 text-muted-foreground hover:bg-black/10 dark:hover:bg-white/10 hover:text-foreground transition-colors"
-          title="Copiar segredo"
-          aria-label="Copiar segredo"
+          title={t("secret.copy")}
+          aria-label={t("secret.copy")}
           data-testid="secret-copy"
         >
           {copied ? (

@@ -1,4 +1,7 @@
 {
+  "common": {
+    "dismiss": "Dispensar"
+  },
   "notConfigured": "Integração com a Darckware não configurada (DARCKWARE_API_URL / DARCKWARE_AGENT_TOKEN).",
   "unreachable": "Darckware indisponível: {{error}}",
   "approverMissing": "Token de aprovação (DARCKWARE_APPROVER_TOKEN) não configurado — e-mails não podem ser aprovados.",
@@ -212,7 +215,8 @@
       "invalid": "Valor inválido"
     },
     "save": "Gravar na Darckware",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "hoursPerMonth": "h/mês"
   },
   "conversions": {
     "title": "Leads para virar cliente",

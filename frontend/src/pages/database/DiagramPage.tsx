@@ -90,6 +90,7 @@ function TableSelector({
   selected: string[];
   onChange: (t: string[]) => void;
 }) {
+  const { t: translate } = useTranslation("database");
   const [search, setSearch] = useState("");
   const filtered = allTables.filter((t) => t.toLowerCase().includes(search.toLowerCase()));
   const toggle = (t: string) =>
@@ -102,16 +103,16 @@ function TableSelector({
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search table..."
+          placeholder={translate("diagram.searchTablePlaceholder")}
           className="h-7 pl-6 text-xs"
         />
       </div>
       <div className="flex gap-1 shrink-0">
         <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => onChange(allTables)}>
-          All
+          {translate("diagram.allTables")}
         </Button>
         <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => onChange([])}>
-          None
+          {translate("diagram.noTables")}
         </Button>
         <span className="ml-auto text-[10px] text-muted-foreground self-center">{selected.length}/{allTables.length}</span>
       </div>

@@ -1,0 +1,118 @@
+{
+  "title": "Tablero",
+  "welcome": "Bienvenido a ForgeHub.",
+  "toolVersions": {
+    "title": "Versiones de herramientas",
+    "checkNow": "Comprobar ahora",
+    "checkVersionsNowAria": "Compruebe las versiones ahora",
+    "enableSync": "Activar sincronización automática",
+    "disableSync": "Desactivar sincronización automática",
+    "toggleSyncAria": "Conmutar sincronización automática de la versión",
+    "hostBridgeError": "Fallo al llegar al puente anfitrión — ¿está funcionando el puente fraguab-chat-bridge?",
+    "loading": "Cargando...",
+    "error": "Error",
+    "unknown": "Desconocido",
+    "updateAvailable": "Actualizar disponible",
+    "upToDate": "Hasta la fecha",
+    "checkFailed": "Falló la comprobación",
+    "notChecked": "No marcado",
+    "updateAria": "Actualizar {{tool}}",
+    "update": "Actualizar",
+    "notInstalled": "No instalado",
+    "install": "Instalar",
+    "installAria": "Instalar {{tool}}",
+    "installing": "Instalación...",
+    "details": "Detalles",
+    "closeDetails": "Detalles estrechos y claros",
+    "closeDetailsAria": "Detalles {{tool}} claros"
+  },
+  "systemStats": {
+    "loading": "Cargando...",
+    "hostBridgeError": "Fallo al llegar al puente de acogida — ¿está funcionando el puente de fragua-chat-bridge?",
+    "memory": "Memoria",
+    "disk": "Disco",
+    "network": "Red",
+    "docker": "Docker",
+    "dockerBreakdown": "construir caché {{cache}} · imágenes {{images}}",
+    "dockerReclaimable": "{{size}} recuperable",
+    "dockerReclaimableWarning": "{{size}} recuperable en Docker — limpieza en el control del sistema"
+  },
+  "crons": {
+    "title": "Crones",
+    "workingCount": "{{working}}/{{total}}",
+    "refresh": "Actualizar",
+    "refreshAria": "Actualizar la lista de cron",
+    "openCrons": "Abrir Crons",
+    "openCronsAria": "Abrir la página de Crons",
+    "loading": "Cargando...",
+    "loadError": "Fallo al cargar los trabajos de cron.",
+    "corruptedStore": "Tienda de cron corrupto ({{profiles}}) — esos trabajos no se están ejecutando. Vea la página de Crons.",
+    "empty": "No hay trabajos de cron registrados.",
+    "health": {
+      "working": "Trabajo",
+      "error": "Error",
+      "notRunning": "No correr",
+      "neverRan": "Nunca corrí.",
+      "off": "Desactivado"
+    }
+  },
+  "projectsForgeRouter": {
+    "title": "Proyectos",
+    "description": "ForgeRouter está configurado por proyecto dentro del directorio de cada proyecto.",
+    "expand": "Expandir",
+    "collapse": "Colapso",
+    "loadingProjects": "Cargando proyectos...",
+    "noProjects": "Todavía no se han registrado proyectos.",
+    "noWorkingDir": "No hay directorio de trabajo conjunto",
+    "setWorkingDirFirst": "Primero configura working_directory_path en el proyecto.",
+    "toolConfigured": "{{tool}}: configurado — haga clic para desactivar",
+    "toolNotConfigured": "{{tool}}: no está configurado — haga clic para activar",
+    "active": "Activo",
+    "off": "Desactivado",
+    "disableAll": "Desactivar todo",
+    "apiKeyPrompt": "Introduce la clave de API de ForgeRouter para {{tool}} en este proyecto (déjala vacía si ForgeRouter no requiere autenticación). Cada herramienta conserva su propia clave.",
+    "apiKeyPlaceholder": "Clave API (opcional)",
+    "enable": "Activar",
+    "cancel": "Cancelar",
+    "lastConfigured": "Última configuración: {{timestamp}}",
+    "globalConfigsDetected": "{{count}} global ForgeRouter config(s) detectado(s) — estos deben ser por proyecto.",
+    "hide": "Ocultar",
+    "details": "Detalles",
+    "reAudit": "Revisión de la auditoría",
+    "legend": "Haz clic en un icono de CLI para activar o desactivar ForgeRouter por herramienta: Claude (.claude/settings.local.json), Codex (.codex/forgerouter.env, activado mediante las opciones -c del lanzador porque Codex ignora model_provider en la configuración del proyecto). Antigravity requiere cargar manualmente el entorno (.forgerouter/antigravity.env)."
+  },
+  "cliForgeRouter": {
+    "title": "Global CLI ForgeRouter",
+    "description": "Ruta las herramientas globales AI CLI a través de la pasarela local ForgeRouter (puerto 210).",
+    "refresh": "Actualizar el estado CLI",
+    "targetGateway": "Portal de destino",
+    "gatewayUrl": "http://localhost:2100 (ForgeRouter Local Gateway)",
+    "localGatewayDesc": "Proxy y telemetría locales ForgeRouter",
+    "active": "Activo",
+    "off": "Desactivado",
+    "protocol": "Protocolo",
+    "configLocation": "Config. mundial",
+    "tools": {
+      "claude": {
+        "title": "Código Claude",
+        "protocol": "Protocolo de Mensajes Antrópicos",
+        "description": "Rutas ~/.claude/settings.json base URL a puerto local ForgeRouter 2100."
+      },
+      "codex": {
+        "title": "Código OpenAI",
+        "protocol": "Protocolo sobre las respuestas",
+        "description": "Rutas ~/.codex/config.toml proveedor de modelos a ForgeRouter local."
+      },
+      "antigravity": {
+        "title": "Antigravedad",
+        "protocol": "Protocolo compatible con OpenAI",
+        "description": "Rutas ~/.antigravity/settings.json AI endpoint a ForgeRouter local."
+      }
+    },
+    "loading": "Cargando el estado del router CLI...",
+    "loadError": "No se pudo conectar al puente anfitrión para comprobar las configuraciones del router CLI.",
+    "toggleSuccess": "Configuración {{tool}} actualizada con éxito.",
+    "toggleError": "Falló al actualizar la configuración de {{tool}}.",
+    "status": "Estado"
+  }
+}

@@ -226,7 +226,7 @@ export default function TaskDetailPage() {
               )}
               {task.plan_brief && (
                 <p className="mt-2 max-w-2xl whitespace-pre-line rounded border bg-muted/30 p-2 text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">Plano/abordagem: </span>{task.plan_brief}
+                  <span className="font-medium text-foreground">{t("detail.planApproach")} </span>{task.plan_brief}
                 </p>
               )}
             </div>
@@ -331,14 +331,14 @@ export default function TaskDetailPage() {
                     ["done", "deployed", "cancelled"].includes(task.status)
                   }
                   onClick={() => dispatchTask.mutate({})}
-                  title="Cria a mensagem vinculada a esta task e despacha ao agente atribuído"
+                  title={t("detail.dispatchTooltip")}
                 >
                   {dispatchTask.isPending ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Mail className="mr-2 h-4 w-4" />
                   )}
-                  Executar por Mensagens
+                  {t("detail.dispatchButton")}
                 </Button>
                 <Button size="sm" onClick={() => setShowExecForm((v) => !v)}>
                   <Play className="mr-2 h-4 w-4" />
@@ -354,7 +354,7 @@ export default function TaskDetailPage() {
                   if (blocking) {
                     return (
                       <div className="rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                        <p className="font-medium">Task tem dependências não concluídas:</p>
+                        <p className="font-medium">{t("detail.blockedDependencies")}</p>
                         <ul className="mt-1 list-disc pl-5">
                           {blocking.map((b) => (
                             <li key={b.task_id}>
@@ -378,11 +378,11 @@ export default function TaskDetailPage() {
             {dispatchTask.isSuccess && dispatchTask.data && (
               <CardContent className="border-t pt-4">
                 <p className="rounded border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
-                  Despachada como mensagem{" "}
+                  {t("detail.dispatchedAsMessage")}{" "}
                   <Link to="/demands" className="font-medium text-primary underline">
                     #{dispatchTask.data.demand_number}
                   </Link>{" "}
-                  — status do envio: {dispatchTask.data.dispatch_status ?? "—"}.
+                  {t("detail.dispatchStatus")}: {dispatchTask.data.dispatch_status ?? "—"}.
                 </p>
               </CardContent>
             )}

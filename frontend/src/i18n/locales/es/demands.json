@@ -4,12 +4,21 @@
   "outgoingFolder": "Salientes",
   "systemLabel": "Sistema",
   "archivedFolder": "Archivadas",
+  "expandAllGroups": "Expandir todos los grupos",
+  "collapseAllGroups": "Contraer todos los grupos",
+  "backlogFolder": "Incubación",
+  "runningFolder": "Correr",
+  "failedFolder": "Falló",
+  "emptyBacklogMessage": "No hay pensamientos incubando ahora mismo.",
+  "emptyRunningMessage": "Nada enviado/running en este momento.",
+  "emptyFailedMessage": "Ningún despacho ha fallado hasta ahora.",
   "newNoteButton": "Nueva nota",
   "emptyArchivedFolderMessage": "",
   "emptyInboxMessage": "",
   "selectMessagePrompt": "Selecciona un mensaje para leer.",
   "backToFolders": "Carpetas",
   "newNoteTitle": "Nueva nota",
+  "editTitle": "Editar mensaje",
   "newNoteDescription": "Te permite crear tu propio elemento de bandeja de entrada (no solo agentes vía /submit), según el caso de uso 'consola de desarrollo': las notas/procedimientos cotidianos se guardan primero aquí, para ser clasificados más tarde. Los archivos se guardan como `from_agent = username` para que la bandeja de entrada muestre un remitente real tanto si lo envías tú como un agente.",
   "subjectPlaceholder": "Asunto",
   "bodyPlaceholder": "Nota/Prompt",
@@ -18,6 +27,142 @@
   "send": "Enviar",
   "cancel": "Cancelar",
   "new": "Nuevo",
+  "editButton": "Editar",
+  "tabs": {
+    "messages": "Mensajes",
+    "overview": "Sinopsis",
+    "stats": "Estadística",
+    "control": "Control"
+  },
+  "form": {
+    "scheduledAt": "Enviar a",
+    "fromAgent": "De (agente)",
+    "noFromAgent": "Elige un agente",
+    "toAgent": "A (agente)",
+    "noAgent": "Ningún agente",
+    "project": "Proyecto",
+    "noProject": "Ningún proyecto",
+    "developmentRequest": "Solicitud de concepción",
+    "noDevelopmentRequest": "Sin concepción vinculada",
+    "originId": "ID",
+    "type": "Tipo",
+    "typeTaskOutgoing": "Tarea",
+    "typeTaskIncoming": "Tarea",
+    "taskExecutionAt": "Ejecutados en el",
+    "dispatchResult": "Resultado",
+    "requiresResponse": "Volver",
+    "requiresResponseYes": "Sí",
+    "requiresResponseNo": "No",
+    "agentRequiredForTask": "Elija un agente de destino al vincularlo a una tarea",
+    "agentRequiredForSchedule": "Elija un agente de destino para programar un envío",
+    "typeBacklog": "Incubación",
+    "status": "Estado",
+    "statusDispatched": "Procesado",
+    "statusRunning": "En ejecución",
+    "statusFailed": "Fallo",
+    "statusCompleted": "Finalizado",
+    "fromAgentRequired": "Elige el agente De — todo mensaje pertenece a uno.",
+    "toAgentSelf": "Él mismo (igual que De)"
+  },
+  "pending": {
+    "sigla": "AR",
+    "tooltip": "Esperando respuesta - este mensaje pidió una respuesta y ninguno ha llegado todavía"
+  },
+  "dispatch": {
+    "replyArrived": "respuesta llegada",
+    "status": {
+      "pending": "En fila para el despacho...",
+      "dispatched": "Despacho, esperando que el agente empiece...",
+      "running": "El agente está corriendo...",
+      "completed": "Terminado",
+      "failed": "Falló"
+    }
+  },
+  "sendToOutgoing": {
+    "button": "Enviar a la salida",
+    "loading": "Cargando agentes...",
+    "selectAgent": "Seleccionar agente...",
+    "instructionsPlaceholder": "Instrucciones para el agente (enviado junto con el contenido de este mensaje)",
+    "submit": "Enviar",
+    "backlogNeedsSender": "Un pensamiento en incubación necesita un remitente (De) para poder despacharse — asigna De a un agente o promuévelo a Task."
+  },
+  "attachment": {"download": "Descargar", "remove": "Quitar adjunto"},
+  "reading": {"deleteTitle": "Eliminar \"{{subject}}\"", "deleteDescription": "Elimina el mensaje definitivamente de la bandeja de entrada.", "archive": "Archivar", "delete": "Eliminar", "attachments": "Adjuntos", "convertedTo": "Completado — convertido en", "refreshInbox": "Actualizar bandeja de entrada", "loadInboxFailed": "Error al cargar la bandeja de entrada: {{error}}", "status": {"new": "Nuevo", "read": "Leído", "converted": "Convertido", "archived": "Archivado"}, "convertTargets": {"task": "Tarea", "doc": "Documento", "artifact": "Artefacto", "knowledge_base": "Base de conocimiento", "planning_item": "Elemento de planificación", "project_doc": "Documento del proyecto", "quick_task": "Tarea rápida"}},
+  "cleanup": {
+    "daysShort": "{{count}}d",
+    "keep30": "Mantener los últimos 30 días",
+    "keep15": "Mantener durante 15 días",
+    "clearAll": "Limpiar todo",
+    "confirmTitle": "Limpiar mensajes",
+    "confirmKeepDescription": "Elimina permanentemente todos los mensajes completados, fallados o ya archivados anteriores a los días de {{days}}. El correo activo (ingreso, salida, ejecución, incubación) nunca se ve afectado. Esto no se puede deshacer.",
+    "confirmClearAllDescription": "Elimina permanentemente cada mensaje completado, fallido o ya archivado. El correo activo (Incoming, Outgoing, Running, Incubation) nunca se ve afectado. Esto no se puede deshacer.",
+    "confirmGroupDescription": "Elimina permanentemente cada mensaje en {{group}}. Esto no se puede deshacer.",
+    "cleanupGroupLabel": "Limpiar {{group}}"
+  },
+  "overview": {
+    "title": "Mapa de comunicaciones de los agentes",
+    "subtitle": "¿Quién está intercambiando mensajes con quién, con el volumen y el estado de envío.",
+    "emptyState": "Todavía no hay suficiente tráfico entre agentes para mostrar esta vista.",
+    "tableToggleShow": "Ver como tabla",
+    "tableToggleHide": "Ver como gráfico",
+    "tooltip": "{{from}} → Mensajes {{to}}: {{count}}",
+    "hoverHint": "Hover o haga clic en un agente/line para ver detalles.",
+    "legend": {
+      "completed": "Terminado",
+      "inFlight": "En curso / en cola",
+      "failed": "Falló",
+      "plain": "Sin envío",
+      "thickness": "Espesor de la línea = volumen del mensaje"
+    },
+    "table": {
+      "from": "Desde",
+      "to": "A",
+      "total": "Total",
+      "completed": "Terminado",
+      "failed": "Falló",
+      "inFlight": "En curso",
+      "plain": "Sin envío"
+    },
+    "nodeSummary": {
+      "sent": "Enviado",
+      "received": "Recibido",
+      "failed": "Falló",
+      "pending": "Pendiente"
+    }
+  },
+  "stats": {
+    "totalMessages": "Total de mensajes",
+    "activeAgents": "Agentes con tráfico",
+    "awaitingReply": "Esperando respuesta",
+    "dispatchSuccessRate": "Tasa de éxito de envío",
+    "noDispatchData": "Aún no hay suficientes despachos por calcular.",
+    "volumeByAgent": "Volumen por agente",
+    "statusBreakdown": "Estado de envío",
+    "messagesOverTime": "Mensajes en los últimos 14 días",
+    "status": {
+      "completed": "Terminado",
+      "inFlight": "En curso",
+      "failed": "Falló"
+    }
+  },
+  "control": {
+    "title": "Control de la demanda",
+    "subtitle": "Clasificar los mensajes por proyecto, agente o inicio de sesión para realizar un seguimiento del trabajo en curso.",
+    "loading": "Cargando...",
+    "noProject": "Ningún proyecto",
+    "agentsBucket": "Agentes",
+    "dimension": {
+      "project": "Proyecto",
+      "agent": "Agente",
+      "login": "Iniciar sesión"
+    },
+    "table": {
+      "subject": "Asunto",
+      "from": "Desde",
+      "status": "Situación",
+      "date": "Fecha"
+    }
+  },
   "filter": {
     "typeLabel": "Filtrar por tipo",
     "typeAll": "Todos los tipos",
@@ -27,28 +172,15 @@
     "typeBacklog": "Incubación"
   },
   "promoteToTask": "Promover a Task",
-  "form": {
-    "typeBacklog": "Incubación",
-    "status": "Estado",
-    "statusDispatched": "Procesado",
-    "statusRunning": "En ejecución",
-    "statusFailed": "Fallo",
-    "statusCompleted": "Finalizado",
-    "fromAgentRequired": "Elige el agente De — todo mensaje pertenece a uno.",
-    "toAgentSelf": "Él mismo (igual que De)",
-    "noFromAgent": "Elige un agente"
-  },
   "completedFolder": "Finalizado",
   "emptyCompletedMessage": "Nada ha terminado de ejecutarse todavía.",
-  "sendToOutgoing": {
-    "backlogNeedsSender": "Un pensamiento en incubación necesita un remitente (De) para poder despacharse — asigna De a un agente o promuévelo a Task."
-  },
   "promoteToTaskNeedsAgent": "Define un remitente (De) primero — una Task siempre necesita un agente que la ejecute.",
   "archive": {
     "confirmTitle": "¿Archivar todos los mensajes?",
     "confirmGroupDescription": "Todo mensaje que esté en {{group}} se moverá a Archivados. Nada se elimina -- esto solo saca los mensajes de este grupo.",
     "confirmButton": "Archivar todos"
   },
+  "inbox": { "folderName": "Nombre de la carpeta" },
   "reprocess": {
     "confirmTitle": "¿Reprocesar fallos?",
     "confirmDescription": "{{count}} mensaje(s) con fallo volverán a la cola de despacho. Se inician a medida que haya cupo, no todos a la vez.",

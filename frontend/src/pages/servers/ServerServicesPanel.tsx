@@ -12,6 +12,7 @@
  * Pure render of `useServerServicesViewModel`.
  */
 import { ExternalLink, Loader2, Pencil, Plus, Radar, Trash2, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import { useServerServicesViewModel } from "@/hooks/useServerServicesViewModel";
 import type { Server } from "@/hooks/useServers";
 
 export function ServerServicesPanel({ server }: { server: Server }) {
+  const { t } = useTranslation("servers");
   const vm = useServerServicesViewModel(server.id);
 
   return (
@@ -30,7 +32,7 @@ export function ServerServicesPanel({ server }: { server: Server }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Services
+            {t("services.title")}
           </h3>
           <span className="font-mono text-[11px] text-muted-foreground">{server.ip_address}</span>
         </div>
@@ -41,8 +43,8 @@ export function ServerServicesPanel({ server }: { server: Server }) {
             className="h-7 w-7"
             title={
               server.access_enabled
-                ? "Scan common ports on this server"
-                : "Access is turned off — turn it on to scan"
+                ? t("services.scanTitle")
+                : t("services.scanDisabled")
             }
             disabled={vm.status === "scanning" || !server.access_enabled}
             onClick={vm.scan}
@@ -55,20 +57,20 @@ export function ServerServicesPanel({ server }: { server: Server }) {
           </Button>
           <Button variant="outline" size="sm" className="h-7" onClick={vm.startCreate}>
             <Plus className="mr-1 h-3.5 w-3.5" />
-            New service
+            {t("services.new")}
           </Button>
         </div>
       </div>
 
       {vm.isLoading && (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading services…
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("services.loading")}
         </p>
       )}
 
       {!vm.isLoading && vm.services.length === 0 && vm.editing === null && (
         <p className="text-xs italic text-muted-foreground">
-          No services registered. Add one, or scan for open ports.
+          {t("services.empty")}
         </p>
       )}
 
@@ -84,7 +86,7 @@ export function ServerServicesPanel({ server }: { server: Server }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex min-w-0 flex-1 items-center gap-2 hover:underline"
-                title={`Open ${service.url} in a new tab`}
+                title={t("services.openNewTab", { url: service.url })}
               >
                 <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate text-sm font-medium">{service.name}</span>
@@ -96,7 +98,7 @@ export function ServerServicesPanel({ server }: { server: Server }) {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 shrink-0"
-                title="Edit service"
+                title={t("services.edit")}
                 onClick={() => vm.startEdit(service)}
               >
                 <Pencil className="h-3 w-3" />
@@ -105,7 +107,7 @@ export function ServerServicesPanel({ server }: { server: Server }) {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 shrink-0 text-destructive hover:text-destructive"
-                title="Remove service"
+                title={t("services.remove")}
                 onClick={() => vm.requestDelete(service)}
               >
                 <Trash2 className="h-3 w-3" />
@@ -118,7 +120,7 @@ export function ServerServicesPanel({ server }: { server: Server }) {
       {vm.editing !== null && (
         <div className="space-y-2 rounded-md border border-border bg-background/60 p-3">
           <div className="flex items-center justify-between">
-            <Label className="text-xs">{vm.editing === "new" ? "New service" : "Edit service"}</Label>
+            <Label className="text-xs">{vm.editing === "new" ? t("services.new") : t("services.edit")}</Label>
             <button
               type="button"
               onClick={vm.cancelEdit}
@@ -130,7 +132,7 @@ export function ServerServicesPanel({ server }: { server: Server }) {
           <div className="grid grid-cols-12 gap-2">
             <Input
               className="col-span-4 h-8"
-              placeholder="Name (e.g. Moodle)"
+              placeholder={t("services.namePlaceholder")}
               value={vm.draft.name}
               onChange={(e) => vm.setDraft({ name: e.target.value })}
             />
@@ -151,7 +153,7 @@ export function ServerServicesPanel({ server }: { server: Server }) {
             />
             <Input
               className="col-span-4 h-8 font-mono"
-              placeholder="/path (optional)"
+              placeholder={t("services.pathPlaceholder")}
               value={vm.draft.path}
               onChange={(e) => vm.setDraft({ path: e.target.value })}
             />
@@ -169,7 +171,7 @@ export function ServerServicesPanel({ server }: { server: Server }) {
               onClick={vm.save}
             >
               {vm.status === "saving" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              Save
+              {t("form.save")}
             </Button>
           </div>
         </div>
@@ -179,8 +181,8 @@ export function ServerServicesPanel({ server }: { server: Server }) {
         <div className="space-y-1 rounded-md border border-dashed border-border p-3">
           <p className="text-[11px] text-muted-foreground">
             {vm.scanResult.length === 0
-              ? `No open ports among the ${vm.scannedCount} checked.`
-              : `${vm.scanResult.length} of ${vm.scannedCount} ports answered. Nothing was saved — pick one to register it.`}
+              ? t("services.noOpenPorts", { count: vm.scannedCount })
+              : t("services.scanResult", { count: vm.scanResult.length, total: vm.scannedCount })}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {vm.scanResult.map((entry) => (
@@ -195,15 +197,15 @@ export function ServerServicesPanel({ server }: { server: Server }) {
                 }}
                 title={
                   entry.registered
-                    ? "Already registered"
+                    ? t("services.alreadyRegistered")
                     : entry.likely_web
-                      ? "Register this port as a service"
-                      : "Answers TCP but is not a web endpoint"
+                      ? t("services.registerPort")
+                      : t("services.nonWebTitle")
                 }
               >
                 :{entry.port}
                 {entry.registered && <span className="text-emerald-500">✓</span>}
-                {!entry.likely_web && <span className="text-muted-foreground">non-web</span>}
+                {!entry.likely_web && <span className="text-muted-foreground">{t("services.nonWeb")}</span>}
               </Badge>
             ))}
           </div>
@@ -214,10 +216,11 @@ export function ServerServicesPanel({ server }: { server: Server }) {
 
       <ConfirmDialog
         open={vm.deleteTarget !== null}
-        title="Remove service"
+        title={t("services.remove")}
+        confirmLabel={t("services.remove")}
         description={
           vm.deleteTarget
-            ? `Remove "${vm.deleteTarget.name}" (${vm.deleteTarget.url}) from ${server.name}? Only the ForgeHub entry is deleted — nothing on the server changes.`
+            ? t("services.removeDescription", { name: vm.deleteTarget.name, url: vm.deleteTarget.url, server: server.name })
             : ""
         }
         loading={vm.status === "deleting"}

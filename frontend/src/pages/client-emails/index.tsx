@@ -98,7 +98,7 @@ export default function ClientEmailsPage() {
             {vm.errorMessage && (
               <div className="flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
                 <span>{vm.errorMessage}</span>
-                <button type="button" onClick={vm.dismiss} aria-label="dismiss">
+                <button type="button" onClick={vm.dismiss} aria-label={t("common.dismiss")}>
                   <X className="h-4 w-4" />
                 </button>
               </div>

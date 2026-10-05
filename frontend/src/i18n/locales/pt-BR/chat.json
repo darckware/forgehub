@@ -1,4 +1,39 @@
 {
+  "telegram": {
+    "paneFor": "Telegram de {{agent}}",
+    "agent": "agente",
+    "thisAgent": "este agente",
+    "historyError": "Não foi possível carregar o histórico do Telegram.",
+    "noConversation": "Nenhuma conversa do Telegram encontrada para {{agent}}.",
+    "startChannel": "Envie primeiro uma mensagem ao bot desse agente para estabelecer o canal.",
+    "deliveryWarning": "A resposta foi gravada, mas não pôde ser entregue ao Telegram. Atualize o canal antes de tentar novamente.",
+    "improvePrompt": "Melhorar prompt",
+    "stopRecording": "Parar gravação",
+    "dictate": "Ditar mensagem por voz",
+    "disableAutoSync": "Desativar atualização automática",
+    "enableAutoSync": "Ativar atualização automática",
+    "autoSyncOn": "Sincronização automática ativa — clique para desativar",
+    "autoSyncOff": "Sincronização automática desativada — clique para ativar",
+    "sending": "Enviando",
+    "waitingForFirstMessage": "A interação fica disponível depois que o bot receber a primeira mensagem no Telegram.",
+    "removeFile": "Remover {{name}}",
+    "composerPlaceholder": "Conversar com {{agent}} neste canal…",
+    "theAgent": "o agente",
+    "channelActive": "canal ativo",
+    "gatewayStopped": "gateway parado",
+    "notConfigured": "não configurado"
+  },
+  "secret": {
+    "hide": "Ocultar segredo",
+    "reveal": "Revelar segredo",
+    "copy": "Copiar segredo"
+  },
+  "assistantDrawer": {
+    "title": "Assistente",
+    "contextTooltip": "Inicia uma nova conversa com o contexto desta tela, enviado ao agente de forma invisível junto com sua primeira mensagem",
+    "close": "Fechar assistente",
+    "noAgent": "Nenhum agente com perfil disponível."
+  },
   "slashCommands": {
     "model": "Trocar de modelo (persiste por padrão)",
     "status": "Mostrar sessão, modelo, tokens e contexto",
@@ -128,8 +163,25 @@
     "promptTechniqueRecommended": "Técnica recomendada e selecionada para o contexto atual",
     "promptTechniqueWhen": "Use quando",
     "promptTechniqueAvoid": "Evite quando",
-    "promptTechniqueCategories": { "text": "Texto", "structure": "Estrutura", "reasoning": "Raciocínio", "software": "Software", "agentic": "Agentic", "research": "Pesquisa", "content": "Conteúdo", "design": "Design de Produto", "automation": "Automação", "image": "Imagem", "video": "Vídeo" },
-    "promptTechniqueEffort": { "low": "esforço baixo", "medium": "esforço médio", "high": "esforço alto", "very_high": "esforço muito alto" },
+    "promptTechniqueCategories": {
+      "text": "Texto",
+      "structure": "Estrutura",
+      "reasoning": "Raciocínio",
+      "software": "Software",
+      "agentic": "Agentic",
+      "research": "Pesquisa",
+      "content": "Conteúdo",
+      "design": "Design de Produto",
+      "automation": "Automação",
+      "image": "Imagem",
+      "video": "Vídeo"
+    },
+    "promptTechniqueEffort": {
+      "low": "esforço baixo",
+      "medium": "esforço médio",
+      "high": "esforço alto",
+      "very_high": "esforço muito alto"
+    },
     "typeMessageFirst": "Digite uma mensagem antes de enviar.",
     "selectAgentFirst": "Selecione um agente antes de enviar.",
     "selfRestartWarning": "Isso pode derrubar esta própria conversa por um instante -- o histórico fica salvo, mas o turno em andamento pode precisar ser reenviado.",
@@ -224,6 +276,25 @@
     "removeFromListTitle": "Remover da lista (não exclui o arquivo real)",
     "noArtifactsYet": "Nenhum artefato criado nesta conversa ainda.",
     "noArtifactsFound": "Nenhum artefato encontrado."
+  },
+  "secretInput": {
+    "agentInstruction": "Por favor, grave com segurança esta credencial no ForgeVault:",
+    "open": "Inserir senha ou token secreto (ForgeVault)",
+    "dialog": "Inserir senha ou token no ForgeVault",
+    "title": "Gravar segredo no ForgeVault",
+    "close": "Fechar",
+    "keyName": "Nome da chave / identificador",
+    "keyExample": "Ex.: TYPESAFE_API_KEY",
+    "environment": "Ambiente",
+    "production": "Produção",
+    "staging": "Homologação",
+    "development": "Desenvolvimento",
+    "encryption": "Criptografia AES",
+    "secretValue": "Senha ou token secreto",
+    "valuePlaceholder": "Cole o valor da chave secreta…",
+    "nameRequired": "Informe o nome do segredo (ex.: TYPESAFE_API_KEY)",
+    "valueRequired": "Informe a senha ou o token secreto",
+    "insert": "Inserir no ForgeVault"
   },
   "running": {
     "title": "Em execução",

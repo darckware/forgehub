@@ -16,6 +16,7 @@
  * forms follow -- the previous version hand-rolled an if-chain.
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, Copy, KeyRound, Loader2, Lock, Power, PowerOff, Trash2, X } from "lucide-react";
@@ -52,6 +53,7 @@ import { useServerKeyVaultViewModel } from "@/hooks/useServerKeyVaultViewModel";
  * backup directory, and the Workspace terminal simply lost those servers.
  */
 function KeyVaultSection({ server }: { server: Server }) {
+  const { t } = useTranslation("servers");
   const vm = useServerKeyVaultViewModel(server);
 
   return (
@@ -59,16 +61,14 @@ function KeyVaultSection({ server }: { server: Server }) {
       <div className="flex items-center justify-between">
         <Label className="flex items-center gap-1.5">
           <Lock className="h-3.5 w-3.5" />
-          Key vault
+          {t("form.vault.title")}
         </Label>
         <Badge variant={vm.vaulted ? "default" : "outline"} className="text-[10px]">
-          {vm.vaulted ? "Encrypted copy stored" : "No copy stored"}
+          {vm.vaulted ? t("form.vault.stored") : t("form.vault.notStored")}
         </Badge>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Keeps the private key encrypted in ForgeHub's database, so losing the file on the host no
-        longer means losing access to the server. The key is never sent back to the browser —
-        restoring writes it straight to the host at the path above.
+        {t("form.vault.description")}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -76,22 +76,22 @@ function KeyVaultSection({ server }: { server: Server }) {
           variant="outline"
           size="sm"
           disabled={!vm.hasKeyPath || vm.isBusy}
-          title={vm.hasKeyPath ? "Read the identity file from the host and store it encrypted" : "Set an SSH key path first"}
+          title={vm.hasKeyPath ? t("form.vault.storeTitle") : t("form.vault.pathRequired")}
           onClick={vm.backup}
         >
           {vm.status === "backing_up" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          {vm.vaulted ? "Update copy from host" : "Store key from host"}
+          {vm.vaulted ? t("form.vault.updateCopy") : t("form.vault.storeFromHost")}
         </Button>
         <Button
           type="button"
           variant="outline"
           size="sm"
           disabled={!vm.vaulted || !vm.hasKeyPath || vm.isBusy}
-          title="Write the stored key back to the host (never overwrites an existing file)"
+          title={t("form.vault.restoreTitle")}
           onClick={vm.restore}
         >
           {vm.status === "restoring" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          Restore to host
+          {t("form.vault.restore")}
         </Button>
         {vm.vaulted && (
           <Button
@@ -103,7 +103,7 @@ function KeyVaultSection({ server }: { server: Server }) {
             onClick={vm.requestClear}
           >
             {vm.status === "clearing" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            Remove copy
+            {t("form.vault.removeCopy")}
           </Button>
         )}
       </div>
@@ -111,7 +111,7 @@ function KeyVaultSection({ server }: { server: Server }) {
         <Textarea
           value={vm.pastedKey}
           onChange={(e) => vm.setPastedKey(e.target.value)}
-          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…paste a key this host doesn't have…"
+          placeholder={t("form.vault.pastePlaceholder")}
           className="resize-none min-h-[56px] font-mono text-[10px]"
           disabled={vm.isBusy}
         />
@@ -123,16 +123,16 @@ function KeyVaultSection({ server }: { server: Server }) {
           onClick={vm.storePasted}
         >
           {vm.status === "storing" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          Store pasted key
+          {t("form.vault.storePasted")}
         </Button>
       </div>
       {vm.message && <p className="text-[11px] text-emerald-600">{vm.message}</p>}
       {vm.error && <p className="text-[11px] text-destructive">{vm.error}</p>}
       <ConfirmDialog
         open={vm.status === "confirming_clear"}
-        title="Remove the stored key?"
-        description={`ForgeHub's encrypted copy of ${server.name}'s key is deleted. The file on the host is left untouched — but if it is ever lost, there will be no copy to restore from.`}
-        confirmLabel="Remove copy"
+        title={t("form.vault.removeTitle")}
+        description={t("form.vault.removeDescription", { name: server.name })}
+        confirmLabel={t("form.vault.removeCopy")}
         loading={vm.status === "clearing"}
         onConfirm={vm.confirmClear}
         onCancel={vm.cancelClear}
@@ -152,6 +152,7 @@ function KeyVaultSection({ server }: { server: Server }) {
  * passphrase can be stored or cleared without validating the rest of the form.
  */
 function PassphraseSection({ server }: { server: Server }) {
+  const { t } = useTranslation("servers");
   const { data: detail, isLoading } = useServer(server.id);
   const updateServer = useUpdateServer();
   const [value, setValue] = useState("");
@@ -176,23 +177,21 @@ function PassphraseSection({ server }: { server: Server }) {
       <div className="flex items-center justify-between">
         <Label className="flex items-center gap-1.5">
           <KeyRound className="h-3.5 w-3.5" />
-          Key passphrase
+          {t("form.passphrase.title")}
         </Label>
         <Badge variant={server.key_passphrase_stored ? "default" : "outline"} className="text-[10px]">
-          {server.key_passphrase_stored ? "Configured" : "Not set"}
+          {server.key_passphrase_stored ? t("form.passphrase.configured") : t("form.passphrase.notSet")}
         </Badge>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Passphrase that unlocks the identity file above. Stored encrypted; shown here to admins only.
-        Kept beside the key it unlocks on purpose — a vaulted key whose passphrase is lost is not a
-        recoverable key.
+        {t("form.passphrase.description")}
       </p>
       <div className="flex gap-2">
         <div className="flex-1">
           <TokenField
             value={value}
             onChange={setValue}
-            placeholder={isLoading ? "Loading…" : "Leave blank if the key has none"}
+            placeholder={isLoading ? t("form.loading") : t("form.passphrase.leaveBlank")}
             disabled={isLoading || updateServer.isPending}
           />
         </div>
@@ -207,7 +206,7 @@ function PassphraseSection({ server }: { server: Server }) {
           ) : (
             <KeyRound className="mr-1.5 h-3.5 w-3.5" />
           )}
-          Save
+          {t("form.save")}
         </Button>
         {server.key_passphrase_stored && (
           <Button
@@ -215,8 +214,8 @@ function PassphraseSection({ server }: { server: Server }) {
             variant="outline"
             size="icon"
             className="h-9 w-9"
-            title="Remove the stored passphrase"
-            aria-label="Remove the stored passphrase"
+            title={t("form.passphrase.remove")}
+            aria-label={t("form.passphrase.remove")}
             disabled={updateServer.isPending}
             onClick={() => setConfirmRemove(true)}
           >
@@ -227,9 +226,9 @@ function PassphraseSection({ server }: { server: Server }) {
       {updateServer.isError && <p className="text-[11px] text-destructive">{updateServer.error.message}</p>}
       <ConfirmDialog
         open={confirmRemove}
-        title="Remove the stored passphrase?"
-        description={`${server.name}'s key stays exactly where it is — only the passphrase ForgeHub keeps is deleted. A passphrase-protected key with no passphrase on file cannot be used by the status probe.`}
-        confirmLabel="Remove passphrase"
+        title={t("form.passphrase.removeTitle")}
+        description={t("form.passphrase.removeDescription", { name: server.name })}
+        confirmLabel={t("form.passphrase.removeAction")}
         loading={updateServer.isPending}
         onConfirm={() => {
           save("");
@@ -247,6 +246,7 @@ function PassphraseSection({ server }: { server: Server }) {
  * with nothing to validate, and it must work whether or not the rest of the
  * form is currently valid. */
 function AccessSection({ server }: { server: Server }) {
+  const { t } = useTranslation("servers");
   const toggleAccess = useToggleServerAccess();
   const enabled = server.access_enabled;
 
@@ -255,12 +255,12 @@ function AccessSection({ server }: { server: Server }) {
       <div className="space-y-0.5">
         <Label className="flex items-center gap-1.5">
           {enabled ? <Power className="h-3.5 w-3.5 text-emerald-500" /> : <PowerOff className="h-3.5 w-3.5 text-muted-foreground" />}
-          Access
+          {t("form.access.title")}
         </Label>
         <p className="text-[11px] text-muted-foreground">
           {enabled
-            ? "ForgeHub probes this server and can open a terminal to it."
-            : "Parked: no status check, no terminal. The key, the vaulted copy and the server itself are untouched."}
+            ? t("form.access.enabledDescription")
+            : t("form.access.disabledDescription")}
         </p>
       </div>
       <Button
@@ -271,13 +271,14 @@ function AccessSection({ server }: { server: Server }) {
         onClick={() => toggleAccess.mutate(server.id)}
       >
         {toggleAccess.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-        {enabled ? "Turn off" : "Turn on"}
+        {enabled ? t("form.access.turnOff") : t("form.access.turnOn")}
       </Button>
     </div>
   );
 }
 
 export function ServerForm({ initial, onClose }: { initial: Server | null; onClose: () => void }) {
+  const { t } = useTranslation("servers");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pubKeyCopied, setPubKeyCopied] = useState(false);
@@ -333,12 +334,12 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
     if (initial) {
       updateServer.mutate(
         { id: initial.id, data: payload },
-        { onSuccess: onClose, onError: () => setSaveError("Could not save.") },
+        { onSuccess: onClose, onError: () => setSaveError(t("form.saveFailed")) },
       );
     } else {
       createServer.mutate(payload, {
         onSuccess: onClose,
-        onError: () => setSaveError("Could not save. The name may already exist."),
+        onError: () => setSaveError(t("form.createFailed")),
       });
     }
   }
@@ -353,7 +354,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
         className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <h2 className="text-base font-semibold">{initial ? "Edit server" : "New server"}</h2>
+          <h2 className="text-base font-semibold">{initial ? t("form.editTitle") : t("form.newTitle")}</h2>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
@@ -361,19 +362,19 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           <div className="space-y-1">
-            <Label>Server name</Label>
+            <Label>{t("form.name")}</Label>
             <Input {...register("name")} placeholder="srv-app01" />
             {errors.name && <p className="text-[11px] text-destructive">{errors.name.message}</p>}
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2 space-y-1">
-              <Label>IP address</Label>
+              <Label>{t("form.ipAddress")}</Label>
               <Input {...register("ip_address")} placeholder="172.15.2.2" />
               {errors.ip_address && <p className="text-[11px] text-destructive">{errors.ip_address.message}</p>}
             </div>
             <div className="space-y-1">
-              <Label>SSH port</Label>
+              <Label>{t("form.sshPort")}</Label>
               <Input type="number" {...register("ssh_port", { valueAsNumber: true })} />
               {errors.ssh_port && <p className="text-[11px] text-destructive">{errors.ssh_port.message}</p>}
             </div>
@@ -381,25 +382,25 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Remote user</Label>
+              <Label>{t("form.remoteUser")}</Label>
               <Input {...register("remote_user")} placeholder="aegis" />
               {errors.remote_user && <p className="text-[11px] text-destructive">{errors.remote_user.message}</p>}
             </div>
             <div className="space-y-1">
-              <Label>Classificação / Grupo</Label>
+              <Label>{t("form.group")}</Label>
               <select
                 {...register("environment")}
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <option value="vps">VPS / Produção (Darckware)</option>
-                <option value="semed">SEMED (Cliente / Cloudflare)</option>
+                <option value="vps">{t("form.groups.vps")}</option>
+                <option value="semed">{t("form.groups.semed")}</option>
               </select>
               {errors.environment && <p className="text-[11px] text-destructive">{errors.environment.message}</p>}
             </div>
           </div>
 
           <div className="space-y-1">
-            <Label>SSH key path (identity file)</Label>
+            <Label>{t("form.sshKeyPath")}</Label>
             <div className="flex items-start gap-2">
               <Input
                 {...register("ssh_key_path")}
@@ -411,7 +412,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
                   type="button"
                   variant="outline"
                   size="icon"
-                  title="Copy the public key of this path"
+                  title={t("form.copyPathPublicKey")}
                   disabled={readPublicKey.isPending}
                   onClick={() => {
                     readPublicKey.mutate(live.id, {
@@ -436,9 +437,8 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
               )}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Used as <code className="font-mono">ssh -i &lt;path&gt;</code> when opening the SSH terminal. Leave blank to use the
-              shell's default key/agent.
-              {live?.ssh_key_path && " The copy button reads the public key (<path>.pub) and saves it to this record."}
+              {t("form.sshKeyHelpBefore")} <code className="font-mono">ssh -i &lt;path&gt;</code> {t("form.sshKeyHelpAfter")}
+              {live?.ssh_key_path && ` ${t("form.sshKeyCopyHelp")}`}
             </p>
             {readPublicKey.isError && <p className="text-[11px] text-destructive">{readPublicKey.error.message}</p>}
           </div>
@@ -449,7 +449,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
             <div className="space-y-1">
               <Label className="flex items-center gap-1.5">
                 <KeyRound className="h-3.5 w-3.5" />
-                Key passphrase
+                {t("form.passphrase.title")}
               </Label>
               <TokenField
                 value={passphrase}
@@ -457,10 +457,10 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
                   setPassphrase(v);
                   setPassphraseTouched(true);
                 }}
-                placeholder="Leave blank if the key has none"
+                placeholder={t("form.passphrase.leaveBlank")}
                 disabled={pending}
               />
-              <p className="text-[11px] text-muted-foreground">Stored encrypted in ForgeHub's database.</p>
+              <p className="text-[11px] text-muted-foreground">{t("form.passphrase.encrypted")}</p>
             </div>
           )}
 
@@ -468,20 +468,20 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
           {live && <KeyVaultSection server={live} />}
 
           <div className="space-y-1">
-            <Label>Description</Label>
-            <Textarea className="resize-none" {...register("description")} placeholder="Main application server" />
+            <Label>{t("form.description")}</Label>
+            <Textarea className="resize-none" {...register("description")} placeholder={t("form.descriptionExample")} />
           </div>
 
           {live?.public_key && (
             <div className="space-y-1">
-              <Label>Public key (installed on the server)</Label>
+              <Label>{t("form.publicKey")}</Label>
               <div className="flex items-start gap-2">
                 <Textarea readOnly value={live.public_key} className="resize-none min-h-[56px] flex-1 font-mono text-[10px]" />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
-                  title="Copy public key"
+                  title={t("form.copyPublicKey")}
                   onClick={() => {
                     void navigator.clipboard.writeText(live.public_key ?? "");
                     setCopied(true);
@@ -492,7 +492,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Stored encrypted; filled automatically by the "Install SSH key" action.
+                {t("form.publicKeyHelp")}
               </p>
             </div>
           )}
@@ -501,11 +501,11 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-6 py-4">
           {saveError && <p className="mr-auto text-xs text-destructive">{saveError}</p>}
           <Button type="button" variant="outline" size="sm" onClick={onClose}>
-            Cancel
+            {t("form.cancel")}
           </Button>
           <Button type="submit" size="sm" disabled={pending}>
             {pending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            Save
+            {t("form.save")}
           </Button>
         </div>
       </form>

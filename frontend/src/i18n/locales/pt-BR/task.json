@@ -40,6 +40,7 @@
     }
   },
   "detail": {
+    "planApproach": "Plano/abordagem:", "dispatchTooltip": "Cria uma mensagem vinculada a esta tarefa e a envia ao agente atribuído", "dispatchButton": "Executar por mensagens", "blockedDependencies": "A tarefa tem dependências não concluídas:", "dispatchedAsMessage": "Despachada como mensagem", "dispatchStatus": "Status do envio",
     "breadcrumbExecution": "Execução",
     "loading": "Carregando tarefa…",
     "loadError": "Falha ao carregar tarefa: {{message}}",

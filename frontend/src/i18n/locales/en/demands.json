@@ -86,7 +86,10 @@
     "submit": "Send",
     "backlogNeedsSender": "An incubating thought needs a sender (From) before it can be dispatched — set From to an agent, or promote it to Task."
   },
+  "attachment": {"download": "Download", "remove": "Remove attachment"},
+  "reading": {"deleteTitle": "Delete \"{{subject}}\"", "deleteDescription": "Permanently removes the message from the inbox.", "archive": "Archive", "delete": "Delete", "attachments": "Attachments", "convertedTo": "Done — converted to", "refreshInbox": "Refresh inbox", "loadInboxFailed": "Failed to load the inbox: {{error}}", "status": {"new": "New", "read": "Read", "converted": "Converted", "archived": "Archived"}, "convertTargets": {"task": "Task", "doc": "Document", "artifact": "Artifact", "knowledge_base": "Knowledge Base", "planning_item": "Planning Item", "project_doc": "Project Document", "quick_task": "Quick Task"}},
   "cleanup": {
+    "daysShort": "{{count}}d",
     "keep30": "Keep last 30 days",
     "keep15": "Keep last 15 days",
     "clearAll": "Clear all",
@@ -177,6 +180,7 @@
     "confirmGroupDescription": "Every message currently in {{group}} will be filed under Arquivadas. Nothing is deleted -- this only moves them out of this group.",
     "confirmButton": "Archive all"
   },
+  "inbox": { "folderName": "Folder name" },
   "reprocess": {
     "confirmTitle": "Reprocess failures?",
     "confirmDescription": "{{count}} failed message(s) will be put back in the dispatch queue. They start as slots free up, not all at once.",

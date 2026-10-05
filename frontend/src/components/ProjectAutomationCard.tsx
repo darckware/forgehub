@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Bot, BrainCircuit, Loader2, Plus, Repeat2 } from "lucide-react";
 import { useAgents } from "@/hooks/useAgent";
 import {
@@ -21,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
 export function ProjectAutomationCard({ projectId }: { projectId: string }) {
+  const { t } = useTranslation("automation");
   const { data: agents = [] } = useAgents();
   const { data: memberships = [] } = useProjectMemberships(projectId);
   const { data: profiles = [] } = useRuntimeProfiles();
@@ -49,7 +51,7 @@ export function ProjectAutomationCard({ projectId }: { projectId: string }) {
   const [autoDispatch, setAutoDispatch] = useState(false);
   const [requiresHumanApproval, setRequiresHumanApproval] = useState(true);
 
-  const agentName = (id?: string | null) => agents.find((a) => a.id === id)?.name ?? "Unknown agent";
+  const agentName = (id?: string | null) => agents.find((a) => a.id === id)?.name ?? t("project.unknownAgent");
   const memberById = useMemo(
     () => new Map(memberships.map((membership) => [membership.id, membership])),
     [memberships]
@@ -61,23 +63,22 @@ export function ProjectAutomationCard({ projectId }: { projectId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-xl">
-          <BrainCircuit className="h-5 w-5" /> Agent automation &amp; engineering loops
+          <BrainCircuit className="h-5 w-5" /> {t("project.title")}
         </CardTitle>
         <CardDescription>
-          ForgeRouter remains the model gateway. ForgeHub authorizes project agents, records which
-          Claude/Codex/Agy runtime they use, and bounds producer/reviewer correction loops.
+          {t("project.description")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <section className="space-y-3">
-          <div className="flex items-center gap-2 font-medium"><Bot className="h-4 w-4" /> Project team</div>
+          <div className="flex items-center gap-2 font-medium"><Bot className="h-4 w-4" /> {t("project.team")}</div>
           <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
             <Select value={memberAgentId} onChange={(e) => setMemberAgentId(e.target.value)}>
-              <option value="">Select registered agent</option>
+              <option value="">{t("project.selectRegisteredAgent")}</option>
               {activeAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </Select>
             <Select value={memberRole} onChange={(e) => setMemberRole(e.target.value)}>
-              {PROJECT_AGENT_ROLES.map((role) => <option key={role} value={role}>{role.replace(/_/g, " ")}</option>)}
+              {PROJECT_AGENT_ROLES.map((role) => <option key={role} value={role}>{t(`roles.${role}`, { defaultValue: role.replace(/_/g, " ") })}</option>)}
             </Select>
             <Button
               disabled={!memberAgentId || createMembership.isPending}
@@ -90,36 +91,36 @@ export function ProjectAutomationCard({ projectId }: { projectId: string }) {
               }, { onSuccess: () => setMemberAgentId("") })}
             >
               {createMembership.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-              Add
+              {t("project.add")}
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
             {memberships.map((membership) => (
               <Badge key={membership.id} variant={membership.status === "active" ? "secondary" : "outline"}>
-                {agentName(membership.agent_id)} · {membership.role.replace(/_/g, " ")}
-                {membership.can_review ? " · reviewer" : ""}
+                {agentName(membership.agent_id)} · {t(`roles.${membership.role}`, { defaultValue: membership.role.replace(/_/g, " ") })}
+                {membership.can_review ? ` · ${t("project.reviewerBadge")}` : ""}
               </Badge>
             ))}
-            {!memberships.length && <p className="text-sm text-muted-foreground">No registered agents assigned yet.</p>}
+            {!memberships.length && <p className="text-sm text-muted-foreground">{t("project.noAgents")}</p>}
           </div>
         </section>
 
         <section className="space-y-3 border-t pt-5">
-          <div className="font-medium">ForgeRouter runtime profiles</div>
+          <div className="font-medium">{t("project.runtimeProfiles")}</div>
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            <div><Label>Agent</Label><Select value={profileAgentId} onChange={(e) => setProfileAgentId(e.target.value)}><option value="">Select agent</option>{activeAgents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></div>
-            <div><Label>Profile name</Label><Input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Fast draft / Deep review" /></div>
-            <div><Label>CLI runtime</Label><Select value={runtimeType} onChange={(e) => setRuntimeType(e.target.value)}>{RUNTIME_TYPES.map((runtime) => <option key={runtime} value={runtime}>{runtime}</option>)}</Select></div>
-            <div><Label>ForgeRouter routing class</Label><Select value={routingGroup} onChange={(e) => setRoutingGroup(e.target.value)}>{FORGEROUTER_ROUTING_GROUPS.map((group) => <option key={group} value={group}>{group}</option>)}</Select></div>
-            <div><Label>Specific model override</Label><Input value={modelRef} onChange={(e) => setModelRef(e.target.value)} /></div>
-            <div><Label>Purpose</Label><Select value={purpose} onChange={(e) => setPurpose(e.target.value)}>{["general", "draft", "review", "implementation", "testing"].map((p) => <option key={p} value={p}>{p}</option>)}</Select></div>
+            <div><Label>{t("project.agent")}</Label><Select value={profileAgentId} onChange={(e) => setProfileAgentId(e.target.value)}><option value="">{t("project.selectAgent")}</option>{activeAgents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></div>
+            <div><Label>{t("project.profileName")}</Label><Input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder={t("project.profileExample")} /></div>
+            <div><Label>{t("project.cliRuntime")}</Label><Select value={runtimeType} onChange={(e) => setRuntimeType(e.target.value)}>{RUNTIME_TYPES.map((runtime) => <option key={runtime} value={runtime}>{runtime}</option>)}</Select></div>
+            <div><Label>{t("project.routingClass")}</Label><Select value={routingGroup} onChange={(e) => setRoutingGroup(e.target.value)}>{FORGEROUTER_ROUTING_GROUPS.map((group) => <option key={group} value={group}>{group}</option>)}</Select></div>
+            <div><Label>{t("project.modelOverride")}</Label><Input value={modelRef} onChange={(e) => setModelRef(e.target.value)} /></div>
+            <div><Label>{t("project.purpose")}</Label><Select value={purpose} onChange={(e) => setPurpose(e.target.value)}>{["general", "draft", "review", "implementation", "testing"].map((p) => <option key={p} value={p}>{t(`purposes.${p}`)}</option>)}</Select></div>
           </div>
           <Button
             variant="outline"
             disabled={!profileAgentId || !profileName || createProfile.isPending}
             onClick={() => createProfile.mutate({ agent_id: profileAgentId, name: profileName, runtime_type: runtimeType, model_ref: modelRef, routing_group: routingGroup, purpose }, { onSuccess: () => setProfileName("") })}
           >
-            {createProfile.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save runtime profile
+            {createProfile.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {t("project.saveProfile")}
           </Button>
           <div className="grid gap-2 md:grid-cols-2">
             {profiles.map((profile) => (
@@ -132,27 +133,27 @@ export function ProjectAutomationCard({ projectId }: { projectId: string }) {
         </section>
 
         <section className="space-y-3 border-t pt-5">
-          <div className="flex items-center gap-2 font-medium"><Repeat2 className="h-4 w-4" /> Bounded producer/reviewer loop</div>
+          <div className="flex items-center gap-2 font-medium"><Repeat2 className="h-4 w-4" /> {t("project.loopTitle")}</div>
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            <div><Label>Name</Label><Input value={policyName} onChange={(e) => setPolicyName(e.target.value)} placeholder="Implementation correction loop" /></div>
-            <div><Label>Phase</Label><Select value={phase} onChange={(e) => setPhase(e.target.value)}>{LOOP_PHASES.map((p) => <option key={p} value={p}>{p}</option>)}</Select></div>
-            <div><Label>Producer</Label><Select value={producerMembershipId} onChange={(e) => setProducerMembershipId(e.target.value)}><option value="">Select member</option>{memberships.map((m) => <option key={m.id} value={m.id}>{agentName(m.agent_id)} · {m.role}</option>)}</Select></div>
-            <div><Label>Producer runtime</Label><Select value={producerProfileId} onChange={(e) => setProducerProfileId(e.target.value)}><option value="">Select profile</option>{profiles.filter((p) => p.agent_id === memberById.get(producerMembershipId)?.agent_id).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></div>
-            <div><Label>Reviewer</Label><Select value={reviewerMembershipId} onChange={(e) => setReviewerMembershipId(e.target.value)}><option value="">Select reviewer</option>{memberships.filter((m) => m.can_review).map((m) => <option key={m.id} value={m.id}>{agentName(m.agent_id)} · {m.role}</option>)}</Select></div>
-            <div><Label>Reviewer runtime</Label><Select value={reviewerProfileId} onChange={(e) => setReviewerProfileId(e.target.value)}><option value="">Select profile</option>{profiles.filter((p) => p.agent_id === memberById.get(reviewerMembershipId)?.agent_id).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></div>
-            <div><Label>Maximum iterations</Label><Input type="number" min={1} max={20} value={maxIterations} onChange={(e) => setMaxIterations(Number(e.target.value))} /></div>
-            <div><Label>Minimum review score</Label><Input type="number" min={0} max={100} value={minScore} onChange={(e) => setMinScore(Number(e.target.value))} /></div>
-            <label className="flex items-center gap-2 self-end text-sm"><input type="checkbox" checked={autoDispatch} onChange={(e) => setAutoDispatch(e.target.checked)} /> Auto-dispatch corrections</label>
-            <label className="flex items-center gap-2 self-end text-sm"><input type="checkbox" checked={requiresHumanApproval} onChange={(e) => setRequiresHumanApproval(e.target.checked)} /> Require human final approval</label>
+            <div><Label>{t("project.name")}</Label><Input value={policyName} onChange={(e) => setPolicyName(e.target.value)} placeholder={t("project.loopExample")} /></div>
+            <div><Label>{t("project.phase")}</Label><Select value={phase} onChange={(e) => setPhase(e.target.value)}>{LOOP_PHASES.map((p) => <option key={p} value={p}>{t(`phases.${p}`, { defaultValue: p })}</option>)}</Select></div>
+            <div><Label>{t("project.producer")}</Label><Select value={producerMembershipId} onChange={(e) => setProducerMembershipId(e.target.value)}><option value="">{t("project.selectMember")}</option>{memberships.map((m) => <option key={m.id} value={m.id}>{agentName(m.agent_id)} · {t(`roles.${m.role}`, { defaultValue: m.role })}</option>)}</Select></div>
+            <div><Label>{t("project.producerRuntime")}</Label><Select value={producerProfileId} onChange={(e) => setProducerProfileId(e.target.value)}><option value="">{t("project.selectProfile")}</option>{profiles.filter((p) => p.agent_id === memberById.get(producerMembershipId)?.agent_id).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></div>
+            <div><Label>{t("project.reviewer")}</Label><Select value={reviewerMembershipId} onChange={(e) => setReviewerMembershipId(e.target.value)}><option value="">{t("project.selectReviewer")}</option>{memberships.filter((m) => m.can_review).map((m) => <option key={m.id} value={m.id}>{agentName(m.agent_id)} · {t(`roles.${m.role}`, { defaultValue: m.role })}</option>)}</Select></div>
+            <div><Label>{t("project.reviewerRuntime")}</Label><Select value={reviewerProfileId} onChange={(e) => setReviewerProfileId(e.target.value)}><option value="">{t("project.selectProfile")}</option>{profiles.filter((p) => p.agent_id === memberById.get(reviewerMembershipId)?.agent_id).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></div>
+            <div><Label>{t("project.maximumIterations")}</Label><Input type="number" min={1} max={20} value={maxIterations} onChange={(e) => setMaxIterations(Number(e.target.value))} /></div>
+            <div><Label>{t("project.minimumScore")}</Label><Input type="number" min={0} max={100} value={minScore} onChange={(e) => setMinScore(Number(e.target.value))} /></div>
+            <label className="flex items-center gap-2 self-end text-sm"><input type="checkbox" checked={autoDispatch} onChange={(e) => setAutoDispatch(e.target.checked)} /> {t("project.autoDispatch")}</label>
+            <label className="flex items-center gap-2 self-end text-sm"><input type="checkbox" checked={requiresHumanApproval} onChange={(e) => setRequiresHumanApproval(e.target.checked)} /> {t("project.humanApproval")}</label>
           </div>
           <Button
             disabled={!policyName || !producerMembershipId || !reviewerMembershipId || !producerProfileId || !reviewerProfileId || createPolicy.isPending}
             onClick={() => createPolicy.mutate({ name: policyName, phase, producer_membership_id: producerMembershipId, reviewer_membership_id: reviewerMembershipId, producer_runtime_profile_id: producerProfileId, reviewer_runtime_profile_id: reviewerProfileId, max_iterations: maxIterations, min_review_score: minScore, requires_human_approval: requiresHumanApproval, auto_dispatch: autoDispatch }, { onSuccess: () => setPolicyName("") })}
           >
-            {createPolicy.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Create loop policy
+            {createPolicy.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {t("project.createPolicy")}
           </Button>
           <div className="space-y-2">
-            {policies.map((policy) => <div key={policy.id} className="rounded-md border p-3 text-sm"><span className="font-medium">{policy.name}</span> · {policy.phase}<p className="text-muted-foreground">Up to {policy.max_iterations} iterations · score ≥ {policy.min_review_score} · human approval {policy.requires_human_approval ? "required" : "optional"}</p></div>)}
+            {policies.map((policy) => <div key={policy.id} className="rounded-md border p-3 text-sm"><span className="font-medium">{policy.name}</span> · {t(`phases.${policy.phase}`, { defaultValue: policy.phase })}<p className="text-muted-foreground">{t("project.policySummary", { count: policy.max_iterations, score: policy.min_review_score, approval: policy.requires_human_approval ? t("project.required") : t("project.optional") })}</p></div>)}
           </div>
         </section>
 

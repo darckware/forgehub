@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
   ChevronRight,
@@ -46,6 +47,7 @@ function FileRowMenu({
   onRename: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation("projectFiles");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setOpen(false), open);
@@ -54,8 +56,8 @@ function FileRowMenu({
     <div className="relative shrink-0" ref={containerRef}>
       <button
         type="button"
-        aria-label={`${entry.name} options`}
-        title="Options"
+        aria-label={t("optionsFor", { name: entry.name })}
+        title={t("options")}
         className="rounded-md p-1 opacity-0 hover:bg-accent group-hover:opacity-100"
         onClick={(e) => {
           e.stopPropagation();
@@ -77,7 +79,7 @@ function FileRowMenu({
               }}
             >
               <FilePlus className="h-3.5 w-3.5" />
-              New file
+              {t("newFile")}
             </button>
           )}
           {entry.type === "dir" && onNewFolder && (
@@ -91,7 +93,7 @@ function FileRowMenu({
               }}
             >
               <FolderPlus className="h-3.5 w-3.5" />
-              New folder
+              {t("newFolder")}
             </button>
           )}
           <button
@@ -104,7 +106,7 @@ function FileRowMenu({
             }}
           >
             <Pencil className="h-3.5 w-3.5" />
-            Rename
+            {t("rename")}
           </button>
           <button
             type="button"
@@ -116,7 +118,7 @@ function FileRowMenu({
             }}
           >
             <Trash2 className="h-3.5 w-3.5" />
-            Delete
+            {t("delete")}
           </button>
         </div>
       )}
@@ -152,6 +154,7 @@ function ProjectFileTreeDir({
   onFileRenamed,
   onFileDeleted,
 }: ProjectFileTreeProps) {
+  const { t } = useTranslation("projectFiles");
   const { data, isLoading, isError } = useProjectFileList(projectId, dirPath);
   const createFile = useCreateProjectFile(projectId);
   const createDir = useCreateProjectDirectory(projectId);
@@ -159,19 +162,19 @@ function ProjectFileTreeDir({
   const deleteFile = useDeleteProjectFile(projectId);
 
   function handleNewFile(parentPath: string) {
-    const name = window.prompt("New file name (relative to this folder):");
+    const name = window.prompt(t("newFileInFolder"));
     if (!name) return;
     createFile.mutate(joinPath(parentPath, name));
   }
 
   function handleNewFolder(parentPath: string) {
-    const name = window.prompt("New folder name (relative to this folder):");
+    const name = window.prompt(t("newFolderInFolder"));
     if (!name) return;
     createDir.mutate(joinPath(parentPath, name));
   }
 
   function handleRename(entry: ProjectFileEntry) {
-    const name = window.prompt("Rename to:", entry.name);
+    const name = window.prompt(t("renameTo"), entry.name);
     if (!name || name === entry.name) return;
     const parent = entry.path.includes("/") ? entry.path.slice(0, entry.path.lastIndexOf("/")) : "";
     const newPath = joinPath(parent, name);
@@ -179,7 +182,7 @@ function ProjectFileTreeDir({
   }
 
   function handleDelete(entry: ProjectFileEntry) {
-    if (!window.confirm(`Delete "${entry.name}"? This removes it from disk permanently.`)) return;
+    if (!window.confirm(t("deleteConfirm", { name: entry.name }))) return;
     deleteFile.mutate(
       { path: entry.path, recursive: entry.type === "dir" },
       { onSuccess: () => onFileDeleted(entry.path) }
@@ -194,12 +197,12 @@ function ProjectFileTreeDir({
           style={{ paddingLeft: `${depth * 0.9 + 0.5 + 1.25}rem` }}
         >
           <Loader2 className="h-3 w-3 animate-spin" />
-          Loading…
+          {t("loading")}
         </div>
       )}
       {isError && (
         <p className="px-2 py-1 text-xs text-destructive" style={{ paddingLeft: `${depth * 0.9 + 0.5 + 1.25}rem` }}>
-          Failed to list directory.
+          {t("listFailed")}
         </p>
       )}
       {data?.entries.length === 0 && (
@@ -207,7 +210,7 @@ function ProjectFileTreeDir({
           className="px-2 py-1 text-xs italic text-muted-foreground"
           style={{ paddingLeft: `${depth * 0.9 + 0.5 + 1.25}rem` }}
         >
-          Empty
+          {t("empty")}
         </p>
       )}
       {data?.entries.map((entry) =>
@@ -334,6 +337,7 @@ function ProjectFileTreeRow({
 }
 
 export function ProjectFileBrowser({ projectId }: { projectId: string }) {
+  const { t } = useTranslation("projectFiles");
   const [selectedPath, setSelectedPath] = useState<string | undefined>();
   const { data: doc, isLoading: docLoading, isError: docError, error: docErrorObj } = useProjectFileContent(
     projectId,
@@ -372,13 +376,13 @@ export function ProjectFileBrowser({ projectId }: { projectId: string }) {
   }
 
   function handleNewFileAtRoot() {
-    const name = window.prompt("New file name (relative to the working directory):");
+    const name = window.prompt(t("newFileAtRootPrompt"));
     if (!name) return;
     createFile.mutate(name, { onSuccess: () => setSelectedPath(name) });
   }
 
   function handleNewFolderAtRoot() {
-    const name = window.prompt("New folder name (relative to the working directory):");
+    const name = window.prompt(t("newFolderAtRootPrompt"));
     if (!name) return;
     createDir.mutate(name);
   }
@@ -389,10 +393,10 @@ export function ProjectFileBrowser({ projectId }: { projectId: string }) {
     <div className="flex h-[32rem] gap-3">
       <aside className={cn("flex w-64 shrink-0 flex-col overflow-y-auto rounded-md border border-border p-2 max-md:w-full", selectedPath && "max-md:hidden")}>
         <div className="mb-1 flex items-center justify-end gap-1 border-b border-border pb-1">
-          <Button variant="ghost" size="icon" className="h-6 w-6" title="New file" aria-label="New file at root" onClick={handleNewFileAtRoot}>
+          <Button variant="ghost" size="icon" className="h-6 w-6" title={t("newFile")} aria-label={t("newFileAtRoot")} onClick={handleNewFileAtRoot}>
             <FilePlus className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6" title="New folder" aria-label="New folder at root" onClick={handleNewFolderAtRoot}>
+          <Button variant="ghost" size="icon" className="h-6 w-6" title={t("newFolder")} aria-label={t("newFolderAtRoot")} onClick={handleNewFolderAtRoot}>
             <FolderPlus className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -413,24 +417,24 @@ export function ProjectFileBrowser({ projectId }: { projectId: string }) {
             type="button"
             onClick={() => setSelectedPath(undefined)}
             className="flex shrink-0 items-center text-muted-foreground hover:text-foreground md:hidden"
-            aria-label="Back to files"
+            aria-label={t("backToFiles")}
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground">
-            {selectedPath ?? "Select a file"}
+            {selectedPath ?? t("selectFile")}
           </span>
           {selectedPath && doc && (
             !isEditing ? (
               <Button variant="outline" size="sm" onClick={handleStartEdit}>
                 <Pencil className="mr-2 h-3.5 w-3.5" />
-                Edit
+                {t("edit")}
               </Button>
             ) : (
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={writeFile.isPending}>
                   <X className="mr-2 h-3.5 w-3.5" />
-                  Cancel
+                  {t("cancel")}
                 </Button>
                 <Button size="sm" onClick={handleSave} disabled={writeFile.isPending}>
                   {writeFile.isPending ? (
@@ -438,27 +442,27 @@ export function ProjectFileBrowser({ projectId }: { projectId: string }) {
                   ) : (
                     <Save className="mr-2 h-3.5 w-3.5" />
                   )}
-                  Save
+                  {t("save")}
                 </Button>
               </div>
             )
           )}
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          {!selectedPath && <p className="text-sm italic text-muted-foreground">Select a file to view it.</p>}
+          {!selectedPath && <p className="text-sm italic text-muted-foreground">{t("selectFileHint")}</p>}
           {selectedPath && docLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading file…
+              {t("loadingFile")}
             </div>
           )}
           {selectedPath && docError && (
             <p className="text-sm text-destructive">
-              {(docErrorObj as { body?: { detail?: string } })?.body?.detail ?? "Failed to load file."}
+              {(docErrorObj as { body?: { detail?: string } })?.body?.detail ?? t("loadFileFailed")}
             </p>
           )}
           {writeFile.isError && (
-            <p className="mb-3 text-sm text-destructive">Failed to save: {(writeFile.error as Error)?.message}</p>
+            <p className="mb-3 text-sm text-destructive">{t("saveFailed", { error: (writeFile.error as Error)?.message })}</p>
           )}
           {doc && isEditing && (
             <Textarea

@@ -1,0 +1,11 @@
+{
+  "forgerouter": {
+    "title": "ForgeRouter",
+    "description": "ForgeRouter es una herramienta para gestionar y dirigir solicitudes en el ecosistema ForgeHub.",
+    "loading": "Cargando...",
+    "sso": {
+      "title": "Preparando la sesión...",
+      "message": "Intercambiando la sesión por un token SSO de ForgeRouter"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import React from "react";
+import { Translation } from "react-i18next";
 import { AlertTriangle, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -30,19 +31,21 @@ export class ErrorBoundary extends React.Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
+        <Translation ns="common">{(t) => (
         <div className="flex min-h-screen w-full flex-col items-center justify-center gap-4 bg-background p-8 text-center">
           <AlertTriangle className="h-10 w-10 text-destructive" />
           <div className="space-y-1">
-            <h1 className="text-lg font-semibold">Something went wrong</h1>
+            <h1 className="text-lg font-semibold">{t("errorBoundary.title")}</h1>
             <p className="max-w-md text-sm text-muted-foreground">
-              {this.state.error.message || "An unexpected error occurred while rendering the page."}
+              {this.state.error?.message || t("errorBoundary.description")}
             </p>
           </div>
           <Button onClick={() => window.location.reload()} className="gap-2">
             <RotateCw className="h-4 w-4" />
-            Reload
+            {t("errorBoundary.reload")}
           </Button>
         </div>
+        )}</Translation>
       );
     }
     return this.props.children;

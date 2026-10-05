@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Layout,
   Loader2,
@@ -63,6 +64,7 @@ const CSS_FRAMEWORK_PRESETS: Record<string, { label: string; head: string }> = {
 };
 
 export default function ScreenInspectorPage() {
+  const { t } = useTranslation("screenInspector");
   const projects = useProjects();
   const [projectId, setProjectId] = useState("");
   const scopes = useProjectScopes(projectId);
@@ -129,10 +131,10 @@ export default function ScreenInspectorPage() {
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
             <Layout className="h-6 w-6 text-primary" />
-            2. Telas & Regras de Negócio
+            {t("page.title")}
           </h1>
           <p className="text-xs text-muted-foreground mt-1 max-w-3xl leading-relaxed">
-            Área de <strong>especificação e contextualização profunda</strong> do sistema. O cadastro de telas, mockups e regras de negócio é <strong>opcional</strong> e serve para detalhar requisitos visuais, comportamentais e gerar insumos ricos para os agentes de IA.
+            {t("page.description")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -144,14 +146,14 @@ export default function ScreenInspectorPage() {
             className="gap-1.5 text-xs"
           >
             {deriveDatabase.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4 text-primary" />}
-            Derivar Banco de Dados (ERD)
+            {t("page.deriveDatabase")}
           </Button>
           <Link
             to="/concept-erd"
             className="inline-flex items-center gap-1.5 text-xs rounded-md border border-input bg-background px-3 py-1.5 font-medium hover:bg-accent"
           >
             <Database className="h-4 w-4 text-primary" />
-            Ver Diagrama ERD
+            {t("page.viewErd")}
           </Link>
         </div>
       </div>
@@ -160,9 +162,9 @@ export default function ScreenInspectorPage() {
       <Card className="border-border/60 bg-card/60">
         <CardContent className="grid gap-4 py-4 md:grid-cols-2">
           <div>
-            <Label className="text-xs font-semibold text-muted-foreground">Projeto</Label>
+            <Label className="text-xs font-semibold text-muted-foreground">{t("selectors.project")}</Label>
             <Select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="mt-1">
-              <option value="">Selecione um projeto...</option>
+              <option value="">{t("selectors.selectProject")}</option>
               {projects.data?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -171,12 +173,12 @@ export default function ScreenInspectorPage() {
             </Select>
           </div>
           <div>
-            <Label className="text-xs font-semibold text-muted-foreground">Escopo do Projeto</Label>
+            <Label className="text-xs font-semibold text-muted-foreground">{t("selectors.scope")}</Label>
             <Select value={scopeId} onChange={(e) => setScopeId(e.target.value)} disabled={!projectId} className="mt-1">
-              <option value="">Selecione um escopo...</option>
+              <option value="">{t("selectors.selectScope")}</option>
               {scopes.data?.map((s) => (
                 <option key={s.id} value={s.id}>
-                  Revisão {s.revision} · {s.status}
+                  {t("selectors.revision", { revision: s.revision, status: s.status })}
                 </option>
               ))}
             </Select>
@@ -187,10 +189,10 @@ export default function ScreenInspectorPage() {
       {deriveDatabase.isSuccess && (
         <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
           <span>
-            ✓ Modelagem derivada com sucesso: {deriveDatabase.data.tables_created} tabela(s) criada(s), {deriveDatabase.data.tables_updated} atualizada(s), {deriveDatabase.data.fields_written} campo(s) registrados.
+            {t("page.deriveSuccess", { created: deriveDatabase.data.tables_created, updated: deriveDatabase.data.tables_updated, fields: deriveDatabase.data.fields_written })}
           </span>
           <Link to="/concept-erd" className="font-semibold underline hover:text-emerald-800">
-            Abrir Diagrama ERD →
+            {t("page.openErd")}
           </Link>
         </div>
       )}
@@ -199,16 +201,16 @@ export default function ScreenInspectorPage() {
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             <Layers className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
-            Selecione um projeto acima para visualizar e gerenciar as telas e regras de negócio.
+            {t("empty.selectProject")}
           </CardContent>
         </Card>
       ) : !scopeId ? (
         <Card className="border-primary/30 bg-primary/5">
           <CardContent className="py-10 text-center space-y-3">
             <Layout className="mx-auto h-10 w-10 text-primary" />
-            <h3 className="text-sm font-bold">Nenhum escopo inicial encontrado para este projeto</h3>
+            <h3 className="text-sm font-bold">{t("empty.noScopeTitle")}</h3>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              Para cadastrar telas, mockups e regras de negócio, inicialize o escopo do projeto.
+              {t("empty.noScopeDescription")}
             </p>
             <Button
               onClick={() => ensureScope.mutate(projectId)}
@@ -216,7 +218,7 @@ export default function ScreenInspectorPage() {
               className="text-xs gap-1.5"
             >
               {ensureScope.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Inicializar Escopo e Começar
+              {t("empty.initializeScope")}
             </Button>
           </CardContent>
         </Card>
@@ -227,15 +229,15 @@ export default function ScreenInspectorPage() {
             <Card className="flex flex-col h-[calc(100vh-280px)] min-h-[500px]">
               <CardHeader className="p-3 border-b flex flex-row items-center justify-between space-y-0">
                 <div>
-                  <CardTitle className="text-sm font-semibold">Telas do Escopo</CardTitle>
-                  <CardDescription className="text-[11px]">{screens.data?.length ?? 0} cadastrada(s)</CardDescription>
+                  <CardTitle className="text-sm font-semibold">{t("sidebar.title")}</CardTitle>
+                  <CardDescription className="text-[11px]">{t("sidebar.registered", { count: screens.data?.length ?? 0 })}</CardDescription>
                 </div>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 text-muted-foreground"
                   onClick={() => setSidebarCollapsed(true)}
-                  title="Recolher barra lateral"
+                  title={t("sidebar.collapse")}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
@@ -244,7 +246,7 @@ export default function ScreenInspectorPage() {
                 <div className="flex gap-1.5">
                   <Input
                     className="h-8 text-xs"
-                    placeholder="Nome da nova tela"
+                    placeholder={t("sidebar.newScreen")}
                     value={newScreenName}
                     onChange={(e) => setNewScreenName(e.target.value)}
                     onKeyDown={(e) => {
@@ -261,15 +263,15 @@ export default function ScreenInspectorPage() {
 
                 <Input
                   className="h-7 text-xs bg-muted/30"
-                  placeholder="Filtrar telas..."
+                  placeholder={t("sidebar.filter")}
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
                 />
 
                 <div className="space-y-1.5 overflow-y-auto flex-1 pr-1">
-                  {screens.isLoading && <p className="text-xs text-muted-foreground py-4 text-center">Carregando...</p>}
+                  {screens.isLoading && <p className="text-xs text-muted-foreground py-4 text-center">{t("common.loading")}</p>}
                   {filteredScreens.length === 0 && !screens.isLoading && (
-                    <p className="text-xs text-muted-foreground py-6 text-center">Nenhuma tela encontrada.</p>
+                    <p className="text-xs text-muted-foreground py-6 text-center">{t("sidebar.noScreens")}</p>
                   )}
                   {filteredScreens.map((s) => {
                     const isSelected = selectedId === s.element.id;
@@ -292,9 +294,9 @@ export default function ScreenInspectorPage() {
                           {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
                         </div>
                         <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                          <span>{attrCount} campo(s)</span>
+                          <span>{t("sidebar.fields", { count: attrCount })}</span>
                           {hasHtml && <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">HTML</Badge>}
-                          {imageCount > 0 && <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">{imageCount} img</Badge>}
+                          {imageCount > 0 && <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">{t("sidebar.images", { count: imageCount })}</Badge>}
                         </div>
                       </button>
                     );
@@ -310,7 +312,7 @@ export default function ScreenInspectorPage() {
               <ScreenWorkspace
                 key={selected.element.id}
                 scopeId={scopeId}
-                projectName={activeProject?.name ?? "projeto"}
+                projectName={activeProject?.name ?? t("common.project")}
                 screen={selected}
                 sidebarCollapsed={sidebarCollapsed}
                 onExpandSidebar={() => setSidebarCollapsed(false)}
@@ -323,7 +325,7 @@ export default function ScreenInspectorPage() {
             ) : (
               <Card>
                 <CardContent className="py-16 text-center text-sm text-muted-foreground">
-                  Selecione ou crie uma tela na lista lateral para visualizar e editar.
+                  {t("empty.selectScreen")}
                 </CardContent>
               </Card>
             )}
@@ -353,6 +355,7 @@ function ScreenWorkspace({
   onUpdate,
   onRemove,
 }: ScreenWorkspaceProps) {
+  const { t, i18n } = useTranslation("screenInspector");
   const elementId = screen.element.id;
   const [mainTab, setMainTab] = useState("preview");
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -463,8 +466,8 @@ function ScreenWorkspace({
   };
 
   const handleCopyAgentPrompt = async () => {
-    const attrFormatted = attributes.map((a) => `- ${a.name} (${a.type}${a.required ? ", obrigatório" : ""})`).join("\n");
-    const prompt = `Por favor, leia a especificação e as regras de negócio da tela "${screen.element.name}" no arquivo:\n\`${filePath}\`\n\nAtributos esperados:\n${attrFormatted || "(nenhum atributo cadastrado)"}`;
+    const attrFormatted = attributes.map((a) => `- ${a.name} (${a.type}${a.required ? `, ${t("prompt.required")}` : ""})`).join("\n");
+    const prompt = t("prompt.template", { name: screen.element.name, path: filePath, attributes: attrFormatted || t("prompt.noAttributes") });
     await navigator.clipboard.writeText(prompt);
     setCopiedPrompt(true);
     setTimeout(() => setCopiedPrompt(false), 2000);
@@ -473,7 +476,7 @@ function ScreenWorkspace({
   const generatedHtmlDoc = useMemo(() => {
     const headExtra = CSS_FRAMEWORK_PRESETS[cssFramework]?.head || "";
     return `<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="${i18n.language}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -484,10 +487,10 @@ function ScreenWorkspace({
   </style>
 </head>
 <body>
-${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;">Nenhum conteúdo HTML definido para esta tela. Digite o HTML no editor para visualizar aqui.</div>'}
+${prototypeHtml || `<div style="color: #888; text-align: center; padding: 40px;">${t("preview.noHtml")}</div>`}
 </body>
 </html>`;
-  }, [prototypeHtml, cssFramework, screen.element.name]);
+  }, [prototypeHtml, cssFramework, screen.element.name, i18n.language, t]);
 
   return (
     <div className={`space-y-4 ${isFullscreen ? "fixed inset-0 z-50 bg-background p-6 overflow-y-auto" : ""}`}>
@@ -501,7 +504,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                 size="icon"
                 className="h-8 w-8 shrink-0"
                 onClick={onExpandSidebar}
-                title="Expandir barra de telas"
+                title={t("sidebar.expand")}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -522,7 +525,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                   {screen.element.stable_key}
                 </Badge>
                 <span className="text-[11px] text-muted-foreground">
-                  Arquivo MD: <code className="text-[10px] text-primary">{filePath}</code>
+                  {t("workspace.mdFile")} <code className="text-[10px] text-primary">{filePath}</code>
                 </span>
               </div>
             </div>
@@ -534,12 +537,12 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
               size="sm"
               className="gap-1 text-xs"
               onClick={() => setIsFullscreen((v) => !v)}
-              title={isFullscreen ? "Sair da área total" : "Expandir para área total"}
+              title={isFullscreen ? t("workspace.exitFullscreen") : t("workspace.enterFullscreen")}
             >
               {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              {isFullscreen ? "Reduzir" : "Área Total"}
+              {isFullscreen ? t("workspace.reduce") : t("workspace.fullscreen")}
             </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={onRemove} title="Remover tela do escopo">
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={onRemove} title={t("workspace.removeScreen")}>
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
@@ -551,15 +554,15 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
         <TabsList className="grid grid-cols-3 w-full max-w-xl bg-muted/60 p-1">
           <TabsTrigger value="preview" className="gap-1.5 text-xs">
             <Eye className="h-3.5 w-3.5" />
-            Visual da Tela
+            {t("tabs.visual")}
           </TabsTrigger>
           <TabsTrigger value="markdown" className="gap-1.5 text-xs">
             <FileText className="h-3.5 w-3.5" />
-            Regras de Negócio (.md)
+            {t("tabs.rules")}
           </TabsTrigger>
           <TabsTrigger value="attributes" className="gap-1.5 text-xs">
             <Layers className="h-3.5 w-3.5" />
-            Atributos & Dados
+            {t("tabs.attributes")}
           </TabsTrigger>
         </TabsList>
 
@@ -568,7 +571,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
           <Card className="border-border/70">
             <CardHeader className="p-4 border-b flex flex-row items-center justify-between space-y-0">
               <div className="flex items-center gap-3">
-                <span className="text-xs font-semibold text-muted-foreground">Modo do Protótipo:</span>
+                <span className="text-xs font-semibold text-muted-foreground">{t("preview.mode")}</span>
                 <div className="flex gap-1">
                   <Button
                     size="sm"
@@ -579,7 +582,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                       saveSpec({ prototype_html: prototypeHtml, template_ref: null });
                     }}
                   >
-                    <Code className="mr-1 h-3.5 w-3.5" /> HTML Renderizado
+                    <Code className="mr-1 h-3.5 w-3.5" /> {t("preview.renderedHtml")}
                   </Button>
                   <Button
                     size="sm"
@@ -590,7 +593,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                       saveSpec({ template_ref: templateRef });
                     }}
                   >
-                    <ImageIcon className="mr-1 h-3.5 w-3.5" /> Imagens & Mockups
+                    <ImageIcon className="mr-1 h-3.5 w-3.5" /> {t("preview.imagesAndMockups")}
                   </Button>
                 </div>
               </div>
@@ -608,7 +611,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                   >
                     {Object.entries(CSS_FRAMEWORK_PRESETS).map(([k, v]) => (
                       <option key={k} value={k}>
-                        {v.label}
+                        {k === "plain" ? t("preview.plainCss") : v.label}
                       </option>
                     ))}
                   </Select>
@@ -624,14 +627,14 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                     <div className="flex items-center justify-between">
                       <Label className="text-xs font-semibold flex items-center gap-1.5">
                         <Code className="h-3.5 w-3.5 text-primary" />
-                        Código HTML do Protótipo
+                        {t("preview.htmlCode")}
                       </Label>
-                      <span className="text-[10px] text-muted-foreground">Salva automaticamente ao desfocar</span>
+                      <span className="text-[10px] text-muted-foreground">{t("preview.autosave")}</span>
                     </div>
                     <Textarea
                       rows={18}
                       className="resize-none font-mono text-xs leading-relaxed bg-muted/20"
-                      placeholder="<div><h1>Título da Tela</h1><p>Conteúdo...</p></div>"
+                      placeholder={t("preview.htmlPlaceholder")}
                       value={prototypeHtml}
                       onChange={(e) => setPrototypeHtml(e.target.value)}
                       onBlur={() => saveSpec({ prototype_html: prototypeHtml, css_framework: cssFramework })}
@@ -643,15 +646,15 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                     <div className="flex items-center justify-between">
                       <Label className="text-xs font-semibold flex items-center gap-1.5">
                         <Eye className="h-3.5 w-3.5 text-primary" />
-                        Visualização Renderizada
+                        {t("preview.renderedPreview")}
                       </Label>
                       <Badge variant="outline" className="text-[10px]">
-                        Sandbox Iframe
+                        {t("preview.sandboxIframe")}
                       </Badge>
                     </div>
                     <div className="flex-1 rounded-md border bg-white dark:bg-zinc-950 overflow-hidden min-h-[350px]">
                       <iframe
-                        title="screen-preview"
+                        title={t("preview.screenPreviewTitle")}
                         sandbox="allow-scripts"
                         srcDoc={generatedHtmlDoc}
                         className="w-full h-full min-h-[420px] border-0"
@@ -666,7 +669,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                     <div className="flex items-center gap-2 flex-1 min-w-[280px]">
                       <Input
                         className="h-8 text-xs flex-1"
-                        placeholder="Adicionar URL de imagem ou mockup online..."
+                        placeholder={t("preview.imageUrlPlaceholder")}
                         value={newImageUrl}
                         onChange={(e) => setNewImageUrl(e.target.value)}
                         onKeyDown={(e) => {
@@ -677,7 +680,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                         }}
                       />
                       <Button size="sm" className="h-8 px-3 text-xs" onClick={handleAddImageUrl} disabled={!newImageUrl.trim()}>
-                        <Plus className="mr-1 h-3.5 w-3.5" /> Adicionar URL
+                        <Plus className="mr-1 h-3.5 w-3.5" /> {t("preview.addUrl")}
                       </Button>
                     </div>
 
@@ -695,16 +698,16 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                         className="h-8 text-xs gap-1.5"
                         onClick={() => fileInputRef.current?.click()}
                       >
-                        <Upload className="h-3.5 w-3.5" /> Fazer Upload de Imagem
+                        <Upload className="h-3.5 w-3.5" /> {t("preview.uploadImage")}
                       </Button>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Template de Referência / Arquivo UI:</Label>
+                    <Label className="text-xs text-muted-foreground">{t("preview.referenceTemplate")}</Label>
                     <Input
                       className="h-8 text-xs"
-                      placeholder="Ex: templates/dashboard-v2.tsx ou Figma link"
+                      placeholder={t("preview.templatePlaceholder")}
                       value={templateRef}
                       onChange={(e) => setTemplateRef(e.target.value)}
                       onBlur={() => saveSpec({ template_ref: templateRef })}
@@ -714,7 +717,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                   {imageRefs.length === 0 ? (
                     <div className="py-12 text-center rounded-lg border border-dashed text-xs text-muted-foreground">
                       <ImageIcon className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
-                      Nenhuma imagem ou print anexado para esta tela. Adicione URLs ou faça upload de capturas de tela para ilustrar o mockup.
+                      {t("preview.noImages")}
                     </div>
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -722,18 +725,18 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                         <div key={idx} className="group relative rounded-lg border bg-card overflow-hidden shadow-xs">
                           <img
                             src={img}
-                            alt={`Mockup ${idx + 1}`}
+                            alt={t("preview.mockupAlt", { number: idx + 1 })}
                             className="w-full h-48 object-contain bg-black/5 dark:bg-black/40"
                           />
                           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 flex items-center justify-between text-white text-[11px]">
-                            <span className="truncate max-w-[180px]">Imagem #{idx + 1}</span>
+                            <span className="truncate max-w-[180px]">{t("preview.imageNumber", { number: idx + 1 })}</span>
                             <div className="flex items-center gap-1">
                               <a
                                 href={img}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="p-1 rounded hover:bg-white/20"
-                                title="Abrir imagem em tamanho real"
+                                title={t("preview.openImage")}
                               >
                                 <ExternalLink className="h-3.5 w-3.5" />
                               </a>
@@ -741,7 +744,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                                 type="button"
                                 onClick={() => handleRemoveImage(idx)}
                                 className="p-1 rounded hover:bg-destructive/80"
-                                title="Remover imagem"
+                                title={t("preview.removeImage")}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
@@ -764,13 +767,13 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
             <CardContent className="p-3.5 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-primary">Local do Arquivo MD:</span>
+                  <span className="font-semibold text-primary">{t("rules.fileLocation")}</span>
                   <code className="rounded bg-background/80 px-2 py-0.5 font-mono text-[11px] border">
                     {filePath}
                   </code>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  As regras salvas neste arquivo são acessíveis diretamente pelos agentes via MCP e canal de mensagens.
+                  {t("rules.fileDescription")}
                 </p>
               </div>
 
@@ -782,7 +785,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                   onClick={handleCopyPath}
                 >
                   {copiedPath ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-                  {copiedPath ? "Caminho Copiado!" : "Copiar Caminho"}
+                  {copiedPath ? t("rules.pathCopied") : t("rules.copyPath")}
                 </Button>
                 <Button
                   size="sm"
@@ -791,7 +794,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                   onClick={handleCopyAgentPrompt}
                 >
                   {copiedPrompt ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Sparkles className="h-3.5 w-3.5 text-primary" />}
-                  {copiedPrompt ? "Prompt Copiado!" : "Copiar Prompt p/ Agente"}
+                  {copiedPrompt ? t("rules.promptCopied") : t("rules.copyPrompt")}
                 </Button>
               </div>
             </CardContent>
@@ -801,7 +804,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
           <Card className="border-border/70">
             <CardHeader className="p-4 border-b flex flex-row items-center justify-between space-y-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-muted-foreground">Visualização:</span>
+                <span className="text-xs font-semibold text-muted-foreground">{t("rules.view")}</span>
                 <div className="flex gap-1">
                   <Button
                     size="sm"
@@ -809,7 +812,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                     className="h-7 text-xs"
                     onClick={() => setMdTab("edit")}
                   >
-                    <Code className="mr-1 h-3.5 w-3.5" /> Editar (.md)
+                    <Code className="mr-1 h-3.5 w-3.5" /> {t("rules.edit")}
                   </Button>
                   <Button
                     size="sm"
@@ -817,7 +820,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                     className="h-7 text-xs"
                     onClick={() => setMdTab("preview")}
                   >
-                    <Eye className="mr-1 h-3.5 w-3.5" /> Renderizado
+                    <Eye className="mr-1 h-3.5 w-3.5" /> {t("rules.rendered")}
                   </Button>
                   <Button
                     size="sm"
@@ -825,7 +828,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                     className="h-7 text-xs"
                     onClick={() => setMdTab("split")}
                   >
-                    <Columns className="mr-1 h-3.5 w-3.5" /> Lado a Lado
+                    <Columns className="mr-1 h-3.5 w-3.5" /> {t("rules.sideBySide")}
                   </Button>
                 </div>
               </div>
@@ -833,7 +836,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
               <div className="flex items-center gap-2">
                 {businessRule.data?.updated_at && (
                   <span className="text-[10px] text-muted-foreground">
-                    Salvo em: {new Date(businessRule.data.updated_at).toLocaleString("pt-BR")}
+                    {t("rules.savedAt", { date: new Date(businessRule.data.updated_at).toLocaleString(i18n.language) })}
                   </span>
                 )}
                 <Button
@@ -843,7 +846,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                   className="h-7 text-xs gap-1.5"
                 >
                   {saveBusinessRule.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Salvar Regras (.md)
+                  {t("rules.save")}
                 </Button>
               </div>
             </CardHeader>
@@ -852,7 +855,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
               {businessRule.isLoading ? (
                 <div className="py-12 text-center text-xs text-muted-foreground">
                   <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin text-primary" />
-                  Carregando regras de negócio...
+                  {t("rules.loading")}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -860,7 +863,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                     <Textarea
                       rows={20}
                       className="resize-none font-mono text-xs leading-relaxed bg-muted/20"
-                      placeholder="# Regras de Negócio da Tela&#10;&#10;1. Invariantes de validação...&#10;2. Permissões de acesso...&#10;3. Integrações com backend..."
+                      placeholder={t("rules.editorPlaceholder")}
                       value={ruleContent}
                       onChange={(e) => setRuleContent(e.target.value)}
                     />
@@ -871,7 +874,7 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                       {ruleContent.trim() ? (
                         <Markdown content={ruleContent} />
                       ) : (
-                        <p className="text-muted-foreground italic">Nenhum conteúdo de regra de negócio cadastrado ainda.</p>
+                        <p className="text-muted-foreground italic">{t("rules.noContent")}</p>
                       )}
                     </div>
                   )}
@@ -879,22 +882,22 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                   {mdTab === "split" && (
                     <div className="grid gap-4 lg:grid-cols-2">
                       <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">Editor Markdown (.md)</Label>
+                        <Label className="text-xs text-muted-foreground">{t("rules.markdownEditor")}</Label>
                         <Textarea
                           rows={20}
                           className="resize-none font-mono text-xs leading-relaxed bg-muted/20"
-                          placeholder="# Regras de Negócio..."
+                          placeholder={t("rules.shortPlaceholder")}
                           value={ruleContent}
                           onChange={(e) => setRuleContent(e.target.value)}
                         />
                       </div>
                       <div className="space-y-1.5 flex flex-col">
-                        <Label className="text-xs text-muted-foreground">Preview Renderizado</Label>
+                        <Label className="text-xs text-muted-foreground">{t("rules.renderedPreview")}</Label>
                         <div className="flex-1 rounded-md border p-4 bg-card text-xs overflow-y-auto max-h-[440px]">
                           {ruleContent.trim() ? (
                             <Markdown content={ruleContent} />
                           ) : (
-                            <p className="text-muted-foreground italic">Nenhum conteúdo para renderizar.</p>
+                            <p className="text-muted-foreground italic">{t("rules.nothingToRender")}</p>
                           )}
                         </div>
                       </div>
@@ -911,34 +914,34 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
           <Card className="border-border/70">
             <CardHeader className="p-4 border-b flex flex-row items-center justify-between space-y-0">
               <div>
-                <CardTitle className="text-sm font-semibold">Atributos & Campos da Tela</CardTitle>
+                <CardTitle className="text-sm font-semibold">{t("attributes.title")}</CardTitle>
                 <CardDescription className="text-xs">
-                  Especificação dos dados manipulados na tela — usados na derivação do banco de dados (ERD).
+                  {t("attributes.description")}
                 </CardDescription>
               </div>
               <Button size="sm" onClick={addAttribute} className="h-7 text-xs gap-1">
-                <Plus className="h-3.5 w-3.5" /> Adicionar Atributo
+                <Plus className="h-3.5 w-3.5" /> {t("attributes.add")}
               </Button>
             </CardHeader>
             <CardContent className="p-4 space-y-3">
               {attributes.length === 0 ? (
                 <div className="py-8 text-center text-xs text-muted-foreground border border-dashed rounded-lg">
-                  Nenhum atributo cadastrado. Adicione os campos da tela para documentar e derivar o banco de dados.
+                  {t("attributes.empty")}
                 </div>
               ) : (
                 <div className="space-y-2">
                   <div className="grid grid-cols-[1fr_130px_90px_1.5fr_36px] gap-2 text-[11px] font-semibold text-muted-foreground px-1">
-                    <span>Nome do Campo</span>
-                    <span>Tipo</span>
-                    <span>Obrigatório</span>
-                    <span>Descrição / Regra</span>
+                    <span>{t("attributes.fieldName")}</span>
+                    <span>{t("attributes.type")}</span>
+                    <span>{t("attributes.required")}</span>
+                    <span>{t("attributes.descriptionRule")}</span>
                     <span></span>
                   </div>
                   {attributes.map((attr, i) => (
                     <div key={i} className="grid grid-cols-[1fr_130px_90px_1.5fr_36px] gap-2 items-center">
                       <Input
                         className="h-8 text-xs font-medium"
-                        placeholder="ex: email, valor, status"
+                        placeholder={t("attributes.namePlaceholder")}
                         value={attr.name}
                         onChange={(e) => updateAttribute(i, { name: e.target.value })}
                       />
@@ -947,9 +950,9 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                         value={attr.type}
                         onChange={(e) => updateAttribute(i, { type: e.target.value as ScreenAttributeType })}
                       >
-                        {ATTRIBUTE_TYPES.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
+                        {ATTRIBUTE_TYPES.map((attributeType) => (
+                          <option key={attributeType} value={attributeType}>
+                            {t(`attributes.types.${attributeType}`)}
                           </option>
                         ))}
                       </Select>
@@ -960,11 +963,11 @@ ${prototypeHtml || '<div style="color: #888; text-align: center; padding: 40px;"
                           checked={attr.required}
                           onChange={(e) => updateAttribute(i, { required: e.target.checked })}
                         />
-                        <span>Sim</span>
+                        <span>{t("attributes.yes")}</span>
                       </label>
                       <Input
                         className="h-8 text-xs"
-                        placeholder="Finalidade do campo..."
+                        placeholder={t("attributes.purposePlaceholder")}
                         value={attr.description ?? ""}
                         onChange={(e) => updateAttribute(i, { description: e.target.value })}
                       />

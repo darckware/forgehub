@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,45 +13,13 @@ const MODULES = [
   "foundation", "crons", "deploy", "servers", "database", "users", "profiles",
 ];
 
-const MODULE_LABELS: Record<string, string> = {
-  product: "Products",
-  projects: "Projects",
-  pipeline: "Pipelines",
-  backlog: "Planning",
-  tasks: "Execution",
-  agents: "Agents",
-  artifacts: "Artifacts",
-  governance: "Governance",
-  forgerouter: "ForgeRouter",
-  obsidian: "Knowledge Base",
-  foundation: "Foundation",
-  crons: "Crons",
-  deploy: "Deploy Control",
-  servers: "Servers",
-  database: "Database",
-  users: "Users",
-  profiles: "Profiles",
-};
-
 const SENSITIVE_ACTIONS = [
-  ["planning.concept.view", "View concept details"],
-  ["planning.concept.edit", "Create and revise concepts"],
-  ["planning.concept.submit", "Submit concepts for approval"],
-  ["planning.concept.decide", "Legacy concept decision (disabled)"],
-  ["planning.blueprint.edit", "Edit System Maps"],
-  ["planning.blueprint.approve", "Approve System Maps"],
-  ["planning.delivery.authorize", "Authorize delivery planning"],
-  ["planning.progress.view", "View project progress and checkpoints"],
-  ["planning.progress.manage", "Manage checkpoints and recovery"],
-  ["planning.stage.complete", "Complete pipeline stages"],
-  ["planning.execution.view", "View execution waves and runner state"],
-  ["planning.execution.manage", "Create and manage execution waves"],
-  ["planning.execution.release", "Approve execution waves"],
-  ["planning.execution.dispatch", "Issue and dispatch work packages"],
-  ["planning.execution.cancel", "Cancel and reconcile CLI executions"],
-  ["governance.approval.view", "View governed approvals"],
-  ["governance.approval.decide", "Decide governed approvals"],
-  ["governance.delegation.manage", "Manage Athos delegations"],
+  "planning.concept.view", "planning.concept.edit", "planning.concept.submit",
+  "planning.concept.decide", "planning.blueprint.edit", "planning.blueprint.approve",
+  "planning.delivery.authorize", "planning.progress.view", "planning.progress.manage",
+  "planning.stage.complete", "planning.execution.view", "planning.execution.manage",
+  "planning.execution.release", "planning.execution.dispatch", "planning.execution.cancel",
+  "governance.approval.view", "governance.approval.decide", "governance.delegation.manage",
 ] as const;
 
 type PermOp = "can_view" | "can_query" | "can_write" | "can_delete";
@@ -76,13 +45,14 @@ interface Props {
 }
 
 export default function ProfileForm({ profile, onClose }: Props) {
+  const { t } = useTranslation("profiles");
   const [name, setName] = useState(profile?.name ?? "");
   const [description, setDescription] = useState(profile?.description ?? "");
   const [perms, setPerms] = useState<Record<string, PermRow>>(
     profile ? profileToPerms(profile) : defaultPerms()
   );
   const [actions, setActions] = useState<Record<string, boolean>>(() => Object.fromEntries(
-    SENSITIVE_ACTIONS.map(([key]) => [key, profile?.action_permissions?.find((item) => item.action_key === key)?.allowed ?? false])
+    SENSITIVE_ACTIONS.map((key) => [key, profile?.action_permissions?.find((item) => item.action_key === key)?.allowed ?? false])
   ));
 
   const createMut = useCreateProfile();
@@ -124,33 +94,28 @@ export default function ProfileForm({ profile, onClose }: Props) {
     }
   };
 
-  const OPS: { key: PermOp; label: string }[] = [
-    { key: "can_view", label: "View" },
-    { key: "can_query", label: "Query" },
-    { key: "can_write", label: "Write" },
-    { key: "can_delete", label: "Delete" },
-  ];
+  const OPS: PermOp[] = ["can_view", "can_query", "can_write", "can_delete"];
 
   return (
     <form noValidate onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
-          <Label>Name *</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="E.g. Developer" />
+          <Label htmlFor="profile-name">{t("profiles.form.name")} *</Label>
+          <Input id="profile-name" value={name} onChange={(e) => setName(e.target.value)} required placeholder={t("profiles.form.namePlaceholder")} />
         </div>
         <div className="flex flex-col gap-1">
-          <Label>Description</Label>
-          <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional description" />
+          <Label htmlFor="profile-description">{t("profiles.form.description")}</Label>
+          <Input id="profile-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("profiles.form.descriptionPlaceholder")} />
         </div>
       </div>
 
       <div className="rounded-md border border-border p-3">
-        <p className="mb-2 text-sm font-medium">Sensitive command permissions</p>
-        <p className="mb-3 text-xs text-muted-foreground">These actions are denied by default and are checked by the backend.</p>
+        <p className="mb-2 text-sm font-medium">{t("profiles.form.sensitiveTitle")}</p>
+        <p className="mb-3 text-xs text-muted-foreground">{t("profiles.form.sensitiveHelp")}</p>
         <div className="grid gap-2 md:grid-cols-2">
-          {SENSITIVE_ACTIONS.map(([key, label]) => <label key={key} className="flex items-start gap-2 rounded border p-2 text-xs">
+          {SENSITIVE_ACTIONS.map((key) => <label key={key} className="flex items-start gap-2 rounded border p-2 text-xs">
             <input type="checkbox" checked={actions[key]} onChange={() => setActions((value) => ({ ...value, [key]: !value[key] }))} className="mt-0.5 h-3.5 w-3.5" />
-            <span><span className="block font-medium">{label}</span><code className="text-[10px] text-muted-foreground">{key}</code></span>
+            <span><span className="block font-medium">{t(`profiles.form.actions.${key.replace(/\./g, "_")}`)}</span><code className="text-[10px] text-muted-foreground">{key}</code></span>
           </label>)}
         </div>
       </div>
@@ -160,11 +125,11 @@ export default function ProfileForm({ profile, onClose }: Props) {
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-muted/50">
-              <th className="px-3 py-2 text-left font-medium text-muted-foreground">Module</th>
-              {OPS.map(({ key, label }) => (
+              <th className="px-3 py-2 text-left font-medium text-muted-foreground">{t("profiles.permissions.column.module")}</th>
+              {OPS.map((key) => (
                 <th key={key} className="px-3 py-2 text-center font-medium text-muted-foreground">
                   <button type="button" className="hover:text-foreground transition-colors" onClick={() => toggleColumn(key)}>
-                    {label}
+                    {t(`profiles.form.operations.${key}`)}
                   </button>
                 </th>
               ))}
@@ -173,13 +138,14 @@ export default function ProfileForm({ profile, onClose }: Props) {
           <tbody className="divide-y divide-border/30">
             {MODULES.map((m) => (
               <tr key={m} className="hover:bg-muted/20">
-                <td className="px-3 py-1.5 font-mono">{MODULE_LABELS[m] ?? m}</td>
-                {OPS.map(({ key }) => (
+                <td className="px-3 py-1.5">{t(`profiles.form.modules.${m}`)}</td>
+                {OPS.map((key) => (
                   <td key={key} className="px-3 py-1.5 text-center">
                     <input
                       type="checkbox"
                       checked={perms[m][key]}
                       onChange={() => toggle(m, key)}
+                      aria-label={t("profiles.form.permissionAria", { operation: t(`profiles.form.operations.${key}`), module: t(`profiles.form.modules.${m}`) })}
                       className="h-3.5 w-3.5"
                     />
                   </td>
@@ -193,10 +159,10 @@ export default function ProfileForm({ profile, onClose }: Props) {
       {error && <p className="text-xs text-destructive">{error.message}</p>}
 
       <div className="flex gap-2 justify-end">
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>{t("profiles.form.cancel")}</Button>
         <Button type="submit" size="sm" disabled={isPending || !name} className="gap-1.5">
           {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          Save
+          {t("profiles.form.save")}
         </Button>
       </div>
     </form>

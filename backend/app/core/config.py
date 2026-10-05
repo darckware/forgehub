@@ -37,6 +37,18 @@ CHAT_RESPONSE_LANGUAGE_NOTES: dict[str, str] = {
     "it": "(Istruzione di sistema — rispondi sempre in italiano.)",
 }
 
+# Existing installations may still have another language saved. Keep its
+# instruction available, but offer only the three supported product languages
+# for new selections. A legacy value can pass through an unrelated config
+# save until an administrator chooses one of the supported languages.
+SUPPORTED_CHAT_RESPONSE_LANGUAGES = ("pt-BR", "en", "es")
+
+
+def chat_response_language_allowed(value: str, current: str) -> bool:
+    return value in SUPPORTED_CHAT_RESPONSE_LANGUAGES or (
+        value == current and value in CHAT_RESPONSE_LANGUAGE_NOTES
+    )
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(

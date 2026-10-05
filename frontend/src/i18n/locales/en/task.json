@@ -40,6 +40,7 @@
     }
   },
   "detail": {
+    "planApproach": "Plan/approach:", "dispatchTooltip": "Creates a message linked to this task and dispatches it to the assigned agent", "dispatchButton": "Run via messages", "blockedDependencies": "Task has unfinished dependencies:", "dispatchedAsMessage": "Dispatched as message", "dispatchStatus": "Dispatch status",
     "breadcrumbExecution": "Execution",
     "loading": "Loading task…",
     "loadError": "Failed to load task: {{message}}",

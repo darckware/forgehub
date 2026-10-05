@@ -47,6 +47,7 @@
     "selectDocumentFirst": "Selecione um documento primeiro."
   },
   "scriptForm": {
+    "descriptionExample": "Transcreve mensagens de voz do Telegram antes de entregá-las ao agente",
     "enterFilename": "Digite o nome do arquivo do script, ex.: telegram_audio_transcriber.py",
     "couldNotSave": "Não foi possível salvar.",
     "editScript": "Editar script",

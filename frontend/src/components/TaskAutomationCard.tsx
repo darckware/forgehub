@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Bot, Loader2, Play, RefreshCw } from "lucide-react";
 import { useAgents } from "@/hooks/useAgent";
 import { useTaskExecutions, type TaskExecution } from "@/hooks/useTask";
@@ -24,6 +25,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 function AutomatedExecutionRow({ taskId, execution }: { taskId: string; execution: TaskExecution }) {
+  const { t } = useTranslation("automation");
   const { data: reviews = [] } = useExecutionReviews(execution.id);
   const dispatchReview = useDispatchExecutionReview(taskId);
   const refreshReview = useRefreshExecutionReview(taskId);
@@ -32,16 +34,16 @@ function AutomatedExecutionRow({ taskId, execution }: { taskId: string; executio
   return (
     <div className="space-y-2 rounded-md border p-3 text-sm">
       <div className="flex items-center justify-between">
-        <div><span className="font-medium">Attempt #{execution.attempt_number}</span> · {execution.runtime_type} · loop {execution.loop_iteration}<Badge className="ml-2" variant="outline">{execution.status}</Badge></div>
+        <div><span className="font-medium">{t("task.attempt", { number: execution.attempt_number })}</span> · {execution.runtime_type} · {t("task.loop", { number: execution.loop_iteration })}<Badge className="ml-2" variant="outline">{t(`statuses.${execution.status}`, { defaultValue: execution.status })}</Badge></div>
         {execution.status === "completed" && execution.loop_policy_id && !activeReview && (
-          <Button size="sm" variant="outline" disabled={dispatchReview.isPending} onClick={() => dispatchReview.mutate(execution.id)}>Review with loop model</Button>
+          <Button size="sm" variant="outline" disabled={dispatchReview.isPending} onClick={() => dispatchReview.mutate(execution.id)}>{t("task.reviewWithModel")}</Button>
         )}
       </div>
       {reviews.map((review) => (
         <div key={review.id} className="flex items-center justify-between gap-2 rounded bg-muted/50 p-2 text-xs">
-          <span>Review: {review.status}{review.score != null ? ` · ${review.score}/100` : ""}</span>
-          {review.status === "running" && <Button size="sm" variant="ghost" disabled={refreshReview.isPending} onClick={() => refreshReview.mutate({ reviewId: review.id, executionId: execution.id })}><RefreshCw className="mr-1 h-3 w-3" />Refresh review</Button>}
-          {review.status === "pending" && review.feedback && <span className="flex gap-1"><Button size="sm" variant="outline" disabled={decideReview.isPending} onClick={() => decideReview.mutate({ reviewId: review.id, executionId: execution.id, status: "changes_requested", feedback: review.feedback ?? "Changes requested" })}>Request changes</Button><Button size="sm" disabled={decideReview.isPending} onClick={() => decideReview.mutate({ reviewId: review.id, executionId: execution.id, status: "approved", feedback: review.feedback ?? "Approved" })}>Approve</Button></span>}
+          <span>{t("task.reviewStatus", { status: t(`statuses.${review.status}`, { defaultValue: review.status }) })}{review.score != null ? ` · ${review.score}/100` : ""}</span>
+          {review.status === "running" && <Button size="sm" variant="ghost" disabled={refreshReview.isPending} onClick={() => refreshReview.mutate({ reviewId: review.id, executionId: execution.id })}><RefreshCw className="mr-1 h-3 w-3" />{t("task.refreshReview")}</Button>}
+          {review.status === "pending" && review.feedback && <span className="flex gap-1"><Button size="sm" variant="outline" disabled={decideReview.isPending} onClick={() => decideReview.mutate({ reviewId: review.id, executionId: execution.id, status: "changes_requested", feedback: review.feedback ?? t("task.changesRequested") })}>{t("task.requestChanges")}</Button><Button size="sm" disabled={decideReview.isPending} onClick={() => decideReview.mutate({ reviewId: review.id, executionId: execution.id, status: "approved", feedback: review.feedback ?? t("task.approved") })}>{t("task.approve")}</Button></span>}
         </div>
       ))}
       {(dispatchReview.error || refreshReview.error || decideReview.error) && <p className="text-xs text-destructive">{((dispatchReview.error ?? refreshReview.error ?? decideReview.error) as Error).message}</p>}
@@ -50,6 +52,7 @@ function AutomatedExecutionRow({ taskId, execution }: { taskId: string; executio
 }
 
 export function TaskAutomationCard({ taskId, projectId }: { taskId: string; projectId?: string }) {
+  const { t } = useTranslation("automation");
   const { data: agents = [] } = useAgents();
   const { data: eligibility = [] } = useEligibleMemberships(taskId);
   const { data: assignments = [] } = useTaskAssignments(taskId);
@@ -81,26 +84,26 @@ export function TaskAutomationCard({ taskId, projectId }: { taskId: string; proj
       ? profile.agent_id === selectedMembership.agent_id
       : profile.sub_agent_id === selectedMembership?.sub_agent_id
   );
-  const agentName = (id?: string | null) => agents.find((agent) => agent.id === id)?.name ?? "Agent";
+  const agentName = (id?: string | null) => agents.find((agent) => agent.id === id)?.name ?? t("project.agent");
   const error = createAssignment.error ?? dispatch.error ?? refresh.error ?? refreshGoverned.error;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-xl"><Bot className="h-5 w-5" /> Governed CLI execution</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-xl"><Bot className="h-5 w-5" /> {t("task.title")}</CardTitle>
         <CardDescription>
-          Assign an eligible registered agent, then run Claude, Codex, or Agy through this project's existing ForgeRouter configuration.
+          {t("task.description")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <div>
-            <Label>Eligible project member</Label>
+            <Label>{t("task.eligibleMember")}</Label>
             <Select value={membershipId} onChange={(event) => setMembershipId(event.target.value)}>
-              <option value="">Select agent membership</option>
+              <option value="">{t("task.selectMembership")}</option>
               {eligibleMemberships.map(({ membership }) => (
                 <option key={membership.id} value={membership.id}>
-                  {agentName(membership.agent_id)} · {membership.role.replace(/_/g, " ")}
+                  {agentName(membership.agent_id)} · {t(`roles.${membership.role}`, { defaultValue: membership.role.replace(/_/g, " ") })}
                 </option>
               ))}
             </Select>
@@ -115,12 +118,12 @@ export function TaskAutomationCard({ taskId, projectId }: { taskId: string; proj
               createAssignment.mutate({ membership_id: member.id, agent_id: member.agent_id, sub_agent_id: member.sub_agent_id });
             }}
           >
-            {createAssignment.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Assign
+            {createAssignment.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {t("task.assign")}
           </Button>
         </div>
         {eligibility.some((item) => !item.eligible) && (
           <details className="text-xs text-muted-foreground">
-            <summary>Why some project agents are not eligible</summary>
+            <summary>{t("task.ineligibleReasons")}</summary>
             <ul className="mt-2 space-y-1">
               {eligibility.filter((item) => !item.eligible).map((item) => (
                 <li key={item.membership.id}>{agentName(item.membership.agent_id)}: {item.reasons.join("; ")}</li>
@@ -130,26 +133,26 @@ export function TaskAutomationCard({ taskId, projectId }: { taskId: string; proj
         )}
 
         <div className="grid gap-3 border-t pt-5 md:grid-cols-2 lg:grid-cols-4">
-          <div><Label>Active assignment</Label><Select value={assignmentId} onChange={(event) => { setAssignmentId(event.target.value); setProfileId(""); }}><option value="">Select assignment</option>{assignments.filter((a) => a.status === "active" && a.membership_id).map((a) => <option key={a.id} value={a.id}>{agentName(a.agent_id)}</option>)}</Select></div>
-          <div><Label>ForgeRouter runtime profile</Label><Select value={profileId} onChange={(event) => setProfileId(event.target.value)}><option value="">Select runtime</option>{availableProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.runtime_type} · {profile.routing_group}</option>)}</Select></div>
-          <div><Label>Loop policy</Label><Select value={policyId} onChange={(event) => setPolicyId(event.target.value)}><option value="">Single execution</option>{policies.filter((p) => p.is_active).map((policy) => <option key={policy.id} value={policy.id}>{policy.name}</option>)}</Select></div>
-          <div><Label>Mode</Label><Select value={mode} onChange={(event) => setMode(event.target.value)}><option value="execute">Execute/edit</option><option value="plan">Plan/read-only</option></Select></div>
+          <div><Label>{t("task.activeAssignment")}</Label><Select value={assignmentId} onChange={(event) => { setAssignmentId(event.target.value); setProfileId(""); }}><option value="">{t("task.selectAssignment")}</option>{assignments.filter((a) => a.status === "active" && a.membership_id).map((a) => <option key={a.id} value={a.id}>{agentName(a.agent_id)}</option>)}</Select></div>
+          <div><Label>{t("task.runtimeProfile")}</Label><Select value={profileId} onChange={(event) => setProfileId(event.target.value)}><option value="">{t("task.selectRuntime")}</option>{availableProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.runtime_type} · {profile.routing_group}</option>)}</Select></div>
+          <div><Label>{t("task.loopPolicy")}</Label><Select value={policyId} onChange={(event) => setPolicyId(event.target.value)}><option value="">{t("task.singleExecution")}</option>{policies.filter((p) => p.is_active).map((policy) => <option key={policy.id} value={policy.id}>{policy.name}</option>)}</Select></div>
+          <div><Label>{t("task.mode")}</Label><Select value={mode} onChange={(event) => setMode(event.target.value)}><option value="execute">{t("task.executeEdit")}</option><option value="plan">{t("task.planReadOnly")}</option></Select></div>
         </div>
-        <div><Label>Additional governed instructions (optional)</Label><Textarea className="resize-none" value={addendum} onChange={(event) => setAddendum(event.target.value)} placeholder="Task-specific constraints; never paste secrets." /></div>
+        <div><Label>{t("task.additionalInstructions")}</Label><Textarea className="resize-none" value={addendum} onChange={(event) => setAddendum(event.target.value)} placeholder={t("task.instructionsPlaceholder")} /></div>
         <Button
           disabled
           className="max-md:h-auto max-md:whitespace-normal max-md:py-2"
         >
           {dispatch.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-          Use Planning &gt; Execution Release to dispatch
+          {t("task.dispatchHint")}
         </Button>
 
         {executions.filter((execution) => execution.runtime_session_ref).length > 0 && (
           <div className="space-y-2 border-t pt-5">
-            <p className="text-sm font-medium">Automated runs</p>
+            <p className="text-sm font-medium">{t("task.automatedRuns")}</p>
             {executions.filter((execution) => execution.runtime_session_ref).map((execution) => (
               <div key={execution.id} className="space-y-2">
-                {execution.status === "running" && <div className="flex justify-end"><Button size="sm" variant="outline" disabled={refresh.isPending || refreshGoverned.isPending} onClick={() => execution.work_package_id ? refreshGoverned.mutate(execution.id) : refresh.mutate(execution.id)}><RefreshCw className="mr-2 h-4 w-4" />Refresh execution</Button></div>}
+                {execution.status === "running" && <div className="flex justify-end"><Button size="sm" variant="outline" disabled={refresh.isPending || refreshGoverned.isPending} onClick={() => execution.work_package_id ? refreshGoverned.mutate(execution.id) : refresh.mutate(execution.id)}><RefreshCw className="mr-2 h-4 w-4" />{t("task.refreshExecution")}</Button></div>}
                 <AutomatedExecutionRow taskId={taskId} execution={execution} />
               </div>
             ))}

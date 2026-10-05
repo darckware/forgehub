@@ -1,4 +1,39 @@
 {
+  "telegram": {
+    "paneFor": "{{agent}}'s Telegram",
+    "agent": "agent",
+    "thisAgent": "this agent",
+    "historyError": "Could not load Telegram history.",
+    "noConversation": "No Telegram conversation found for {{agent}}.",
+    "startChannel": "Send a message to this agent's bot first to establish the channel.",
+    "deliveryWarning": "The response was saved but could not be delivered to Telegram. Refresh the channel before trying again.",
+    "improvePrompt": "Improve prompt",
+    "stopRecording": "Stop recording",
+    "dictate": "Dictate message",
+    "disableAutoSync": "Disable automatic refresh",
+    "enableAutoSync": "Enable automatic refresh",
+    "autoSyncOn": "Automatic sync is on — click to disable",
+    "autoSyncOff": "Automatic sync is off — click to enable",
+    "sending": "Sending",
+    "waitingForFirstMessage": "Interaction becomes available after the bot receives its first message on Telegram.",
+    "removeFile": "Remove {{name}}",
+    "composerPlaceholder": "Chat with {{agent}} on this channel…",
+    "theAgent": "the agent",
+    "channelActive": "active channel",
+    "gatewayStopped": "gateway stopped",
+    "notConfigured": "not configured"
+  },
+  "secret": {
+    "hide": "Hide secret",
+    "reveal": "Reveal secret",
+    "copy": "Copy secret"
+  },
+  "assistantDrawer": {
+    "title": "Assistant",
+    "contextTooltip": "Starts a new chat with this screen's context, sent invisibly to the agent with your first message",
+    "close": "Close assistant",
+    "noAgent": "No agent with a profile available."
+  },
   "slashCommands": {
     "model": "Switch model (persists by default)",
     "status": "Show session, model, tokens and context",
@@ -128,8 +163,25 @@
     "promptTechniqueRecommended": "Recommended technique selected for the current context",
     "promptTechniqueWhen": "Use when",
     "promptTechniqueAvoid": "Avoid when",
-    "promptTechniqueCategories": { "text": "Text", "structure": "Structure", "reasoning": "Reasoning", "software": "Software", "agentic": "Agentic", "research": "Research", "content": "Content", "design": "Product Design", "automation": "Automation", "image": "Image", "video": "Video" },
-    "promptTechniqueEffort": { "low": "low effort", "medium": "medium effort", "high": "high effort", "very_high": "very high effort" },
+    "promptTechniqueCategories": {
+      "text": "Text",
+      "structure": "Structure",
+      "reasoning": "Reasoning",
+      "software": "Software",
+      "agentic": "Agentic",
+      "research": "Research",
+      "content": "Content",
+      "design": "Product Design",
+      "automation": "Automation",
+      "image": "Image",
+      "video": "Video"
+    },
+    "promptTechniqueEffort": {
+      "low": "low effort",
+      "medium": "medium effort",
+      "high": "high effort",
+      "very_high": "very high effort"
+    },
     "typeMessageFirst": "Type a message before sending.",
     "selectAgentFirst": "Select an agent before sending.",
     "selfRestartWarning": "This may briefly drop this very conversation -- history is saved, but the in-flight turn might need to be resent.",
@@ -224,6 +276,25 @@
     "removeFromListTitle": "Remove from list (does not delete the actual file)",
     "noArtifactsYet": "No artifacts created in this conversation yet.",
     "noArtifactsFound": "No artifacts found."
+  },
+  "secretInput": {
+    "agentInstruction": "Please store this credential securely in ForgeVault:",
+    "open": "Insert a secret password or token (ForgeVault)",
+    "dialog": "Insert a password or token into ForgeVault",
+    "title": "Store a secret in ForgeVault",
+    "close": "Close",
+    "keyName": "Key name / identifier",
+    "keyExample": "E.g. TYPESAFE_API_KEY",
+    "environment": "Environment",
+    "production": "Production",
+    "staging": "Staging",
+    "development": "Development",
+    "encryption": "AES encryption",
+    "secretValue": "Secret password or token",
+    "valuePlaceholder": "Paste the secret value…",
+    "nameRequired": "Enter the secret name (e.g. TYPESAFE_API_KEY)",
+    "valueRequired": "Enter the secret password or token",
+    "insert": "Insert into ForgeVault"
   },
   "running": {
     "title": "Running",

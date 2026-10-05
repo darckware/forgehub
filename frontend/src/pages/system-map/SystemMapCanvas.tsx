@@ -1021,7 +1021,7 @@ function CanvasInner({ revisionId, graph, isLoading, readOnly, statusByElementId
                   </div>
                 ))}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Plataforma (vazio = web + mobile)</Label>
+                  <Label className="text-xs">{t("canvas.panel.platformHint")}</Label>
                   <div className="flex gap-3">
                     {(["web", "mobile"] as const).map((platform) => (
                       <label key={platform} className="flex items-center gap-1.5 text-xs">

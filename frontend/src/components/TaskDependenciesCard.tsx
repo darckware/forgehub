@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link2, Loader2, Plus, Trash2, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import { useSkills } from "@/hooks/useAgent";
  * "missing required skills: <uuid>".
  */
 export function TaskDependenciesCard({ taskId }: { taskId: string }) {
+  const { t } = useTranslation("taskDependencies");
   const { data: dependencies = [] } = useTaskDependencies(taskId);
   const { data: allTasks = [] } = useTasks();
   const createDependency = useCreateTaskDependency(taskId);
@@ -86,18 +88,17 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-xl">
-          <Link2 className="h-5 w-5" /> Dependencies &amp; required skills
+          <Link2 className="h-5 w-5" /> {t("title")}
         </CardTitle>
         <CardDescription>
-          Dependencies block this task from going "done" until each one is itself done. Required skills
-          gate which project members show up as eligible in the Governed CLI execution card below.
+          {t("description")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-3">
-          <p className="text-sm font-medium">Blocked by</p>
+          <p className="text-sm font-medium">{t("blockedBy")}</p>
           {dependencies.length === 0 ? (
-            <p className="text-sm italic text-muted-foreground">No dependencies -- this task can complete freely.</p>
+            <p className="text-sm italic text-muted-foreground">{t("noDependencies")}</p>
           ) : (
             <ul className="space-y-1.5">
               {dependencies.map((dep) => (
@@ -105,7 +106,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
                   <span>
                     {taskTitle(dep.depends_on_task_id)}{" "}
                     <Badge variant="outline" className="ml-1">
-                      {dep.dependency_type.replace(/_/g, " ")}
+                      {t(`types.${dep.dependency_type}`)}
                     </Badge>
                   </span>
                   <Button
@@ -114,7 +115,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
                     className="h-7 w-7 p-0"
                     disabled={deleteDependency.isPending}
                     onClick={() => deleteDependency.mutate(dep.id)}
-                    aria-label="Remove dependency"
+                    aria-label={t("removeDependency")}
                   >
                     <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   </Button>
@@ -123,7 +124,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
             </ul>
           )}
           <div className="space-y-2">
-            <Label className="!mb-0 text-xs text-muted-foreground">Resposta</Label>
+            <Label className="!mb-0 text-xs text-muted-foreground">{t("relation")}</Label>
             <Select
               value={relation}
               className="sm:w-56"
@@ -133,14 +134,14 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
                 if (next === "none") setDependsOnTaskId("");
               }}
             >
-              <option value="none">Nenhum</option>
-              <option value="dependency">Dependência</option>
+              <option value="none">{t("none")}</option>
+              <option value="dependency">{t("dependency")}</option>
             </Select>
           </div>
           {relation === "dependency" && (
             <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
               <Select value={dependsOnTaskId} onChange={(e) => setDependsOnTaskId(e.target.value)}>
-                <option value="">Select a task this one depends on…</option>
+                <option value="">{t("selectTask")}</option>
                 {dependencyCandidates.map((t) => (
                   <option key={t.id} value={t.id}>
                     #{t.number} {t.title}
@@ -150,7 +151,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
               <Select value={dependencyType} onChange={(e) => setDependencyType(e.target.value as (typeof DEPENDENCY_TYPES)[number])}>
                 {DEPENDENCY_TYPES.map((type) => (
                   <option key={type} value={type}>
-                    {type.replace(/_/g, " ")}
+                    {t(`types.${type}`)}
                   </option>
                 ))}
               </Select>
@@ -164,7 +165,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
                 ) : (
                   <Plus className="mr-2 h-4 w-4" />
                 )}
-                Add
+                {t("add")}
               </Button>
             </div>
           )}
@@ -177,11 +178,11 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
 
         <div className="space-y-3 border-t pt-5">
           <p className="flex items-center gap-1.5 text-sm font-medium">
-            <Wrench className="h-4 w-4" /> Required skills
+            <Wrench className="h-4 w-4" /> {t("requiredSkills")}
           </p>
           {requiredSkills.length === 0 ? (
             <p className="text-sm italic text-muted-foreground">
-              No skill requirements -- any active project member is eligible.
+              {t("noSkillRequirements")}
             </p>
           ) : (
             <ul className="space-y-1.5">
@@ -191,12 +192,12 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
                     {skillName(rs.skill_id)}
                     {rs.minimum_proficiency && (
                       <span className="ml-1.5 text-xs text-muted-foreground">
-                        min. {rs.minimum_proficiency}
+                        {t("minimumShort", { value: rs.minimum_proficiency })}
                       </span>
                     )}
                   </span>
                   <Badge variant={rs.is_mandatory ? "warning" : "outline"}>
-                    {rs.is_mandatory ? "mandatory" : "optional"}
+                    {rs.is_mandatory ? t("mandatory") : t("optional")}
                   </Badge>
                 </li>
               ))}
@@ -204,7 +205,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
           )}
           <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
             <Select value={skillId} onChange={(e) => setSkillId(e.target.value)}>
-              <option value="">Select a required skill…</option>
+              <option value="">{t("selectSkill")}</option>
               {skillCandidates.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -212,7 +213,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
               ))}
             </Select>
             <Input
-              placeholder="Min. proficiency (optional)"
+              placeholder={t("minimumPlaceholder")}
               value={minimumProficiency}
               onChange={(e) => setMinimumProficiency(e.target.value)}
               className="w-40"
@@ -224,7 +225,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
                 checked={isMandatory}
                 onChange={(e) => setIsMandatory(e.target.checked)}
               />
-              <Label className="!mb-0">Mandatory</Label>
+              <Label className="!mb-0">{t("mandatory")}</Label>
             </label>
             <Button size="sm" disabled={!skillId || createRequiredSkill.isPending} onClick={handleAddRequiredSkill}>
               {createRequiredSkill.isPending ? (
@@ -232,7 +233,7 @@ export function TaskDependenciesCard({ taskId }: { taskId: string }) {
               ) : (
                 <Plus className="mr-2 h-4 w-4" />
               )}
-              Add
+              {t("add")}
             </Button>
           </div>
           {createRequiredSkill.error && (

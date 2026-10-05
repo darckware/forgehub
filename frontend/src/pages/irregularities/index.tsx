@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,31 +13,13 @@ import {
 import { useWorkstations } from "@/hooks/useWorkstations";
 import { useClients } from "@/hooks/useClients";
 
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "All statuses" },
-  { value: "open", label: "Open" },
-  { value: "acknowledged", label: "Acknowledged" },
-  { value: "resolved", label: "Resolved" },
-];
+const STATUS_OPTIONS = ["all", "open", "acknowledged", "resolved"] as const;
 
-const SEVERITY_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "All severities" },
-  { value: "critical", label: "Critical" },
-  { value: "warning", label: "Warning" },
-  { value: "info", label: "Info" },
-];
+const SEVERITY_OPTIONS = ["all", "critical", "warning", "info"] as const;
 
 // No dedicated enum-listing endpoint for this -- mirrors the fixed
 // IRREGULARITY_RULE_KEYS tuple in backend/app/db/models/client.py.
-const RULE_KEY_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "All rules" },
-  { value: "disk_space_low", label: "disk_space_low" },
-  { value: "backup_stale", label: "backup_stale" },
-  { value: "unauthorized_remote_tool", label: "unauthorized_remote_tool" },
-  { value: "critical_service_down", label: "critical_service_down" },
-  { value: "collection_failed", label: "collection_failed" },
-  { value: "agent_unreachable", label: "agent_unreachable" },
-];
+const RULE_KEY_OPTIONS = ["all", "disk_space_low", "backup_stale", "unauthorized_remote_tool", "critical_service_down", "collection_failed", "agent_unreachable"] as const;
 
 function severityBadgeVariant(severity: Irregularity["severity"]) {
   if (severity === "critical") return "destructive" as const;
@@ -45,6 +28,7 @@ function severityBadgeVariant(severity: Irregularity["severity"]) {
 }
 
 export default function IrregularitiesPage() {
+  const { t, i18n } = useTranslation("irregularities");
   const [statusFilter, setStatusFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [ruleKeyFilter, setRuleKeyFilter] = useState("all");
@@ -91,10 +75,10 @@ export default function IrregularitiesPage() {
         <div>
           <h1 className="flex items-center gap-2 text-xl font-semibold">
             <AlertTriangle className="h-5 w-5" />
-            Irregularities
+            {t("title")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Client workstation monitoring findings requiring review.
+            {t("description")}
           </p>
         </div>
       </div>
@@ -105,9 +89,9 @@ export default function IrregularitiesPage() {
           onChange={(e) => setStatusFilter(e.target.value)}
           className="w-auto"
         >
-          {STATUS_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
+          {STATUS_OPTIONS.map((status) => (
+            <option key={status} value={status}>
+              {t(`filters.status.${status}`)}
             </option>
           ))}
         </Select>
@@ -116,9 +100,9 @@ export default function IrregularitiesPage() {
           onChange={(e) => setSeverityFilter(e.target.value)}
           className="w-auto"
         >
-          {SEVERITY_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
+          {SEVERITY_OPTIONS.map((severity) => (
+            <option key={severity} value={severity}>
+              {t(`filters.severity.${severity}`)}
             </option>
           ))}
         </Select>
@@ -127,9 +111,9 @@ export default function IrregularitiesPage() {
           onChange={(e) => setRuleKeyFilter(e.target.value)}
           className="w-auto"
         >
-          {RULE_KEY_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
+          {RULE_KEY_OPTIONS.map((rule) => (
+            <option key={rule} value={rule}>
+              {t(`filters.rule.${rule}`)}
             </option>
           ))}
         </Select>
@@ -141,13 +125,13 @@ export default function IrregularitiesPage() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Workstation / Client</th>
-              <th className="px-4 py-2">Rule</th>
-              <th className="px-4 py-2">Severity</th>
-              <th className="px-4 py-2">Detail</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">Detected at</th>
-              <th className="px-4 py-2 text-right">Actions</th>
+              <th className="px-4 py-2">{t("table.workstationClient")}</th>
+              <th className="px-4 py-2">{t("table.rule")}</th>
+              <th className="px-4 py-2">{t("table.severity")}</th>
+              <th className="px-4 py-2">{t("table.detail")}</th>
+              <th className="px-4 py-2">{t("table.status")}</th>
+              <th className="px-4 py-2">{t("table.detectedAt")}</th>
+              <th className="px-4 py-2 text-right">{t("table.actions")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -161,7 +145,7 @@ export default function IrregularitiesPage() {
             {!isLoading && visibleIrregularities.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-6 text-center italic text-muted-foreground">
-                  No irregularities found.
+                  {t("empty")}
                 </td>
               </tr>
             )}
@@ -174,10 +158,10 @@ export default function IrregularitiesPage() {
                   <div className="font-medium">{workstation?.hostname ?? irregularity.workstation_id}</div>
                   <div className="text-xs text-muted-foreground">{client?.name ?? "—"}</div>
                 </td>
-                <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{irregularity.rule_key}</td>
+                <td className="px-4 py-2 text-xs text-muted-foreground">{t(`filters.rule.${irregularity.rule_key}`, { defaultValue: irregularity.rule_key })}</td>
                 <td className="px-4 py-2">
                   <Badge variant={severityBadgeVariant(irregularity.severity)} className="capitalize">
-                    {irregularity.severity}
+                    {t(`filters.severity.${irregularity.severity}`, { defaultValue: irregularity.severity })}
                   </Badge>
                 </td>
                 <td className="max-w-md px-4 py-2 text-muted-foreground" title={irregularity.detail}>
@@ -185,11 +169,11 @@ export default function IrregularitiesPage() {
                 </td>
                 <td className="px-4 py-2">
                   <Badge variant="outline" className="capitalize">
-                    {irregularity.status}
+                    {t(`filters.status.${irregularity.status}`, { defaultValue: irregularity.status })}
                   </Badge>
                 </td>
                 <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-                  {new Date(irregularity.detected_at).toLocaleString()}
+                  {new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(new Date(irregularity.detected_at))}
                 </td>
                 <td className="px-4 py-2 text-right">
                   <Button
@@ -198,14 +182,14 @@ export default function IrregularitiesPage() {
                     className="text-emerald-600 hover:text-emerald-500"
                     onClick={() => setResolveTarget(irregularity)}
                     disabled={irregularity.status === "resolved" || updateStatus.isPending}
-                    title="Marcar como tratada"
+                    title={t("resolve")}
                   >
                     {updateStatus.isPending && resolveTarget?.id === irregularity.id ? (
                       <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                     )}
-                    Marcar como tratada
+                    {t("resolve")}
                   </Button>
                 </td>
               </tr>
@@ -219,8 +203,8 @@ export default function IrregularitiesPage() {
         open={resolveTarget !== null}
         variant="default"
         icon="warning"
-        title="Marcar como tratada"
-        description={resolveTarget ? `Marcar "${resolveTarget.detail}" como resolvida?` : ""}
+        title={t("resolve")}
+        description={resolveTarget ? t("confirmResolve", { detail: resolveTarget.detail }) : ""}
         loading={updateStatus.isPending}
         onConfirm={() => {
           if (!resolveTarget) return;

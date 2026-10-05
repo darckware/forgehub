@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useTheme } from "@/lib/theme";
-import type { UiLanguage } from "@/i18n";
+import { UI_LANGUAGE_OPTIONS, type UiLanguage } from "@/i18n";
 import { useAuthStore } from "@/store/authStore";
 import { useUpdateMe, useChangeMyPassword, useClearQueryCacheOnLogout } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -17,12 +17,6 @@ const THEME_OPTIONS = [
   { value: "light" as const, labelKey: "themeLight", icon: Sun },
   { value: "dark" as const, labelKey: "themeDark", icon: Moon },
   { value: "system" as const, labelKey: "themeSystem", icon: Laptop },
-];
-
-const LANGUAGE_OPTIONS: { value: UiLanguage; labelKey: string }[] = [
-  { value: "pt-BR", labelKey: "languagePt" },
-  { value: "en", labelKey: "languageEn" },
-  { value: "es", labelKey: "languageEs" },
 ];
 
 /** Backdrop + centered panel, same pattern as components/ui/confirm-dialog.tsx. */
@@ -208,9 +202,9 @@ function AccountModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => setUiLanguage(e.target.value as UiLanguage)}
             className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm outline-none focus:border-primary"
           >
-            {LANGUAGE_OPTIONS.map((opt) => (
+            {UI_LANGUAGE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
-                {t(`userMenu.${opt.labelKey}`)}
+                {opt.label}
               </option>
             ))}
           </select>

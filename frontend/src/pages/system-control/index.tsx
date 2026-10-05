@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Archive, ChevronDown, ChevronRight, ExternalLink, GitBranch, GitCommit, Loader2, MessageSquare, RefreshCw, RotateCcw, Sparkles, SquareTerminal, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -32,26 +33,31 @@ import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { DockerCleanupCard } from "./DockerCleanupCard";
 import { BackupFilesCard } from "./BackupFilesCard";
 
-function formatBytes(bytes: number | null | undefined): string {
+function formatByteValue(bytes: number | null | undefined, locale: string): string {
   if (bytes == null) return "—";
-  if (bytes < 1024) return `${bytes} B`;
+  const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
+  if (bytes < 1024) return `${number.format(bytes)} B`;
   const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  if (kb < 1024) return `${number.format(kb)} KB`;
   const mb = kb / 1024;
-  if (mb < 1024) return `${mb.toFixed(1)} MB`;
-  return `${(mb / 1024).toFixed(1)} GB`;
+  if (mb < 1024) return `${number.format(mb)} MB`;
+  return `${number.format(mb / 1024)} GB`;
 }
 
-function formatDateTime(iso: string): string {
+function formatDateTimeValue(iso: string, locale: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(locale);
 }
 
-function formatUnixDateTime(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleString();
+function formatUnixDateTimeValue(unixSeconds: number, locale: string): string {
+  return new Date(unixSeconds * 1000).toLocaleString(locale);
 }
 
 export default function SystemControlPage() {
+  const { t, i18n } = useTranslation("systemControl");
+  const formatBytes = (bytes: number | null | undefined) => formatByteValue(bytes, i18n.language);
+  const formatDateTime = (iso: string) => formatDateTimeValue(iso, i18n.language);
+  const formatUnixDateTime = (seconds: number) => formatUnixDateTimeValue(seconds, i18n.language);
   // undefined until the user picks something -- the backend defaults to
   // its own DEFAULT_REPO either way, this just lets the <Select> start
   // unset instead of guessing a key before the first response arrives.
@@ -102,7 +108,7 @@ export default function SystemControlPage() {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading system control...
+        {t("page.loading")}
       </div>
     );
   }
@@ -110,7 +116,7 @@ export default function SystemControlPage() {
   if (isError || !data) {
     return (
       <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-        Failed to load system control: {(error as Error)?.message ?? "unknown error"}
+        {t("page.loadFailed", { error: (error as Error)?.message ?? t("page.unknownError") })}
       </div>
     );
   }
@@ -125,15 +131,15 @@ export default function SystemControlPage() {
     <div className="space-y-6 max-md:break-words">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">System Control</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("page.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Git status for registered projects and compressed backups written to /root/backup.
+            {t("page.description")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => refetch()} disabled={isFetching} className="gap-2">
             {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Refresh
+            {t("page.refresh")}
           </Button>
           <AssistantToggleButton className="gap-2" />
         </div>
@@ -142,29 +148,29 @@ export default function SystemControlPage() {
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Branch</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">{t("page.branch")}</p>
             <p className="mt-1 truncate text-lg font-semibold">{data.git.branch}</p>
             <p className="mt-1 text-xs text-muted-foreground">{data.git.short_head}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Working tree</p>
-            <p className="mt-1 text-lg font-semibold">{dirtyCount === 0 ? "Clean" : `${dirtyCount} file(s)`}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Repository root: {data.git.repo_root}</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">{t("page.workingTree")}</p>
+            <p className="mt-1 text-lg font-semibold">{dirtyCount === 0 ? t("page.clean") : t("page.files", { count: dirtyCount })}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("page.repositoryRoot", { path: data.git.repo_root })}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Last commit</p>
-            <p className="mt-1 truncate text-lg font-semibold">{lastCommit.subject ?? "No commit"}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{lastCommit.author ?? "Unknown author"}</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">{t("page.lastCommit")}</p>
+            <p className="mt-1 truncate text-lg font-semibold">{lastCommit.subject ?? t("page.noCommit")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{lastCommit.author ?? t("page.unknownAuthor")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Hermes backups</p>
-            <p className="mt-1 text-lg font-semibold">{data.backups.count} archive(s)</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">{t("page.hermesBackups")}</p>
+            <p className="mt-1 text-lg font-semibold">{t("page.archives", { count: data.backups.count })}</p>
             <p className="mt-1 text-xs text-muted-foreground">{data.backups.path}</p>
           </CardContent>
         </Card>
@@ -176,16 +182,16 @@ export default function SystemControlPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <GitBranch className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-base font-semibold">Git Control</h2>
+                <h2 className="text-base font-semibold">{t("git.title")}</h2>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Select
                   value={data.git.repo_key}
                   className="h-8 w-40 text-xs"
                   onChange={(e) => setRepo(e.target.value)}
-                  aria-label="Repository"
+                  aria-label={t("git.repository")}
                 >
-                  <optgroup label="System">
+                  <optgroup label={t("git.system")}>
                     {data.available_repos
                       .filter((r) => r.kind === "system")
                       .map((r) => (
@@ -195,7 +201,7 @@ export default function SystemControlPage() {
                       ))}
                   </optgroup>
                   {data.available_repos.some((r) => r.kind === "project") && (
-                    <optgroup label="Projects">
+                    <optgroup label={t("git.projects")}>
                       {data.available_repos
                         .filter((r) => r.kind === "project")
                         .map((r) => (
@@ -211,26 +217,25 @@ export default function SystemControlPage() {
                   variant={showCommitForm ? "secondary" : "outline"}
                   className="gap-1.5"
                   disabled={dirtyCount === 0}
-                  title={dirtyCount === 0 ? "Nothing to commit" : "Commit all pending changes"}
+                  title={dirtyCount === 0 ? t("git.nothingToCommit") : t("git.commitAllTitle")}
                   onClick={() => setShowCommitForm((v) => !v)}
                 >
-                  <GitCommit className="h-3.5 w-3.5" /> Commit
+                  <GitCommit className="h-3.5 w-3.5" /> {t("git.commit")}
                 </Button>
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              "Hermes" plus every registered project with a working directory -- add one from the project's own
-              registration page, not here.
+              {t("git.description")}
             </p>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Commit</span>
+                <span className="text-muted-foreground">{t("git.commit")}</span>
                 <span className="font-mono text-xs">{lastCommit.hash.slice(0, 12)}</span>
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Status</span>
+                <span className="text-muted-foreground">{t("git.status")}</span>
                 <Badge variant={dirtyCount === 0 ? "success" : "destructive"}>
-                  {dirtyCount === 0 ? "Clean" : "Changes pending"}
+                  {dirtyCount === 0 ? t("page.clean") : t("git.changesPending")}
                 </Badge>
               </div>
             </div>
@@ -240,7 +245,7 @@ export default function SystemControlPage() {
                   autoFocus
                   value={commitMessage}
                   onChange={(e) => setCommitMessage(e.target.value)}
-                  placeholder="Commit message"
+                  placeholder={t("git.commitMessage")}
                   maxLength={500}
                   className="h-8 text-xs"
                   onKeyDown={(e) => {
@@ -255,11 +260,11 @@ export default function SystemControlPage() {
                 {/* Stages everything (git add -A) -- see CommitRequest's docstring
                     in backend/app/api/routes/system_control.py. Never pushes. */}
                 <p className="text-[11px] text-muted-foreground">
-                  Stages all {dirtyCount} pending file(s) and commits. Does not push.
+                  {t("git.stageAndCommit", { count: dirtyCount })}
                 </p>
                 {commitMut.isError && (
                   <p className="text-xs text-destructive">
-                    {(commitMut.error as Error)?.message ?? "Commit failed"}
+                    {(commitMut.error as Error)?.message ?? t("git.commitFailed")}
                   </p>
                 )}
                 <div className="flex justify-end gap-1.5">
@@ -271,7 +276,7 @@ export default function SystemControlPage() {
                       setCommitMessage("");
                     }}
                   >
-                    Cancel
+                    {t("page.cancel")}
                   </Button>
                   <Button
                     size="sm"
@@ -283,7 +288,7 @@ export default function SystemControlPage() {
                       )
                     }
                   >
-                    {commitMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Commit"}
+                    {commitMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("git.commit")}
                   </Button>
                 </div>
               </div>
@@ -293,7 +298,7 @@ export default function SystemControlPage() {
                 {data.git.status_lines.join("\n")}
               </pre>
             ) : (
-              <p className="text-sm text-muted-foreground">No modified files.</p>
+              <p className="text-sm text-muted-foreground">{t("git.noModifiedFiles")}</p>
             )}
           </CardContent>
         </Card>
@@ -303,21 +308,21 @@ export default function SystemControlPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Archive className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-base font-semibold">Backups</h2>
+                <h2 className="text-base font-semibold">{t("backups.title")}</h2>
               </div>
               <div className="flex items-center gap-1.5">
                 <Select
                   value={backupTarget}
                   className="h-8 w-40 text-xs"
                   onChange={(e) => setBackupTarget(e.target.value)}
-                  aria-label="Backup target"
+                  aria-label={t("backups.target")}
                 >
                   {targets.map((t) => (
                     <option key={t.key} value={t.key}>
                       {t.label}
                     </option>
                   ))}
-                  {targets.length > 1 && <option value="all">All</option>}
+                  {targets.length > 1 && <option value="all">{t("backups.all")}</option>}
                 </Select>
                 <Button
                   size="sm"
@@ -326,29 +331,28 @@ export default function SystemControlPage() {
                   className="gap-2"
                   title={
                     selectedTarget && !selectedTarget.ready
-                      ? "This project has no working directory set yet"
+                      ? t("backups.noWorkingDirectory")
                       : undefined
                   }
                 >
                   {runBackup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
-                  Backup {isAllBackups ? "all" : "now"}
+                  {isAllBackups ? t("backups.runAll") : t("backups.runNow")}
                 </Button>
               </div>
             </div>
             {!isAllBackups && selectedTarget && (
               <p className="font-mono text-xs text-muted-foreground">
-                {selectedTarget.source ?? "(no working directory set)"} → {selectedTarget.location}
+                {selectedTarget.source ?? t("backups.noWorkingDirectoryShort")} → {selectedTarget.location}
               </p>
             )}
             <p className="text-[11px] text-muted-foreground">
-              Archives are kept separate per target -- Hermes and each project write to their own directory, never
-              intermixed. Enable backup for a project from its own registration page.
+              {t("backups.description")}
             </p>
             {runBackup.isSuccess && (
               <div className="space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
                 {runBackup.data.results.map((r) => (
                   <p key={r.target}>
-                    {r.label}: created {r.archive_path} ({formatBytes(r.size_bytes)})
+                    {t("backups.created", { label: r.label, path: r.archive_path, size: formatBytes(r.size_bytes) })}
                   </p>
                 ))}
                 {runBackup.data.errors.map((e) => (
@@ -360,18 +364,18 @@ export default function SystemControlPage() {
             )}
             {runBackup.isError && (
               <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                {(runBackup.error as Error)?.message ?? "Backup failed"}
+                {(runBackup.error as Error)?.message ?? t("backups.failed")}
               </div>
             )}
             {deleteBackup.isError && (
               <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                {(deleteBackup.error as Error)?.message ?? "Failed to delete backup"}
+                {(deleteBackup.error as Error)?.message ?? t("backups.deleteFailed")}
               </div>
             )}
             <ConfirmDialog
               open={deletingBackup !== null}
-              title={`Delete "${deletingBackup ?? ""}"`}
-              description="Permanently removes this backup archive. This action cannot be undone."
+              title={t("backups.deleteTitle", { name: deletingBackup ?? "" })}
+              description={t("backups.deleteDescription")}
               loading={deleteBackup.isPending}
               onConfirm={() => {
                 if (deletingBackup) {
@@ -385,18 +389,18 @@ export default function SystemControlPage() {
             />
             {isAllBackups ? (
               <p className="text-sm text-muted-foreground">
-                Pick a single target above to browse or delete its archives -- "All" is only for running backups.
+                {t("backups.pickTarget")}
               </p>
             ) : backupListingLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading archives...
+                <Loader2 className="h-4 w-4 animate-spin" /> {t("backups.loadingArchives")}
               </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Archive</TableHead>
-                    <TableHead>Size</TableHead>
+                    <TableHead>{t("backups.archive")}</TableHead>
+                    <TableHead>{t("backups.size")}</TableHead>
                     <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
@@ -410,8 +414,8 @@ export default function SystemControlPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive"
-                          aria-label={`Delete ${entry.name}`}
-                          title={`Delete ${entry.name}`}
+                          aria-label={t("backups.deleteName", { name: entry.name })}
+                          title={t("backups.deleteName", { name: entry.name })}
                           onClick={() => setDeletingBackup(entry.name)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -422,7 +426,9 @@ export default function SystemControlPage() {
                   {(backupListing?.entries ?? []).length === 0 && (
                     <TableRow>
                       <TableCell colSpan={3} className="text-sm text-muted-foreground">
-                        No backup archives found{backupListing ? ` in ${backupListing.path}` : ""}.
+                        {backupListing
+                          ? t("backups.noArchivesAt", { path: backupListing.path })
+                          : t("backups.noArchives")}
                       </TableCell>
                     </TableRow>
                   )}
@@ -442,18 +448,18 @@ export default function SystemControlPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-base font-semibold">Cleanup</h2>
+              <h2 className="text-base font-semibold">{t("cleanup.title")}</h2>
               {scan && (
                 <span className="text-xs text-muted-foreground">
-                  {scan.total_count} file(s), {formatBytes(scan.total_size)} under {scan.root}
+                  {t("cleanup.summary", { count: scan.total_count, size: formatBytes(scan.total_size), root: scan.root })}
                 </span>
               )}
               {scanFetching && !scanLoading && (
                 <span
                   className="flex items-center gap-1 text-xs text-muted-foreground"
-                  title="A category was just cleared -- the host filesystem is being re-scanned in the background, counts below are still catching up"
+                  title={t("cleanup.updatingTitle")}
                 >
-                  <Loader2 className="h-3 w-3 animate-spin" /> Updating…
+                  <Loader2 className="h-3 w-3 animate-spin" /> {t("cleanup.updating")}
                 </span>
               )}
             </div>
@@ -464,10 +470,10 @@ export default function SystemControlPage() {
                 onClick={() => void refetchScan()}
                 disabled={scanLoading || scanFetching}
                 className="gap-2"
-                title="Rescan and refresh cleanup candidates"
+                title={t("cleanup.rescanTitle")}
               >
                 <RefreshCw className={`h-4 w-4 ${scanFetching ? "animate-spin" : ""}`} />
-                Reset
+                {t("cleanup.rescan")}
               </Button>
               <Button
                 size="sm"
@@ -475,12 +481,12 @@ export default function SystemControlPage() {
                 onClick={() => setConfirmingEmptyTrash(true)}
                 disabled={!trashStatus || trashStatus.item_count === 0 || emptyTrash.isPending}
                 className="gap-2 text-destructive hover:text-destructive"
-                title="Permanently deletes everything moved to trash by the buttons below -- unlike them, this cannot be undone"
+                title={t("cleanup.emptyTrashTitle")}
               >
                 {emptyTrash.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                Empty trash{" "}
+                {t("cleanup.emptyTrash")}{" "}
                 {trashStatus && trashStatus.item_count > 0
-                  ? `(${trashStatus.item_count} item(s), ${formatBytes(trashStatus.total_size)})`
+                  ? t("cleanup.trashSummary", { count: trashStatus.item_count, size: formatBytes(trashStatus.total_size) })
                   : ""}
               </Button>
               <Button
@@ -488,27 +494,21 @@ export default function SystemControlPage() {
                 onClick={() => setConfirmingCleanup(true)}
                 disabled={runCleanup.isPending}
                 className="gap-2"
-                title="Runs the same bounded cleanup policy used by the weekly Athos cron"
+                title={t("cleanup.runTitle")}
               >
                 {runCleanup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                Run Cleanup
+                {t("cleanup.run")}
               </Button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Read-only inventory of logs, backup files, cron output snapshots, and old/duplicate scripts. Files
-            cleared here (individually or via "Run Cleanup") are moved to trash, not deleted -- use "Empty trash"
-            above to permanently remove what has accumulated there. "Run Cleanup" also executes the same weekly
-            Athos policy used by the foundation-clear cron: expires
-            manual backups after 30 days, bounds temporary files and journals, and prunes all inactive reproducible Docker cache,
-            stopped containers, dangling images, and unused networks. Docker volumes, databases, live agent logs,
-            sessions, knowledge, and scripts are never deleted by this action.
+            {t("cleanup.description")}
           </p>
           <ConfirmDialog
             open={confirmingCleanup}
-            title="Run ecosystem cleanup?"
-            description="Runs the weekly Athos cleanup now. Expired files and trash are permanently deleted, and reproducible Docker artifacts are pruned. Docker volumes and databases are excluded."
-            confirmLabel="Run cleanup"
+            title={t("cleanup.runConfirmTitle")}
+            description={t("cleanup.runConfirmDescription")}
+            confirmLabel={t("cleanup.run")}
             loading={runCleanup.isPending}
             onConfirm={() =>
               runCleanup.mutate(undefined, { onSuccess: () => setConfirmingCleanup(false) })
@@ -517,18 +517,18 @@ export default function SystemControlPage() {
           />
           {emptyTrash.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(emptyTrash.error as Error)?.message ?? "Failed to empty trash"}
+              {(emptyTrash.error as Error)?.message ?? t("cleanup.emptyFailed")}
             </div>
           )}
           <ConfirmDialog
             open={confirmingEmptyTrash}
             title={
               trashStatus
-                ? `Permanently delete ${trashStatus.item_count} item(s) (${formatBytes(trashStatus.total_size)}) from trash?`
-                : "Permanently delete everything in trash?"
+                ? t("cleanup.emptyConfirmCount", { count: trashStatus.item_count, size: formatBytes(trashStatus.total_size) })
+                : t("cleanup.emptyConfirmAll")
             }
-            description="Everything currently in trash -- from every category clear and every Run Cleanup so far -- is deleted for good. This cannot be undone and is not part of the weekly policy; it only runs when you click this button."
-            confirmLabel="Empty trash"
+            description={t("cleanup.emptyConfirmDescription")}
+            confirmLabel={t("cleanup.emptyTrash")}
             loading={emptyTrash.isPending}
             onConfirm={() => emptyTrash.mutate(undefined, { onSuccess: () => setConfirmingEmptyTrash(false) })}
             onCancel={() => setConfirmingEmptyTrash(false)}
@@ -537,43 +537,43 @@ export default function SystemControlPage() {
             <div className="relative space-y-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
               <button
                 type="button"
-                aria-label="Dismiss banner"
-                title="Dismiss"
+                aria-label={t("cleanup.dismissBanner")}
+                title={t("cleanup.dismiss")}
                 onClick={() => runCleanup.reset()}
                 className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:bg-emerald-500/20 hover:text-foreground transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
               <p className="pr-6 font-medium text-emerald-600 dark:text-emerald-400">
-                Weekly ecosystem cleanup completed with policy <span className="font-mono">{runCleanup.data.policy}</span>.
+                {t("cleanup.completed", { policy: runCleanup.data.policy })}
               </p>
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">{runCleanup.data.output}</pre>
             </div>
           )}
           {runCleanup.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(runCleanup.error as Error)?.message ?? "Cleanup failed"}
+              {(runCleanup.error as Error)?.message ?? t("cleanup.failed")}
             </div>
           )}
           {scanLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Scanning...
+              <Loader2 className="h-4 w-4 animate-spin" /> {t("cleanup.scanning")}
             </div>
           )}
-          {scanError && <p className="text-sm text-destructive">Failed to scan for cleanup candidates.</p>}
+          {scanError && <p className="text-sm text-destructive">{t("cleanup.scanFailed")}</p>}
           {scan && scan.categories.length === 0 && (
-            <p className="text-sm text-muted-foreground">Nothing found.</p>
+            <p className="text-sm text-muted-foreground">{t("cleanup.empty")}</p>
           )}
           {deleteCleanupCategory.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(deleteCleanupCategory.error as Error)?.message ?? "Failed to clear category"}
+              {(deleteCleanupCategory.error as Error)?.message ?? t("cleanup.clearFailed")}
             </div>
           )}
           <ConfirmDialog
             open={deletingCategory !== null}
-            title={`Clear "${deletingCategory ?? ""}"?`}
-            description="Moves every file currently in this category to the trash root -- not a hard delete, so it stays recoverable there. The full weekly cleanup policy is unaffected."
-            confirmLabel="Clear category"
+            title={t("cleanup.clearTitle", { category: deletingCategory ?? "" })}
+            description={t("cleanup.clearDescription")}
+            confirmLabel={t("cleanup.clearCategory")}
             loading={deleteCleanupCategory.isPending}
             onConfirm={() => {
               if (deletingCategory) {
@@ -606,13 +606,13 @@ export default function SystemControlPage() {
                     className="cursor-pointer rounded-md border border-border p-3 text-left hover:bg-accent"
                   >
                     <span className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-medium uppercase text-muted-foreground">{cat.category}</span>
+                      <span className="text-xs font-medium uppercase text-muted-foreground">{t(`cleanup.categories.${cat.category}`, { defaultValue: cat.category })}</span>
                       <span className="flex shrink-0 items-center gap-0.5">
                         <button
                           type="button"
                           className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          aria-label={`Clear ${cat.category}`}
-                          title={`Clear ${cat.category}`}
+                          aria-label={t("cleanup.clearNamed", { category: t(`cleanup.categories.${cat.category}`, { defaultValue: cat.category }) })}
+                          title={t("cleanup.clearNamed", { category: t(`cleanup.categories.${cat.category}`, { defaultValue: cat.category }) })}
                           onClick={(e) => {
                             e.stopPropagation();
                             setDeletingCategory(cat.category);
@@ -627,7 +627,7 @@ export default function SystemControlPage() {
                         )}
                       </span>
                     </span>
-                    <span className="mt-1 block text-lg font-semibold">{cat.count} file(s)</span>
+                    <span className="mt-1 block text-lg font-semibold">{t("page.files", { count: cat.count })}</span>
                     <span className="text-xs text-muted-foreground">{formatBytes(cat.total_size)}</span>
                   </div>
                 );
@@ -655,35 +655,32 @@ export default function SystemControlPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <SquareTerminal className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-base font-semibold">Terminal Sessions</h2>
+              <h2 className="text-base font-semibold">{t("terminal.title")}</h2>
               {terminalSessions && (
                 <span className="text-xs text-muted-foreground">
-                  {terminalSessions.sessions.length} live tmux session(s)
+                  {t("terminal.liveCount", { count: terminalSessions.sessions.length })}
                 </span>
               )}
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Every live <span className="font-mono">forgehub-*</span> tmux session on the host, whether or not a
-            Workspace tab is currently attached to it. A tab closed by a browser crash or a page reload outside the
-            Workspace's own close button leaves its session running here indefinitely -- kill it to free it up.
-            ForgeHub keeps no separate record of terminal tabs; this is a live read of the host itself.
+            {t("terminal.description")}
           </p>
           {terminalSessionsLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading sessions...
+              <Loader2 className="h-4 w-4 animate-spin" /> {t("terminal.loading")}
             </div>
           )}
           {killTerminalSession.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(killTerminalSession.error as Error)?.message ?? "Failed to kill session"}
+              {(killTerminalSession.error as Error)?.message ?? t("terminal.killFailed")}
             </div>
           )}
           <ConfirmDialog
             open={killingSession !== null}
-            title="Kill this terminal session?"
-            description="Ends the tmux session and any process still running inside it (shell, CLI agent, etc). This cannot be undone."
-            confirmLabel="Kill session"
+            title={t("terminal.killTitle")}
+            description={t("terminal.killDescription")}
+            confirmLabel={t("terminal.kill")}
             loading={killTerminalSession.isPending}
             onConfirm={() => {
               if (killingSession) {
@@ -696,10 +693,10 @@ export default function SystemControlPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Session</TableHead>
-                  <TableHead>Attached</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Last activity</TableHead>
+                  <TableHead>{t("terminal.session")}</TableHead>
+                  <TableHead>{t("terminal.attachedColumn")}</TableHead>
+                  <TableHead>{t("terminal.created")}</TableHead>
+                  <TableHead>{t("terminal.lastActivity")}</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -709,7 +706,7 @@ export default function SystemControlPage() {
                     <TableCell className="font-mono text-xs">{s.session_id}</TableCell>
                     <TableCell>
                       <Badge variant={s.attached ? "success" : "outline"}>
-                        {s.attached ? "Attached" : "Orphaned"}
+                        {s.attached ? t("terminal.attached") : t("terminal.orphaned")}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs">{formatUnixDateTime(s.created_at)}</TableCell>
@@ -720,8 +717,8 @@ export default function SystemControlPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          aria-label={`Open session ${s.session_id} in Workspace`}
-                          title="Open in Workspace"
+                          aria-label={t("terminal.openNamed", { id: s.session_id })}
+                          title={t("terminal.open")}
                           onClick={() =>
                             navigate("/workspace", {
                               state: { openSession: { id: s.session_id, label: s.session_id.slice(0, 8) } },
@@ -734,8 +731,8 @@ export default function SystemControlPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive"
-                          aria-label={`Kill session ${s.session_id}`}
-                          title={`Kill session ${s.session_id}`}
+                          aria-label={t("terminal.killNamed", { id: s.session_id })}
+                          title={t("terminal.killNamed", { id: s.session_id })}
                           onClick={() => setKillingSession(s.session_id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -747,7 +744,7 @@ export default function SystemControlPage() {
                 {(terminalSessions?.sessions ?? []).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-sm text-muted-foreground">
-                      No live terminal sessions.
+                      {t("terminal.empty")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -762,9 +759,9 @@ export default function SystemControlPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-base font-semibold">Chat Sessions</h2>
+              <h2 className="text-base font-semibold">{t("chatSessions.title")}</h2>
               {chatSessions && (
-                <span className="text-xs text-muted-foreground">{chatSessions.length} tracked session(s)</span>
+                <span className="text-xs text-muted-foreground">{t("chatSessions.trackedCount", { count: chatSessions.length })}</span>
               )}
             </div>
             <Button
@@ -772,38 +769,34 @@ export default function SystemControlPage() {
               variant="outline"
               onClick={() => setConfirmingResetAllStale(true)}
               disabled={staleChatSessions.length === 0 || resetAllStaleChatSessions.isPending}
-              title="Resets every session currently showing Stale, one confirm instead of one row at a time"
+              title={t("chatSessions.resetAllTitle")}
             >
               {resetAllStaleChatSessions.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <RotateCcw className="h-4 w-4" />
               )}
-              Reset all stale ({staleChatSessions.length})
+              {t("chatSessions.resetAll", { count: staleChatSessions.length })}
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Every Workspace conversation with a Hermes agent that has a resumed session, checked against that
-            profile's own session store on the host. A conversation can go "Stale" without any action here -- the
-            underlying Hermes session was pruned or rebuilt on the host -- and every message sent to it afterwards
-            fails the same way until reset. Reset only forgets the resume link on ForgeHub's side; it never touches
-            Hermes' own conversation history.
+            {t("chatSessions.description")}
           </p>
           {chatSessionsLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading sessions...
+              <Loader2 className="h-4 w-4 animate-spin" /> {t("terminal.loading")}
             </div>
           )}
           {resetChatSession.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(resetChatSession.error as Error)?.message ?? "Failed to reset session"}
+              {(resetChatSession.error as Error)?.message ?? t("chatSessions.resetFailed")}
             </div>
           )}
           <ConfirmDialog
             open={resettingChatSession !== null}
-            title="Reset this chat session?"
-            description="Forgets the resumed Hermes session so the next message starts a fresh one. The conversation history in ForgeHub is kept; only continuity on the Hermes side is lost. Use this when the session shows Stale."
-            confirmLabel="Reset session"
+            title={t("chatSessions.resetTitle")}
+            description={t("chatSessions.resetDescription")}
+            confirmLabel={t("chatSessions.reset")}
             loading={resetChatSession.isPending}
             onConfirm={() => {
               if (resettingChatSession) {
@@ -817,14 +810,14 @@ export default function SystemControlPage() {
           />
           {resetAllStaleChatSessions.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(resetAllStaleChatSessions.error as Error)?.message ?? "Failed to reset one or more sessions"}
+              {(resetAllStaleChatSessions.error as Error)?.message ?? t("chatSessions.resetAllFailed")}
             </div>
           )}
           <ConfirmDialog
             open={confirmingResetAllStale}
-            title={`Reset ${staleChatSessions.length} stale session(s)?`}
-            description="Forgets the resumed Hermes session for every session currently showing Stale, so the next message on each starts a fresh one. Conversation history in ForgeHub is kept; only continuity on the Hermes side is lost."
-            confirmLabel="Reset all stale"
+            title={t("chatSessions.resetAllConfirm", { count: staleChatSessions.length })}
+            description={t("chatSessions.resetAllDescription")}
+            confirmLabel={t("chatSessions.resetAllAction")}
             loading={resetAllStaleChatSessions.isPending}
             onConfirm={() => {
               resetAllStaleChatSessions.mutate(
@@ -836,14 +829,14 @@ export default function SystemControlPage() {
           />
           {deleteChatSession.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(deleteChatSession.error as Error)?.message ?? "Failed to delete session"}
+              {(deleteChatSession.error as Error)?.message ?? t("chatSessions.deleteFailed")}
             </div>
           )}
           <ConfirmDialog
             open={deletingChatSession !== null}
-            title="Delete this chat session?"
-            description={`Permanently deletes "${deletingChatSession?.title ?? ""}" and every message in it from ForgeHub. This cannot be undone.`}
-            confirmLabel="Delete session"
+            title={t("chatSessions.deleteTitle")}
+            description={t("chatSessions.deleteDescription", { title: deletingChatSession?.title ?? "" })}
+            confirmLabel={t("chatSessions.delete")}
             loading={deleteChatSession.isPending}
             onConfirm={() => {
               if (deletingChatSession) {
@@ -858,10 +851,10 @@ export default function SystemControlPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Session</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last activity</TableHead>
+                  <TableHead>{t("chatSessions.agent")}</TableHead>
+                  <TableHead>{t("terminal.session")}</TableHead>
+                  <TableHead>{t("git.status")}</TableHead>
+                  <TableHead>{t("terminal.lastActivity")}</TableHead>
                   <TableHead className="w-28" />
                 </TableRow>
               </TableHeader>
@@ -874,7 +867,7 @@ export default function SystemControlPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={s.running ? "default" : s.exists ? "success" : "destructive"}>
-                        {s.running ? "Running" : s.exists ? "Live" : "Stale"}
+                        {s.running ? t("chatSessions.running") : s.exists ? t("chatSessions.live") : t("chatSessions.stale")}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs">
@@ -886,8 +879,8 @@ export default function SystemControlPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          aria-label={`Open ${s.session_title} in Workspace`}
-                          title="Open in Workspace"
+                          aria-label={t("chatSessions.openNamed", { title: s.session_title })}
+                          title={t("terminal.open")}
                           onClick={() =>
                             navigate("/workspace", { state: { openChatSession: { agentId: s.agent_id, sessionId: s.session_id } } })
                           }
@@ -898,8 +891,8 @@ export default function SystemControlPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive"
-                          aria-label={`Reset ${s.session_title}`}
-                          title="Reset Hermes session"
+                          aria-label={t("chatSessions.resetNamed", { title: s.session_title })}
+                          title={t("chatSessions.resetHermes")}
                           onClick={() => setResettingChatSession({ sessionId: s.session_id, participantId: s.participant_id })}
                         >
                           <RotateCcw className="h-3.5 w-3.5" />
@@ -908,8 +901,8 @@ export default function SystemControlPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive"
-                          aria-label={`Delete ${s.session_title}`}
-                          title="Delete session"
+                          aria-label={t("chatSessions.deleteNamed", { title: s.session_title })}
+                          title={t("chatSessions.delete")}
                           onClick={() => setDeletingChatSession({ sessionId: s.session_id, title: s.session_title })}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -921,7 +914,7 @@ export default function SystemControlPage() {
                 {(chatSessions ?? []).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-sm text-muted-foreground">
-                      No tracked chat sessions.
+                      {t("chatSessions.empty")}
                     </TableCell>
                   </TableRow>
                 )}

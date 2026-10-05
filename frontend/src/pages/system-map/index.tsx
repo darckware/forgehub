@@ -125,7 +125,7 @@ export default function SystemMapPage() {
             </CardContent>
           )}
         </Card>
-        <Card><CardHeader><CardDescription>{t("detailCards.coverage")}</CardDescription><CardTitle className="text-lg">{graph.data?.elements.length || 0} elements · {graph.data?.relations.length || 0} links</CardTitle></CardHeader></Card>
+        <Card><CardHeader><CardDescription>{t("detailCards.coverage")}</CardDescription><CardTitle className="text-lg">{t("detailCards.coverageCounts", { elements: graph.data?.elements.length || 0, links: graph.data?.relations.length || 0 })}</CardTitle></CardHeader></Card>
       </div>
       <Card>
         <CardHeader>

@@ -1,6 +1,7 @@
 {
   "forgerouter": {
     "title": "ForgeRouter",
+    "description": "ForgeRouter manages and routes requests in the ForgeHub ecosystem.",
     "loading": "Loading...",
     "sso": {
       "title": "Preparing session...",

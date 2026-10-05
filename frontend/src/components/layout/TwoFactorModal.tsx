@@ -24,6 +24,7 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
 }
 
 function CopyButton({ text }: { text: string }) {
+  const { t } = useTranslation("common");
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -34,7 +35,8 @@ function CopyButton({ text }: { text: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       }}
-      title="Copy"
+      title={t("userMenu.twoFactorCopy")}
+      aria-label={t("userMenu.twoFactorCopy")}
     >
       {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
@@ -130,7 +132,7 @@ export function TwoFactorModal({ onClose }: { onClose: () => void }) {
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">{t("userMenu.twoFactorScanQr")}</p>
           <div className="flex justify-center">
-            <img src={qrCodeUrl} alt="TOTP QR Code" className="h-48 w-48 rounded border border-border" />
+            <img src={qrCodeUrl} alt={t("userMenu.twoFactorQrCode")} className="h-48 w-48 rounded border border-border" />
           </div>
           <div className="rounded border border-border bg-muted/50 p-3">
             <p className="mb-1 text-xs font-medium text-muted-foreground">{t("userMenu.twoFactorManualKey")}</p>

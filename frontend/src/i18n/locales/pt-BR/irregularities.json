@@ -1,0 +1,21 @@
+{
+  "title": "Irregularidades",
+  "description": "Ocorrências no monitoramento das estações dos clientes que precisam de análise.",
+  "filters": {
+    "status": { "all": "Todos os status", "open": "Aberta", "acknowledged": "Reconhecida", "resolved": "Resolvida" },
+    "severity": { "all": "Todas as severidades", "critical": "Crítica", "warning": "Alerta", "info": "Informação" },
+    "rule": {
+      "all": "Todas as regras",
+      "disk_space_low": "Pouco espaço em disco",
+      "backup_stale": "Backup desatualizado",
+      "unauthorized_remote_tool": "Ferramenta remota não autorizada",
+      "critical_service_down": "Serviço crítico indisponível",
+      "collection_failed": "Falha na coleta",
+      "agent_unreachable": "Agente inacessível"
+    }
+  },
+  "table": { "workstationClient": "Estação / Cliente", "rule": "Regra", "severity": "Severidade", "detail": "Detalhe", "status": "Status", "detectedAt": "Detectada em", "actions": "Ações" },
+  "empty": "Nenhuma irregularidade encontrada.",
+  "resolve": "Marcar como tratada",
+  "confirmResolve": "Marcar «{{detail}}» como resolvida?"
+}

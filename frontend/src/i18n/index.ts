@@ -1,7 +1,7 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
-// UI language ("en" | "pt-BR") is independent of the AI chat's
+// UI language ("pt-BR" | "en" | "es") is independent of the AI chat's
 // CHAT_RESPONSE_LANGUAGE (backend/app/core/config.py) -- this one covers the
 // whole app shell (sidebar, dialogs, forms), not agent replies. Persisted
 // per-user via User.ui_language (see useSyncUiLanguage in useAuth.ts), which
@@ -10,6 +10,11 @@ import { initReactI18next } from "react-i18next";
 export const UI_LANGUAGE_STORAGE_KEY = "forgehub-ui-language";
 
 export const SUPPORTED_UI_LANGUAGES = ["en", "pt-BR", "es"] as const;
+export const UI_LANGUAGE_OPTIONS = [
+  { value: "pt-BR", label: "Português (Brasil)" },
+  { value: "en", label: "English" },
+  { value: "es", label: "Español" },
+] as const;
 
 export const NAMESPACES = ["artifact", "auditor", "clients", "crons", "deploy", "forgerouter", "nexoAgents", "vpn"] as const;
 export type UiLanguage = (typeof SUPPORTED_UI_LANGUAGES)[number];
@@ -60,7 +65,10 @@ i18n.use(initReactI18next).init({
 
 i18n.on("languageChanged", (lng) => {
   localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, lng);
+  document.documentElement.lang = lng;
 });
+
+document.documentElement.lang = i18n.language;
 
 export default i18n;
 

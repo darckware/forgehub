@@ -1,0 +1,201 @@
+{
+  "enums": {
+    "itemTypes": {
+      "feature": "Característica",
+      "bug": "Fallo",
+      "hotfix": "Hotfix",
+      "improvement": "Mejora",
+      "technical_debt": "Deuda técnica",
+      "refactoring": "Refactorización",
+      "security_fix": "Fijación de seguridad",
+      "research": "Investigación",
+      "documentation": "Documentación"
+    },
+    "statuses": {
+      "new": "Nuevo",
+      "triaged": "Triado",
+      "scoped": "Alcance",
+      "in_progress": "En curso",
+      "blocked": "Bloqueado",
+      "done": "Hecho",
+      "rejected": "Rechazada"
+    },
+    "priorities": {
+      "low": "Baja",
+      "medium": "Medio",
+      "high": "Alta",
+      "critical": "Crítico"
+    },
+    "severities": {
+      "low": "Baja",
+      "medium": "Medio",
+      "high": "Alta",
+      "critical": "Crítico"
+    },
+    "taskStatuses": {
+      "planned": "Previsto",
+      "assigned": "Recursos asignados",
+      "in_progress": "En curso",
+      "blocked": "Bloqueado",
+      "done": "Hecho",
+      "deployed": "Desplegados",
+      "cancelled": "Cancelado"
+    }
+  },
+  "list": {
+    "title": "Planificación",
+    "subtitle": "Planificación de elementos que entran en el alcance de la versión: características, errores, hotfixes, mejoras, deuda técnica, y más.",
+    "filterAllProjects": "Todos los proyectos",
+    "expandAllButton": "Expandir tareas",
+    "expandAllTooltip": "Ampliar las tareas para todos los elementos de planificación visibles",
+    "collapseAllButton": "Contraer tareas",
+    "collapseAllTooltip": "Contraer tareas para todos los elementos de planificación visibles",
+    "exportButton": "Exportar JSON",
+    "exportTooltip": "Exportar elementos visibles + sus tareas como JSON",
+    "importButton": "Importar JSON",
+    "importTooltip": "Importar elementos de planificación de un archivo JSON previamente exportado",
+    "importFailed": "Importación fallida: {{error}}",
+    "newButton": "Nueva partida de planificación",
+    "createCard": {
+      "title": "Crear elemento de planificación",
+      "description": "Capturar una característica, bug u otro elemento de planificación antes de que entre en el ámbito de triage y versión."
+    },
+    "createError": "Fallo al crear el elemento de planificación: {{error}}",
+    "loading": "Cargando elementos de planificación...",
+    "loadError": "Falló al cargar los elementos de planificación: {{error}}",
+    "emptyState": {
+      "title": "No hay elementos de planificación todavía",
+      "description": "Cree su primera petición de característica o informe de fallo para comenzar a crear el retraso."
+    },
+    "columns": {
+      "title": "Título",
+      "type": "Tipo",
+      "status": "Situación",
+      "priority": "Prioridad",
+      "versionScope": "Alcance de la versión",
+      "actions": "Medidas",
+      "versionCount": "Versión(s) {{count}}",
+      "unscoped": "Sin alcance"
+    },
+    "collapseTasks": "Contraer tareas",
+    "expandTasks": "Expandir tareas",
+    "editTooltip": "Editar el elemento de planificación",
+    "editAria": "Editar {{title}}",
+    "addTaskTooltip": "Añadir tarea",
+    "addTaskAria": "Añadir tarea a {{title}}",
+    "deleteAria": "Borrar {{title}}",
+    "deleteDialog": {
+      "title": "¿Borrar el elemento de planificación?",
+      "description": "Esto eliminará permanentemente el elemento de planificación y todas las tareas relacionadas. Esto no se puede deshacer.",
+      "confirm": "Eliminar"
+    },
+    "editRow": {
+      "editing": "Edición: {{title}}",
+      "saveButton": "Guardar cambios"
+    },
+    "taskRow": {
+      "editingTask": "Tarea de edición",
+      "saveTask": "Guardar tarea",
+      "editTooltip": "Editar tarea",
+      "deleteTooltip": "Borrar tarea",
+      "subtaskLabel": "(subtarea)",
+      "health": {
+        "overdue": "Atrasado - pasado su fecha de finalización planeada, nunca ejecutado",
+        "stalled": "Salto: ejecución pendiente/running",
+        "failed": "Falló la última ejecución"
+      },
+      "deleteDialog": {
+        "title": "¿Borrar tarea?",
+        "description": "\"{{title}}\" se eliminará permanentemente.",
+        "confirm": "Eliminar"
+      }
+    },
+    "tasksRow": {
+      "loading": "Cargando tareas...",
+      "empty": "Todavía no hay tareas para este elemento de planificación.",
+      "newTaskHeading": "Nueva tarea",
+      "addTaskSubmit": "Añadir tarea",
+      "addTaskButton": "Añadir tarea"
+    }
+  },
+  "detail": {
+    "breadcrumbPlanning": "Planificación",
+    "loading": "Cargando el elemento de planificación...",
+    "loadError": "Falló al cargar el elemento de planificación: {{error}}",
+    "outputPathLabel": "Ruta de salida",
+    "featureRequest": {
+      "title": "Petición de características",
+      "description": "Criterios de aceptación y justificación empresarial.",
+      "acceptanceCriteria": "Criterios de aceptación",
+      "businessValue": "Valor comercial",
+      "requestedBy": "Solicitado por"
+    },
+    "bugReport": {
+      "title": "Informe de fallo",
+      "description": "Severidad, medio ambiente y reproducción.",
+      "severity": "Severidad",
+      "environment": "Medio ambiente",
+      "detectedInVersion": "Detectado en versión",
+      "fixedInVersion": "Fijo en versión",
+      "stepsToReproduce": "Pasos para reproducir"
+    },
+    "noSpecialization": {
+      "title": "Detalles",
+      "description": "Todavía no se ha registrado ninguna característica o especialización de errores para este elemento.",
+      "body": "Los ítems de planificación del tipo \"{{type}}\" no tienen ninguna especialización anidada en esta visión."
+    },
+    "versionScope": {
+      "title": "Alcance de la versión",
+      "description": "Versiones de productos en las que este elemento está visorizado.",
+      "removed": "eliminado",
+      "inScope": "en el ámbito de aplicación",
+      "empty": "Este artículo aún no ha sido incorporado en una versión del producto."
+    },
+    "triageDecisions": {
+      "title": "Decisiones de triaje",
+      "description": "Resultados registrados al analizar este ítem en (o fuera de) alcance.",
+      "decidedBy": "Decidido por {{name}}",
+      "empty": "Todavía no se ha registrado ninguna decisión de selección para este tema."
+    },
+    "backToList": "Volver a la lista"
+  },
+  "form": {
+    "submitLabelDefault": "Crear elemento de planificación",
+    "titleLabel": "Título",
+    "titlePlaceholder": "Breve resumen del tema de planificación",
+    "descriptionLabel": "Descripción",
+    "descriptionPlaceholder": "Contexto, justificación y cualquier detalle pertinente",
+    "typeLabel": "Tipo",
+    "statusLabel": "Situación",
+    "priorityLabel": "Prioridad",
+    "productLabel": "Producto",
+    "loadingProducts": "Cargando productos...",
+    "selectProduct": "Seleccionar un producto",
+    "versionLabel": "Versión",
+    "selectProductFirst": "Seleccione un producto primero",
+    "loadingVersions": "Cargando versiones...",
+    "selectVersion": "Seleccione una versión",
+    "projectLabel": "Proyecto",
+    "loadingProjects": "Cargando proyectos...",
+    "selectProject": "Seleccionar un proyecto",
+    "createQuickProject": "Crear un nuevo proyecto",
+    "cancelQuickProject": "Utilizar el proyecto existente",
+    "quickProjectTitle": "Cree rápidamente el proyecto para esta versión",
+    "projectNameLabel": "Nombre del proyecto",
+    "projectNamePlaceholder": "Por ejemplo, Sistema de autenticación v1",
+    "saveQuickProject": "Guardar proyecto",
+    "quickProjectRequiresVersion": "Seleccione una versión de producto antes de crear el proyecto.",
+    "outputPathLabel": "Ruta de salida",
+    "outputPathRecommended": "(recomendado para este tipo)",
+    "outputPathPlaceholder": "Por ejemplo, docs/api.md o src/modules/auth/",
+    "outputPathHelp": "Ruta relativa dentro del directorio de trabajo del proyecto donde la salida de este elemento debe aterrizar.",
+    "bugDetailsHeading": "Detalles del fallo",
+    "severityLabel": "Severidad",
+    "severityUnset": "Desactivar",
+    "environmentLabel": "Medio ambiente",
+    "environmentPlaceholder": "producción, puesta en escena...",
+    "detectedInVersionLabel": "Detectado en versión",
+    "detectedInVersionPlaceholder": "Por ejemplo, 0.1.0",
+    "cancelButton": "Cancelar"
+  }
+}

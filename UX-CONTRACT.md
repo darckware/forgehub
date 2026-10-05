@@ -10,6 +10,13 @@
 - Timezone/calendar policy: preserve source instants, format through the active locale, and use the Gregorian calendar unless a domain contract says otherwise.
 - Accessibility target: WCAG 2.2 AA.
 
+## Language controls
+
+- The account's **My interface language** setting owns the current user's `ui_language`. Saving it changes the interface immediately, persists through sign-in and reload, and updates the document's `lang` attribute. A failed save leaves the previous language in place and shows a localized error.
+- The administrative **Default language for new users** applies only when accounts are created. Changing it does not change any existing account or the administrator's current interface.
+- **Chat response language** controls the instruction sent to the assistant independently of the interface. New selections are `pt-BR`, `en`, and `es`. Existing saved `fr`, `de`, or `it` values remain visible until an administrator explicitly selects a supported language.
+- Product copy, accessible names, confirmations, and states use the active account locale. User content, commands, logs, and agent output retain their source text. Missing or invalid UI preferences fall back to `pt-BR`; locale catalogs must have matching namespaces, keys, and interpolation variables.
+
 ## Business-context sources
 
 | Domain / scope | Authoritative source | Source type | Reviewed date |

@@ -194,10 +194,10 @@ export default function ProjectCentralPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent flex items-center gap-2">
             <FolderKanban className="h-6 w-6 text-primary" />
-            4. Central de Projetos & Backlog
+            {t("central.title")}
           </h1>
           <p className="text-xs text-muted-foreground mt-1">
-            Selecione o projeto para estruturar itens de planejamento e acompanhar suas tarefas associadas.
+            {t("central.description")}
           </p>
         </div>
 
@@ -208,7 +208,7 @@ export default function ProjectCentralPage() {
               className="inline-flex items-center gap-1.5 text-xs rounded-md border border-input bg-background px-3 py-1.5 font-medium hover:bg-accent"
             >
               <Settings className="h-4 w-4 text-primary" />
-              Configurações do Projeto
+              {t("central.projectSettings")}
             </Link>
           )}
           <Link
@@ -216,7 +216,7 @@ export default function ProjectCentralPage() {
             className="inline-flex items-center gap-1.5 text-xs rounded-md border border-input bg-background px-3 py-1.5 font-medium hover:bg-accent"
           >
             <Layout className="h-4 w-4 text-primary" />
-            Telas & Protótipos
+            {t("central.screensAndPrototypes")}
           </Link>
         </div>
       </div>
@@ -232,15 +232,15 @@ export default function ProjectCentralPage() {
         <TabsList className="grid grid-cols-3 max-w-xl bg-muted/60 p-1">
           <TabsTrigger value="project_detail" className="gap-2 text-xs">
             <ListTodo className="h-4 w-4 text-primary" />
-            Planejamento & Tarefas
+            {t("central.planningAndTasks")}
           </TabsTrigger>
           <TabsTrigger value="execution_board" className="gap-2 text-xs">
             <CheckSquare className="h-4 w-4 text-primary" />
-            Quadro de Execução
+            {t("central.executionBoard")}
           </TabsTrigger>
           <TabsTrigger value="all_projects" className="gap-2 text-xs">
             <FolderOpen className="h-4 w-4 text-primary" />
-            Todos os Projetos ({projects?.length ?? 0})
+            {t("central.allProjects", { count: projects?.length ?? 0 })}
           </TabsTrigger>
         </TabsList>
 
@@ -249,16 +249,16 @@ export default function ProjectCentralPage() {
           {isLoadingProjects ? (
             <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground text-sm">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              Carregando projetos...
+              {t("list.loading")}
             </div>
           ) : !projects || projects.length === 0 ? (
             <Card className="border-dashed">
               <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
                 <FolderKanban className="h-10 w-10 text-muted-foreground/40" />
                 <div>
-                  <p className="font-semibold text-sm">Nenhum projeto cadastrado</p>
+                  <p className="font-semibold text-sm">{t("central.emptyTitle")}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Projetos são gerados a partir da Fase 1 (Conception & Context) ao aprovar a ideia e criar o projeto.
+                    {t("central.emptyDescription")}
                   </p>
                 </div>
                 <Link
@@ -266,7 +266,7 @@ export default function ProjectCentralPage() {
                   className={buttonVariants({ variant: "default", size: "sm" }) + " gap-1.5 text-xs"}
                 >
                   <FolderKanban className="h-4 w-4" />
-                  Ir para 1. Conception & Context
+                  {t("central.goToConception")}
                 </Link>
               </CardContent>
             </Card>
@@ -278,7 +278,7 @@ export default function ProjectCentralPage() {
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
                     <div className="min-w-[220px]">
                       <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
-                        Projeto Ativo
+                        {t("central.activeProject")}
                       </Label>
                       <Select
                         value={selectedProjectId}
@@ -299,28 +299,18 @@ export default function ProjectCentralPage() {
                     {activeProject && (
                       <div className="flex flex-wrap items-center gap-2 pt-1 sm:pt-4 text-xs">
                         <Badge variant={PROJECT_STATUS_VARIANT[activeProject.status] ?? "outline"} className="text-xs">
-                          {activeProject.status === "planned"
-                            ? "Planejado"
-                            : activeProject.status === "active"
-                            ? "Ativo"
-                            : activeProject.status === "on_hold"
-                            ? "Em espera"
-                            : activeProject.status === "completed"
-                            ? "Concluído"
-                            : activeProject.status === "cancelled"
-                            ? "Cancelado"
-                            : activeProject.status}
+                          {t(`enums.projectStatus.${activeProject.status}`, activeProject.status)}
                         </Badge>
                         {activeProduct && activeVersion && (
                           <span className="rounded-md border bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
-                            Produto: <strong className="text-foreground">{activeProduct.name}</strong> (v{activeVersion.version})
+                            {t("central.product")}: <strong className="text-foreground">{activeProduct.name}</strong> (v{activeVersion.version})
                           </span>
                         )}
                         <span className="rounded-md border bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
-                          Planejamentos: <strong className="text-primary">{projectPlanningItems.length}</strong>
+                          {t("central.planningItems")}: <strong className="text-primary">{projectPlanningItems.length}</strong>
                         </span>
                         <span className="rounded-md border bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
-                          Tarefas: <strong className="text-primary">{projectTasks.length}</strong>
+                          {t("central.tasks")}: <strong className="text-primary">{projectTasks.length}</strong>
                         </span>
                       </div>
                     )}
@@ -333,7 +323,7 @@ export default function ProjectCentralPage() {
                         className={buttonVariants({ variant: "outline", size: "sm" }) + " text-xs gap-1.5"}
                       >
                         <Settings className="h-3.5 w-3.5" />
-                        Configurações do Projeto
+                        {t("central.projectSettings")}
                       </Link>
                     </div>
                   )}
@@ -361,10 +351,10 @@ export default function ProjectCentralPage() {
                 <div>
                   <h3 className="text-sm font-semibold flex items-center gap-2">
                     <CheckSquare className="h-4 w-4 text-primary" />
-                    Quadro de Execução de Tarefas ({activeProject.name})
+                    {t("central.executionBoardFor", { name: activeProject.name })}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Acompanhe o estado de execução das tarefas do projeto.
+                    {t("central.executionDescription")}
                   </p>
                 </div>
               </div>
@@ -373,7 +363,7 @@ export default function ProjectCentralPage() {
           ) : (
             <Card>
               <CardContent className="py-12 text-center text-xs text-muted-foreground">
-                Selecione um projeto para visualizar o quadro de execução.
+                {t("central.selectForExecution")}
               </CardContent>
             </Card>
           )}
@@ -383,14 +373,14 @@ export default function ProjectCentralPage() {
         <TabsContent value="all_projects" className="space-y-6">
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              Lista consolidada de todos os projetos cadastrados no ambiente. A criação de novos projetos ocorre na Fase 1 (Conception & Context).
+              {t("central.catalogDescription")}
             </p>
             <Link
               to="/conception"
               className={buttonVariants({ variant: "outline", size: "sm" }) + " gap-1.5 text-xs font-semibold"}
             >
               <FolderKanban className="h-4 w-4 text-primary" />
-              1. Conception & Context
+              {t("central.conceptionLink")}
             </Link>
           </div>
 
@@ -415,10 +405,10 @@ export default function ProjectCentralPage() {
                     <CardContent className="p-4 pt-2 flex-1 space-y-2 text-xs text-muted-foreground">
                       <div className="flex items-center gap-3 pt-1">
                         <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                          <ListTodo className="h-3.5 w-3.5 text-primary" /> {projItems.length} planejamentos
+                          <ListTodo className="h-3.5 w-3.5 text-primary" /> {t("central.planningCount", { count: projItems.length })}
                         </span>
                         <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                          <CheckSquare className="h-3.5 w-3.5 text-emerald-500" /> {projTasksList.length} tarefas
+                          <CheckSquare className="h-3.5 w-3.5 text-emerald-500" /> {t("central.taskCount", { count: projTasksList.length })}
                         </span>
                       </div>
                     </CardContent>
@@ -432,7 +422,7 @@ export default function ProjectCentralPage() {
                           setSearchParams({ view: "project_detail", project_id: proj.id });
                         }}
                       >
-                        Abrir Planejamento <ArrowRight className="h-3 w-3" />
+                        {t("central.openPlanning")} <ArrowRight className="h-3 w-3" />
                       </Button>
                       <div className="flex items-center gap-1">
                         <Link
@@ -440,14 +430,14 @@ export default function ProjectCentralPage() {
                           className={buttonVariants({ variant: "ghost", size: "sm" }) + " text-xs h-7 gap-1"}
                         >
                           <Settings className="h-3 w-3" />
-                          Configurações
+                          {t("central.settings")}
                         </Link>
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive"
                           onClick={() => setPendingDeleteProjectId(proj.id)}
-                          title="Excluir projeto"
+                          title={t("central.deleteProject")}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -500,6 +490,7 @@ function ProjectPlanningAndTasksManager({
   tasksByPlanningItem,
   isLoading,
 }: ProjectPlanningAndTasksManagerProps) {
+  const { t } = useTranslation("project");
   const [statusFilter, setStatusFilter] = useState<StatusCategoryKey>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set());
@@ -640,7 +631,7 @@ function ProjectPlanningAndTasksManager({
             className="h-8 text-xs gap-1.5"
             onClick={() => setStatusFilter("all")}
           >
-            Todos <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.all}</Badge>
+            {t("central.filters.all")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.all}</Badge>
           </Button>
           <Button
             size="sm"
@@ -649,7 +640,7 @@ function ProjectPlanningAndTasksManager({
             onClick={() => setStatusFilter("open")}
           >
             <span className="h-2 w-2 rounded-full bg-amber-500" />
-            Abertos <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.open}</Badge>
+            {t("central.filters.open")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.open}</Badge>
           </Button>
           <Button
             size="sm"
@@ -658,7 +649,7 @@ function ProjectPlanningAndTasksManager({
             onClick={() => setStatusFilter("in_progress")}
           >
             <span className="h-2 w-2 rounded-full bg-sky-500" />
-            Em Execução <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.in_progress}</Badge>
+            {t("central.filters.in_progress")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.in_progress}</Badge>
           </Button>
           <Button
             size="sm"
@@ -667,7 +658,7 @@ function ProjectPlanningAndTasksManager({
             onClick={() => setStatusFilter("blocked")}
           >
             <span className="h-2 w-2 rounded-full bg-amber-600" />
-            Bloqueados <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.blocked}</Badge>
+            {t("central.filters.blocked")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.blocked}</Badge>
           </Button>
           <Button
             size="sm"
@@ -676,7 +667,7 @@ function ProjectPlanningAndTasksManager({
             onClick={() => setStatusFilter("error")}
           >
             <span className="h-2 w-2 rounded-full bg-rose-500" />
-            Com Erro <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.error}</Badge>
+            {t("central.filters.error")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.error}</Badge>
           </Button>
           <Button
             size="sm"
@@ -685,7 +676,7 @@ function ProjectPlanningAndTasksManager({
             onClick={() => setStatusFilter("done")}
           >
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            Finalizados <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.done}</Badge>
+            {t("central.filters.done")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.done}</Badge>
           </Button>
         </div>
 
@@ -694,7 +685,7 @@ function ProjectPlanningAndTasksManager({
           <div className="relative w-48 sm:w-60">
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Buscar planejamentos..."
+              placeholder={t("central.searchPlanning")}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="h-8 pl-8 text-xs"
@@ -709,10 +700,10 @@ function ProjectPlanningAndTasksManager({
               if (expandedItemIds.size > 0) collapseAll();
               else expandAll();
             }}
-            title={expandedItemIds.size > 0 ? "Recolher todas as tarefas" : "Expandir todas as tarefas"}
+            title={expandedItemIds.size > 0 ? t("central.collapseAllTitle") : t("central.expandAllTitle")}
           >
             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expandedItemIds.size > 0 ? "rotate-180" : ""}`} />
-            {expandedItemIds.size > 0 ? "Recolher" : "Expandir Tarefas"}
+            {expandedItemIds.size > 0 ? t("central.collapse") : t("central.expandTasks")}
           </Button>
 
           <Button
@@ -724,7 +715,7 @@ function ProjectPlanningAndTasksManager({
             className="h-8 text-xs gap-1.5 font-semibold"
           >
             <Plus className="h-3.5 w-3.5" />
-            Novo Planejamento
+            {t("central.newPlanning")}
           </Button>
         </div>
       </div>
@@ -735,10 +726,10 @@ function ProjectPlanningAndTasksManager({
           <CardHeader className="p-4 border-b">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Plus className="h-4 w-4 text-primary" />
-              Novo Item de Planejamento para: <span className="text-primary">{project.name}</span>
+              {t("central.newPlanningFor", { name: project.name })}
             </CardTitle>
             <CardDescription className="text-xs">
-              Cadastre uma feature, bug, refatoração ou melhoria para este projeto.
+              {t("central.newPlanningDescription")}
             </CardDescription>
           </CardHeader>
           <CardContent className="p-4">
@@ -758,7 +749,7 @@ function ProjectPlanningAndTasksManager({
           <CardHeader className="p-4 border-b">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Pencil className="h-4 w-4 text-primary" />
-              Editar Planejamento: {editingPlanningItem.title}
+              {t("central.editPlanning", { title: editingPlanningItem.title })}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4">
@@ -774,7 +765,7 @@ function ProjectPlanningAndTasksManager({
               onSubmit={handleUpdatePlanningItem}
               onCancel={() => setEditingPlanningItem(null)}
               isSubmitting={updatePlanningItem.isPending}
-              submitLabel="Salvar Alterações"
+              submitLabel={t("central.saveChanges")}
             />
           </CardContent>
         </Card>
@@ -786,10 +777,10 @@ function ProjectPlanningAndTasksManager({
           <CardHeader className="p-4 border-b">
             <CardTitle className="text-sm font-semibold flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
               <Plus className="h-4 w-4" />
-              Nova Tarefa de Execução
+              {t("central.newExecutionTask")}
             </CardTitle>
             <CardDescription className="text-xs">
-              Vinculada ao planejamento:{" "}
+              {t("central.linkedToPlanning")}{" "}
               <strong>{planningItems.find((i) => i.id === addingTaskForPlanningItemId)?.title}</strong>
             </CardDescription>
           </CardHeader>
@@ -802,7 +793,7 @@ function ProjectPlanningAndTasksManager({
               onSubmit={handleCreateTask}
               onCancel={() => setAddingTaskForPlanningItemId(null)}
               isSubmitting={createTask.isPending}
-              submitLabel="Criar Tarefa"
+              submitLabel={t("central.createTask")}
             />
           </CardContent>
         </Card>
@@ -814,7 +805,7 @@ function ProjectPlanningAndTasksManager({
           <CardHeader className="p-4 border-b">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Pencil className="h-4 w-4 text-primary" />
-              Editar Tarefa: {editingTask.title}
+              {t("central.editTask", { title: editingTask.title })}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4">
@@ -832,7 +823,7 @@ function ProjectPlanningAndTasksManager({
               onSubmit={handleUpdateTask}
               onCancel={() => setEditingTask(null)}
               isSubmitting={updateTask.isPending}
-              submitLabel="Salvar Tarefa"
+              submitLabel={t("central.saveTask")}
             />
           </CardContent>
         </Card>
@@ -842,7 +833,7 @@ function ProjectPlanningAndTasksManager({
       {isLoading ? (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground text-xs">
           <Loader2 className="h-5 w-5 animate-spin text-primary" />
-          Carregando planejamentos e tarefas do projeto...
+          {t("central.loadingPlanning")}
         </div>
       ) : filteredPlanningItems.length === 0 ? (
         <Card className="border-dashed">
@@ -851,11 +842,11 @@ function ProjectPlanningAndTasksManager({
             <div>
               <p className="font-semibold text-sm text-foreground">
                 {statusFilter === "all"
-                  ? "Nenhum item de planejamento cadastrado para este projeto"
-                  : `Nenhum planejamento no status "${STATUS_CATEGORIES[statusFilter]}"`}
+                  ? t("central.noPlanning")
+                  : t("central.noPlanningWithStatus", { status: t(`central.filters.${statusFilter}`) })}
               </p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Cadastre as features, correções e requisitos do projeto para gerar tarefas executáveis.
+                {t("central.noPlanningDescription")}
               </p>
             </div>
             <Button
@@ -864,7 +855,7 @@ function ProjectPlanningAndTasksManager({
               className="gap-1.5 text-xs"
             >
               <Plus className="h-3.5 w-3.5" />
-              Adicionar Primeiro Planejamento
+              {t("central.addFirstPlanning")}
             </Button>
           </CardContent>
         </Card>
@@ -907,7 +898,7 @@ function ProjectPlanningAndTasksManager({
                     <div className="space-y-1.5 flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${typeInfo.color}`}>
-                          {typeInfo.label}
+                          {t(`central.itemTypes.${item.item_type}`, typeInfo.label)}
                         </span>
 
                         <Badge
@@ -922,17 +913,7 @@ function ProjectPlanningAndTasksManager({
                           }
                           className="text-[10px]"
                         >
-                          {item.status === "in_progress"
-                            ? "Em Execução"
-                            : item.status === "done"
-                            ? "Concluído"
-                            : item.status === "blocked"
-                            ? "Bloqueado"
-                            : item.status === "triaged"
-                            ? "Triado"
-                            : item.status === "scoped"
-                            ? "Escopado"
-                            : "Aberto"}
+                          {t(`central.planningStatus.${item.status}`, t("central.planningStatus.open"))}
                         </Badge>
 
                         <Badge variant="outline" className="text-[10px] uppercase font-mono">
@@ -977,10 +958,10 @@ function ProjectPlanningAndTasksManager({
                         variant="ghost"
                         className="h-7 px-2 text-xs gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10"
                         onClick={() => setAddingTaskForPlanningItemId(item.id)}
-                        title="Adicionar tarefa a este planejamento"
+                        title={t("central.addTaskToPlanning")}
                       >
                         <Plus className="h-3.5 w-3.5" />
-                        <span className="hidden sm:inline">Nova Tarefa</span>
+                        <span className="hidden sm:inline">{t("central.newTask")}</span>
                       </Button>
 
                       <Button
@@ -988,7 +969,7 @@ function ProjectPlanningAndTasksManager({
                         variant="ghost"
                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
                         onClick={() => setEditingPlanningItem(item)}
-                        title="Editar planejamento"
+                        title={t("central.editPlanningTitle")}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
@@ -998,7 +979,7 @@ function ProjectPlanningAndTasksManager({
                         variant="ghost"
                         className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                         onClick={() => deletePlanningItem.mutate({ id: item.id, cascadeTasks: true })}
-                        title="Excluir planejamento e suas tarefas"
+                        title={t("central.deletePlanningTitle")}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -1012,7 +993,7 @@ function ProjectPlanningAndTasksManager({
                     <div className="flex items-center justify-between">
                       <h5 className="text-xs font-bold text-muted-foreground flex items-center gap-1.5 uppercase tracking-wider">
                         <CheckSquare className="h-3.5 w-3.5 text-primary" />
-                        Tarefas de Execução deste Planejamento ({tasks.length})
+                        {t("central.executionTasksCount", { count: tasks.length })}
                       </h5>
                       <Button
                         size="sm"
@@ -1020,20 +1001,20 @@ function ProjectPlanningAndTasksManager({
                         className="h-6 text-[11px] gap-1 bg-background"
                         onClick={() => setAddingTaskForPlanningItemId(item.id)}
                       >
-                        <Plus className="h-3 w-3" /> Adicionar Tarefa
+                        <Plus className="h-3 w-3" /> {t("central.addTask")}
                       </Button>
                     </div>
 
                     {tasks.length === 0 ? (
                       <div className="py-6 text-center rounded-md border border-dashed text-xs text-muted-foreground bg-background/50">
-                        <p>Nenhuma tarefa vinculada a este planejamento ainda.</p>
+                        <p>{t("central.noLinkedTasks")}</p>
                         <Button
                           size="sm"
                           variant="secondary"
                           className="mt-2 text-xs h-7 gap-1"
                           onClick={() => setAddingTaskForPlanningItemId(item.id)}
                         >
-                          <Plus className="h-3.5 w-3.5" /> Criar Primeira Tarefa
+                          <Plus className="h-3.5 w-3.5" /> {t("central.createFirstTask")}
                         </Button>
                       </div>
                     ) : (
@@ -1051,15 +1032,7 @@ function ProjectPlanningAndTasksManager({
                                     TASK_STATUS_COLORS[task.status] ?? "bg-muted"
                                   }`}
                                 >
-                                  {task.status === "in_progress"
-                                    ? "Em Andamento"
-                                    : task.status === "done"
-                                    ? "Concluída"
-                                    : task.status === "deployed"
-                                    ? "Deploy"
-                                    : task.status === "blocked"
-                                    ? "Bloqueada"
-                                    : "Planejada"}
+                                  {t(`central.taskStatus.${task.status}`, t("central.taskStatus.planned"))}
                                 </span>
 
                                 <span className={`font-medium flex-1 truncate ${isDone ? "line-through text-muted-foreground" : "text-foreground"}`}>
@@ -1084,7 +1057,7 @@ function ProjectPlanningAndTasksManager({
                                     variant="ghost"
                                     className="h-6 w-6 text-muted-foreground hover:text-foreground"
                                     onClick={() => setEditingTask(task)}
-                                    title="Editar tarefa"
+                                    title={t("central.editTaskTitle")}
                                   >
                                     <Pencil className="h-3 w-3" />
                                   </Button>
@@ -1093,7 +1066,7 @@ function ProjectPlanningAndTasksManager({
                                     variant="ghost"
                                     className="h-6 w-6 text-destructive hover:bg-destructive/10"
                                     onClick={() => deleteTask.mutate(task.id)}
-                                    title="Excluir tarefa"
+                                    title={t("central.deleteTaskTitle")}
                                   >
                                     <Trash2 className="h-3 w-3" />
                                   </Button>

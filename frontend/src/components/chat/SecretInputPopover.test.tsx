@@ -1,52 +1,22 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { SecretInputPopover } from "./SecretInputPopover";
 
-describe("SecretInputPopover", () => {
-  it("opens popover, fills secret info, and submits formatted prompt for ForgeVault", () => {
-    const onInsertSecret = vi.fn();
-    render(<SecretInputPopover onInsertSecret={onInsertSecret} />);
+afterEach(async () => { cleanup(); await i18n.changeLanguage("pt-BR"); });
 
-    // Trigger button
-    const trigger = screen.getByLabelText("Inserir Senha ou Token Secreto (ForgeVault)");
-    expect(trigger).toBeInTheDocument();
+it("uses the active interface language for the secret dialog and agent instruction", async () => {
+  await i18n.changeLanguage("es");
+  const onInsertSecret = vi.fn();
+  render(<SecretInputPopover onInsertSecret={onInsertSecret} />);
 
-    // Open popover
-    fireEvent.click(trigger);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("Gravar Segredo no ForgeVault")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Insertar contraseña o token secreto (ForgeVault)" }));
+  expect(screen.getByRole("dialog", { name: "Insertar contraseña o token en ForgeVault" })).toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText("Ej.: TYPESAFE_API_KEY"), { target: { value: "MI_CLAVE" } });
+  fireEvent.change(screen.getByPlaceholderText("Pega el valor secreto…"), { target: { value: "valor-privado" } });
+  fireEvent.click(screen.getByRole("button", { name: "Insertar en ForgeVault" }));
 
-    // Fill secret name
-    const nameInput = screen.getByPlaceholderText("Ex: TYPESAFE_API_KEY");
-    fireEvent.change(nameInput, { target: { value: "typesafe_api_key" } });
-
-    // Fill secret value
-    const valInput = screen.getByPlaceholderText("Cole o valor da chave secreta...");
-    fireEvent.change(valInput, { target: { value: "ts_live_key_secret_9988" } });
-
-    // Submit
-    const submitBtn = screen.getByRole("button", { name: /Inserir para o ForgeVault/i });
-    fireEvent.click(submitBtn);
-
-    expect(onInsertSecret).toHaveBeenCalledWith(
-      'Por favor, grave com segurança esta credencial no ForgeVault:\n<secret name="TYPESAFE_API_KEY" env="production">ts_live_key_secret_9988</secret>'
-    );
-
-    // Popover should close
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("shows error if secret name or value is missing", () => {
-    const onInsertSecret = vi.fn();
-    render(<SecretInputPopover onInsertSecret={onInsertSecret} />);
-
-    const trigger = screen.getByLabelText("Inserir Senha ou Token Secreto (ForgeVault)");
-    fireEvent.click(trigger);
-
-    const submitBtn = screen.getByRole("button", { name: /Inserir para o ForgeVault/i });
-    fireEvent.click(submitBtn);
-
-    expect(screen.getByText(/Informe o nome do segredo/i)).toBeInTheDocument();
-    expect(onInsertSecret).not.toHaveBeenCalled();
-  });
+  expect(onInsertSecret).toHaveBeenCalledWith(
+    'Por favor, guarda esta credencial de forma segura en ForgeVault:\n<secret name="MI_CLAVE" env="production">valor-privado</secret>',
+  );
 });

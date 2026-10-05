@@ -51,7 +51,7 @@ export default function ProfilesPage() {
                 <Button
                   size="icon" variant="ghost" className="h-7 w-7"
                   onClick={() => setEditing(editing === profile.id ? null : profile.id)}
-                  title="Edit"
+                  title={t("profiles.form.edit")}
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
@@ -59,7 +59,7 @@ export default function ProfilesPage() {
                   size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
                   onClick={() => handleDelete(profile.id, profile.name)}
                   disabled={deleteMut.isPending}
-                  title="Delete"
+                  title={t("profiles.form.delete")}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>

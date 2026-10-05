@@ -25,8 +25,8 @@ const STATUS_VARIANT: Record<ContractStatus, "success" | "warning" | "outline"> 
   encerrado: "outline",
 };
 
-function money(value?: number | null) {
-  return value == null ? "—" : value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+function money(value: number | null | undefined, locale: string) {
+  return value == null ? "—" : value.toLocaleString(locale, { style: "currency", currency: "BRL" });
 }
 
 export default function ClientAccountPage() {
@@ -173,7 +173,7 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 function ContractRow({ contract: c, vm }: { contract: Contract; vm: ClientAccountViewModel }) {
-  const { t } = useTranslation("clientOps");
+  const { t, i18n } = useTranslation("clientOps");
   return (
     <li className="space-y-2 rounded-md border p-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -185,8 +185,8 @@ function ContractRow({ contract: c, vm }: { contract: Contract; vm: ClientAccoun
           </div>
           <div className="text-sm text-muted-foreground">
             {c.contract_type === "suporte_horas"
-              ? `${c.monthly_hours_quota ?? "—"} h/mês · ${money(c.monthly_price)} · ${t("contract.fields.billing_cycle_day")}: ${c.billing_cycle_day ?? "—"}`
-              : `${money(c.total_value)}${c.scope_summary ? ` · ${c.scope_summary}` : ""}`}
+              ? `${c.monthly_hours_quota ?? "—"} ${t("contract.hoursPerMonth")} · ${money(c.monthly_price, i18n.language)} · ${t("contract.fields.billing_cycle_day")}: ${c.billing_cycle_day ?? "—"}`
+              : `${money(c.total_value, i18n.language)}${c.scope_summary ? ` · ${c.scope_summary}` : ""}`}
           </div>
           {c.hours_used_current_cycle !== undefined && (
             <div className="text-xs text-muted-foreground">

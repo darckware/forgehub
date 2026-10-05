@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   CheckCircle2,
@@ -78,6 +79,7 @@ function SqlEditorModal({
   onSave: (sql: string) => void; onClose: () => void;
   saving: boolean; error: string | null;
 }) {
+  const { t } = useTranslation("database");
   const [sql, setSql] = useState(initialValue);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog">
@@ -91,7 +93,7 @@ function SqlEditorModal({
         <div className="flex-1 min-h-0 overflow-hidden p-4 flex flex-col gap-3">
           <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 flex items-center gap-2">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            This action runs SQL directly against the database. Review before saving.
+            {t("schema.sqlWarning")}
           </div>
           <Textarea
             value={sql}
@@ -108,12 +110,12 @@ function SqlEditorModal({
           )}
         </div>
         <div className="flex items-center justify-between px-5 py-3 border-t border-border shrink-0">
-          <span className="text-[10px] text-muted-foreground">Ctrl+Enter to run</span>
+          <span className="text-[10px] text-muted-foreground">{t("schema.ctrlEnter")}</span>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button size="sm" variant="outline" onClick={onClose}>{t("schema.cancel")}</Button>
             <Button size="sm" onClick={() => onSave(sql)} disabled={saving || !sql.trim()}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-              Run
+              {t("schema.run")}
             </Button>
           </div>
         </div>
@@ -130,6 +132,7 @@ const PG_TYPES = ["uuid", "text", "varchar(255)", "integer", "bigint", "boolean"
   "numeric", "float8", "timestamp with time zone", "date", "jsonb", "bytea"];
 
 function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { t } = useTranslation("database");
   const [name, setName] = useState("");
   const [columns, setColumns] = useState<ColumnDef[]>([
     { name: "id", type: "uuid", nullable: false, primary_key: true, default: "gen_random_uuid()" },
@@ -160,18 +163,18 @@ function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreat
       <div className="relative z-10 w-full max-w-2xl rounded-xl border border-border bg-card shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0">
           <Table2 className="h-4 w-4 text-emerald-500" />
-          <h2 className="font-semibold text-sm flex-1">Create Table</h2>
+          <h2 className="font-semibold text-sm flex-1">{t("schema.createTable")}</h2>
           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onClose}><X className="h-4 w-4" /></Button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           <div>
-            <Label className="text-xs">Table Name <span className="text-destructive">*</span></Label>
+            <Label className="text-xs">{t("schema.tableName")} <span className="text-destructive">*</span></Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="my_table" className="h-8 mt-1 font-mono text-xs" />
           </div>
           <div>
             <div className="flex items-center justify-between mb-2">
-              <Label className="text-xs">Columns</Label>
-              <Button size="sm" variant="ghost" className="h-6 text-xs px-2 gap-1" onClick={addCol}><Plus className="h-3 w-3" /> Column</Button>
+              <Label className="text-xs">{t("schema.columns")}</Label>
+              <Button size="sm" variant="ghost" className="h-6 text-xs px-2 gap-1" onClick={addCol}><Plus className="h-3 w-3" /> {t("schema.column")}</Button>
             </div>
             <div className="space-y-2">
               {columns.map((col, i) => (
@@ -181,12 +184,12 @@ function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreat
                     {PG_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                   <label className="flex items-center gap-1 text-xs whitespace-nowrap cursor-pointer">
-                    <input type="checkbox" checked={col.nullable} onChange={(e) => updateCol(i, "nullable", e.target.checked)} className="h-3 w-3" /> Null
+                    <input type="checkbox" checked={col.nullable} onChange={(e) => updateCol(i, "nullable", e.target.checked)} className="h-3 w-3" /> {t("schema.null")}
                   </label>
                   <label className="flex items-center gap-1 text-xs whitespace-nowrap cursor-pointer">
                     <input type="checkbox" checked={col.primary_key} onChange={(e) => updateCol(i, "primary_key", e.target.checked)} className="h-3 w-3" /> PK
                   </label>
-                  <Input value={col.default} onChange={(e) => updateCol(i, "default", e.target.value)} placeholder="default" className="h-7 font-mono text-[10px]" />
+                  <Input value={col.default} onChange={(e) => updateCol(i, "default", e.target.value)} placeholder={t("schema.default")} className="h-7 font-mono text-[10px]" />
                   <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground" onClick={() => removeCol(i)}><X className="h-3 w-3" /></Button>
                 </div>
               ))}
@@ -195,9 +198,9 @@ function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreat
           {error && <div className="rounded border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive font-mono whitespace-pre-wrap">{error}</div>}
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-border shrink-0">
-          <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button size="sm" variant="outline" onClick={onClose}>{t("schema.cancel")}</Button>
           <Button size="sm" onClick={save} disabled={!name.trim() || createMut.isPending}>
-            {createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null} Create Table
+            {createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null} {t("schema.createTable")}
           </Button>
         </div>
       </div>
@@ -210,6 +213,7 @@ function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreat
 // ---------------------------------------------------------------------------
 
 function CreateIndexPanel({ tables, onClose, onCreated }: { tables: string[]; onClose: () => void; onCreated: () => void }) {
+  const { t } = useTranslation("database");
   const [table, setTable] = useState(tables[0] ?? "");
   const [cols, setCols] = useState("");
   const [idxName, setIdxName] = useState("");
@@ -220,7 +224,7 @@ function CreateIndexPanel({ tables, onClose, onCreated }: { tables: string[]; on
   const save = async () => {
     setError(null);
     const colList = cols.split(",").map((c) => c.trim()).filter(Boolean);
-    if (!colList.length) { setError("Provide at least one column"); return; }
+    if (!colList.length) { setError(t("schema.columnRequired")); return; }
     try {
       await createMut.mutateAsync({ table_name: table, column_names: colList, index_name: idxName || undefined, unique });
       onCreated();
@@ -233,35 +237,35 @@ function CreateIndexPanel({ tables, onClose, onCreated }: { tables: string[]; on
   return (
     <div className="space-y-3 p-4 rounded-lg border border-border bg-card">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold">New Index</span>
+        <span className="text-xs font-semibold">{t("schema.newIndex")}</span>
         <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onClose}><X className="h-3 w-3" /></Button>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label className="text-xs">Table</Label>
+          <Label className="text-xs">{t("schema.table")}</Label>
           <select value={table} onChange={(e) => setTable(e.target.value)} className="mt-1 h-7 w-full text-xs rounded border border-input bg-background px-2 font-mono">
             {tables.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div>
-          <Label className="text-xs">Columns <span className="text-muted-foreground">(comma-separated)</span></Label>
+          <Label className="text-xs">{t("schema.columns")} <span className="text-muted-foreground">{t("schema.commaSeparated")}</span></Label>
           <Input value={cols} onChange={(e) => setCols(e.target.value)} placeholder="col1, col2" className="h-7 mt-1 text-xs font-mono" />
         </div>
         <div>
-          <Label className="text-xs">Index name <span className="text-muted-foreground">(optional)</span></Label>
+          <Label className="text-xs">{t("schema.indexName") } <span className="text-muted-foreground">{t("schema.optional")}</span></Label>
           <Input value={idxName} onChange={(e) => setIdxName(e.target.value)} placeholder="idx_table_col" className="h-7 mt-1 text-xs font-mono" />
         </div>
         <div className="flex items-end pb-1">
           <label className="flex items-center gap-2 text-xs cursor-pointer">
-            <input type="checkbox" checked={unique} onChange={(e) => setUnique(e.target.checked)} className="h-3.5 w-3.5" /> UNIQUE
+            <input type="checkbox" checked={unique} onChange={(e) => setUnique(e.target.checked)} className="h-3.5 w-3.5" /> {t("schema.unique")}
           </label>
         </div>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button size="sm" variant="outline" onClick={onClose}>{t("schema.cancel")}</Button>
         <Button size="sm" onClick={save} disabled={createMut.isPending || !table || !cols}>
-          {createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null} Create Index
+          {createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null} {t("schema.createIndex")}
         </Button>
       </div>
     </div>
@@ -275,6 +279,7 @@ function CreateIndexPanel({ tables, onClose, onCreated }: { tables: string[]; on
 const PAGE_SIZE = 100;
 
 function TablesSection() {
+  const { t, i18n } = useTranslation("database");
   const { schema, instance, db } = useSchema();
   const { data: tables = [], isLoading, refetch, isFetching } = useDatabaseTables(schema, instance, db);
   const [selected, setSelected] = useState<string | null>(null);
@@ -315,35 +320,35 @@ function TablesSection() {
       <div className={cn("w-56 shrink-0 border-r border-border flex flex-col h-full max-md:w-full max-md:border-r-0", selected && "max-md:hidden")}>
         <div className="p-2 border-b border-border space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{tables.length} tables</span>
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t("schema.tables", { count: tables.length })}</span>
             <div className="flex gap-1">
               <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => refetch()} disabled={isFetching}><RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} /></Button>
-              <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-emerald-600" onClick={() => setShowCreate(true)} title="Create table"><Plus className="h-3 w-3" /></Button>
+              <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-emerald-600" onClick={() => setShowCreate(true)} title={t("schema.createTable")}><Plus className="h-3 w-3" /></Button>
             </div>
           </div>
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="h-6 pl-6 text-[10px]" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("schema.search")} className="h-6 pl-6 text-[10px]" />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto py-0.5">
           {isLoading ? <div className="flex justify-center py-6"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
-            : filtered.map((t) => (
-              <div key={t.name} className={cn("group flex items-center hover:bg-accent transition-colors", selected === t.name && "bg-accent")}>
+            : filtered.map((table) => (
+              <div key={table.name} className={cn("group flex items-center hover:bg-accent transition-colors", selected === table.name && "bg-accent")}>
                 <button
                   type="button"
-                  onClick={() => { setSelected(t.name); setDataResult(null); setDataError(null); setPage(0); }}
+                  onClick={() => { setSelected(table.name); setDataResult(null); setDataError(null); setPage(0); }}
                   className="flex-1 flex items-center gap-1.5 px-2.5 py-1.5 text-left min-w-0 overflow-hidden"
                 >
                   <Table2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-[11px] font-mono truncate">{t.name}</span>
-                  <span className="text-[9px] text-muted-foreground shrink-0">{t.row_count}</span>
+                  <span className="flex-1 text-[11px] font-mono truncate">{table.name}</span>
+                  <span className="text-[9px] text-muted-foreground shrink-0">{table.row_count}</span>
                 </button>
-                {t.row_count > 0 && (
+                {table.row_count > 0 && (
                   <button
                     type="button"
-                    title="View data"
-                    onClick={() => handleViewData(t.name)}
+                    title={t("schema.viewData")}
+                    onClick={() => handleViewData(table.name)}
                     className="shrink-0 p-1.5 pr-2 text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded transition-colors opacity-0 group-hover:opacity-100"
                   >
                     <Eye className="h-3 w-3" />
@@ -364,13 +369,13 @@ function TablesSection() {
             onClick={() => setSelected(null)}
             className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:hidden"
           >
-            <ChevronLeft className="h-4 w-4" /> Tables
+            <ChevronLeft className="h-4 w-4" /> {t("schema.tablesTitle")}
           </button>
         )}
         {!selected ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <Table2 className="h-10 w-10 opacity-20" />
-            <p className="text-sm">Select a table</p>
+            <p className="text-sm">{t("schema.selectTable")}</p>
           </div>
         ) : loadingDetail ? (
           <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -378,12 +383,12 @@ function TablesSection() {
           <div className="space-y-5 max-w-3xl">
             <div>
               <h2 className="text-base font-mono font-bold">{detail.name}</h2>
-              <p className="text-xs text-muted-foreground">company.{detail.name} · {detail.row_count.toLocaleString()} rows · {detail.columns.length} cols</p>
+              <p className="text-xs text-muted-foreground">{t("schema.company", { name: detail.name, rows: new Intl.NumberFormat(i18n.language).format(detail.row_count), columns: detail.columns.length })}</p>
             </div>
 
             {dataMut.isPending && selected === detail.name && (
               <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading data…
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("schema.loadingData")}
               </div>
             )}
             {dataError && selected === detail.name && (
@@ -406,15 +411,15 @@ function TablesSection() {
                   <div className="flex items-center gap-2 px-1">
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                     <span className="text-xs text-muted-foreground flex-1">
-                      {dataResult.row_count} row(s) · {dataResult.elapsed_ms.toFixed(1)} ms
+                      {t("query.rows", { count: dataResult.row_count })} · {t("query.ms", { ms: new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 1 }).format(dataResult.elapsed_ms) })}
                     </span>
                     <Button size="sm" variant="ghost" className="h-6 px-2 gap-1 text-xs" onClick={copyCSV}>
-                      <ClipboardCopy className="h-3 w-3" /> {csvCopied ? "Copied!" : "CSV"}
+                      <ClipboardCopy className="h-3 w-3" /> {csvCopied ? t("query.copiedCsv") : t("query.csv")}
                     </Button>
                     {totalPages > 1 && (
                       <>
                         <span className="text-xs text-muted-foreground border-l border-border pl-2">
-                          Page {page + 1} of {totalPages} · {detail.row_count.toLocaleString()} records
+                          {t("query.page", { current: page + 1, total: totalPages, count: new Intl.NumberFormat(i18n.language).format(detail.row_count) })}
                         </span>
                         <Button size="sm" variant="outline" className="h-6 w-6 p-0"
                           disabled={page === 0 || dataMut.isPending}
@@ -438,23 +443,23 @@ function TablesSection() {
 
             {/* Columns */}
             <div>
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Columns</h3>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">{t("schema.columns")}</h3>
               <div className="rounded border border-border overflow-hidden">
                 <table className="w-full text-xs">
                   <thead><tr className="bg-muted/40 border-b border-border">
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Null</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Default</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Flags</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Ref</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.name")}</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.type")}</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.null")}</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.default")}</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.flags")}</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.ref")}</th>
                   </tr></thead>
                   <tbody className="divide-y divide-border">
                     {detail.columns.map((col) => (
                       <tr key={col.name} className="hover:bg-muted/10">
                         <td className="px-3 py-1.5 font-mono font-medium">{col.name}</td>
                         <td className={cn("px-3 py-1.5 font-mono", typeColor(col.data_type))}>{col.data_type}</td>
-                        <td className="px-3 py-1.5 text-muted-foreground">{col.is_nullable ? "YES" : <span className="text-foreground font-medium">NO</span>}</td>
+                        <td className="px-3 py-1.5 text-muted-foreground">{col.is_nullable ? t("schema.yes") : <span className="text-foreground font-medium">{t("schema.no")}</span>}</td>
                         <td className="px-3 py-1.5 font-mono text-[10px] text-muted-foreground max-w-[120px] truncate" title={col.column_default ?? ""}>{col.column_default ?? "—"}</td>
                         <td className="px-3 py-1.5">
                           <div className="flex gap-1">
@@ -472,12 +477,12 @@ function TablesSection() {
 
             {detail.foreign_keys.length > 0 && (
               <div>
-                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Foreign Keys</h3>
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">{t("schema.foreignKeys")}</h3>
                 <div className="rounded border border-border overflow-hidden">
                   <table className="w-full text-xs"><thead><tr className="bg-muted/40 border-b border-border">
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Column</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Reference</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Ref. col.</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.column")}</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.reference")}</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.refColumn")}</th>
                   </tr></thead>
                     <tbody className="divide-y divide-border">
                       {detail.foreign_keys.map((fk) => (
@@ -495,12 +500,12 @@ function TablesSection() {
 
             {detail.indexes.length > 0 && (
               <div>
-                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Indexes</h3>
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">{t("schema.indexesTitle")}</h3>
                 <div className="rounded border border-border overflow-hidden">
                   <table className="w-full text-xs"><thead><tr className="bg-muted/40 border-b border-border">
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Columns</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.name")}</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.columns")}</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.type")}</th>
                   </tr></thead>
                     <tbody className="divide-y divide-border">
                       {detail.indexes.map((idx) => (
@@ -508,9 +513,9 @@ function TablesSection() {
                           <td className="px-3 py-1.5 font-mono text-[10px]">{idx.name}</td>
                           <td className="px-3 py-1.5 font-mono">{idx.columns.join(", ")}</td>
                           <td className="px-3 py-1.5">
-                            {idx.is_primary ? <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">PRIMARY</Badge>
-                              : idx.is_unique ? <Badge variant="outline" className="text-[10px]">UNIQUE</Badge>
-                              : <Badge variant="outline" className="text-[10px] text-muted-foreground">INDEX</Badge>}
+                            {idx.is_primary ? <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">{t("schema.primary")}</Badge>
+                              : idx.is_unique ? <Badge variant="outline" className="text-[10px]">{t("schema.unique")}</Badge>
+                              : <Badge variant="outline" className="text-[10px] text-muted-foreground">{t("schema.indexType")}</Badge>}
                           </td>
                         </tr>
                       ))}
@@ -542,6 +547,7 @@ END;
 $$;`;
 
 function FunctionsSection() {
+  const { t } = useTranslation("database");
   const { schema, instance, db } = useSchema();
   const { data: functions = [], isLoading, refetch, isFetching } = useDatabaseFunctions(schema, instance, db);
   const [selected, setSelected] = useState<FunctionSummary | null>(null);
@@ -588,20 +594,20 @@ function FunctionsSection() {
       <div className={cn("w-56 shrink-0 border-r border-border flex flex-col h-full max-md:w-full max-md:border-r-0", selected && "max-md:hidden")}>
         <div className="p-2 border-b border-border space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{functions.length} functions</span>
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t("schema.functions", { count: functions.length })}</span>
             <div className="flex gap-1">
               <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => refetch()} disabled={isFetching}><RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} /></Button>
-              <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-emerald-600" onClick={openCreate} title="Create function"><Plus className="h-3 w-3" /></Button>
+              <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-emerald-600" onClick={openCreate} title={t("schema.createFunction")}><Plus className="h-3 w-3" /></Button>
             </div>
           </div>
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="h-6 pl-6 text-[10px]" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("schema.search")} className="h-6 pl-6 text-[10px]" />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto py-0.5">
           {isLoading ? <div className="flex justify-center py-6"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
-            : filtered.length === 0 ? <p className="text-center text-xs text-muted-foreground py-6">No functions found</p>
+            : filtered.length === 0 ? <p className="text-center text-xs text-muted-foreground py-6">{t("schema.noFunctions")}</p>
             : filtered.map((f) => (
               <button key={f.name} type="button" onClick={() => setSelected(f)}
                 className={cn("w-full flex items-center gap-1.5 px-2.5 py-1.5 text-left hover:bg-accent transition-colors group", selected?.name === f.name && "bg-accent")}>
@@ -622,14 +628,14 @@ function FunctionsSection() {
             onClick={() => setSelected(null)}
             className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:hidden"
           >
-            <ChevronLeft className="h-4 w-4" /> Functions
+            <ChevronLeft className="h-4 w-4" /> {t("schema.functionsTitle")}
           </button>
         )}
         {!selected ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <Zap className="h-10 w-10 opacity-20" />
-            <p className="text-sm">Select a function</p>
-            <Button size="sm" variant="outline" onClick={openCreate} className="gap-1.5 mt-2"><Plus className="h-3.5 w-3.5" /> New Function</Button>
+            <p className="text-sm">{t("schema.selectFunction")}</p>
+            <Button size="sm" variant="outline" onClick={openCreate} className="gap-1.5 mt-2"><Plus className="h-3.5 w-3.5" /> {t("schema.newFunction")}</Button>
           </div>
         ) : loadingDetail ? (
           <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -646,12 +652,12 @@ function FunctionsSection() {
                 {detail.arg_types && <p className="text-xs text-muted-foreground font-mono mt-0.5">({detail.arg_types})</p>}
               </div>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
-                <Button size="sm" variant="ghost" className="gap-1.5 text-xs text-destructive" onClick={() => setDropTarget(detail.name)}><Trash2 className="h-3.5 w-3.5" /> Drop</Button>
+                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> {t("schema.edit")}</Button>
+                <Button size="sm" variant="ghost" className="gap-1.5 text-xs text-destructive" onClick={() => setDropTarget(detail.name)}><Trash2 className="h-3.5 w-3.5" /> {t("schema.drop")}</Button>
               </div>
             </div>
             <div>
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Source</h3>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">{t("schema.source")}</h3>
               <pre className="rounded-lg border border-border bg-muted/30 p-4 text-xs font-mono whitespace-pre-wrap overflow-auto max-h-[500px]">{detail.source}</pre>
             </div>
           </div>
@@ -660,7 +666,7 @@ function FunctionsSection() {
 
       {editorMode && (
         <SqlEditorModal
-          title={editorMode === "create" ? "Create / Replace Function" : `Edit: ${detail?.name}`}
+          title={editorMode === "create" ? t("schema.createOrReplaceFunction") : t("schema.editNamed", { name: detail?.name ?? "" })}
           initialValue={editorMode === "edit" && detail ? detail.source : FN_TEMPLATE}
           onSave={saveFunction}
           onClose={() => setEditorMode(null)}
@@ -670,9 +676,9 @@ function FunctionsSection() {
       )}
       <ConfirmDialog
         open={!!dropTarget}
-        title="Drop Function"
-        description={`Remove function "${dropTarget}" from the database? This action cannot be undone.`}
-        confirmLabel="Drop"
+        title={t("schema.dropFunction")}
+        description={t("schema.dropFunctionDescription", { name: dropTarget ?? "" })}
+        confirmLabel={t("schema.drop")}
         onConfirm={confirmDrop}
         onCancel={() => setDropTarget(null)}
         loading={dropMut.isPending}
@@ -686,6 +692,7 @@ function FunctionsSection() {
 // ---------------------------------------------------------------------------
 
 function IndexesSection() {
+  const { t } = useTranslation("database");
   const { schema, instance, db } = useSchema();
   const { data: allTables = [] } = useDatabaseTables(schema, instance, db);
   const { data: indexes = [], isLoading, refetch, isFetching } = useDatabaseIndexes(schema, instance, db);
@@ -721,11 +728,11 @@ function IndexesSection() {
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search index or table..." className="h-7 pl-7 text-xs" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("schema.searchIndexOrTable")} className="h-7 pl-7 text-xs" />
         </div>
-        <span className="text-xs text-muted-foreground flex-1">{indexes.length} index(es) · {Object.keys(grouped).length} tables</span>
+        <span className="text-xs text-muted-foreground flex-1">{t("schema.indexes", { count: indexes.length, tables: Object.keys(grouped).length })}</span>
         <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => refetch()} disabled={isFetching}><RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} /></Button>
-        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setShowCreate((v) => !v)}><Plus className="h-3.5 w-3.5" /> New Index</Button>
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setShowCreate((v) => !v)}><Plus className="h-3.5 w-3.5" /> {t("schema.newIndex")}</Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -739,15 +746,15 @@ function IndexesSection() {
             <div className="flex items-center gap-2 mb-1.5">
               <Table2 className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-xs font-mono font-semibold">{table}</span>
-              <span className="text-[10px] text-muted-foreground">{idxs.length} index(es)</span>
+              <span className="text-[10px] text-muted-foreground">{t("schema.indexCount", { count: idxs.length })}</span>
             </div>
             <div className="rounded-lg border border-border overflow-hidden">
               <table className="w-full text-xs">
                 <thead><tr className="bg-muted/40 border-b border-border">
-                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Columns</th>
-                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
-                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Definition</th>
+                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.name")}</th>
+                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.columns")}</th>
+                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.type")}</th>
+                  <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("schema.indexDefinition")}</th>
                   <th className="px-3 py-1.5 w-10"></th>
                 </tr></thead>
                 <tbody className="divide-y divide-border">
@@ -756,9 +763,9 @@ function IndexesSection() {
                       <td className="px-3 py-1.5 font-mono text-[10px]">{idx.name}</td>
                       <td className="px-3 py-1.5 font-mono">{idx.columns}</td>
                       <td className="px-3 py-1.5">
-                        {idx.is_primary ? <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">PRIMARY</Badge>
-                          : idx.is_unique ? <Badge variant="outline" className="text-[10px]">UNIQUE</Badge>
-                          : <Badge variant="outline" className="text-[10px] text-muted-foreground">INDEX</Badge>}
+                        {idx.is_primary ? <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">{t("schema.primary")}</Badge>
+                          : idx.is_unique ? <Badge variant="outline" className="text-[10px]">{t("schema.unique")}</Badge>
+                          : <Badge variant="outline" className="text-[10px] text-muted-foreground">{t("schema.indexType")}</Badge>}
                       </td>
                       <td className="px-3 py-1.5 font-mono text-[10px] text-muted-foreground max-w-[300px] truncate" title={idx.index_def}>{idx.index_def}</td>
                       <td className="px-3 py-1.5">
@@ -779,9 +786,9 @@ function IndexesSection() {
 
       <ConfirmDialog
         open={!!dropTarget}
-        title="Drop Index"
-        description={`Remove index "${dropTarget}"? This action cannot be undone.`}
-        confirmLabel="Drop"
+        title={t("schema.dropIndex")}
+        description={t("schema.dropIndexDescription", { name: dropTarget ?? "" })}
+        confirmLabel={t("schema.drop")}
         onConfirm={confirmDrop}
         onCancel={() => setDropTarget(null)}
         loading={dropMut.isPending}
@@ -797,12 +804,13 @@ function IndexesSection() {
 type Section = "tables" | "functions" | "indexes";
 
 export default function SchemaPage() {
+  const { t } = useTranslation("database");
   const [section, setSection] = useState<Section>("tables");
 
   const tabs: { id: Section; label: string; icon: React.ReactNode }[] = [
-    { id: "tables", label: "Tables", icon: <Table2 className="h-3.5 w-3.5" /> },
-    { id: "functions", label: "Functions", icon: <Zap className="h-3.5 w-3.5" /> },
-    { id: "indexes", label: "Indexes", icon: <ChevronRight className="h-3.5 w-3.5" /> },
+    { id: "tables", label: t("schema.tablesTitle"), icon: <Table2 className="h-3.5 w-3.5" /> },
+    { id: "functions", label: t("schema.functionsTitle"), icon: <Zap className="h-3.5 w-3.5" /> },
+    { id: "indexes", label: t("schema.indexesTitle"), icon: <ChevronRight className="h-3.5 w-3.5" /> },
   ];
 
   return (

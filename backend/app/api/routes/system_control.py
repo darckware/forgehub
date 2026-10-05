@@ -17,7 +17,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import _APP_CONFIG_FILE, CHAT_RESPONSE_LANGUAGE_NOTES, settings
+from app.core.config import (
+    _APP_CONFIG_FILE,
+    SUPPORTED_CHAT_RESPONSE_LANGUAGES,
+    chat_response_language_allowed,
+    settings,
+)
 from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.project import Project
@@ -848,13 +853,13 @@ TIMEZONE={timezone}
 
 # AI chat
 # Language the in-app AI chat (Workspace tabs + Assistant drawer) answers
-# in -- any key of core/config.py's CHAT_RESPONSE_LANGUAGE_NOTES (pt-BR,
-# en, es, ...). api/routes/chat.py appends the matching instruction to
+# in -- pt-BR, en or es for new selections. Existing legacy values remain
+# readable until changed. api/routes/chat.py appends the matching instruction to
 # each outgoing agent call (like the voice brevity note); the user's
 # stored message text is never touched.
 CHAT_RESPONSE_LANGUAGE={chat_response_language}
 
-# App shell language ("en" or "pt-BR") new users get on creation --
+# App shell language ("pt-BR", "en" or "es") new users get on creation --
 # independent of CHAT_RESPONSE_LANGUAGE above. See User.ui_language.
 DEFAULT_UI_LANGUAGE={default_ui_language}
 
@@ -945,12 +950,12 @@ async def update_app_config(
         )
     # Whitelist keeps a typo from silently disabling the language
     # instruction (chat.py falls back to no note on unknown values).
-    if payload.chat_response_language not in CHAT_RESPONSE_LANGUAGE_NOTES:
+    if not chat_response_language_allowed(payload.chat_response_language, settings.CHAT_RESPONSE_LANGUAGE):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "chat_response_language must be one of "
-                f"{', '.join(CHAT_RESPONSE_LANGUAGE_NOTES)}"
+                f"{', '.join(SUPPORTED_CHAT_RESPONSE_LANGUAGES)}"
             ),
         )
     # Matches User.ui_language's own CheckConstraint (ck_users_ui_language,

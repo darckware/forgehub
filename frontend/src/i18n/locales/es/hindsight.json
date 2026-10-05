@@ -1,4 +1,133 @@
 {
+  "title": "Vista retrospectiva",
+  "description": "Estado de memoria continuo en los agentes de Hermes, tiempo de ejecución del demonio, configuración de LLM y política de retención.",
+  "loading": "Cargando el estado de retrospectiva...",
+  "loadError": "Falló al cargar el estado Hindsight: {{message}}",
+  "unknownError": "error desconocido",
+  "actions": {
+    "restart": "Reiniciar la retrospectiva",
+    "refresh": "Actualizar"
+  },
+  "metrics": {
+    "daemon": {
+      "label": "Demonio",
+      "active": "Activo",
+      "offline": "Desconectado",
+      "noEndpoint": "No hay endpoint configurado"
+    },
+    "recording": {
+      "label": "Grabación",
+      "value": "Recording",
+      "notRecording": "No grabar",
+      "configured": "Configurado",
+      "autoRetain": "auto_retener"
+    },
+    "llm": {
+      "label": "LLM",
+      "notConfigured": "No configurado",
+      "providerUnknown": "proveedor desconocido",
+      "at": "en {{url}}"
+    },
+    "memoryBank": {
+      "label": "Banco de memoria",
+      "detail": "Modo: {{mode}}; recordar: {{recall}}"
+    },
+    "tables": {
+      "label": "Cuadros",
+      "detail": "Grupos activos {{count}}; retrospectiva_postgres/foundation"
+    },
+    "memoryUnits": {
+      "label": "Unidades de memoria",
+      "detail": "Documentos {{documents}}; entidades {{entities}}"
+    },
+    "asyncOps": {
+      "label": "Operaciones de ASync",
+      "checkStatus": "Compruebe el estado de async_operations en el inventario del esquema",
+      "daemonOffline": "Demonio sin conexión"
+    },
+    "schemaHealth": {
+      "label": "Esquema Salud",
+      "loading": "Cargando...",
+      "indexed": "Índices",
+      "detail": "Inventario de sólo lectura de backsight_postgres"
+    }
+  },
+  "recentErrors": "Errores recientes de retrospección",
+  "configuration": {
+    "title": "Configuración",
+    "primaryProfile": "Perfil primario: {{profile}}; configuración explícita de Hindsight: {{count}}.",
+    "none": "ninguno",
+    "apiUrl": "API URL",
+    "notConfigured": "no configurado",
+    "configFile": "Archivo de configuración",
+    "inheritsDefault": "heredado/default",
+    "retain": "Retener",
+    "retainDetail": "Todos los giros {{turns}}, async {{async}}",
+    "integration": "Integración",
+    "integrationDetail": "{{mode}}; recuperación automática {{autoRecall}}",
+    "unconfiguredWarning": "Los agentes {{count}} usan Hindsight pero no tienen un perfil de `hindsight/config.json`; dependen de los valores predeterminados o del entorno."
+  },
+  "runtime": {
+    "title": "Tiempo de ejecución",
+    "description": "Procesos y sonda de endpoint local.",
+    "healthStatus": "Estado de salud",
+    "noResponse": "sin respuesta",
+    "idleTimeout": "Tiempo muerto inactivo",
+    "default": "predeterminado",
+    "processes": "Procesos"
+  },
+  "schemaInventory": {
+    "title": "Inventario del esquema",
+    "detail": "hindsight_postgres/foundation contiene tablas {{tables}} y operaciones async {{asyncOps}}.",
+    "table": "Cuadro",
+    "rows": "Filas",
+    "cols": "Cols",
+    "group": "Grupo",
+    "loading": "Cargando el inventario del esquema...",
+    "empty": "No se han encontrado tablas en el esquema retrospectivo."
+  },
+  "groups": {
+    "coreMemory": "Memoria básica",
+    "operations": "Operaciones",
+    "policyHistory": "Política / historia",
+    "storageIntegrations": "Almacenamiento / integraciones",
+    "cache": "Caché",
+    "migration": "Migración",
+    "other": "Otros"
+  },
+  "agents": {
+    "title": "Agentes que usan Hindsight",
+    "detail": "{{active}} de perfiles {{total}} utilizan `memory.provider: hindsight`.",
+    "agent": "Agente",
+    "status": "Situación",
+    "profileMemory": "Memoria de perfil",
+    "config": "Config",
+    "limits": "Límites",
+    "hindsight": "Vista retrospectiva",
+    "builtInOnly": "Solo incorporados",
+    "memoryDetail": "memoria {{memory}}; usuario {{user}}",
+    "limitsDetail": "memoria {{memoryLimit}} / usuario {{userLimit}}"
+  },
+  "restartDialog": {
+    "title": "Reiniciar demonio retrovisor",
+    "description": "Esto reinicia el contenedor Hindsight y brevemente interrumpe la grabación de memoria y lee mientras vuelve a subir.",
+    "confirm": "Reiniciar",
+    "cancel": "Cancelar"
+  },
+  "clearLogDialog": {
+    "title": "Limpiar el registro de retrospectiva",
+    "description": "Elimina el contenido de {{path}} -- no afecta al demonio en ejecución, sólo el historial que se muestra aquí.",
+    "confirm": "Limpiar",
+    "cancel": "Cancelar"
+  },
+  "latestLog": {
+    "title": "Registro más reciente",
+    "clear": "Limpiar registro",
+    "noFile": "No se ha encontrado ningún archivo de registro",
+    "updatedAt": "Actualizado en {{time}}",
+    "noLines": "No hay líneas de registro."
+  },
+  "databaseControlAnalysis": "Análisis del control de la base de datos",
   "retention": {
     "title": "Retención y compactación",
     "description": "Las memorias antiguas salen de la búsqueda activa después de guardar sus hechos en la Base de Conocimiento. Se conservan los documentos protegidos.",
@@ -19,6 +148,13 @@
     "errorCount": "Errores: {{count}}",
     "checkedAt": "Verificado el {{date}}",
     "awaitingReport": "Esperando el primer análisis de retención. No se eliminó ningún documento."
+  },
+  "common": {
+    "yes": "Sí",
+    "no": "No",
+    "default": "Predeterminado",
+    "ok": "OK",
+    "issue": "Cuestión"
   },
   "tabs": {
     "status": "Estado",

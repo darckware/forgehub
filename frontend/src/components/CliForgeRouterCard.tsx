@@ -235,7 +235,7 @@ export function CliForgeRouterCard() {
                       </div>
 
                       <div className="flex items-center justify-between pt-1">
-                        <span className="text-[11px] text-muted-foreground">Status:</span>
+                        <span className="text-[11px] text-muted-foreground">{t("cliForgeRouter.status")}:</span>
                         {isEnabled ? (
                           <Badge variant="success" className="h-5 px-1.5 text-[10px]">
                             {t("cliForgeRouter.active")}

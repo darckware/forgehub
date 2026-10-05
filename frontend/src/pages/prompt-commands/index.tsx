@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Command, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -44,6 +45,7 @@ function CommandFormModal({
   initial: PromptCommand | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("promptCommands");
   const createCommand = useCreatePromptCommand();
   const updateCommand = useUpdatePromptCommand();
   const [error, setError] = useState<string | null>(null);
@@ -59,19 +61,19 @@ function CommandFormModal({
   function handleSave() {
     setError(null);
     if (!normalizedName) {
-      setError("Enter a short name, like review-pr or plan.");
+      setError(t("validation.name"));
       return;
     }
     if (RESERVED_PROMPT_COMMAND_NAMES.includes(normalizedName)) {
-      setError(`/${normalizedName} is already a reserved Hermes command.`);
+      setError(t("validation.reserved", { name: normalizedName }));
       return;
     }
     if (!draft.description.trim()) {
-      setError("Enter a short description.");
+      setError(t("validation.description"));
       return;
     }
     if (!draft.prompt.trim()) {
-      setError("Enter the prompt in Markdown.");
+      setError(t("validation.prompt"));
       return;
     }
     const payload = {
@@ -81,7 +83,7 @@ function CommandFormModal({
     };
     const opts = {
       onSuccess: onClose,
-      onError: (e: Error) => setError(e.message || "Could not save."),
+      onError: (e: Error) => setError(e.message || t("validation.saveError")),
     };
     if (initial) updateCommand.mutate({ id: initial.id, payload }, opts);
     else createCommand.mutate(payload, opts);
@@ -93,17 +95,17 @@ function CommandFormModal({
       <div className="relative z-10 flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold">{initial ? "Edit command" : "New command"}</h2>
-            <p className="text-xs text-muted-foreground">Appears in chat as /{normalizedName || "name"}.</p>
+            <h2 className="text-base font-semibold">{initial ? t("form.editTitle") : t("form.newTitle")}</h2>
+            <p className="text-xs text-muted-foreground">{t("form.chatHint", { name: normalizedName || "name" })}</p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label={t("close")} onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-auto p-5">
           <div className="grid gap-4 md:grid-cols-[220px_1fr]">
             <div className="space-y-1.5">
-              <Label htmlFor="command-name">Short name</Label>
+              <Label htmlFor="command-name">{t("form.name")}</Label>
               <Input
                 id="command-name"
                 value={draft.name}
@@ -112,23 +114,23 @@ function CommandFormModal({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="command-description">Description</Label>
+              <Label htmlFor="command-description">{t("form.description")}</Label>
               <Input
                 id="command-description"
                 value={draft.description}
                 onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-                placeholder="Review a PR focused on risks and tests"
+                placeholder={t("form.descriptionPlaceholder")}
               />
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="command-prompt">Markdown prompt</Label>
+            <Label htmlFor="command-prompt">{t("form.prompt")}</Label>
             <Textarea
               id="command-prompt"
               value={draft.prompt}
               onChange={(e) => setDraft((d) => ({ ...d, prompt: e.target.value }))}
               className="resize-none min-h-[320px] font-mono text-xs"
-              placeholder={"## Goal\nReview the current code and list bugs, risks, and missing tests.\n\n## Expected output\n- Findings by severity\n- Affected files\n- Verification commands"}
+              placeholder={t("form.promptPlaceholder")}
               spellCheck={false}
             />
           </div>
@@ -136,11 +138,11 @@ function CommandFormModal({
         </div>
         <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button onClick={handleSave} disabled={pending}>
             {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {initial ? "Save" : "Create"}
+            {initial ? t("save") : t("create")}
           </Button>
         </div>
       </div>
@@ -149,6 +151,7 @@ function CommandFormModal({
 }
 
 export default function PromptCommandsPage() {
+  const { t } = useTranslation("promptCommands");
   const { data: commands = [], isLoading, isError, error } = usePromptCommands();
   const deleteCommand = useDeletePromptCommand();
   const [editing, setEditing] = useState<PromptCommand | null>(null);
@@ -159,15 +162,15 @@ export default function PromptCommandsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Chat Commands</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Register reusable prompts to show up alongside Hermes commands when typing / in chat.
+            {t("description")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => setCreating(true)} className="gap-2">
             <Plus className="h-4 w-4" />
-            New command
+            {t("newCommand")}
           </Button>
           <AssistantToggleButton className="gap-2" />
         </div>
@@ -178,10 +181,10 @@ export default function PromptCommandsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Command</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Prompt</TableHead>
-                <TableHead className="w-28 text-right">Actions</TableHead>
+                <TableHead>{t("table.command")}</TableHead>
+                <TableHead>{t("table.description")}</TableHead>
+                <TableHead>{t("table.prompt")}</TableHead>
+                <TableHead className="w-28 text-right">{t("table.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -196,10 +199,10 @@ export default function PromptCommandsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" aria-label="Edit" onClick={() => setEditing(command)}>
+                      <Button variant="ghost" size="icon" aria-label={t("edit")} onClick={() => setEditing(command)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" aria-label="Delete" onClick={() => setDeleting(command)}>
+                      <Button variant="ghost" size="icon" aria-label={t("delete")} onClick={() => setDeleting(command)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -217,10 +220,10 @@ export default function PromptCommandsPage() {
                       )}
                       <p className="text-sm">
                         {isLoading
-                          ? "Loading commands..."
+                          ? t("loading")
                           : isError
-                            ? `Failed to load: ${(error as Error)?.message}`
-                            : "No commands registered yet."}
+                            ? t("loadError", { message: (error as Error)?.message })
+                            : t("empty")}
                       </p>
                     </div>
                   </TableCell>
@@ -235,9 +238,9 @@ export default function PromptCommandsPage() {
       {editing && <CommandFormModal initial={editing} onClose={() => setEditing(null)} />}
       <ConfirmDialog
         open={Boolean(deleting)}
-        title="Delete command"
-        description={`Delete /${deleting?.name ?? ""}? It will no longer appear in chat.`}
-        confirmLabel="Delete"
+        title={t("deleteTitle")}
+        description={t("deleteDescription", { name: deleting?.name ?? "" })}
+        confirmLabel={t("delete")}
         onCancel={() => setDeleting(null)}
         onConfirm={() => {
           if (!deleting) return;

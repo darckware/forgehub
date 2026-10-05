@@ -1,0 +1,119 @@
+{
+  "settings": {
+    "title": "Configuración",
+    "description": "Valores predeterminados del sistema en forgehub.config; las credenciales se guardan en .env. Al guardar, los cambios se aplican de inmediato sin reiniciar.",
+    "tabs": {
+      "forgeRouterModels": "Modelos virtuales de ForgeRouter",
+      "forgeRouterModelsDescription": "Identificadores de modelos disponibles para los agentes. Auto es el modelo principal recomendado; las clases explícitas son útiles cuando ya se conoce la carga de trabajo.",
+      "gitControl": "Control de Git",
+      "gitControlDescription": "Entrada fija que siempre ofrece el panel de Control de Git en Control del sistema.",
+      "agentRuntimePaths": "Rutas de ejecución de agentes",
+      "agentRuntimePathsDescription": "Directorio raíz de configuración y estado para cada entorno de agentes, solo como referencia. No se usa en Control de Git ni en copias de seguridad. Una entrada por entorno, no por agente: todos los agentes con perfil Hermes comparten la ruta «hermes».",
+      "backups": "Copias de seguridad",
+      "backupsDescription": "Las copias de seguridad de Hermes se guardan aquí. Cada proyecto habilitado obtiene su propio subdirectorio, salvo que indique otra ubicación.",
+      "cleanup": "Limpieza y papelera",
+      "cleanupDescription": "«Ejecutar limpieza» aplica la misma política limitada de Athos que usa la tarea semanal foundation-clear.",
+      "aiChat": "Idioma",
+      "aiChatDescription": "El idioma de tu cuenta cambia los menús y las pantallas actuales. El idioma predeterminado se usa solo para usuarios nuevos; el idioma del chat determina las respuestas de la IA y se envía al agente como una instrucción oculta.",
+      "general": "General",
+      "openclaw": "OpenClaw",
+      "openclawDescription": "Token de la pasarela de OpenClaw (Vector), leído y guardado en /root/.openclaw/.env del servidor. No forma parte de forgehub.config; tiene su propio botón para guardar y recargar."
+    },
+    "forgeRouterModels": {
+      "defaultAgent": {
+        "label": "Agente predeterminado para claves de API de proyectos",
+        "none": "Ninguno: dejar el campo vacío",
+        "help": "Rellena la solicitud de clave de API de ForgeRouter del panel con la clave de este servicio, tomada del registro de ForgeRouter (ai_router.agents, entradas de tipo servicio como «Hindsight»). Así no es necesario pegar la clave cada vez que se habilita ForgeRouter en un proyecto. Se puede editar antes de confirmar."
+      }
+    },
+    "gitControl": {
+      "hermesSourcePath": {
+        "label": "Ruta del código de Hermes",
+        "inputId": "hermes_source_path"
+      },
+      "gitControlDefaultRepo": {
+        "label": "Clave del repositorio predeterminado",
+        "inputId": "git_control_default_repo",
+        "help": "Repositorio que utiliza Control de Git cuando no se selecciona otro. Debe corresponder a una entrada reconocida, como «hermes» o una clave de proyecto registrada."
+      }
+    },
+    "backups": {
+      "backupRoot": {
+        "label": "Directorio raíz de copias de seguridad",
+        "inputId": "backup_root"
+      }
+    },
+    "cleanup": {
+      "trashRoot": {
+        "label": "Carpeta de la papelera",
+        "inputId": "trash_root",
+        "help": "Ruta que recibe el script oficial de limpieza de Athos; manténla alineada con el valor semanal de foundation-clear (/root/trash)."
+      },
+      "cleanupScanRoot": {
+        "label": "Directorio de análisis",
+        "inputId": "cleanup_scan_root"
+      },
+      "prunedPaths": {
+        "label": "Rutas excluidas (una por línea)",
+        "textareaId": "cleanup_prune_paths"
+      },
+      "prunedNames": {
+        "label": "Nombres de directorios excluidos (uno por línea)",
+        "textareaId": "cleanup_prune_names"
+      }
+    },
+    "aiChat": {
+      "myUiLanguage": {
+        "label": "Idioma de mi interfaz",
+        "help": "Cambia ahora los menús y las pantallas de esta cuenta. Tu elección se conserva en los próximos accesos.",
+        "saveError": "No se pudo guardar tu idioma. Inténtalo de nuevo."
+      },
+      "defaultUiLanguage": {
+        "label": "Idioma predeterminado para usuarios nuevos",
+        "inputId": "default_ui_language",
+        "help": "Idioma inicial de menús, pantallas y formularios de las cuentas creadas después del cambio. No altera las cuentas existentes."
+      },
+      "chatResponseLanguage": {
+        "label": "Idioma de las respuestas del chat",
+        "inputId": "chat_response_language",
+        "legacyOption": "{{language}} (configuración anterior)",
+        "legacyHelp": "El idioma anterior sigue activo hasta que elijas portugués, inglés o español."
+      }
+    },
+    "openclaw": {
+      "gatewayToken": {
+        "label": "Token de la pasarela",
+        "placeholder": "No hay token configurado",
+        "help": "Autentica la consola web de OpenClaw (WebSocket de la pasarela). El cambio solo se aplica después de reiniciar openclaw-gateway en el servidor."
+      }
+    },
+    "general": {
+      "timezone": {
+        "cardDescription": "Zona horaria usada en las marcas de tiempo que genera ForgeHub, por ejemplo en nombres de copias de seguridad.",
+        "label": "Zona horaria",
+        "inputId": "timezone",
+        "datalistId": "timezone-suggestions",
+        "suggestions": [
+          "America/Sao_Paulo",
+          "America/New_York",
+          "America/Los_Angeles",
+          "Europe/Lisbon",
+          "Europe/London",
+          "UTC"
+        ],
+        "help": "Nombre de zona IANA, por ejemplo America/Sao_Paulo para UTC-3. Se valida al guardar."
+      }
+    },
+    "messages": {
+      "loading": "Cargando configuración...",
+      "loadingModels": "Cargando modelos...",
+      "recommended": "recomendado",
+      "error": "No se pudo cargar la configuración: {{message}}",
+      "unknownError": "error desconocido",
+      "saved": "Configuración guardada y aplicada de inmediato, sin reiniciar.",
+      "saveError": "No se pudo guardar la configuración",
+      "reset": "Descartar",
+      "save": "Guardar"
+    }
+  }
+}

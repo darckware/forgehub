@@ -99,6 +99,7 @@
       "placeholder": "Notes, credentials, references..."
     },
     "containerDetails": {
+      "containerId": "Container ID",
       "container": "Container",
       "image": "Image",
       "status": "Status",
@@ -168,6 +169,13 @@
     }
   },
   "volumesTab": {
+    "summary": "{{volumes}} volumes · {{binds}} bind mounts",
+    "activeTitle": "Active — in use by a running container",
+    "inactiveTitle": "Inactive — no running container",
+    "dockerVolumes": "Docker volumes ({{count}})",
+    "noDockerVolumes": "No Docker volumes.",
+    "bindMounts": "Bind mounts — host folders and files shared into containers ({{count}})",
+    "bindDescription": "These are not Docker volumes: they live on the host filesystem and are never removed here.",
     "header": "{{count}} volume(s)",
     "refresh": "Refresh",
     "error": {
@@ -198,6 +206,12 @@
     }
   },
   "networksTab": {
+    "activeTitle": "Active — connected to a running container",
+    "inactiveTitle": "Inactive — no running container",
+    "subnets": "Subnets",
+    "connectedContainers": "Connected containers",
+    "container": "Container",
+    "emptyDetails": "No containers or subnets configured.",
     "header": "{{count}} network(s)",
     "refresh": "Refresh",
     "error": {
@@ -228,6 +242,17 @@
     }
   },
   "imagesTab": {
+    "headerSelected": "{{count}} selected",
+    "selectDangling": "Select dangling ({{count}})",
+    "deleteSelected": "Delete selected ({{count}})",
+    "selectAll": "Select all deletable images",
+    "selectNamed": "Select {{name}}",
+    "deleteFailedCount_one": "{{count}} image could not be deleted:",
+    "deleteFailedCount_other": "{{count}} images could not be deleted:",
+    "bulkTitle": "Delete selected images",
+    "bulkDescription_one": "Remove {{count}} image from Docker? This cannot be undone.",
+    "bulkDescription_other": "Remove {{count}} images from Docker? This cannot be undone.",
+    "bulkConfirm": "Delete {{count}}",
     "header": "{{count}} image(s)",
     "headerUnused": "{{count}} unused",
     "refresh": "Refresh",
@@ -263,6 +288,11 @@
     }
   },
   "mainPage": {
+    "ungrouped": "Ungrouped",
+    "removeFailed": "Error removing installation: {{error}}",
+    "containerTitle": "Container",
+    "removeTitle": "Remove installation",
+    "restartTitle": "Restart container",
     "header": {
       "title": "Deploy Control",
       "description": "Monitoring and control of Docker installations"

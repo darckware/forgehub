@@ -2,7 +2,8 @@
   "users": {
     "list": {
       "title": "Users",
-      "create": "New user"
+      "create": "New user",
+      "you": "(you)"
     },
     "column": {
       "user": "User",
@@ -52,7 +53,9 @@
       "superAdminDesc": "full access, bypasses profiles",
       "activeLabel": "Active",
       "profileLabel": "Access Profile",
-      "profilePlaceholder": "— no profile —"
+      "profilePlaceholder": "— no profile —",
+      "cancel": "Cancel",
+      "save": "Save"
     }
   }
 }

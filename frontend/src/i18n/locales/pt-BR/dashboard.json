@@ -112,6 +112,7 @@
     "loading": "Carregando status do roteador de CLI...",
     "loadError": "Falha ao conectar com o host-bridge para verificar as configurações de CLI.",
     "toggleSuccess": "Configuração de {{tool}} atualizada com sucesso.",
-    "toggleError": "Falha ao atualizar configuração de {{tool}}."
+    "toggleError": "Falha ao atualizar configuração de {{tool}}.",
+    "status": "Status"
   }
 }

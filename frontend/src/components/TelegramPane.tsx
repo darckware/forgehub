@@ -13,6 +13,7 @@ import {
 } from "@/hooks/useAgent";
 import { useTranscribeAudio } from "@/hooks/useChat";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 interface TelegramPaneProps {
   agentId: string;
@@ -22,6 +23,7 @@ interface TelegramPaneProps {
 }
 
 export function TelegramPane({ agentId, agents, active, onAgentChange }: TelegramPaneProps) {
+  const { t } = useTranslation("chat");
   const [draft, setDraft] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [deliveryWarning, setDeliveryWarning] = useState<string | null>(null);
@@ -140,13 +142,13 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
   return (
     <section
       className="flex h-full min-h-0 flex-col bg-background"
-      aria-label={`Telegram de ${agent?.name ?? "agente"}`}
+      aria-label={t("telegram.paneFor", { agent: agent?.name ?? t("telegram.agent") })}
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {conversation.isLoading ? (
           <div className="flex h-full items-center justify-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
         ) : conversation.isError ? (
-          <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">Não foi possível carregar o histórico do Telegram.</p>
+          <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{t("telegram.historyError")}</p>
         ) : conversation.data?.messages.length ? (
           <div className="flex flex-col gap-3">
             {conversation.data.messages.map((message) => {
@@ -201,8 +203,8 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
           <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
             <div>
               <Send className="mx-auto mb-2 h-8 w-8" />
-              <p>Nenhuma conversa do Telegram encontrada para {agent?.name ?? "este agente"}.</p>
-              <p>Envie primeiro uma mensagem ao bot desse agente para estabelecer o canal.</p>
+              <p>{t("telegram.noConversation", { agent: agent?.name ?? t("telegram.thisAgent") })}</p>
+              <p>{t("telegram.startChannel")}</p>
             </div>
           </div>
         )}
@@ -211,7 +213,7 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
       <footer className="border-t border-border p-3">
         {deliveryWarning && (
           <p className="mb-2 text-xs text-destructive">
-            A resposta foi gravada, mas não pôde ser entregue ao Telegram. Atualize o canal antes de tentar novamente.
+            {t("telegram.deliveryWarning")}
           </p>
         )}
         {(sendMessage.error || !conversation.data?.session_id) && (
@@ -219,7 +221,7 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
             {sendMessage.error instanceof Error
               ? sendMessage.error.message
               : !conversation.data?.session_id
-                ? "A interação fica disponível depois que o bot receber a primeira mensagem no Telegram."
+                ? t("telegram.waitingForFirstMessage")
                 : null}
           </p>
         )}
@@ -230,7 +232,7 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
                 <div key={`${file.name}-${index}`} className="flex w-fit items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs">
                   <Paperclip className="h-3 w-3 shrink-0" />
                   {file.name}
-                  <button type="button" aria-label={`Remover ${file.name}`} onClick={() => removeAttachedFile(index)}>
+                  <button type="button" aria-label={t("telegram.removeFile", { name: file.name })} onClick={() => removeAttachedFile(index)}>
                     <X className="h-3 w-3" />
                   </button>
                 </div>
@@ -242,7 +244,7 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Conversar com ${agent?.name ?? "o agente"} neste canal…`}
+            placeholder={t("telegram.composerPlaceholder", { agent: agent?.name ?? t("telegram.theAgent") })}
             leading={
               <>
                 <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePick} />
@@ -271,10 +273,10 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
                         )}
                       >
                         {itemStatus?.status === "ok"
-                          ? "canal ativo"
+                          ? t("telegram.channelActive")
                           : itemStatus?.status === "not_running"
-                            ? "gateway parado"
-                            : "não configurado"}
+                            ? t("telegram.gatewayStopped")
+                            : t("telegram.notConfigured")}
                       </span>
                     );
                   }}
@@ -284,8 +286,8 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 shrink-0 rounded-full"
-                  aria-label="Melhorar prompt"
-                  title="Melhorar prompt"
+                  aria-label={t("telegram.improvePrompt")}
+                  title={t("telegram.improvePrompt")}
                   onClick={() => setImproveOpen(true)}
                 >
                   <Sparkles className="h-4 w-4" />
@@ -295,8 +297,8 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
                   variant={isRecording ? "destructive" : "ghost"}
                   size="icon"
                   className="h-8 w-8 shrink-0 rounded-full"
-                  aria-label={isRecording ? "Parar gravação" : "Ditar mensagem por voz"}
-                  title={isRecording ? "Parar gravação" : "Ditar mensagem por voz"}
+                  aria-label={isRecording ? t("telegram.stopRecording") : t("telegram.dictate")}
+                  title={isRecording ? t("telegram.stopRecording") : t("telegram.dictate")}
                   onClick={() => void handleToggleRecording()}
                   disabled={transcribe.isPending}
                 >
@@ -313,15 +315,15 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
                   variant="ghost"
                   size="icon"
                   className={cn("h-8 w-8 shrink-0 rounded-full", autoSyncEnabled && "text-emerald-600")}
-                  aria-label={autoSyncEnabled ? "Desativar atualização automática" : "Ativar atualização automática"}
-                  title={autoSyncEnabled ? "Sincronização automática ativa -- clique para desativar" : "Sincronização automática desativada -- clique para ativar"}
+                  aria-label={autoSyncEnabled ? t("telegram.disableAutoSync") : t("telegram.enableAutoSync")}
+                  title={autoSyncEnabled ? t("telegram.autoSyncOn") : t("telegram.autoSyncOff")}
                   aria-pressed={autoSyncEnabled}
                   onClick={() => setAutoSyncEnabled((v) => !v)}
                 >
                   <RefreshCw className={cn("h-4 w-4", autoSyncEnabled && conversation.isFetching && "animate-spin")} />
                 </Button>
                 {sendMessage.isPending && (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" aria-label="Enviando" />
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin self-center text-muted-foreground" aria-label={t("telegram.sending")} />
                 )}
               </>
             }

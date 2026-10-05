@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   CheckCircle2,
@@ -79,6 +80,7 @@ const TASK_STATUS_BADGES: Record<string, { label: string; variant: "success" | "
 };
 
 export default function VersionClosurePage() {
+  const { t } = useTranslation(["versionClosure", "project"]);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedProjectId = searchParams.get("project_id");
 
@@ -223,10 +225,10 @@ export default function VersionClosurePage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent flex items-center gap-2">
             <Lock className="h-6 w-6 text-primary" />
-            7. Fechamento de Versão
+            {t("page.title")}
           </h1>
           <p className="text-xs text-muted-foreground mt-1">
-            Valide a conclusão de todo o planejamento e tarefas para selar e gerar a versão oficial da produção.
+            {t("page.description")}
           </p>
         </div>
 
@@ -236,7 +238,7 @@ export default function VersionClosurePage() {
             className="inline-flex items-center gap-1.5 text-xs rounded-md border border-input bg-background px-3 py-1.5 font-medium hover:bg-accent"
           >
             <FolderKanban className="h-4 w-4 text-primary" />
-            Central de Projetos
+            {t("page.projectCentral")}
           </Link>
         </div>
       </div>
@@ -247,7 +249,7 @@ export default function VersionClosurePage() {
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1">
             <div className="min-w-[240px]">
               <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
-                Projeto a Fechar
+                {t("overview.projectToClose")}
               </Label>
               <Select
                 value={selectedProjectId}
@@ -259,7 +261,7 @@ export default function VersionClosurePage() {
               >
                 {projects?.map((proj) => (
                   <option key={proj.id} value={proj.id}>
-                    {proj.name} {proj.status === "completed" ? "(Fechado)" : ""}
+                    {proj.name} {proj.status === "completed" ? t("overview.closed") : ""}
                   </option>
                 ))}
               </Select>
@@ -271,26 +273,26 @@ export default function VersionClosurePage() {
                   variant={activeProject.status === "completed" ? "secondary" : "outline"}
                   className="text-xs"
                 >
-                  Status: {activeProject.status === "completed" ? "Fechado / Concluído" : activeProject.status}
+                  {t("overview.status")}: {activeProject.status === "completed" ? t("overview.closedCompleted") : t(`project:enums.projectStatus.${activeProject.status}`, activeProject.status)}
                 </Badge>
 
                 {activeProduct && activeVersion && (
                   <span className="rounded-md border bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
-                    Produto: <strong className="text-foreground">{activeProduct.name}</strong> · Versão Alvo:{" "}
+                    {t("overview.product")}: <strong className="text-foreground">{activeProduct.name}</strong> · {t("overview.targetVersion")}: {" "}
                     <strong className="text-primary font-mono">v{activeVersion.version}</strong>
                   </span>
                 )}
 
                 <span className="rounded-md border bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
-                  Planejamentos: <strong className="text-foreground">{completedPlanningCount}/{projectPlanningItems.length} finalizados</strong>
+                  {t("overview.planningItems")}: <strong className="text-foreground">{t("overview.completedCount", { done: completedPlanningCount, total: projectPlanningItems.length })}</strong>
                 </span>
 
                 <span className="rounded-md border bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
-                  Tarefas: <strong className="text-foreground">{completedTasks.length}/{projectTasks.length}</strong> ({progressPercent}%)
+                  {t("overview.tasks")}: <strong className="text-foreground">{completedTasks.length}/{projectTasks.length}</strong> ({progressPercent}%)
                 </span>
                 {activeVersion && (
                   <span className="rounded-md border bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
-                    Versão completa: <strong className="text-foreground">{versionReadiness.projects.length} projetos · {closureCompletedTasks.length}/{closureTasks.length} tarefas</strong>
+                    {t("overview.fullVersion")}: <strong className="text-foreground">{t("overview.versionCounts", { projects: versionReadiness.projects.length, done: closureCompletedTasks.length, total: closureTasks.length })}</strong>
                   </span>
                 )}
               </div>
@@ -302,12 +304,12 @@ export default function VersionClosurePage() {
       {isLoadingProjects || isLoadingPlanning || isLoadingTasks ? (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground text-xs">
           <Loader2 className="h-5 w-5 animate-spin text-primary" />
-          Carregando dados do fechamento do projeto...
+          {t("page.loading")}
         </div>
       ) : !activeProject ? (
         <Card className="border-dashed">
           <CardContent className="py-12 text-center text-xs text-muted-foreground">
-            Selecione um projeto para auditar o fechamento.
+            {t("page.selectProject")}
           </CardContent>
         </Card>
       ) : isProjectClosed ? (
@@ -320,16 +322,14 @@ export default function VersionClosurePage() {
               </div>
               <div className="space-y-1 text-center sm:text-left flex-1">
                 <h3 className="text-base font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-2 justify-center sm:justify-start">
-                  Projeto Fechado & Versão de Produção Publicada
+                  {t("closed.title")}
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                  Este projeto foi concluído com sucesso e selado para a versão de produção{" "}
-                  <strong className="font-mono text-foreground">v{activeVersion?.version ?? "1.0.0"}</strong>.
-                  Novas alterações de escopo, planejamento e tarefas estão <strong>permanentemente bloqueadas</strong>.
+                  {t("closed.description", { version: activeVersion?.version ?? "1.0.0" })}
                 </p>
                 {activeVersion?.release_notes && (
                   <div className="mt-3 p-3 rounded bg-background/80 border text-xs text-foreground font-mono">
-                    <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Notas de Lançamento Registradas:</p>
+                    <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">{t("closed.releaseNotes")}</p>
                     {activeVersion.release_notes}
                   </div>
                 )}
@@ -342,7 +342,7 @@ export default function VersionClosurePage() {
             <CardHeader className="p-4 border-b">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                Histórico Selado de Planejamento & Tarefas Entregues ({projectPlanningItems.length})
+                {t("closed.history", { count: projectPlanningItems.length })}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 space-y-3">
@@ -356,7 +356,7 @@ export default function VersionClosurePage() {
                         {item.title}
                       </span>
                       <Badge variant="secondary" className="text-[10px]">
-                        {tasks.length} tarefa(s) concluída(s)
+                        {t("closed.completedTasks", { count: tasks.length })}
                       </Badge>
                     </div>
                     <div className="pl-5 space-y-1">
@@ -385,21 +385,21 @@ export default function VersionClosurePage() {
                   <div>
                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
                       <ListTodo className="h-4 w-4 text-primary" />
-                      Auditoria do Planejamento & Tarefas para Produção
+                      {t("audit.title")}
                     </CardTitle>
                     <CardDescription className="text-xs mt-0.5">
-                      Todas as tarefas devem estar concluídas para autorizar o fechamento do projeto.
+                      {t("audit.description")}
                     </CardDescription>
                   </div>
                   <Badge variant={canExecuteClosure ? "success" : "outline"} className="text-xs">
-                    {activeVersion ? `${closureCompletedTasks.length}/${closureTasks.length} na versão` : `${completedTasks.length}/${projectTasks.length} concluídas (${progressPercent}%)`}
+                    {activeVersion ? t("audit.versionProgress", { done: closureCompletedTasks.length, total: closureTasks.length }) : t("audit.projectProgress", { done: completedTasks.length, total: projectTasks.length, percent: progressPercent })}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent className="p-4 space-y-4">
                 {projectPlanningItems.length === 0 ? (
                   <div className="py-8 text-center text-xs text-muted-foreground">
-                    Nenhum item de planejamento cadastrado para este projeto.
+                    {t("audit.noPlanning")}
                   </div>
                 ) : (
                   projectPlanningItems.map((item) => {
@@ -427,19 +427,19 @@ export default function VersionClosurePage() {
                               {item.title}
                             </span>
                             <Badge variant="outline" className="text-[10px] uppercase font-mono">
-                              {item.item_type}
+                              {t(`project:central.itemTypes.${item.item_type}`, item.item_type)}
                             </Badge>
                           </div>
 
                           <span className="text-[11px] font-semibold text-muted-foreground">
-                            {tasks.filter((t) => TERMINAL_STATUSES.has(t.status)).length}/{tasks.length} tasks
+                            {t("audit.taskProgress", { done: tasks.filter((task) => TERMINAL_STATUSES.has(task.status)).length, total: tasks.length })}
                           </span>
                         </div>
 
                         {/* Lista de Tarefas do Item */}
                         {tasks.length === 0 ? (
                           <p className="text-[11px] text-muted-foreground italic pl-6">
-                            Sem tarefas associadas a este planejamento.
+                            {t("audit.noTasks")}
                           </p>
                         ) : (
                           <div className="space-y-1.5 pl-6">
@@ -463,7 +463,7 @@ export default function VersionClosurePage() {
                                     </span>
                                   </div>
                                   <Badge variant={badgeInfo.variant} className="text-[10px] shrink-0">
-                                    {badgeInfo.label}
+                                    {t(`project:central.taskStatus.${task.status}`, badgeInfo.label)}
                                   </Badge>
                                 </div>
                               );
@@ -482,10 +482,10 @@ export default function VersionClosurePage() {
               <CardHeader className="p-4 border-b">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
                   <GitBranch className="h-4 w-4 text-primary" />
-                  Notas de Lançamento da Produção (Changelog)
+                  {t("releaseNotes.title")}
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Descreva as entregas, correções e novidades contempladas no fechamento deste projeto.
+                  {t("releaseNotes.description")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4">
@@ -493,7 +493,7 @@ export default function VersionClosurePage() {
                   rows={4}
                   value={releaseNotes}
                   onChange={(e) => setReleaseNotes(e.target.value)}
-                  placeholder="Ex: Lançamento da versão 1.0.0 contendo módulo de autenticação, relatórios gerenciais e correção de lentidão no carregamento..."
+                  placeholder={t("releaseNotes.placeholder")}
                   className="resize-none text-xs font-mono"
                 />
               </CardContent>
@@ -506,31 +506,31 @@ export default function VersionClosurePage() {
               <CardHeader className="p-4 border-b">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-primary" />
-                  Selo de Produção & Fechamento
+                  {t("seal.title")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4 space-y-4 text-xs">
                 <div className="rounded-md bg-muted/60 p-3 space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Projeto:</span>
+                    <span className="text-muted-foreground">{t("seal.project")}</span>
                     <strong className="text-foreground">{activeProject.name}</strong>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Versão de Produção:</span>
+                    <span className="text-muted-foreground">{t("seal.productionVersion")}</span>
                     <strong className="font-mono text-primary">v{activeVersion?.version ?? "1.0.0"}</strong>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Planejamentos Concluídos:</span>
+                    <span className="text-muted-foreground">{t("seal.completedPlanning")}</span>
                     <strong className={completedPlanningCount === projectPlanningItems.length && projectPlanningItems.length > 0 ? "text-emerald-600" : "text-amber-500"}>
-                      {completedPlanningCount} de {projectPlanningItems.length}
+                      {t("seal.of", { done: completedPlanningCount, total: projectPlanningItems.length })}
                     </strong>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Tarefas Concluídas:</span>
-                    <strong>{closureCompletedTasks.length} de {closureTasks.length}</strong>
+                    <span className="text-muted-foreground">{t("seal.completedTasks")}</span>
+                    <strong>{t("seal.of", { done: closureCompletedTasks.length, total: closureTasks.length })}</strong>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Tarefas Pendentes:</span>
+                    <span className="text-muted-foreground">{t("seal.pendingTasks")}</span>
                     <strong className={closurePendingTasks.length > 0 ? "text-destructive" : "text-emerald-600"}>
                       {closurePendingTasks.length}
                     </strong>
@@ -542,17 +542,17 @@ export default function VersionClosurePage() {
                   <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 space-y-2 text-destructive text-xs">
                     <div className="flex items-center gap-2 font-bold">
                       <AlertCircle className="h-4 w-4 shrink-0" />
-                      Fechamento Bloqueado
+                      {t("seal.blocked")}
                     </div>
                     <p className="text-[11px] leading-relaxed">
                       {closureTasks.length === 0
-                        ? "A versão precisa possuir ao menos uma tarefa antes da publicação."
-                        : <>Existem <strong>{closurePendingTasks.length} tarefa(s) pendente(s)</strong> {activeVersion ? "em projetos desta versão" : "no projeto"}. O fechamento só é autorizado quando 100% das tarefas forem finalizadas.</>}
+                        ? t("seal.requiresTask")
+                        : t("seal.pendingExplanation", { count: closurePendingTasks.length, scope: activeVersion ? t("seal.versionProjects") : t("seal.projectScope") })}
                     </p>
                     <ul className="list-disc pl-4 text-[10px] space-y-0.5 max-h-32 overflow-y-auto">
-                      {closurePendingTasks.map((t) => (
-                        <li key={t.id}>
-                          {activeVersion && `${versionReadiness.projects.find((project) => project.id === t.project_id)?.name ?? "Projeto"} — `}#{t.number} {t.title} ({t.status})
+                      {closurePendingTasks.map((task) => (
+                        <li key={task.id}>
+                          {activeVersion && `${versionReadiness.projects.find((project) => project.id === task.project_id)?.name ?? t("seal.projectFallback")} — `}#{task.number} {task.title} ({t(`project:central.taskStatus.${task.status}`, task.status)})
                         </li>
                       ))}
                     </ul>
@@ -561,10 +561,10 @@ export default function VersionClosurePage() {
                   <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 space-y-1.5 text-emerald-700 dark:text-emerald-300 text-xs">
                     <div className="flex items-center gap-2 font-bold">
                       <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                      Pronto para Fechamento
+                      {t("seal.ready")}
                     </div>
                     <p className="text-[11px] leading-relaxed">
-                      Todas as tarefas foram concluídas. Você pode selar o projeto e gerar a versão oficial da produção.
+                      {t("seal.readyDescription")}
                     </p>
                   </div>
                 )}
@@ -572,7 +572,7 @@ export default function VersionClosurePage() {
                 <div className="p-2.5 rounded bg-muted/40 text-[11px] text-muted-foreground border flex items-start gap-2">
                   <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
                   <span>
-                    <strong>Atenção:</strong> O fechamento é permanente. Uma vez fechado, o projeto é travado e não poderá mais ser reaberto ou editado.
+                    {t("seal.warning")}
                   </span>
                 </div>
 
@@ -586,16 +586,16 @@ export default function VersionClosurePage() {
                   ) : (
                     <Lock className="h-4 w-4" />
                   )}
-                  Fechar Projeto & Publicar Produção
+                  {t("seal.publish")}
                 </Button>
 
                 {blocking && (
                   <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-xs text-destructive">
-                    <p className="font-medium">Tarefas bloqueando a publicação:</p>
+                    <p className="font-medium">{t("seal.blockingTasks")}</p>
                     <ul className="list-disc pl-4">
                       {blocking.map((b) => (
                         <li key={b.task_id}>
-                          {b.project_name} — #{b.task_number} {b.title} ({b.status})
+                          {b.project_name} — #{b.task_number} {b.title} ({t(`project:central.taskStatus.${b.status}`, b.status)})
                         </li>
                       ))}
                     </ul>
@@ -616,11 +616,11 @@ export default function VersionClosurePage() {
       {/* Diálogo de Confirmação Irrevogável de Fechamento */}
       <ConfirmDialog
         open={showConfirmCloseDialog}
-        title="Confirmar Fechamento do Projeto e Geração de Produção"
+        title={t("confirm.title")}
         description={activeVersion
-          ? `Tem certeza que deseja publicar a versão de produção "${activeVersion.version}"? Esta operação é definitiva e concluirá os ${versionReadiness.projects.length} projetos vinculados.`
-          : `Tem certeza que deseja fechar o projeto "${activeProject?.name}"? Esta operação é definitiva e travará o projeto contra qualquer alteração futura.`}
-        confirmLabel="Sim, Fechar Projeto Definitivamente"
+          ? t("confirm.versionDescription", { version: activeVersion.version, count: versionReadiness.projects.length })
+          : t("confirm.projectDescription", { name: activeProject?.name ?? "" })}
+        confirmLabel={t("confirm.action")}
         onConfirm={handleExecuteClosure}
         onCancel={() => setShowConfirmCloseDialog(false)}
       />

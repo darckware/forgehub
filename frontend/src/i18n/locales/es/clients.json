@@ -1,6 +1,15 @@
 {
-  "common": { "cancel": "Cancelar", "retry": "Intentar de nuevo", "notProvided": "No informado" },
-  "supportPlans": { "none": "Sin plan", "4h": "4 horas", "8h": "8 horas", "12h": "12 horas" },
+  "common": {
+    "cancel": "Cancelar",
+    "retry": "Intentar de nuevo",
+    "notProvided": "No informado"
+  },
+  "supportPlans": {
+    "none": "Sin plan",
+    "4h": "4 horas",
+    "8h": "8 horas",
+    "12h": "12 horas"
+  },
   "states": {
     "loading": "Cargando...",
     "loadError": "No se pudieron cargar los clientes.",
@@ -16,7 +25,12 @@
     "registry": "Registro de clientes",
     "emptyTitle": "No hay clientes registrados",
     "emptyDescription": "Crea el primer cliente para comenzar a vincular y monitorear estaciones.",
-    "columns": { "client": "Cliente", "contact": "Contacto", "supportPlan": "Plan de soporte", "updated": "Actualizado" }
+    "columns": {
+      "client": "Cliente",
+      "contact": "Contacto",
+      "supportPlan": "Plan de soporte",
+      "updated": "Actualizado"
+    }
   },
   "create": {
     "title": "Nuevo cliente",
@@ -27,13 +41,32 @@
     "nameHelp": "Usa el nombre registrado u operativo de la organización.",
     "submit": "Crear cliente",
     "submitError": "No se pudo crear el cliente.",
-    "fields": { "name": "Nombre del cliente", "contactName": "Nombre del contacto", "phone": "Teléfono", "email": "Correo electrónico", "supportPlan": "Plan de soporte", "notes": "Observaciones" }
+    "fields": {
+      "name": "Nombre del cliente",
+      "contactName": "Nombre del contacto",
+      "phone": "Teléfono",
+      "email": "Correo electrónico",
+      "supportPlan": "Plan de soporte",
+      "notes": "Observaciones"
+    }
   },
   "detail": {
     "title": "Detalles del cliente",
     "back": "Volver a clientes",
-    "info": { "title": "Información del cliente", "contact": "Contacto", "email": "Correo electrónico", "phone": "Teléfono", "tag": "Etiqueta Headscale" },
-    "workstations": { "title": "Estaciones", "unnamed": "Estación", "empty": "Este cliente aún no tiene estaciones vinculadas.", "active": "Token activo", "revoked": "Token revocado" },
+    "info": {
+      "title": "Información del cliente",
+      "contact": "Contacto",
+      "email": "Correo electrónico",
+      "phone": "Teléfono",
+      "tag": "Etiqueta Headscale"
+    },
+    "workstations": {
+      "title": "Estaciones",
+      "unnamed": "Estación",
+      "empty": "Este cliente aún no tiene estaciones vinculadas.",
+      "active": "Token activo",
+      "revoked": "Token revocado"
+    },
     "installation": {
       "generate": "Generar y descargar",
       "generateFor": "Generar y descargar paquete para {{workstation}}",
@@ -49,7 +82,15 @@
       "confirmTitle": "¿Generar paquete para {{workstation}}?",
       "confirmDescription": "La versión {{version}} se empaquetará y el token anterior de la estación dejará de funcionar.",
       "confirm": "Confirmar generación",
-      "states": { "none": "No generado", "unknown": "Desconocido", "package_ready": "Paquete listo", "downloaded": "Descargado", "online": "En línea", "outdated": "Desactualizado", "error": "Error" }
+      "states": {
+        "none": "No generado",
+        "unknown": "Desconocido",
+        "package_ready": "Paquete listo",
+        "downloaded": "Descargado",
+        "online": "En línea",
+        "outdated": "Desactualizado",
+        "error": "Error"
+      }
     },
     "communication": {
       "title": "Comunicación entre estaciones",

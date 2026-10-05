@@ -1,0 +1,34 @@
+{
+  "title": "Chat commands",
+  "description": "Register reusable prompts to appear alongside Hermes commands when typing / in chat.",
+  "newCommand": "New command",
+  "table": { "command": "Command", "description": "Description", "prompt": "Prompt", "actions": "Actions" },
+  "loading": "Loading commands...",
+  "loadError": "Failed to load: {{message}}",
+  "empty": "No commands registered yet.",
+  "edit": "Edit",
+  "delete": "Delete",
+  "close": "Close",
+  "cancel": "Cancel",
+  "save": "Save",
+  "create": "Create",
+  "deleteTitle": "Delete command",
+  "deleteDescription": "Delete /{{name}}? It will no longer appear in chat.",
+  "form": {
+    "editTitle": "Edit command",
+    "newTitle": "New command",
+    "chatHint": "Appears in chat as /{{name}}.",
+    "name": "Short name",
+    "description": "Description",
+    "descriptionPlaceholder": "Review a PR focused on risks and tests",
+    "prompt": "Markdown prompt",
+    "promptPlaceholder": "## Goal\nReview the current code and list bugs, risks, and missing tests.\n\n## Expected output\n- Findings by severity\n- Affected files\n- Verification commands"
+  },
+  "validation": {
+    "name": "Enter a short name, like review-pr or plan.",
+    "reserved": "/{{name}} is already a reserved Hermes command.",
+    "description": "Enter a short description.",
+    "prompt": "Enter the prompt in Markdown.",
+    "saveError": "Could not save."
+  }
+}

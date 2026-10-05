@@ -1,5 +1,6 @@
 {
   "toolbar": {
+    "openAgentTelegram": "Abrir Telegram do agente", "vpsProduction": "VPS / Produção (Darckware)", "semedClient": "SEMED (Cliente / Cloudflare)",
     "connectSsh": "Conectar via SSH",
     "ssh": "SSH",
     "noServersRegistered": "Nenhum servidor registrado. Veja \"Servidores\" no menu lateral.",
@@ -72,6 +73,7 @@
     "useThisFolder": "Usar esta pasta"
   },
   "terminal": {
+    "zoomOutTitle": "Diminuir zoom do terminal (-)", "zoomOut": "Diminuir zoom", "zoomReset": "Tamanho atual: {{size}}px. Clique para restaurar o padrão ({{defaultSize}}px).", "zoomInTitle": "Aumentar zoom do terminal (+)", "zoomIn": "Aumentar zoom",
     "authFailed": "Falha ao autenticar a sessão do terminal.",
     "reconnecting": "Conexão perdida -- reconectando em {{seconds}}s…",
     "imageUploadFailed": "Falha ao enviar a imagem. Tente novamente.",

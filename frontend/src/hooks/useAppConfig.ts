@@ -18,11 +18,11 @@ export interface AppConfig {
   cleanup_prune_names: string[];
   timezone: string;
   /** Language the in-app AI chat (Workspace tabs + Assistant drawer)
-   * answers in -- "pt-BR" or "en". The backend appends the matching hidden
+   * answers in -- "pt-BR", "en" or "es" for new selections. The backend appends the matching hidden
    * instruction to each outgoing agent call; nothing visible changes in
    * the transcript. */
   chat_response_language: string;
-  /** App shell language ("en" or "pt-BR") new users get on creation --
+  /** App shell language ("pt-BR", "en" or "es") new users get on creation --
    * independent of chat_response_language above. Existing users' own
    * ui_language is untouched by changing this. */
   default_ui_language: string;

@@ -29,5 +29,7 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
+    // scripts/*.test.mjs são testes do `node --test` (ver "test:scripts"), não do Vitest.
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 });
