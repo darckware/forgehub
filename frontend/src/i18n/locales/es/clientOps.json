@@ -266,5 +266,28 @@
       "ticket": "de ticket",
       "demand": "de demanda"
     }
+  },
+  "time": {
+    "log": "Registrar horas",
+    "title": "Registrar horas en el ticket",
+    "date": "Fecha",
+    "start": "Inicio",
+    "end": "Fin",
+    "description": "Qué se hizo",
+    "serviceType": "Atención",
+    "remoto": "Remoto",
+    "presencial": "Presencial",
+    "rounding": "Cuenta contra la franquicia del contrato, redondeado en bloques de 30 minutos.",
+    "endBeforeStart": "El fin debe ser posterior al inicio.",
+    "entries": "Horas registradas",
+    "by": "por {{who}}",
+    "save": "Registrar",
+    "cancel": "Cancelar"
+  },
+  "report": {
+    "generate": "Generar informe del mes",
+    "generated": "Informe del ciclo {{start}} a {{end}} en la cola de aprobación.",
+    "exists": "El informe de este ciclo ya estaba en la cola.",
+    "open": "Abrir aprobación"
   }
 }

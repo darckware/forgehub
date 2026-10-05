@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Briefcase, FolderKanban, Loader2, Mail, Plus, X } from "lucide-react";
+import { ArrowLeft, Briefcase, Clock, FolderKanban, Loader2, Mail, Plus, X } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -159,6 +159,7 @@ export default function ClientDemandsPage() {
 
       {vm.draft && <ActionDialog vm={vm} />}
       {vm.projectDraft && <CreateProjectDialog vm={vm} />}
+      {vm.timeDraft && <LogTimeDialog vm={vm} />}
       <NewWorkItemDialog
         open={creating}
         onClose={() => setCreating(false)}
@@ -186,7 +187,7 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
       </button>
       {vm.detailLoading && <Loader2 className="h-5 w-5 animate-spin" />}
       {vm.detailError && <p className="break-words text-sm text-destructive">{vm.detailError}</p>}
-      {vm.errorMessage && !vm.draft && !vm.projectDraft && (
+      {vm.errorMessage && !vm.draft && !vm.projectDraft && !vm.timeDraft && (
         <div className="flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           <span className="break-words">{vm.errorMessage}</span>
           <button type="button" onClick={vm.dismissError} aria-label="dismiss">
@@ -246,6 +247,11 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
           )}
 
           <div className="flex flex-wrap gap-2">
+            {detail.kind === "ticket" && detail.stage !== "fechado" && (
+              <Button size="sm" variant="outline" className="max-md:h-auto max-md:whitespace-normal" onClick={vm.openLogTime}>
+                <Clock className="mr-2 h-4 w-4" /> {t("time.log")}
+              </Button>
+            )}
             {!detail.project && !vm.projectBlockedReason && detail.stage !== "fechado" && (
               <Button size="sm" variant="outline" className="max-md:h-auto max-md:whitespace-normal" onClick={vm.openCreateProject}>
                 <FolderKanban className="mr-2 h-4 w-4" /> {t("project.create")}
@@ -263,6 +269,24 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
               </Button>
             ))}
           </div>
+
+          {detail.time_entries.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold">{t("time.entries")}</h3>
+              <ul className="space-y-1 text-sm">
+                {detail.time_entries.map((e) => (
+                  <li key={e.id} className="flex flex-wrap gap-x-2">
+                    <span className="font-medium tabular-nums">{e.billable_hours} h</span>
+                    <span className="break-words">{e.description}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {e.start_time ? new Date(e.start_time).toLocaleDateString() : ""}
+                      {e.recorded_by ? ` · ${t("time.by", { who: e.recorded_by })}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <section className="space-y-2">
             <h3 className="text-sm font-semibold">{t("demands.emails")}</h3>
@@ -451,6 +475,62 @@ function CreateProjectDialog({ vm }: { vm: ClientDemandsViewModel }) {
           <Button onClick={() => void vm.submitCreateProject()} disabled={!vm.canSubmitProject}>
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {t("project.confirm")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogTimeDialog({ vm }: { vm: ClientDemandsViewModel }) {
+  const { t } = useTranslation("clientOps");
+  const d = vm.timeDraft!;
+  const submitting = vm.status === "submitting";
+  return (
+    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto p-4">
+      <div className="fixed inset-0 bg-black/60" onClick={vm.cancelLogTime} aria-hidden />
+      <div role="dialog" aria-modal="true" className="relative my-auto w-full max-w-lg space-y-4 rounded-lg border bg-background p-5 shadow-xl">
+        <h2 className="text-lg font-semibold">{t("time.title")}</h2>
+        <p className="text-sm text-muted-foreground">{t("time.rounding")}</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label htmlFor="tm-day">{t("time.date")}</Label>
+            <Input id="tm-day" type="date" className="max-md:text-base" value={d.day} onChange={(e) => vm.updateTimeDraft({ day: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="tm-start">{t("time.start")}</Label>
+            <Input id="tm-start" type="time" className="max-md:text-base" value={d.start} onChange={(e) => vm.updateTimeDraft({ start: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="tm-end">{t("time.end")}</Label>
+            <Input id="tm-end" type="time" className="max-md:text-base" value={d.end} onChange={(e) => vm.updateTimeDraft({ end: e.target.value })} />
+          </div>
+        </div>
+        {vm.timeDraftError && <p className="text-xs text-destructive">{t(`time.${vm.timeDraftError}`)}</p>}
+        <div className="space-y-1">
+          <Label htmlFor="tm-type">{t("time.serviceType")}</Label>
+          <Select
+            id="tm-type"
+            className="max-md:text-base"
+            value={d.serviceType}
+            onChange={(e) => vm.updateTimeDraft({ serviceType: e.target.value as "remoto" | "presencial" })}
+          >
+            <option value="remoto">{t("time.remoto")}</option>
+            <option value="presencial">{t("time.presencial")}</option>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="tm-desc">{t("time.description")}</Label>
+          <Textarea id="tm-desc" rows={3} className="max-md:text-base" value={d.description} onChange={(e) => vm.updateTimeDraft({ description: e.target.value })} />
+        </div>
+        {vm.errorMessage && <p className="break-words text-sm text-destructive">{vm.errorMessage}</p>}
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="outline" onClick={vm.cancelLogTime} disabled={submitting}>
+            {t("time.cancel")}
+          </Button>
+          <Button onClick={() => void vm.submitLogTime()} disabled={!vm.canSubmitTime}>
+            {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t("time.save")}
           </Button>
         </div>
       </div>

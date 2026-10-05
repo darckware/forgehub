@@ -29,12 +29,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.client_ops import (
+    LogTimeIn,
+    MonthlyReportIn,
     ContractIn,
     CreateProjectFromItem,
     LinkProduct,
@@ -942,6 +944,67 @@ async def create_project_from_item(
         db, kind, str(item_id), "project_created", admin, {"project_id": str(project.id), "product_id": str(product.id)}
     )
     return {"project": _project_row(project), "product": _product_row(product)}
+
+
+# ---------------------------------------------------------------------------
+# Hours and monthly report (Onda 4)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/work-items/ticket/{ticket_id}:log-time", status_code=status.HTTP_201_CREATED)
+async def log_ticket_time(
+    ticket_id: uuid.UUID,
+    payload: LogTimeIn,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record worked hours on a client ticket -- counted against the support
+    quota by Darckware (same 30-minute rounding as its own admin)."""
+    await dw.request(
+        "POST",
+        f"/tickets/{ticket_id}/time-entries",
+        json={**payload.model_dump(mode="json"), "recorded_by": f"forgehub:{admin.username}"},
+    )
+    await _audit(
+        db,
+        "ticket",
+        str(ticket_id),
+        "time_logged",
+        admin,
+        {"start": payload.start_time.isoformat(), "end": payload.end_time.isoformat(), "description": payload.description},
+    )
+    return await _load_item("ticket", ticket_id)
+
+
+@router.post("/clients/{client_id}/monthly-report")
+async def create_monthly_report(
+    client_id: uuid.UUID,
+    payload: MonthlyReportIn,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Queue this client's monthly report for approval now (idempotent per cycle)."""
+    from app.core.client_monthly_report import generate_monthly_report
+
+    result = await generate_monthly_report(db, client_id, actor=f"forgehub:{admin.username}", reference=payload.reference)
+    if result["created"]:
+        await _audit(db, "email", result["email"]["id"], "monthly_report_queued", admin, {"client_id": str(client_id), "cycle": result["cycle"]})
+    return result
+
+
+@router.post("/reports/run-internal")
+async def run_monthly_reports_internal(
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Daily trigger for Athos' cron (`report_client_monthly.sh`). Listed in
+    main.py's _PUBLIC_API_PATHS, so it validates the shared bridge token
+    itself, like /audit/run-internal."""
+    from app.core.client_monthly_report import run_due_reports
+
+    if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid bridge token")
+    return await run_due_reports(db)
 
 
 # ---------------------------------------------------------------------------

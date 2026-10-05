@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   useClientFactory,
   useCreateContract,
+  useGenerateMonthlyReport,
   useLinkProduct,
   useDarckwareClient,
   useUpdateContract,
@@ -10,6 +11,7 @@ import {
   type Contract,
   type ContractInput,
   type ContractStatus,
+  type MonthlyReportResult,
 } from "@/hooks/useClientOps";
 
 /**
@@ -52,6 +54,9 @@ export interface ClientAccountViewModel {
   linking: boolean;
   setLinkProductId(id: string): void;
   linkProduct(): Promise<void>;
+  reportPending: boolean;
+  reportResult?: MonthlyReportResult;
+  generateReport(): Promise<void>;
   openCreateContract(): void;
   openEditContract(contract: Contract): void;
   closeContract(): void;
@@ -73,6 +78,8 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
   const factory = useClientFactory(clientId);
   const link = useLinkProduct();
   const [linkProductId, setLinkProductId] = useState("");
+  const report = useGenerateMonthlyReport();
+  const [reportResult, setReportResult] = useState<MonthlyReportResult>();
 
   let status: ClientAccountStatus;
   if (create.isPending || update.isPending) status = "submitting";
@@ -99,6 +106,17 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
       try {
         await link.mutateAsync({ clientId, productId: linkProductId });
         setLinkProductId("");
+      } catch (error) {
+        setErrorMessage((error as Error).message);
+      }
+    },
+    reportPending: report.isPending,
+    reportResult,
+    async generateReport() {
+      if (!clientId) return;
+      setErrorMessage(undefined);
+      try {
+        setReportResult(await report.mutateAsync({ clientId }));
       } catch (error) {
         setErrorMessage((error as Error).message);
       }

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient } from "@/lib/api";
 import { actionBody } from "./useClientOps";
-import { useClientDemandsViewModel } from "./useClientDemandsViewModel";
+import { timeDraftError, useClientDemandsViewModel } from "./useClientDemandsViewModel";
 
 vi.mock("@/lib/api", () => ({
   apiClient: { get: vi.fn(), post: vi.fn() },
@@ -105,5 +105,33 @@ describe("useClientDemandsViewModel", () => {
       project_name: ITEM.title,
     });
     expect(result.current.projectDraft).toBeUndefined();
+  });
+
+  it("logs a block of hours on a ticket, refusing an end before the start", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...ITEM, timeline: [], time_entries: [], emails: [] });
+    const { result } = renderHook(() => useClientDemandsViewModel(), { wrapper });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    act(() => result.current.select(result.current.items[0]));
+    act(() => result.current.openLogTime());
+    act(() => result.current.updateTimeDraft({ day: "2026-10-04", start: "14:00", end: "13:00", description: "Visita" }));
+    expect(result.current.timeDraftError).toBe("endBeforeStart");
+    expect(result.current.canSubmitTime).toBe(false);
+    act(() => result.current.updateTimeDraft({ end: "15:30" }));
+    expect(result.current.canSubmitTime).toBe(true);
+    await act(() => result.current.submitLogTime());
+    const [path, body] = vi.mocked(apiClient.post).mock.calls[0] as [string, Record<string, string>];
+    expect(path).toBe("/api/v1/client-ops/work-items/ticket/t1:log-time");
+    expect(new Date(body.end_time).getTime() - new Date(body.start_time).getTime()).toBe(90 * 60 * 1000);
+    expect(body.service_type).toBe("remoto");
+    expect(result.current.timeDraft).toBeUndefined();
+  });
+});
+
+describe("timeDraftError", () => {
+  it("only flags an end at or before the start", () => {
+    const base = { day: "2026-10-04", description: "x", serviceType: "remoto" as const };
+    expect(timeDraftError({ ...base, start: "09:00", end: "09:00" })).toBe("endBeforeStart");
+    expect(timeDraftError({ ...base, start: "09:00", end: "09:30" })).toBeUndefined();
+    expect(timeDraftError({ ...base, start: "", end: "09:30" })).toBeUndefined();
   });
 });

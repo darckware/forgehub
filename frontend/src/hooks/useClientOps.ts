@@ -82,7 +82,14 @@ export interface FactoryProduct {
 
 export interface WorkItemDetail extends WorkItem {
   timeline: { at: string; actor: string; type: string; note?: string | null }[];
-  time_entries: { id: string; billable_hours: number; description: string }[];
+  time_entries: {
+    id: string;
+    billable_hours: number;
+    description: string;
+    start_time?: string;
+    service_type?: string;
+    recorded_by?: string | null;
+  }[];
   emails: OutboundEmail[];
   /** The Software Factory project opened for this item, if any (Onda 3). */
   project?: FactoryProject | null;
@@ -513,4 +520,45 @@ export function useCreateProjectFromItem() {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });
+}
+
+
+// ---------------------------------------------------------------------------
+// Onda 4 -- hours and monthly report
+// ---------------------------------------------------------------------------
+
+export interface LogTimeInput {
+  ticketId: string;
+  start_time: string;
+  end_time: string;
+  description: string;
+  service_type: "remoto" | "presencial";
+}
+
+export function useLogTime() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<WorkItemDetail, Error, LogTimeInput>({
+    mutationFn: ({ ticketId, ...body }) => apiClient.post(`${BASE}/work-items/ticket/${ticketId}:log-time`, body),
+    onSettled: invalidate,
+  });
+}
+
+export interface MonthlyReportResult {
+  created: boolean;
+  email: OutboundEmail;
+  cycle: { start: string; end: string };
+}
+
+export function useGenerateMonthlyReport() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<MonthlyReportResult, Error, { clientId: string; reference?: string }>({
+    mutationFn: ({ clientId, reference }) =>
+      apiClient.post(`${BASE}/clients/${clientId}/monthly-report`, { reference: reference || undefined }),
+    onSettled: invalidate,
+  });
+}
+
+/** Local date + "HH:MM" -> ISO instant (the browser's own timezone). */
+export function localDateTimeToIso(day: string, hhmm: string): string {
+  return new Date(`${day}T${hhmm}:00`).toISOString();
 }

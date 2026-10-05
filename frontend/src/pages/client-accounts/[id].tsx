@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Building2, FolderKanban, Loader2, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, Building2, FileText, FolderKanban, Loader2, Pencil, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -48,11 +48,29 @@ export default function ClientAccountPage() {
             description={[client.contact_name, client.email].filter(Boolean).join(" · ")}
             icon={<Building2 className="h-6 w-6" />}
             actions={
-              <Link to="/client-demands" className={buttonVariants({ variant: "outline" })}>
-                {t("accounts.seeDemands")}
-              </Link>
+              <>
+                <Link to="/client-demands" className={buttonVariants({ variant: "outline" })}>
+                  {t("accounts.seeDemands")}
+                </Link>
+                <Button variant="outline" onClick={() => void vm.generateReport()} disabled={vm.reportPending}>
+                  {vm.reportPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                  {t("report.generate")}
+                </Button>
+              </>
             }
           />
+          {vm.reportResult && (
+            <div className="flex flex-wrap items-center gap-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+              <span>
+                {vm.reportResult.created
+                  ? t("report.generated", { start: vm.reportResult.cycle.start, end: vm.reportResult.cycle.end })
+                  : t("report.exists")}
+              </span>
+              <Link to="/client-emails" className="underline">
+                {t("report.open")}
+              </Link>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Stat label={t("accounts.openTickets")} value={client.open_tickets} />
             <Stat label={t("accounts.openDemands")} value={client.open_demands} />

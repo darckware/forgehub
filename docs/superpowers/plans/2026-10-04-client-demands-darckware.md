@@ -136,3 +136,8 @@ Restrições: ForgeHub tem implementação pendente do Codex (working tree sujo,
 **2026-10-04 — Onda 3 implementada (sem deploy):**
 - ForgeHub: colunas de cliente em `products`/`projects` (migration `d7a3c91e5f20`, já aplicada no banco — só colunas anuláveis), herança do cliente do produto no `POST /projects`, `:create-project` a partir de chamado/demanda (idempotente, exige cliente), vínculo de produto existente ao cliente, seção Software Factory na ficha do cliente, cliente e filtro no Cockpit.
 - Darckware: nenhuma mudança nesta onda.
+
+**2026-10-04 — Onda 4 implementada (sem deploy):**
+- Darckware: `ticket_time_entries.admin_user_id` opcional + `recorded_by` (`scripts/migrations/20261006_time_entries_by_agent.sql`), `POST /tickets/{id}/time-entries` (token de agente), `GET /clients/{id}/cycle-report`, `GET /clients-with-contracts`, filtros `kind`/`source_ref` na fila de e-mails.
+- ForgeHub: "Apontar horas" no chamado, "Gerar informe do mês" na ficha do cliente, `POST /client-ops/reports/run-internal` (bridge token) e o script `/root/.hermes/profiles/athos/scripts/report_client_monthly.sh` (ainda não agendado — agendar só depois do deploy).
+- Plano concluído (Ondas 1–4). Pendente: deploy, troca do SOUL da Lara, agendamento do cron.

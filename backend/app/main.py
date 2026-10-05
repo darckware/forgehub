@@ -124,6 +124,8 @@ _PUBLIC_API_PATHS = {
     "/api/v1/auth/token",
     "/api/v1/auth/totp/verify",
     "/api/v1/audit/run-internal",
+    # Monthly client report trigger (Athos cron); self-guards with the bridge token.
+    "/api/v1/client-ops/reports/run-internal",
     "/api/v1/demands/submit",
     # Agent runtime activity webhooks -- authenticated by the HMAC signature
     # over the body (AGENT_ACTIVITY_WEBHOOK_SECRET), checked in the route.

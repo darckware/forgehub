@@ -266,5 +266,28 @@
       "ticket": "de chamado",
       "demand": "de demanda"
     }
+  },
+  "time": {
+    "log": "Apontar horas",
+    "title": "Apontar horas no chamado",
+    "date": "Data",
+    "start": "Início",
+    "end": "Fim",
+    "description": "O que foi feito",
+    "serviceType": "Atendimento",
+    "remoto": "Remoto",
+    "presencial": "Presencial",
+    "rounding": "Conta contra a franquia do contrato, arredondado em blocos de 30 minutos.",
+    "endBeforeStart": "O fim precisa ser depois do início.",
+    "entries": "Horas apontadas",
+    "by": "por {{who}}",
+    "save": "Apontar",
+    "cancel": "Cancelar"
+  },
+  "report": {
+    "generate": "Gerar informe do mês",
+    "generated": "Informe do ciclo {{start}} a {{end}} na fila de aprovação.",
+    "exists": "O informe deste ciclo já estava na fila.",
+    "open": "Abrir aprovação"
   }
 }

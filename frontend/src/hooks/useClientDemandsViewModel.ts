@@ -1,6 +1,8 @@
 import { useState } from "react";
 import {
+  localDateTimeToIso,
   useClientFactory,
+  useLogTime,
   useCreateProjectFromItem,
   useWorkItem,
   useWorkItemAction,
@@ -63,6 +65,19 @@ export interface ProjectDraft {
   projectName: string;
 }
 
+/** "Apontar horas" (Onda 4): one block of work on a ticket, in local time. */
+export interface TimeDraft {
+  day: string;
+  start: string;
+  end: string;
+  description: string;
+  serviceType: "remoto" | "presencial";
+}
+
+export function timeDraftError(d: TimeDraft): "endBeforeStart" | undefined {
+  return d.start && d.end && d.end <= d.start ? "endBeforeStart" : undefined;
+}
+
 export interface ClientDemandsViewModel {
   status: ClientDemandsStatus;
   filters: WorkItemFilters;
@@ -83,6 +98,9 @@ export interface ClientDemandsViewModel {
   canSubmitProject: boolean;
   /** Why the item can't get a project (no client yet), if so. */
   projectBlockedReason?: "noClient";
+  timeDraft?: TimeDraft;
+  timeDraftError?: "endBeforeStart";
+  canSubmitTime: boolean;
   setFilter<K extends keyof WorkItemFilters>(key: K, value: WorkItemFilters[K] | undefined): void;
   select(item: WorkItem | undefined): void;
   openAction(action: WorkItemAction): void;
@@ -94,6 +112,10 @@ export interface ClientDemandsViewModel {
   updateProjectDraft(patch: Partial<ProjectDraft>): void;
   cancelCreateProject(): void;
   submitCreateProject(): Promise<void>;
+  openLogTime(): void;
+  updateTimeDraft(patch: Partial<TimeDraft>): void;
+  cancelLogTime(): void;
+  submitLogTime(): Promise<void>;
 }
 
 export function useClientDemandsViewModel(): ClientDemandsViewModel {
@@ -109,14 +131,17 @@ export function useClientDemandsViewModel(): ClientDemandsViewModel {
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>();
   const factory = useClientFactory(detail.data?.project ? undefined : detail.data?.client_account_id);
   const createProject = useCreateProjectFromItem();
+  const logTime = useLogTime();
+  const [timeDraft, setTimeDraft] = useState<TimeDraft>();
+  const timeError = timeDraft ? timeDraftError(timeDraft) : undefined;
   const projectProducts = [...(factory.data?.products ?? []), ...(factory.data?.unlinked_products ?? [])];
 
   const textOk = !draft || !ACTION_TEXT_REQUIRED[draft.action] || draft.text.trim().length > 0;
   const emailOk = !draft?.withEmail || (draft.subject.trim().length > 0 && draft.body_text.trim().length > 0);
 
   let status: ClientDemandsStatus;
-  if (act.isPending || createProject.isPending) status = "submitting";
-  else if (draft || projectDraft) status = "acting";
+  if (act.isPending || createProject.isPending || logTime.isPending) status = "submitting";
+  else if (draft || projectDraft || timeDraft) status = "acting";
   else if (errorMessage) status = "error";
   else if (list.isLoading) status = "loading";
   else status = "ready";
@@ -143,6 +168,11 @@ export function useClientDemandsViewModel(): ClientDemandsViewModel {
         (projectDraft.productChoice === "existing" ? projectDraft.productId : projectDraft.newProductName.trim()),
     ),
     projectBlockedReason: detail.data && !detail.data.client_account_id ? "noClient" : undefined,
+    timeDraft,
+    timeDraftError: timeError,
+    canSubmitTime: Boolean(
+      timeDraft && !timeError && timeDraft.day && timeDraft.start && timeDraft.end && timeDraft.description.trim() && !logTime.isPending,
+    ),
     setFilter(key, value) {
       setFilters((current) => ({ ...current, [key]: value || undefined }));
     },
@@ -150,6 +180,7 @@ export function useClientDemandsViewModel(): ClientDemandsViewModel {
       setSelected(item ? { kind: item.kind, id: item.id } : undefined);
       setDraft(undefined);
       setProjectDraft(undefined);
+      setTimeDraft(undefined);
       setLastQueuedEmail(undefined);
     },
     openAction(action) {
@@ -203,6 +234,33 @@ export function useClientDemandsViewModel(): ClientDemandsViewModel {
       setProjectDraft((current) => (current ? { ...current, ...patch } : current));
     },
     cancelCreateProject: () => setProjectDraft(undefined),
+    openLogTime() {
+      if (selected?.kind !== "ticket") return;
+      setErrorMessage(undefined);
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      setTimeDraft({ day, start: "", end: `${pad(now.getHours())}:${pad(now.getMinutes())}`, description: "", serviceType: "remoto" });
+    },
+    updateTimeDraft(patch) {
+      setTimeDraft((current) => (current ? { ...current, ...patch } : current));
+    },
+    cancelLogTime: () => setTimeDraft(undefined),
+    async submitLogTime() {
+      if (!selected || !timeDraft || timeError) return;
+      try {
+        await logTime.mutateAsync({
+          ticketId: selected.id,
+          start_time: localDateTimeToIso(timeDraft.day, timeDraft.start),
+          end_time: localDateTimeToIso(timeDraft.day, timeDraft.end),
+          description: timeDraft.description.trim(),
+          service_type: timeDraft.serviceType,
+        });
+        setTimeDraft(undefined);
+      } catch (error) {
+        setErrorMessage((error as Error).message);
+      }
+    },
     async submitCreateProject() {
       if (!selected || !projectDraft) return;
       try {

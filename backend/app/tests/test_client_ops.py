@@ -29,6 +29,16 @@ EMAIL_ID = str(uuid.uuid4())
 PROPOSAL_ID = str(uuid.uuid4())
 LEAD_ID = str(uuid.uuid4())
 CONTRACT_ID = str(uuid.uuid4())
+
+CYCLE_REPORT = {
+    "client": {"id": CLIENT_ID, "company_name": "ACME", "contact_name": "Ana Souza", "email": "ana@acme.com.br"},
+    "cycle": {"start": "2026-09-05", "end": "2026-10-05", "billing_cycle_day": 5},
+    "support_contract": {"id": CONTRACT_ID, "plan_name": "Plano 4 Horas"},
+    "hours": {"used": 5.5, "quota": 4.0, "remaining": 0.0, "extra": 1.5},
+    "time_entries": [{"ticket_id": TICKET_ID, "description": "Troca do toner", "billable_hours": 1.0, "service_type": "remoto", "date": "2026-09-10"}],
+    "tickets": {"opened": [], "closed": [{"title": "Impressora parada"}], "open": [{"title": "Backup lento"}]},
+    "demands": {"opened": [], "closed": [], "open": []},
+}
 HASH = "a" * 64
 
 
@@ -78,6 +88,8 @@ class FakeDarckware:
         }
         self.fail_patch = False
         self.recipient_ok = True
+        self.queued: list[dict] = []
+        self.report_refs: list[str | None] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
@@ -122,12 +134,23 @@ class FakeDarckware:
             return httpx.Response(200, json=self.ticket)
         if path == f"{a}/demands" and request.method == "GET":
             return httpx.Response(200, json={"items": [self.demand], "total": 1})
-        if path == f"{a}/outbound-emails" and request.method == "GET":
+        if path == f"{a}/outbound-emails" and request.method == "GET" and not request.url.params.get("source_ref"):
             return httpx.Response(200, json={"items": [self.email], "total": 1, "pending": {}})
         if path == f"{a}/outbound-emails" and request.method == "POST":
             if not self.recipient_ok:
                 return httpx.Response(422, json={"detail": "Destinatário não vinculado"})
+            self.queued.append({**body, "id": str(uuid.uuid4())})
             return httpx.Response(201, json={**self.email, **{k: body[k] for k in ("subject", "kind", "to_email")}})
+        if path == f"{a}/clients/{CLIENT_ID}/cycle-report":
+            self.report_refs.append(request.url.params.get("reference"))
+            return httpx.Response(200, json=CYCLE_REPORT)
+        if path == f"{a}/clients-with-contracts":
+            return httpx.Response(200, json={"items": [{"id": CLIENT_ID, "company_name": "ACME", "billing_cycle_day": 5}]})
+        if path == f"{a}/tickets/{TICKET_ID}/time-entries":
+            return httpx.Response(201, json=self.ticket)
+        if path == f"{a}/outbound-emails" and request.method == "GET" and request.url.params.get("source_ref"):
+            hits = [e for e in self.queued if e.get("source_ref") == request.url.params["source_ref"]]
+            return httpx.Response(200, json={"items": hits, "total": len(hits)})
         if path == f"{a}/leads/{LEAD_ID}/conversion-proposals":
             return httpx.Response(201, json={"id": PROPOSAL_ID, "status": "proposta", "payload": body})
         if path == f"{a}/conversion-proposals":
@@ -435,3 +458,73 @@ async def test_create_project_needs_client_and_one_product_choice(client, darckw
     )
     assert lead_only.status_code == 422
     assert "convert the lead" in lead_only.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Onda 4 -- hours and monthly report
+# ---------------------------------------------------------------------------
+
+from datetime import date  # noqa: E402
+
+from app.core.client_monthly_report import build_report_text, run_due_reports  # noqa: E402
+
+
+def test_report_text_is_client_facing():
+    subject, body = build_report_text(
+        CYCLE_REPORT, [{"id": "x", "name": "Portal", "status": "active", "tasks_total": 10, "tasks_done": 4}], today=date(2026, 10, 5)
+    )
+    assert subject == "Informe mensal Darckware — ACME (05/09/2026 a 04/10/2026)"
+    partial, _ = build_report_text(CYCLE_REPORT, [], today=date(2026, 9, 20))
+    assert partial.endswith("(05/09/2026 a 20/09/2026 (parcial))")
+    assert body.startswith("Olá, Ana!")
+    assert "Horas utilizadas: 5,5 h de 4 h" in body
+    assert "Horas excedentes: 1,5 h" in body
+    assert "- 10/09/2026 Troca do toner (1 h)" in body
+    assert "- Impressora parada" in body and "- Backup lento" in body
+    assert "- Portal: em andamento — 4 de 10 etapas concluídas" in body
+    assert TICKET_ID not in body  # no internal ids
+
+
+@pytest.mark.asyncio
+async def test_monthly_report_is_queued_once_per_cycle(client, darckware):
+    first = await client.post(f"/api/v1/client-ops/clients/{CLIENT_ID}/monthly-report", json={"reference": "2026-10-04"})
+    assert first.status_code == 200, first.text
+    assert first.json()["created"] is True
+    queued = darckware.queued[0]
+    assert queued["kind"] == "informe_mensal"
+    assert queued["to_email"] == "ana@acme.com.br"
+    assert queued["source_ref"] == f"monthly-report:{CLIENT_ID}:2026-09-05"
+
+    again = await client.post(f"/api/v1/client-ops/clients/{CLIENT_ID}/monthly-report", json={"reference": "2026-10-04"})
+    assert again.json()["created"] is False
+    assert len(darckware.queued) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_internal_needs_bridge_token_and_picks_due_clients(darckware, monkeypatch):
+    monkeypatch.setattr(settings, "CHAT_BRIDGE_TOKEN", "bridge-secret")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon:
+        denied = await anon.post("/api/v1/client-ops/reports/run-internal")
+        assert denied.status_code == 401
+        ok = await anon.post("/api/v1/client-ops/reports/run-internal", headers={"X-Bridge-Token": "bridge-secret"})
+        assert ok.status_code == 200, ok.text
+
+    async with AsyncSessionLocal() as db:
+        not_due = await run_due_reports(db, today=date(2026, 10, 4))
+        due = await run_due_reports(db, today=date(2026, 10, 5))
+    assert not_due["due"] == 0
+    assert due["due"] == 1 and due["results"][0]["client"] == "ACME"
+    assert darckware.report_refs[-1] == "2026-10-04"  # the cycle that just closed
+
+
+@pytest.mark.asyncio
+async def test_log_time_records_who(client, darckware):
+    r = await client.post(
+        f"/api/v1/client-ops/work-items/ticket/{TICKET_ID}:log-time",
+        json={"start_time": "2026-10-04T13:00:00Z", "end_time": "2026-10-04T14:00:00Z", "description": "Visita técnica", "service_type": "presencial"},
+    )
+    assert r.status_code == 201, r.text
+    call = next(c for c in darckware.calls if c[1].endswith("/time-entries"))
+    assert call[2]["recorded_by"].startswith("forgehub:test-admin-")
+    assert call[2]["service_type"] == "presencial"

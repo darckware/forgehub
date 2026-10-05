@@ -6,6 +6,7 @@ is no ForgeHub table behind this domain, so there is no ORM shape to mirror.
 from __future__ import annotations
 
 import uuid
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -167,3 +168,21 @@ class CreateProjectFromItem(BaseModel):
 
 class LinkProduct(BaseModel):
     product_id: uuid.UUID
+
+
+# ---------------------------------------------------------------------------
+# Onda 4 -- hours and monthly report
+# ---------------------------------------------------------------------------
+
+
+class LogTimeIn(BaseModel):
+    start_time: datetime
+    end_time: datetime
+    description: str = Field(..., min_length=1, max_length=4000)
+    service_type: Literal["remoto", "presencial"] = "remoto"
+
+
+class MonthlyReportIn(BaseModel):
+    """`reference`: any day inside the cycle to report (default: yesterday)."""
+
+    reference: date | None = None

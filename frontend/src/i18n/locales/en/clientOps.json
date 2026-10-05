@@ -266,5 +266,28 @@
       "ticket": "from ticket",
       "demand": "from demand"
     }
+  },
+  "time": {
+    "log": "Log hours",
+    "title": "Log hours on the ticket",
+    "date": "Date",
+    "start": "Start",
+    "end": "End",
+    "description": "What was done",
+    "serviceType": "Service",
+    "remoto": "Remote",
+    "presencial": "On site",
+    "rounding": "Counts against the contract quota, rounded up to 30-minute blocks.",
+    "endBeforeStart": "The end must be after the start.",
+    "entries": "Logged hours",
+    "by": "by {{who}}",
+    "save": "Log",
+    "cancel": "Cancel"
+  },
+  "report": {
+    "generate": "Generate monthly report",
+    "generated": "Report for {{start}} to {{end}} queued for approval.",
+    "exists": "This cycle's report was already in the queue.",
+    "open": "Open approval"
   }
 }
