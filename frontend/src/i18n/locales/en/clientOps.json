@@ -172,7 +172,15 @@
       "ativo": "Reactivate"
     },
     "confirmStatusTitle": "Change the contract status?",
-    "confirmStatusBody": "Contract \"{{plan}}\" becomes {{status}}."
+    "confirmStatusBody": "Contract \"{{plan}}\" becomes {{status}}.",
+    "openWork": "Open tickets and demands",
+    "noOpenWork": "Nothing open for this client.",
+    "resolve": "Resolve",
+    "emailsTitle": "E-mails to the client",
+    "noEmails": "No e-mails to this client.",
+    "reportsTitle": "Monthly reports",
+    "noReports": "No reports generated yet.",
+    "openEmail": "Open"
   },
   "contract": {
     "type": {

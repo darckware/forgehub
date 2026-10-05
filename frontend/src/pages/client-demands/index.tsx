@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Briefcase, Clock, FolderKanban, Loader2, Mail, Plus, X } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -21,6 +21,7 @@ import {
 import {
   ACTIONS_BY_STAGE,
   ACTION_EMAIL,
+  parseDemandsSearch,
   useClientDemandsViewModel,
   type ClientDemandsViewModel,
 } from "@/hooks/useClientDemandsViewModel";
@@ -30,7 +31,9 @@ import { ClientOpsStatusBanner, emailStatusVariant, stageVariant } from "./share
 
 export default function ClientDemandsPage() {
   const { t } = useTranslation("clientOps");
-  const vm = useClientDemandsViewModel();
+  const [search] = useSearchParams();
+  const [initial] = useState(() => parseDemandsSearch(search));
+  const vm = useClientDemandsViewModel(initial);
   const integration = useClientOpsStatus();
   const clients = useDarckwareClients();
   const [creating, setCreating] = useState(false);

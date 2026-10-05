@@ -154,10 +154,11 @@ export function useDarckwareClients() {
   });
 }
 
-export function useWorkItems(filters: WorkItemFilters) {
+export function useWorkItems(filters: WorkItemFilters, enabled = true) {
   return useQuery<WorkItemList>({
     queryKey: ["client-ops", "work-items", filters],
     queryFn: () => apiClient.get(`${BASE}/work-items${qs({ ...filters })}`),
+    enabled,
     retry: false,
   });
 }
@@ -224,6 +225,23 @@ export function useOutboundEmails(status?: string) {
     queryFn: () => apiClient.get(`${BASE}/emails${qs({ status })}`),
     retry: false,
   });
+}
+
+/** One client's e-mails (any status), for the client page. */
+export function useClientEmails(clientId?: string) {
+  return useQuery<{ items: OutboundEmail[]; total: number }>({
+    queryKey: ["client-ops", "emails", "client", clientId],
+    queryFn: () => apiClient.get(`${BASE}/emails${qs({ client_account_id: clientId, limit: "50" })}`),
+    enabled: Boolean(clientId),
+    retry: false,
+  });
+}
+
+/** Deep link into the demands screen: filtered by client, optionally with one item open. */
+export function clientDemandsLink(clientId: string, item?: { kind: WorkItemKind; id: string }): string {
+  const params = new URLSearchParams({ client: clientId });
+  if (item) params.set("item", `${item.kind}:${item.id}`);
+  return `/client-demands?${params.toString()}`;
 }
 
 export function useOutboundEmail(id?: string) {

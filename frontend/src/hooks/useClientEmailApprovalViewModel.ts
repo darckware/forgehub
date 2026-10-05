@@ -74,9 +74,11 @@ export interface EmailApprovalViewModel {
 const APPROVABLE = new Set(["aguardando_aprovacao", "falhou", "envio_incerto"]);
 const EDITABLE = new Set(["rascunho", "aguardando_aprovacao", "aprovado", "falhou", "envio_incerto"]);
 
-export function useClientEmailApprovalViewModel(): EmailApprovalViewModel {
-  const [filter, setFilter] = useState<EmailListFilter>("pending");
-  const [selectedId, setSelectedId] = useState<string>();
+/** `initialId` comes from a deep link (`/client-emails?id=`): open on that e-mail,
+ * in the "all" list so it is found whatever its status. */
+export function useClientEmailApprovalViewModel(initialId?: string): EmailApprovalViewModel {
+  const [filter, setFilter] = useState<EmailListFilter>(initialId ? "all" : "pending");
+  const [selectedId, setSelectedId] = useState<string | undefined>(initialId);
   const [mode, setMode] = useState<"view" | "editing" | "confirming" | "rejecting" | "cancelling">("view");
   const [draft, setDraftState] = useState({ subject: "", body_text: "", to_email: "" });
   const [rejectReason, setRejectReason] = useState("");

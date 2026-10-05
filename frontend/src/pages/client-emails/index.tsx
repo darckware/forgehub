@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Check, Loader2, Mail, Pencil, X } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,7 +22,9 @@ const FILTERS: EmailListFilter[] = ["pending", "aprovado", "enviado", "all"];
 
 export default function ClientEmailsPage() {
   const { t } = useTranslation("clientOps");
-  const vm = useClientEmailApprovalViewModel();
+  const [search] = useSearchParams();
+  const [initialId] = useState(() => search.get("id") || undefined);
+  const vm = useClientEmailApprovalViewModel(initialId);
   const integration = useClientOpsStatus();
   const selected = vm.selected;
 

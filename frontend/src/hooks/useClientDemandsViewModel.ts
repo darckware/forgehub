@@ -118,9 +118,23 @@ export interface ClientDemandsViewModel {
   submitLogTime(): Promise<void>;
 }
 
-export function useClientDemandsViewModel(): ClientDemandsViewModel {
-  const [filters, setFilters] = useState<WorkItemFilters>({ stage: "open" });
-  const [selected, setSelected] = useState<{ kind: WorkItemKind; id: string }>();
+/** Initial state from a deep link (`?client=<id>&item=<kind>:<id>`, see clientDemandsLink). */
+export interface ClientDemandsInitial {
+  clientId?: string;
+  item?: { kind: WorkItemKind; id: string };
+}
+
+export function parseDemandsSearch(search: URLSearchParams): ClientDemandsInitial {
+  const clientId = search.get("client") || undefined;
+  const raw = search.get("item");
+  const [kind, id] = raw ? raw.split(":") : [];
+  const item = (kind === "ticket" || kind === "demand") && id ? { kind: kind as WorkItemKind, id } : undefined;
+  return { clientId, item };
+}
+
+export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): ClientDemandsViewModel {
+  const [filters, setFilters] = useState<WorkItemFilters>({ stage: "open", client_account_id: initial.clientId });
+  const [selected, setSelected] = useState<{ kind: WorkItemKind; id: string } | undefined>(initial.item);
   const [draft, setDraft] = useState<ActionDraft>();
   const [errorMessage, setErrorMessage] = useState<string>();
   const [lastQueuedEmail, setLastQueuedEmail] = useState<string>();

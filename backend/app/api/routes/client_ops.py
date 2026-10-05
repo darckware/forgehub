@@ -513,13 +513,14 @@ async def reopen_work_item(
 async def list_emails(
     status_filter: str | None = Query(None, alias="status"),
     client_account_id: uuid.UUID | None = None,
+    kind: str | None = None,
     limit: int = Query(100, ge=1, le=200),
     _admin: User = Depends(get_current_admin),
 ) -> dict[str, Any]:
     return await dw.request(
         "GET",
         "/outbound-emails",
-        params={"status": status_filter, "client_account_id": client_account_id, "limit": limit},
+        params={"status": status_filter, "client_account_id": client_account_id, "kind": kind, "limit": limit},
     )
 
 

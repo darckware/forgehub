@@ -7,7 +7,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
-import type { Contract, ContractStatus } from "@/hooks/useClientOps";
+import { clientDemandsLink, type Contract, type ContractStatus, type OutboundEmail } from "@/hooks/useClientOps";
+import { emailStatusVariant, stageVariant } from "@/pages/client-demands/shared";
 import { useClientAccountViewModel, type ClientAccountViewModel } from "@/hooks/useClientAccountViewModel";
 import { ContractDialog } from "./ContractDialog";
 
@@ -49,7 +50,7 @@ export default function ClientAccountPage() {
             icon={<Building2 className="h-6 w-6" />}
             actions={
               <>
-                <Link to="/client-demands" className={buttonVariants({ variant: "outline" })}>
+                <Link to={clientDemandsLink(client.id)} className={buttonVariants({ variant: "outline" })}>
                   {t("accounts.seeDemands")}
                 </Link>
                 <Button variant="outline" onClick={() => void vm.generateReport()} disabled={vm.reportPending}>
@@ -82,6 +83,8 @@ export default function ClientAccountPage() {
             </p>
           )}
 
+          <OpenWorkSection vm={vm} clientId={client.id} />
+
           <Card>
             <CardContent className="space-y-3 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -100,6 +103,9 @@ export default function ClientAccountPage() {
           </Card>
 
           <FactorySection vm={vm} />
+
+          <EmailsSection title={t("accounts.emailsTitle")} empty={t("accounts.noEmails")} emails={vm.emails} />
+          <EmailsSection title={t("accounts.reportsTitle")} empty={t("accounts.noReports")} emails={vm.reports} />
 
           <Card>
             <CardContent className="space-y-3 p-4">
@@ -281,6 +287,77 @@ function FactorySection({ vm }: { vm: ClientAccountViewModel }) {
             </Button>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OpenWorkSection({ vm, clientId }: { vm: ClientAccountViewModel; clientId: string }) {
+  const { t } = useTranslation("clientOps");
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-center gap-2">
+          <h2 className="font-semibold">{t("accounts.openWork")}</h2>
+          {vm.openWork.length > 0 && <Badge variant="warning">{vm.openWork.length}</Badge>}
+        </div>
+        {vm.openWorkLoading && <Loader2 className="h-5 w-5 animate-spin" />}
+        {!vm.openWorkLoading && vm.openWork.length === 0 && (
+          <p className="text-sm text-muted-foreground">{t("accounts.noOpenWork")}</p>
+        )}
+        <ul className="divide-y">
+          {vm.openWork.map((item) => (
+            <li key={`${item.kind}:${item.id}`} className="flex flex-col gap-2 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 space-y-1">
+                <div className="break-words font-medium">{item.title}</div>
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <Badge variant={stageVariant(item.stage)}>{t(`stage.${item.stage}`)}</Badge>
+                  <span>{t(`kind.${item.kind}`)}</span>
+                  <span>· {t(`tipo.${item.tipo}`)}</span>
+                  {item.priority && <span>· {t(`priority.${item.priority}`, item.priority)}</span>}
+                  {item.created_at && <span>· {new Date(item.created_at).toLocaleDateString()}</span>}
+                </div>
+              </div>
+              <Link
+                to={clientDemandsLink(clientId, { kind: item.kind, id: item.id })}
+                className={buttonVariants({ size: "sm", className: "shrink-0" })}
+              >
+                {t("accounts.resolve")}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmailsSection({ title, empty, emails }: { title: string; empty: string; emails: OutboundEmail[] }) {
+  const { t } = useTranslation("clientOps");
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <h2 className="font-semibold">{title}</h2>
+        {emails.length === 0 && <p className="text-sm text-muted-foreground">{empty}</p>}
+        <ul className="divide-y">
+          {emails.map((e) => (
+            <li key={e.id} className="flex flex-col gap-1 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="break-words text-sm font-medium">{e.subject}</div>
+                <div className="text-xs text-muted-foreground">
+                  {t(`emails.kind.${e.kind}`, e.kind)} · v{e.version}
+                  {e.sent_at ? ` · ${new Date(e.sent_at).toLocaleString()}` : e.created_at ? ` · ${new Date(e.created_at).toLocaleString()}` : ""}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge variant={emailStatusVariant(e.status)}>{t(`emails.status.${e.status}`, e.status)}</Badge>
+                <Link to={`/client-emails?id=${e.id}`} className="text-xs underline">
+                  {t("accounts.openEmail")}
+                </Link>
+              </div>
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import {
+  useClientEmails,
   useClientFactory,
+  useWorkItems,
   useCreateContract,
   useGenerateMonthlyReport,
   useLinkProduct,
@@ -12,6 +14,8 @@ import {
   type ContractInput,
   type ContractStatus,
   type MonthlyReportResult,
+  type OutboundEmail,
+  type WorkItem,
 } from "@/hooks/useClientOps";
 
 /**
@@ -20,6 +24,8 @@ import {
  * and go through ForgeHub's approver credential; a status change (suspend,
  * close, reactivate) always asks for confirmation first.
  */
+const PRIORITY_RANK: Record<string, number> = { urgente: 0, alta: 1, media: 2, baixa: 3 };
+
 export type ClientAccountStatus = "loading" | "ready" | "editing" | "confirming" | "submitting" | "error";
 
 export type ContractDialog = { mode: "create" } | { mode: "edit"; contract: Contract };
@@ -48,6 +54,12 @@ export interface ClientAccountViewModel {
   contractDialog?: ContractDialog;
   statusChange?: { contract: Contract; status: ContractStatus };
   errorMessage?: string;
+  /** Tickets and demands still open for this client -- the work to resolve. */
+  openWork: WorkItem[];
+  openWorkLoading: boolean;
+  /** E-mails to this client (any status), newest first; reports are those with kind informe_mensal. */
+  emails: OutboundEmail[];
+  reports: OutboundEmail[];
   /** This client's products/projects in the Software Factory (Onda 3). */
   factory?: ClientFactory;
   linkProductId: string;
@@ -76,6 +88,9 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
   const create = useCreateContract();
   const update = useUpdateContract();
   const factory = useClientFactory(clientId);
+  const openWork = useWorkItems({ client_account_id: clientId, stage: "open" }, Boolean(clientId));
+  const emails = useClientEmails(clientId);
+  const allEmails = emails.data?.items ?? [];
   const link = useLinkProduct();
   const [linkProductId, setLinkProductId] = useState("");
   const report = useGenerateMonthlyReport();
@@ -96,6 +111,13 @@ export function useClientAccountViewModel(clientId?: string): ClientAccountViewM
     contractDialog,
     statusChange,
     errorMessage,
+    // Most urgent first, then oldest: what to resolve next is at the top.
+    openWork: [...(openWork.data?.items ?? [])].sort(
+      (a, b) => (PRIORITY_RANK[a.priority ?? ""] ?? 9) - (PRIORITY_RANK[b.priority ?? ""] ?? 9) || (a.created_at ?? "").localeCompare(b.created_at ?? ""),
+    ),
+    openWorkLoading: openWork.isLoading,
+    emails: allEmails.filter((e) => e.kind !== "informe_mensal"),
+    reports: allEmails.filter((e) => e.kind === "informe_mensal"),
     factory: factory.data,
     linkProductId,
     linking: link.isPending,

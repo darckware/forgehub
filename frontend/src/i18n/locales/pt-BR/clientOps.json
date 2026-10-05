@@ -172,7 +172,15 @@
       "ativo": "Reativar"
     },
     "confirmStatusTitle": "Alterar a situação do contrato?",
-    "confirmStatusBody": "O contrato \"{{plan}}\" passa a {{status}}."
+    "confirmStatusBody": "O contrato \"{{plan}}\" passa a {{status}}.",
+    "openWork": "Chamados e demandas em aberto",
+    "noOpenWork": "Nada em aberto para este cliente.",
+    "resolve": "Resolver",
+    "emailsTitle": "E-mails ao cliente",
+    "noEmails": "Nenhum e-mail para este cliente.",
+    "reportsTitle": "Informes mensais",
+    "noReports": "Nenhum informe gerado ainda.",
+    "openEmail": "Abrir"
   },
   "contract": {
     "type": {
