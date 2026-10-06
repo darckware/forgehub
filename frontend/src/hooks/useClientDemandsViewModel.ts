@@ -69,10 +69,12 @@ export interface ProjectDraft {
   projectName: string;
 }
 
-/** "Apontar horas" (Onda 4): one block of work on a ticket, in local time. */
+/** "Apontar horas": one period of work, in local time. Start and end each have
+ * their own day, so a period may cross midnight or span several days. */
 export interface TimeDraft {
-  day: string;
+  startDay: string;
   start: string;
+  endDay: string;
   end: string;
   description: string;
   serviceType: "remoto" | "presencial";
@@ -84,8 +86,16 @@ export function hoursToMinutes(hours: string): number {
   return Number.isFinite(value) && value > 0 ? Math.round(value * 60) : 0;
 }
 
+/** Whole minutes between start and end; 0 while either is incomplete. */
+export function timeDraftMinutes(d: TimeDraft): number {
+  if (!d.startDay || !d.start || !d.endDay || !d.end) return 0;
+  const minutes = (Date.parse(`${d.endDay}T${d.end}:00`) - Date.parse(`${d.startDay}T${d.start}:00`)) / 60000;
+  return Number.isFinite(minutes) ? Math.round(minutes) : 0;
+}
+
 export function timeDraftError(d: TimeDraft): "endBeforeStart" | undefined {
-  return d.start && d.end && d.end <= d.start ? "endBeforeStart" : undefined;
+  if (!d.startDay || !d.start || !d.endDay || !d.end) return undefined;
+  return timeDraftMinutes(d) <= 0 ? "endBeforeStart" : undefined;
 }
 
 export interface ClientDemandsViewModel {
@@ -112,6 +122,8 @@ export interface ClientDemandsViewModel {
   projectBlockedReason?: "noClient";
   timeDraft?: TimeDraft;
   timeDraftError?: "endBeforeStart";
+  /** Length of the period being logged, in minutes (0 while incomplete). */
+  timeDraftMinutes: number;
   canSubmitTime: boolean;
   setFilter<K extends keyof WorkItemFilters>(key: K, value: WorkItemFilters[K] | undefined): void;
   select(item: WorkItem | undefined): void;
@@ -202,8 +214,9 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
     projectBlockedReason: detail.data && !detail.data.client_account_id ? "noClient" : undefined,
     timeDraft,
     timeDraftError: timeError,
+    timeDraftMinutes: timeDraft ? timeDraftMinutes(timeDraft) : 0,
     canSubmitTime: Boolean(
-      timeDraft && !timeError && timeDraft.day && timeDraft.start && timeDraft.end && timeDraft.description.trim() && !logTime.isPending,
+      timeDraft && !timeError && timeDraftMinutes(timeDraft) > 0 && timeDraft.description.trim() && !logTime.isPending,
     ),
     setFilter(key, value) {
       setFilters((current) => ({ ...current, [key]: value || undefined }));
@@ -284,7 +297,14 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
       const now = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
       const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-      setTimeDraft({ day, start: "", end: `${pad(now.getHours())}:${pad(now.getMinutes())}`, description: "", serviceType: "remoto" });
+      setTimeDraft({
+        startDay: day,
+        start: "",
+        endDay: day,
+        end: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+        description: "",
+        serviceType: "remoto",
+      });
     },
     updateTimeDraft(patch) {
       setTimeDraft((current) => (current ? { ...current, ...patch } : current));
@@ -296,8 +316,8 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
         await logTime.mutateAsync({
           kind: selected.kind,
           id: selected.id,
-          start_time: localDateTimeToIso(timeDraft.day, timeDraft.start),
-          end_time: localDateTimeToIso(timeDraft.day, timeDraft.end),
+          start_time: localDateTimeToIso(timeDraft.startDay, timeDraft.start),
+          end_time: localDateTimeToIso(timeDraft.endDay, timeDraft.end),
           description: timeDraft.description.trim(),
           service_type: timeDraft.serviceType,
         });

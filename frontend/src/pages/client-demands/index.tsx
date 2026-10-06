@@ -1,7 +1,21 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Briefcase, Clock, FolderKanban, Loader2, Mail, Plus, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRightLeft,
+  Briefcase,
+  ChevronRight,
+  CirclePlus,
+  Clock,
+  FolderKanban,
+  Loader2,
+  Mail,
+  MessageSquare,
+  Plus,
+  User,
+  X,
+} from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -17,8 +31,10 @@ import {
   WORK_ITEM_STAGES,
   type WorkItemKind,
   type WorkItemStage,
+  type WorkItemDetail,
   type WorkItemTipo,
 } from "@/hooks/useClientOps";
+import { billableHours, buildTimeline, STAGE_FLOW } from "@/hooks/clientDemandTimeline";
 import {
   ACTIONS_BY_STAGE,
   ACTION_EMAIL,
@@ -28,7 +44,7 @@ import {
 } from "@/hooks/useClientDemandsViewModel";
 import { cn } from "@/lib/utils";
 import { NewWorkItemDialog } from "./NewWorkItemDialog";
-import { ClientOpsStatusBanner, emailStatusVariant, stageVariant } from "./shared";
+import { ClientOpsStatusBanner, stageVariant } from "./shared";
 
 export default function ClientDemandsPage() {
   const { t } = useTranslation("clientOps");
@@ -181,6 +197,11 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
   const fmt = useClientOpsText();
   const detail = vm.detail;
   if (!vm.selected) return <p className="text-sm text-muted-foreground">{t("demands.selectHint")}</p>;
+  const actions = detail ? (ACTIONS_BY_STAGE[detail.stage] ?? []) : [];
+  const canLogTime = Boolean(detail?.client_account_id) && detail?.stage !== "fechado";
+  // A project only makes sense for development work; a service demand never shows it.
+  const canCreateProject =
+    detail?.tipo === "desenvolvimento" && !detail.project && !vm.projectBlockedReason && detail.stage !== "fechado";
   return (
     <>
       <button
@@ -210,127 +231,221 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
       )}
       {detail && (
         <>
-          <div className="space-y-2">
-            <h2 className="break-words text-lg font-semibold">{detail.title}</h2>
-            <div className="flex flex-wrap gap-2">
+          <h2 className="break-words text-lg font-semibold">{detail.title}</h2>
+          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            <Field label={t("demands.fields.situation")}>
               <Badge variant={stageVariant(detail.stage)}>{t(`stage.${detail.stage}`)}</Badge>
-              <Badge variant="outline">{t(`kind.${detail.kind}`)}</Badge>
-              <Badge variant="outline">{t(`tipo.${detail.tipo}`)}</Badge>
-              {detail.priority && <Badge variant="outline">{t(`priority.${detail.priority}`, detail.priority)}</Badge>}
-            </div>
-          </div>
+            </Field>
+            <Field label={t("demands.fields.tipo")}>{t(`tipo.${detail.tipo}`)}</Field>
+            <Field label={t("demands.fields.priority")}>
+              {detail.priority ? (
+                <span className={cn(detail.priority === "urgente" && "font-semibold text-destructive")}>
+                  {t(`priority.${detail.priority}`, detail.priority)}
+                </span>
+              ) : (
+                "—"
+              )}
+            </Field>
+            <Field label={t("demands.fields.origin")}>
+              {t(`kind.${detail.kind}`)}
+              {detail.source && (
+                <span className="text-muted-foreground"> · {t(`source.${detail.source}`, { defaultValue: detail.source })}</span>
+              )}
+            </Field>
+          </dl>
           <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
-            <dt className="text-muted-foreground">{t("demands.filters.client")}</dt>
+            <dt className="text-muted-foreground">{t("demands.fields.client")}</dt>
             <dd>{detail.company_name ?? "—"}</dd>
-            <dt className="text-muted-foreground">{t("demands.requester")}</dt>
+            <dt className="text-muted-foreground">{t("demands.fields.requester")}</dt>
             <dd className="break-all">
               {[detail.requester_name, detail.requester_email].filter(Boolean).join(" · ") || "—"}
             </dd>
-            <dt className="text-muted-foreground">{t("demands.source")}</dt>
-            <dd>{detail.source ? t(`source.${detail.source}`, { defaultValue: detail.source }) : "—"}</dd>
             {detail.billable_hours != null && (
               <>
-                <dt className="text-muted-foreground">{t("demands.hours")}</dt>
+                <dt className="text-muted-foreground">{t("demands.fields.hours")}</dt>
                 <dd>{fmt.hours(detail.billable_hours)}</dd>
               </>
             )}
           </dl>
           {detail.description && <p className="whitespace-pre-wrap break-words text-sm">{detail.description}</p>}
 
-          {detail.project ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
-              <FolderKanban className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">{t("project.linked")}:</span>
-              <Link to={`/projects/${detail.project.id}`} className="font-medium underline">
-                {detail.project.name}
-              </Link>
-            </div>
-          ) : (
-            vm.projectBlockedReason === "noClient" && (
-              <p className="text-xs text-muted-foreground">{t("project.noClient")}</p>
-            )
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            {detail.client_account_id && detail.stage !== "fechado" && (
-              <Button size="sm" variant="outline" className="max-md:h-auto max-md:whitespace-normal" onClick={vm.openLogTime}>
-                <Clock className="mr-2 h-4 w-4" /> {t("time.log")}
-              </Button>
+          <section className="space-y-3 rounded-md border p-3">
+            <h3 className="text-sm font-semibold">{t("demands.flow.title")}</h3>
+            <StageProgress stage={detail.stage} />
+            {actions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("demands.flow.change")}</p>
+                <ul className="space-y-2">
+                  {actions.map((action) => (
+                    <li key={action} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                      <Button
+                        size="sm"
+                        variant={action === "resolve" ? "default" : "outline"}
+                        className="shrink-0 sm:w-44 max-md:h-auto max-md:whitespace-normal"
+                        onClick={() => vm.openAction(action)}
+                      >
+                        {t(`demands.actions.${action}`)}
+                      </Button>
+                      <span className="text-xs text-muted-foreground">{t(`demands.actionHelp.${action}`)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
-            {!detail.project && !vm.projectBlockedReason && detail.stage !== "fechado" && (
-              <Button size="sm" variant="outline" className="max-md:h-auto max-md:whitespace-normal" onClick={vm.openCreateProject}>
-                <FolderKanban className="mr-2 h-4 w-4" /> {t("project.create")}
-              </Button>
-            )}
-            {(ACTIONS_BY_STAGE[detail.stage] ?? []).map((action) => (
-              <Button
-                key={action}
-                size="sm"
-                variant={action === "resolve" ? "default" : "outline"}
-                className="max-md:h-auto max-md:whitespace-normal"
-                onClick={() => vm.openAction(action)}
-              >
-                {t(`demands.actions.${action}`)}
-              </Button>
-            ))}
-          </div>
+          </section>
 
-          {detail.time_entries.length > 0 && (
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold">{t("time.entries")}</h3>
-              <ul className="space-y-1 text-sm">
-                {detail.time_entries.map((e) => (
-                  <li key={e.id} className="flex flex-wrap gap-x-2">
-                    <span className="font-medium tabular-nums">{fmt.hours(e.billable_hours)}</span>
-                    <span className="break-words">{e.description}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {e.start_time ? fmt.date(e.start_time) : ""}
-                      {e.recorded_by ? ` · ${t("time.by", { who: e.recorded_by })}` : ""}
-                    </span>
+          {(canLogTime || canCreateProject || detail.project || vm.projectBlockedReason) && (
+            <section className="space-y-2 rounded-md border p-3">
+              <h3 className="text-sm font-semibold">{t("demands.flow.work")}</h3>
+              <ul className="space-y-2">
+                {canLogTime && (
+                  <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                    <Button size="sm" variant="outline" className="shrink-0 sm:w-44 max-md:h-auto max-md:whitespace-normal" onClick={vm.openLogTime}>
+                      <Clock className="mr-2 h-4 w-4" /> {t("time.log")}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">{t("demands.workHelp.log")}</span>
                   </li>
-                ))}
+                )}
+                {canCreateProject && (
+                  <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                    <Button size="sm" variant="outline" className="shrink-0 sm:w-44 max-md:h-auto max-md:whitespace-normal" onClick={vm.openCreateProject}>
+                      <FolderKanban className="mr-2 h-4 w-4" /> {t("project.create")}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">{t("demands.workHelp.project")}</span>
+                  </li>
+                )}
               </ul>
+              {detail.project ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">{t("project.linked")}:</span>
+                  <Link to={`/projects/${detail.project.id}`} className="font-medium underline">
+                    {detail.project.name}
+                  </Link>
+                </div>
+              ) : (
+                detail.tipo === "desenvolvimento" &&
+                vm.projectBlockedReason === "noClient" && <p className="text-xs text-muted-foreground">{t("project.noClient")}</p>
+              )}
             </section>
           )}
 
-          <section className="space-y-2">
-            <h3 className="text-sm font-semibold">{t("demands.emails")}</h3>
-            {detail.emails.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("demands.noEmails")}</p>
-            ) : (
-              <ul className="space-y-1">
-                {detail.emails.map((email) => (
-                  <li key={email.id} className="flex flex-wrap items-center gap-2 text-sm">
-                    <Badge variant={emailStatusVariant(email.status)}>
-                      {t(`emails.status.${email.status}`, email.status)}
-                    </Badge>
-                    <span className="break-words">{email.subject}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="space-y-2">
-            <h3 className="text-sm font-semibold">{t("demands.timeline")}</h3>
-            {detail.timeline.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("demands.noTimeline")}</p>
-            ) : (
-              <ol className="space-y-2 border-l pl-4">
-                {[...detail.timeline].reverse().map((ev, i) => (
-                  <li key={`${ev.at}-${i}`} className="text-sm">
-                    <div className="text-xs text-muted-foreground">
-                      {fmt.dateTime(ev.at)} · {ev.actor}
-                    </div>
-                    {ev.note && <p className="whitespace-pre-wrap break-words">{ev.note}</p>}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
+          <WorkItemTimeline detail={detail} />
         </>
       )}
     </>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="break-words">{children}</dd>
+    </div>
+  );
+}
+
+/** Nova → Em andamento → Aguardando cliente → Resolvida → Fechada, current stage marked. */
+function StageProgress({ stage }: { stage: WorkItemStage }) {
+  const { t } = useTranslation("clientOps");
+  const current = STAGE_FLOW.indexOf(stage);
+  return (
+    <ol className="flex flex-wrap items-center gap-x-1 gap-y-2 text-xs">
+      {STAGE_FLOW.map((s, i) => (
+        <li key={s} className="flex items-center gap-1">
+          <span
+            aria-current={i === current ? "step" : undefined}
+            className={cn(
+              "rounded-full border px-2 py-0.5",
+              i === current && "border-primary bg-primary font-semibold text-primary-foreground",
+              i < current && "border-primary/40 text-foreground",
+              i > current && "text-muted-foreground",
+            )}
+          >
+            {t(`stage.${s}`)}
+          </span>
+          {i < STAGE_FLOW.length - 1 && <ChevronRight className="h-3 w-3 text-muted-foreground" aria-hidden />}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function WorkItemTimeline({ detail }: { detail: WorkItemDetail }) {
+  const { t } = useTranslation("clientOps");
+  const fmt = useClientOpsText();
+  const entries = buildTimeline(detail);
+  const by = (who: string) => (who ? ` · ${t("demands.event.by", { who })}` : "");
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">{t("demands.history")}</h3>
+      {entries.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t("demands.noTimeline")}</p>
+      ) : (
+        <ol className="space-y-3 border-l pl-4">
+          {entries.map((e, i) => {
+            let icon: ReactNode = <MessageSquare className="h-3.5 w-3.5" />;
+            let title = "";
+            let body: string | undefined;
+            let actor = "";
+            switch (e.kind) {
+              case "opened":
+                icon = <CirclePlus className="h-3.5 w-3.5" />;
+                title = e.source
+                  ? t("demands.event.openedVia", { source: t(`source.${e.source}`, { defaultValue: e.source }) })
+                  : t("demands.event.opened");
+                break;
+              case "status":
+                icon = <ArrowRightLeft className="h-3.5 w-3.5" />;
+                title = e.from
+                  ? t("demands.event.status", { from: t(`stage.${e.from}`), to: t(`stage.${e.to}`) })
+                  : t("demands.event.statusTo", { to: t(`stage.${e.to}`) });
+                body = e.note;
+                actor = e.actor;
+                break;
+              case "hours":
+                icon = <Clock className="h-3.5 w-3.5" />;
+                title = t("demands.event.hours", { hours: fmt.hours(e.hours) });
+                body = [e.description, e.start && e.end ? t("demands.event.period", { start: fmt.dateTime(e.start), end: fmt.dateTime(e.end) }) : ""]
+                  .filter(Boolean)
+                  .join("\n");
+                actor = e.actor;
+                break;
+              case "email":
+                icon = <Mail className="h-3.5 w-3.5" />;
+                title = t(`demands.event.email.${e.event}`);
+                body = e.subject;
+                break;
+              case "client":
+                icon = <User className="h-3.5 w-3.5" />;
+                title = t("demands.event.client");
+                body = e.text;
+                actor = e.actor;
+                break;
+              case "note":
+                title = t("demands.event.note");
+                body = e.text;
+                actor = e.actor;
+                break;
+            }
+            return (
+              <li key={`${e.kind}-${e.at}-${i}`} className="relative text-sm">
+                <span className="absolute -left-[1.6rem] top-0.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground">
+                  {icon}
+                </span>
+                <div className="font-medium">{title}</div>
+                <div className="text-xs text-muted-foreground">
+                  {fmt.dateTime(e.at)}
+                  {by(actor)}
+                </div>
+                {body && <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">{body}</p>}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -519,29 +634,42 @@ function CreateProjectDialog({ vm }: { vm: ClientDemandsViewModel }) {
 
 function LogTimeDialog({ vm }: { vm: ClientDemandsViewModel }) {
   const { t } = useTranslation("clientOps");
+  const fmt = useClientOpsText();
   const d = vm.timeDraft!;
   const submitting = vm.status === "submitting";
+  const minutes = vm.timeDraftMinutes;
   return (
     <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto p-4">
       <div className="fixed inset-0 bg-black/60" onClick={vm.cancelLogTime} aria-hidden />
       <div role="dialog" aria-modal="true" className="relative my-auto w-full max-w-lg space-y-4 rounded-lg border bg-background p-5 shadow-xl">
         <h2 className="text-lg font-semibold">{t("time.title")}</h2>
         <p className="text-sm text-muted-foreground">{t("time.rounding")}</p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
-            <Label htmlFor="tm-day">{t("time.date")}</Label>
-            <Input id="tm-day" type="date" className="max-md:text-base" value={d.day} onChange={(e) => vm.updateTimeDraft({ day: e.target.value })} />
+        <fieldset className="space-y-1">
+          <legend className="text-sm font-medium">{t("time.startAt")}</legend>
+          <div className="grid grid-cols-2 gap-3">
+            <Input id="tm-start-day" type="date" aria-label={`${t("time.startAt")} · ${t("time.day")}`} className="max-md:text-base" value={d.startDay} onChange={(e) => vm.updateTimeDraft({ startDay: e.target.value })} />
+            <Input id="tm-start" type="time" aria-label={`${t("time.startAt")} · ${t("time.hour")}`} className="max-md:text-base" value={d.start} onChange={(e) => vm.updateTimeDraft({ start: e.target.value })} />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="tm-start">{t("time.start")}</Label>
-            <Input id="tm-start" type="time" className="max-md:text-base" value={d.start} onChange={(e) => vm.updateTimeDraft({ start: e.target.value })} />
+        </fieldset>
+        <fieldset className="space-y-1">
+          <legend className="text-sm font-medium">{t("time.endAt")}</legend>
+          <div className="grid grid-cols-2 gap-3">
+            <Input id="tm-end-day" type="date" aria-label={`${t("time.endAt")} · ${t("time.day")}`} className="max-md:text-base" value={d.endDay} onChange={(e) => vm.updateTimeDraft({ endDay: e.target.value })} />
+            <Input id="tm-end" type="time" aria-label={`${t("time.endAt")} · ${t("time.hour")}`} className="max-md:text-base" value={d.end} onChange={(e) => vm.updateTimeDraft({ end: e.target.value })} />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="tm-end">{t("time.end")}</Label>
-            <Input id="tm-end" type="time" className="max-md:text-base" value={d.end} onChange={(e) => vm.updateTimeDraft({ end: e.target.value })} />
-          </div>
-        </div>
-        {vm.timeDraftError && <p className="text-xs text-destructive">{t(`time.${vm.timeDraftError}`)}</p>}
+        </fieldset>
+        {vm.timeDraftError ? (
+          <p className="text-xs text-destructive">{t(`time.${vm.timeDraftError}`)}</p>
+        ) : (
+          minutes > 0 && (
+            <p className="rounded-md bg-muted px-3 py-2 text-sm">
+              {t("time.total", {
+                duration: t("time.duration", { h: Math.floor(minutes / 60), m: minutes % 60 }),
+                billable: fmt.hours(billableHours(minutes)),
+              })}
+            </p>
+          )
+        )}
         <div className="space-y-1">
           <Label htmlFor="tm-type">{t("time.serviceType")}</Label>
           <Select

@@ -6,7 +6,9 @@ import "@/i18n";
 import { apiClient } from "@/lib/api";
 
 import { actionBody } from "./useClientOps";
-import { hoursToMinutes, timeDraftError, useClientDemandsViewModel } from "./useClientDemandsViewModel";
+import { hoursToMinutes, timeDraftError, timeDraftMinutes, useClientDemandsViewModel } from "./useClientDemandsViewModel";
+import { billableHours, buildTimeline } from "./clientDemandTimeline";
+import type { WorkItemDetail } from "./useClientOps";
 
 /** What apiClient throws when Darckware refuses: the coded detail from client_ops. */
 function darckwareRefusal(reason: string) {
@@ -133,7 +135,7 @@ describe("useClientDemandsViewModel", () => {
     await waitFor(() => expect(result.current.items).toHaveLength(1));
     act(() => result.current.select(result.current.items[0]));
     act(() => result.current.openLogTime());
-    act(() => result.current.updateTimeDraft({ day: "2026-10-04", start: "14:00", end: "13:00", description: "Visita" }));
+    act(() => result.current.updateTimeDraft({ startDay: "2026-10-04", start: "14:00", endDay: "2026-10-04", end: "13:00", description: "Visita" }));
     expect(result.current.timeDraftError).toBe("endBeforeStart");
     expect(result.current.canSubmitTime).toBe(false);
     act(() => result.current.updateTimeDraft({ end: "15:30" }));
@@ -148,11 +150,36 @@ describe("useClientDemandsViewModel", () => {
 });
 
 describe("timeDraftError", () => {
-  it("only flags an end at or before the start", () => {
-    const base = { day: "2026-10-04", description: "x", serviceType: "remoto" as const };
+  it("only flags an end at or before the start, across days", () => {
+    const base = { startDay: "2026-10-04", endDay: "2026-10-04", description: "x", serviceType: "remoto" as const };
     expect(timeDraftError({ ...base, start: "09:00", end: "09:00" })).toBe("endBeforeStart");
     expect(timeDraftError({ ...base, start: "09:00", end: "09:30" })).toBeUndefined();
     expect(timeDraftError({ ...base, start: "", end: "09:30" })).toBeUndefined();
+    // 22:00 to 02:00 the next day is a valid 4-hour period
+    const overnight = { ...base, start: "22:00", endDay: "2026-10-05", end: "02:00" };
+    expect(timeDraftError(overnight)).toBeUndefined();
+    expect(timeDraftMinutes(overnight)).toBe(240);
+    expect(timeDraftError({ ...base, startDay: "2026-10-05", start: "08:00", end: "09:00" })).toBe("endBeforeStart");
+  });
+});
+
+describe("buildTimeline", () => {
+  it("tells one story, newest first, without notes that repeat an entry", () => {
+    const entries = buildTimeline({
+      created_at: "2026-10-01T10:00:00Z",
+      source: "portal",
+      timeline: [
+        { at: "2026-10-01T11:00:00Z", actor: "forgehub:marcelo", type: "status", note: "status aberto → em_andamento" },
+        { at: "2026-10-01T12:00:00Z", actor: "forgehub:marcelo", type: "horas_apontadas", note: "1,5 h apontadas: Visita" },
+        { at: "2026-10-01T13:00:00Z", actor: "cliente:Ana", type: "mensagem_cliente", note: "Já liberei o acesso" },
+      ],
+      time_entries: [{ id: "h1", billable_hours: 1.5, description: "Visita", start_time: "2026-10-01T12:00:00Z", recorded_by: "forgehub:marcelo" }],
+      emails: [{ id: "e1", subject: "Acesso", status: "enviado", created_at: "2026-10-01T11:30:00Z", sent_at: "2026-10-01T11:45:00Z" }],
+    } as unknown as WorkItemDetail);
+    expect(entries.map((e) => e.kind)).toEqual(["client", "hours", "email", "email", "status", "opened"]);
+    expect(entries[4]).toMatchObject({ from: "novo", to: "em_andamento", actor: "marcelo" });
+    expect(entries[0]).toMatchObject({ actor: "Ana", text: "Já liberei o acesso" });
+    expect(billableHours(61)).toBe(1.5);
   });
 });
 

@@ -87,6 +87,50 @@
       "required": "Required",
       "save": "Save to Darckware",
       "noClients": "No clients registered in Darckware."
+    },
+    "fields": {
+      "situation": "Status",
+      "tipo": "Type",
+      "priority": "Priority",
+      "origin": "Origin",
+      "client": "Client",
+      "requester": "Requester",
+      "hours": "Logged hours"
+    },
+    "flow": {
+      "title": "Progress",
+      "change": "Change status",
+      "work": "Work",
+      "reopenHint": "Reopening sets the item back to New."
+    },
+    "actionHelp": {
+      "start": "Moves to In progress: someone is working on it.",
+      "wait-customer": "Pauses while waiting on the client (information, access, approval). The client's reply resumes the work.",
+      "resolve": "Closes the work: enter the resolution and the hours spent, which consume the plan's quota.",
+      "reopen": "Back to New when the problem persists or the client asks again."
+    },
+    "workHelp": {
+      "log": "Records a period of work (start and end; it may run from one day into the next).",
+      "project": "Development demands only: opens the project in the Software Factory."
+    },
+    "history": "Timeline",
+    "event": {
+      "opened": "Opened",
+      "openedVia": "Opened via {{source}}",
+      "status": "{{from}} → {{to}}",
+      "statusTo": "Status: {{to}}",
+      "hours": "{{hours}} logged",
+      "period": "{{start}} to {{end}}",
+      "email": {
+        "queued": "E-mail queued for approval",
+        "sent": "E-mail sent to the client",
+        "rejected": "E-mail rejected",
+        "failed": "E-mail delivery failed",
+        "cancelled": "E-mail cancelled"
+      },
+      "client": "Client message",
+      "note": "Note",
+      "by": "by {{who}}"
     }
   },
   "emails": {
@@ -297,7 +341,13 @@
     "cancel": "Cancel",
     "spent": "Hours spent on the solution",
     "spentHelp": "Required: consumes the contract quota (30-minute blocks).",
-    "spentNoClient": "No client linked: there is no quota to consume."
+    "spentNoClient": "No client linked: there is no quota to consume.",
+    "startAt": "Start",
+    "endAt": "End",
+    "day": "Date",
+    "hour": "Time",
+    "total": "Period total: {{duration}} · counts {{billable}} against the quota",
+    "duration": "{{h}} h {{m}} min"
   },
   "report": {
     "generate": "Generate monthly report",

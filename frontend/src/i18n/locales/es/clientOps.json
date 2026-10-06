@@ -87,6 +87,50 @@
       "required": "Obligatorio",
       "save": "Guardar en Darckware",
       "noClients": "No hay clientes registrados en Darckware."
+    },
+    "fields": {
+      "situation": "Situación",
+      "tipo": "Tipo",
+      "priority": "Prioridad",
+      "origin": "Origen",
+      "client": "Cliente",
+      "requester": "Solicitante",
+      "hours": "Horas registradas"
+    },
+    "flow": {
+      "title": "Avance",
+      "change": "Cambiar situación",
+      "work": "Trabajo",
+      "reopenHint": "Reabrir devuelve la demanda a Nueva."
+    },
+    "actionHelp": {
+      "start": "Pasa a En curso: alguien está trabajando en ello.",
+      "wait-customer": "Pausa a la espera del cliente (información, acceso, aprobación). La respuesta del cliente reanuda la atención.",
+      "resolve": "Concluye: indica la resolución y las horas dedicadas, que consumen la franquicia.",
+      "reopen": "Vuelve a Nueva cuando el problema persiste o el cliente lo pide de nuevo."
+    },
+    "workHelp": {
+      "log": "Registra un período de trabajo (inicio y fin; puede pasar de un día a otro).",
+      "project": "Solo para demandas de desarrollo: abre el proyecto en la Software Factory."
+    },
+    "history": "Línea de tiempo",
+    "event": {
+      "opened": "Abierta",
+      "openedVia": "Abierta vía {{source}}",
+      "status": "{{from}} → {{to}}",
+      "statusTo": "Situación: {{to}}",
+      "hours": "{{hours}} registradas",
+      "period": "{{start}} hasta {{end}}",
+      "email": {
+        "queued": "Correo en cola de aprobación",
+        "sent": "Correo enviado al cliente",
+        "rejected": "Correo rechazado",
+        "failed": "Fallo en el envío del correo",
+        "cancelled": "Correo cancelado"
+      },
+      "client": "Mensaje del cliente",
+      "note": "Nota",
+      "by": "por {{who}}"
     }
   },
   "emails": {
@@ -297,7 +341,13 @@
     "cancel": "Cancelar",
     "spent": "Horas dedicadas a la solución",
     "spentHelp": "Obligatorio: consume la franquicia del contrato (bloques de 30 min).",
-    "spentNoClient": "Sin cliente vinculado: no hay franquicia que consumir."
+    "spentNoClient": "Sin cliente vinculado: no hay franquicia que consumir.",
+    "startAt": "Inicio",
+    "endAt": "Fin",
+    "day": "Fecha",
+    "hour": "Hora",
+    "total": "Total del período: {{duration}} · cuenta {{billable}} en la franquicia",
+    "duration": "{{h}} h {{m}} min"
   },
   "report": {
     "generate": "Generar informe del mes",
