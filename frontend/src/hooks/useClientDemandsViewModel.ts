@@ -207,6 +207,14 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
     ),
     setFilter(key, value) {
       setFilters((current) => ({ ...current, [key]: value || undefined }));
+      // A new filter is a new list: the detail on the right referred to the old
+      // one, so it (and any dialog open for it) is cleared (2026-10-05, Marcelo).
+      setSelected(undefined);
+      setDraft(undefined);
+      setProjectDraft(undefined);
+      setTimeDraft(undefined);
+      setLastQueuedEmail(undefined);
+      setErrorMessage(undefined);
     },
     select(item) {
       setSelected(item ? { kind: item.kind, id: item.id } : undefined);

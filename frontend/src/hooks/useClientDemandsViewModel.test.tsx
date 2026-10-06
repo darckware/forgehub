@@ -164,3 +164,29 @@ describe("hoursToMinutes", () => {
     expect(hoursToMinutes("-2")).toBe(0);
   });
 });
+
+describe("useClientDemandsViewModel filters", () => {
+  beforeEach(() => {
+    vi.mocked(apiClient.get).mockReset();
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) =>
+      path.startsWith("/api/v1/client-ops/work-items/")
+        ? { ...ITEM, timeline: [], time_entries: [], emails: [] }
+        : { items: [ITEM], total: 1, by_stage: { novo: 1 } },
+    );
+  });
+
+  it("clears the selected item and its dialogs when a filter changes", async () => {
+    const { result } = renderHook(() => useClientDemandsViewModel(), { wrapper });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    act(() => result.current.select(result.current.items[0]));
+    await waitFor(() => expect(result.current.detail?.id).toBe("t1"));
+    act(() => result.current.openAction("start"));
+    expect(result.current.draft).toBeDefined();
+
+    act(() => result.current.setFilter("kind", "demand"));
+    expect(result.current.selected).toBeUndefined();
+    expect(result.current.draft).toBeUndefined();
+    expect(result.current.detail).toBeUndefined();
+  });
+});
+
