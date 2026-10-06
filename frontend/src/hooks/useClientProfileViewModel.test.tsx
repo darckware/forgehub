@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { apiClient } from "@/lib/api";
 
-import type { ClientSummary } from "./useClientOps";
+import { changedFields, clientAccountSchema, clientAddressLine, cnpjIsValid, type ClientSummary } from "./useClientOps";
 import { clientFormDefaults, portalState, useClientProfileViewModel } from "./useClientProfileViewModel";
 
 vi.mock("@/lib/api", () => ({
@@ -82,5 +82,33 @@ describe("portalState and defaults", () => {
     expect(portalState({ ...CLIENT, last_login_at: "2026-10-05T10:00:00Z" })).toBe("mustChange");
     expect(portalState({ ...CLIENT, last_login_at: "2026-10-05T10:00:00Z", must_change_password: false })).toBe("active");
     expect(clientFormDefaults(CLIENT).phone).toBe("2199");
+  });
+});
+
+describe("client registry (2026-10-06)", () => {
+  it("validates CNPJ check digits, CEP and UF", () => {
+    expect(cnpjIsValid("45.498.857/0001-11")).toBe(true);
+    expect(cnpjIsValid("45.498.857/0004-11")).toBe(false); // OCR misread
+    expect(cnpjIsValid("11111111111111")).toBe(false);
+    const base = { company_name: "HW", contact_name: "Alessandra", email: "a@b.com" };
+    expect(clientAccountSchema.safeParse({ ...base, cnpj: "45498857000411" }).success).toBe(false);
+    expect(clientAccountSchema.safeParse({ ...base, address_zip: "2628-500" }).success).toBe(false);
+    expect(clientAccountSchema.safeParse({ ...base, address_state: "R" }).success).toBe(false);
+    const ok = clientAccountSchema.safeParse({ ...base, cnpj: "", address_state: "rj", address_zip: "26.285-000" });
+    expect(ok.success && ok.data.address_state).toBe("RJ");
+  });
+
+  it("fills the form with the registry and shows a one-line address", () => {
+    const client = { ...CLIENT, cnpj: "45.498.857/0001-11", address_street: "ROD PRESIDENTE DUTRA", address_number: "280", address_district: "CENTRO", address_city: "NOVA IGUACU", address_state: "RJ", address_zip: "26285-000" };
+    const form = clientFormDefaults(client);
+    expect(form.cnpj).toBe("45.498.857/0001-11");
+    expect(form.trade_name).toBe("");
+    expect(clientAddressLine(client)).toBe("ROD PRESIDENTE DUTRA, 280 · CENTRO · NOVA IGUACU/RJ · CEP 26285-000");
+    expect(clientAddressLine(CLIENT)).toBeNull();
+  });
+
+  it("reads Darckware's change notes", () => {
+    expect(changedFields("Campos alterados: phone, cnpj")).toEqual(["phone", "cnpj"]);
+    expect(changedFields("Cliente cadastrado.")).toBeNull();
   });
 });

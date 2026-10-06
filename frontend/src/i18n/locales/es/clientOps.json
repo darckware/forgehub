@@ -257,7 +257,10 @@
       "required": "Obligatorio",
       "endBeforeStart": "Fin antes del inicio",
       "email": "Correo inválido",
-      "invalid": "Valor inválido"
+      "invalid": "Valor inválido",
+      "cnpj": "CNPJ inválido (revise los dígitos)",
+      "cep": "El CEP debe tener 8 dígitos",
+      "uf": "Estado con 2 letras"
     },
     "save": "Guardar en Darckware",
     "cancel": "Cancelar",
@@ -404,7 +407,41 @@
     "activateTitle": "¿Reactivar este cliente?",
     "activateBody": "El cliente vuelve a aparecer para nuevas demandas y puede recibir acceso al portal.",
     "deactivateTitle": "¿Desactivar este cliente?",
-    "deactivateBody": "El cliente deja de entrar al portal y de aparecer para nuevas demandas. Contratos e historial se conservan; se puede reactivar después."
+    "deactivateBody": "El cliente deja de entrar al portal y de aparecer para nuevas demandas. Contratos e historial se conservan; se puede reactivar después.",
+    "sections": {
+      "company": "Empresa",
+      "address": "Dirección",
+      "contact": "Contacto principal"
+    },
+    "fields": {
+      "company_name": "Razón social",
+      "trade_name": "Nombre comercial",
+      "cnpj": "CNPJ",
+      "company_phone": "Teléfono de la empresa",
+      "address_zip": "Código postal (CEP)",
+      "address_street": "Calle",
+      "address_number": "Número",
+      "address_complement": "Complemento",
+      "address_district": "Barrio",
+      "address_city": "Ciudad",
+      "address_state": "Estado (UF)",
+      "contact_name": "Contacto principal",
+      "email": "Correo",
+      "phone": "Teléfono del contacto",
+      "department": "Área",
+      "is_active": "Situación"
+    },
+    "companyTitle": "Datos de la empresa",
+    "completeRegistry": "Completar datos",
+    "notInformed": "No informado",
+    "historyTitle": "Historial",
+    "noHistory": "Ninguna nota o cambio registrado.",
+    "changed": "Cambió: {{fields}}",
+    "eventType": {
+      "cadastro": "Registro",
+      "alteracao": "Cambio",
+      "nota": "Nota"
+    }
   },
   "portal": {
     "title": "Acceso al portal",

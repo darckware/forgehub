@@ -257,7 +257,10 @@
       "required": "Required",
       "endBeforeStart": "End before start",
       "email": "Invalid e-mail",
-      "invalid": "Invalid value"
+      "invalid": "Invalid value",
+      "cnpj": "Invalid CNPJ (check the digits)",
+      "cep": "CEP must have 8 digits",
+      "uf": "Two-letter state"
     },
     "save": "Save to Darckware",
     "cancel": "Cancel",
@@ -404,7 +407,41 @@
     "activateTitle": "Reactivate this client?",
     "activateBody": "The client shows up again for new work and can be given portal access.",
     "deactivateTitle": "Deactivate this client?",
-    "deactivateBody": "The client can no longer sign in to the portal and no longer shows up for new work. Contracts and history are kept; you can reactivate later."
+    "deactivateBody": "The client can no longer sign in to the portal and no longer shows up for new work. Contracts and history are kept; you can reactivate later.",
+    "sections": {
+      "company": "Company",
+      "address": "Address",
+      "contact": "Primary contact"
+    },
+    "fields": {
+      "company_name": "Legal name",
+      "trade_name": "Trade name",
+      "cnpj": "CNPJ",
+      "company_phone": "Company phone",
+      "address_zip": "Postal code (CEP)",
+      "address_street": "Street",
+      "address_number": "Number",
+      "address_complement": "Complement",
+      "address_district": "District",
+      "address_city": "City",
+      "address_state": "State (UF)",
+      "contact_name": "Primary contact",
+      "email": "Email",
+      "phone": "Contact phone",
+      "department": "Department",
+      "is_active": "Status"
+    },
+    "companyTitle": "Company details",
+    "completeRegistry": "Complete details",
+    "notInformed": "Not provided",
+    "historyTitle": "History",
+    "noHistory": "No notes or changes recorded.",
+    "changed": "Changed: {{fields}}",
+    "eventType": {
+      "cadastro": "Registration",
+      "alteracao": "Change",
+      "nota": "Note"
+    }
   },
   "portal": {
     "title": "Portal access",

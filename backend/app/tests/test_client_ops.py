@@ -624,7 +624,13 @@ async def test_client_registration_uses_approver_and_never_audits_the_password(c
 
     patched = await client.patch(f"/api/v1/client-ops/clients/{CLIENT_ID}", json={"is_active": False})
     assert patched.status_code == 200
-    assert next(c for c in darckware.calls if c[0] == "PATCH")[2] == {"is_active": False}
+    patch_body = next(c for c in darckware.calls if c[0] == "PATCH")[2]
+    assert patch_body["is_active"] is False and patch_body["updated_by"].startswith("test-admin-")
+
+    registry = {"cnpj": "45.498.857/0001-11", "trade_name": "", "address_state": "RJ", "address_zip": "26285-000"}
+    assert (await client.patch(f"/api/v1/client-ops/clients/{CLIENT_ID}", json=registry)).status_code == 200
+    sent = [c for c in darckware.calls if c[0] == "PATCH"][-1][2]
+    assert {k: sent[k] for k in registry} == registry  # "" goes through: it clears the field in Darckware
 
     issued = await client.post(f"/api/v1/client-ops/clients/{CLIENT_ID}:portal-access")
     assert issued.json()["temporary_password"] == "abcd-efgh-jkmn"

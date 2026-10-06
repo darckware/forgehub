@@ -99,7 +99,23 @@ ContractStatus = Literal["ativo", "suspenso", "encerrado"]
 _EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
 
-class ClientAccountIn(BaseModel):
+class ClientProfileFields(BaseModel):
+    """Company registry kept by Darckware (2026-10-06): CNPJ, trade name, phone, address.
+    Darckware validates CNPJ check digits, UF and CEP; an empty string clears the field."""
+
+    cnpj: str | None = Field(default=None, max_length=20)
+    trade_name: str | None = Field(default=None, max_length=200)
+    company_phone: str | None = Field(default=None, max_length=40)
+    address_street: str | None = Field(default=None, max_length=200)
+    address_number: str | None = Field(default=None, max_length=20)
+    address_complement: str | None = Field(default=None, max_length=100)
+    address_district: str | None = Field(default=None, max_length=100)
+    address_city: str | None = Field(default=None, max_length=100)
+    address_state: str | None = Field(default=None, max_length=2)
+    address_zip: str | None = Field(default=None, max_length=10)
+
+
+class ClientAccountIn(ClientProfileFields):
     """A client registered straight from ForgeHub (no lead). No portal access until issued."""
 
     company_name: str = Field(..., min_length=1, max_length=200)
@@ -109,7 +125,7 @@ class ClientAccountIn(BaseModel):
     department: str | None = Field(default=None, max_length=100)
 
 
-class ClientAccountPatch(BaseModel):
+class ClientAccountPatch(ClientProfileFields):
     company_name: str | None = Field(default=None, min_length=1, max_length=200)
     contact_name: str | None = Field(default=None, min_length=1, max_length=200)
     email: str | None = Field(default=None, max_length=255, pattern=_EMAIL)

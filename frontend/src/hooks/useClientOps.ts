@@ -342,6 +342,27 @@ export interface ClientSummary {
   open_tickets: number;
   open_demands: number;
   converted_from_leads: { id: string; name?: string | null; converted_at?: string | null }[];
+  /** Company registry (Darckware, 2026-10-06). */
+  cnpj?: string | null;
+  trade_name?: string | null;
+  company_phone?: string | null;
+  address_street?: string | null;
+  address_number?: string | null;
+  address_complement?: string | null;
+  address_district?: string | null;
+  address_city?: string | null;
+  address_state?: string | null;
+  address_zip?: string | null;
+  /** Notes and registry changes, newest first (Lara, other agents, ForgeHub). */
+  history?: ClientHistoryEntry[];
+}
+
+export interface ClientHistoryEntry {
+  id: string;
+  event_type: string;
+  note: string;
+  actor: string;
+  created_at?: string | null;
 }
 
 export interface DarckwareLead {
@@ -652,13 +673,82 @@ export function useClientOpsText() {
 // the client and issues a temporary portal password the client must change.
 // ---------------------------------------------------------------------------
 
+/** CNPJ check digits (14 digits, punctuation ignored). Darckware validates again. */
+export function cnpjIsValid(value: string): boolean {
+  const d = value.replace(/\D/g, "");
+  if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
+  const nums = [...d].map(Number);
+  for (const size of [12, 13]) {
+    const weights = size === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    const r = weights.reduce((sum, w, i) => sum + w * nums[i], 0) % 11;
+    if (nums[size] !== (r < 2 ? 0 : 11 - r)) return false;
+  }
+  return true;
+}
+
+const optionalText = (max: number) => z.string().trim().max(max).optional();
+
 export const clientAccountSchema = z.object({
   company_name: z.string().trim().min(1, "required").max(200),
   contact_name: z.string().trim().min(1, "required").max(200),
   email: z.string().trim().email("email").max(255),
-  phone: z.string().trim().max(40).optional(),
-  department: z.string().trim().max(100).optional(),
+  phone: optionalText(40),
+  department: optionalText(100),
+  cnpj: z
+    .string()
+    .trim()
+    .refine((v) => !v || cnpjIsValid(v), "cnpj")
+    .optional(),
+  trade_name: optionalText(200),
+  company_phone: optionalText(40),
+  address_zip: z
+    .string()
+    .trim()
+    .refine((v) => !v || v.replace(/\D/g, "").length === 8, "cep")
+    .optional(),
+  address_street: optionalText(200),
+  address_number: optionalText(20),
+  address_complement: optionalText(100),
+  address_district: optionalText(100),
+  address_city: optionalText(100),
+  address_state: z
+    .string()
+    .trim()
+    .refine((v) => !v || /^[A-Za-z]{2}$/.test(v), "uf")
+    .transform((v) => v.toUpperCase())
+    .optional(),
 });
+
+/** Registry fields, in form order (company, then address). */
+export const CLIENT_COMPANY_FIELDS = ["cnpj", "trade_name", "company_phone"] as const;
+export const CLIENT_ADDRESS_FIELDS = [
+  "address_zip",
+  "address_street",
+  "address_number",
+  "address_complement",
+  "address_district",
+  "address_city",
+  "address_state",
+] as const;
+
+/** Darckware logs registry changes as "Campos alterados: cnpj, address_city"; the page
+ * shows the form labels instead. null for any other note. */
+export function changedFields(note: string): string[] | null {
+  const m = /^Campos alterados: (.+)$/.exec(note.trim());
+  return m ? m[1].split(",").map((f) => f.trim()).filter(Boolean) : null;
+}
+
+/** One-line address for the client page; null when nothing is filled. */
+export function clientAddressLine(c: Partial<ClientSummary>): string | null {
+  const street = [c.address_street, c.address_number].filter(Boolean).join(", ");
+  const parts = [
+    [street, c.address_complement].filter(Boolean).join(" — "),
+    c.address_district,
+    [c.address_city, c.address_state].filter(Boolean).join("/"),
+    c.address_zip ? `CEP ${c.address_zip}` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
 export type ClientAccountInput = z.infer<typeof clientAccountSchema>;
 
 export interface PortalAccess {

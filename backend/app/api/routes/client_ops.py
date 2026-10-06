@@ -254,7 +254,10 @@ async def update_client(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     changes = payload.model_dump(exclude_unset=True)
-    updated = await dw.request("PATCH", f"/clients/{client_id}", credential="approver", json=changes)
+    # updated_by: Darckware keeps the client's change history with who made it.
+    updated = await dw.request(
+        "PATCH", f"/clients/{client_id}", credential="approver", json={**changes, "updated_by": admin.username}
+    )
     await _audit(db, "client", str(client_id), "updated", admin, changes)
     return updated
 

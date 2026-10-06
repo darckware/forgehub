@@ -9,7 +9,7 @@ import { clientAccountSchema, type ClientAccountInput } from "@/hooks/useClientO
 import { clientFormDefaults, type ClientProfileViewModel } from "@/hooks/useClientProfileViewModel";
 import { DialogShell } from "./ContractFields";
 
-/** Create or edit a client's data (company, primary contact). */
+/** Create or edit a client's data (company registry, address, primary contact). */
 export function ClientDialog({ vm }: { vm: ClientProfileViewModel }) {
   const { t } = useTranslation("clientOps");
   const dialog = vm.dialog!;
@@ -35,13 +35,36 @@ export function ClientDialog({ vm }: { vm: ClientProfileViewModel }) {
     <DialogShell title={t(dialog.mode === "edit" ? "client.editTitle" : "client.newTitle")} onClose={vm.closeDialog}>
       <p className="text-sm text-muted-foreground">{t(dialog.mode === "edit" ? "client.editExplain" : "client.newExplain")}</p>
       <form onSubmit={handleSubmit((input) => vm.submit(input))} className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {field("company_name", t("conversions.company"))}
-          {field("contact_name", t("conversions.contact"))}
-          {field("email", t("conversions.email"), "email")}
-          {field("phone", t("conversions.phone"), "tel")}
-          {field("department", t("conversions.department"))}
-        </div>
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">{t("client.sections.company")}</legend>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {field("company_name", t("client.fields.company_name"))}
+            {field("trade_name", t("client.fields.trade_name"))}
+            {field("cnpj", t("client.fields.cnpj"))}
+            {field("company_phone", t("client.fields.company_phone"), "tel")}
+          </div>
+        </fieldset>
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">{t("client.sections.address")}</legend>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-6">
+            <div className="sm:col-span-2">{field("address_zip", t("client.fields.address_zip"))}</div>
+            <div className="sm:col-span-4">{field("address_street", t("client.fields.address_street"))}</div>
+            <div className="sm:col-span-2">{field("address_number", t("client.fields.address_number"))}</div>
+            <div className="sm:col-span-4">{field("address_complement", t("client.fields.address_complement"))}</div>
+            <div className="sm:col-span-2">{field("address_district", t("client.fields.address_district"))}</div>
+            <div className="sm:col-span-3">{field("address_city", t("client.fields.address_city"))}</div>
+            <div className="sm:col-span-1">{field("address_state", t("client.fields.address_state"))}</div>
+          </div>
+        </fieldset>
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">{t("client.sections.contact")}</legend>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {field("contact_name", t("conversions.contact"))}
+            {field("email", t("conversions.email"), "email")}
+            {field("phone", t("conversions.phone"), "tel")}
+            {field("department", t("conversions.department"))}
+          </div>
+        </fieldset>
         {vm.errorMessage && <p className="break-words text-sm text-destructive">{vm.errorMessage}</p>}
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={vm.closeDialog} disabled={submitting}>

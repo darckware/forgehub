@@ -1,5 +1,7 @@
 import { useState } from "react";
 import {
+  CLIENT_ADDRESS_FIELDS,
+  CLIENT_COMPANY_FIELDS,
   useClientOpsText,
   useCreateClient,
   useIssuePortalAccess,
@@ -33,6 +35,9 @@ export function clientFormDefaults(client?: ClientSummary): ClientAccountInput {
     email: client?.email ?? "",
     phone: primary?.phone ?? "",
     department: primary?.department ?? "",
+    ...Object.fromEntries(
+      [...CLIENT_COMPANY_FIELDS, ...CLIENT_ADDRESS_FIELDS].map((f) => [f, client?.[f] ?? ""]),
+    ),
   };
 }
 

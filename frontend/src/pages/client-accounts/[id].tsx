@@ -1,7 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
-import { ArrowLeft, Building2, Check, Copy, FileText, FolderKanban, KeyRound, Loader2, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, Building2, Check, Copy, FileText, FolderKanban, History, KeyRound, Loader2, Pencil, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -9,7 +9,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { clientDemandsLink, useClientOpsText, type Contract, type ContractStatus, type OutboundEmail } from "@/hooks/useClientOps";
+import {
+  changedFields,
+  clientAddressLine,
+  clientDemandsLink,
+  useClientOpsText,
+  type ClientSummary,
+  type Contract,
+  type ContractStatus,
+  type OutboundEmail,
+} from "@/hooks/useClientOps";
 import { emailStatusVariant, stageVariant } from "@/pages/client-demands/shared";
 import { useClientAccountViewModel, type ClientAccountViewModel } from "@/hooks/useClientAccountViewModel";
 import {
@@ -109,6 +118,8 @@ export default function ClientAccountPage() {
             </p>
           )}
 
+          <CompanyCard client={client} onEdit={() => profile.openEdit(client)} />
+
           <PortalAccessCard profile={profile} active={client.is_active} state={portalState(client)} lastLogin={client.last_login_at} />
 
           <OpenWorkSection vm={vm} clientId={client.id} />
@@ -163,6 +174,8 @@ export default function ClientAccountPage() {
               )}
             </CardContent>
           </Card>
+
+          <HistoryCard client={client} />
         </>
       )}
 
@@ -211,6 +224,76 @@ export default function ClientAccountPage() {
         onCancel={vm.cancelStatusChange}
       />
     </div>
+  );
+}
+
+/** Company registry: CNPJ, trade name, phone and address (empty fields say so). */
+function CompanyCard({ client, onEdit }: { client: ClientSummary; onEdit: () => void }) {
+  const { t } = useTranslation("clientOps");
+  const address = clientAddressLine(client);
+  const rows: [string, string | null | undefined][] = [
+    [t("client.fields.cnpj"), client.cnpj],
+    [t("client.fields.trade_name"), client.trade_name],
+    [t("client.fields.company_phone"), client.company_phone],
+    [t("client.sections.address"), address],
+  ];
+  const missing = !client.cnpj || !address;
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="flex items-center gap-2 font-semibold">
+            <Building2 className="h-4 w-4" /> {t("client.companyTitle")}
+          </h2>
+          {missing && (
+            <Button size="sm" variant="outline" onClick={onEdit} className="max-md:h-auto max-md:whitespace-normal">
+              <Pencil className="mr-2 h-3 w-3" /> {t("client.completeRegistry")}
+            </Button>
+          )}
+        </div>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
+          {rows.map(([label, value]) => (
+            <div key={label} className="contents">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className={value ? "break-words" : "text-muted-foreground"}>{value || t("client.notInformed")}</dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Notes and registry changes kept by Darckware, newest first. */
+function HistoryCard({ client }: { client: ClientSummary }) {
+  const { t } = useTranslation("clientOps");
+  const fmt = useClientOpsText();
+  const history = client.history ?? [];
+  const noteText = (note: string) => {
+    const fields = changedFields(note);
+    return fields ? t("client.changed", { fields: fields.map((f) => t(`client.fields.${f}`, f)).join(", ") }) : note;
+  };
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <History className="h-4 w-4" /> {t("client.historyTitle")}
+        </h2>
+        {history.length === 0 && <p className="text-sm text-muted-foreground">{t("client.noHistory")}</p>}
+        <ul className="divide-y">
+          {history.map((h) => (
+            <li key={h.id} className="space-y-1 py-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant="outline">{t(`client.eventType.${h.event_type}`, h.event_type)}</Badge>
+                <span>{h.actor}</span>
+                {h.created_at && <span>· {fmt.dateTime(h.created_at)}</span>}
+              </div>
+              <p className="whitespace-pre-wrap break-words text-sm">{noteText(h.note)}</p>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
 

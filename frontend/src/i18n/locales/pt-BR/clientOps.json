@@ -257,7 +257,10 @@
       "required": "Obrigatório",
       "endBeforeStart": "Fim antes do início",
       "email": "E-mail inválido",
-      "invalid": "Valor inválido"
+      "invalid": "Valor inválido",
+      "cnpj": "CNPJ inválido (confira os dígitos)",
+      "cep": "CEP deve ter 8 dígitos",
+      "uf": "UF com 2 letras"
     },
     "save": "Gravar na Darckware",
     "cancel": "Cancelar",
@@ -404,7 +407,41 @@
     "activateTitle": "Reativar este cliente?",
     "activateBody": "O cliente volta a aparecer para novas demandas e pode receber acesso ao portal.",
     "deactivateTitle": "Desativar este cliente?",
-    "deactivateBody": "O cliente deixa de entrar no portal e de aparecer para novas demandas. Contratos e histórico ficam guardados; dá para reativar depois."
+    "deactivateBody": "O cliente deixa de entrar no portal e de aparecer para novas demandas. Contratos e histórico ficam guardados; dá para reativar depois.",
+    "sections": {
+      "company": "Empresa",
+      "address": "Endereço",
+      "contact": "Contato principal"
+    },
+    "fields": {
+      "company_name": "Razão social",
+      "trade_name": "Nome fantasia",
+      "cnpj": "CNPJ",
+      "company_phone": "Telefone da empresa",
+      "address_zip": "CEP",
+      "address_street": "Logradouro",
+      "address_number": "Número",
+      "address_complement": "Complemento",
+      "address_district": "Bairro",
+      "address_city": "Cidade",
+      "address_state": "UF",
+      "contact_name": "Contato principal",
+      "email": "E-mail",
+      "phone": "Telefone do contato",
+      "department": "Área",
+      "is_active": "Situação"
+    },
+    "companyTitle": "Dados da empresa",
+    "completeRegistry": "Completar cadastro",
+    "notInformed": "Não informado",
+    "historyTitle": "Histórico",
+    "noHistory": "Nenhuma nota ou alteração registrada.",
+    "changed": "Alterou: {{fields}}",
+    "eventType": {
+      "cadastro": "Cadastro",
+      "alteracao": "Alteração",
+      "nota": "Nota"
+    }
   },
   "portal": {
     "title": "Acesso ao portal",
