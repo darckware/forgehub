@@ -227,7 +227,8 @@
     "noEmails": "Nenhum e-mail para este cliente.",
     "reportsTitle": "Informes mensais",
     "noReports": "Nenhum informe gerado ainda.",
-    "openEmail": "Abrir"
+    "openEmail": "Abrir",
+    "tabClients": "Clientes"
   },
   "contract": {
     "type": {
@@ -387,5 +388,67 @@
   },
   "units": {
     "hours": "{{value}} h"
+  },
+  "client": {
+    "new": "Novo cliente",
+    "newTitle": "Novo cliente",
+    "newExplain": "Cadastra a empresa e o contato principal na Darckware. O acesso ao portal é liberado depois, na ficha do cliente.",
+    "editTitle": "Editar dados do cliente",
+    "editExplain": "O contato principal acompanha nome, e-mail e telefone. O e-mail também é o login do portal.",
+    "edit": "Editar dados",
+    "create": "Cadastrar",
+    "created": "Cliente cadastrado.",
+    "inactive": "Inativo",
+    "activate": "Reativar cliente",
+    "deactivate": "Desativar cliente",
+    "activateTitle": "Reativar este cliente?",
+    "activateBody": "O cliente volta a aparecer para novas demandas e pode receber acesso ao portal.",
+    "deactivateTitle": "Desativar este cliente?",
+    "deactivateBody": "O cliente deixa de entrar no portal e de aparecer para novas demandas. Contratos e histórico ficam guardados; dá para reativar depois."
+  },
+  "portal": {
+    "title": "Acesso ao portal",
+    "state": {
+      "notUsed": "O cliente ainda não entrou no portal.",
+      "mustChange": "Acesso liberado: o cliente ainda precisa trocar a senha temporária.",
+      "active": "Cliente usa o portal com a própria senha.",
+      "inactive": "Cliente inativo: sem acesso ao portal."
+    },
+    "lastLogin": "último acesso {{when}}",
+    "issue": "Gerar senha temporária",
+    "reissue": "Gerar nova senha",
+    "help": "A senha temporária aparece uma única vez; no primeiro login o portal obriga o cliente a trocá-la. Gerar outra invalida a anterior (serve também para quem esqueceu a senha).",
+    "confirmTitle": "Gerar senha temporária?",
+    "confirmBody": "Uma senha temporária será criada para o cliente entrar no portal e trocá-la no primeiro acesso.",
+    "confirmReissue": "A senha atual do cliente deixará de funcionar. Ele entra com a nova senha temporária e troca no primeiro acesso.",
+    "issuedTitle": "Acesso ao portal liberado",
+    "issuedBody": "Envie estes dados ao cliente por um canal seguro. A senha não será mostrada de novo.",
+    "address": "Endereço",
+    "login": "Login (e-mail)",
+    "password": "Senha temporária",
+    "copy": "Copiar dados de acesso",
+    "copied": "Copiado",
+    "done": "Concluído",
+    "copyText": "Acesso ao portal Darckware\nEndereço: {{url}}\nLogin: {{login}}\nSenha temporária: {{password}}\nNo primeiro acesso você vai definir a sua própria senha."
+  },
+  "leads": {
+    "tab": "Leads",
+    "title": "Leads",
+    "showClosed": "Mostrar perdidos e descartados",
+    "nextStep": "próximo passo",
+    "isClient": "Já é cliente",
+    "status": {
+      "captado": "Captado",
+      "explorando": "Explorando",
+      "qualificado": "Qualificado",
+      "oportunidade": "Oportunidade",
+      "aguardando_retorno": "Aguardando retorno",
+      "encaminhado_marcelo": "Encaminhado ao Marcelo",
+      "proposta_em_analise": "Proposta em análise",
+      "ganho": "Ganho",
+      "perdido": "Perdido",
+      "descartado": "Descartado",
+      "teste_curiosidade": "Teste / curiosidade"
+    }
   }
 }

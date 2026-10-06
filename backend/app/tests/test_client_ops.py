@@ -103,6 +103,15 @@ class FakeDarckware:
         if path.startswith("/api/internal/approver/"):
             if auth != "Bearer approver-token":
                 return httpx.Response(403, json={"detail": "Credencial de aprovação inválida"})
+            if path == "/api/internal/approver/clients" and request.method == "POST":
+                return httpx.Response(201, json={"id": CLIENT_ID, **body})
+            if path == f"/api/internal/approver/clients/{CLIENT_ID}" and request.method == "PATCH":
+                return httpx.Response(200, json={"id": CLIENT_ID, **body})
+            if path.endswith(f"/clients/{CLIENT_ID}/portal-access"):
+                return httpx.Response(
+                    200,
+                    json={"client_id": CLIENT_ID, "login": "ana@acme.com.br", "temporary_password": "abcd-efgh-jkmn", "must_change_password": True},
+                )
             if path.endswith("/contracts") and request.method == "POST":
                 return httpx.Response(201, json={"id": CONTRACT_ID, **body})
             if path == f"/api/internal/approver/contracts/{CONTRACT_ID}":
@@ -599,3 +608,40 @@ async def test_darckware_refusal_keeps_its_reason_under_a_code(client, darckware
     assert r.status_code == 422
     assert detail["code"] == "darckware_rejected"
     assert detail["params"]["reason"] == "Destinatário não vinculado"
+
+
+@pytest.mark.asyncio
+async def test_client_registration_uses_approver_and_never_audits_the_password(client, darckware):
+    r = await client.post(
+        "/api/v1/client-ops/clients",
+        json={"company_name": "ACME", "contact_name": "Ana", "email": "ana@acme.com.br", "phone": "2199"},
+    )
+    assert r.status_code == 201, r.text
+    call = next(c for c in darckware.calls if c[1] == "/api/internal/approver/clients")
+    assert call[3] == "Bearer approver-token"
+    assert call[2]["created_by"].startswith("test-admin-")
+    assert (await client.post("/api/v1/client-ops/clients", json={"company_name": "x", "contact_name": "y", "email": "nope"})).status_code == 422
+
+    patched = await client.patch(f"/api/v1/client-ops/clients/{CLIENT_ID}", json={"is_active": False})
+    assert patched.status_code == 200
+    assert next(c for c in darckware.calls if c[0] == "PATCH")[2] == {"is_active": False}
+
+    issued = await client.post(f"/api/v1/client-ops/clients/{CLIENT_ID}:portal-access")
+    assert issued.json()["temporary_password"] == "abcd-efgh-jkmn"
+    async with AsyncSessionLocal() as db:
+        events = (
+            await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "darckware_client", AuditEvent.entity_id == uuid.UUID(CLIENT_ID)))
+        ).scalars().all()
+        assert {"created", "updated", "portal_access_issued"} <= {e.event_type for e in events}
+        assert all("abcd-efgh-jkmn" not in json.dumps(e.payload) for e in events)
+        for e in events:
+            await db.delete(e)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_client_list_includes_inactive_only_when_asked(client, darckware):
+    await client.get("/api/v1/client-ops/clients")
+    await client.get("/api/v1/client-ops/clients?include_inactive=true")
+    lists = [c for c in darckware.calls if c[1] == "/api/internal/agent/clients"]
+    assert len(lists) == 2

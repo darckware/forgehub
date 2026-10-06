@@ -96,6 +96,28 @@ ContractType = Literal["suporte_horas", "desenvolvimento"]
 ContractStatus = Literal["ativo", "suspenso", "encerrado"]
 
 
+_EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+
+class ClientAccountIn(BaseModel):
+    """A client registered straight from ForgeHub (no lead). No portal access until issued."""
+
+    company_name: str = Field(..., min_length=1, max_length=200)
+    contact_name: str = Field(..., min_length=1, max_length=200)
+    email: str = Field(..., max_length=255, pattern=_EMAIL)
+    phone: str | None = Field(default=None, max_length=40)
+    department: str | None = Field(default=None, max_length=100)
+
+
+class ClientAccountPatch(BaseModel):
+    company_name: str | None = Field(default=None, min_length=1, max_length=200)
+    contact_name: str | None = Field(default=None, min_length=1, max_length=200)
+    email: str | None = Field(default=None, max_length=255, pattern=_EMAIL)
+    phone: str | None = Field(default=None, max_length=40)
+    department: str | None = Field(default=None, max_length=100)
+    is_active: bool | None = None
+
+
 class ContractIn(BaseModel):
     contract_type: ContractType = "suporte_horas"
     plan_name: str = Field(..., min_length=1, max_length=100)

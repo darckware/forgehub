@@ -227,7 +227,8 @@
     "noEmails": "Ningún correo para este cliente.",
     "reportsTitle": "Informes mensuales",
     "noReports": "Ningún informe generado todavía.",
-    "openEmail": "Abrir"
+    "openEmail": "Abrir",
+    "tabClients": "Clientes"
   },
   "contract": {
     "type": {
@@ -387,5 +388,67 @@
   },
   "units": {
     "hours": "{{value}} h"
+  },
+  "client": {
+    "new": "Nuevo cliente",
+    "newTitle": "Nuevo cliente",
+    "newExplain": "Registra la empresa y el contacto principal en Darckware. El acceso al portal se habilita después, en la ficha del cliente.",
+    "editTitle": "Editar datos del cliente",
+    "editExplain": "El contacto principal sigue el nombre, correo y teléfono. El correo también es el usuario del portal.",
+    "edit": "Editar datos",
+    "create": "Registrar",
+    "created": "Cliente registrado.",
+    "inactive": "Inactivo",
+    "activate": "Reactivar cliente",
+    "deactivate": "Desactivar cliente",
+    "activateTitle": "¿Reactivar este cliente?",
+    "activateBody": "El cliente vuelve a aparecer para nuevas demandas y puede recibir acceso al portal.",
+    "deactivateTitle": "¿Desactivar este cliente?",
+    "deactivateBody": "El cliente deja de entrar al portal y de aparecer para nuevas demandas. Contratos e historial se conservan; se puede reactivar después."
+  },
+  "portal": {
+    "title": "Acceso al portal",
+    "state": {
+      "notUsed": "El cliente aún no entró al portal.",
+      "mustChange": "Acceso habilitado: el cliente aún debe cambiar la contraseña temporal.",
+      "active": "El cliente usa el portal con su propia contraseña.",
+      "inactive": "Cliente inactivo: sin acceso al portal."
+    },
+    "lastLogin": "último acceso {{when}}",
+    "issue": "Generar contraseña temporal",
+    "reissue": "Generar nueva contraseña",
+    "help": "La contraseña temporal se muestra una sola vez; en el primer acceso el portal obliga al cliente a cambiarla. Generar otra invalida la anterior (sirve también si olvidó la contraseña).",
+    "confirmTitle": "¿Generar contraseña temporal?",
+    "confirmBody": "Se creará una contraseña temporal para que el cliente entre al portal y la cambie en el primer acceso.",
+    "confirmReissue": "La contraseña actual del cliente dejará de funcionar. Entra con la nueva contraseña temporal y la cambia en el primer acceso.",
+    "issuedTitle": "Acceso al portal habilitado",
+    "issuedBody": "Envía estos datos al cliente por un canal seguro. La contraseña no se mostrará de nuevo.",
+    "address": "Dirección",
+    "login": "Usuario (correo)",
+    "password": "Contraseña temporal",
+    "copy": "Copiar datos de acceso",
+    "copied": "Copiado",
+    "done": "Listo",
+    "copyText": "Acceso al portal Darckware\nDirección: {{url}}\nUsuario: {{login}}\nContraseña temporal: {{password}}\nEn el primer acceso definirás tu propia contraseña."
+  },
+  "leads": {
+    "tab": "Leads",
+    "title": "Leads",
+    "showClosed": "Mostrar perdidos y descartados",
+    "nextStep": "próximo paso",
+    "isClient": "Ya es cliente",
+    "status": {
+      "captado": "Captado",
+      "explorando": "Explorando",
+      "qualificado": "Calificado",
+      "oportunidade": "Oportunidad",
+      "aguardando_retorno": "Esperando respuesta",
+      "encaminhado_marcelo": "Enviado a Marcelo",
+      "proposta_em_analise": "Propuesta en análisis",
+      "ganho": "Ganado",
+      "perdido": "Perdido",
+      "descartado": "Descartado",
+      "teste_curiosidade": "Prueba / curiosidad"
+    }
   }
 }

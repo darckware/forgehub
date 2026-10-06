@@ -116,6 +116,7 @@ export interface DarckwareClient {
   company_name: string;
   contact_name?: string;
   email?: string;
+  is_active?: boolean;
 }
 
 export interface WorkItemFilters {
@@ -148,10 +149,11 @@ export function useClientOpsStatus() {
   });
 }
 
-export function useDarckwareClients() {
+/** Active clients (pickers for new work), or every client for the Clients page. */
+export function useDarckwareClients(includeInactive = false) {
   return useQuery<{ items: DarckwareClient[] }>({
-    queryKey: ["client-ops", "clients"],
-    queryFn: () => apiClient.get(`${BASE}/clients`),
+    queryKey: ["client-ops", "clients", includeInactive],
+    queryFn: () => apiClient.get(`${BASE}/clients${qs({ include_inactive: includeInactive ? "true" : undefined })}`),
     retry: false,
   });
 }
@@ -331,6 +333,10 @@ export interface ClientSummary {
   contact_name: string;
   email: string;
   is_active: boolean;
+  /** Portal access: never logged in + must change = access not used yet. */
+  must_change_password?: boolean;
+  last_login_at?: string | null;
+  mfa_enabled?: boolean;
   contacts: { id: string; name: string; email: string; phone: string; department: string; is_authorized: boolean; is_primary: boolean }[];
   contracts: Contract[];
   open_tickets: number;
@@ -345,8 +351,15 @@ export interface DarckwareLead {
   email?: string | null;
   phone?: string | null;
   need_summary?: string | null;
+  related_service?: string | null;
+  next_step?: string | null;
+  commercial_status?: string | null;
+  classification?: string | null;
+  origin?: string | null;
   client_account_id?: string | null;
   converted_at?: string | null;
+  archived_at?: string | null;
+  created_at?: string | null;
 }
 
 export interface ConversionProposal {
@@ -632,4 +645,58 @@ export function useClientOpsText() {
       value == null ? "—" : value.toLocaleString(locale, { style: "currency", currency: "BRL" }),
     hours: (value?: number | null) => t("units.hours", { value: (value ?? 0).toLocaleString(locale) }),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Client registration and portal access (2026-10-05): ForgeHub creates and edits
+// the client and issues a temporary portal password the client must change.
+// ---------------------------------------------------------------------------
+
+export const clientAccountSchema = z.object({
+  company_name: z.string().trim().min(1, "required").max(200),
+  contact_name: z.string().trim().min(1, "required").max(200),
+  email: z.string().trim().email("email").max(255),
+  phone: z.string().trim().max(40).optional(),
+  department: z.string().trim().max(100).optional(),
+});
+export type ClientAccountInput = z.infer<typeof clientAccountSchema>;
+
+export interface PortalAccess {
+  client_id: string;
+  login: string;
+  temporary_password: string;
+  must_change_password: boolean;
+}
+
+export function useCreateClient() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<ClientSummary, Error, ClientAccountInput>({
+    mutationFn: (input) => apiClient.post(`${BASE}/clients`, compact(input)),
+    onSettled: invalidate,
+  });
+}
+
+export function useUpdateClient() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<ClientSummary, Error, { id: string; changes: Partial<ClientAccountInput> & { is_active?: boolean } }>({
+    mutationFn: ({ id, changes }) => apiClient.patch(`${BASE}/clients/${id}`, changes),
+    onSettled: invalidate,
+  });
+}
+
+export function useIssuePortalAccess() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<PortalAccess, Error, { id: string }>({
+    mutationFn: ({ id }) => apiClient.post(`${BASE}/clients/${id}:portal-access`, {}),
+    onSettled: invalidate,
+  });
+}
+
+/** Lara's leads (and any other), newest first, including converted ones. */
+export function useLeadList(search: string) {
+  return useQuery<{ leads: DarckwareLead[] }>({
+    queryKey: ["client-ops", "leads", "list", search],
+    queryFn: () => apiClient.get(`${BASE}/leads${qs({ search: search || undefined })}`),
+    retry: false,
+  });
 }

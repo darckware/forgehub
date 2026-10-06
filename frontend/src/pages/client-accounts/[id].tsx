@@ -1,15 +1,23 @@
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Building2, FileText, FolderKanban, Loader2, Pencil, Plus } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, Building2, Check, Copy, FileText, FolderKanban, KeyRound, Loader2, Pencil, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { clientDemandsLink, useClientOpsText, type Contract, type ContractStatus, type OutboundEmail } from "@/hooks/useClientOps";
 import { emailStatusVariant, stageVariant } from "@/pages/client-demands/shared";
 import { useClientAccountViewModel, type ClientAccountViewModel } from "@/hooks/useClientAccountViewModel";
+import {
+  portalState,
+  useClientProfileViewModel,
+  type ClientProfileViewModel,
+} from "@/hooks/useClientProfileViewModel";
+import { ClientDialog } from "./ClientDialog";
 import { ContractDialog } from "./ContractDialog";
 
 /** Next statuses offered from each status -- explicit, no "anything goes". */
@@ -25,6 +33,9 @@ const STATUS_VARIANT: Record<ContractStatus, "success" | "warning" | "outline"> 
   encerrado: "outline",
 };
 
+/** Where the client signs in (Darckware's portal). */
+const PORTAL_URL = "https://darckware.net/cliente/login";
+
 function money(value: number | null | undefined, locale: string) {
   return value == null ? "—" : value.toLocaleString(locale, { style: "currency", currency: "BRL" });
 }
@@ -33,6 +44,7 @@ export default function ClientAccountPage() {
   const { id } = useParams();
   const { t } = useTranslation("clientOps");
   const vm = useClientAccountViewModel(id);
+  const profile = useClientProfileViewModel(id);
   const client = vm.client;
 
   return (
@@ -45,11 +57,19 @@ export default function ClientAccountPage() {
       {client && (
         <>
           <PageHeader
-            title={client.company_name}
+            title={
+              <span className="inline-flex flex-wrap items-center gap-2">
+                {client.company_name}
+                {!client.is_active && <Badge variant="outline">{t("client.inactive")}</Badge>}
+              </span>
+            }
             description={[client.contact_name, client.email].filter(Boolean).join(" · ")}
             icon={<Building2 className="h-6 w-6" />}
             actions={
               <>
+                <Button variant="outline" onClick={() => profile.openEdit(client)}>
+                  <Pencil className="mr-2 h-4 w-4" /> {t("client.edit")}
+                </Button>
                 <Link to={clientDemandsLink(client.id)} className={buttonVariants({ variant: "outline" })}>
                   {t("accounts.seeDemands")}
                 </Link>
@@ -82,6 +102,14 @@ export default function ClientAccountPage() {
               {vm.errorMessage}
             </p>
           )}
+
+          {profile.errorMessage && !profile.dialog && (
+            <p className="break-words rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              {profile.errorMessage}
+            </p>
+          )}
+
+          <PortalAccessCard profile={profile} active={client.is_active} state={portalState(client)} lastLogin={client.last_login_at} />
 
           <OpenWorkSection vm={vm} clientId={client.id} />
 
@@ -139,6 +167,31 @@ export default function ClientAccountPage() {
       )}
 
       {vm.contractDialog && <ContractDialog vm={vm} />}
+      {profile.dialog && <ClientDialog vm={profile} />}
+      {profile.issued && <IssuedAccessDialog profile={profile} />}
+      <ConfirmDialog
+        open={Boolean(profile.confirm)}
+        variant={profile.confirm?.kind === "activation" && !profile.confirm.active ? "destructive" : "default"}
+        icon="warning"
+        title={
+          profile.confirm?.kind === "portal"
+            ? t("portal.confirmTitle")
+            : t(profile.confirm?.active ? "client.activateTitle" : "client.deactivateTitle")
+        }
+        description={
+          profile.confirm?.kind === "portal"
+            ? t(client && client.last_login_at ? "portal.confirmReissue" : "portal.confirmBody")
+            : t(profile.confirm?.active ? "client.activateBody" : "client.deactivateBody")
+        }
+        confirmLabel={
+          profile.confirm?.kind === "portal"
+            ? t("portal.issue")
+            : t(profile.confirm?.active ? "client.activate" : "client.deactivate")
+        }
+        loading={profile.status === "submitting"}
+        onConfirm={() => void profile.confirmAction()}
+        onCancel={profile.cancelConfirm}
+      />
       <ConfirmDialog
         open={Boolean(vm.statusChange)}
         variant={vm.statusChange?.status === "encerrado" ? "destructive" : "default"}
@@ -158,6 +211,100 @@ export default function ClientAccountPage() {
         onCancel={vm.cancelStatusChange}
       />
     </div>
+  );
+}
+
+function PortalAccessCard({
+  profile,
+  active,
+  state,
+  lastLogin,
+}: {
+  profile: ClientProfileViewModel;
+  active: boolean;
+  state: "notUsed" | "mustChange" | "active";
+  lastLogin?: string | null;
+}) {
+  const { t } = useTranslation("clientOps");
+  const fmt = useClientOpsText();
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <h2 className="flex items-center gap-2 font-semibold">
+              <KeyRound className="h-4 w-4" /> {t("portal.title")}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {active ? t(`portal.state.${state}`) : t("portal.state.inactive")}
+              {lastLogin && ` · ${t("portal.lastLogin", { when: fmt.dateTime(lastLogin) })}`}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {active && (
+              <Button size="sm" onClick={profile.requestPortalAccess} className="max-md:h-auto max-md:whitespace-normal">
+                {t(state === "notUsed" ? "portal.issue" : "portal.reissue")}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => profile.requestActivation(!active)}
+              className="max-md:h-auto max-md:whitespace-normal"
+            >
+              {t(active ? "client.deactivate" : "client.activate")}
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">{t("portal.help")}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The temporary password, shown once: nothing keeps it after this dialog closes. */
+function IssuedAccessDialog({ profile }: { profile: ClientProfileViewModel }) {
+  const { t } = useTranslation("clientOps");
+  const issued = profile.issued!;
+  const [copied, setCopied] = useState(false);
+  const text = t("portal.copyText", { login: issued.login, password: issued.temporary_password, url: `${PORTAL_URL}` });
+  return (
+    <ConfirmDialog
+      open
+      readOnly
+      icon="warning"
+      title={t("portal.issuedTitle")}
+      description={t("portal.issuedBody")}
+      closeLabel={t("portal.done")}
+      onConfirm={profile.closeAccess}
+      onCancel={profile.closeAccess}
+    >
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <span className="text-xs text-muted-foreground">{t("portal.address")}</span>
+          <Input readOnly value={PORTAL_URL} className="max-md:text-base" />
+        </div>
+        <div className="space-y-1">
+          <span className="text-xs text-muted-foreground">{t("portal.login")}</span>
+          <Input readOnly value={issued.login} className="max-md:text-base" />
+        </div>
+        <div className="space-y-1">
+          <span className="text-xs text-muted-foreground">{t("portal.password")}</span>
+          <Input readOnly value={issued.temporary_password} className="font-mono max-md:text-base" />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void navigator.clipboard?.writeText(text).then(() => setCopied(true));
+          }}
+        >
+          {copied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
+          {t(copied ? "portal.copied" : "portal.copy")}
+        </Button>
+      </div>
+    </ConfirmDialog>
   );
 }
 

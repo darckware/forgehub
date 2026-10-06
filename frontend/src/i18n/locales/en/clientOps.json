@@ -227,7 +227,8 @@
     "noEmails": "No e-mails to this client.",
     "reportsTitle": "Monthly reports",
     "noReports": "No reports generated yet.",
-    "openEmail": "Open"
+    "openEmail": "Open",
+    "tabClients": "Clients"
   },
   "contract": {
     "type": {
@@ -387,5 +388,67 @@
   },
   "units": {
     "hours": "{{value}} h"
+  },
+  "client": {
+    "new": "New client",
+    "newTitle": "New client",
+    "newExplain": "Registers the company and its primary contact in Darckware. Portal access is granted afterwards, from the client's page.",
+    "editTitle": "Edit client details",
+    "editExplain": "The primary contact follows the name, e-mail and phone. The e-mail is also the portal login.",
+    "edit": "Edit details",
+    "create": "Register",
+    "created": "Client registered.",
+    "inactive": "Inactive",
+    "activate": "Reactivate client",
+    "deactivate": "Deactivate client",
+    "activateTitle": "Reactivate this client?",
+    "activateBody": "The client shows up again for new work and can be given portal access.",
+    "deactivateTitle": "Deactivate this client?",
+    "deactivateBody": "The client can no longer sign in to the portal and no longer shows up for new work. Contracts and history are kept; you can reactivate later."
+  },
+  "portal": {
+    "title": "Portal access",
+    "state": {
+      "notUsed": "The client has not signed in to the portal yet.",
+      "mustChange": "Access granted: the client still has to change the temporary password.",
+      "active": "The client uses the portal with their own password.",
+      "inactive": "Inactive client: no portal access."
+    },
+    "lastLogin": "last sign-in {{when}}",
+    "issue": "Generate temporary password",
+    "reissue": "Generate new password",
+    "help": "The temporary password is shown only once; at first sign-in the portal makes the client change it. Generating another one invalidates the previous one (also the way back in for a forgotten password).",
+    "confirmTitle": "Generate a temporary password?",
+    "confirmBody": "A temporary password will be created so the client can sign in to the portal and change it at first sign-in.",
+    "confirmReissue": "The client's current password will stop working. They sign in with the new temporary password and change it at first sign-in.",
+    "issuedTitle": "Portal access granted",
+    "issuedBody": "Send these details to the client through a secure channel. The password will not be shown again.",
+    "address": "Address",
+    "login": "Login (e-mail)",
+    "password": "Temporary password",
+    "copy": "Copy access details",
+    "copied": "Copied",
+    "done": "Done",
+    "copyText": "Darckware portal access\nAddress: {{url}}\nLogin: {{login}}\nTemporary password: {{password}}\nYou will set your own password at first sign-in."
+  },
+  "leads": {
+    "tab": "Leads",
+    "title": "Leads",
+    "showClosed": "Show lost and discarded",
+    "nextStep": "next step",
+    "isClient": "Already a client",
+    "status": {
+      "captado": "Captured",
+      "explorando": "Exploring",
+      "qualificado": "Qualified",
+      "oportunidade": "Opportunity",
+      "aguardando_retorno": "Awaiting reply",
+      "encaminhado_marcelo": "Sent to Marcelo",
+      "proposta_em_analise": "Proposal under review",
+      "ganho": "Won",
+      "perdido": "Lost",
+      "descartado": "Discarded",
+      "teste_curiosidade": "Test / curiosity"
+    }
   }
 }

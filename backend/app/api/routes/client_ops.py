@@ -35,6 +35,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.client_ops import (
+    ClientAccountIn,
+    ClientAccountPatch,
     LogTimeIn,
     MonthlyReportIn,
     ContractIn,
@@ -218,9 +220,53 @@ async def integration_status(_admin: User = Depends(get_current_admin)) -> dict[
 
 @router.get("/clients")
 async def list_clients(
-    search: str | None = None, _admin: User = Depends(get_current_admin)
+    search: str | None = None,
+    include_inactive: bool = False,
+    _admin: User = Depends(get_current_admin),
 ) -> dict[str, Any]:
-    return await dw.request("GET", "/clients", params={"search": search, "limit": 100, "active": True})
+    """Active clients by default (pickers for new work); the Clients page asks for all."""
+    return await dw.request(
+        "GET", "/clients", params={"search": search, "limit": 100, "active": None if include_inactive else True}
+    )
+
+
+# Client registration (2026-10-05, Marcelo: "criar e atualizar os dados do cliente...
+# fazer a troca de senha... tudo pelo forgehub"). Approver credential, like contracts.
+# The temporary password comes back once and is never stored or audited here.
+
+
+@router.post("/clients", status_code=status.HTTP_201_CREATED)
+async def create_client(
+    payload: ClientAccountIn, admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    created = await dw.request(
+        "POST", "/clients", credential="approver", json={**payload.model_dump(exclude_none=True), "created_by": admin.username}
+    )
+    await _audit(db, "client", created["id"], "created", admin, payload.model_dump(exclude_none=True))
+    return created
+
+
+@router.patch("/clients/{client_id}")
+async def update_client(
+    client_id: uuid.UUID,
+    payload: ClientAccountPatch,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    changes = payload.model_dump(exclude_unset=True)
+    updated = await dw.request("PATCH", f"/clients/{client_id}", credential="approver", json=changes)
+    await _audit(db, "client", str(client_id), "updated", admin, changes)
+    return updated
+
+
+@router.post("/clients/{client_id}:portal-access")
+async def issue_portal_access(
+    client_id: uuid.UUID, admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """New temporary portal password (the previous one stops working); change forced at first login."""
+    issued = await dw.request("POST", f"/clients/{client_id}/portal-access", credential="approver")
+    await _audit(db, "client", str(client_id), "portal_access_issued", admin, {"login": issued.get("login")})
+    return issued
 
 
 @router.get("/clients/{client_id}")
@@ -747,7 +793,7 @@ async def reject_conversion(
 
 @router.get("/leads")
 async def list_leads(search: str | None = None, _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
-    return await dw.request("GET", "/leads", params={"search": search, "limit": 50})
+    return await dw.request("GET", "/leads", params={"search": search, "limit": 100})
 
 
 @router.post("/leads/{lead_id}:convert")

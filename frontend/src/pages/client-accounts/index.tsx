@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Building2, Loader2, UserPlus, X } from "lucide-react";
+import { Building2, Loader2, Plus, UserPlus, X } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -9,10 +9,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useClientOpsStatus, useClientOpsText, useDarckwareClients } from "@/hooks/useClientOps";
+import { useClientOpsStatus, useClientOpsText, useDarckwareClients, useLeadList, type DarckwareLead } from "@/hooks/useClientOps";
+import { useClientProfileViewModel } from "@/hooks/useClientProfileViewModel";
 import { useClientConversionsViewModel, type ClientConversionsViewModel } from "@/hooks/useClientConversionsViewModel";
 import { ClientOpsStatusBanner } from "@/pages/client-demands/shared";
+import { ClientDialog } from "./ClientDialog";
 import { ConversionDialog } from "./ConversionDialog";
 import { DialogShell } from "./ContractFields";
 
@@ -20,8 +23,10 @@ export default function ClientAccountsPage() {
   const { t } = useTranslation("clientOps");
   const { errorText } = useClientOpsText();
   const integration = useClientOpsStatus();
-  const clients = useDarckwareClients();
+  const clients = useDarckwareClients(true);
   const vm = useClientConversionsViewModel();
+  const profile = useClientProfileViewModel();
+  const [tab, setTab] = useState("clients");
   const [search, setSearch] = useState("");
   const term = search.trim().toLowerCase();
   const visible = (clients.data?.items ?? []).filter(
@@ -35,9 +40,14 @@ export default function ClientAccountsPage() {
         description={t("accounts.description")}
         icon={<Building2 className="h-6 w-6" />}
         actions={
-          <Button onClick={vm.openLeadPicker} disabled={!integration.data?.configured}>
-            <UserPlus className="mr-2 h-4 w-4" /> {t("conversions.convertLead")}
-          </Button>
+          <>
+            <Button variant="outline" onClick={vm.openLeadPicker} disabled={!integration.data?.configured}>
+              <UserPlus className="mr-2 h-4 w-4" /> {t("conversions.convertLead")}
+            </Button>
+            <Button onClick={profile.openCreate} disabled={!integration.data?.configured}>
+              <Plus className="mr-2 h-4 w-4" /> {t("client.new")}
+            </Button>
+          </>
         }
       />
       <ClientOpsStatusBanner status={integration.data} />
@@ -56,42 +66,71 @@ export default function ClientAccountsPage() {
           </button>
         </div>
       )}
+      {profile.createdId && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+          <span>{t("client.created")}</span>
+          <Link to={`/client-accounts/${profile.createdId}`} className="underline">
+            {t("conversions.openClient")}
+          </Link>
+        </div>
+      )}
       {vm.errorMessage && !vm.dialog && (
         <p className="break-words rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           {vm.errorMessage}
         </p>
       )}
 
-      <ConversionsPanel vm={vm} />
-
-      <Card>
-        <CardContent className="space-y-3 p-4">
-          <Input
-            placeholder={t("accounts.search")}
-            className="max-md:text-base"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          {clients.isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
-          {clients.isError && <p className="break-words text-sm text-destructive">{errorText(clients.error)}</p>}
-          {clients.isSuccess && visible.length === 0 && <p className="text-sm text-muted-foreground">{t("accounts.empty")}</p>}
-          <ul className="divide-y">
-            {visible.map((c) => (
-              <li key={c.id}>
-                <Link to={`/client-accounts/${c.id}`} className="block space-y-0.5 py-3 hover:bg-muted/40">
-                  <div className="font-medium">{c.company_name}</div>
-                  <div className="break-all text-xs text-muted-foreground">
-                    {[c.contact_name, c.email].filter(Boolean).join(" · ")}
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="clients">{t("accounts.tabClients")}</TabsTrigger>
+          <TabsTrigger value="leads">
+            {t("leads.tab")}
+            {vm.proposals.length > 0 && (
+              <Badge variant="warning" className="ml-2">
+                {vm.proposals.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="clients">
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <Input
+                placeholder={t("accounts.search")}
+                className="max-md:text-base"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              {clients.isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
+              {clients.isError && <p className="break-words text-sm text-destructive">{errorText(clients.error)}</p>}
+              {clients.isSuccess && visible.length === 0 && <p className="text-sm text-muted-foreground">{t("accounts.empty")}</p>}
+              <ul className="divide-y">
+                {visible.map((c) => (
+                  <li key={c.id}>
+                    <Link to={`/client-accounts/${c.id}`} className="block space-y-0.5 py-3 hover:bg-muted/40">
+                      <div className="flex flex-wrap items-center gap-2 font-medium">
+                        {c.company_name}
+                        {c.is_active === false && <Badge variant="outline">{t("client.inactive")}</Badge>}
+                      </div>
+                      <div className="break-all text-xs text-muted-foreground">
+                        {[c.contact_name, c.email].filter(Boolean).join(" · ")}
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="leads" className="space-y-4">
+          <ConversionsPanel vm={vm} />
+          <LeadsPanel onConvert={vm.pickLead} />
+        </TabsContent>
+      </Tabs>
 
       {vm.status === "picking" && <LeadPicker vm={vm} />}
       {vm.dialog && <ConversionDialog vm={vm} />}
+      {profile.dialog && <ClientDialog vm={profile} />}
       <ConfirmDialog
         open={Boolean(vm.rejecting)}
         title={t("conversions.rejectTitle")}
@@ -189,5 +228,90 @@ function LeadPicker({ vm }: { vm: ClientConversionsViewModel }) {
         </button>
       </div>
     </DialogShell>
+  );
+}
+
+const LEAD_STATUS_VARIANT: Record<string, "success" | "warning" | "outline" | "destructive"> = {
+  ganho: "success",
+  oportunidade: "warning",
+  qualificado: "warning",
+  proposta_em_analise: "warning",
+  encaminhado_marcelo: "warning",
+  perdido: "outline",
+  descartado: "outline",
+};
+
+/**
+ * Every lead Lara (or the site) registered, newest first (2026-10-05, Marcelo:
+ * "preciso ver os leads que a Lara cria"). A lead not yet a client can be
+ * converted here once the contract is defined; Lara's own route only proposes,
+ * and her proposals wait above for approval.
+ */
+function LeadsPanel({ onConvert }: { onConvert(lead: DarckwareLead): void }) {
+  const { t } = useTranslation("clientOps");
+  const fmt = useClientOpsText();
+  const [search, setSearch] = useState("");
+  const [showClosed, setShowClosed] = useState(false);
+  const leads = useLeadList(search.trim());
+  const closed = (l: DarckwareLead) => Boolean(l.archived_at) || l.commercial_status === "perdido" || l.commercial_status === "descartado";
+  const items = (leads.data?.leads ?? []).filter((l) => showClosed || !closed(l));
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="font-semibold">{t("leads.title")}</h2>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
+            {t("leads.showClosed")}
+          </label>
+        </div>
+        <Input
+          placeholder={t("conversions.pickSearch")}
+          className="max-md:text-base"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {leads.isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
+        {leads.isError && <p className="break-words text-sm text-destructive">{fmt.errorText(leads.error)}</p>}
+        {leads.isSuccess && items.length === 0 && <p className="text-sm text-muted-foreground">{t("conversions.noLeads")}</p>}
+        <ul className="divide-y">
+          {items.map((lead) => (
+            <li key={lead.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{lead.company || lead.name || "—"}</span>
+                  {lead.commercial_status && (
+                    <Badge variant={LEAD_STATUS_VARIANT[lead.commercial_status] ?? "outline"}>
+                      {t(`leads.status.${lead.commercial_status}`, { defaultValue: lead.commercial_status })}
+                    </Badge>
+                  )}
+                </div>
+                <div className="break-all text-xs text-muted-foreground">
+                  {[lead.company ? lead.name : null, lead.email, lead.phone].filter(Boolean).join(" · ")}
+                </div>
+                {lead.need_summary && <p className="line-clamp-2 break-words text-sm">{lead.need_summary}</p>}
+                <div className="text-xs text-muted-foreground">
+                  {[lead.origin, lead.created_at ? fmt.date(lead.created_at) : null].filter(Boolean).join(" · ")}
+                  {lead.next_step && ` · ${t("leads.nextStep")}: ${lead.next_step}`}
+                </div>
+              </div>
+              <div className="shrink-0">
+                {lead.client_account_id ? (
+                  <Link to={`/client-accounts/${lead.client_account_id}`} className={buttonVariants({ size: "sm", variant: "outline" })}>
+                    {t("leads.isClient")}
+                  </Link>
+                ) : (
+                  !closed(lead) && (
+                    <Button size="sm" onClick={() => onConvert(lead)}>
+                      {t("conversions.convert")}
+                    </Button>
+                  )
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
