@@ -403,6 +403,18 @@ def upcoming_birthdays(dias: int = 30, hoje: date | None = None) -> list[dict[st
     return sorted(proximos, key=lambda p: p["faltam_dias"])
 
 
+def _register_agenda(mcp) -> None:
+    """Agenda e tarefas (personal_agenda.py, ao lado deste arquivo): carregado pelo caminho para
+    funcionar tanto como pacote (testes) quanto como script (`uv run`)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("personal_agenda", Path(__file__).with_name("personal_agenda.py"))
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    modulo.BASE = BASE
+    modulo.register(mcp)
+
+
 def register(mcp) -> bool:
     """Registra as ferramentas só para os agentes autorizados (padrão: Maia)."""
     if not allowed_agent():
@@ -498,6 +510,8 @@ def register(mcp) -> bool:
             return {"success": True, "encerrada": close_task(telefone)}
         except PersonalContactsError as exc:
             return {"success": False, "error": str(exc)}
+
+    _register_agenda(mcp)
 
     @mcp.tool()
     async def personal_birthdays(dias: int = 30) -> dict[str, Any]:
