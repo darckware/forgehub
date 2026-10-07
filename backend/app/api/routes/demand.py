@@ -1195,7 +1195,7 @@ async def delete_attachment(
 @router.post("/{demand_id}/notify-telegram")
 async def notify_telegram(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     """"Encaminhar pro Telegram": proxies the host-bridge's
-    /v1/messages/send (see host-bridge/send_message.py), which forwards
+    /v1/messages/send (`hermes send` on the host), which forwards
     through Hermes's cross-channel gateway.
 
     Sends through a specific agent's bot (`profile`), which is what makes it
