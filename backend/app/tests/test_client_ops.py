@@ -186,6 +186,18 @@ class FakeDarckware:
                 200,
                 json={"items": [{"id": PROPOSAL_ID, "proposed_by": "lara", "payload": {"company_name": "Gatling"}}]},
             )
+        if path == f"{a}/client-projects":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": "p-ajuste", "status": "ajuste", "version": 1, "name": "Estoque", "company_name": "ACME",
+                         "final_cents": 280000, "last_change_request": "Incluir app de celular"},
+                        {"id": "p-ok", "status": "aprovado", "version": 2, "name": "Site", "company_name": "ACME",
+                         "final_cents": 250000, "last_change_request": None},
+                    ]
+                },
+            )
         if path == f"{a}/outbound-emails/{EMAIL_ID}/cancel":
             return httpx.Response(200, json={**self.email, "status": "cancelado"})
         return httpx.Response(404, json={"detail": f"unmocked {request.method} {path}"})
@@ -342,8 +354,16 @@ async def test_notification_pass_is_deduplicated(client, darckware):
     async with AsyncSessionLocal() as db:
         first = await run_client_ops_notification_pass(db)
         second = await run_client_ops_notification_pass(db)
-    assert first == 6  # email, ticket, demand, conversion, escalation, the recent lead only
+    assert first == 8  # email, ticket, demand, conversion, escalation, the recent lead, 2 project answers
     assert second == 0
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(Notification).where(Notification.event_key.like("darckware:project:%")))).scalars().all()
+        by_key = {n.event_key: n for n in rows}
+        assert by_key["darckware:project:p-ajuste:v1:ajuste"].message == "ACME: Estoque — Incluir app de celular"
+        assert by_key["darckware:project:p-ok:aprovado"].message == "ACME: Site — R$ 2.500,00"
+        for n in rows:
+            await db.delete(n)
+        await db.commit()
 
 
 SUPPORT = {"contract_type": "suporte_horas", "plan_name": "Plano 8 Horas", "monthly_hours_quota": 8, "monthly_price": 900}

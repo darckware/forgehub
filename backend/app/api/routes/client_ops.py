@@ -1114,7 +1114,8 @@ async def run_client_ops_notification_pass(db: AsyncSession) -> int:
     """Surface Darckware arrivals in ForgeHub's bell, once each.
 
     New tickets/demands, e-mails waiting for approval, lead conversion
-    proposals, pending CEO escalations and leads from the last 48 h become a
+    proposals, pending CEO escalations, client answers to proposed projects
+    (change request / approval) and leads from the last 48 h become a
     `Notification(source="system")`, deduplicated by `event_key` (an e-mail
     key carries its version: an edited text needs a fresh look). Silent
     no-op when the integration isn't configured; an unreachable Darckware
@@ -1198,6 +1199,34 @@ async def run_client_ops_notification_pass(db: AsyncSession) -> int:
                 "message": f"{c['payload'].get('company_name') or ''} — proposto por {c['proposed_by']}".strip(" —"),
             }
         )
+    # Projetos propostos ao cliente (Darckware ALT-16): o cliente responde no portal.
+    # Consulta à parte: uma Darckware sem essa rota não pode derrubar os outros avisos.
+    try:
+        projects = await dw.request("GET", "/client-projects", params={"status": "ajuste,aprovado", "limit": 100})
+    except Exception as exc:  # noqa: BLE001 - registrado e ignorado de propósito
+        logger.warning("client-ops: projetos da Darckware indisponíveis: %s", exc)
+        projects = {}
+    for p in projects.get("items", []):
+        head = f"{p.get('company_name') or ''}: {p['name']}".strip(": ")
+        if p["status"] == "ajuste":
+            rows.append(
+                {
+                    "event_key": f"darckware:project:{p['id']}:v{p['version']}:ajuste",
+                    "severity": "warning",
+                    "title": "Cliente pediu ajuste no projeto",
+                    "message": f"{head} — {p.get('last_change_request') or ''}".strip(" —")[:500],
+                }
+            )
+        elif p["status"] == "aprovado":
+            value = f"R$ {p['final_cents'] / 100:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            rows.append(
+                {
+                    "event_key": f"darckware:project:{p['id']}:aprovado",
+                    "severity": "info",
+                    "title": "Cliente aprovou o projeto (contrato criado)",
+                    "message": f"{head} — {value}"[:500],
+                }
+            )
     if not rows:
         return 0
     stmt = (
