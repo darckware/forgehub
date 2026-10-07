@@ -12,7 +12,7 @@ plugin ``maia-whatsapp-recados`` da Maia escreve:
 - ``contatos/<telefone>.md``: ficha com frontmatter e as seções "Quem é", "Como tratar" e "Histórico".
 
 É um servidor MCP próprio, separado do ``forgehub`` (que tem ferramentas de administração do
-ecossistema): a Maia, secretária pessoal do Marcelo, recebe só este. São dados pessoais: as ferramentas
+ecossistema): a Maia, assistente pessoal do Marcelo, recebe só este. São dados pessoais: as ferramentas
 só são registradas para os agentes em ``FORGEHUB_PERSONAL_CONTACTS_AGENTS`` (padrão: ``maia``),
 conferido pelo ``FORGEHUB_AGENT_SLUG`` do perfil que abriu o MCP. Nenhuma ferramenta apaga contato
 nem histórico.
