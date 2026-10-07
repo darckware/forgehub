@@ -67,6 +67,8 @@ from hindsight_retention import read_status as read_hindsight_retention_status
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
 HERMES_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
+# Hermes CLI launcher: always runs the active managed environment (see /v1/messages/send).
+HERMES_BIN = "/usr/local/bin/hermes"
 PROFILES_DIR = Path("/root/.hermes/profiles")
 
 # A profile is chattable if it's a real Hermes profile directory -- matches
@@ -2461,40 +2463,40 @@ async def send_message(
     req: MessageSendRequest, x_bridge_token: str | None = Header(default=None)
 ) -> dict:
     """Forward a message through Hermes's cross-channel gateway (Telegram,
-    Discord, Slack, ...) -- shells out to send_message.py (HERMES_PYTHON,
-    same subprocess pattern as _run_hermes_chat / hermes_stream.py) since
-    the gateway's `tools`/`gateway` packages aren't importable from this
-    process directly (see that script's docstring)."""
+    Discord, Slack, ...) with `hermes [-p <profile>] send` -- the gateway's
+    `tools`/`gateway` packages aren't importable from this process directly."""
     _check_token(x_bridge_token)
-    helper = str(Path(__file__).parent / "send_message.py")
-    cmd = [HERMES_PYTHON, "-u", helper, "--target", req.target, "--message", req.message]
+    # `hermes send` is Hermes' own CLI for this (same send_message_tool, the profile's own bot
+    # and credentials). It runs through the launcher, so it always uses the active managed
+    # environment. The old send_message.py ran HERMES_PYTHON (the checkout's legacy 3.11 venv)
+    # against the source tree and broke when that tree started importing packages only the
+    # managed environment has ("import failed: No module named 'ruamel'", 2026-10-07).
+    cmd = [HERMES_BIN]
     if req.profile:
-        # Resolved here rather than trusting a caller-supplied path: the
-        # request carries a slug, and only slugs under the profiles dir are
-        # reachable, so a caller can't point the send at an arbitrary
-        # directory.
-        # _valid_profile also checks the name against PROFILE_NAME_RE, so a
-        # slug can't traverse out of the profiles dir.
+        # Resolved here rather than trusting a caller-supplied path: only slugs under the
+        # profiles dir are reachable (_is_valid_profile also checks PROFILE_NAME_RE).
         if not _is_valid_profile(req.profile):
             raise HTTPException(
                 status_code=404, detail=f"No Hermes profile named {req.profile!r}"
             )
-        profile_home = PROFILES_DIR / req.profile
-        cmd += ["--profile-home", str(profile_home)]
+        cmd += ["-p", req.profile]
+    # The body goes on stdin, never argv: it can be long and must not show up in `ps`.
+    cmd += ["send", "--to", req.target, "--json", "--file", "-"]
     try:
         proc = await asyncio.to_thread(
             subprocess.run,
             cmd,
+            input=req.message,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Message send timed out") from None
 
     try:
-        result = json.loads(proc.stdout.strip().splitlines()[-1]) if proc.stdout.strip() else {}
-    except (json.JSONDecodeError, IndexError):
+        result = json.loads(proc.stdout) if proc.stdout.strip() else {}
+    except json.JSONDecodeError:
         result = {}
 
     if proc.returncode != 0 or "error" in result:

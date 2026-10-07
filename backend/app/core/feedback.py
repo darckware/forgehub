@@ -47,7 +47,7 @@ from app.db.models.notification import Notification
 logger = logging.getLogger(__name__)
 
 # The bridge endpoint that forwards to Telegram/Discord/Slack (host-bridge's
-# /v1/messages/send -> send_message.py -> Hermes' send_message_tool).
+# /v1/messages/send -> `hermes send` -> Hermes' send_message_tool).
 _BRIDGE_MESSAGES_URL = f"{settings.CHAT_BRIDGE_URL.rstrip('/')}/v1/messages/send"
 
 
