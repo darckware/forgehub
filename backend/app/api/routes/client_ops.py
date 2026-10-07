@@ -45,6 +45,7 @@ from app.api.schemas.client_ops import (
     ContractPatch,
     ConversionApprove,
     ConversionReject,
+    RegistrationApprove,
     EmailDraftIn,
     LeadConvert,
     OutboundEmailApprove,
@@ -794,6 +795,50 @@ async def reject_conversion(
     return rejected
 
 
+# Client registrations asked by agents (2026-10-06, Marcelo: "o agente só cria o cliente com a
+# minha aprovação"). Darckware keeps them as proposals; only the approver credential creates.
+
+
+@router.get("/registrations")
+async def list_registrations(status_filter: str | None = Query("proposta", alias="status"), _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
+    return await dw.request("GET", "/client-registrations", params={"status": status_filter or None})
+
+
+@router.post("/registrations/{proposal_id}:approve")
+async def approve_registration(
+    proposal_id: uuid.UUID,
+    payload: RegistrationApprove,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    edits = payload.model_dump(exclude_unset=True)
+    created = await dw.request(
+        "POST",
+        f"/client-registrations/{proposal_id}/approve",
+        credential="approver",
+        json={**edits, "decided_by": admin.username},
+    )
+    await _audit(db, "client_registration", str(proposal_id), "approved", admin, {"client_account_id": created["id"], **edits})
+    return created
+
+
+@router.post("/registrations/{proposal_id}:reject")
+async def reject_registration(
+    proposal_id: uuid.UUID,
+    payload: ConversionReject,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    rejected = await dw.request(
+        "POST",
+        f"/client-registrations/{proposal_id}/reject",
+        credential="approver",
+        json={"decided_by": admin.username, "reason": payload.reason},
+    )
+    await _audit(db, "client_registration", str(proposal_id), "rejected", admin, {"reason": payload.reason})
+    return rejected
+
+
 @router.get("/leads")
 async def list_leads(search: str | None = None, _admin: User = Depends(get_current_admin)) -> dict[str, Any]:
     return await dw.request("GET", "/leads", params={"search": search, "limit": 100})
@@ -1197,6 +1242,22 @@ async def run_client_ops_notification_pass(db: AsyncSession) -> int:
                 "severity": "warning",
                 "title": "Lead pronto para virar cliente",
                 "message": f"{c['payload'].get('company_name') or ''} — proposto por {c['proposed_by']}".strip(" —"),
+            }
+        )
+    # Cadastros de cliente pedidos por agentes: só viram cliente com a aprovação do Marcelo.
+    try:
+        registrations = await dw.request("GET", "/client-registrations", params={"status": "proposta", "limit": 100})
+    except Exception as exc:  # noqa: BLE001 - registrado e ignorado de propósito
+        logger.warning("client-ops: cadastros propostos da Darckware indisponíveis: %s", exc)
+        registrations = {}
+    for r in registrations.get("items", []):
+        data = r.get("payload") or {}
+        rows.append(
+            {
+                "event_key": f"darckware:registration:{r['id']}",
+                "severity": "warning",
+                "title": "Cadastro de cliente aguardando sua aprovação",
+                "message": f"{data.get('company_name') or ''} — proposto por {r['proposed_by']}".strip(" —")[:500],
             }
         )
     # Projetos propostos ao cliente (Darckware ALT-16): o cliente responde no portal.

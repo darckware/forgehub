@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { clientAccountSchema, type ClientAccountInput } from "@/hooks/useClientOps";
-import { clientFormDefaults, type ClientProfileViewModel } from "@/hooks/useClientProfileViewModel";
+import { clientFormDefaults, registrationDefaults, type ClientProfileViewModel } from "@/hooks/useClientProfileViewModel";
 import { DialogShell } from "./ContractFields";
 
 /** Create or edit a client's data (company registry, address, primary contact). */
@@ -15,7 +15,10 @@ export function ClientDialog({ vm }: { vm: ClientProfileViewModel }) {
   const dialog = vm.dialog!;
   const { register, handleSubmit, formState } = useForm<ClientAccountInput>({
     resolver: zodResolver(clientAccountSchema),
-    defaultValues: clientFormDefaults(dialog.mode === "edit" ? dialog.client : undefined),
+    defaultValues:
+      dialog.mode === "approve"
+        ? registrationDefaults(dialog.registration)
+        : clientFormDefaults(dialog.mode === "edit" ? dialog.client : undefined),
   });
   const submitting = vm.status === "submitting";
   const field = (name: keyof ClientAccountInput, label: string, type = "text") => {
@@ -32,8 +35,15 @@ export function ClientDialog({ vm }: { vm: ClientProfileViewModel }) {
   };
 
   return (
-    <DialogShell title={t(dialog.mode === "edit" ? "client.editTitle" : "client.newTitle")} onClose={vm.closeDialog}>
-      <p className="text-sm text-muted-foreground">{t(dialog.mode === "edit" ? "client.editExplain" : "client.newExplain")}</p>
+    <DialogShell title={t(`client.${dialog.mode === "create" ? "new" : dialog.mode}Title`)} onClose={vm.closeDialog}>
+      <p className="text-sm text-muted-foreground">
+        {dialog.mode === "approve"
+          ? t("registrations.approveExplain", { who: dialog.registration.proposed_by })
+          : t(`client.${dialog.mode === "create" ? "new" : dialog.mode}Explain`)}
+      </p>
+      {dialog.mode === "approve" && dialog.registration.payload.note && (
+        <p className="whitespace-pre-wrap rounded-md border bg-muted/40 p-2 text-sm">{dialog.registration.payload.note}</p>
+      )}
       <form onSubmit={handleSubmit((input) => vm.submit(input))} className="space-y-4">
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">{t("client.sections.company")}</legend>
@@ -72,7 +82,7 @@ export function ClientDialog({ vm }: { vm: ClientProfileViewModel }) {
           </Button>
           <Button type="submit" disabled={submitting}>
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {t(dialog.mode === "edit" ? "contract.save" : "client.create")}
+            {t(dialog.mode === "edit" ? "contract.save" : dialog.mode === "approve" ? "registrations.approve" : "client.create")}
           </Button>
         </div>
       </form>

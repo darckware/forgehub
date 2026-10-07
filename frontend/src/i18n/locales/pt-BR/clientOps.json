@@ -441,7 +441,8 @@
       "cadastro": "Cadastro",
       "alteracao": "Alteração",
       "nota": "Nota"
-    }
+    },
+    "approveTitle": "Aprovar cadastro de cliente"
   },
   "portal": {
     "title": "Acesso ao portal",
@@ -487,5 +488,17 @@
       "descartado": "Descartado",
       "teste_curiosidade": "Teste / curiosidade"
     }
+  },
+  "registrations": {
+    "title": "Cadastros pedidos pelos agentes",
+    "explain": "Os agentes não criam clientes: o cadastro só acontece quando você aprova.",
+    "proposedBy": "Proposto por {{who}}",
+    "review": "Revisar e aprovar",
+    "approve": "Aprovar e cadastrar",
+    "approveExplain": "Pedido por {{who}}. Confira e ajuste os dados antes de aprovar; o cliente é criado com o contato principal autorizado.",
+    "reject": "Rejeitar",
+    "rejectTitle": "Rejeitar este cadastro?",
+    "rejectReason": "Motivo (fica registrado)",
+    "approved": "Cadastro aprovado. Cliente criado."
   }
 }

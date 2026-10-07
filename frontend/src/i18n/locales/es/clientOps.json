@@ -441,7 +441,8 @@
       "cadastro": "Registro",
       "alteracao": "Cambio",
       "nota": "Nota"
-    }
+    },
+    "approveTitle": "Aprobar registro de cliente"
   },
   "portal": {
     "title": "Acceso al portal",
@@ -487,5 +488,17 @@
       "descartado": "Descartado",
       "teste_curiosidade": "Prueba / curiosidad"
     }
+  },
+  "registrations": {
+    "title": "Registros pedidos por los agentes",
+    "explain": "Los agentes no crean clientes: el registro solo ocurre cuando lo apruebas.",
+    "proposedBy": "Propuesto por {{who}}",
+    "review": "Revisar y aprobar",
+    "approve": "Aprobar y registrar",
+    "approveExplain": "Pedido por {{who}}. Revisa y ajusta los datos antes de aprobar; el cliente se crea con el contacto principal autorizado.",
+    "reject": "Rechazar",
+    "rejectTitle": "¿Rechazar este registro?",
+    "rejectReason": "Motivo (queda registrado)",
+    "approved": "Registro aprobado. Cliente creado."
   }
 }

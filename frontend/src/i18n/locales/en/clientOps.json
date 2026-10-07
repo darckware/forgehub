@@ -441,7 +441,8 @@
       "cadastro": "Registration",
       "alteracao": "Change",
       "nota": "Note"
-    }
+    },
+    "approveTitle": "Approve client registration"
   },
   "portal": {
     "title": "Portal access",
@@ -487,5 +488,17 @@
       "descartado": "Discarded",
       "teste_curiosidade": "Test / curiosity"
     }
+  },
+  "registrations": {
+    "title": "Registrations requested by agents",
+    "explain": "Agents don't create clients: the registration only happens when you approve it.",
+    "proposedBy": "Proposed by {{who}}",
+    "review": "Review and approve",
+    "approve": "Approve and register",
+    "approveExplain": "Requested by {{who}}. Check and adjust the details before approving; the client is created with the authorized primary contact.",
+    "reject": "Reject",
+    "rejectTitle": "Reject this registration?",
+    "rejectReason": "Reason (kept on record)",
+    "approved": "Registration approved. Client created."
   }
 }

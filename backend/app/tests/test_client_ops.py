@@ -23,6 +23,7 @@ from app.db.models.notification import Notification
 from app.main import app
 
 CLIENT_ID = str(uuid.uuid4())
+REGISTRATION_ID = "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f"
 TICKET_ID = str(uuid.uuid4())
 DEMAND_ID = str(uuid.uuid4())
 EMAIL_ID = str(uuid.uuid4())
@@ -107,6 +108,10 @@ class FakeDarckware:
                 return httpx.Response(201, json={"id": CLIENT_ID, **body})
             if path == f"/api/internal/approver/clients/{CLIENT_ID}" and request.method == "PATCH":
                 return httpx.Response(200, json={"id": CLIENT_ID, **body})
+            if path == f"/api/internal/approver/client-registrations/{REGISTRATION_ID}/approve":
+                return httpx.Response(200, json={"id": CLIENT_ID, "company_name": body.get("company_name") or "Clube Beta"})
+            if path == f"/api/internal/approver/client-registrations/{REGISTRATION_ID}/reject":
+                return httpx.Response(200, json={"id": REGISTRATION_ID, "status": "rejeitada", "decision_note": body["reason"]})
             if path.endswith(f"/clients/{CLIENT_ID}/portal-access"):
                 return httpx.Response(
                     200,
@@ -185,6 +190,12 @@ class FakeDarckware:
             return httpx.Response(
                 200,
                 json={"items": [{"id": PROPOSAL_ID, "proposed_by": "lara", "payload": {"company_name": "Gatling"}}]},
+            )
+        if path == f"{a}/client-registrations":
+            return httpx.Response(
+                200,
+                json={"items": [{"id": REGISTRATION_ID, "status": "proposta", "proposed_by": "agente:lara",
+                                 "payload": {"company_name": "Clube Beta", "email": "bia@beta.com.br"}}]},
             )
         if path == f"{a}/client-projects":
             return httpx.Response(
@@ -354,7 +365,7 @@ async def test_notification_pass_is_deduplicated(client, darckware):
     async with AsyncSessionLocal() as db:
         first = await run_client_ops_notification_pass(db)
         second = await run_client_ops_notification_pass(db)
-    assert first == 8  # email, ticket, demand, conversion, escalation, the recent lead, 2 project answers
+    assert first == 9  # email, ticket, demand, conversion, escalation, recent lead, registration, 2 project answers
     assert second == 0
     async with AsyncSessionLocal() as db:
         rows = (await db.execute(select(Notification).where(Notification.event_key.like("darckware:project:%")))).scalars().all()
@@ -671,3 +682,29 @@ async def test_client_list_includes_inactive_only_when_asked(client, darckware):
     await client.get("/api/v1/client-ops/clients?include_inactive=true")
     lists = [c for c in darckware.calls if c[1] == "/api/internal/agent/clients"]
     assert len(lists) == 2
+
+
+@pytest.mark.asyncio
+async def test_registration_approval_uses_approver_and_is_audited(client, darckware):
+    listed = (await client.get("/api/v1/client-ops/registrations")).json()
+    assert listed["items"][0]["proposed_by"] == "agente:lara"
+
+    r = await client.post(f"/api/v1/client-ops/registrations/{REGISTRATION_ID}:approve", json={"company_name": "Clube Beta Ltda"})
+    assert r.status_code == 200, r.text
+    call = next(c for c in darckware.calls if c[1].endswith(f"/client-registrations/{REGISTRATION_ID}/approve"))
+    assert call[3] == "Bearer approver-token"
+    assert call[2]["company_name"] == "Clube Beta Ltda" and call[2]["decided_by"].startswith("test-admin-")
+
+    assert (await client.post(f"/api/v1/client-ops/registrations/{REGISTRATION_ID}:reject", json={"reason": ""})).status_code == 422
+    rej = await client.post(f"/api/v1/client-ops/registrations/{REGISTRATION_ID}:reject", json={"reason": "Não é cliente"})
+    assert rej.json()["status"] == "rejeitada"
+
+    async with AsyncSessionLocal() as db:
+        events = (
+            await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "darckware_client_registration"))
+        ).scalars().all()
+        assert {"approved", "rejected"} <= {e.event_type for e in events}
+        for e in events:
+            await db.delete(e)
+        await db.commit()
+

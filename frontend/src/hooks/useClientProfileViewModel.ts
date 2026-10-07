@@ -2,11 +2,14 @@ import { useState } from "react";
 import {
   CLIENT_ADDRESS_FIELDS,
   CLIENT_COMPANY_FIELDS,
+  useApproveRegistration,
   useClientOpsText,
   useCreateClient,
+  useRejectRegistration,
   useIssuePortalAccess,
   useUpdateClient,
   type ClientAccountInput,
+  type ClientRegistration,
   type ClientSummary,
   type PortalAccess,
 } from "@/hooks/useClientOps";
@@ -24,7 +27,11 @@ import {
  */
 export type ClientProfileStatus = "idle" | "editing" | "confirming" | "submitting" | "issued" | "error";
 
-export type ClientFormDialog = { mode: "create" } | { mode: "edit"; client: ClientSummary };
+export type ClientFormDialog =
+  | { mode: "create" }
+  | { mode: "edit"; client: ClientSummary }
+  /** Cadastro pedido por um agente (2026-10-06): o Marcelo revisa, edita e aprova. */
+  | { mode: "approve"; registration: ClientRegistration };
 export type ClientConfirm = { kind: "portal" } | { kind: "activation"; active: boolean };
 
 export function clientFormDefaults(client?: ClientSummary): ClientAccountInput {
@@ -39,6 +46,14 @@ export function clientFormDefaults(client?: ClientSummary): ClientAccountInput {
       [...CLIENT_COMPANY_FIELDS, ...CLIENT_ADDRESS_FIELDS].map((f) => [f, client?.[f] ?? ""]),
     ),
   };
+}
+
+/** Form defaults from what the agent proposed (empty strings where it sent nothing). */
+export function registrationDefaults(r: ClientRegistration): ClientAccountInput {
+  const empty = clientFormDefaults();
+  return Object.fromEntries(
+    Object.keys(empty).map((k) => [k, (r.payload as Record<string, unknown>)[k] ?? ""]),
+  ) as ClientAccountInput;
 }
 
 /** Portal state as the operator reads it: not released, released but unused, in use. */
@@ -65,6 +80,13 @@ export interface ClientProfileViewModel {
   confirmAction(): Promise<void>;
   closeAccess(): void;
   dismiss(): void;
+  openApprove(registration: ClientRegistration): void;
+  rejecting?: ClientRegistration;
+  rejectReason: string;
+  setRejectReason(reason: string): void;
+  requestReject(registration: ClientRegistration): void;
+  cancelReject(): void;
+  confirmReject(): Promise<void>;
 }
 
 export function useClientProfileViewModel(clientId?: string): ClientProfileViewModel {
@@ -77,9 +99,13 @@ export function useClientProfileViewModel(clientId?: string): ClientProfileViewM
   const create = useCreateClient();
   const update = useUpdateClient();
   const portal = useIssuePortalAccess();
+  const approve = useApproveRegistration();
+  const reject = useRejectRegistration();
+  const [rejecting, setRejecting] = useState<ClientRegistration>();
+  const [rejectReason, setRejectReason] = useState("");
 
   let status: ClientProfileStatus;
-  if (create.isPending || update.isPending || portal.isPending) status = "submitting";
+  if (create.isPending || update.isPending || portal.isPending || approve.isPending || reject.isPending) status = "submitting";
   else if (issued) status = "issued";
   else if (dialog) status = "editing";
   else if (confirm) status = "confirming";
@@ -113,6 +139,9 @@ export function useClientProfileViewModel(clientId?: string): ClientProfileViewM
         if (dialog.mode === "create") {
           const created = await create.mutateAsync(input);
           setCreatedId(created.id);
+        } else if (dialog.mode === "approve") {
+          const created = await approve.mutateAsync({ id: dialog.registration.id, input });
+          setCreatedId(created.id);
         } else {
           await update.mutateAsync({ id: dialog.client.id, changes: input });
         }
@@ -143,5 +172,29 @@ export function useClientProfileViewModel(clientId?: string): ClientProfileViewM
     },
     closeAccess: () => setIssued(undefined),
     dismiss: () => setErrorMessage(undefined),
+    openApprove(registration) {
+      setErrorMessage(undefined);
+      setCreatedId(undefined);
+      setDialog({ mode: "approve", registration });
+    },
+    rejecting,
+    rejectReason,
+    setRejectReason,
+    requestReject(registration) {
+      setErrorMessage(undefined);
+      setRejectReason("");
+      setRejecting(registration);
+    },
+    cancelReject: () => setRejecting(undefined),
+    async confirmReject() {
+      if (!rejecting || !rejectReason.trim()) return;
+      try {
+        await reject.mutateAsync({ id: rejecting.id, reason: rejectReason.trim() });
+        setRejecting(undefined);
+      } catch (error) {
+        setErrorMessage(errorText(error));
+        setRejecting(undefined);
+      }
+    },
   };
 }

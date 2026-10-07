@@ -178,6 +178,16 @@ class ConversionApprove(BaseModel):
     existing_client_account_id: uuid.UUID | None = None
 
 
+class RegistrationApprove(ClientProfileFields):
+    """Approving a client registration an agent asked for, with Marcelo's edits (2026-10-06)."""
+
+    company_name: str | None = Field(default=None, min_length=1, max_length=200)
+    contact_name: str | None = Field(default=None, min_length=1, max_length=200)
+    email: str | None = Field(default=None, max_length=255, pattern=_EMAIL)
+    phone: str | None = Field(default=None, max_length=40)
+    department: str | None = Field(default=None, max_length=100)
+
+
 class ConversionReject(BaseModel):
     reason: str = Field(..., min_length=1, max_length=2000)
 

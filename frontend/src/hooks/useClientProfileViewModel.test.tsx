@@ -6,7 +6,7 @@ import "@/i18n";
 import { apiClient } from "@/lib/api";
 
 import { changedFields, clientAccountSchema, clientAddressLine, cnpjIsValid, type ClientSummary } from "./useClientOps";
-import { clientFormDefaults, portalState, useClientProfileViewModel } from "./useClientProfileViewModel";
+import { clientFormDefaults, portalState, registrationDefaults, useClientProfileViewModel } from "./useClientProfileViewModel";
 
 vi.mock("@/lib/api", () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
@@ -112,3 +112,56 @@ describe("client registry (2026-10-06)", () => {
     expect(changedFields("Cliente cadastrado.")).toBeNull();
   });
 });
+
+describe("client registration asked by an agent (2026-10-06)", () => {
+  const REG = {
+    id: "r1",
+    status: "proposta" as const,
+    proposed_by: "agente:lara",
+    payload: { company_name: "Clube Beta", contact_name: "Bia", email: "bia@beta.com.br", cnpj: "45.498.857/0001-11", note: "Pelo WhatsApp" },
+    decided_by: null,
+    decided_at: null,
+    decision_note: null,
+    client_account_id: null,
+    created_at: null,
+  };
+
+  beforeEach(() => {
+    vi.mocked(apiClient.post).mockReset();
+  });
+
+  it("fills the form with what the agent proposed", () => {
+    const form = registrationDefaults(REG);
+    expect(form.company_name).toBe("Clube Beta");
+    expect(form.cnpj).toBe("45.498.857/0001-11");
+    expect(form.trade_name).toBe("");
+    expect("note" in form).toBe(false);
+  });
+
+  it("approves through the registration route and reports the new client", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...CLIENT, id: "new-client" });
+    const { result } = renderHook(() => useClientProfileViewModel(), { wrapper });
+    act(() => result.current.openApprove(REG));
+    expect(result.current.dialog).toEqual({ mode: "approve", registration: REG });
+    await act(() => result.current.submit({ ...registrationDefaults(REG), company_name: "Clube Beta Ltda" }));
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/api/v1/client-ops/registrations/r1:approve",
+      expect.objectContaining({ company_name: "Clube Beta Ltda", cnpj: "45.498.857/0001-11" }),
+    );
+    expect(result.current.createdId).toBe("new-client");
+    expect(result.current.dialog).toBeUndefined();
+  });
+
+  it("rejects only with a reason", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...REG, status: "rejeitada" });
+    const { result } = renderHook(() => useClientProfileViewModel(), { wrapper });
+    act(() => result.current.requestReject(REG));
+    await act(() => result.current.confirmReject());
+    expect(apiClient.post).not.toHaveBeenCalled();
+    act(() => result.current.setRejectReason("Não é cliente"));
+    await act(() => result.current.confirmReject());
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/client-ops/registrations/r1:reject", { reason: "Não é cliente" });
+    expect(result.current.rejecting).toBeUndefined();
+  });
+});
+

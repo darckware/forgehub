@@ -515,6 +515,43 @@ export function useRejectConversion() {
   });
 }
 
+/** Cadastro de cliente pedido por um agente: só vira cliente com a aprovação do Marcelo. */
+export interface ClientRegistration {
+  id: string;
+  status: "proposta" | "aprovada" | "rejeitada";
+  proposed_by: string;
+  payload: Partial<ClientAccountInput> & { note?: string };
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  client_account_id: string | null;
+  created_at: string | null;
+}
+
+export function useRegistrations(status = "proposta") {
+  return useQuery<{ items: ClientRegistration[] }>({
+    queryKey: ["client-ops", "registrations", status],
+    queryFn: () => apiClient.get(`${BASE}/registrations${qs({ status })}`),
+    retry: false,
+  });
+}
+
+export function useApproveRegistration() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<ClientSummary, Error, { id: string; input: ClientAccountInput }>({
+    mutationFn: ({ id, input }) => apiClient.post(`${BASE}/registrations/${id}:approve`, compact(input)),
+    onSettled: invalidate,
+  });
+}
+
+export function useRejectRegistration() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<ClientRegistration, Error, { id: string; reason: string }>({
+    mutationFn: ({ id, reason }) => apiClient.post(`${BASE}/registrations/${id}:reject`, { reason }),
+    onSettled: invalidate,
+  });
+}
+
 export function useCreateContract() {
   const invalidate = useInvalidateClientOps();
   return useMutation<Contract, Error, { clientId: string; input: ContractInput }>({

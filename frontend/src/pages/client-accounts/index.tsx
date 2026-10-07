@@ -11,8 +11,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useClientOpsStatus, useClientOpsText, useDarckwareClients, useLeadList, type DarckwareLead } from "@/hooks/useClientOps";
-import { useClientProfileViewModel } from "@/hooks/useClientProfileViewModel";
+import {
+  useClientOpsStatus,
+  useClientOpsText,
+  useDarckwareClients,
+  useLeadList,
+  useRegistrations,
+  type DarckwareLead,
+} from "@/hooks/useClientOps";
+import { useClientProfileViewModel, type ClientProfileViewModel } from "@/hooks/useClientProfileViewModel";
 import { useClientConversionsViewModel, type ClientConversionsViewModel } from "@/hooks/useClientConversionsViewModel";
 import { ClientOpsStatusBanner } from "@/pages/client-demands/shared";
 import { ClientDialog } from "./ClientDialog";
@@ -74,6 +81,11 @@ export default function ClientAccountsPage() {
           </Link>
         </div>
       )}
+      {profile.errorMessage && !profile.dialog && (
+        <p className="break-words rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          {profile.errorMessage}
+        </p>
+      )}
       {vm.errorMessage && !vm.dialog && (
         <p className="break-words rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           {vm.errorMessage}
@@ -92,7 +104,8 @@ export default function ClientAccountsPage() {
             )}
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="clients">
+        <TabsContent value="clients" className="space-y-4">
+          <RegistrationsPanel profile={profile} />
           <Card>
             <CardContent className="space-y-3 p-4">
               <Input
@@ -132,6 +145,26 @@ export default function ClientAccountsPage() {
       {vm.dialog && <ConversionDialog vm={vm} />}
       {profile.dialog && <ClientDialog vm={profile} />}
       <ConfirmDialog
+        open={Boolean(profile.rejecting)}
+        title={t("registrations.rejectTitle")}
+        confirmLabel={t("registrations.reject")}
+        confirmDisabled={!profile.rejectReason.trim()}
+        loading={profile.status === "submitting"}
+        onConfirm={() => void profile.confirmReject()}
+        onCancel={profile.cancelReject}
+      >
+        <div className="space-y-1">
+          <Label htmlFor="reg-reject">{t("registrations.rejectReason")}</Label>
+          <Textarea
+            id="reg-reject"
+            rows={3}
+            className="max-md:text-base"
+            value={profile.rejectReason}
+            onChange={(e) => profile.setRejectReason(e.target.value)}
+          />
+        </div>
+      </ConfirmDialog>
+      <ConfirmDialog
         open={Boolean(vm.rejecting)}
         title={t("conversions.rejectTitle")}
         confirmLabel={t("conversions.reject")}
@@ -152,6 +185,46 @@ export default function ClientAccountsPage() {
         </div>
       </ConfirmDialog>
     </div>
+  );
+}
+
+/** Cadastros que os agentes pediram (2026-10-06): só viram cliente com a aprovação do Marcelo. */
+function RegistrationsPanel({ profile }: { profile: ClientProfileViewModel }) {
+  const { t } = useTranslation("clientOps");
+  const registrations = useRegistrations();
+  const items = registrations.data?.items ?? [];
+  if (!items.length) return null;
+  return (
+    <Card className="border-amber-500/40">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="font-semibold">{t("registrations.title")}</h2>
+          <Badge variant="warning">{items.length}</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">{t("registrations.explain")}</p>
+        <ul className="divide-y">
+          {items.map((r) => (
+            <li key={r.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 space-y-0.5">
+                <div className="font-medium">{r.payload.company_name}</div>
+                <div className="break-all text-xs text-muted-foreground">
+                  {[r.payload.contact_name, r.payload.email, r.payload.cnpj].filter(Boolean).join(" · ")}
+                </div>
+                <div className="text-xs text-muted-foreground">{t("registrations.proposedBy", { who: r.proposed_by })}</div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => profile.openApprove(r)}>
+                  {t("registrations.review")}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => profile.requestReject(r)}>
+                  {t("registrations.reject")}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
 
