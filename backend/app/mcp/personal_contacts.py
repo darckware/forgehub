@@ -12,7 +12,7 @@ plugin ``maia-whatsapp-recados`` da Maia escreve:
 - ``contatos/<telefone>.md``: ficha com frontmatter e as seções "Quem é", "Como tratar" e "Histórico".
 
 É um servidor MCP próprio, separado do ``forgehub`` (que tem ferramentas de administração do
-ecossistema): a Maia, agente pessoal do Marcelo, recebe só este. São dados pessoais: as ferramentas
+ecossistema): a Maia, secretária pessoal do Marcelo, recebe só este. São dados pessoais: as ferramentas
 só são registradas para os agentes em ``FORGEHUB_PERSONAL_CONTACTS_AGENTS`` (padrão: ``maia``),
 conferido pelo ``FORGEHUB_AGENT_SLUG`` do perfil que abriu o MCP. Nenhuma ferramenta apaga contato
 nem histórico.
@@ -30,6 +30,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 BASE = Path(os.environ.get("FORGEHUB_PERSONAL_CONTACTS_DIR", "/root/memory/knowledge_base/marcelo/pessoal"))
+INSTRUCOES = Path(os.environ.get(
+    "PERSONAL_INSTRUCTIONS_FILE", "/root/.hermes/profiles/maia/whatsapp/INSTRUCOES_PESSOAIS.md"))
 TZ = ZoneInfo("America/Sao_Paulo")
 CATEGORIAS = ("familia", "parentes", "amigos", "trabalho_semed", "cliente_darckware", "outros", "a_classificar")
 CHAVES = ("nome", "telefone", "categoria", "relacao", "aniversario", "observacoes", "ultimo_contato")
@@ -266,6 +268,26 @@ def add_history(telefone: str, texto: str, autor: str = "Marcelo") -> dict[str, 
     return get_contact(row["telefone"], ultimos=5)
 
 
+def get_instructions() -> str:
+    try:
+        return INSTRUCOES.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def set_instructions(texto: str) -> str:
+    """Substitui as instruções pessoais do atendimento (lidas pelo plugin a cada mensagem)."""
+    texto = str(texto or "").strip()
+    if len(texto) > 6000:
+        raise PersonalContactsError("Instruções longas demais (máximo 6000 caracteres).")
+    INSTRUCOES.parent.mkdir(parents=True, exist_ok=True)
+    if INSTRUCOES.exists():
+        backup = INSTRUCOES.with_suffix(f".md.{datetime.now(TZ):%Y%m%d%H%M%S}.bak")
+        backup.write_text(INSTRUCOES.read_text(encoding="utf-8"), encoding="utf-8")
+    INSTRUCOES.write_text(texto + "\n", encoding="utf-8")
+    return get_instructions()
+
+
 def upcoming_birthdays(dias: int = 30, hoje: date | None = None) -> list[dict[str, Any]]:
     hoje = hoje or datetime.now(TZ).date()
     proximos = []
@@ -341,6 +363,21 @@ def register(mcp) -> bool:
         Marcelo pelo Telegram. Nunca reescreve registros anteriores."""
         try:
             return {"success": True, "contato": add_history(telefone, texto, autor)}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
+
+    @mcp.tool()
+    async def personal_instructions_get() -> dict[str, Any]:
+        """Instruções pessoais do Marcelo para o atendimento no WhatsApp pessoal (texto atual)."""
+        return {"instrucoes": get_instructions()}
+
+    @mcp.tool()
+    async def personal_instructions_update(texto: str) -> dict[str, Any]:
+        """Substitui as instruções pessoais do atendimento pelo texto completo informado — só quando o
+        Marcelo pedir pelo Telegram. Leia antes com personal_instructions_get e mantenha o que ele não
+        pediu para mudar. A versão anterior fica guardada como .bak. Vale a partir da próxima mensagem."""
+        try:
+            return {"success": True, "instrucoes": set_instructions(texto)}
         except PersonalContactsError as exc:
             return {"success": False, "error": str(exc)}
 

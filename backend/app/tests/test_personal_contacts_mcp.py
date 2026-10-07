@@ -71,3 +71,13 @@ def test_forgehub_catalog_has_no_personal_tools():
     from app.mcp import factory_server
 
     assert not any(name.startswith("personal_") for name in factory_server.mcp._tool_manager._tools)
+
+
+def test_instructions_roundtrip_keeps_backup(tmp_path, monkeypatch):
+    monkeypatch.setattr(pc, "INSTRUCOES", tmp_path / "INSTRUCOES_PESSOAIS.md")
+    assert pc.get_instructions() == ""
+    pc.set_instructions("Tratar a Patrícia com carinho.")
+    assert pc.set_instructions("Tratar a Patrícia e a Marcela com carinho.").startswith("Tratar a Patrícia e a Marcela")
+    assert len(list(tmp_path.glob("*.bak"))) == 1
+    with pytest.raises(pc.PersonalContactsError):
+        pc.set_instructions("x" * 6001)
