@@ -1,15 +1,23 @@
-"""Contatos pessoais do Marcelo no MCP do ForgeHub (2026-10-07).
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["mcp[cli]>=1.2.0,<2"]
+# ///
+"""MCP ``pessoal``: contatos pessoais do Marcelo, só para a Maia (2026-10-07).
 
 A lista e as fichas ficam na base de conhecimento (``marcelo/pessoal``), no mesmo formato que o
-plugin ``athos-whatsapp-recados`` do Athos escreve:
+plugin ``maia-whatsapp-recados`` da Maia escreve:
 
 - ``CONTATOS.md``: tabela Nome | Telefone | Categoria | Relação | Aniversário | Observações | Último contato;
 - ``contatos/<telefone>.md``: ficha com frontmatter e as seções "Quem é", "Como tratar" e "Histórico".
 
-São dados pessoais: as ferramentas só são registradas para os agentes em
-``FORGEHUB_PERSONAL_CONTACTS_AGENTS`` (padrão: ``athos``), conferido pelo ``FORGEHUB_AGENT_SLUG``
-do perfil que abriu o MCP. Para a Lara e os demais agentes, elas não existem. Nenhuma ferramenta
-apaga contato nem histórico.
+É um servidor MCP próprio, separado do ``forgehub`` (que tem ferramentas de administração do
+ecossistema): a Maia, agente pessoal do Marcelo, recebe só este. São dados pessoais: as ferramentas
+só são registradas para os agentes em ``FORGEHUB_PERSONAL_CONTACTS_AGENTS`` (padrão: ``maia``),
+conferido pelo ``FORGEHUB_AGENT_SLUG`` do perfil que abriu o MCP. Nenhuma ferramenta apaga contato
+nem histórico.
+
+Rodar: ``uv run /root/project/forgehub/backend/app/mcp/personal_contacts.py`` (stdio).
 """
 
 from __future__ import annotations
@@ -29,17 +37,17 @@ CABECALHO = """---
 title: Contatos pessoais do Marcelo
 sensitivity: pessoal
 owner: marcelo
-maintained_by: athos
+maintained_by: maia
 ---
 
 # Contatos pessoais
 
-Pessoas que falam com o Marcelo no WhatsApp pessoal. O Athos acrescenta quem é novo e atualiza
-"Último contato"; a classificação é do Marcelo (aqui ou pedindo ao Athos pelo Telegram).
+Pessoas que falam com o Marcelo no WhatsApp pessoal. A Maia acrescenta quem é novo e atualiza
+"Último contato"; a classificação é do Marcelo (aqui ou pedindo à Maia pelo Telegram).
 
 Categorias: `familia` · `parentes` · `amigos` · `trabalho_semed` · `cliente_darckware` · `outros` ·
 `a_classificar`. Relação é livre (esposa, filha, mãe, chefe...). Cada pessoa tem uma ficha em
-`contatos/<telefone>.md` com "Quem é", "Como tratar" e o histórico; o Athos lê a ficha a cada mensagem
+`contatos/<telefone>.md` com "Quem é", "Como tratar" e o histórico; a Maia lê a ficha a cada mensagem
 dela. Dados pessoais: não copiar para fora desta pasta.
 
 | Nome | Telefone | Categoria | Relação | Aniversário | Observações | Último contato |
@@ -57,7 +65,7 @@ def allowed_agent(slug: str | None = None) -> bool:
     slug = (slug if slug is not None else os.environ.get("FORGEHUB_AGENT_SLUG", "")).strip().lower()
     allowed = {
         s.strip().lower()
-        for s in os.environ.get("FORGEHUB_PERSONAL_CONTACTS_AGENTS", "athos").split(",")
+        for s in os.environ.get("FORGEHUB_PERSONAL_CONTACTS_AGENTS", "maia").split(",")
         if s.strip()
     }
     return bool(slug) and slug in allowed
@@ -212,7 +220,7 @@ def upsert_contact(
     else:
         ficha.parent.mkdir(parents=True, exist_ok=True)
         texto = (
-            "---\nsensitivity: pessoal\nowner: marcelo\nmaintained_by: athos\n---\n\n"
+            "---\nsensitivity: pessoal\nowner: marcelo\nmaintained_by: maia\n---\n\n"
             f"# {row['nome'] or row['telefone']} ({row['telefone']})\n\n"
             f"## Quem é\n\n{_A_PREENCHER_QUEM}\n\n## Como tratar\n\n{_A_PREENCHER_COMO}\n\n## Histórico\n\n"
         )
@@ -283,7 +291,7 @@ def upcoming_birthdays(dias: int = 30, hoje: date | None = None) -> list[dict[st
 
 
 def register(mcp) -> bool:
-    """Registra as ferramentas só para os agentes autorizados (padrão: Athos)."""
+    """Registra as ferramentas só para os agentes autorizados (padrão: Maia)."""
     if not allowed_agent():
         return False
 
@@ -342,3 +350,12 @@ def register(mcp) -> bool:
         return {"aniversarios": upcoming_birthdays(max(0, min(dias, 366)))}
 
     return True
+
+
+if __name__ == "__main__":
+    from mcp.server.fastmcp import FastMCP
+
+    server = FastMCP("pessoal")
+    if not register(server):
+        raise SystemExit("MCP pessoal: agente não autorizado (FORGEHUB_AGENT_SLUG)")
+    server.run()

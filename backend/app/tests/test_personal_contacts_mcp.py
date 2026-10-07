@@ -1,4 +1,4 @@
-"""Contatos pessoais do Marcelo no MCP: só o Athos vê as ferramentas, e nada apaga histórico."""
+"""MCP pessoal: só a Maia vê as ferramentas, e nada apaga histórico."""
 
 from datetime import date
 
@@ -15,7 +15,7 @@ def base(tmp_path, monkeypatch):
 
 
 def test_tools_are_registered_only_for_allowed_agents(monkeypatch):
-    for slug, expected in (("athos", True), ("lara", False), ("", False)):
+    for slug, expected in (("maia", True), ("athos", False), ("lara", False), ("", False)):
         monkeypatch.setenv("FORGEHUB_AGENT_SLUG", slug)
         monkeypatch.delenv("FORGEHUB_PERSONAL_CONTACTS_AGENTS", raising=False)
         server = FastMCP("t")
@@ -65,3 +65,9 @@ def test_free_fields_and_history(base):
     assert c["historico_recente"][-1].endswith("· Marcelo: combinamos almoço no sábado")
     with pytest.raises(pc.PersonalContactsError):
         pc.add_history("21900000000", "x")
+
+
+def test_forgehub_catalog_has_no_personal_tools():
+    from app.mcp import factory_server
+
+    assert not any(name.startswith("personal_") for name in factory_server.mcp._tool_manager._tools)
