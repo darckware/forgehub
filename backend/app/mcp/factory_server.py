@@ -446,5 +446,20 @@ async def close_version_and_publish(
     return {"success": True, "published_version": version}
 
 
+def _register_personal_contacts() -> None:
+    """Contatos pessoais do Marcelo: ferramentas registradas só para o Athos (ver o módulo)."""
+    spec = importlib.util.spec_from_file_location(
+        "forgehub_personal_contacts", Path(__file__).resolve().parent / "personal_contacts.py"
+    )
+    if spec is None or spec.loader is None:
+        return
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.register(mcp)
+
+
+_register_personal_contacts()
+
+
 if __name__ == "__main__":
     mcp.run()
