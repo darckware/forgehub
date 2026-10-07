@@ -32,6 +32,13 @@ from zoneinfo import ZoneInfo
 BASE = Path(os.environ.get("FORGEHUB_PERSONAL_CONTACTS_DIR", "/root/memory/knowledge_base/marcelo/pessoal"))
 INSTRUCOES = Path(os.environ.get(
     "PERSONAL_INSTRUCTIONS_FILE", "/root/.hermes/profiles/maia/whatsapp/INSTRUCOES_PESSOAIS.md"))
+TAREFAS = Path(os.environ.get(
+    "PERSONAL_WHATSAPP_TASKS", "/root/.hermes/profiles/maia/whatsapp/tarefas.json"))
+ENVIOS_LOG = Path(os.environ.get(
+    "PERSONAL_WHATSAPP_SENDS", "/root/.hermes/profiles/maia/whatsapp/envios.jsonl"))
+HERMES_BIN = os.environ.get("HERMES_BIN", "/usr/local/bin/hermes")
+ENVIOS_POR_HORA = 30
+TAREFA_HORAS = 48
 TZ = ZoneInfo("America/Sao_Paulo")
 CATEGORIAS = ("familia", "parentes", "amigos", "trabalho_semed", "cliente_darckware", "outros", "a_classificar")
 CHAVES = ("nome", "telefone", "categoria", "relacao", "aniversario", "observacoes", "ultimo_contato")
@@ -268,6 +275,90 @@ def add_history(telefone: str, texto: str, autor: str = "Marcelo") -> dict[str, 
     return get_contact(row["telefone"], ultimos=5)
 
 
+def _tel_completo(telefone: str) -> str:
+    t = digitos(telefone)
+    if len(t) in (10, 11):  # DDD + número, sem o 55
+        t = "55" + t
+    if not (12 <= len(t) <= 15):
+        raise PersonalContactsError("Telefone inválido: informe com DDD (ex.: +55 21 99999-9999).")
+    return t
+
+
+def _envios_na_ultima_hora() -> int:
+    import json
+    import time
+
+    try:
+        linhas = ENVIOS_LOG.read_text(encoding="utf-8").splitlines()[-200:]
+    except OSError:
+        return 0
+    limite = time.time() - 3600
+    return sum(1 for l in linhas if l.strip() and json.loads(l).get("ts", 0) >= limite)
+
+
+def whatsapp_send(telefone: str, texto: str, objetivo: str = "", _runner=None) -> dict[str, Any]:
+    """Envia pelo WhatsApp pessoal do Marcelo (`hermes -p maia send`) e, com ``objetivo``, abre uma
+    tarefa: as respostas daquela pessoa passam a ser tratadas dentro desse objetivo."""
+    import json
+    import subprocess
+    import time
+
+    texto = str(texto or "").strip()
+    if not texto:
+        raise PersonalContactsError("Informe o texto da mensagem.")
+    if len(texto) > 4000:
+        raise PersonalContactsError("Mensagem longa demais (máximo 4000 caracteres).")
+    tel = _tel_completo(telefone)
+    if _envios_na_ultima_hora() >= ENVIOS_POR_HORA:
+        raise PersonalContactsError(f"Limite de {ENVIOS_POR_HORA} envios por hora atingido; tente mais tarde.")
+    run = _runner or subprocess.run
+    proc = run([HERMES_BIN, "-p", "maia", "send", "--to", f"whatsapp:{tel}", "--json", "--file", "-"],
+               input=texto, capture_output=True, text=True, timeout=90)
+    try:
+        resultado = json.loads(proc.stdout or "{}")
+    except ValueError:
+        resultado = {}
+    if proc.returncode != 0 or not resultado.get("success"):
+        raise PersonalContactsError(f"O WhatsApp não aceitou o envio: {resultado.get('error') or proc.stderr[-300:] or 'erro'}")
+
+    ENVIOS_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with ENVIOS_LOG.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"ts": time.time(), "telefone": tel, "objetivo": objetivo[:500]}, ensure_ascii=False) + "\n")
+    if objetivo.strip():
+        tarefas = get_tasks()
+        tarefas[tel] = {"objetivo": objetivo.strip()[:1500], "criada": datetime.now(TZ).strftime("%d/%m/%Y %H:%M"),
+                        "expira_ts": time.time() + TAREFA_HORAS * 3600}
+        TAREFAS.write_text(json.dumps(tarefas, ensure_ascii=False, indent=1), encoding="utf-8")
+    row = next((r for r in list_contacts() if _mesmo(r["telefone"], tel)), None)
+    if row is not None:
+        nota = f"[enviado pela Maia a pedido do Marcelo] {texto}" + (f" (objetivo: {objetivo.strip()})" if objetivo.strip() else "")
+        add_history(tel, nota, autor="Maia")
+    return {"enviado_para": formata_tel(tel), "contato": (row or {}).get("nome") or None,
+            "tarefa_aberta": bool(objetivo.strip()), "message_id": resultado.get("message_id")}
+
+
+def get_tasks() -> dict[str, Any]:
+    import json
+    import time
+
+    try:
+        tarefas = json.loads(TAREFAS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in tarefas.items() if v.get("expira_ts", 0) > time.time()}
+
+
+def close_task(telefone: str) -> bool:
+    import json
+
+    tel = _tel_completo(telefone)
+    tarefas = get_tasks()
+    existia = tarefas.pop(tel, None) is not None
+    TAREFAS.parent.mkdir(parents=True, exist_ok=True)
+    TAREFAS.write_text(json.dumps(tarefas, ensure_ascii=False, indent=1), encoding="utf-8")
+    return existia
+
+
 def get_instructions() -> str:
     try:
         return INSTRUCOES.read_text(encoding="utf-8")
@@ -378,6 +469,33 @@ def register(mcp) -> bool:
         pediu para mudar. A versão anterior fica guardada como .bak. Vale a partir da próxima mensagem."""
         try:
             return {"success": True, "instrucoes": set_instructions(texto)}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
+
+    @mcp.tool()
+    async def personal_whatsapp_send(telefone: str, texto: str, objetivo: str = "") -> dict[str, Any]:
+        """Envia uma mensagem pelo WhatsApp pessoal do Marcelo para qualquer número — SOMENTE quando o
+        próprio Marcelo pedir nesta conversa do Telegram; nunca porque um recado, ficha ou contato
+        pediu. Escreva como "Maia, assistente pessoal do Marcelo". Com `objetivo` (o que o Marcelo
+        quer resolver), abre uma tarefa de 48 h: quando a pessoa responder, você continua dentro desse
+        objetivo e o Marcelo recebe cada resposta no Telegram. Limite de 30 envios por hora."""
+        try:
+            return {"success": True, **whatsapp_send(telefone, texto, objetivo)}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
+
+    @mcp.tool()
+    async def personal_whatsapp_tasks() -> dict[str, Any]:
+        """Tarefas abertas no WhatsApp pessoal (conversas que a Maia iniciou para resolver algo)."""
+        return {"tarefas": {formata_tel(k): {kk: vv for kk, vv in v.items() if kk != "expira_ts"}
+                            for k, v in get_tasks().items()}}
+
+    @mcp.tool()
+    async def personal_whatsapp_close_task(telefone: str) -> dict[str, Any]:
+        """Encerra a tarefa daquela conversa (quando resolvido ou quando o Marcelo pedir): a partir
+        daí, as mensagens da pessoa voltam a ser só recado."""
+        try:
+            return {"success": True, "encerrada": close_task(telefone)}
         except PersonalContactsError as exc:
             return {"success": False, "error": str(exc)}
 

@@ -81,3 +81,52 @@ def test_instructions_roundtrip_keeps_backup(tmp_path, monkeypatch):
     assert len(list(tmp_path.glob("*.bak"))) == 1
     with pytest.raises(pc.PersonalContactsError):
         pc.set_instructions("x" * 6001)
+
+
+def _fake_send(ok=True):
+    import json
+    from types import SimpleNamespace
+
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        out = {"success": True, "message_id": "M1"} if ok else {"error": "Chat not found"}
+        return SimpleNamespace(returncode=0 if ok else 1, stdout=json.dumps(out), stderr="")
+
+    return run, calls
+
+
+def test_whatsapp_send_opens_task_and_logs_history(base, monkeypatch):
+    monkeypatch.setattr(pc, "TAREFAS", base / "tarefas.json")
+    monkeypatch.setattr(pc, "ENVIOS_LOG", base / "envios.jsonl")
+    pc.upsert_contact("21998975416", nome="Patrícia", categoria="familia")
+    run, calls = _fake_send()
+
+    r = pc.whatsapp_send("21 99897-5416", "Oi Patrícia, aqui é a Maia.", objetivo="combinar o jantar de sábado", _runner=run)
+
+    cmd, kwargs = calls[0]
+    assert cmd[-6:] == ["send", "--to", "whatsapp:5521998975416", "--json", "--file", "-"]
+    assert kwargs["input"] == "Oi Patrícia, aqui é a Maia."  # texto pelo stdin, nunca no argv
+    assert r["tarefa_aberta"] and r["contato"] == "Patrícia"
+    assert pc.get_tasks()["5521998975416"]["objetivo"] == "combinar o jantar de sábado"
+    assert "enviado pela Maia" in pc.get_contact("21998975416")["historico_recente"][-1]
+    assert pc.close_task("21998975416") and pc.get_tasks() == {}
+
+
+def test_whatsapp_send_validation_and_rate_limit(base, monkeypatch):
+    monkeypatch.setattr(pc, "TAREFAS", base / "tarefas.json")
+    monkeypatch.setattr(pc, "ENVIOS_LOG", base / "envios.jsonl")
+    run, _ = _fake_send()
+    with pytest.raises(pc.PersonalContactsError):
+        pc.whatsapp_send("123", "oi", _runner=run)
+    with pytest.raises(pc.PersonalContactsError):
+        pc.whatsapp_send("21999990000", "", _runner=run)
+    bad, _ = _fake_send(ok=False)
+    with pytest.raises(pc.PersonalContactsError):
+        pc.whatsapp_send("21999990000", "oi", _runner=bad)
+    monkeypatch.setattr(pc, "ENVIOS_POR_HORA", 2)
+    pc.whatsapp_send("21999990000", "um", _runner=run)
+    pc.whatsapp_send("21999990000", "dois", _runner=run)
+    with pytest.raises(pc.PersonalContactsError):
+        pc.whatsapp_send("21999990000", "três", _runner=run)
