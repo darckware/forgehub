@@ -160,6 +160,12 @@ export default function ClientAccountPage() {
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {c.is_primary && <Badge variant="outline">{t("accounts.primary")}</Badge>}
+                      {c.portal && (
+                        <Badge variant={c.portal.active ? "secondary" : "outline"}>
+                          {t("accounts.portalAccess", { profile: t(`accounts.portalProfile.${c.portal.profile}`) })}
+                          {!c.portal.active && ` · ${t("accounts.portalOff")}`}
+                        </Badge>
+                      )}
                       <Badge variant={c.is_authorized ? "success" : "warning"}>
                         {t(c.is_authorized ? "accounts.authorized" : "accounts.notAuthorized")}
                       </Badge>

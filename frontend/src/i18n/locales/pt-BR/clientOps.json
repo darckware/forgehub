@@ -228,7 +228,15 @@
     "reportsTitle": "Informes mensais",
     "noReports": "Nenhum informe gerado ainda.",
     "openEmail": "Abrir",
-    "tabClients": "Clientes"
+    "tabClients": "Clientes",
+    "portalAccess": "Portal: {{profile}}",
+    "portalOff": "desativado",
+    "portalProfile": {
+      "administrador": "Administrador",
+      "colaborador": "Colaborador",
+      "financeiro": "Financeiro",
+      "personalizado": "Personalizado"
+    }
   },
   "contract": {
     "type": {

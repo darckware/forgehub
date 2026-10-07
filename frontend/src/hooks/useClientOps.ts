@@ -337,7 +337,17 @@ export interface ClientSummary {
   must_change_password?: boolean;
   last_login_at?: string | null;
   mfa_enabled?: boolean;
-  contacts: { id: string; name: string; email: string; phone: string; department: string; is_authorized: boolean; is_primary: boolean }[];
+  contacts: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    department: string;
+    is_authorized: boolean;
+    is_primary: boolean;
+    /** Login no portal do cliente (Darckware ALT-17); null = sem acesso ao portal. */
+    portal?: { active: boolean; profile: "administrador" | "colaborador" | "financeiro" | "personalizado" } | null;
+  }[];
   contracts: Contract[];
   open_tickets: number;
   open_demands: number;
