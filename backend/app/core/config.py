@@ -215,6 +215,11 @@ class Settings(BaseSettings):
     # Empty string = no default set, the prompt stays blank like before.
     DEFAULT_FORGEROUTER_SERVICE_NAME: str = ""
 
+    # Personal domain (tasks, agenda, notes -- api/routes/personal.py, 2026-10-07): besides the
+    # admin user, only these agents (profile_slug, comma-separated) may read and write it. Maia is
+    # Marcelo's personal assistant; no other agent sees his personal data.
+    PERSONAL_AGENT_SLUGS: str = "maia"
+
     # How many agent runs may be in flight at once across the whole Messages
     # channel (2026-08-13, Marcelo: "pode definir a quantidade de processo em
     # paralelo, no máximo 5. Vai depender no computador... veja o máximo 20").

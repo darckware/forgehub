@@ -116,3 +116,4 @@ from app.db.models.operations import (  # noqa: F401
     AgentRoutineRun,
     OperationsPolicy,
 )
+from app.db.models.personal import PersonalEvent, PersonalNote, PersonalTask  # noqa: F401
