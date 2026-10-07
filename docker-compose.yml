@@ -128,5 +128,8 @@ networks:
   # Renamed from hermes_foundation_pg_default on 2026-07-03; created manually
   # (docker network create foundation_network) and external in every project.
   # ForgeHub deliberately has no project-default network (removed 2026-07-03).
+  # Criada à mão: docker network create --subnet 172.19.0.0/16 foundation_network
+  # A faixa importa: é a única liberada no UFW para a host-bridge (:8910) — terminal do
+  # Workspace e chat da Lara (2026-10-06).
   foundation_network:
     external: true
