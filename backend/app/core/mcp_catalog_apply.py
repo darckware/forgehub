@@ -53,6 +53,14 @@ def agent_is_mcp_eligible(agent: Agent) -> bool:
     return bool(host_path)
 
 
+def agent_excluded_from_global(agent: Agent) -> bool:
+    """Least-privilege agents (settings.MCP_GLOBAL_EXCLUDED_SLUGS) never receive global servers."""
+    from app.core.config import settings
+
+    excluded = {s.strip().lower() for s in (settings.MCP_GLOBAL_EXCLUDED_SLUGS or "").split(",") if s.strip()}
+    return (agent.profile_slug or "").strip().lower() in excluded
+
+
 async def apply_catalog_server_to_agent(
     db: AsyncSession, server: McpCatalogServer, agent: Agent
 ) -> McpCatalogAssignment:
@@ -99,7 +107,7 @@ async def apply_global_servers_to_agent(db: AsyncSession, agent: Agent) -> list[
     (see api/routes/agent.py's create_agent/sync_agent_runtimes), so "global"
     reaches agents registered after the flag was set, not just the ones that
     existed at the time."""
-    if not agent_is_mcp_eligible(agent):
+    if not agent_is_mcp_eligible(agent) or agent_excluded_from_global(agent):
         return []
     result = await db.execute(select(McpCatalogServer).where(McpCatalogServer.apply_to_all_agents.is_(True)))
     servers = list(result.scalars().all())
@@ -117,5 +125,5 @@ async def apply_global_server_to_all_agents(
     return [
         await apply_catalog_server_to_agent(db, server, agent)
         for agent in agents
-        if agent_is_mcp_eligible(agent)
+        if agent_is_mcp_eligible(agent) and not agent_excluded_from_global(agent)
     ]

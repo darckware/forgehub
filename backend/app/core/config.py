@@ -220,6 +220,12 @@ class Settings(BaseSettings):
     # Marcelo's personal assistant; no other agent sees his personal data.
     PERSONAL_AGENT_SLUGS: str = "maia"
 
+    # Agents (profile_slug, comma-separated) that "apply to all agents" catalog MCP servers skip
+    # (2026-10-07): Maia, Marcelo's personal assistant, runs least-privilege -- a global forgehub
+    # entry would give her every ForgeHub tool and overwrite her filtered (tools.include) entry.
+    # A server can still be assigned to her explicitly.
+    MCP_GLOBAL_EXCLUDED_SLUGS: str = "maia"
+
     # How many agent runs may be in flight at once across the whole Messages
     # channel (2026-08-13, Marcelo: "pode definir a quantidade de processo em
     # paralelo, no máximo 5. Vai depender no computador... veja o máximo 20").
