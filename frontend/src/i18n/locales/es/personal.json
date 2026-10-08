@@ -1,0 +1,89 @@
+{
+  "title": "Personal",
+  "description": "Tus tareas, agenda y notas — Maia también lee y escribe aquí.",
+  "tabs": {
+    "tasks": "Tareas",
+    "agenda": "Agenda",
+    "notes": "Notas"
+  },
+  "fields": {
+    "date": "Fecha",
+    "time": "Hora",
+    "list": "Lista",
+    "priority": "Prioridad",
+    "recurrence": "Repetición",
+    "location": "Lugar",
+    "reminder": "Recordatorio",
+    "title": "Título",
+    "content": "Contenido",
+    "tags": "Etiquetas (separadas por coma)"
+  },
+  "actions": {
+    "add": "Añadir",
+    "complete": "Completar",
+    "reopen": "Reabrir",
+    "delete": "Eliminar",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "close": "Cerrar",
+    "pin": "Fijar",
+    "unpin": "Desfijar",
+    "archive": "Archivar",
+    "unarchive": "Desarchivar"
+  },
+  "priority": {
+    "low": "Baja",
+    "normal": "Normal",
+    "high": "Alta"
+  },
+  "recurrence": {
+    "none": "No se repite",
+    "daily": "Diaria",
+    "weekly": "Semanal",
+    "monthly": "Mensual",
+    "yearly": "Anual"
+  },
+  "reminder": {
+    "-1": "Sin recordatorio",
+    "0": "A la hora",
+    "15": "15 min antes",
+    "60": "1 h antes",
+    "120": "2 h antes",
+    "1440": "1 día antes"
+  },
+  "tasks": {
+    "newPlaceholder": "Nueva tarea…",
+    "allLists": "Todas",
+    "showDone": "Ver completadas",
+    "showPending": "Ver pendientes",
+    "empty": "No hay tareas pendientes.",
+    "emptyDone": "No hay tareas completadas.",
+    "group": {
+      "overdue": "Atrasadas",
+      "today": "Hoy",
+      "upcoming": "Próximas",
+      "noDate": "Sin fecha"
+    }
+  },
+  "agenda": {
+    "newPlaceholder": "Nueva cita…",
+    "allDay": "día",
+    "from": "Desde",
+    "next14": "próximos 14 días",
+    "empty": "Nada en la agenda en este período."
+  },
+  "notes": {
+    "search": "Buscar notas…",
+    "showArchived": "Ver archivadas",
+    "showActive": "Ver activas",
+    "new": "Nueva nota",
+    "edit": "Editar nota",
+    "empty": "No hay notas."
+  },
+  "delete": {
+    "title": "¿Eliminar definitivamente?",
+    "description": "\"{{title}}\" se eliminará y no se podrá recuperar.",
+    "confirm": "Eliminar"
+  },
+  "byAgent": "creada por {{agent}}"
+}

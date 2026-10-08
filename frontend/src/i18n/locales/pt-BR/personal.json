@@ -1,0 +1,89 @@
+{
+  "title": "Pessoal",
+  "description": "Suas tarefas, agenda e anotações — a Maia também lê e grava aqui.",
+  "tabs": {
+    "tasks": "Tarefas",
+    "agenda": "Agenda",
+    "notes": "Anotações"
+  },
+  "fields": {
+    "date": "Data",
+    "time": "Hora",
+    "list": "Lista",
+    "priority": "Prioridade",
+    "recurrence": "Repetição",
+    "location": "Local",
+    "reminder": "Lembrete",
+    "title": "Título",
+    "content": "Conteúdo",
+    "tags": "Etiquetas (separadas por vírgula)"
+  },
+  "actions": {
+    "add": "Adicionar",
+    "complete": "Concluir",
+    "reopen": "Reabrir",
+    "delete": "Excluir",
+    "cancel": "Cancelar",
+    "save": "Salvar",
+    "close": "Fechar",
+    "pin": "Fixar",
+    "unpin": "Desafixar",
+    "archive": "Arquivar",
+    "unarchive": "Desarquivar"
+  },
+  "priority": {
+    "low": "Baixa",
+    "normal": "Normal",
+    "high": "Alta"
+  },
+  "recurrence": {
+    "none": "Não repete",
+    "daily": "Diária",
+    "weekly": "Semanal",
+    "monthly": "Mensal",
+    "yearly": "Anual"
+  },
+  "reminder": {
+    "-1": "Sem lembrete",
+    "0": "Na hora",
+    "15": "15 min antes",
+    "60": "1 h antes",
+    "120": "2 h antes",
+    "1440": "1 dia antes"
+  },
+  "tasks": {
+    "newPlaceholder": "Nova tarefa…",
+    "allLists": "Todas",
+    "showDone": "Ver concluídas",
+    "showPending": "Ver pendentes",
+    "empty": "Nenhuma tarefa pendente.",
+    "emptyDone": "Nenhuma tarefa concluída.",
+    "group": {
+      "overdue": "Atrasadas",
+      "today": "Hoje",
+      "upcoming": "Próximas",
+      "noDate": "Sem data"
+    }
+  },
+  "agenda": {
+    "newPlaceholder": "Novo compromisso…",
+    "allDay": "dia",
+    "from": "A partir de",
+    "next14": "próximos 14 dias",
+    "empty": "Nada na agenda neste período."
+  },
+  "notes": {
+    "search": "Buscar anotações…",
+    "showArchived": "Ver arquivadas",
+    "showActive": "Ver ativas",
+    "new": "Nova anotação",
+    "edit": "Editar anotação",
+    "empty": "Nenhuma anotação."
+  },
+  "delete": {
+    "title": "Excluir definitivamente?",
+    "description": "\"{{title}}\" será excluído e não poderá ser recuperado.",
+    "confirm": "Excluir"
+  },
+  "byAgent": "criada por {{agent}}"
+}

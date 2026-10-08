@@ -43,6 +43,7 @@ from app.api.routes import (
     docs,
     factory,
     file_explorer,
+    personal,
     forgerouter,
     foundation,
     foundation_docs,
@@ -178,6 +179,9 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             # lets an agent call POST /channels/{id}/tasks/propose with its
             # own credential instead of only the shared bridge token.
             "/api/v1/governance/", "/api/v1/channels/",
+            # 2026-10-07: Marcelo's personal tasks/agenda/notes; the route itself only admits the
+            # agents in settings.PERSONAL_AGENT_SLUGS (Maia).
+            "/api/v1/personal/",
         )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
         factory_read_path = request.method == "GET" and path.startswith((
             "/api/v1/projects",
@@ -361,6 +365,7 @@ app.include_router(system_info.router)
 app.include_router(systemstats.router)
 app.include_router(workspace_browser.router)
 app.include_router(file_explorer.router)
+app.include_router(personal.router)
 app.include_router(vault.router)
 app.include_router(docs.router)
 app.include_router(demand.router)

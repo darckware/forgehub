@@ -37,6 +37,7 @@ import {
   Wrench,
   Network,
   ShieldEllipsis,
+  UserRound,
 } from "lucide-react";
 
 export interface NavLinkEntry {
@@ -130,6 +131,13 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/foundation", labelKey: "nav.foundation", icon: Landmark, module: "foundation" },
       { type: "link", to: "/obsidian", labelKey: "nav.knowledgeBase", icon: Gem, module: "obsidian" },
     ],
+  },
+  {
+    // Marcelo's own tasks, agenda and notes (2026-10-07) -- Maia, his personal assistant, reads and
+    // writes the same data. Personal, so it is its own admin-only section, not part of any workspace.
+    type: "section",
+    labelKey: "nav.section.personal",
+    entries: [{ type: "link", to: "/personal", labelKey: "nav.personal", icon: UserRound, adminOnly: true }],
   },
   {
     // Client demands console (2026-10-04): Darckware stores clients, tickets,

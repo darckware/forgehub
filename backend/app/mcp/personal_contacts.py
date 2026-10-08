@@ -411,7 +411,6 @@ def _register_agenda(mcp) -> None:
     spec = importlib.util.spec_from_file_location("personal_agenda", Path(__file__).with_name("personal_agenda.py"))
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
-    modulo.BASE = BASE
     modulo.register(mcp)
 
 

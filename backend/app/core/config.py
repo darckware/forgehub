@@ -215,6 +215,11 @@ class Settings(BaseSettings):
     # Empty string = no default set, the prompt stays blank like before.
     DEFAULT_FORGEROUTER_SERVICE_NAME: str = ""
 
+    # Personal domain (tasks, agenda, notes -- api/routes/personal.py, 2026-10-07): besides the
+    # admin user, only these agents (profile_slug, comma-separated) may read and write it. Maia is
+    # Marcelo's personal assistant; no other agent sees his personal data.
+    PERSONAL_AGENT_SLUGS: str = "maia"
+
     # Agents (profile_slug, comma-separated) that "apply to all agents" catalog MCP servers skip
     # (2026-10-07): Maia, Marcelo's personal assistant, runs least-privilege -- a global forgehub
     # entry would give her every ForgeHub tool and overwrite her filtered (tools.include) entry.

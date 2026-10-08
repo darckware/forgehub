@@ -1,296 +1,229 @@
-"""Agenda e tarefas pessoais do Marcelo, cuidadas pela Maia (2026-10-07).
+"""Agenda, tarefas e anotações do Marcelo no MCP ``pessoal`` -- dados no ForgeHub (2026-10-08).
 
-Os dados ficam na base pessoal (``marcelo/pessoal/agenda.json``, com ``AGENDA.md`` legível gerado a
-cada mudança). A Maia mexe pelas ferramentas do MCP ``pessoal`` (registradas por
-``personal_contacts.register``); os lembretes e o resumo diário saem pelo cron da Maia, que importa
-este módulo (``lembretes_devidos``, ``resumo_do_dia``). Só biblioteca padrão.
+Até 07/10 a agenda ficava em ``marcelo/pessoal/agenda.json``; agora mora no módulo Pessoal do
+ForgeHub (``/api/v1/personal``, tela "Pessoal"), que o Marcelo também vê e edita. A Maia chega lá
+com a própria credencial ``agt_`` (``FORGEHUB_AGENT_TOKEN``); a API só aceita os agentes de
+``PERSONAL_AGENT_SLUGS`` e nunca deixa agente apagar (ela cancela ou arquiva).
 
-Item: ``{id, tipo: compromisso|tarefa, titulo, quando: "AAAA-MM-DDTHH:MM" ou "AAAA-MM-DD",
-lembretes: [minutos antes], local, notas, recorrencia: ""|diaria|semanal|mensal|anual,
-status: pendente|concluido|cancelado, avisados: [...]}``.
+Os lembretes e o resumo da manhã saem dos crons da Maia, que chamam ``lembretes_devidos`` e
+``resumo_do_dia`` deste módulo (``POST /reminders:due`` e ``GET /summary``). Só biblioteca padrão.
 """
 
 from __future__ import annotations
 
-import calendar
-import fcntl
 import json
 import os
-import secrets
-from contextlib import contextmanager
-from datetime import date, datetime, timedelta
-from pathlib import Path
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-BASE = Path(os.environ.get("FORGEHUB_PERSONAL_CONTACTS_DIR", "/root/memory/knowledge_base/marcelo/pessoal"))
+API = os.environ.get("FORGEHUB_API_URL", "http://localhost:8000").rstrip("/") + "/api/v1/personal"
 TZ = ZoneInfo("America/Sao_Paulo")
-TIPOS = ("compromisso", "tarefa")
-RECORRENCIAS = ("", "diaria", "semanal", "mensal", "anual")
-STATUS = ("pendente", "concluido", "cancelado")
-HORA_TAREFA_SEM_HORARIO = 8  # tarefa só com data: lembra às 8h do dia
-LEMBRETE_PADRAO = {"compromisso": [60], "tarefa": [0]}
-JANELA_ATRASO = timedelta(hours=6)  # lembrete perdido (servidor parado) ainda sai até 6 h depois
-_DIAS = ("segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo")
+RECORRENCIAS = {"": "", "diaria": "daily", "semanal": "weekly", "mensal": "monthly", "anual": "yearly",
+                "daily": "daily", "weekly": "weekly", "monthly": "monthly", "yearly": "yearly"}
+STATUS_TAREFA = {"pendente": "pending", "concluido": "done", "cancelado": "cancelled"}
 
 
 class AgendaError(Exception):
     """Erro seguro para o agente."""
 
 
-def _arquivo() -> Path:
-    return BASE / "agenda.json"
+def _token() -> str:
+    token = os.environ.get("FORGEHUB_AGENT_TOKEN", "").strip()
+    if not token:
+        raise AgendaError("FORGEHUB_AGENT_TOKEN ausente: a Maia precisa da credencial agt_ dela.")
+    return token
 
 
-@contextmanager
-def _travado():
-    """Lê e grava a agenda com trava de arquivo (MCP e cron podem mexer ao mesmo tempo)."""
-    BASE.mkdir(parents=True, exist_ok=True)
-    trava = BASE / ".agenda.lock"
-    with open(trava, "w") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-        try:
-            itens = _ler()
-            yield itens
-            _gravar(itens)
-        finally:
-            fcntl.flock(fh, fcntl.LOCK_UN)
-
-
-def _ler() -> list[dict[str, Any]]:
+def _call(method: str, path: str, body: dict | None = None, query: dict | None = None) -> Any:
+    url = API + path + (f"?{urllib.parse.urlencode({k: v for k, v in (query or {}).items() if v not in (None, '')})}" if query else "")
+    req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": f"Bearer {_token()}", "Content-Type": "application/json"})
     try:
-        return json.loads(_arquivo().read_text(encoding="utf-8")).get("itens", [])
-    except (OSError, ValueError):
-        return []
-
-
-def _gravar(itens: list[dict[str, Any]]) -> None:
-    tmp = _arquivo().with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({"itens": itens}, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(_arquivo())
-    (BASE / "AGENDA.md").write_text(_markdown(itens), encoding="utf-8")
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read()
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:300]
+        raise AgendaError(f"ForgeHub recusou ({exc.code}): {detail}") from None
+    except urllib.error.URLError as exc:
+        raise AgendaError(f"ForgeHub indisponível: {exc.reason}") from None
 
 
 def agora() -> datetime:
     return datetime.now(TZ).replace(tzinfo=None, second=0, microsecond=0)
 
 
-def _parse_quando(valor: str) -> str:
-    """Aceita "dd/mm/aaaa HH:MM", "dd/mm/aaaa", "aaaa-mm-dd[THH:MM]" e "dd/mm HH:MM" (ano corrente)."""
+def _parse_quando(valor: str) -> tuple[str, bool]:
+    """(ISO local "AAAA-MM-DDTHH:MM:00", tem_hora). Aceita "dd/mm/aaaa HH:MM", "dd/mm/aaaa",
+    "aaaa-mm-dd[THH:MM]", "dd/mm HH:MM" e "dd/mm" (ano corrente)."""
     v = str(valor or "").strip().replace("h", ":").replace("  ", " ")
-    formatos = ("%d/%m/%Y %H:%M", "%d/%m/%Y", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%d/%m %H:%M", "%d/%m")
-    for fmt in formatos:
+    for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%d/%m %H:%M", "%d/%m"):
         try:
             dt = datetime.strptime(v, fmt)
         except ValueError:
             continue
         if "%Y" not in fmt:
             dt = dt.replace(year=agora().year)
-        return dt.strftime("%Y-%m-%dT%H:%M") if "%H" in fmt else dt.strftime("%Y-%m-%d")
+        return dt.strftime("%Y-%m-%dT%H:%M:00"), "%H" in fmt
     raise AgendaError("Data inválida. Use dd/mm/aaaa HH:MM (ou só dd/mm/aaaa para tarefa sem horário).")
 
 
-def _momento(item: dict[str, Any]) -> datetime:
-    q = item["quando"]
-    if "T" in q:
-        return datetime.strptime(q, "%Y-%m-%dT%H:%M")
-    return datetime.strptime(q, "%Y-%m-%d").replace(hour=HORA_TAREFA_SEM_HORARIO)
+def _recorrencia(valor: str | None) -> str | None:
+    if valor is None:
+        return None
+    if valor not in RECORRENCIAS:
+        raise AgendaError("Recorrência inválida: use diaria, semanal, mensal, anual ou vazio.")
+    return RECORRENCIAS[valor]
 
 
-def _fmt(item: dict[str, Any]) -> str:
-    m = _momento(item)
-    dia = f"{_DIAS[m.weekday()]} {m:%d/%m}"
-    hora = f" às {m:%H:%M}" if "T" in item["quando"] else ""
-    extra = f" — {item['local']}" if item.get("local") else ""
-    rec = f" (repete: {item['recorrencia']})" if item.get("recorrencia") else ""
-    return f"{dia}{hora}: {item['titulo']}{extra}{rec}"
-
-
-def _proxima(item: dict[str, Any]) -> str:
-    m = _momento(item)
-    r = item.get("recorrencia")
-    if r == "diaria":
-        n = m + timedelta(days=1)
-    elif r == "semanal":
-        n = m + timedelta(weeks=1)
-    elif r == "mensal":
-        ano, mes = (m.year + 1, 1) if m.month == 12 else (m.year, m.month + 1)
-        n = m.replace(year=ano, month=mes, day=min(m.day, calendar.monthrange(ano, mes)[1]))
-    elif r == "anual":
-        n = m.replace(year=m.year + 1, day=min(m.day, calendar.monthrange(m.year + 1, m.month)[1]))
-    else:
-        return item["quando"]
-    return n.strftime("%Y-%m-%dT%H:%M") if "T" in item["quando"] else n.strftime("%Y-%m-%d")
-
-
-def adicionar(titulo: str, quando: str, tipo: str = "compromisso", lembretes: list[int] | None = None,
-              local: str = "", notas: str = "", recorrencia: str = "") -> dict[str, Any]:
-    titulo = str(titulo or "").strip()
-    if not titulo:
+def adicionar(titulo: str, quando: str = "", tipo: str = "compromisso", lembretes: list[int] | None = None,
+              local: str = "", notas: str = "", recorrencia: str = "", lista: str = "") -> dict[str, Any]:
+    if not str(titulo or "").strip():
         raise AgendaError("Informe o título.")
-    if tipo not in TIPOS:
-        raise AgendaError(f"Tipo inválido: use {', '.join(TIPOS)}.")
-    if recorrencia not in RECORRENCIAS:
-        raise AgendaError(f"Recorrência inválida: use {', '.join(r for r in RECORRENCIAS if r)} ou vazio.")
-    lem = LEMBRETE_PADRAO[tipo] if lembretes is None else sorted({int(x) for x in lembretes if 0 <= int(x) <= 10080}, reverse=True)
-    item = {"id": secrets.token_hex(3), "tipo": tipo, "titulo": titulo[:300], "quando": _parse_quando(quando),
-            "lembretes": lem, "local": str(local or "")[:300], "notas": str(notas or "")[:1000],
-            "recorrencia": recorrencia, "status": "pendente", "avisados": [],
-            "criado": agora().strftime("%Y-%m-%dT%H:%M")}
-    with _travado() as itens:
-        itens.append(item)
-    return {**item, "resumo": _fmt(item)}
+    if tipo == "compromisso":
+        if not quando:
+            raise AgendaError("Compromisso precisa de data e hora.")
+        inicio, tem_hora = _parse_quando(quando)
+        body = {"title": titulo.strip(), "starts_at": inicio, "all_day": not tem_hora, "location": local or None,
+                "notes": notas or None, "recurrence": _recorrencia(recorrencia) or ""}
+        if lembretes is not None:
+            body["reminders"] = lembretes
+        return {"tipo": "compromisso", **_call("POST", "/events", body)}
+    if tipo == "tarefa":
+        body = {"title": titulo.strip(), "notes": notas or None, "recurrence": _recorrencia(recorrencia) or ""}
+        if lista:
+            body["list_name"] = lista
+        if quando:
+            body["due_at"], body["due_has_time"] = _parse_quando(quando)
+        if lembretes is not None:
+            body["reminders"] = lembretes
+        return {"tipo": "tarefa", **_call("POST", "/tasks", body)}
+    raise AgendaError("Tipo inválido: use compromisso ou tarefa.")
 
 
-def listar(dias: int = 7, incluir_atrasadas: bool = True, status: str = "pendente") -> list[dict[str, Any]]:
-    limite = agora() + timedelta(days=max(0, min(dias, 366)))
-    out = []
-    for it in _ler():
-        if status and it.get("status") != status:
-            continue
-        m = _momento(it)
-        if m <= limite and (incluir_atrasadas or m >= agora() - timedelta(minutes=1)):
-            out.append({**it, "resumo": _fmt(it), "atrasado": m < agora() and it["tipo"] == "tarefa"})
-    return sorted(out, key=lambda i: _momento(i))
+def listar(dias: int = 7) -> list[dict[str, Any]]:
+    inicio = agora().replace(hour=0, minute=0)
+    fim = inicio + timedelta(days=max(1, min(dias, 366)))
+    return _call("GET", "/agenda", query={"start": inicio.strftime("%Y-%m-%dT%H:%M:00"), "end": fim.strftime("%Y-%m-%dT%H:%M:00")})
 
 
-def atualizar(item_id: str, **mudancas: Any) -> dict[str, Any]:
-    with _travado() as itens:
-        it = next((i for i in itens if i["id"] == item_id), None)
-        if it is None:
-            raise AgendaError(f"Item {item_id} não encontrado.")
-        for chave in ("titulo", "local", "notas"):
-            if mudancas.get(chave) is not None:
-                it[chave] = str(mudancas[chave])[:1000]
+def atualizar(item_id: str, tipo: str, **mudancas: Any) -> dict[str, Any]:
+    status = mudancas.pop("status", None)
+    if tipo == "tarefa":
+        if status == "concluido":
+            return _call("POST", f"/tasks/{item_id}:complete")
+        body: dict[str, Any] = {}
+        if status:
+            if status not in STATUS_TAREFA:
+                raise AgendaError("Status inválido: pendente, concluido ou cancelado.")
+            body["status"] = STATUS_TAREFA[status]
         if mudancas.get("quando"):
-            it["quando"] = _parse_quando(mudancas["quando"])
-            it["avisados"] = []
-        if mudancas.get("lembretes") is not None:
-            it["lembretes"] = sorted({int(x) for x in mudancas["lembretes"] if 0 <= int(x) <= 10080}, reverse=True)
-            it["avisados"] = []
-        if mudancas.get("recorrencia") is not None:
-            if mudancas["recorrencia"] not in RECORRENCIAS:
-                raise AgendaError("Recorrência inválida.")
-            it["recorrencia"] = mudancas["recorrencia"]
-        if mudancas.get("status") is not None:
-            if mudancas["status"] not in STATUS:
-                raise AgendaError(f"Status inválido: use {', '.join(STATUS)}.")
-            if mudancas["status"] == "concluido" and it.get("recorrencia"):
-                # recorrente: concluir esta vez agenda a próxima
-                it["quando"], it["avisados"], it["status"] = _proxima(it), [], "pendente"
-            else:
-                it["status"] = mudancas["status"]
-        return {**it, "resumo": _fmt(it)}
+            body["due_at"], body["due_has_time"] = _parse_quando(mudancas["quando"])
+        path = f"/tasks/{item_id}"
+    elif tipo == "compromisso":
+        body = {}
+        if status:
+            if status not in ("cancelado", "agendado"):
+                raise AgendaError("Status de compromisso: cancelado ou agendado.")
+            body["status"] = "cancelled" if status == "cancelado" else "scheduled"
+        if mudancas.get("quando"):
+            body["starts_at"], tem_hora = _parse_quando(mudancas["quando"])
+            body["all_day"] = not tem_hora
+        if mudancas.get("local") is not None:
+            body["location"] = mudancas["local"]
+        path = f"/events/{item_id}"
+    else:
+        raise AgendaError("Tipo inválido: use compromisso ou tarefa.")
+    for chave, campo in (("titulo", "title"), ("notas", "notes"), ("lembretes", "reminders")):
+        if mudancas.get(chave) is not None:
+            body[campo] = mudancas[chave]
+    if mudancas.get("recorrencia") is not None:
+        body["recurrence"] = _recorrencia(mudancas["recorrencia"])
+    return _call("PATCH", path, body)
 
 
-def lembretes_devidos(momento: datetime | None = None) -> list[str]:
-    """Lembretes que venceram e ainda não foram enviados; marca-os como enviados.
-    Também avança itens recorrentes que já passaram."""
-    momento = momento or agora()
-    saida = []
-    with _travado() as itens:
-        for it in itens:
-            if it.get("status") != "pendente":
-                continue
-            m = _momento(it)
-            for minutos in it.get("lembretes") or []:
-                chave = f"{it['quando']}|{minutos}"
-                vence = m - timedelta(minutes=minutos)
-                if chave in it.get("avisados", []) or not (vence <= momento <= vence + JANELA_ATRASO):
-                    continue
-                it.setdefault("avisados", []).append(chave)
-                if minutos == 0:
-                    quando = "agora"
-                elif minutos < 60:
-                    quando = f"em {minutos} min"
-                elif minutos % 1440 == 0:
-                    quando = f"em {minutos // 1440} dia(s)"
-                else:
-                    quando = f"em {minutos // 60}h{minutos % 60:02d}" if minutos % 60 else f"em {minutos // 60}h"
-                icone = "📅" if it["tipo"] == "compromisso" else "✅"
-                linha = f"{icone} Lembrete ({quando}): {_fmt(it)}"
-                if it.get("notas"):
-                    linha += f"\n   {it['notas']}"
-                saida.append(linha)
-            if it.get("recorrencia") and m + timedelta(hours=1) < momento:
-                it["quando"], it["avisados"] = _proxima(it), []
-    return saida
+def lembretes_devidos() -> list[str]:
+    return _call("POST", "/reminders:due")["lines"]
 
 
-def resumo_do_dia(dia: date | None = None) -> str:
-    """Texto-base do resumo diário (o cron da Maia transforma em mensagem)."""
-    dia = dia or agora().date()
-    hoje, atrasadas, proximos = [], [], []
-    for it in _ler():
-        if it.get("status") != "pendente":
-            continue
-        m = _momento(it)
-        if m.date() == dia:
-            hoje.append(it)
-        elif m.date() < dia and it["tipo"] == "tarefa":
-            atrasadas.append(it)
-        elif dia < m.date() <= dia + timedelta(days=3):
-            proximos.append(it)
-    linhas = [f"Agenda de {_DIAS[dia.weekday()]}, {dia:%d/%m/%Y}."]
-    for titulo, grupo in (("Hoje", hoje), ("Tarefas atrasadas", atrasadas), ("Próximos 3 dias", proximos)):
-        linhas.append(f"{titulo}:")
-        linhas += [f"- {_fmt(i)}" for i in sorted(grupo, key=_momento)] or ["- nada"]
-    return "\n".join(linhas)
-
-
-def _markdown(itens: list[dict[str, Any]]) -> str:
-    pend = sorted((i for i in itens if i.get("status") == "pendente"), key=_momento)
-    feitos = [i for i in itens if i.get("status") != "pendente"][-30:]
-    linhas = ["---", "title: Agenda e tarefas do Marcelo", "sensitivity: pessoal", "owner: marcelo",
-              "maintained_by: maia", "---", "", "# Agenda e tarefas", "",
-              "Gerado automaticamente a partir de `agenda.json` — peça mudanças à Maia pelo Telegram.", "",
-              "## Pendentes", ""]
-    linhas += [f"- [{i['tipo']}] {_fmt(i)} `({i['id']})`" for i in pend] or ["- nada"]
-    linhas += ["", "## Concluídos e cancelados (recentes)", ""]
-    linhas += [f"- ~~{_fmt(i)}~~ — {i['status']}" for i in feitos] or ["- nada"]
-    return "\n".join(linhas) + "\n"
+def resumo_do_dia(dia: str = "") -> str:
+    return _call("GET", "/summary", query={"day": dia})["text"]
 
 
 def register(mcp) -> None:
-    """Ferramentas de agenda no MCP pessoal (chamado por personal_contacts.register)."""
+    """Ferramentas de agenda, tarefas e anotações (chamado por personal_contacts.register)."""
 
-    @mcp.tool()
-    async def agenda_add(titulo: str, quando: str, tipo: str = "compromisso", lembretes_minutos: list[int] | None = None,
-                         local: str = "", notas: str = "", recorrencia: str = "") -> dict[str, Any]:
-        """Registra um compromisso ou tarefa do Marcelo. quando: "dd/mm/aaaa HH:MM" (ou "dd/mm/aaaa"
-        para tarefa sem horário; lembra às 8h). lembretes_minutos: minutos antes (padrão: 60 para
-        compromisso, na hora para tarefa; ex.: [1440, 60] = um dia antes e uma hora antes).
-        recorrencia: "", "diaria", "semanal", "mensal" ou "anual". Só a pedido do Marcelo."""
+    def _safe(fn, *a, **k):
         try:
-            return {"success": True, "item": adicionar(titulo, quando, tipo, lembretes_minutos, local, notas, recorrencia)}
-        except (AgendaError, ValueError) as exc:
+            return {"success": True, "resultado": fn(*a, **k)}
+        except AgendaError as exc:
             return {"success": False, "error": str(exc)}
 
     @mcp.tool()
-    async def agenda_list(dias: int = 7, incluir_atrasadas: bool = True, status: str = "pendente") -> dict[str, Any]:
-        """Compromissos e tarefas dos próximos `dias` (com tarefas atrasadas). status: pendente,
-        concluido, cancelado ou "" para todos."""
-        return {"itens": listar(dias, incluir_atrasadas, status), "agora": agora().strftime("%d/%m/%Y %H:%M")}
+    async def agenda_add(titulo: str, quando: str = "", tipo: str = "compromisso",
+                         lembretes_minutos: list[int] | None = None, local: str = "", notas: str = "",
+                         recorrencia: str = "", lista: str = "") -> dict[str, Any]:
+        """Registra um compromisso ou tarefa do Marcelo no ForgeHub (tela Pessoal). quando:
+        "dd/mm/aaaa HH:MM" (tarefa pode ser só "dd/mm/aaaa", lembra às 8h, ou vazio = sem data).
+        lembretes_minutos: minutos antes (padrão: 60 para compromisso, na hora para tarefa).
+        recorrencia: diaria, semanal, mensal, anual ou vazio. lista (tarefa): "Pessoal", "SEMED",
+        "Darckware", "Casa"... Só a pedido do Marcelo."""
+        return _safe(adicionar, titulo, quando, tipo, lembretes_minutos, local, notas, recorrencia, lista)
 
     @mcp.tool()
-    async def agenda_update(item_id: str, titulo: str | None = None, quando: str | None = None,
+    async def agenda_list(dias: int = 7) -> dict[str, Any]:
+        """Compromissos e tarefas com data dos próximos `dias`, mais as tarefas atrasadas."""
+        return _safe(listar, dias)
+
+    @mcp.tool()
+    async def agenda_update(item_id: str, tipo: str, titulo: str | None = None, quando: str | None = None,
                             lembretes_minutos: list[int] | None = None, local: str | None = None,
                             notas: str | None = None, recorrencia: str | None = None,
                             status: str | None = None) -> dict[str, Any]:
-        """Altera um item (remarcar, mudar lembretes...). status: "concluido" (recorrente: agenda a
-        próxima vez) ou "cancelado". Campos omitidos ficam como estão. Só a pedido do Marcelo."""
-        try:
-            return {"success": True, "item": atualizar(item_id, titulo=titulo, quando=quando, lembretes=lembretes_minutos,
-                                                       local=local, notas=notas, recorrencia=recorrencia, status=status)}
-        except (AgendaError, ValueError) as exc:
-            return {"success": False, "error": str(exc)}
+        """Altera um compromisso ou tarefa (tipo: compromisso|tarefa). status da tarefa: concluido
+        (recorrente agenda a próxima), cancelado ou pendente; do compromisso: cancelado. Nunca apaga."""
+        return _safe(atualizar, item_id, tipo, titulo=titulo, quando=quando, lembretes=lembretes_minutos,
+                     local=local, notas=notas, recorrencia=recorrencia, status=status)
 
     @mcp.tool()
     async def agenda_day_summary(data: str = "") -> dict[str, Any]:
         """Resumo de um dia (padrão: hoje): compromissos, tarefas atrasadas e próximos 3 dias.
         data: "dd/mm/aaaa"."""
         try:
-            dia = datetime.strptime(_parse_quando(data), "%Y-%m-%d").date() if data else None
-        except (AgendaError, ValueError) as exc:
+            dia = _parse_quando(data)[0][:10] if data else ""
+        except AgendaError as exc:
             return {"success": False, "error": str(exc)}
-        return {"success": True, "resumo": resumo_do_dia(dia)}
+        return _safe(resumo_do_dia, dia)
+
+    @mcp.tool()
+    async def tasks_list(lista: str = "", status: str = "pendente", busca: str = "") -> dict[str, Any]:
+        """Tarefas do Marcelo (com ou sem data), filtrando por lista, status (pendente, concluido,
+        cancelado ou "" para todas) e texto."""
+        return _safe(_call, "GET", "/tasks", None,
+                     {"list_name": lista, "status": STATUS_TAREFA.get(status, status), "q": busca})
+
+    @mcp.tool()
+    async def notes_add(titulo: str, conteudo: str = "", etiquetas: list[str] | None = None,
+                        fixar: bool = False) -> dict[str, Any]:
+        """Cria uma anotação do Marcelo (aparece na tela Pessoal → Anotações). Só a pedido dele."""
+        return _safe(_call, "POST", "/notes", {"title": titulo, "content": conteudo,
+                                               "tags": etiquetas or [], "pinned": fixar})
+
+    @mcp.tool()
+    async def notes_search(busca: str = "", etiqueta: str = "", arquivadas: bool = False) -> dict[str, Any]:
+        """Busca anotações do Marcelo por texto ou etiqueta."""
+        return _safe(_call, "GET", "/notes", None,
+                     {"q": busca, "tag": etiqueta, "archived": "true" if arquivadas else "false"})
+
+    @mcp.tool()
+    async def notes_update(nota_id: str, titulo: str | None = None, conteudo: str | None = None,
+                           etiquetas: list[str] | None = None, fixar: bool | None = None,
+                           arquivar: bool | None = None) -> dict[str, Any]:
+        """Altera uma anotação (texto, etiquetas, fixar, arquivar). Nunca apaga. Só a pedido do Marcelo."""
+        body = {k: v for k, v in (("title", titulo), ("content", conteudo), ("tags", etiquetas),
+                                  ("pinned", fixar), ("archived", arquivar)) if v is not None}
+        return _safe(_call, "PATCH", f"/notes/{nota_id}", body)
