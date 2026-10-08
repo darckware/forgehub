@@ -43,6 +43,7 @@ from app.api.routes import (
     docs,
     factory,
     file_explorer,
+    personal,
     forgerouter,
     foundation,
     foundation_docs,
@@ -364,6 +365,7 @@ app.include_router(system_info.router)
 app.include_router(systemstats.router)
 app.include_router(workspace_browser.router)
 app.include_router(file_explorer.router)
+app.include_router(personal.router)
 app.include_router(vault.router)
 app.include_router(docs.router)
 app.include_router(demand.router)
