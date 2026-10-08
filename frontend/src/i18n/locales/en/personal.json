@@ -1,0 +1,89 @@
+{
+  "title": "Personal",
+  "description": "Your tasks, agenda and notes — Maia reads and writes here too.",
+  "tabs": {
+    "tasks": "Tasks",
+    "agenda": "Agenda",
+    "notes": "Notes"
+  },
+  "fields": {
+    "date": "Date",
+    "time": "Time",
+    "list": "List",
+    "priority": "Priority",
+    "recurrence": "Repeat",
+    "location": "Location",
+    "reminder": "Reminder",
+    "title": "Title",
+    "content": "Content",
+    "tags": "Tags (comma-separated)"
+  },
+  "actions": {
+    "add": "Add",
+    "complete": "Complete",
+    "reopen": "Reopen",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "archive": "Archive",
+    "unarchive": "Unarchive"
+  },
+  "priority": {
+    "low": "Low",
+    "normal": "Normal",
+    "high": "High"
+  },
+  "recurrence": {
+    "none": "Does not repeat",
+    "daily": "Daily",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "yearly": "Yearly"
+  },
+  "reminder": {
+    "-1": "No reminder",
+    "0": "At time",
+    "15": "15 min before",
+    "60": "1 h before",
+    "120": "2 h before",
+    "1440": "1 day before"
+  },
+  "tasks": {
+    "newPlaceholder": "New task…",
+    "allLists": "All",
+    "showDone": "Show done",
+    "showPending": "Show pending",
+    "empty": "No pending tasks.",
+    "emptyDone": "No completed tasks.",
+    "group": {
+      "overdue": "Overdue",
+      "today": "Today",
+      "upcoming": "Upcoming",
+      "noDate": "No date"
+    }
+  },
+  "agenda": {
+    "newPlaceholder": "New appointment…",
+    "allDay": "day",
+    "from": "From",
+    "next14": "next 14 days",
+    "empty": "Nothing on the agenda for this period."
+  },
+  "notes": {
+    "search": "Search notes…",
+    "showArchived": "Show archived",
+    "showActive": "Show active",
+    "new": "New note",
+    "edit": "Edit note",
+    "empty": "No notes."
+  },
+  "delete": {
+    "title": "Delete permanently?",
+    "description": "\"{{title}}\" will be deleted and cannot be recovered.",
+    "confirm": "Delete"
+  },
+  "byAgent": "created by {{agent}}"
+}

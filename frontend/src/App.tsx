@@ -44,6 +44,7 @@ import ServersPage from "@/pages/servers";
 import ClientsPage from "@/pages/clients";
 import ClientDemandsPage from "@/pages/client-demands";
 import ClientEmailsPage from "@/pages/client-emails";
+import PersonalPage from "@/pages/personal";
 import ClientAccountsPage from "@/pages/client-accounts";
 import ClientAccountPage from "@/pages/client-accounts/[id]";
 import NexoAgentsPage from "@/pages/nexo-agents";
@@ -136,6 +137,7 @@ export default function App() {
         <Route path="clients" element={<ClientsPage />} />
         <Route path="client-demands" element={<ClientDemandsPage />} />
         <Route path="client-emails" element={<ClientEmailsPage />} />
+        <Route path="personal" element={<PersonalPage />} />
         <Route path="client-accounts" element={<ClientAccountsPage />} />
         <Route path="client-accounts/:id" element={<ClientAccountPage />} />
         <Route path="nexo-agents" element={<RequireAdmin><NexoAgentsPage /></RequireAdmin>} />

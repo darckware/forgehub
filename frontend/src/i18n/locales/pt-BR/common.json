@@ -19,7 +19,8 @@
       "integrations": "Integrações",
       "operations": "Operações",
       "clientOps": "Clientes",
-      "administration": "Administração"
+      "administration": "Administração",
+      "personal": "Pessoal"
     },
     "dashboard": "Painel",
     "workspace": "Workspace",
@@ -76,7 +77,8 @@
     "screenInspector": "2. Telas & Regras de Negócio",
     "screenRules": "Regras de Contexto por Tela",
     "systemsHub": "Central de Sistemas",
-    "versionClosure": "6. Fechamento de Versão"
+    "versionClosure": "6. Fechamento de Versão",
+    "personal": "Pessoal"
   },
   "sidebar": {
     "search": "Buscar",
