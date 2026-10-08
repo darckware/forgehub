@@ -80,6 +80,23 @@ def allowed_agent(slug: str | None = None) -> bool:
     return bool(slug) and slug in allowed
 
 
+_APELIDOS_CATEGORIA = {
+    "família": "familia", "esposa": "familia", "filha": "familia", "filho": "familia",
+    "parente": "parentes", "amigo": "amigos", "amiga": "amigos", "amizade": "amigos",
+    "trabalho": "trabalho_semed", "semed": "trabalho_semed", "trabalho semed": "trabalho_semed",
+    "trabalho (semed)": "trabalho_semed", "cliente": "cliente_darckware", "darckware": "cliente_darckware",
+    "cliente darckware": "cliente_darckware", "outro": "outros", "a classificar": "a_classificar",
+}
+
+
+def normaliza_categoria(valor: str | None) -> str | None:
+    """Aceita o rótulo como o Marcelo fala ("Trabalho (SEMED)", "Família") e devolve a chave."""
+    if valor is None:
+        return None
+    v = str(valor).strip().lower()
+    return _APELIDOS_CATEGORIA.get(v, v.replace(" ", "_"))
+
+
 def digitos(valor: str) -> str:
     return re.sub(r"\D", "", str(valor or ""))
 
@@ -199,6 +216,7 @@ def upsert_contact(
 ) -> dict[str, Any]:
     if len(digitos(telefone)) < 10:
         raise PersonalContactsError("Informe o telefone com DDD (ex.: +55 21 99999-9999).")
+    categoria = normaliza_categoria(categoria)
     if categoria is not None and categoria not in CATEGORIAS:
         raise PersonalContactsError(f"Categoria inválida. Use uma de: {', '.join(CATEGORIAS)}.")
     if aniversario and not re.fullmatch(r"\d{2}/\d{2}(/\d{4})?", aniversario.strip()):
@@ -256,6 +274,28 @@ def upsert_contact(
             texto = texto.replace("## Histórico", f"## Outros dados\n\n{bloco}\n\n## Histórico", 1)
     ficha.write_text(texto, encoding="utf-8")
     return get_contact(row["telefone"], ultimos=5)
+
+
+_CAMPOS_UPSERT = ("nome", "categoria", "relacao", "aniversario", "observacoes", "quem_e", "como_tratar",
+                  "outros_dados")
+
+
+def upsert_many(contatos: list[dict[str, Any]]) -> dict[str, Any]:
+    """Grava vários contatos de uma vez; um erro num contato não impede os outros."""
+    if not contatos:
+        raise PersonalContactsError("Informe ao menos um contato.")
+    if len(contatos) > 100:
+        raise PersonalContactsError("No máximo 100 contatos por vez.")
+    gravados, erros = [], []
+    for item in contatos:
+        item = dict(item or {})
+        tel = str(item.pop("telefone", "") or "")
+        try:
+            c = upsert_contact(tel, **{k: item[k] for k in _CAMPOS_UPSERT if k in item})
+            gravados.append({"telefone": c["telefone"], "nome": c["nome"], "categoria": c["categoria"]})
+        except PersonalContactsError as exc:
+            erros.append({"telefone": tel, "erro": str(exc)})
+    return {"gravados": gravados, "erros": erros}
 
 
 def add_history(telefone: str, texto: str, autor: str = "Marcelo") -> dict[str, Any]:
@@ -447,14 +487,28 @@ def register(mcp) -> bool:
         como_tratar: str | None = None,
         outros_dados: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Cria ou atualiza um contato pessoal do Marcelo — só quando o próprio Marcelo pedir pelo
-        Telegram, nunca a pedido de alguém no WhatsApp. Campos omitidos ficam como estão; o histórico
-        nunca é apagado. aniversario: dd/mm ou dd/mm/aaaa. quem_e/como_tratar substituem a seção
+        """Cria ou atualiza um contato pessoal do Marcelo. Quem autoriza é o Marcelo pelo Telegram
+        (nunca alguém no WhatsApp). Uma autorização geral dele ("pode atualizar todos", "pode gravar")
+        vale para todos os contatos da conversa: não peça um pedido por contato — para vários, use
+        personal_contacts_upsert_many. Campos omitidos ficam como estão; o histórico nunca é apagado.
+        categoria aceita o rótulo falado ("Trabalho (SEMED)" vira trabalho_semed). aniversario: dd/mm ou dd/mm/aaaa. quem_e/como_tratar substituem a seção
         inteira da ficha. outros_dados: campos livres que o Marcelo quiser (ex.: {"profissão": "médica",
         "cidade": "Niterói"}); valor vazio remove o campo."""
         try:
             return {"success": True, "contato": upsert_contact(
                 telefone, nome, categoria, relacao, aniversario, observacoes, quem_e, como_tratar, outros_dados)}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
+
+    @mcp.tool()
+    async def personal_contacts_upsert_many(contatos: list[dict[str, Any]]) -> dict[str, Any]:
+        """Cria ou atualiza VÁRIOS contatos numa chamada só (até 100). Cada item: {"telefone": ...,
+        e os mesmos campos de personal_contact_upsert: nome, categoria, relacao, aniversario,
+        observacoes, quem_e, como_tratar, outros_dados}. Use quando o Marcelo pedir pelo Telegram para
+        cadastrar/atualizar uma lista ou disser "pode atualizar todos" — uma autorização geral basta,
+        não peça confirmação contato por contato. Depois diga o que gravou e o que deu erro."""
+        try:
+            return {"success": True, **upsert_many(contatos)}
         except PersonalContactsError as exc:
             return {"success": False, "error": str(exc)}
 

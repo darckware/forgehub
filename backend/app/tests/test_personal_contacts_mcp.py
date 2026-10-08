@@ -130,3 +130,16 @@ def test_whatsapp_send_validation_and_rate_limit(base, monkeypatch):
     pc.whatsapp_send("21999990000", "dois", _runner=run)
     with pytest.raises(pc.PersonalContactsError):
         pc.whatsapp_send("21999990000", "três", _runner=run)
+
+
+def test_upsert_many_grava_lista_e_aceita_rotulo_de_categoria(base):
+    r = pc.upsert_many([
+        {"telefone": "+55 21 96528-8603", "nome": "Alan", "categoria": "Trabalho (SEMED)",
+         "outros_dados": {"cargo": "Diretora de escola"}},
+        {"telefone": "+55 21 99761-0128", "nome": "Maria da Glória", "categoria": "trabalho_semed"},
+        {"telefone": "123", "nome": "inválido"},
+    ])
+    assert [g["nome"] for g in r["gravados"]] == ["Alan", "Maria da Glória"]
+    assert r["gravados"][0]["categoria"] == "trabalho_semed"
+    assert len(r["erros"]) == 1
+    assert pc.get_contact("21965288603")["outros_dados"] == {"cargo": "Diretora de escola"}
