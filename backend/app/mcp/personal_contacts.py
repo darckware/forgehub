@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import os
 import re
+import json
+import unicodedata
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -54,8 +56,8 @@ maintained_by: maia
 Pessoas que falam com o Marcelo no WhatsApp pessoal. A Maia acrescenta quem é novo e atualiza
 "Último contato"; a classificação é do Marcelo (aqui ou pedindo à Maia pelo Telegram).
 
-Categorias: `familia` · `parentes` · `amigos` · `trabalho_semed` · `cliente_darckware` · `outros` ·
-`a_classificar`. Relação é livre (esposa, filha, mãe, chefe...). Cada pessoa tem uma ficha em
+Categorias padrão: `familia` · `parentes` · `amigos` · `trabalho_semed` · `cliente_darckware` · `outros` ·
+`a_classificar`. Categorias adicionais ficam em `CATEGORIAS.json`. Relação é livre. Cada pessoa tem uma ficha em
 `contatos/<telefone>.md` com "Quem é", "Como tratar" e o histórico; a Maia lê a ficha a cada mensagem
 dela. Dados pessoais: não copiar para fora desta pasta.
 
@@ -94,7 +96,40 @@ def normaliza_categoria(valor: str | None) -> str | None:
     if valor is None:
         return None
     v = str(valor).strip().lower()
-    return _APELIDOS_CATEGORIA.get(v, v.replace(" ", "_"))
+    if v in _APELIDOS_CATEGORIA:
+        return _APELIDOS_CATEGORIA[v]
+    v = unicodedata.normalize("NFKD", v)
+    v = "".join(c for c in v if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", "_", v).strip("_")
+
+
+def list_categories() -> list[str]:
+    arquivo = BASE / "CATEGORIAS.json"
+    if not arquivo.exists():
+        return list(CATEGORIAS)
+    try:
+        adicionais = json.loads(arquivo.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise PersonalContactsError("Arquivo de categorias inválido; corrija antes de cadastrar contatos.") from exc
+    if not isinstance(adicionais, list) or any(not isinstance(c, str) for c in adicionais):
+        raise PersonalContactsError("Arquivo de categorias inválido; corrija antes de cadastrar contatos.")
+    return list(dict.fromkeys([*CATEGORIAS, *adicionais]))
+
+
+def create_category(nome: str) -> list[str]:
+    categoria = normaliza_categoria(nome)
+    if not categoria or len(categoria) > 40:
+        raise PersonalContactsError("Informe uma categoria com até 40 caracteres.")
+    categorias = list_categories()
+    if categoria not in categorias:
+        adicionais = [*categorias[len(CATEGORIAS):], categoria]
+        BASE.mkdir(parents=True, exist_ok=True)
+        arquivo = BASE / "CATEGORIAS.json"
+        temporario = BASE / "CATEGORIAS.json.tmp"
+        temporario.write_text(json.dumps(adicionais, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporario.replace(arquivo)
+        categorias.append(categoria)
+    return categorias
 
 
 def digitos(valor: str) -> str:
@@ -103,7 +138,7 @@ def digitos(valor: str) -> str:
 
 def formata_tel(tel: str) -> str:
     t = digitos(tel)
-    if len(t) == 11:  # DDD + celular sem o 55
+    if len(t) in (10, 11):  # DDD + fixo ou celular sem o 55
         t = "55" + t
     if len(t) == 13 and t.startswith("55"):
         return f"+55 {t[2:4]} {t[4:9]}-{t[9:]}"
@@ -114,7 +149,11 @@ def formata_tel(tel: str) -> str:
 
 def _mesmo(a: str, b: str) -> bool:
     a, b = digitos(a), digitos(b)
-    return bool(a) and bool(b) and a[-11:] == b[-11:]
+    if len(a) in (10, 11):
+        a = "55" + a
+    if len(b) in (10, 11):
+        b = "55" + b
+    return bool(a) and a == b
 
 
 def _contatos_md() -> Path:
@@ -138,7 +177,7 @@ def _linha(cel: list[str]) -> str:
 
 def _ficha(tel: str) -> Path:
     t = digitos(tel)
-    if len(t) == 11:
+    if len(t) in (10, 11):
         t = "55" + t
     return BASE / "contatos" / f"{t}.md"
 
@@ -163,17 +202,43 @@ def _set_frontmatter(texto: str, chave: str, valor: str) -> str:
     return texto.replace("---\n", f"---\n{linha}\n", 1)
 
 
-def _extras(texto: str) -> dict[str, str]:
+def _set_heading(texto: str, nome: str, telefone: str) -> str:
+    return re.sub(r"^# .*? \([^\n]*\)$", lambda _: f"# {nome or telefone} ({telefone})",
+                  texto, count=1, flags=re.M)
+
+
+def _extras(texto: str) -> dict[str, Any]:
     campos = {}
     for linha in _secao(texto, "Outros dados").splitlines():
         m = re.match(r"^- \*\*(.+?):\*\*\s*(.*)$", linha.strip())
         if m:
-            campos[m.group(1).strip()] = m.group(2).strip()
+            valor = m.group(2).strip()
+            if valor.startswith("@json:"):
+                try:
+                    valor = json.loads(valor[6:])
+                except ValueError:
+                    pass
+            elif valor.startswith("@str:"):
+                valor = valor[5:]
+            campos[m.group(1).strip()] = valor
     return campos
 
 
-def _render_extras(campos: dict[str, str]) -> str:
-    return "\n".join(f"- **{k}:** {v}" for k, v in campos.items() if str(v).strip())
+def _render_extras(campos: dict[str, Any]) -> str:
+    linhas = []
+    for chave, valor in campos.items():
+        if isinstance(valor, (dict, list)):
+            try:
+                exibicao = "@json:" + json.dumps(valor, ensure_ascii=False, separators=(",", ":"))
+            except (TypeError, ValueError) as exc:
+                raise PersonalContactsError(f"Valor inválido em outros_dados: {chave}.") from exc
+        else:
+            exibicao = str(valor)
+            if exibicao.startswith(("@json:", "@str:")):
+                exibicao = "@str:" + exibicao
+        if exibicao.strip():
+            linhas.append(f"- **{chave}:** {exibicao}")
+    return "\n".join(linhas)
 
 
 def list_contacts(categoria: str | None = None) -> list[dict[str, str]]:
@@ -212,13 +277,13 @@ def upsert_contact(
     observacoes: str | None = None,
     quem_e: str | None = None,
     como_tratar: str | None = None,
-    outros_dados: dict[str, str] | None = None,
+    outros_dados: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if len(digitos(telefone)) < 10:
         raise PersonalContactsError("Informe o telefone com DDD (ex.: +55 21 99999-9999).")
     categoria = normaliza_categoria(categoria)
-    if categoria is not None and categoria not in CATEGORIAS:
-        raise PersonalContactsError(f"Categoria inválida. Use uma de: {', '.join(CATEGORIAS)}.")
+    if categoria is not None and categoria not in list_categories():
+        raise PersonalContactsError(f"Categoria inválida. Use uma de: {', '.join(list_categories())}.")
     if aniversario and not re.fullmatch(r"\d{2}/\d{2}(/\d{4})?", aniversario.strip()):
         raise PersonalContactsError("Aniversário no formato dd/mm ou dd/mm/aaaa.")
 
@@ -253,6 +318,7 @@ def upsert_contact(
         )
     for chave in ("nome", "telefone", "categoria", "relacao", "aniversario"):
         texto = _set_frontmatter(texto, chave, row[chave])
+    texto = _set_heading(texto, row["nome"], row["telefone"])
     if quem_e is not None:
         texto = _set_secao(texto, "Quem é", quem_e)
     if como_tratar is not None:
@@ -263,8 +329,8 @@ def upsert_contact(
             chave = str(chave).strip().replace("*", "").replace(":", "")
             if not chave:
                 continue
-            if str(valor or "").strip():
-                campos[chave] = str(valor).strip().replace("\n", " ")
+            if valor is not None and (not isinstance(valor, str) or valor.strip()):
+                campos[chave] = valor.strip().replace("\n", " ") if isinstance(valor, str) else valor
             else:
                 campos.pop(chave, None)  # valor vazio remove o campo
         bloco = _render_extras(campos) or "(nenhum)"
@@ -274,6 +340,52 @@ def upsert_contact(
             texto = texto.replace("## Histórico", f"## Outros dados\n\n{bloco}\n\n## Histórico", 1)
     ficha.write_text(texto, encoding="utf-8")
     return get_contact(row["telefone"], ultimos=5)
+
+
+def append_observation(telefone: str, texto: str) -> dict[str, Any]:
+    """Acrescenta uma observação à ficha existente sem substituir o texto anterior."""
+    texto = str(texto or "").strip().replace("\n", " ")
+    if not texto:
+        raise PersonalContactsError("Informe a observação a acrescentar.")
+    contato = get_contact(telefone)
+    anterior = contato["observacoes"].strip()
+    return upsert_contact(contato["telefone"], observacoes=f"{anterior}; {texto}" if anterior else texto)
+
+
+def change_phone(telefone_atual: str, telefone_novo: str) -> dict[str, Any]:
+    """Troca a chave telefônica de um contato, conservando a ficha e o histórico."""
+    novo = formata_tel(_tel_completo(telefone_novo))
+    contatos = list_contacts()
+    atual = next((c for c in contatos if _mesmo(c["telefone"], telefone_atual)), None)
+    if atual is None:
+        raise PersonalContactsError(f"Nenhum contato com o telefone {formata_tel(telefone_atual)}.")
+    if _mesmo(atual["telefone"], novo):
+        return get_contact(atual["telefone"])
+    if any(_mesmo(c["telefone"], novo) for c in contatos):
+        raise PersonalContactsError("O novo telefone já pertence a outro contato.")
+    ficha_atual, ficha_nova = _ficha(atual["telefone"]), _ficha(novo)
+    if ficha_nova.exists():
+        raise PersonalContactsError("Já existe uma ficha para o novo telefone.")
+    if not ficha_atual.exists():
+        upsert_contact(atual["telefone"])
+    texto = ficha_atual.read_text(encoding="utf-8")
+    texto = _set_frontmatter(texto, "telefone", novo)
+    texto = _set_heading(texto, atual["nome"], novo)
+    ficha_nova.parent.mkdir(parents=True, exist_ok=True)
+    ficha_nova.write_text(texto, encoding="utf-8")
+    arquivo = _contatos_md()
+    linhas = arquivo.read_text(encoding="utf-8").splitlines()
+    for i, linha in enumerate(linhas):
+        cel = _celulas(linha)
+        if cel and _mesmo(cel[1], atual["telefone"]):
+            cel[1] = novo
+            linhas[i] = _linha(cel)
+            break
+    temporario = arquivo.with_suffix(".md.tmp")
+    temporario.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+    temporario.replace(arquivo)
+    ficha_atual.unlink()
+    return get_contact(novo)
 
 
 _CAMPOS_UPSERT = ("nome", "categoria", "relacao", "aniversario", "observacoes", "quem_e", "como_tratar",
@@ -462,9 +574,18 @@ def register(mcp) -> bool:
     @mcp.tool()
     async def personal_contacts_list(categoria: str | None = None) -> dict[str, Any]:
         """Lista os contatos pessoais do Marcelo (filtro opcional por categoria: familia, parentes,
-        amigos, trabalho_semed, cliente_darckware, outros, a_classificar). Dados pessoais: não repasse
-        a terceiros nem a outros canais."""
-        return {"contatos": list_contacts(categoria), "categorias": list(CATEGORIAS)}
+        amigos, trabalho_semed, cliente_darckware, outros, a_classificar e categorias criadas pelo
+        Marcelo). Dados pessoais: não repasse a terceiros nem a outros canais."""
+        return {"contatos": list_contacts(categoria), "categorias": list_categories()}
+
+    @mcp.tool()
+    async def personal_category_create(nome: str) -> dict[str, Any]:
+        """Cria uma categoria de contatos pessoais (ex.: colaboradores) quando Marcelo pedir pelo
+        Telegram. Consulte personal_contacts_list para ver as categorias disponíveis."""
+        try:
+            return {"success": True, "categorias": create_category(nome)}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
 
     @mcp.tool()
     async def personal_contact_get(telefone: str) -> dict[str, Any]:
@@ -485,18 +606,40 @@ def register(mcp) -> bool:
         observacoes: str | None = None,
         quem_e: str | None = None,
         como_tratar: str | None = None,
-        outros_dados: dict[str, str] | None = None,
+        outros_dados: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Cria ou atualiza um contato pessoal do Marcelo. Quem autoriza é o Marcelo pelo Telegram
         (nunca alguém no WhatsApp). Uma autorização geral dele ("pode atualizar todos", "pode gravar")
         vale para todos os contatos da conversa: não peça um pedido por contato — para vários, use
         personal_contacts_upsert_many. Campos omitidos ficam como estão; o histórico nunca é apagado.
-        categoria aceita o rótulo falado ("Trabalho (SEMED)" vira trabalho_semed). aniversario: dd/mm ou dd/mm/aaaa. quem_e/como_tratar substituem a seção
-        inteira da ficha. outros_dados: campos livres que o Marcelo quiser (ex.: {"profissão": "médica",
-        "cidade": "Niterói"}); valor vazio remove o campo."""
+        categoria aceita o rótulo falado ("Trabalho (SEMED)" vira trabalho_semed) ou uma categoria
+        criada com personal_category_create. O telefone aceita pontuação e espaços; para trocá-lo em
+        uma ficha existente use personal_contact_change_phone. aniversario: dd/mm ou dd/mm/aaaa.
+        observacoes substitui o campo inteiro; para acrescentar use personal_contact_append_observation.
+        quem_e/como_tratar substituem a seção inteira da ficha. outros_dados aceita campos livres,
+        inclusive listas e objetos; valor vazio remove o campo."""
         try:
             return {"success": True, "contato": upsert_contact(
                 telefone, nome, categoria, relacao, aniversario, observacoes, quem_e, como_tratar, outros_dados)}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
+
+    @mcp.tool()
+    async def personal_contact_append_observation(telefone: str, texto: str) -> dict[str, Any]:
+        """Acrescenta texto às observações de um contato existente sem perder as anteriores.
+        Use quando Marcelo pedir pelo Telegram para complementar uma observação."""
+        try:
+            return {"success": True, "contato": append_observation(telefone, texto)}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
+
+    @mcp.tool()
+    async def personal_contact_change_phone(telefone_atual: str, telefone_novo: str) -> dict[str, Any]:
+        """Troca o telefone de um contato existente e preserva nome, observações, outros dados e
+        histórico da ficha. Só quando Marcelo confirmar pelo Telegram o número antigo e o novo.
+        Rejeita um número que já pertence a outra ficha."""
+        try:
+            return {"success": True, "contato": change_phone(telefone_atual, telefone_novo)}
         except PersonalContactsError as exc:
             return {"success": False, "error": str(exc)}
 
