@@ -22,7 +22,7 @@ const user = (isAdmin: boolean): AuthUser => ({
 function renderGuard(isAdmin: boolean) {
   useAuthStore.setState({ user: user(isAdmin) });
   render(
-    <MemoryRouter initialEntries={["/vpn"]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={["/vpn"]}>
       <Routes>
         <Route path="/" element={<p>Painel</p>} />
         <Route path="/vpn" element={<RequireAdmin><p>Controle VPN</p></RequireAdmin>} />

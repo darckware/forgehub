@@ -27,7 +27,7 @@ function renderMenu() {
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter>
           <UserSettingsMenu collapsed={false} />
         </MemoryRouter>
       </ThemeProvider>

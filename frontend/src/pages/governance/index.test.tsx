@@ -16,7 +16,7 @@ afterEach(async () => { cleanup(); await i18n.changeLanguage("pt-BR"); });
 
 it("renders the governance gate in English", async () => {
   await i18n.changeLanguage("en");
-  render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><GovernancePage /></MemoryRouter>);
+  render(<MemoryRouter><GovernancePage /></MemoryRouter>);
   expect(screen.getByRole("heading", { name: "5. Governance gate" })).toBeInTheDocument();
   expect(screen.getByText("No items found in this governance category")).toBeInTheDocument();
 });

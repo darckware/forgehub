@@ -14,7 +14,7 @@ it("renders login controls in the selected language", async () => {
   await i18n.changeLanguage("pt-BR");
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><LoginPage /></MemoryRouter>
+      <MemoryRouter><LoginPage /></MemoryRouter>
     </QueryClientProvider>,
   );
   expect(screen.getByRole("heading", { name: "Bem-vindo de volta" })).toBeInTheDocument();
