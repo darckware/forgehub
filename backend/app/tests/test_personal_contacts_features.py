@@ -2,12 +2,23 @@
 
 import importlib.util
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
 MODULE = Path(__file__).resolve().parents[1] / "mcp" / "personal_contacts.py"
+
+
+def test_personal_contacts_cannot_start_as_separate_mcp():
+    env = {**os.environ, "FORGEHUB_AGENT_SLUG": "maia"}
+    result = subprocess.run(
+        [sys.executable, str(MODULE)], capture_output=True, text=True, env=env, timeout=2,
+    )
+    assert result.returncode != 0
+    assert "ForgeHub" in result.stderr
 spec = importlib.util.spec_from_file_location("personal_contacts_features", MODULE)
 contacts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(contacts)

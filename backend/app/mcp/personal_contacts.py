@@ -1,9 +1,4 @@
-#!/usr/bin/env -S uv run
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["mcp[cli]>=1.2.0,<2"]
-# ///
-"""MCP ``pessoal``: contatos pessoais do Marcelo, só para a Maia (2026-10-07).
+"""Ferramentas de contatos pessoais da Maia dentro do MCP ForgeHub.
 
 A lista e as fichas ficam na base de conhecimento (``marcelo/pessoal``), no mesmo formato que o
 plugin ``maia-whatsapp-recados`` da Maia escreve:
@@ -11,13 +6,10 @@ plugin ``maia-whatsapp-recados`` da Maia escreve:
 - ``CONTATOS.md``: tabela Nome | Telefone | Categoria | Relação | Aniversário | Observações | Último contato;
 - ``contatos/<telefone>.md``: ficha com frontmatter e as seções "Quem é", "Como tratar" e "Histórico".
 
-É um servidor MCP próprio, separado do ``forgehub`` (que tem ferramentas de administração do
-ecossistema): a Maia, assistente pessoal do Marcelo, recebe só este. São dados pessoais: as ferramentas
-só são registradas para os agentes em ``FORGEHUB_PERSONAL_CONTACTS_AGENTS`` (padrão: ``maia``),
-conferido pelo ``FORGEHUB_AGENT_SLUG`` do perfil que abriu o MCP. Nenhuma ferramenta apaga contato
-nem histórico.
-
-Rodar: ``uv run /root/project/forgehub/backend/app/mcp/personal_contacts.py`` (stdio).
+O MCP ForgeHub carrega este módulo para a Maia. São dados pessoais: as ferramentas só são
+registradas para os agentes em ``FORGEHUB_PERSONAL_CONTACTS_AGENTS`` (padrão: ``maia``),
+conferido pelo ``FORGEHUB_AGENT_SLUG`` do perfil que abriu o MCP. Nenhuma ferramenta apaga
+contato nem histórico. Este arquivo não inicia um servidor MCP independente.
 """
 
 from __future__ import annotations
@@ -718,9 +710,4 @@ def register(mcp) -> bool:
 
 
 if __name__ == "__main__":
-    from mcp.server.fastmcp import FastMCP
-
-    server = FastMCP("pessoal")
-    if not register(server):
-        raise SystemExit("MCP pessoal: agente não autorizado (FORGEHUB_AGENT_SLUG)")
-    server.run()
+    raise SystemExit("Use o MCP ForgeHub; o MCP Pessoal independente foi descontinuado.")
