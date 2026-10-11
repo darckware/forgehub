@@ -105,6 +105,53 @@ def adicionar(titulo: str, quando: str = "", tipo: str = "compromisso", lembrete
     raise AgendaError("Tipo inválido: use compromisso ou tarefa.")
 
 
+def adicionar_feriado_local(nome: str, data: str, abrangencia: str,
+                            regiao: str = "Rio de Janeiro (RJ)", fonte: str = "") -> dict[str, Any]:
+    """Adiciona feriado estadual/municipal como evento de dia inteiro, sem lembretes."""
+    nome = str(nome or "").strip()
+    if not nome:
+        raise AgendaError("Informe o nome do feriado.")
+    abrangencia = str(abrangencia or "").strip().casefold()
+    if abrangencia not in ("estadual", "municipal"):
+        raise AgendaError("Esta ferramenta aceita apenas feriados estadual ou municipal; feriado nacional não deve ser cadastrado aqui.")
+    regiao = str(regiao or "").strip()
+    if not regiao:
+        raise AgendaError("Informe a região onde o feriado é válido.")
+    try:
+        dia = datetime.strptime(str(data).strip(), "%d/%m/%Y").date()
+    except ValueError:
+        try:
+            dia = datetime.strptime(str(data).strip(), "%Y-%m-%d").date()
+        except ValueError:
+            raise AgendaError("Data inválida. Use dd/mm/aaaa ou aaaa-mm-dd.") from None
+
+    titulo = f"Feriado {abrangencia}: {nome}"
+    inicio = datetime.combine(dia, datetime.min.time())
+    fim = inicio + timedelta(days=1)
+    existentes = _call("GET", "/events", query={
+        "start": inicio.strftime("%Y-%m-%dT%H:%M:00"),
+        "end": fim.strftime("%Y-%m-%dT%H:%M:00"),
+    })
+    existente = next((item for item in existentes if item.get("title", "").strip().casefold() == titulo.casefold()
+                      and str(item.get("starts_at", ""))[:10] == dia.isoformat()), None)
+    if existente:
+        return {"tipo": "feriado_local", "ja_existia": True, **existente}
+
+    notas = f"Feriado {abrangencia} válido em {regiao}."
+    if fonte.strip():
+        notas += f" Fonte: {fonte.strip()}"
+    evento = _call("POST", "/events", {
+        "title": titulo,
+        "starts_at": inicio.strftime("%Y-%m-%dT%H:%M:%S"),
+        "all_day": True,
+        "location": f"{abrangencia.capitalize()} — {regiao}",
+        "notes": notas,
+        "recurrence": "",
+        "reminders": [],
+    })
+    return {"tipo": "feriado_local", "ja_existia": False, **evento}
+
+
 def listar(dias: int = 7) -> list[dict[str, Any]]:
     inicio = agora().replace(hour=0, minute=0)
     fim = inicio + timedelta(days=max(1, min(dias, 366)))
@@ -173,6 +220,18 @@ def register(mcp) -> None:
         recorrencia: diaria, semanal, mensal, anual ou vazio. lista (tarefa): "Pessoal", "SEMED",
         "Darckware", "Casa"... Só a pedido do Marcelo."""
         return _safe(adicionar, titulo, quando, tipo, lembretes_minutos, local, notas, recorrencia, lista)
+
+    @mcp.tool()
+    async def agenda_add_local_holiday(nome: str, data: str, abrangencia: str,
+                                       regiao: str = "Rio de Janeiro (RJ)", fonte: str = "") -> dict[str, Any]:
+        """Adiciona à agenda um feriado local que não é nacional.
+
+        Use para feriados estaduais ou municipais aplicáveis à região do Marcelo. Informe nome,
+        data (dd/mm/aaaa ou aaaa-mm-dd), abrangencia (estadual ou municipal), região e, se houver,
+        a fonte oficial. O evento fica como dia inteiro e sem lembrete. A mesma data, abrangência e
+        nome não são cadastrados duas vezes. Não use para feriados nacionais.
+        """
+        return _safe(adicionar_feriado_local, nome, data, abrangencia, regiao, fonte)
 
     @mcp.tool()
     async def agenda_list(dias: int = 7) -> dict[str, Any]:
