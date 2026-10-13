@@ -547,12 +547,12 @@ def upcoming_birthdays(dias: int = 30, hoje: date | None = None) -> list[dict[st
     return sorted(proximos, key=lambda p: p["faltam_dias"])
 
 
-def _register_agenda(mcp) -> None:
-    """Agenda e tarefas (personal_agenda.py, ao lado deste arquivo): carregado pelo caminho para
+def _register_sibling(mcp, nome: str) -> None:
+    """Módulo irmão deste arquivo (personal_agenda.py, personal_groups.py): carregado pelo caminho para
     funcionar tanto como pacote (testes) quanto como script (`uv run`)."""
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("personal_agenda", Path(__file__).with_name("personal_agenda.py"))
+    spec = importlib.util.spec_from_file_location(nome, Path(__file__).with_name(f"{nome}.py"))
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
     modulo.register(mcp)
@@ -699,7 +699,8 @@ def register(mcp) -> bool:
         except PersonalContactsError as exc:
             return {"success": False, "error": str(exc)}
 
-    _register_agenda(mcp)
+    _register_sibling(mcp, "personal_agenda")
+    _register_sibling(mcp, "personal_groups")
 
     @mcp.tool()
     async def personal_birthdays(dias: int = 30) -> dict[str, Any]:
