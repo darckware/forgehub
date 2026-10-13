@@ -111,6 +111,19 @@ async def approved_concept_request(
     )).scalars().first()
 
 
+async def _expire(db: AsyncSession, request: ApprovalRequest) -> None:
+    """Persists the expiry, then refuses the decision.
+
+    Committed here, before raising: the 409 makes the request's session roll
+    back, which used to drop the status change -- an expired request stayed
+    "pending" forever (2026-10-12: one from 2026-08-17, whose task no longer
+    existed, was still listed as awaiting approval).
+    """
+    request.status = "expired"
+    await db.commit()
+    raise HTTPException(409, "Approval request expired")
+
+
 async def decide_concept_approval(
     db: AsyncSession,
     principal: ActorPrincipal,
@@ -133,8 +146,7 @@ async def decide_concept_approval(
             return existing
         raise HTTPException(409, "Approval request is no longer pending")
     if request.expires_at and request.expires_at <= datetime.now(timezone.utc):
-        request.status = "expired"
-        raise HTTPException(409, "Approval request expired")
+        await _expire(db, request)
     concept = await db.get(ProductConcept, request.target_id)
     if concept is None:
         raise HTTPException(404, "Product concept not found")
@@ -320,8 +332,7 @@ async def decide_task_approval(
             return existing
         raise HTTPException(409, "Approval request is no longer pending")
     if request.expires_at and request.expires_at <= datetime.now(timezone.utc):
-        request.status = "expired"
-        raise HTTPException(409, "Approval request expired")
+        await _expire(db, request)
 
     task = await db.get(ProjectTask, request.target_id)
     if task is None:
