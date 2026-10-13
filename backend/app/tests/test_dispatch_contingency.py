@@ -26,6 +26,7 @@ from sqlalchemy import delete, select
 from app.api.routes.demand import (
     RECONCILIATION_REQUIRED_ERROR,
     _dispatch_slots,
+    _fail_dispatch,
     run_dispatch_completion_pass,
     run_dispatch_timeout_pass,
 )
@@ -195,6 +196,37 @@ async def test_every_failure_notifies(agent):
         ).scalars().all()
         assert len(notes) == 1
         assert notes[0].severity == "error"
+
+
+async def test_failing_an_already_notified_attempt_does_not_abort_the_batch(agent):
+    """2026-10-11: a demand already notified for its attempt stayed "dispatched";
+    every timeout pass hit the unique event_key and rolled back the whole batch."""
+    demand_id = await _dispatched(agent, deadline_in=timedelta(minutes=-1),
+                                  status="dispatched", attempts=3)
+    async with AsyncSessionLocal() as session:
+        session.add(Notification(
+            source="system", severity="error", title="earlier failure", message="#0",
+            event_key=f"demand-dispatch-failed:{demand_id}:3",
+            occurred_at=datetime.now(timezone.utc),
+        ))
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        await _fail_dispatch(session, demand, RECONCILIATION_REQUIRED_ERROR, title="again")
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        d = await session.get(AgentDemand, demand_id)
+        assert d.dispatch_status == "failed"
+        notes = (
+            await session.execute(
+                select(Notification).where(
+                    Notification.event_key.like(f"demand-dispatch-failed:{demand_id}%")
+                )
+            )
+        ).scalars().all()
+        assert len(notes) == 1
 
 
 async def test_the_cap_counts_runs_already_in_flight(agent):

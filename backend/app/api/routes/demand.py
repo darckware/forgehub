@@ -1474,16 +1474,40 @@ async def _fail_dispatch(
     demand.dispatch_status = "failed"
     demand.dispatch_error = reason
     demand.dispatch_deadline_at = None
+    await _add_dispatch_failed_notification(
+        db,
+        demand,
+        title=title,
+        message=f"#{demand.number}: {reason}",
+    )
+
+
+async def _add_dispatch_failed_notification(
+    db: AsyncSession, demand: AgentDemand, *, title: str, message: str
+) -> None:
+    """Adds the failure notification unless this attempt already has one.
+
+    Attempt-scoped, not just demand-scoped: a reprocess that fails again is a
+    new event the user has to hear about, and a plain demand-scoped key would
+    silently swallow it. Skipping an existing key matters because the insert
+    shares the caller's transaction: on 2026-10-11 a demand already notified
+    for attempt 3 was left "dispatched", every timeout pass hit the unique
+    event_key, rolled back the whole batch, and five agents stayed "busy" --
+    their queues stopped for a day.
+    """
+    event_key = f"demand-dispatch-failed:{demand.id}:{demand.dispatch_attempts}"
+    exists = await db.scalar(
+        select(Notification.id).where(Notification.event_key == event_key).limit(1)
+    )
+    if exists is not None:
+        return
     db.add(
         Notification(
             source="system",
             severity="error",
             title=title,
-            message=f"#{demand.number}: {reason}",
-            # Attempt-scoped, not just demand-scoped: a reprocess that fails
-            # again is a new event the user has to hear about, and a plain
-            # demand-scoped key would silently swallow it.
-            event_key=f"demand-dispatch-failed:{demand.id}:{demand.dispatch_attempts}",
+            message=message,
+            event_key=event_key,
             occurred_at=datetime.now(timezone.utc),
         )
     )
@@ -1871,15 +1895,11 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
     locked.dispatch_deadline_at = None
     if locked.dispatch_status == "failed":
         locked.dispatch_error = f"The agent run ended as {run_status!r}."
-        db.add(
-            Notification(
-                source="system",
-                severity="error",
-                title=f"Dispatch failed: {locked.subject}",
-                message=f"#{locked.number}: the agent run ended as {run_status!r}.",
-                event_key=f"demand-dispatch-failed:{locked.id}:{locked.dispatch_attempts}",
-                occurred_at=datetime.now(timezone.utc),
-            )
+        await _add_dispatch_failed_notification(
+            db,
+            locked,
+            title=f"Dispatch failed: {locked.subject}",
+            message=f"#{locked.number}: the agent run ended as {run_status!r}.",
         )
     # "Execução" -- when the recipient agent actually finished running this
     # message, stamped on either terminal outcome (a failed run still ran).
