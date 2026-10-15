@@ -1,4 +1,4 @@
-"""Per-agent MCP server configuration, across the five agent runtimes.
+"""Per-agent MCP server configuration, across the four agent runtimes.
 
 Every runtime in the ecosystem can load MCP servers, but each keeps that
 configuration in its own file, in its own format, under its own key:
@@ -9,14 +9,13 @@ configuration in its own file, in its own format, under its own key:
     claude         <home>/../.claude.json              mcpServers    (none)
     codex          <home>/config.toml                  mcp_servers   enabled = false
     agy            <home>/mcp_config.json              mcpServers    (none)
-    openclaw        <home>/../openclaw.json             mcp.servers   disabled: true
 
 `<home>` is the same `Agent.home_path`/runtime convention `agent_profile_files`
 already resolves, so an agent that moved its config stays a field edit rather
 than a code change. Two of the files sit *next to* the home directory rather
-than inside it (Claude Code's `~/.claude.json` and OpenClaw's
-`~/.openclaw/openclaw.json`) -- that is a property of those runtimes, not a
-mistake, so the mapping is expressed as a filename plus a "parent" flag.
+than inside it (Claude Code's `~/.claude.json`) -- that is a property of
+that runtime, not a mistake, so the mapping is expressed as a filename plus a
+"parent" flag. (OpenClaw, the fifth runtime, was removed on 2026-10-14.)
 
 The actual file read/write engine (format parsing, surgical YAML/TOML edits,
 JSON round-trip) lives in `core/mcp_config_io.py` -- extracted 2026-07-28 so
@@ -69,14 +68,6 @@ FORMATS: dict[str, McpConfigFormat] = {
         key="codex", filename="config.toml", path=("mcp_servers",), toggle_field="enabled"
     ),
     "agy": McpConfigFormat(key="agy", filename="mcp_config.json", path=("mcpServers",)),
-    "openclaw": McpConfigFormat(
-        key="openclaw",
-        filename="openclaw.json",
-        in_parent=True,
-        path=("mcp", "servers"),
-        toggle_field="disabled",
-        toggle_inverted=True,
-    ),
 }
 
 

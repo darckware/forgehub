@@ -1235,8 +1235,6 @@ def _extract_run_result_text(run: dict[str, Any]) -> str:
     against real runs (dates below) rather than guessed:
     - claude --output-format json: one object, top-level "result" string
       (2026-07-23).
-    - openclaw agent --json: one object, answer at
-      result.meta.finalAssistantVisibleText (2026-07-25).
     - codex exec --json: newline-delimited events; the answer is the last
       {"item": {"type": "agent_message", "text": ...}} event (2026-07-25).
     - hermes chat -q ... -Q and agy --print: plain text already, no JSON
@@ -1253,11 +1251,6 @@ def _extract_run_result_text(run: dict[str, Any]) -> str:
     if isinstance(parsed, dict):
         if isinstance(parsed.get("result"), str):
             return parsed["result"]
-        result = parsed.get("result")
-        if isinstance(result, dict):
-            meta = result.get("meta")
-            if isinstance(meta, dict) and isinstance(meta.get("finalAssistantVisibleText"), str):
-                return meta["finalAssistantVisibleText"]
 
     last_message: str | None = None
     for line in output.splitlines():

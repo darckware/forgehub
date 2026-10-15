@@ -27,11 +27,6 @@ vi.mock("@/hooks/useAppConfig", () => ({
 }));
 vi.mock("@/hooks/useAgent", () => ({ useForgeRouterServices: () => ({ data: [] }) }));
 vi.mock("@/hooks/useOrchestration", () => ({ useForgeRouterVirtualModels: () => ({ data: [], isLoading: false }) }));
-vi.mock("@/hooks/useTerminalBrowse", () => ({
-  useOpenclawGatewayToken: () => ({ data: { token: "" }, isLoading: false }),
-  useUpdateOpenclawGatewayToken: () => ({ mutate: vi.fn(), isPending: false, isSuccess: false, isError: false }),
-}));
-
 beforeEach(async () => {
   mutateAsync.mockClear();
   await i18n.changeLanguage("en");

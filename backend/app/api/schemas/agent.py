@@ -319,9 +319,9 @@ class AgentUpdate(BaseModel):
     clear_forgerouter_api_key: bool = False
     runtime_type: str | None = None
     # Editable since 2026-07-26. It used to be set only by the Hermes
-    # Foundation sync, which walks /root/.hermes/profiles/ -- so the four
+    # Foundation sync, which walks /root/.hermes/profiles/ -- so the
     # agents that are external CLI runtimes rather than Hermes profiles
-    # (Porthus/claude, Aramis/codex, Dartan/agy, Vector/openclaw) had no
+    # (Porthus/claude, Aramis/codex, Dartan/agy) had no
     # directory to be discovered from and stayed NULL forever, with no way
     # to fix it short of raw SQL. That's not cosmetic: profile_slug is the
     # *addressing key* of the message channel -- `--to <profile>` and

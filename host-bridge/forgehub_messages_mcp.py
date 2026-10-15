@@ -1020,7 +1020,7 @@ async def list_agents(status: str | None = None, runtime: str | None = None) -> 
 
     Args:
         status: optional filter by status ('active', 'inactive', 'retired').
-        runtime: optional filter by runtime ('hermes', 'claude', 'codex', 'agy', 'openclaw').
+        runtime: optional filter by runtime ('hermes', 'claude', 'codex', 'agy').
     """
     try:
         agents = await _call("GET", "/api/v1/agents")
@@ -1139,7 +1139,7 @@ async def update_agent_profile(
         description: extended functional description.
         department: organizational department name.
         sector: organizational sector name.
-        runtime_type: runtime engine ('hermes', 'claude', 'codex', 'agy', 'openclaw').
+        runtime_type: runtime engine ('hermes', 'claude', 'codex', 'agy').
         runtime_tier: tier classification (e.g. 'Tier A', 'Tier B').
         status: lifecycle status ('active', 'inactive', 'retired').
         home_path: absolute host profile directory path.

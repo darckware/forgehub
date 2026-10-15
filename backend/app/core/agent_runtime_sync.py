@@ -13,8 +13,7 @@ This module answers the other question, from evidence:
 
     profile directory exists  ->  /root/.hermes/profiles/<slug>   => hermes
     runtime home exists       ->  /root/.claude, /root/.codex,
-                                   /root/.gemini/config,
-                                   /root/.openclaw/workspace      => that runtime
+                                   /root/.gemini/config           => that runtime
 
 Deliberately conservative:
 

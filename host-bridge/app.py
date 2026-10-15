@@ -1325,7 +1325,7 @@ def _antigravity_env(project_dir: Path) -> dict[str, str]:
 def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[str], dict[str, str]]:
     if req.mode not in {"plan", "execute"}:
         raise HTTPException(status_code=400, detail="mode must be plan or execute")
-    if req.runtime_type not in {"claude", "codex", "agy", "antigravity", "hermes", "openclaw"}:
+    if req.runtime_type not in {"claude", "codex", "agy", "antigravity", "hermes"}:
         raise HTTPException(status_code=400, detail="unsupported runtime_type")
     if not 30 <= req.max_seconds <= 7200:
         raise HTTPException(status_code=400, detail="max_seconds must be between 30 and 7200")
@@ -1358,27 +1358,6 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
                 "--yolo",
             ],
             hermes_env,
-        )
-
-    if req.runtime_type == "openclaw":
-        # Vector (Marcelo's personal OpenClaw assistant) already runs as a
-        # persistent daemon (openclaw-gateway.service) with its own
-        # ForgeRouter credential wired into openclaw.json
-        # (models.providers.forgerouter) -- same "agent already has its own
-        # credential" pattern as "hermes" above, no req.api_key needed. The
-        # only configured agent id on this host is "main" (identity: Vector
-        # -- confirmed via `openclaw agents list` 2026-07-25).
-        return (
-            [
-                "/root/.npm-global/bin/openclaw",
-                "agent",
-                "--agent",
-                "main",
-                "--message",
-                req.prompt,
-                "--json",
-            ],
-            os.environ.copy(),
         )
 
     routing_groups = {"auto", "simple", "standard", "complex", "reasoning", "vision", "audio", "code"}
@@ -1601,7 +1580,6 @@ async def agent_runner_health(x_bridge_token: str | None = Header(default=None))
         "codex": codex_health,
         "agy": {"available": _check_available("agy", ["/usr/local/bin/agy", "/root/.local/bin/agy"])},
         "hermes": {"available": _check_available("hermes", ["/usr/local/bin/hermes", "/root/.local/bin/hermes"])},
-        "openclaw": {"available": _check_available("openclaw", ["/root/.npm-global/bin/openclaw"])},
     }
     return {
         "status": "ok" if any(item["available"] for item in adapters.values()) else "degraded",
@@ -2043,8 +2021,8 @@ async def set_forgerouter_cli_toggle(
 # Python process/venv entirely -- this file can't import from it, so the
 # JSON entry upsert is reimplemented here, minimal since .mcp.json is plain
 # JSON with no comments to preserve, unlike Hermes YAML/Codex TOML). Only
-# "claude" is supported today -- confirmed 2026-07-28 that Codex/Hermes/agy/
-# OpenClaw have no equivalent project-local MCP mechanism; extend
+# "claude" is supported today -- confirmed 2026-07-28 that Codex/Hermes/agy
+# have no equivalent project-local MCP mechanism; extend
 # PROJECT_MCP_SUPPORTED_RUNTIMES only after confirming a runtime's own CLI
 # genuinely reads one, never from documentation alone.
 # ---------------------------------------------------------------------------
@@ -2568,8 +2546,8 @@ async def _direct_stream(profile: str, message: str, history: list) -> Streaming
 # Chat for the external CLI runtimes (2026-08-14).
 #
 # /v1/chat/stream only ever spoke Hermes: it validated `profile` against
-# /root/.hermes/profiles and ran hermes_cli. Aramis (codex), Dartan (agy),
-# Vector (openclaw) and Porthus (claude) are not Hermes profiles, so every
+# /root/.hermes/profiles and ran hermes_cli. Aramis (codex), Dartan (agy)
+# and Porthus (claude) are not Hermes profiles, so every
 # chat turn addressed to them died on "Unknown profile" -- the Workspace
 # offered a conversation that could never happen.
 #
@@ -2585,8 +2563,6 @@ async def _direct_stream(profile: str, message: str, history: list) -> Streaming
 #   codex    exec --json: JSONL, thread.started carries thread_id,
 #            item.completed/agent_message carries text.
 #   agy      --print: plain text on stdout, no structure at all.
-#   openclaw agent --json: a single JSON document at the end,
-#            result.payloads[].text.
 #
 # Approval prompts have no equivalent here -- these CLIs decide permissions
 # from their own flags, so a turn either runs or does not. The `stream_id`
@@ -2594,7 +2570,7 @@ async def _direct_stream(profile: str, message: str, history: list) -> Streaming
 # machinery work exactly as they do for Hermes.
 # ---------------------------------------------------------------------------
 
-EXTERNAL_CHAT_RUNTIMES = ("claude", "codex", "agy", "openclaw")
+EXTERNAL_CHAT_RUNTIMES = ("claude", "codex", "agy")
 
 # A chat turn is a conversation, not a work package: read-only sandboxes and
 # plan modes would make the agent unable to do what it is being asked in the
@@ -2611,7 +2587,7 @@ def _external_chat_command(runtime: str, message: str, cwd: str, session_id: str
             "--permission-mode",
             "acceptEdits",
         ]
-        # Claude Code is the only one of the four whose one-shot mode can
+        # Claude Code is the only one of the three whose one-shot mode can
         # resume a previous conversation by id, which is what makes a chat
         # tab keep its context across turns.
         if session_id:
@@ -2630,28 +2606,16 @@ def _external_chat_command(runtime: str, message: str, cwd: str, session_id: str
             cwd,
             message,
         ]
-    if runtime == "agy":
-        return [
-            "/root/.local/bin/agy",
-            "--print",
-            message,
-            "--mode",
-            "accept-edits",
-            "--sandbox",
-            "--print-timeout",
-            "1800s",
-        ]
-    # openclaw: Vector runs as a persistent daemon with its own session
-    # store, so continuity is the daemon's business, not ours -- there is no
-    # session id to pass and none to give back.
+    # agy
     return [
-        "/root/.npm-global/bin/openclaw",
-        "agent",
-        "--agent",
-        "main",
-        "--message",
+        "/root/.local/bin/agy",
+        "--print",
         message,
-        "--json",
+        "--mode",
+        "accept-edits",
+        "--sandbox",
+        "--print-timeout",
+        "1800s",
     ]
 
 
@@ -2794,10 +2758,6 @@ async def _external_chat_stream(
         new_session_id: str | None = None
         final_reply: str | None = None
         collected: list[str] = []
-        # openclaw prints one JSON document at the end instead of a stream, so
-        # its output is buffered whole and parsed after the process exits.
-        buffer_whole = runtime == "openclaw"
-        raw_buffer: list[str] = []
         idle_ping = 20
         idle_budget = 1800
         idle = 0
@@ -2817,9 +2777,6 @@ async def _external_chat_stream(
                     break
                 line = line_bytes.decode(errors="replace").rstrip("\n")
                 if not line.strip():
-                    continue
-                if buffer_whole:
-                    raw_buffer.append(line)
                     continue
                 if runtime == "agy":
                     # No structure to parse: every line the CLI prints is the
@@ -2845,21 +2802,6 @@ async def _external_chat_stream(
 
             stderr_bytes = await proc.stderr.read()
             await proc.wait()
-
-            if buffer_whole:
-                try:
-                    payload = json.loads("\n".join(raw_buffer))
-                    texts = [
-                        p.get("text") or ""
-                        for p in (payload.get("result") or {}).get("payloads") or []
-                    ]
-                    final_reply = "\n".join(t for t in texts if t)
-                    if final_reply:
-                        yield f'data: {json.dumps({"delta": final_reply})}\n\n'
-                except (json.JSONDecodeError, AttributeError):
-                    final_reply = "\n".join(raw_buffer)
-                    if final_reply:
-                        yield f'data: {json.dumps({"delta": final_reply})}\n\n'
 
             reply = final_reply if final_reply is not None else "".join(collected).strip()
             if not reply and proc.returncode not in (0, None):
@@ -4025,7 +3967,6 @@ TOOL_CHECKS = {
     "antigravity": _check_antigravity,
     "pi": lambda: _check_npm_backed("pi", ["/usr/local/bin/pi", "/root/.npm-global/bin/pi"], r"(\d+\.\d+\.\d+)", "@earendil-works/pi-coding-agent"),
     "opencode": lambda: _check_npm_backed("opencode", ["/usr/local/bin/opencode", "/root/.opencode/bin/opencode"], r"(\d+\.\d+\.\d+)", "opencode-ai"),
-    "openclaw": lambda: _check_npm_backed("openclaw", ["/usr/local/bin/openclaw", "/root/.npm-global/bin/openclaw"], r"OpenClaw (\S+)", "openclaw"),
 }
 
 TOOL_UPDATE_COMMANDS = {
@@ -4035,7 +3976,6 @@ TOOL_UPDATE_COMMANDS = {
     "antigravity": ["agy", "update"],
     "pi": ["npm", "install", "-g", "@earendil-works/pi-coding-agent@latest"],
     "opencode": ["npm", "install", "-g", "opencode-ai@latest"],
-    "openclaw": ["npm", "install", "-g", "openclaw@latest"],
 }
 
 TOOL_INSTALL_COMMANDS = {
@@ -4043,7 +3983,6 @@ TOOL_INSTALL_COMMANDS = {
     "codex": ["npm", "install", "-g", "@openai/codex"],
     "pi": ["npm", "install", "-g", "@earendil-works/pi-coding-agent"],
     "opencode": ["npm", "install", "-g", "opencode-ai"],
-    "openclaw": ["npm", "install", "-g", "openclaw"],
 }
 
 
@@ -4130,89 +4069,6 @@ async def install_tool(req: ToolInstallRequest, x_bridge_token: str | None = Hea
 
 
 # ---------------------------------------------------------------------------
-# OpenClaw dashboard -- the "Web" side of the Workspace's OpenClaw launcher
-# menu (the "Terminal" side just types `openclaw` into a tmux pane, see
-# LAUNCHER_COMMANDS below). OpenClaw's own Control UI (dist/control-ui) sends
-# `X-Frame-Options: DENY` and can't be iframed at all, and its gateway auth
-# token is required at the WebSocket handshake before the dashboard can do
-# anything -- per OpenClaw's own docs (docs/web/dashboard.md), the supported
-# one-time bootstrap is a `#token=<value>` URL fragment, which its own JS
-# reads once into sessionStorage and then strips from the URL. `openclaw
-# dashboard` itself refuses to embed this automatically because the token is
-# configured as a SecretRef (`gateway.auth.token.source: "env"`) rather than
-# a literal value, and deliberately avoids printing/copying a tokenized URL
-# for an externally-managed secret -- this endpoint does the same lookup
-# (read `OPENCLAW_GATEWAY_TOKEN` from OpenClaw's own env file) but is fine
-# handing it back over the already bridge-token-authenticated /v1 surface,
-# same trust boundary as every other endpoint below that hands back
-# host-level access (browse-dirs, fs/list, the terminal PTY itself).
-# ---------------------------------------------------------------------------
-
-OPENCLAW_ENV_FILE = Path("/root/.openclaw/.env")
-OPENCLAW_DASHBOARD_URL = "http://127.0.0.1:28340/"
-
-
-def _openclaw_gateway_token() -> str | None:
-    if not OPENCLAW_ENV_FILE.is_file():
-        return None
-    for line in OPENCLAW_ENV_FILE.read_text().splitlines():
-        if line.startswith("OPENCLAW_GATEWAY_TOKEN="):
-            return line.split("=", 1)[1].strip() or None
-    return None
-
-
-@app.get("/v1/openclaw/dashboard-url")
-async def openclaw_dashboard_url(x_bridge_token: str | None = Header(default=None)) -> dict:
-    _check_token(x_bridge_token)
-    token = _openclaw_gateway_token()
-    url = f"{OPENCLAW_DASHBOARD_URL}#token={token}" if token else OPENCLAW_DASHBOARD_URL
-    return {"url": url, "has_token": token is not None}
-
-
-# Read/write access to the raw token itself -- backs ForgeHub Settings' "OpenClaw"
-# card (2026-07-29, Marcelo: wants the token visible/settable from ForgeHub instead
-# of SSHing in and editing this file by hand). Same trust boundary as the endpoint
-# above, which already hands this exact value back to the browser embedded in a URL
-# fragment. Writing preserves every other line in the file untouched (upsert, not
-# overwrite) -- OPENCLAW_ENV_FILE also carries FORGEROUTER_API_KEY/TELEGRAM_BOT_TOKEN/
-# etc. for this same OpenClaw instance (Vector), not just the gateway token. A write
-# here does NOT restart openclaw-gateway.service: the running daemon only reads this
-# value once at process start (it's wired as a SecretRef, `gateway.auth.token.source:
-# "env"`, per the docstring above), so a change only takes effect on its next restart.
-def _set_openclaw_gateway_token(token: str) -> None:
-    lines = OPENCLAW_ENV_FILE.read_text().splitlines() if OPENCLAW_ENV_FILE.is_file() else []
-    new_line = f"OPENCLAW_GATEWAY_TOKEN={token}"
-    for i, line in enumerate(lines):
-        if line.startswith("OPENCLAW_GATEWAY_TOKEN="):
-            lines[i] = new_line
-            break
-    else:
-        lines.append(new_line)
-    OPENCLAW_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
-    OPENCLAW_ENV_FILE.write_text("\n".join(lines) + "\n")
-
-
-class OpenclawGatewayTokenRequest(BaseModel):
-    token: str
-
-
-@app.get("/v1/openclaw/gateway-token")
-async def get_openclaw_gateway_token(x_bridge_token: str | None = Header(default=None)) -> dict:
-    _check_token(x_bridge_token)
-    return {"token": _openclaw_gateway_token()}
-
-
-@app.put("/v1/openclaw/gateway-token")
-async def set_openclaw_gateway_token(req: OpenclawGatewayTokenRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
-    _check_token(x_bridge_token)
-    token = req.token.strip()
-    if not token:
-        raise HTTPException(status_code=400, detail="Token cannot be empty")
-    _set_openclaw_gateway_token(token)
-    return {"token": token}
-
-
-# ---------------------------------------------------------------------------
 # Terminal -- a real PTY on the host, one per WebSocket connection.
 #
 # "Launcher" buttons (Claude CLI, Codex CLI, Antigravity's "agy" CLI, ...)
@@ -4222,7 +4078,7 @@ async def set_openclaw_gateway_token(req: OpenclawGatewayTokenRequest, x_bridge_
 # terminal instead of needing special-cased error handling here.
 # ---------------------------------------------------------------------------
 
-LAUNCHER_COMMANDS = {"hermes --tui", "claude", "codex", "agy", "pi", "opencode", "openclaw"}
+LAUNCHER_COMMANDS = {"hermes --tui", "claude", "codex", "agy", "pi", "opencode"}
 
 # The Servers domain's "SSH" launcher (ForgeHub frontend's buildSshCommand)
 # sends a per-server command that can't be a fixed whitelist entry like the

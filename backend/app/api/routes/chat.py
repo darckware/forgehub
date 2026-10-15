@@ -291,7 +291,7 @@ async def get_chat_sessions_host_status(db: AsyncSession = Depends(get_db)) -> l
     literal "host-status" would otherwise be parsed as a session_id.
 
     Only `runtime_type == "hermes"` agents have a state.db to check --
-    Claude Code/Codex/Agy/OpenClaw keep their own session continuity
+    Claude Code/Codex/Agy keep their own session continuity
     entirely outside ForgeHub's reach, so those rows are skipped rather than
     reported as permanently "stale".
     """

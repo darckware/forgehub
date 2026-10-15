@@ -5,7 +5,6 @@ import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
 import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
 import antigravityIcon from "@lobehub/icons-static-png/dark/antigravity-color.png";
 import opencodeIcon from "@lobehub/icons-static-png/light/opencode.png";
-import openclawIcon from "@lobehub/icons-static-png/dark/openclaw-color.png";
 import piIcon from "@/assets/icons/pi.svg";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,12 +34,9 @@ const TOOL_META: Record<MonitoredTool, { label: string; icon?: string; iconBg?: 
   antigravity: { label: "Antigravity", icon: antigravityIcon },
   pi: { label: "PI", icon: piIcon, iconBg: "bg-black" },
   opencode: { label: "Opencode", icon: opencodeIcon, iconBg: "bg-white" },
-  // openclaw-color is a full-color mark (like claude/codex/antigravity
-  // above), so it needs no backing chip.
-  openclaw: { label: "OpenClaw", icon: openclawIcon },
 };
 
-const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode", "openclaw"];
+const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode"];
 
 
 export function ToolVersionsCard() {

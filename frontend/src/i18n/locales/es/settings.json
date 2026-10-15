@@ -15,9 +15,7 @@
       "cleanupDescription": "«Ejecutar limpieza» aplica la misma política limitada de Athos que usa la tarea semanal foundation-clear.",
       "aiChat": "Idioma",
       "aiChatDescription": "El idioma de tu cuenta cambia los menús y las pantallas actuales. El idioma predeterminado se usa solo para usuarios nuevos; el idioma del chat determina las respuestas de la IA y se envía al agente como una instrucción oculta.",
-      "general": "General",
-      "openclaw": "OpenClaw",
-      "openclawDescription": "Token de la pasarela de OpenClaw (Vector), leído y guardado en /root/.openclaw/.env del servidor. No forma parte de forgehub.config; tiene su propio botón para guardar y recargar."
+      "general": "General"
     },
     "forgeRouterModels": {
       "defaultAgent": {
@@ -78,13 +76,6 @@
         "inputId": "chat_response_language",
         "legacyOption": "{{language}} (configuración anterior)",
         "legacyHelp": "El idioma anterior sigue activo hasta que elijas portugués, inglés o español."
-      }
-    },
-    "openclaw": {
-      "gatewayToken": {
-        "label": "Token de la pasarela",
-        "placeholder": "No hay token configurado",
-        "help": "Autentica la consola web de OpenClaw (WebSocket de la pasarela). El cambio solo se aplica después de reiniciar openclaw-gateway en el servidor."
       }
     },
     "general": {

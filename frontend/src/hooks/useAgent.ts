@@ -34,12 +34,12 @@ export type RuntimeTier = (typeof RUNTIME_TIERS)[number];
 /**
  * Host-bridge /v1/agent-runs' runtime_type -- how an agent is actually
  * executed, and the axis the Agents page groups by: "hermes" is the eight
- * in-house Hermes profile agents, the other four are external CLI runtimes
+ * in-house Hermes profile agents, the other three are external CLI runtimes
  * with their own binary and their own config home (Porthus/claude,
- * Aramis/codex, Dartan/agy, Vector/openclaw). Null for agents registered by
+ * Aramis/codex, Dartan/agy). Null for agents registered by
  * hand that have no dispatchable runtime at all.
  */
-export const AGENT_RUNTIME_TYPES = ["hermes", "claude", "codex", "agy", "openclaw"] as const;
+export const AGENT_RUNTIME_TYPES = ["hermes", "claude", "codex", "agy"] as const;
 export type AgentRuntimeType = (typeof AGENT_RUNTIME_TYPES)[number];
 
 /** Hermes profile agents vs. external CLI runtimes -- the top-level split of
@@ -164,8 +164,8 @@ export const agentSchema = z.object({
   forgerouter_api_key: z.string().nullable().optional(),
   // Host-bridge /v1/agent-runs' runtime_type -- only set for agents that
   // can be dispatched via the Inbox: Porthus/Aramis/Dartan (claude/codex/
-  // agy, their own external CLIs), the classic Hermes-profile agents
-  // (hermes), and Vector (openclaw). Null for everyone else.
+  // agy, their own external CLIs) and the classic Hermes-profile agents
+  // (hermes). Null for everyone else.
   runtime_type: z.enum(AGENT_RUNTIME_TYPES).nullable().optional(),
   // Where this agent's profile files (SOUL.md, IDENTITY.md, ...) live on the
   // host. `home_path` is the registered override, `effective_home_path` is
@@ -238,7 +238,7 @@ export function useAgents() {
 }
 
 /** Agents with a runnable profile/runtime -- Hermes profile agents and the
- * external CLI runtimes (Claude Code/Codex/agy/OpenClaw), never a
+ * external CLI runtimes (Claude Code/Codex/agy), never a
  * sub-agent or a profile-less service entry. This is the one filter every
  * "pick an agent to talk to" picker across the app must share (Workspace's
  * chat tab, AssistantDrawer, and Conception's "Gerar via IA" -- 2026-08-16,
@@ -404,8 +404,8 @@ export function useForgeRouterServiceKey(name: string | undefined) {
 // Profile Markdown files (SOUL.md, IDENTITY.md, TOOLS.md, ...)
 //
 // Per-agent, not per-Hermes-profile: these endpoints resolve the directory
-// from the agent's own runtime, so the four external CLI runtimes
-// (Porthus/claude, Aramis/codex, Dartan/agy, Vector/openclaw) show their
+// from the agent's own runtime, so the external CLI runtimes
+// (Porthus/claude, Aramis/codex, Dartan/agy) show their
 // files exactly like the eight Hermes profiles do. The older
 // /api/v1/foundation/profiles/{slug}/files/... route only ever saw the
 // latter — see useFoundation.ts.

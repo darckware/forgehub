@@ -6,11 +6,11 @@ import { useToolUpdateStore } from "@/store/toolUpdate";
 
 /**
  * Tool-versions domain -- backs the Dashboard's tool-version card
- * (Hermes/Claude/Codex/Antigravity/PI/Opencode/OpenClaw CLIs). See
+ * (Hermes/Claude/Codex/Antigravity/PI/Opencode CLIs). See
  * backend/app/api/routes/toolversions.py.
  */
 
-export const monitoredToolSchema = z.enum(["hermes", "claude", "codex", "antigravity", "pi", "opencode", "openclaw"]);
+export const monitoredToolSchema = z.enum(["hermes", "claude", "codex", "antigravity", "pi", "opencode"]);
 export type MonitoredTool = z.infer<typeof monitoredToolSchema>;
 
 export const toolVersionSchema = z.object({

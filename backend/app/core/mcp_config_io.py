@@ -40,10 +40,9 @@ class McpConfigFormat:
     in_parent: bool = False
     # Dotted path to the servers mapping inside the parsed document.
     path: tuple[str, ...] = ()
-    # Which field expresses on/off, if any. "enabled" is true-means-on,
-    # "disabled" is true-means-off, None means the format has no toggle.
+    # Which field expresses on/off (true-means-on), None means the format
+    # has no toggle.
     toggle_field: str | None = None
-    toggle_inverted: bool = False
 
 
 @dataclass(frozen=True)
@@ -84,7 +83,7 @@ def _is_enabled(entry: dict, fmt: McpConfigFormat) -> bool:
     raw = entry.get(fmt.toggle_field)
     if raw is None:
         return True
-    return (not bool(raw)) if fmt.toggle_inverted else bool(raw)
+    return bool(raw)
 
 
 def _entry_to_info(name: str, entry: dict, fmt: McpConfigFormat) -> McpServerInfo:
@@ -152,11 +151,8 @@ def _entry_dict(server: McpServerInfo, fmt: McpConfigFormat) -> dict:
         entry["env"] = dict(server.env)
     if fmt.toggle_field:
         # Only write the toggle when it says something: formats all default
-        # to on, so an "enabled: true" line is noise in a hand-read config,
-        # and "disabled: false" doubly so.
-        if fmt.toggle_inverted and not server.enabled:
-            entry[fmt.toggle_field] = True
-        elif not fmt.toggle_inverted and not server.enabled:
+        # to on, so an "enabled: true" line is noise in a hand-read config.
+        if not server.enabled:
             entry[fmt.toggle_field] = False
     return entry
 

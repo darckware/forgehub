@@ -116,7 +116,7 @@ export default function AgentActivityPage() {
     [liveSnapshot],
   );
   // Live state from the newest stream frame wins over the (slower) read model's. External
-  // executors (claude/codex/agy/openclaw) only appear while Messages is running them.
+  // executors (claude/codex/agy) only appear while Messages is running them.
   const agents = useMemo<ActivityAgent[]>(() => {
     const merged = (data?.agents ?? []).map((agent) =>
       liveSnapshot ? { ...agent, live: snapshotByAgent.get(agent.id)?.live ?? null } : agent,

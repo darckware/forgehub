@@ -1,7 +1,7 @@
 """Tool-versions domain models: tool_version_status, tool_sync_setting.
 
 Backs the Dashboard's tool-version card (Hermes/Claude/Codex/Antigravity/
-PI/Opencode/OpenClaw CLIs). The actual version checks and update commands
+PI/Opencode CLIs; OpenClaw left on 2026-10-14). The actual version checks and update commands
 run on the HOST via the chat bridge (host-bridge/app.py's /v1/tool-versions
 endpoints, same reasoning as the chat/terminal domains -- the backend
 container has no access to those CLIs); this module only persists the
@@ -22,7 +22,7 @@ from app.db.base import Base, TimestampMixin
 
 # Fixed set of tools this card monitors -- not user-configurable, so a plain
 # CheckConstraint (not a separate lookup table) is enough. All are host CLIs.
-MONITORED_TOOLS = ("hermes", "claude", "codex", "antigravity", "pi", "opencode", "openclaw")
+MONITORED_TOOLS = ("hermes", "claude", "codex", "antigravity", "pi", "opencode")
 
 
 class ToolVersionStatus(Base, TimestampMixin):
@@ -34,7 +34,7 @@ class ToolVersionStatus(Base, TimestampMixin):
         # via f-string/repr, per every other domain model's CheckConstraint
         # convention (see db/models/product.py).
         CheckConstraint(
-            "tool IN ('hermes', 'claude', 'codex', 'antigravity', 'pi', 'opencode', 'openclaw')",
+            "tool IN ('hermes', 'claude', 'codex', 'antigravity', 'pi', 'opencode')",
             name="ck_tool_version_status_tool",
         ),
     )

@@ -145,8 +145,7 @@
     "hermes": "Hermes",
     "claude": "claude",
     "codex": "codex",
-    "agy": "agy",
-    "openclaw": "OpenClaw"
+    "agy": "agy"
   },
   "homePath": {
     "title": "Diretório de perfil",
@@ -154,7 +153,7 @@
     "none": "Sem diretório",
     "registered": "Cadastrado",
     "fromRuntime": "Padrão do runtime",
-    "hint": "Caminho absoluto no host. Deixe vazio para usar o padrão do runtime (/root/.hermes/profiles/<slug> para perfis Hermes; /root/.claude, /root/.codex, /root/.gemini/config, /root/.openclaw/workspace para os runtimes externos)."
+    "hint": "Caminho absoluto no host. Deixe vazio para usar o padrão do runtime (/root/.hermes/profiles/<slug> para perfis Hermes; /root/.claude, /root/.codex, /root/.gemini/config para os runtimes externos)."
   },
   "hierarchy": {
     "title": "Hierarquia do ecossistema de agentes",

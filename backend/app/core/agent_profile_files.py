@@ -10,9 +10,8 @@ in its own home directory. What differs is *where* that directory is:
     claude         /root/.claude                  (Porthus)
     codex          /root/.codex                   (Aramis)
     agy            /root/.gemini/config           (Dartan)
-    openclaw       /root/.openclaw/workspace      (Vector)
 
-Those four external paths are *defaults*, not hardcoded truth: `Agent.home_path`
+Those three external paths are *defaults*, not hardcoded truth: `Agent.home_path`
 overrides them, so a runtime that moves its config (or a second agent on the
 same runtime) is a field edit rather than a code change. Until 2026-07-26 the
 only reader of profile files was foundation.py's /profiles/{profile}/files/...,
@@ -74,12 +73,11 @@ RUNTIME_EXTRA_FILES: dict[str, tuple[str, ...]] = {
 
 # Default home directory per runtime_type for agents that are not Hermes
 # profiles. Sourced from each agent's canonical Foundation contract
-# (/root/.hermes/foundation/14_agents/{PORTHOS,ARAMIS,DARTAN,VECTOR}.md).
+# (/root/.hermes/foundation/14_agents/{PORTHOS,ARAMIS,DARTAN}.md).
 RUNTIME_DEFAULT_HOMES: dict[str, str] = {
     "claude": "/root/.claude",
     "codex": "/root/.codex",
     "agy": "/root/.gemini/config",
-    "openclaw": "/root/.openclaw/workspace",
 }
 
 HERMES_PROFILES_ROOT = "/root/.hermes/profiles"
@@ -92,7 +90,7 @@ HOST_PATH_MOUNTS: tuple[tuple[str, str], ...] = (
 
 # Catch-all mount of the whole host filesystem (docker-compose.yml: `/:/host-root`).
 # It is what makes the external runtime homes -- /root/.claude, /root/.codex,
-# /root/.gemini/config, /root/.openclaw/workspace -- readable from the
+# /root/.gemini/config -- readable from the
 # container without a bind mount per runtime.
 HOST_ROOT_MOUNT = "/host-root"
 
@@ -217,7 +215,7 @@ def stat_file(path: Path, filename: str, host_home: str) -> ProfileFileInfo:
 # either absent or -- for Claude Code -- shared with every operator session
 # on this host, so they can't carry "you are Porthus". The identity therefore
 # travels with each dispatch instead (2026-10-02).
-EXTERNAL_RUNTIMES = ("claude", "codex", "agy", "openclaw")
+EXTERNAL_RUNTIMES = ("claude", "codex", "agy")
 IDENTITY_PREAMBLE_FILES = ("IDENTITY.md", "SOUL.md")
 IDENTITY_PREAMBLE_MAX_CHARS = 8000
 

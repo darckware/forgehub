@@ -6,7 +6,7 @@ config -- it edits the runtime's own file directly), a project has no single
 "runtime" the way an agent does, and not every runtime even has a
 project-local MCP mechanism to point at (confirmed 2026-07-28: Claude Code's
 `.mcp.json` at the project root is the only one -- Codex's own CLI only
-manages a global `~/.codex/config.toml`, and Hermes/agy/OpenClaw have no
+manages a global `~/.codex/config.toml`, and Hermes/agy have no
 project-local config file at all). So this DB row is the durable "desired
 state" (mirroring `ProjectForgeRouterConfig`'s same reasoning), and
 `last_synced_at`/`last_sync_error` record the outcome of the last attempt to

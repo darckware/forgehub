@@ -998,8 +998,8 @@ async def get_project_forgerouter_live(
 #         GET /{project_id}/mcp-servers/live
 #
 # Claude Code only today (confirmed 2026-07-28 -- see
-# db/models/project_mcp.py's module docstring for why Codex/Hermes/agy/
-# OpenClaw aren't supported yet). Unlike per-agent MCP (core/agent_mcp.py,
+# db/models/project_mcp.py's module docstring for why Codex/Hermes/agy
+# aren't supported yet). Unlike per-agent MCP (core/agent_mcp.py,
 # no ForgeHub-side table at all), these rows ARE a DB-stored desired state --
 # same hybrid shape as ProjectForgeRouterConfig above: the DB is the source
 # of truth for "what should be installed", the host-bridge write is the

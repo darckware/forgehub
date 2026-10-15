@@ -59,7 +59,7 @@ class DemandSubmitIn(BaseModel):
     project_id: uuid.UUID | None = None
     development_request_id: uuid.UUID | None = None
     # Working directory path for agent execution -- when dispatching to
-    # external agents (claude, codex, agy, openclaw), this specifies the
+    # external agents (claude, codex, agy), this specifies the
     # cwd where the agent should run. If not provided, falls back to
     # AGENT_RUNTIME_PATHS or /root.
     working_path: str | None = None
@@ -132,7 +132,7 @@ class DemandUpdateIn(BaseModel):
     project_id: uuid.UUID | None = None
     development_request_id: uuid.UUID | None = None
     # Working directory path for agent execution -- when dispatching to
-    # external agents (claude, codex, agy, openclaw), this specifies the
+    # external agents (claude, codex, agy), this specifies the
     # cwd where the agent should run.
     working_path: str | None = None
     # Full edit support ("Alterar" button) -- subject/body plus re-pointing

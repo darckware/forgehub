@@ -32,7 +32,7 @@ export const LIVE_AVATAR_RING: Record<ActivityLiveState["state"], string> = {
 };
 
 /** External CLI runtimes: they only act when Messages dispatches to them. */
-export const ON_DEMAND_RUNTIMES = new Set(["claude", "codex", "agy", "openclaw"]);
+export const ON_DEMAND_RUNTIMES = new Set(["claude", "codex", "agy"]);
 
 /**
  * Whether an agent belongs on the live board: resident (Hermes) agents always do; an

@@ -80,31 +80,3 @@ export function useKillTerminalSession() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["terminal-sessions"] }),
   });
 }
-
-/** Fetched imperatively on click (the Workspace's OpenClaw launcher menu's
- * "Web" option), not a subscribed query -- a fresh lookup every time is
- * cheap (one env-file read on the host bridge) and avoids caching a
- * one-time auth token fragment past its usefulness. */
-export function fetchOpenclawDashboardUrl(): Promise<{ url: string; has_token: boolean }> {
-  return apiClient.get("/api/v1/terminal/openclaw-dashboard-url");
-}
-
-/** Raw OpenClaw gateway token, view/edit -- backs Settings' "OpenClaw" card
- * (2026-07-29). A real subscribed query (unlike fetchOpenclawDashboardUrl
- * above): the Settings card needs to hold and display the value, not just
- * fire-and-forget it into a URL. */
-export function useOpenclawGatewayToken() {
-  return useQuery({
-    queryKey: ["terminal", "openclaw-gateway-token"],
-    queryFn: () => apiClient.get<{ token: string | null }>("/api/v1/terminal/openclaw-gateway-token"),
-  });
-}
-
-export function useUpdateOpenclawGatewayToken() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (token: string) =>
-      apiClient.put<{ token: string }>("/api/v1/terminal/openclaw-gateway-token", { token }),
-    onSuccess: (data) => queryClient.setQueryData(["terminal", "openclaw-gateway-token"], data),
-  });
-}

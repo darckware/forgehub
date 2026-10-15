@@ -50,7 +50,6 @@ describe("isExternalRuntime", () => {
     expect(isExternalRuntime("claude")).toBe(true);
     expect(isExternalRuntime("codex")).toBe(true);
     expect(isExternalRuntime("agy")).toBe(true);
-    expect(isExternalRuntime("openclaw")).toBe(true);
   });
 
   it("is not external when there is no runtime at all", () => {

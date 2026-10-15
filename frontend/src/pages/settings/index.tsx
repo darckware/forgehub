@@ -7,13 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { TokenField } from "@/components/ui/token-field";
 import { MyLanguageControl } from "@/components/MyLanguageControl";
 import { UI_LANGUAGE_OPTIONS } from "@/i18n";
 import { type AppConfig, useAppConfig, useUpdateAppConfig } from "@/hooks/useAppConfig";
 import { useForgeRouterServices } from "@/hooks/useAgent";
 import { useForgeRouterVirtualModels } from "@/hooks/useOrchestration";
-import { useOpenclawGatewayToken, useUpdateOpenclawGatewayToken } from "@/hooks/useTerminalBrowse";
 
 // Every IANA zone name as <datalist> suggestions (2026-07-29, Marcelo:
 // "adicione o timezone para todos os países" -- the previous list only had
@@ -68,85 +66,6 @@ function linesToList(value: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-/** Independent card, own load/save -- the OpenClaw gateway token isn't part
- * of AppConfig/forgehub.config (useAppConfig.ts: "not secrets -- those stay
- * in .env"). It lives in /root/.openclaw/.env on the host and is read/
- * written through its own host-bridge endpoint (2026-07-29), so it gets its
- * own query/mutation and Save button rather than joining the big form's
- * batched save below. */
-function OpenclawTokenCard() {
-  const { t } = useTranslation("settings");
-  const { data, isLoading } = useOpenclawGatewayToken();
-  const updateToken = useUpdateOpenclawGatewayToken();
-  const [value, setValue] = useState("");
-  const [seeded, setSeeded] = useState(false);
-
-  useEffect(() => {
-    if (data && !seeded) {
-      setValue(data.token ?? "");
-      setSeeded(true);
-    }
-  }, [data, seeded]);
-
-  const dirty = seeded && value.trim() !== (data?.token ?? "");
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-xl">{t("settings.tabs.openclaw")}</CardTitle>
-        <CardDescription>{t("settings.tabs.openclawDescription")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="max-w-md space-y-2">
-          <Label htmlFor="openclaw_gateway_token">{t("settings.openclaw.gatewayToken.label")}</Label>
-          {isLoading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> {t("settings.messages.loading")}
-            </div>
-          ) : (
-            <TokenField
-              id="openclaw_gateway_token"
-              value={value}
-              onChange={setValue}
-              placeholder={t("settings.openclaw.gatewayToken.placeholder")}
-            />
-          )}
-          <p className="text-xs text-muted-foreground">{t("settings.openclaw.gatewayToken.help")}</p>
-        </div>
-
-        {updateToken.isError && (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-            {(updateToken.error as Error)?.message ?? t("settings.messages.saveError")}
-          </div>
-        )}
-        {updateToken.isSuccess && !dirty && (
-          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
-            {t("settings.messages.saved")}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            disabled={!dirty || updateToken.isPending}
-            onClick={() => setValue(data?.token ?? "")}
-          >
-            {t("settings.messages.reset")}
-          </Button>
-          <Button
-            className="gap-2"
-            disabled={!dirty || updateToken.isPending || !value.trim()}
-            onClick={() => updateToken.mutate(value.trim())}
-          >
-            {updateToken.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {t("settings.messages.save")}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 export default function SettingsPage() {
@@ -313,8 +232,6 @@ export default function SettingsPage() {
           ))}
         </CardContent>
       </Card>
-
-      <OpenclawTokenCard />
 
       <Card>
         <CardHeader>

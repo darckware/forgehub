@@ -60,12 +60,9 @@ AGENT_TYPES = ("coordinator", "executor", "hybrid")
 # (Athos, Aegis, Atlas, Mnemosyne, Scriba, Themis, Daedalus, Hephaestus)
 # uses this. "claude"/"codex"/"agy" remain the three external runtime
 # programmers (Porthus/Aramis/Dartan) with their own non-Hermes CLI.
-# "openclaw" dispatches `openclaw agent --agent main --message <prompt>
-# --json` against Vector's already-running openclaw-gateway.service -- like
-# hermes/claude/codex/agy, Vector's own config already has its own
-# credential (openclaw.json's models.providers.forgerouter), no ForgeHub
-# ForgeRouter credential needed.
-AGENT_RUNTIME_TYPES = ("claude", "codex", "agy", "hermes", "openclaw")
+# "openclaw" (Vector) was removed on 2026-10-14: OpenClaw was uninstalled and
+# Vector retired (migration a7c2e9f41b85).
+AGENT_RUNTIME_TYPES = ("claude", "codex", "agy", "hermes")
 
 SKILL_RISK_LEVELS = ("low", "medium", "high", "critical")
 SKILL_ORIGINS = ("internal", "third_party", "foundation")
@@ -154,8 +151,8 @@ class Agent(Base, TimestampMixin):
     # (SOUL.md, IDENTITY.md, TOOLS.md, ...). Nullable because it is an
     # *override*: when unset, core/agent_profile_files.py derives it from the
     # runtime convention (/root/.hermes/profiles/<slug> for Hermes profiles,
-    # /root/.claude, /root/.codex, /root/.gemini/config, /root/.openclaw/
-    # workspace for the external runtimes). Stored as the host canonical path,
+    # /root/.claude, /root/.codex, /root/.gemini/config for the external
+    # runtimes). Stored as the host canonical path,
     # like source_path -- the container mount translation happens at read time.
     home_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 

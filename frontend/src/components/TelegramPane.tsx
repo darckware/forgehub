@@ -50,16 +50,17 @@ export function TelegramPane({ agentId, agents, active, onAgentChange }: Telegra
   const agent = agents.find((item) => item.id === agentId);
   // Only agents with a real Telegram channel belong in this switcher
   // (2026-08-15, Marcelo: "só deixe os agentes na seleção do telegram" /
-  // "somente os agentes do hermes e openclaw possuem telegram") -- `agents`
+  // "somente os agentes do hermes e openclaw possuem telegram"; OpenClaw
+  // left on 2026-10-14, so Hermes is now the only one) -- `agents`
   // is the whole chatable roster, which also includes test/preview
   // fixtures and external-CLI runtimes (claude, codex, agy) that have no
   // per-profile .env to hold a bot token in the first place. Both signals
-  // are checked: runtime_type narrows to the two runtimes capable of it at
+  // are checked: runtime_type narrows to the one runtime capable of it at
   // all, `installed` (bot token + home channel actually set) narrows to
   // the ones actually configured, not just eligible.
   const telegramAgents = agents.filter(
     (item) =>
-      (item.runtime_type === "hermes" || item.runtime_type === "openclaw") &&
+      item.runtime_type === "hermes" &&
       statuses?.agents.some((s) => s.agent_id === item.id && s.installed)
   );
   // The tab's own agent must always be a selectable option, even when it

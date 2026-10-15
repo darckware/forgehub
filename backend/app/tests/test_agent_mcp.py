@@ -73,11 +73,10 @@ def _server(name: str = "forgehub", **kwargs) -> agent_mcp.McpServerInfo:
         ("claude", "/root/.claude", "/root/.claude.json"),
         ("codex", "/root/.codex", "/root/.codex/config.toml"),
         ("agy", "/root/.gemini/config", "/root/.gemini/config/mcp_config.json"),
-        ("openclaw", "/root/.openclaw/workspace", "/root/.openclaw/openclaw.json"),
     ],
 )
 def test_config_host_path_per_runtime(runtime, home, expected):
-    """Two runtimes keep the file beside the home directory rather than in it;
+    """Claude Code keeps the file beside the home directory rather than in it;
     that asymmetry is the whole reason for the in_parent flag."""
     fmt = agent_mcp.format_for(runtime)
     assert agent_mcp.config_host_path(home, fmt) == expected
@@ -222,7 +221,7 @@ def test_toml_remove_takes_subtables_with_it(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# JSON (Claude Code, agy, OpenClaw)
+# JSON (Claude Code, agy)
 # ---------------------------------------------------------------------------
 
 
@@ -237,20 +236,6 @@ def test_claude_json_preserves_unrelated_keys_and_stamps_stdio(tmp_path):
     assert document["projects"]["/root"]["history"] == [1, 2, 3]
     assert document["mcpServers"]["forgehub"]["type"] == "stdio"
     assert document["mcpServers"]["forgehub"]["command"] == "uv"
-
-
-def test_openclaw_nested_path_and_disabled_flag(tmp_path):
-    path = tmp_path / "openclaw.json"
-    path.write_text(json.dumps({"plugins": {"entries": {"telegram": {"enabled": True}}}}), encoding="utf-8")
-    fmt = agent_mcp.format_for("openclaw")
-
-    agent_mcp.write_server(str(path), fmt, "forgehub", _server(enabled=False))
-
-    document = json.loads(path.read_text(encoding="utf-8"))
-    assert document["plugins"]["entries"]["telegram"]["enabled"] is True
-    assert document["mcp"]["servers"]["forgehub"]["disabled"] is True
-    # Inverted toggle: `disabled: true` must read back as enabled=False.
-    assert agent_mcp.read_servers(str(path), fmt)[0].enabled is False
 
 
 def test_json_remove_leaves_other_servers(tmp_path):

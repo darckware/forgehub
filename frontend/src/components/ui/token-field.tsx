@@ -6,8 +6,7 @@ import { cn } from "@/lib/utils";
 /** Password-style field with a show/hide eye toggle plus a copy-to-clipboard
  * button -- shared by every place that holds a secret an operator needs to
  * both verify (hidden by default, like a password) and paste elsewhere:
- * Settings' OpenClaw gateway token card and the Agent detail page's
- * ForgeRouter API key card. Doesn't fetch or reveal anything on its own --
+ * the Agent detail page's ForgeRouter API key card. Doesn't fetch or reveal anything on its own --
  * it only toggles the `type` of whatever `value` the caller already has. */
 export function TokenField({
   value,
