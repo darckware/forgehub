@@ -44,6 +44,7 @@ from app.api.routes import (
     factory,
     file_explorer,
     personal,
+    personal_contacts,
     forgerouter,
     foundation,
     foundation_docs,
@@ -366,6 +367,7 @@ app.include_router(systemstats.router)
 app.include_router(workspace_browser.router)
 app.include_router(file_explorer.router)
 app.include_router(personal.router)
+app.include_router(personal_contacts.router)
 app.include_router(vault.router)
 app.include_router(docs.router)
 app.include_router(demand.router)
@@ -464,6 +466,8 @@ WORKSTATION_STALENESS_POLL_INTERVAL_SECONDS = 300
 # Reports are monthly documents; an hourly pass gives restarts and transient
 # database failures another chance without delaying ordinary app startup.
 CLIENT_REPORT_POLL_INTERVAL_SECONDS = 3600
+#: The Maia's per-message context pass over WhatsApp contacts (2026-10-14).
+PERSONAL_CONTEXT_POLL_INTERVAL_SECONDS = 30
 #: ForgeRouter registry -> Agent.forgerouter_api_key_encrypted (2026-10-14).
 FORGEROUTER_KEY_SYNC_INTERVAL_SECONDS = 900
 CLIENT_OPS_POLL_INTERVAL_SECONDS = 120
@@ -793,6 +797,24 @@ async def _client_report_poll_loop() -> None:
         await asyncio.sleep(CLIENT_REPORT_POLL_INTERVAL_SECONDS)
 
 
+async def _personal_context_poll_loop() -> None:
+    """Context + capture suggestions for each WhatsApp message a contact sent (2026-10-14) -- see
+    core/personal_context.py. Own task: a ForgeRouter outage must not stall any other pass."""
+    from app.core.personal_context import BATCH as BATCH_FULL, run_personal_context_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                handled = await run_personal_context_pass(db)
+        except Exception:
+            logger.exception("Personal context pass failed")
+            handled = 0
+        # A full batch means more is waiting: go again right away instead of sleeping.
+        if handled < BATCH_FULL:
+            await asyncio.sleep(PERSONAL_CONTEXT_POLL_INTERVAL_SECONDS)
+
+
 async def _forgerouter_key_sync_poll_loop() -> None:
     """Keeps each Agent's ForgeRouter key copy equal to ForgeRouter's own
     registry (2026-10-14) -- see run_forgerouter_key_sync_pass. Own task:
@@ -843,6 +865,7 @@ async def _start_background_tasks() -> None:
         ("client-report-poll", _client_report_poll_loop),
         ("client-ops-poll", _client_ops_poll_loop),
         ("forgerouter-key-sync-poll", _forgerouter_key_sync_poll_loop),
+        ("personal-context-poll", _personal_context_poll_loop),
         ("feedback-poll", _feedback_poll_loop),
         ("incubation-maturation-poll", _incubation_maturation_poll_loop),
         ("routine-poll", _routine_poll_loop),

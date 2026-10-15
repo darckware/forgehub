@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   Circle,
   ClipboardList,
+  Contact,
+  Bot,
   ListTodo,
   Loader2,
   MapPin,
@@ -41,6 +43,8 @@ import {
   type TaskGroupKey,
 } from "@/hooks/usePersonalViewModel";
 import { cn } from "@/lib/utils";
+import { ContactsTab } from "./ContactsTab";
+import { MaiaTab } from "./MaiaTab";
 
 const RECURRENCES: Recurrence[] = ["", "daily", "weekly", "monthly", "yearly"];
 const fieldClass = "h-9 rounded-md border bg-background px-2 text-sm max-md:text-base";
@@ -72,11 +76,15 @@ export default function PersonalPage() {
           <TabsTrigger value="agenda"><CalendarDays className="mr-1.5 h-4 w-4" />{t("tabs.agenda")}</TabsTrigger>
           <TabsTrigger value="notes"><NotebookPen className="mr-1.5 h-4 w-4" />{t("tabs.notes")}</TabsTrigger>
           <TabsTrigger value="demands"><ClipboardList className="mr-1.5 h-4 w-4" />{t("tabs.demands")}</TabsTrigger>
+          <TabsTrigger value="contacts"><Contact className="mr-1.5 h-4 w-4" />{t("tabs.contacts")}</TabsTrigger>
+          <TabsTrigger value="maia"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.maia")}</TabsTrigger>
         </TabsList>
         <TabsContent value="tasks"><TasksTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="agenda"><AgendaTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="notes"><NotesTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="demands"><DemandsTab /></TabsContent>
+        <TabsContent value="contacts"><ContactsTab /></TabsContent>
+        <TabsContent value="maia"><MaiaTab /></TabsContent>
       </Tabs>
       <ConfirmDialog
         open={Boolean(del.target)}

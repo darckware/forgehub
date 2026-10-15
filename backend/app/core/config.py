@@ -131,6 +131,13 @@ class Settings(BaseSettings):
     # land in the agent's memory.
     CLIENT_OPS_TRANSLATOR_AGENT: str = "lara"
     CLIENT_OPS_TRANSLATOR_MODEL: str = "forgerouter/standard"
+    # The Maia's per-message context pass over her WhatsApp contacts (core/personal_context.py):
+    # one completion per incoming message, billed to her own ForgeRouter key.
+    PERSONAL_CONTEXT_AGENT: str = "maia"
+    PERSONAL_CONTEXT_MODEL: str = "forgerouter/standard"
+    # Where the Maia's WhatsApp plugin keeps its runtime state (pausas.json, tarefas.json) --
+    # read-only here, for the Pessoal screen's "Maia" tab. Bind mount of /root/.hermes/profiles.
+    PERSONAL_WHATSAPP_STATE_DIR: str = "/profiles/maia/whatsapp"
 
     # Hindsight/Foundation PostgreSQL instance.
     FOUNDATION_POSTGRES_HOST: str = "hindsight_postgres"

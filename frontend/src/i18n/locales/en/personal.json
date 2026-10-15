@@ -5,7 +5,9 @@
     "tasks": "Tasks",
     "agenda": "Agenda",
     "notes": "Notes",
-    "demands": "Demands"
+    "demands": "Demands",
+    "contacts": "Contacts",
+    "maia": "Maia"
   },
   "fields": {
     "date": "Date",
@@ -30,7 +32,8 @@
     "pin": "Pin",
     "unpin": "Unpin",
     "archive": "Archive",
-    "unarchive": "Unarchive"
+    "unarchive": "Unarchive",
+    "edit": "Edit"
   },
   "priority": {
     "low": "Low",
@@ -116,6 +119,102 @@
       "description_zero": "No open demand uses this type.",
       "description_one": "Its demand stays, now under \"No type\".",
       "description_other": "Its {{count}} demands stay, now under \"No type\"."
+    }
+  },
+  "contacts": {
+    "search": "Search by name, phone or relation",
+    "category": "Category",
+    "allCategories": "All categories",
+    "onlyWithSuggestions": "Only with suggestions",
+    "empty": "No contacts found.",
+    "back": "Back to contacts",
+    "selectHint": "Select a contact to see the record, the history and what the Maia captured.",
+    "name": "Name",
+    "relation": "Relation",
+    "birthday": "Birthday",
+    "birthdayInvalid": "Use dd/mm or dd/mm/yyyy.",
+    "whoIs": "Who they are",
+    "howToTreat": "How to treat",
+    "howToTreatHelp": "The Maia reads this before answering this person.",
+    "observations": "Notes",
+    "otherData": "Other data",
+    "notFilled": "(not filled in)",
+    "blocked": "Blocked",
+    "blockedLabel": "Block on WhatsApp (the Maia ignores this person's messages)",
+    "history": "History",
+    "notePlaceholder": "Record something about this person or conversation…",
+    "addNote": "Record",
+    "noHistory": "No conversation recorded.",
+    "loadMore": "Load older",
+    "context": "Context",
+    "contextPending": "The Maia is reading the context…",
+    "contextFailed": "Could not record the context.",
+    "retry": "Try again",
+    "direction": {
+      "in": "Contact",
+      "out": "Marcelo",
+      "note": "Note"
+    },
+    "suggestions": {
+      "title": "Maia's suggestions",
+      "help": "The Maia found these in the messages. Nothing enters your lists until you accept.",
+      "kind": "Create as",
+      "accept": "Accept",
+      "dismiss": "Dismiss",
+      "kinds": {
+        "task": "Task",
+        "demand": "Demand",
+        "note": "Note"
+      }
+    },
+    "delete": {
+      "title": "Delete contact?",
+      "description": "\"{{name}}\" and their whole history will be deleted and cannot be recovered."
+    },
+    "categories": {
+      "familia": "Family",
+      "parentes": "Relatives",
+      "amigos": "Friends",
+      "trabalho_semed": "Work (SEMED)",
+      "cliente_darckware": "Darckware client",
+      "outros": "Others",
+      "a_classificar": "To classify",
+      "colaboradores": "Collaborators"
+    }
+  },
+  "maia": {
+    "rules": {
+      "title": "WhatsApp service rules",
+      "description": "The Maia reads this text before every message on your personal WhatsApp. It applies from the next message.",
+      "instructions": "Instructions",
+      "instructionsHelp": "{{count}} of 6000 characters.",
+      "wait": "Wait before answering (minutes)",
+      "waitHelp": "Time she waits for you to answer first.",
+      "waitInvalid": "Use a number between 0 and 240.",
+      "capture": "Record context and suggest demands, tasks and notes",
+      "captureHelp": "After each contact message. You confirm each suggestion.",
+      "saved": "Rules saved.",
+      "updatedAt": "Updated {{when}}"
+    },
+    "now": {
+      "title": "Now",
+      "contacts": "Contacts",
+      "blocked": "Blocked",
+      "suggestions": "Pending suggestions",
+      "contextPending": "Messages being read",
+      "contextFailed": "Context failures"
+    },
+    "paused": {
+      "title": "Paused conversations",
+      "description": "You answered: the Maia stays quiet in these conversations for 2 h.",
+      "empty": "No paused conversation.",
+      "until": "until {{when}}"
+    },
+    "tasks": {
+      "title": "Conversations opened by the Maia",
+      "description": "Messages she sent at your request, with a goal.",
+      "empty": "No open conversation.",
+      "expires": "closes {{when}}"
     }
   }
 }

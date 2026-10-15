@@ -1,31 +1,32 @@
 """Ferramentas de contatos pessoais da Maia dentro do MCP ForgeHub.
 
-A lista e as fichas ficam na base de conhecimento (``marcelo/pessoal``), no mesmo formato que o
-plugin ``maia-whatsapp-recados`` da Maia escreve:
+Desde 14/10/2026 os contatos, o histórico de cada conversa (com o contexto de cada mensagem), as
+sugestões de demanda/tarefa/anotação e as regras de atendimento moram no ForgeHub
+(``/api/v1/personal``, tela "Pessoal" → Contatos e Maia). Antes ficavam em
+``knowledge_base/marcelo/pessoal`` (``CONTATOS.md`` + ``contatos/<telefone>.md``) e em
+``whatsapp/INSTRUCOES_PESSOAIS.md``; esses arquivos foram importados e não são mais escritos.
 
-- ``CONTATOS.md``: tabela Nome | Telefone | Categoria | Relação | Aniversário | Observações | Último contato;
-- ``contatos/<telefone>.md``: ficha com frontmatter e as seções "Quem é", "Como tratar" e "Histórico".
-
-O MCP ForgeHub carrega este módulo para a Maia. São dados pessoais: as ferramentas só são
-registradas para os agentes em ``FORGEHUB_PERSONAL_CONTACTS_AGENTS`` (padrão: ``maia``),
-conferido pelo ``FORGEHUB_AGENT_SLUG`` do perfil que abriu o MCP. Nenhuma ferramenta apaga
-contato nem histórico. Este arquivo não inicia um servidor MCP independente.
+A Maia chega lá com a própria credencial ``agt_`` (``FORGEHUB_AGENT_TOKEN``), e as ferramentas só são
+registradas para os agentes em ``FORGEHUB_PERSONAL_CONTACTS_AGENTS`` (padrão: ``maia``), conferido
+pelo ``FORGEHUB_AGENT_SLUG`` do perfil que abriu o MCP. Nomes, parâmetros e campos de resposta são os
+mesmos de antes; nenhuma ferramenta apaga contato nem histórico. O envio pelo WhatsApp e as tarefas de
+conversa continuam no próprio perfil da Maia (``hermes -p maia send`` e ``whatsapp/tarefas.json``).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
-import json
-import unicodedata
-from datetime import date, datetime
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-BASE = Path(os.environ.get("FORGEHUB_PERSONAL_CONTACTS_DIR", "/root/memory/knowledge_base/marcelo/pessoal"))
-INSTRUCOES = Path(os.environ.get(
-    "PERSONAL_INSTRUCTIONS_FILE", "/root/.hermes/profiles/maia/whatsapp/INSTRUCOES_PESSOAIS.md"))
+API = os.environ.get("FORGEHUB_API_URL", "http://localhost:8000").rstrip("/") + "/api/v1/personal"
 TAREFAS = Path(os.environ.get(
     "PERSONAL_WHATSAPP_TASKS", "/root/.hermes/profiles/maia/whatsapp/tarefas.json"))
 ENVIOS_LOG = Path(os.environ.get(
@@ -34,30 +35,9 @@ HERMES_BIN = os.environ.get("HERMES_BIN", "/usr/local/bin/hermes")
 ENVIOS_POR_HORA = 30
 TAREFA_HORAS = 48
 TZ = ZoneInfo("America/Sao_Paulo")
-CATEGORIAS = ("familia", "parentes", "amigos", "trabalho_semed", "cliente_darckware", "outros", "a_classificar")
-CHAVES = ("nome", "telefone", "categoria", "relacao", "aniversario", "observacoes", "ultimo_contato")
-CABECALHO = """---
-title: Contatos pessoais do Marcelo
-sensitivity: pessoal
-owner: marcelo
-maintained_by: maia
----
-
-# Contatos pessoais
-
-Pessoas que falam com o Marcelo no WhatsApp pessoal. A Maia acrescenta quem é novo e atualiza
-"Último contato"; a classificação é do Marcelo (aqui ou pedindo à Maia pelo Telegram).
-
-Categorias padrão: `familia` · `parentes` · `amigos` · `trabalho_semed` · `cliente_darckware` · `outros` ·
-`a_classificar`. Categorias adicionais ficam em `CATEGORIAS.json`. Relação é livre. Cada pessoa tem uma ficha em
-`contatos/<telefone>.md` com "Quem é", "Como tratar" e o histórico; a Maia lê a ficha a cada mensagem
-dela. Dados pessoais: não copiar para fora desta pasta.
-
-| Nome | Telefone | Categoria | Relação | Aniversário | Observações | Último contato |
-|---|---|---|---|---|---|---|
-"""
-_A_PREENCHER_QUEM = "(a preencher: quem é, de onde conhece, assuntos em comum)"
-_A_PREENCHER_COMO = "(a preencher pelo Marcelo: tom, o que pode dizer, o que fazer com o recado)"
+_TIPOS = {"demanda": "demand", "tarefa": "task", "anotacao": "note", "anotação": "note",
+          "demand": "demand", "task": "task", "note": "note"}
+_TIPOS_PT = {"demand": "demanda", "task": "tarefa", "note": "anotacao"}
 
 
 class PersonalContactsError(Exception):
@@ -74,63 +54,51 @@ def allowed_agent(slug: str | None = None) -> bool:
     return bool(slug) and slug in allowed
 
 
-_APELIDOS_CATEGORIA = {
-    "família": "familia", "esposa": "familia", "filha": "familia", "filho": "familia",
-    "parente": "parentes", "amigo": "amigos", "amiga": "amigos", "amizade": "amigos",
-    "trabalho": "trabalho_semed", "semed": "trabalho_semed", "trabalho semed": "trabalho_semed",
-    "trabalho (semed)": "trabalho_semed", "cliente": "cliente_darckware", "darckware": "cliente_darckware",
-    "cliente darckware": "cliente_darckware", "outro": "outros", "a classificar": "a_classificar",
-}
+def _token() -> str:
+    token = os.environ.get("FORGEHUB_AGENT_TOKEN", "").strip()
+    if not token:
+        raise PersonalContactsError("FORGEHUB_AGENT_TOKEN ausente: a Maia precisa da credencial agt_ dela.")
+    return token
 
 
-def normaliza_categoria(valor: str | None) -> str | None:
-    """Aceita o rótulo como o Marcelo fala ("Trabalho (SEMED)", "Família") e devolve a chave."""
-    if valor is None:
-        return None
-    v = str(valor).strip().lower()
-    if v in _APELIDOS_CATEGORIA:
-        return _APELIDOS_CATEGORIA[v]
-    v = unicodedata.normalize("NFKD", v)
-    v = "".join(c for c in v if not unicodedata.combining(c))
-    return re.sub(r"[^a-z0-9]+", "_", v).strip("_")
-
-
-def list_categories() -> list[str]:
-    arquivo = BASE / "CATEGORIAS.json"
-    if not arquivo.exists():
-        return list(CATEGORIAS)
+def _call(method: str, path: str, body: dict | None = None, query: dict | None = None) -> Any:
+    clean = {k: v for k, v in (query or {}).items() if v not in (None, "")}
+    url = API + path + (f"?{urllib.parse.urlencode(clean)}" if clean else "")
+    req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": f"Bearer {_token()}", "Content-Type": "application/json"})
     try:
-        adicionais = json.loads(arquivo.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise PersonalContactsError("Arquivo de categorias inválido; corrija antes de cadastrar contatos.") from exc
-    if not isinstance(adicionais, list) or any(not isinstance(c, str) for c in adicionais):
-        raise PersonalContactsError("Arquivo de categorias inválido; corrija antes de cadastrar contatos.")
-    return list(dict.fromkeys([*CATEGORIAS, *adicionais]))
-
-
-def create_category(nome: str) -> list[str]:
-    categoria = normaliza_categoria(nome)
-    if not categoria or len(categoria) > 40:
-        raise PersonalContactsError("Informe uma categoria com até 40 caracteres.")
-    categorias = list_categories()
-    if categoria not in categorias:
-        adicionais = [*categorias[len(CATEGORIAS):], categoria]
-        BASE.mkdir(parents=True, exist_ok=True)
-        arquivo = BASE / "CATEGORIAS.json"
-        temporario = BASE / "CATEGORIAS.json.tmp"
-        temporario.write_text(json.dumps(adicionais, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        temporario.replace(arquivo)
-        categorias.append(categoria)
-    return categorias
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read()
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", "replace")
+        try:
+            detail = json.loads(raw).get("detail", raw)
+        except ValueError:
+            detail = raw
+        if isinstance(detail, list):  # validação do FastAPI
+            detail = "; ".join(str(d.get("msg", d)) for d in detail)
+        raise PersonalContactsError(str(detail)[:300]) from None
+    except urllib.error.URLError as exc:
+        raise PersonalContactsError(f"ForgeHub indisponível: {exc.reason}") from None
 
 
 def digitos(valor: str) -> str:
     return re.sub(r"\D", "", str(valor or ""))
 
 
+def _tel_completo(telefone: str) -> str:
+    t = digitos(telefone)
+    if len(t) in (10, 11):  # DDD + número, sem o 55
+        t = "55" + t
+    if not (12 <= len(t) <= 15):
+        raise PersonalContactsError("Telefone inválido: informe com DDD (ex.: +55 21 99999-9999).")
+    return t
+
+
 def formata_tel(tel: str) -> str:
     t = digitos(tel)
-    if len(t) in (10, 11):  # DDD + fixo ou celular sem o 55
+    if len(t) in (10, 11):
         t = "55" + t
     if len(t) == 13 and t.startswith("55"):
         return f"+55 {t[2:4]} {t[4:9]}-{t[9:]}"
@@ -139,124 +107,47 @@ def formata_tel(tel: str) -> str:
     return f"+{t}" if t else ""
 
 
-def _mesmo(a: str, b: str) -> bool:
-    a, b = digitos(a), digitos(b)
-    if len(a) in (10, 11):
-        a = "55" + a
-    if len(b) in (10, 11):
-        b = "55" + b
-    return bool(a) and a == b
+def _local(iso: str | None) -> str:
+    if not iso:
+        return ""
+    return datetime.fromisoformat(iso).astimezone(TZ).strftime("%d/%m/%Y %H:%M")
 
 
-def _contatos_md() -> Path:
-    arq = BASE / "CONTATOS.md"
-    if not arq.exists():
-        BASE.mkdir(parents=True, exist_ok=True)
-        arq.write_text(CABECALHO, encoding="utf-8")
-    return arq
+def _contato(c: dict[str, Any]) -> dict[str, Any]:
+    """O formato que a Maia já conhece (o da antiga linha de CONTATOS.md + ficha)."""
+    return {
+        "nome": c["name"], "telefone": c["phone_display"] or formata_tel(c["phone"]), "categoria": c["category"],
+        "relacao": c["relation"], "aniversario": c["birthday"], "observacoes": c["observations"],
+        "ultimo_contato": _local(c.get("last_contact_at")), "bloqueado": c["blocked"],
+        "sugestoes_pendentes": c.get("pending_suggestions", 0),
+    }
 
 
-def _celulas(linha: str) -> list[str] | None:
-    if not linha.startswith("| ") or linha.startswith("| Nome |"):
-        return None
-    cel = [c.strip() for c in linha.strip().strip("|").split("|")]
-    return (cel + [""] * len(CHAVES))[: len(CHAVES)]
+def _linha_historico(m: dict[str, Any]) -> str:
+    linha = f"- **{_local(m['at'])}** · {m['author'] or m['direction']}: {m['text']}"
+    return linha + (f" [contexto: {m['context']}]" if m.get("context") else "")
 
 
-def _linha(cel: list[str]) -> str:
-    return "| " + " | ".join(str(c).replace("|", "/").replace("\n", " ") for c in cel) + " |"
+def list_categories() -> list[str]:
+    return _call("GET", "/contact-categories")
 
 
-def _ficha(tel: str) -> Path:
-    t = digitos(tel)
-    if len(t) in (10, 11):
-        t = "55" + t
-    return BASE / "contatos" / f"{t}.md"
+def create_category(nome: str) -> list[str]:
+    return _call("POST", "/contact-categories", {"name": nome})
 
 
-def _secao(texto: str, titulo: str) -> str:
-    m = re.search(rf"^## {re.escape(titulo)}\s*\n(.*?)(?=^## |\Z)", texto, re.S | re.M)
-    return m.group(1).strip() if m else ""
-
-
-def _set_secao(texto: str, titulo: str, valor: str) -> str:
-    padrao = re.compile(rf"(^## {re.escape(titulo)}\s*\n)(.*?)(?=^## |\Z)", re.S | re.M)
-    if padrao.search(texto):
-        return padrao.sub(lambda m: f"{m.group(1)}\n{valor.strip()}\n\n", texto, count=1)
-    return texto.rstrip() + f"\n\n## {titulo}\n\n{valor.strip()}\n"
-
-
-def _set_frontmatter(texto: str, chave: str, valor: str) -> str:
-    linha = f'{chave}: "{valor}"' if chave != "categoria" else f"{chave}: {valor}"
-    padrao = re.compile(rf"^{chave}:.*$", re.M)
-    if padrao.search(texto.split("\n---", 1)[0]):
-        return padrao.sub(linha, texto, count=1)
-    return texto.replace("---\n", f"---\n{linha}\n", 1)
-
-
-def _set_heading(texto: str, nome: str, telefone: str) -> str:
-    return re.sub(r"^# .*? \([^\n]*\)$", lambda _: f"# {nome or telefone} ({telefone})",
-                  texto, count=1, flags=re.M)
-
-
-def _extras(texto: str) -> dict[str, Any]:
-    campos = {}
-    for linha in _secao(texto, "Outros dados").splitlines():
-        m = re.match(r"^- \*\*(.+?):\*\*\s*(.*)$", linha.strip())
-        if m:
-            valor = m.group(2).strip()
-            if valor.startswith("@json:"):
-                try:
-                    valor = json.loads(valor[6:])
-                except ValueError:
-                    pass
-            elif valor.startswith("@str:"):
-                valor = valor[5:]
-            campos[m.group(1).strip()] = valor
-    return campos
-
-
-def _render_extras(campos: dict[str, Any]) -> str:
-    linhas = []
-    for chave, valor in campos.items():
-        if isinstance(valor, (dict, list)):
-            try:
-                exibicao = "@json:" + json.dumps(valor, ensure_ascii=False, separators=(",", ":"))
-            except (TypeError, ValueError) as exc:
-                raise PersonalContactsError(f"Valor inválido em outros_dados: {chave}.") from exc
-        else:
-            exibicao = str(valor)
-            if exibicao.startswith(("@json:", "@str:")):
-                exibicao = "@str:" + exibicao
-        if exibicao.strip():
-            linhas.append(f"- **{chave}:** {exibicao}")
-    return "\n".join(linhas)
-
-
-def list_contacts(categoria: str | None = None) -> list[dict[str, str]]:
-    rows = []
-    for linha in _contatos_md().read_text(encoding="utf-8").splitlines():
-        cel = _celulas(linha)
-        if cel and (not categoria or cel[2] == categoria):
-            rows.append(dict(zip(CHAVES, cel)))
-    return rows
+def list_contacts(categoria: str | None = None) -> list[dict[str, Any]]:
+    return [_contato(c) for c in _call("GET", "/contacts", query={"category": categoria})]
 
 
 def get_contact(telefone: str, ultimos: int = 20) -> dict[str, Any]:
-    row = next((r for r in list_contacts() if _mesmo(r["telefone"], telefone)), None)
-    if row is None:
-        raise PersonalContactsError(f"Nenhum contato com o telefone {formata_tel(telefone)}.")
-    ficha = _ficha(row["telefone"])
-    texto = ficha.read_text(encoding="utf-8") if ficha.exists() else ""
-    historico = [l for l in _secao(texto, "Histórico").splitlines() if l.startswith("- ")]
-    quem, como = _secao(texto, "Quem é"), _secao(texto, "Como tratar")
+    tel = _tel_completo(telefone)
+    c = _call("GET", f"/contacts/{tel}")
+    mensagens = _call("GET", f"/contacts/{tel}/messages", query={"limit": ultimos})
     return {
-        **row,
-        "quem_e": "" if quem.startswith("(a preencher") else quem,
-        "como_tratar": "" if como.startswith("(a preencher") else como,
-        "outros_dados": _extras(texto),
-        "historico_recente": historico[-ultimos:],
-        "ficha": str(ficha),
+        **_contato(c),
+        "quem_e": c["who_is"], "como_tratar": c["how_to_treat"], "outros_dados": c["other_data"],
+        "historico_recente": [_linha_historico(m) for m in reversed(mensagens)],
     }
 
 
@@ -271,165 +162,62 @@ def upsert_contact(
     como_tratar: str | None = None,
     outros_dados: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if len(digitos(telefone)) < 10:
-        raise PersonalContactsError("Informe o telefone com DDD (ex.: +55 21 99999-9999).")
-    categoria = normaliza_categoria(categoria)
-    if categoria is not None and categoria not in list_categories():
-        raise PersonalContactsError(f"Categoria inválida. Use uma de: {', '.join(list_categories())}.")
-    if aniversario and not re.fullmatch(r"\d{2}/\d{2}(/\d{4})?", aniversario.strip()):
-        raise PersonalContactsError("Aniversário no formato dd/mm ou dd/mm/aaaa.")
-
-    arq = _contatos_md()
-    linhas = arq.read_text(encoding="utf-8").splitlines()
-    novos = {"nome": nome, "categoria": categoria, "relacao": relacao, "aniversario": aniversario,
-             "observacoes": observacoes}
-    for i, linha in enumerate(linhas):
-        cel = _celulas(linha)
-        if cel and _mesmo(cel[1], telefone):
-            for k, v in novos.items():
-                if v is not None:
-                    cel[CHAVES.index(k)] = v.strip()
-            linhas[i] = _linha(cel)
-            break
-    else:
-        cel = [(nome or "").strip(), formata_tel(telefone), (categoria or "a_classificar"), (relacao or "").strip(),
-               (aniversario or "").strip(), (observacoes or "").strip(), ""]
-        linhas.append(_linha(cel))
-    arq.write_text("\n".join(linhas) + "\n", encoding="utf-8")
-    row = dict(zip(CHAVES, cel))
-
-    ficha = _ficha(row["telefone"])
-    if ficha.exists():
-        texto = ficha.read_text(encoding="utf-8")
-    else:
-        ficha.parent.mkdir(parents=True, exist_ok=True)
-        texto = (
-            "---\nsensitivity: pessoal\nowner: marcelo\nmaintained_by: maia\n---\n\n"
-            f"# {row['nome'] or row['telefone']} ({row['telefone']})\n\n"
-            f"## Quem é\n\n{_A_PREENCHER_QUEM}\n\n## Como tratar\n\n{_A_PREENCHER_COMO}\n\n## Histórico\n\n"
-        )
-    for chave in ("nome", "telefone", "categoria", "relacao", "aniversario"):
-        texto = _set_frontmatter(texto, chave, row[chave])
-    texto = _set_heading(texto, row["nome"], row["telefone"])
-    if quem_e is not None:
-        texto = _set_secao(texto, "Quem é", quem_e)
-    if como_tratar is not None:
-        texto = _set_secao(texto, "Como tratar", como_tratar)
-    if outros_dados:
-        campos = _extras(texto)
-        for chave, valor in outros_dados.items():
-            chave = str(chave).strip().replace("*", "").replace(":", "")
-            if not chave:
-                continue
-            if valor is not None and (not isinstance(valor, str) or valor.strip()):
-                campos[chave] = valor.strip().replace("\n", " ") if isinstance(valor, str) else valor
-            else:
-                campos.pop(chave, None)  # valor vazio remove o campo
-        bloco = _render_extras(campos) or "(nenhum)"
-        if "## Outros dados" in texto:
-            texto = _set_secao(texto, "Outros dados", bloco)
-        else:
-            texto = texto.replace("## Histórico", f"## Outros dados\n\n{bloco}\n\n## Histórico", 1)
-    ficha.write_text(texto, encoding="utf-8")
-    return get_contact(row["telefone"], ultimos=5)
+    tel = _tel_completo(telefone)
+    corpo = {"name": nome, "category": categoria, "relation": relacao, "birthday": aniversario,
+             "observations": observacoes, "who_is": quem_e, "how_to_treat": como_tratar, "other_data": outros_dados}
+    _call("PUT", f"/contacts/{tel}", {k: v for k, v in corpo.items() if v is not None})
+    return get_contact(tel, ultimos=5)
 
 
 def append_observation(telefone: str, texto: str) -> dict[str, Any]:
-    """Acrescenta uma observação à ficha existente sem substituir o texto anterior."""
-    texto = str(texto or "").strip().replace("\n", " ")
+    texto = str(texto or "").strip()
     if not texto:
         raise PersonalContactsError("Informe a observação a acrescentar.")
-    contato = get_contact(telefone)
-    anterior = contato["observacoes"].strip()
-    return upsert_contact(contato["telefone"], observacoes=f"{anterior}; {texto}" if anterior else texto)
+    tel = _tel_completo(telefone)
+    _call("POST", f"/contacts/{tel}:append-observation", {"text": texto})
+    return get_contact(tel, ultimos=5)
 
 
 def change_phone(telefone_atual: str, telefone_novo: str) -> dict[str, Any]:
-    """Troca a chave telefônica de um contato, conservando a ficha e o histórico."""
-    novo = formata_tel(_tel_completo(telefone_novo))
-    contatos = list_contacts()
-    atual = next((c for c in contatos if _mesmo(c["telefone"], telefone_atual)), None)
-    if atual is None:
-        raise PersonalContactsError(f"Nenhum contato com o telefone {formata_tel(telefone_atual)}.")
-    if _mesmo(atual["telefone"], novo):
-        return get_contact(atual["telefone"])
-    if any(_mesmo(c["telefone"], novo) for c in contatos):
-        raise PersonalContactsError("O novo telefone já pertence a outro contato.")
-    ficha_atual, ficha_nova = _ficha(atual["telefone"]), _ficha(novo)
-    if ficha_nova.exists():
-        raise PersonalContactsError("Já existe uma ficha para o novo telefone.")
-    if not ficha_atual.exists():
-        upsert_contact(atual["telefone"])
-    texto = ficha_atual.read_text(encoding="utf-8")
-    texto = _set_frontmatter(texto, "telefone", novo)
-    texto = _set_heading(texto, atual["nome"], novo)
-    ficha_nova.parent.mkdir(parents=True, exist_ok=True)
-    ficha_nova.write_text(texto, encoding="utf-8")
-    arquivo = _contatos_md()
-    linhas = arquivo.read_text(encoding="utf-8").splitlines()
-    for i, linha in enumerate(linhas):
-        cel = _celulas(linha)
-        if cel and _mesmo(cel[1], atual["telefone"]):
-            cel[1] = novo
-            linhas[i] = _linha(cel)
-            break
-    temporario = arquivo.with_suffix(".md.tmp")
-    temporario.write_text("\n".join(linhas) + "\n", encoding="utf-8")
-    temporario.replace(arquivo)
-    ficha_atual.unlink()
+    novo = _tel_completo(telefone_novo)
+    _call("POST", f"/contacts/{_tel_completo(telefone_atual)}:change-phone", {"phone": novo})
     return get_contact(novo)
 
 
-_CAMPOS_UPSERT = ("nome", "categoria", "relacao", "aniversario", "observacoes", "quem_e", "como_tratar",
-                  "outros_dados")
+_CAMPOS_UPSERT = {"nome": "name", "categoria": "category", "relacao": "relation", "aniversario": "birthday",
+                  "observacoes": "observations", "quem_e": "who_is", "como_tratar": "how_to_treat",
+                  "outros_dados": "other_data"}
 
 
 def upsert_many(contatos: list[dict[str, Any]]) -> dict[str, Any]:
-    """Grava vários contatos de uma vez; um erro num contato não impede os outros."""
     if not contatos:
         raise PersonalContactsError("Informe ao menos um contato.")
     if len(contatos) > 100:
         raise PersonalContactsError("No máximo 100 contatos por vez.")
-    gravados, erros = [], []
+    itens = []
     for item in contatos:
         item = dict(item or {})
-        tel = str(item.pop("telefone", "") or "")
-        try:
-            c = upsert_contact(tel, **{k: item[k] for k in _CAMPOS_UPSERT if k in item})
-            gravados.append({"telefone": c["telefone"], "nome": c["nome"], "categoria": c["categoria"]})
-        except PersonalContactsError as exc:
-            erros.append({"telefone": tel, "erro": str(exc)})
-    return {"gravados": gravados, "erros": erros}
+        corpo = {"phone": str(item.get("telefone", "") or "")}
+        corpo.update({en: item[pt] for pt, en in _CAMPOS_UPSERT.items() if item.get(pt) is not None})
+        itens.append(corpo)
+    resultado = _call("POST", "/contacts:upsert-many", {"contacts": itens})
+    return {
+        "gravados": [{"telefone": formata_tel(s["phone"]), "nome": s["name"], "categoria": s["category"]}
+                     for s in resultado["saved"]],
+        "erros": [{"telefone": e["phone"], "erro": e["error"]} for e in resultado["errors"]],
+    }
 
 
 def add_history(telefone: str, texto: str, autor: str = "Marcelo") -> dict[str, Any]:
-    """Acrescenta um registro ao histórico da pessoa (nunca reescreve os anteriores)."""
     if not str(texto or "").strip():
         raise PersonalContactsError("Informe o texto a registrar.")
-    row = next((r for r in list_contacts() if _mesmo(r["telefone"], telefone)), None)
-    if row is None:
-        raise PersonalContactsError(
-            f"Nenhum contato com o telefone {formata_tel(telefone)}; cadastre antes com personal_contact_upsert.")
-    upsert_contact(row["telefone"])  # garante a ficha
-    ficha = _ficha(row["telefone"])
-    quando = datetime.now(TZ).strftime("%d/%m/%Y %H:%M")
-    autor = (autor or "Marcelo").strip().replace("*", "")
-    with ficha.open("a", encoding="utf-8") as fh:
-        fh.write(f"- **{quando}** · {autor}: {texto.strip().replace(chr(10), ' ')[:2000]}\n")
-    return get_contact(row["telefone"], ultimos=5)
-
-
-def _tel_completo(telefone: str) -> str:
-    t = digitos(telefone)
-    if len(t) in (10, 11):  # DDD + número, sem o 55
-        t = "55" + t
-    if not (12 <= len(t) <= 15):
-        raise PersonalContactsError("Telefone inválido: informe com DDD (ex.: +55 21 99999-9999).")
-    return t
+    tel = _tel_completo(telefone)
+    _call("POST", f"/contacts/{tel}/messages",
+          {"text": texto.strip(), "direction": "note", "author": (autor or "Marcelo").strip(), "source": "telegram"})
+    return get_contact(tel, ultimos=5)
 
 
 def _envios_na_ultima_hora() -> int:
-    import json
     import time
 
     try:
@@ -443,7 +231,6 @@ def _envios_na_ultima_hora() -> int:
 def whatsapp_send(telefone: str, texto: str, objetivo: str = "", _runner=None) -> dict[str, Any]:
     """Envia pelo WhatsApp pessoal do Marcelo (`hermes -p maia send`) e, com ``objetivo``, abre uma
     tarefa: as respostas daquela pessoa passam a ser tratadas dentro desse objetivo."""
-    import json
     import subprocess
     import time
 
@@ -473,16 +260,18 @@ def whatsapp_send(telefone: str, texto: str, objetivo: str = "", _runner=None) -
         tarefas[tel] = {"objetivo": objetivo.strip()[:1500], "criada": datetime.now(TZ).strftime("%d/%m/%Y %H:%M"),
                         "expira_ts": time.time() + TAREFA_HORAS * 3600}
         TAREFAS.write_text(json.dumps(tarefas, ensure_ascii=False, indent=1), encoding="utf-8")
-    row = next((r for r in list_contacts() if _mesmo(r["telefone"], tel)), None)
-    if row is not None:
-        nota = f"[enviado pela Maia a pedido do Marcelo] {texto}" + (f" (objetivo: {objetivo.strip()})" if objetivo.strip() else "")
-        add_history(tel, nota, autor="Maia")
-    return {"enviado_para": formata_tel(tel), "contato": (row or {}).get("nome") or None,
+    nota = f"[enviado pela Maia a pedido do Marcelo] {texto}" + (f" (objetivo: {objetivo.strip()})" if objetivo.strip() else "")
+    contato = None
+    try:  # o envio já aconteceu: registrar no histórico nunca o desfaz
+        contato = _call("POST", "/whatsapp/messages", {"phone": tel, "text": nota, "direction": "out", "author": "Maia"})
+        contato = _call("GET", f"/contacts/{tel}")
+    except PersonalContactsError:
+        pass
+    return {"enviado_para": formata_tel(tel), "contato": (contato or {}).get("name") or None,
             "tarefa_aberta": bool(objetivo.strip()), "message_id": resultado.get("message_id")}
 
 
 def get_tasks() -> dict[str, Any]:
-    import json
     import time
 
     try:
@@ -493,8 +282,6 @@ def get_tasks() -> dict[str, Any]:
 
 
 def close_task(telefone: str) -> bool:
-    import json
-
     tel = _tel_completo(telefone)
     tarefas = get_tasks()
     existia = tarefas.pop(tel, None) is not None
@@ -504,47 +291,46 @@ def close_task(telefone: str) -> bool:
 
 
 def get_instructions() -> str:
-    try:
-        return INSTRUCOES.read_text(encoding="utf-8")
-    except OSError:
-        return ""
+    return _call("GET", "/assistant-settings")["instructions"]
 
 
 def set_instructions(texto: str) -> str:
-    """Substitui as instruções pessoais do atendimento (lidas pelo plugin a cada mensagem)."""
+    """Substitui as regras de atendimento (lidas pelo plugin a cada mensagem)."""
     texto = str(texto or "").strip()
     if len(texto) > 6000:
         raise PersonalContactsError("Instruções longas demais (máximo 6000 caracteres).")
-    INSTRUCOES.parent.mkdir(parents=True, exist_ok=True)
-    if INSTRUCOES.exists():
-        backup = INSTRUCOES.with_suffix(f".md.{datetime.now(TZ):%Y%m%d%H%M%S}.bak")
-        backup.write_text(INSTRUCOES.read_text(encoding="utf-8"), encoding="utf-8")
-    INSTRUCOES.write_text(texto + "\n", encoding="utf-8")
-    return get_instructions()
+    return _call("PUT", "/assistant-settings", {"instructions": texto})["instructions"]
 
 
-def upcoming_birthdays(dias: int = 30, hoje: date | None = None) -> list[dict[str, Any]]:
-    hoje = hoje or datetime.now(TZ).date()
-    proximos = []
-    for row in list_contacts():
-        m = re.fullmatch(r"(\d{2})/(\d{2})(?:/(\d{4}))?", row["aniversario"].strip())
-        if not m:
-            continue
-        dia, mes, ano = int(m.group(1)), int(m.group(2)), m.group(3)
-        try:
-            data = date(hoje.year, mes, dia)
-            if data < hoje:
-                data = date(hoje.year + 1, mes, dia)
-        except ValueError:  # 29/02 em ano não bissexto
-            continue
-        faltam = (data - hoje).days
-        if faltam <= dias:
-            proximos.append({
-                "nome": row["nome"], "telefone": row["telefone"], "relacao": row["relacao"],
-                "data": data.strftime("%d/%m/%Y"), "faltam_dias": faltam,
-                "idade": (data.year - int(ano)) if ano else None,
-            })
-    return sorted(proximos, key=lambda p: p["faltam_dias"])
+def upcoming_birthdays(dias: int = 30) -> list[dict[str, Any]]:
+    return _call("GET", "/birthdays", query={"days": dias})
+
+
+def list_suggestions(telefone: str = "") -> list[dict[str, Any]]:
+    itens = _call("GET", "/suggestions", query={"status": "pending",
+                                                  "contact_phone": _tel_completo(telefone) if telefone else None})
+    return [{"id": s["id"], "tipo": _TIPOS_PT.get(s["kind"], s["kind"]), "titulo": s["title"], "detalhes": s["details"],
+             "contato": s["contact_name"] or formata_tel(s["contact_phone"]), "telefone": formata_tel(s["contact_phone"])}
+            for s in itens]
+
+
+def accept_suggestion(sugestao_id: str, tipo: str = "", titulo: str = "", detalhes: str | None = None) -> dict[str, Any]:
+    corpo: dict[str, Any] = {}
+    if tipo:
+        if tipo.strip().lower() not in _TIPOS:
+            raise PersonalContactsError("tipo deve ser demanda, tarefa ou anotacao.")
+        corpo["kind"] = _TIPOS[tipo.strip().lower()]
+    if titulo.strip():
+        corpo["title"] = titulo.strip()
+    if detalhes is not None:
+        corpo["details"] = detalhes
+    s = _call("POST", f"/suggestions/{sugestao_id}:accept", corpo)
+    return {"criado": _TIPOS_PT.get(s["kind"], s["kind"]), "titulo": s["title"], "item_id": s["created_item_id"]}
+
+
+def dismiss_suggestion(sugestao_id: str) -> dict[str, Any]:
+    _call("POST", f"/suggestions/{sugestao_id}:dismiss")
+    return {"descartada": True}
 
 
 def _register_sibling(mcp, nome: str) -> None:
@@ -558,6 +344,16 @@ def _register_sibling(mcp, nome: str) -> None:
     modulo.register(mcp)
 
 
+def _safe(fn, *args, chave: str | None = None, **kwargs) -> dict[str, Any]:
+    try:
+        resultado = fn(*args, **kwargs)
+    except PersonalContactsError as exc:
+        return {"success": False, "error": str(exc)}
+    if chave is None:
+        return {"success": True, **resultado}
+    return {"success": True, chave: resultado}
+
+
 def register(mcp) -> bool:
     """Registra as ferramentas só para os agentes autorizados (padrão: Maia)."""
     if not allowed_agent():
@@ -568,21 +364,22 @@ def register(mcp) -> bool:
         """Lista os contatos pessoais do Marcelo (filtro opcional por categoria: familia, parentes,
         amigos, trabalho_semed, cliente_darckware, outros, a_classificar e categorias criadas pelo
         Marcelo). Dados pessoais: não repasse a terceiros nem a outros canais."""
-        return {"contatos": list_contacts(categoria), "categorias": list_categories()}
+        try:
+            return {"contatos": list_contacts(categoria), "categorias": list_categories()}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
 
     @mcp.tool()
     async def personal_category_create(nome: str) -> dict[str, Any]:
         """Cria uma categoria de contatos pessoais (ex.: colaboradores) quando Marcelo pedir pelo
         Telegram. Consulte personal_contacts_list para ver as categorias disponíveis."""
-        try:
-            return {"success": True, "categorias": create_category(nome)}
-        except PersonalContactsError as exc:
-            return {"success": False, "error": str(exc)}
+        return _safe(create_category, nome, chave="categorias")
 
     @mcp.tool()
     async def personal_contact_get(telefone: str) -> dict[str, Any]:
         """Ficha de um contato pessoal do Marcelo pelo telefone: classificação, aniversário, quem é,
-        como tratar e o histórico recente das conversas no WhatsApp pessoal."""
+        como tratar e o histórico recente das conversas no WhatsApp pessoal, com o contexto de cada
+        mensagem."""
         try:
             return get_contact(telefone)
         except PersonalContactsError as exc:
@@ -606,34 +403,25 @@ def register(mcp) -> bool:
         personal_contacts_upsert_many. Campos omitidos ficam como estão; o histórico nunca é apagado.
         categoria aceita o rótulo falado ("Trabalho (SEMED)" vira trabalho_semed) ou uma categoria
         criada com personal_category_create. O telefone aceita pontuação e espaços; para trocá-lo em
-        uma ficha existente use personal_contact_change_phone. aniversario: dd/mm ou dd/mm/aaaa.
+        um contato existente use personal_contact_change_phone. aniversario: dd/mm ou dd/mm/aaaa.
         observacoes substitui o campo inteiro; para acrescentar use personal_contact_append_observation.
-        quem_e/como_tratar substituem a seção inteira da ficha. outros_dados aceita campos livres,
-        inclusive listas e objetos; valor vazio remove o campo."""
-        try:
-            return {"success": True, "contato": upsert_contact(
-                telefone, nome, categoria, relacao, aniversario, observacoes, quem_e, como_tratar, outros_dados)}
-        except PersonalContactsError as exc:
-            return {"success": False, "error": str(exc)}
+        quem_e/como_tratar substituem o texto inteiro. outros_dados aceita campos livres, inclusive
+        listas e objetos; valor vazio remove o campo."""
+        return _safe(upsert_contact, telefone, nome, categoria, relacao, aniversario, observacoes, quem_e,
+                     como_tratar, outros_dados, chave="contato")
 
     @mcp.tool()
     async def personal_contact_append_observation(telefone: str, texto: str) -> dict[str, Any]:
         """Acrescenta texto às observações de um contato existente sem perder as anteriores.
         Use quando Marcelo pedir pelo Telegram para complementar uma observação."""
-        try:
-            return {"success": True, "contato": append_observation(telefone, texto)}
-        except PersonalContactsError as exc:
-            return {"success": False, "error": str(exc)}
+        return _safe(append_observation, telefone, texto, chave="contato")
 
     @mcp.tool()
     async def personal_contact_change_phone(telefone_atual: str, telefone_novo: str) -> dict[str, Any]:
         """Troca o telefone de um contato existente e preserva nome, observações, outros dados e
-        histórico da ficha. Só quando Marcelo confirmar pelo Telegram o número antigo e o novo.
-        Rejeita um número que já pertence a outra ficha."""
-        try:
-            return {"success": True, "contato": change_phone(telefone_atual, telefone_novo)}
-        except PersonalContactsError as exc:
-            return {"success": False, "error": str(exc)}
+        histórico. Só quando Marcelo confirmar pelo Telegram o número antigo e o novo. Rejeita um
+        número que já pertence a outro contato."""
+        return _safe(change_phone, telefone_atual, telefone_novo, chave="contato")
 
     @mcp.tool()
     async def personal_contacts_upsert_many(contatos: list[dict[str, Any]]) -> dict[str, Any]:
@@ -642,35 +430,53 @@ def register(mcp) -> bool:
         observacoes, quem_e, como_tratar, outros_dados}. Use quando o Marcelo pedir pelo Telegram para
         cadastrar/atualizar uma lista ou disser "pode atualizar todos" — uma autorização geral basta,
         não peça confirmação contato por contato. Depois diga o que gravou e o que deu erro."""
-        try:
-            return {"success": True, **upsert_many(contatos)}
-        except PersonalContactsError as exc:
-            return {"success": False, "error": str(exc)}
+        return _safe(upsert_many, contatos)
 
     @mcp.tool()
     async def personal_contact_add_history(telefone: str, texto: str, autor: str = "Marcelo") -> dict[str, Any]:
         """Registra no histórico de um contato algo que o Marcelo contou sobre a pessoa ou sobre uma
         conversa (ex.: "combinamos almoço no sábado"), para não perder o contexto. Só a pedido do
         Marcelo pelo Telegram. Nunca reescreve registros anteriores."""
-        try:
-            return {"success": True, "contato": add_history(telefone, texto, autor)}
-        except PersonalContactsError as exc:
-            return {"success": False, "error": str(exc)}
+        return _safe(add_history, telefone, texto, autor, chave="contato")
 
     @mcp.tool()
     async def personal_instructions_get() -> dict[str, Any]:
-        """Instruções pessoais do Marcelo para o atendimento no WhatsApp pessoal (texto atual)."""
-        return {"instrucoes": get_instructions()}
+        """Regras de atendimento do Marcelo para o WhatsApp pessoal (texto atual, também editável na
+        tela Pessoal → Maia do ForgeHub)."""
+        try:
+            return {"instrucoes": get_instructions()}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
 
     @mcp.tool()
     async def personal_instructions_update(texto: str) -> dict[str, Any]:
-        """Substitui as instruções pessoais do atendimento pelo texto completo informado — só quando o
-        Marcelo pedir pelo Telegram. Leia antes com personal_instructions_get e mantenha o que ele não
-        pediu para mudar. A versão anterior fica guardada como .bak. Vale a partir da próxima mensagem."""
+        """Substitui as regras de atendimento pelo texto completo informado — só quando o Marcelo pedir
+        pelo Telegram. Leia antes com personal_instructions_get e mantenha o que ele não pediu para
+        mudar. Vale a partir da próxima mensagem."""
+        return _safe(set_instructions, texto, chave="instrucoes")
+
+    @mcp.tool()
+    async def personal_capture_suggestions(telefone: str = "") -> dict[str, Any]:
+        """Demandas, tarefas e anotações que você identificou nas mensagens dos contatos e que ainda
+        esperam a decisão do Marcelo (todas, ou só as de um telefone). São só propostas: nada vira
+        item da lista dele sem que ele aceite."""
         try:
-            return {"success": True, "instrucoes": set_instructions(texto)}
+            return {"sugestoes": list_suggestions(telefone)}
         except PersonalContactsError as exc:
             return {"success": False, "error": str(exc)}
+
+    @mcp.tool()
+    async def personal_capture_accept(sugestao_id: str, tipo: str = "", titulo: str = "",
+                                      detalhes: str | None = None) -> dict[str, Any]:
+        """Aceita uma sugestão — SOMENTE quando o Marcelo mandar pelo Telegram — e cria a demanda,
+        tarefa ou anotação de verdade. tipo/titulo/detalhes corrigem a sugestão se ele pedir
+        (tipo: demanda, tarefa ou anotacao)."""
+        return _safe(accept_suggestion, sugestao_id, tipo, titulo, detalhes)
+
+    @mcp.tool()
+    async def personal_capture_dismiss(sugestao_id: str) -> dict[str, Any]:
+        """Descarta uma sugestão quando o Marcelo disser que não precisa."""
+        return _safe(dismiss_suggestion, sugestao_id)
 
     @mcp.tool()
     async def personal_whatsapp_send(telefone: str, texto: str, objetivo: str = "") -> dict[str, Any]:
@@ -679,10 +485,7 @@ def register(mcp) -> bool:
         pediu. Escreva como "Maia, assistente pessoal do Marcelo". Com `objetivo` (o que o Marcelo
         quer resolver), abre uma tarefa de 48 h: quando a pessoa responder, você continua dentro desse
         objetivo e o Marcelo recebe cada resposta no Telegram. Limite de 30 envios por hora."""
-        try:
-            return {"success": True, **whatsapp_send(telefone, texto, objetivo)}
-        except PersonalContactsError as exc:
-            return {"success": False, "error": str(exc)}
+        return _safe(whatsapp_send, telefone, texto, objetivo)
 
     @mcp.tool()
     async def personal_whatsapp_tasks() -> dict[str, Any]:
@@ -694,10 +497,7 @@ def register(mcp) -> bool:
     async def personal_whatsapp_close_task(telefone: str) -> dict[str, Any]:
         """Encerra a tarefa daquela conversa (quando resolvido ou quando o Marcelo pedir): a partir
         daí, as mensagens da pessoa voltam a ser só recado."""
-        try:
-            return {"success": True, "encerrada": close_task(telefone)}
-        except PersonalContactsError as exc:
-            return {"success": False, "error": str(exc)}
+        return _safe(close_task, telefone, chave="encerrada")
 
     _register_sibling(mcp, "personal_agenda")
     _register_sibling(mcp, "personal_groups")
@@ -705,7 +505,10 @@ def register(mcp) -> bool:
     @mcp.tool()
     async def personal_birthdays(dias: int = 30) -> dict[str, Any]:
         """Aniversários dos contatos pessoais do Marcelo nos próximos `dias` dias."""
-        return {"aniversarios": upcoming_birthdays(max(0, min(dias, 366)))}
+        try:
+            return {"aniversarios": upcoming_birthdays(max(0, min(dias, 366)))}
+        except PersonalContactsError as exc:
+            return {"success": False, "error": str(exc)}
 
     return True
 

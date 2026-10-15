@@ -14,7 +14,7 @@ and moving the moment re-arms them. Recurring items roll forward to their next o
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,16 @@ PERSONAL_TASK_STATUSES = ("pending", "done", "cancelled")
 PERSONAL_TASK_PRIORITIES = ("low", "normal", "high")
 PERSONAL_EVENT_STATUSES = ("scheduled", "cancelled")
 PERSONAL_DEMAND_STATUSES = ("open", "done")
+#: Built-in contact categories (the Maia's original set); more can be added as rows.
+PERSONAL_CONTACT_DEFAULT_CATEGORIES = (
+    "familia", "parentes", "amigos", "trabalho_semed", "cliente_darckware", "outros", "a_classificar",
+)
+#: Who wrote a history line: the contact, Marcelo himself, the Maia, or a manual note.
+PERSONAL_MESSAGE_DIRECTIONS = ("in", "out", "note")
+#: The context pass's state per message (contexto + suggestions), see core/personal_context.py.
+PERSONAL_CONTEXT_STATUSES = ("pending", "done", "skipped", "failed")
+PERSONAL_SUGGESTION_KINDS = ("demand", "task", "note")
+PERSONAL_SUGGESTION_STATUSES = ("pending", "accepted", "dismissed")
 
 
 def _in(values: tuple[str, ...]) -> str:
@@ -122,3 +132,115 @@ class PersonalDemand(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="open", server_default="open")
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str] = mapped_column(String(50), nullable=False, default="marcelo", server_default="marcelo")
+
+
+class PersonalContactCategory(Base, TimestampMixin):
+    """A contact category key ("familia", "trabalho_semed", ...). Seeded with
+    PERSONAL_CONTACT_DEFAULT_CATEGORIES; Marcelo or the Maia add more (2026-10-14: contacts moved
+    from the knowledge-base Markdown files into the database)."""
+
+    __tablename__ = "personal_contact_categories"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+
+
+class PersonalContact(Base, TimestampMixin):
+    """A person who talks to Marcelo on his personal WhatsApp (2026-10-14, Marcelo: "adiciona uma aba
+    dos contatos do whatsapp e seus históricos dos contexto"). Until this date the source was
+    ``knowledge_base/marcelo/pessoal/CONTATOS.md`` + ``contatos/<telefone>.md``; those files were
+    imported once and are no longer written.
+
+    ``phone`` is digits only with the country code (``5521999999999``) -- the identity the WhatsApp
+    plugin matches on. ``outros_dados`` keeps the free fields the old "Outros dados" section held;
+    ``blocked`` is the WhatsApp blacklist (the old ``tipo: blacklist`` line), now a real column.
+    """
+
+    __tablename__ = "personal_contacts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False, default="", server_default="")
+    category: Mapped[str] = mapped_column(String(40), nullable=False, default="a_classificar", server_default="a_classificar")
+    relation: Mapped[str] = mapped_column(String(200), nullable=False, default="", server_default="")
+    #: "dd/mm" or "dd/mm/aaaa", as Marcelo says it.
+    birthday: Mapped[str] = mapped_column(String(10), nullable=False, default="", server_default="")
+    observations: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    who_is: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    how_to_treat: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    other_data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    last_contact_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False, default="marcelo", server_default="marcelo")
+
+
+class PersonalContactMessage(Base, TimestampMixin):
+    """One history line of a contact: what was said, by whom, and its context.
+
+    ``context`` is a one-or-two-sentence reading of the message in light of the recent conversation,
+    written by the context pass (ForgeRouter, Maia's key) after the message is recorded; the same pass
+    may propose PersonalCaptureSuggestion rows. Messages are never edited or deleted by the Maia.
+    """
+
+    __tablename__ = "personal_contact_messages"
+    __table_args__ = (
+        CheckConstraint(f"direction IN ({_in(PERSONAL_MESSAGE_DIRECTIONS)})", name="ck_personal_contact_messages_direction"),
+        CheckConstraint(f"context_status IN ({_in(PERSONAL_CONTEXT_STATUSES)})", name="ck_personal_contact_messages_context_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    contact_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.personal_contacts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    direction: Mapped[str] = mapped_column(String(10), nullable=False, default="in", server_default="in")
+    #: Display name of who wrote it ("Ana", "Marcelo", "Maia").
+    author: Mapped[str] = mapped_column(String(100), nullable=False, default="", server_default="")
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    #: "whatsapp" (the plugin), "telegram"/"manual" (Marcelo through the Maia or the screen), "import".
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="whatsapp", server_default="whatsapp")
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context_status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending", server_default="pending")
+
+
+class PersonalCaptureSuggestion(Base, TimestampMixin):
+    """A demand, task or note the context pass found in a message -- only a proposal: Marcelo accepts
+    it (which creates the real PersonalDemand/PersonalTask/PersonalNote) or dismisses it (2026-10-14:
+    "Sugere, você confirma" -- what a contact writes is never trusted to land in his lists by itself)."""
+
+    __tablename__ = "personal_capture_suggestions"
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({_in(PERSONAL_SUGGESTION_KINDS)})", name="ck_personal_capture_suggestions_kind"),
+        CheckConstraint(f"status IN ({_in(PERSONAL_SUGGESTION_STATUSES)})", name="ck_personal_capture_suggestions_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    contact_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.personal_contacts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.personal_contact_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    details: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending", server_default="pending")
+    #: The PersonalDemand/PersonalTask/PersonalNote created on accept.
+    created_item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PersonalAssistantSettings(Base, TimestampMixin):
+    """The Maia's WhatsApp service rules, one row (2026-10-14: "uma aba de contexto da Maia, uma regra
+    de atendimento do whatsapp"). Until this date they lived in the Maia profile's
+    ``whatsapp/INSTRUCOES_PESSOAIS.md`` and ``atendimento.json``; the plugin reads them from here and
+    keeps a local copy for when ForgeHub is unreachable."""
+
+    __tablename__ = "personal_assistant_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    instructions: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    #: Minutes the Maia waits before answering, giving Marcelo the chance to answer first.
+    wait_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
+    #: Whether the context pass runs (context + suggestions after each message).
+    capture_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")

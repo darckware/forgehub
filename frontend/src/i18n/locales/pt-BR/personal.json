@@ -5,7 +5,9 @@
     "tasks": "Tarefas",
     "agenda": "Agenda",
     "notes": "Anotações",
-    "demands": "Demandas"
+    "demands": "Demandas",
+    "contacts": "Contatos",
+    "maia": "Maia"
   },
   "fields": {
     "date": "Data",
@@ -30,7 +32,8 @@
     "pin": "Fixar",
     "unpin": "Desafixar",
     "archive": "Arquivar",
-    "unarchive": "Desarquivar"
+    "unarchive": "Desarquivar",
+    "edit": "Editar"
   },
   "priority": {
     "low": "Baixa",
@@ -116,6 +119,102 @@
       "description_zero": "Nenhuma demanda em aberto usa este tipo.",
       "description_one": "A demanda deste tipo continua existindo, agora em \"Sem tipo\".",
       "description_other": "As {{count}} demandas deste tipo continuam existindo, agora em \"Sem tipo\"."
+    }
+  },
+  "contacts": {
+    "search": "Buscar por nome, telefone ou relação",
+    "category": "Categoria",
+    "allCategories": "Todas as categorias",
+    "onlyWithSuggestions": "Só com sugestões",
+    "empty": "Nenhum contato encontrado.",
+    "back": "Voltar aos contatos",
+    "selectHint": "Selecione um contato para ver a ficha, o histórico e o que a Maia capturou.",
+    "name": "Nome",
+    "relation": "Relação",
+    "birthday": "Aniversário",
+    "birthdayInvalid": "Use dd/mm ou dd/mm/aaaa.",
+    "whoIs": "Quem é",
+    "howToTreat": "Como tratar",
+    "howToTreatHelp": "A Maia lê isto antes de responder essa pessoa.",
+    "observations": "Observações",
+    "otherData": "Outros dados",
+    "notFilled": "(não preenchido)",
+    "blocked": "Bloqueado",
+    "blockedLabel": "Bloquear no WhatsApp (a Maia ignora as mensagens desta pessoa)",
+    "history": "Histórico",
+    "notePlaceholder": "Registrar algo sobre esta pessoa ou conversa…",
+    "addNote": "Registrar",
+    "noHistory": "Nenhuma conversa registrada.",
+    "loadMore": "Carregar mais antigas",
+    "context": "Contexto",
+    "contextPending": "A Maia está lendo o contexto…",
+    "contextFailed": "Não foi possível registrar o contexto.",
+    "retry": "Tentar de novo",
+    "direction": {
+      "in": "Contato",
+      "out": "Marcelo",
+      "note": "Anotação"
+    },
+    "suggestions": {
+      "title": "Sugestões da Maia",
+      "help": "A Maia encontrou isto nas mensagens. Nada entra nas suas listas sem você aceitar.",
+      "kind": "Criar como",
+      "accept": "Aceitar",
+      "dismiss": "Descartar",
+      "kinds": {
+        "task": "Tarefa",
+        "demand": "Demanda",
+        "note": "Anotação"
+      }
+    },
+    "delete": {
+      "title": "Excluir contato?",
+      "description": "\"{{name}}\" e todo o histórico dele serão excluídos e não poderão ser recuperados."
+    },
+    "categories": {
+      "familia": "Família",
+      "parentes": "Parentes",
+      "amigos": "Amigos",
+      "trabalho_semed": "Trabalho (SEMED)",
+      "cliente_darckware": "Cliente Darckware",
+      "outros": "Outros",
+      "a_classificar": "A classificar",
+      "colaboradores": "Colaboradores"
+    }
+  },
+  "maia": {
+    "rules": {
+      "title": "Regras de atendimento do WhatsApp",
+      "description": "A Maia lê este texto antes de cada mensagem no seu WhatsApp pessoal. Vale a partir da próxima mensagem.",
+      "instructions": "Instruções",
+      "instructionsHelp": "{{count}} de 6000 caracteres.",
+      "wait": "Espera antes de atender (minutos)",
+      "waitHelp": "Tempo que ela espera para você responder primeiro.",
+      "waitInvalid": "Use um número entre 0 e 240.",
+      "capture": "Registrar o contexto e sugerir demandas, tarefas e anotações",
+      "captureHelp": "Depois de cada mensagem de contato. Você confirma cada sugestão.",
+      "saved": "Regras salvas.",
+      "updatedAt": "Atualizado em {{when}}"
+    },
+    "now": {
+      "title": "Agora",
+      "contacts": "Contatos",
+      "blocked": "Bloqueados",
+      "suggestions": "Sugestões pendentes",
+      "contextPending": "Mensagens em análise",
+      "contextFailed": "Falhas de contexto"
+    },
+    "paused": {
+      "title": "Conversas pausadas",
+      "description": "Você respondeu: a Maia fica quieta nessas conversas por 2 h.",
+      "empty": "Nenhuma conversa pausada.",
+      "until": "até {{when}}"
+    },
+    "tasks": {
+      "title": "Conversas abertas pela Maia",
+      "description": "Mensagens que ela enviou a seu pedido, com um objetivo.",
+      "empty": "Nenhuma conversa aberta.",
+      "expires": "encerra em {{when}}"
     }
   }
 }

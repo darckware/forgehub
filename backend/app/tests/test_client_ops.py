@@ -741,7 +741,7 @@ async def test_delete_archives_demands_and_refuses_tickets(client, darckware):
 
 @pytest.mark.asyncio
 async def test_translate_returns_texts_in_order(client, monkeypatch):
-    from app.core import translation
+    from app.core import forgerouter_llm
 
     seen: dict = {}
 
@@ -751,11 +751,11 @@ async def test_translate_returns_texts_in_order(client, monkeypatch):
         reply = '```json\n["Olá", ""]\n```'
         return httpx.Response(200, json={"choices": [{"message": {"content": reply}}]})
 
-    async def fake_key(_db):
+    async def fake_key(_db, _slug):
         return "router-key"
 
-    monkeypatch.setattr(translation, "transport", httpx.MockTransport(handler))
-    monkeypatch.setattr(translation, "_api_key", fake_key)
+    monkeypatch.setattr(forgerouter_llm, "transport", httpx.MockTransport(handler))
+    monkeypatch.setattr(forgerouter_llm, "agent_api_key", fake_key)
     r = await client.post("/api/v1/client-ops/translate", json={"texts": ["Hello", ""], "target_language": "pt-BR"})
     assert r.status_code == 200, r.text
     assert r.json() == {"texts": ["Olá", ""]}
@@ -765,16 +765,16 @@ async def test_translate_returns_texts_in_order(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_translate_wrong_shape_is_502(client, monkeypatch):
-    from app.core import translation
+    from app.core import forgerouter_llm
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"choices": [{"message": {"content": '["só um"]'}}]})
 
-    async def fake_key(_db):
+    async def fake_key(_db, _slug):
         return "router-key"
 
-    monkeypatch.setattr(translation, "transport", httpx.MockTransport(handler))
-    monkeypatch.setattr(translation, "_api_key", fake_key)
+    monkeypatch.setattr(forgerouter_llm, "transport", httpx.MockTransport(handler))
+    monkeypatch.setattr(forgerouter_llm, "agent_api_key", fake_key)
     r = await client.post("/api/v1/client-ops/translate", json={"texts": ["a", "b"], "target_language": "es"})
     assert r.status_code == 502
     assert r.json()["detail"]["code"] == "translation_failed"
@@ -794,7 +794,7 @@ async def test_delete_emails_hides_each_and_reports_failures(client, darckware):
 
 @pytest.mark.asyncio
 async def test_translator_key_comes_from_forgerouter_registry_first(monkeypatch):
-    from app.core import forgerouter_sync, translation
+    from app.core import forgerouter_llm, forgerouter_sync
     from app.core.secrets import encrypt_secret
     from app.db.models.agent import Agent
 
@@ -812,14 +812,14 @@ async def test_translator_key_comes_from_forgerouter_registry_first(monkeypatch)
 
         monkeypatch.setattr(forgerouter_sync, "read_forgerouter_agent_keys", registry)
         async with AsyncSessionLocal() as db:
-            assert await translation._api_key(db) == "live-key"
+            assert await forgerouter_llm.agent_api_key(db, slug) == "live-key"
 
         async def down():
             raise OSError("forgerouter_postgres down")
 
         monkeypatch.setattr(forgerouter_sync, "read_forgerouter_agent_keys", down)
         async with AsyncSessionLocal() as db:
-            assert await translation._api_key(db) == "stale-copy"
+            assert await forgerouter_llm.agent_api_key(db, slug) == "stale-copy"
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(delete(Agent).where(Agent.id == agent_id))

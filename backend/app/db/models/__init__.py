@@ -117,6 +117,11 @@ from app.db.models.operations import (  # noqa: F401
     OperationsPolicy,
 )
 from app.db.models.personal import (  # noqa: F401
+    PersonalAssistantSettings,
+    PersonalCaptureSuggestion,
+    PersonalContact,
+    PersonalContactCategory,
+    PersonalContactMessage,
     PersonalDemand,
     PersonalDemandType,
     PersonalEvent,
