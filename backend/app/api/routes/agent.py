@@ -341,6 +341,12 @@ async def import_forgerouter_key(agent_id: uuid.UUID, db: AsyncSession = Depends
 
 @router.post("/sync/forgerouter-keys", response_model=ForgeRouterKeySyncOut)
 async def sync_forgerouter_keys(db: AsyncSession = Depends(get_db)) -> ForgeRouterKeySyncOut:
+    """Manual trigger of run_forgerouter_key_sync_pass below (the same pass
+    also runs on its own every FORGEROUTER_KEY_SYNC_INTERVAL_SECONDS)."""
+    return await run_forgerouter_key_sync_pass(db)
+
+
+async def run_forgerouter_key_sync_pass(db: AsyncSession) -> ForgeRouterKeySyncOut:
     """Bulk counterpart of POST /{agent_id}/forgerouter-key/import above:
     imports every active agent's already-issued ForgeRouter key in one
     pass, for every agent registered in ForgeRouter -- not just the
@@ -354,7 +360,13 @@ async def sync_forgerouter_keys(db: AsyncSession = Depends(get_db)) -> ForgeRout
     value (ForgeRouter itself issued it and wrote it into that agent's own
     config), so a stale ForgeHub copy should lose to it, unlike the
     fill-only rule /sync/hermes-foundation and /sync/runtimes use for
-    fields a human might have hand-edited."""
+    fields a human might have hand-edited.
+
+    Runs on a timer too since 2026-10-14: as a button only, a key rotated in
+    ForgeRouter left ForgeHub's copy stale until someone remembered to click
+    it -- Lara, Themis and Dartan had drifted, Dartan's Messages dispatches
+    (agy runs on this copy, Hermes profiles on their own config.yaml) were
+    sending a key ForgeRouter refuses, and Maia/Vector had none at all."""
     result = await db.execute(select(Agent).where(Agent.is_active.is_(True)).order_by(Agent.name))
     agents = list(result.scalars().all())
     keys_by_name = {k.name.strip().lower(): k.api_key for k in await forgerouter_sync.read_forgerouter_agent_keys()}

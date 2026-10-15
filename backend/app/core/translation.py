@@ -3,7 +3,7 @@
 Backs "Traduzir" on the client demands screen (2026-10-14): e-mails reach
 Darckware in whatever language the sender wrote. One OpenAI-compatible
 chat completion against ForgeRouter, billed to the agent named by
-`settings.CLIENT_OPS_TRANSLATOR_AGENT` (its imported ForgeRouter key) --
+`settings.CLIENT_OPS_TRANSLATOR_AGENT` (its key as ForgeRouter's registry has it) --
 deliberately not a Hermes turn through the bridge: a translation needs no
 tools, should take seconds rather than a full agent turn, and must not end
 up in the agent's memory. Nothing is stored; the screen keeps the result.
@@ -11,6 +11,7 @@ up in the agent's memory. Nothing is stored; the screen keeps the result.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -19,9 +20,12 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import forgerouter_sync
 from app.core.config import settings
 from app.core.secrets import decrypt_secret
 from app.db.models.agent import Agent
+
+logger = logging.getLogger(__name__)
 
 _TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 
@@ -48,15 +52,29 @@ def language_name(code: str) -> str:
 
 
 async def _api_key(db: AsyncSession) -> str:
+    """The translator agent's key, read from ForgeRouter's own registry first:
+    ForgeRouter issued it and is what validates it, while ForgeHub's encrypted
+    copy can lag behind a rotation (2026-10-14: Lara's copy was stale and every
+    translation got a 401). The copy is only the fallback for when the
+    registry can't be read."""
     slug = settings.CLIENT_OPS_TRANSLATOR_AGENT
     agent = (await db.execute(select(Agent).where(Agent.profile_slug == slug))).scalars().first()
-    if agent is None or not agent.forgerouter_api_key_encrypted:
-        raise _error(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "translator_not_configured",
-            f"Translation needs a ForgeRouter key on agent '{slug}'.",
-        )
-    return decrypt_secret(agent.forgerouter_api_key_encrypted)
+    if agent is not None:
+        try:
+            keys = {k.name.strip().lower(): k.api_key for k in await forgerouter_sync.read_forgerouter_agent_keys()}
+        except Exception:  # registry unreachable: fall back to the copy
+            logger.warning("ForgeRouter registry unreachable; using ForgeHub's copy of %s's key", agent.name)
+            keys = {}
+        live = keys.get(agent.name.strip().lower())
+        if live:
+            return live
+        if agent.forgerouter_api_key_encrypted:
+            return decrypt_secret(agent.forgerouter_api_key_encrypted)
+    raise _error(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "translator_not_configured",
+        f"Translation needs a ForgeRouter key on agent '{slug}'.",
+    )
 
 
 def _parse(reply: str, expected: int) -> list[str]:

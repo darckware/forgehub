@@ -464,6 +464,8 @@ WORKSTATION_STALENESS_POLL_INTERVAL_SECONDS = 300
 # Reports are monthly documents; an hourly pass gives restarts and transient
 # database failures another chance without delaying ordinary app startup.
 CLIENT_REPORT_POLL_INTERVAL_SECONDS = 3600
+#: ForgeRouter registry -> Agent.forgerouter_api_key_encrypted (2026-10-14).
+FORGEROUTER_KEY_SYNC_INTERVAL_SECONDS = 900
 CLIENT_OPS_POLL_INTERVAL_SECONDS = 120
 
 _background_tasks: list[asyncio.Task[None]] = []
@@ -791,6 +793,24 @@ async def _client_report_poll_loop() -> None:
         await asyncio.sleep(CLIENT_REPORT_POLL_INTERVAL_SECONDS)
 
 
+async def _forgerouter_key_sync_poll_loop() -> None:
+    """Keeps each Agent's ForgeRouter key copy equal to ForgeRouter's own
+    registry (2026-10-14) -- see run_forgerouter_key_sync_pass. Own task:
+    forgerouter_postgres being down must not stall any other pass."""
+    from app.api.routes.agent import run_forgerouter_key_sync_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await run_forgerouter_key_sync_pass(db)
+            if result.updated:
+                logger.info("ForgeRouter key sync updated %d agent key(s)", result.updated)
+        except Exception:
+            logger.exception("ForgeRouter key sync poll failed")
+        await asyncio.sleep(FORGEROUTER_KEY_SYNC_INTERVAL_SECONDS)
+
+
 async def _client_ops_poll_loop() -> None:
     """Darckware arrivals (new client tickets/demands, e-mails awaiting
     approval) -> Notification bell (2026-10-04). Own task: Darckware being
@@ -822,6 +842,7 @@ async def _start_background_tasks() -> None:
         ("active-turn-sweep", _active_turn_sweep_loop),
         ("client-report-poll", _client_report_poll_loop),
         ("client-ops-poll", _client_ops_poll_loop),
+        ("forgerouter-key-sync-poll", _forgerouter_key_sync_poll_loop),
         ("feedback-poll", _feedback_poll_loop),
         ("incubation-maturation-poll", _incubation_maturation_poll_loop),
         ("routine-poll", _routine_poll_loop),

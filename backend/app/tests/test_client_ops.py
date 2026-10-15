@@ -790,3 +790,37 @@ async def test_delete_emails_hides_each_and_reports_failures(client, darckware):
     assert [f["id"] for f in body["failed"]] == [missing]
     hide = next(c for c in darckware.calls if c[1].endswith("/hide"))
     assert hide[2]["hidden_by"].startswith("forgehub:")
+
+
+@pytest.mark.asyncio
+async def test_translator_key_comes_from_forgerouter_registry_first(monkeypatch):
+    from app.core import forgerouter_sync, translation
+    from app.core.secrets import encrypt_secret
+    from app.db.models.agent import Agent
+
+    slug = f"tr-{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"Tradutor {slug}", profile_slug=slug, status="active", is_active=True,
+                      forgerouter_api_key_encrypted=encrypt_secret("stale-copy"))
+        db.add(agent)
+        await db.commit()
+        agent_id = agent.id
+    monkeypatch.setattr(settings, "CLIENT_OPS_TRANSLATOR_AGENT", slug)
+    try:
+        async def registry():
+            return [forgerouter_sync.ForgeRouterAgentKey(name=f"Tradutor {slug}", api_key="live-key")]
+
+        monkeypatch.setattr(forgerouter_sync, "read_forgerouter_agent_keys", registry)
+        async with AsyncSessionLocal() as db:
+            assert await translation._api_key(db) == "live-key"
+
+        async def down():
+            raise OSError("forgerouter_postgres down")
+
+        monkeypatch.setattr(forgerouter_sync, "read_forgerouter_agent_keys", down)
+        async with AsyncSessionLocal() as db:
+            assert await translation._api_key(db) == "stale-copy"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Agent).where(Agent.id == agent_id))
+            await db.commit()
