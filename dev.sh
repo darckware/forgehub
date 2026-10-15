@@ -144,6 +144,8 @@ import os, subprocess
 env = os.environ.copy()
 if env.get('PG_OVERRIDE'):
     env['POSTGRES_HOST'] = env['PG_OVERRIDE']
+    # Same reason: ForgeRouter is 'forgerouter:2100' on foundation_network, 127.0.0.1:2100 here.
+    env.setdefault('FORGEROUTER_URL', 'http://127.0.0.1:2100')
 p = subprocess.Popen(
     ['.venv/bin/uvicorn', 'app.main:app', '--reload', '--host', '0.0.0.0', '--port', '$BACKEND_PORT'],
     cwd='$BACKEND_DIR',

@@ -109,8 +109,11 @@ class Settings(BaseSettings):
 
     # ForgeRouter dashboard SSO (see api/routes/forgerouter.py). URL is the
     # backend-to-backend address; the browser reaches ForgeRouter directly
-    # via VITE_FORGEROUTER_URL on the frontend side.
-    FORGEROUTER_URL: str = "http://host.docker.internal:2100"
+    # via VITE_FORGEROUTER_URL on the frontend side. Container name on
+    # foundation_network: ForgeRouter publishes 2100 on the host's 127.0.0.1
+    # only, so host.docker.internal:2100 never connected (found 2026-10-14
+    # when translation timed out; the SSO call shared the same dead address).
+    FORGEROUTER_URL: str = "http://forgerouter:2100"
     FORGEROUTER_SSO_SECRET: str = ""
 
     # Darckware CRM (client demands, contracts, outbound e-mail queue -- see
