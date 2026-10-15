@@ -70,8 +70,6 @@
     "installation": {
       "generate": "Generar y descargar",
       "generateFor": "Generar y descargar paquete para {{workstation}}",
-      "history": "Ver historial",
-      "historyFor": "Ver historial de {{workstation}}",
       "buildRequired": "Se requiere una compilación lista para este sistema operativo.",
       "buildLoading": "Cargando compilaciones disponibles...",
       "buildLoadError": "No se pudieron cargar las compilaciones disponibles.",

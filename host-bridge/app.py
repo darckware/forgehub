@@ -3314,7 +3314,7 @@ async def remote_access_status(x_bridge_token: str | None = Header(default=None)
 
 
 class VpnActionRequest(BaseModel):
-    action: Literal["connect", "disconnect", "restart", "test"]
+    action: Literal["restart", "test"]
 
 
 @app.get("/v1/vpn/status")
@@ -3337,10 +3337,19 @@ async def vpn_action(
     if result.get("success") is True:
         return result
     code = result.get("code")
-    status_code = 409 if code == "peer_offline" else 504 if code == "timeout" else 502
+    status_code = (
+        409 if code in {"peer_offline", "no_reply", "not_online"}
+        else 404 if code == "peer_not_found"
+        else 504 if code == "timeout"
+        else 502
+    )
     raise HTTPException(
         status_code=status_code,
-        detail={"code": code or "command_failed", "summary": result.get("summary", "VPN operation failed.")},
+        detail={
+            "code": code or "command_failed",
+            "summary": result.get("summary", "VPN operation failed."),
+            "target_name": result.get("target_name"),
+        },
     )
 
 

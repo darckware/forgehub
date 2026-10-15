@@ -12,7 +12,8 @@
   "form": {
     "loading": "Carregando…", "save": "Salvar", "cancel": "Cancelar", "saveFailed": "Não foi possível salvar.", "createFailed": "Não foi possível salvar. O nome talvez já exista.",
     "editTitle": "Editar servidor", "newTitle": "Novo servidor", "name": "Nome do servidor", "ipAddress": "Endereço IP", "sshPort": "Porta SSH", "remoteUser": "Usuário remoto", "group": "Classificação / Grupo",
-    "groups": { "vps": "VPS / Produção (Darckware)", "semed": "SEMED (Cliente / Cloudflare)" },
+    "groups": { "vps": "VPS / Produção (Darckware)", "semed": "SEMED (Cliente / Cloudflare)", "client": "Cliente (estação de trabalho)" },
+    "kind": "Tipo", "kinds": { "server": "Servidor", "workstation": "Estação de trabalho" }, "os": "Sistema operacional", "osNotSet": "Não informado", "client": "Cliente", "noClient": "Sem cliente", "adminUser": "Login do administrador", "adminUserHelp": "Conta local usada uma vez para instalar a chave. A senha é digitada na hora e nunca é guardada.", "location": "Local", "locationExample": "Secretaria — térreo", "hostGroups": "Grupos", "noHostGroups": "Nenhum grupo para este cliente. Crie em Acesso Remoto › Estações.", "tailnetLinked": "Vinculada ao dispositivo {{name}} da tailnet.",
     "sshKeyPath": "Caminho da chave SSH (arquivo de identidade)", "copyPathPublicKey": "Copiar a chave pública deste caminho", "sshKeyHelpBefore": "Usado como", "sshKeyHelpAfter": "ao abrir o terminal SSH. Deixe em branco para usar a chave ou o agente padrão do shell.", "sshKeyCopyHelp": "O botão de cópia lê a chave pública (<path>.pub) e a salva neste registro.",
     "description": "Descrição", "descriptionExample": "Servidor principal da aplicação", "publicKey": "Chave pública (instalada no servidor)", "copyPublicKey": "Copiar chave pública", "publicKeyHelp": "Armazenada com criptografia; preenchida automaticamente pela ação Instalar chave SSH.",
     "vault": {

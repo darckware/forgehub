@@ -28,6 +28,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TokenField } from "@/components/ui/token-field";
+import { useDarckwareClients } from "@/hooks/useClientOps";
+import { useHostGroups } from "@/hooks/useHostInventory";
 import {
   resolveLiveServer,
   serverFormSchema,
@@ -284,6 +286,9 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
   const [pubKeyCopied, setPubKeyCopied] = useState(false);
   const [passphrase, setPassphrase] = useState("");
   const [passphraseTouched, setPassphraseTouched] = useState(false);
+  const [groupIds, setGroupIds] = useState<string[]>(initial?.group_ids ?? []);
+  const { data: clientList } = useDarckwareClients();
+  const { data: hostGroups } = useHostGroups();
 
   const createServer = useCreateServer();
   const updateServer = useUpdateServer();
@@ -301,6 +306,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm<ServerFormValues>({
     resolver: zodResolver(serverFormSchema),
@@ -310,10 +316,21 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       remote_user: initial?.remote_user ?? "",
       ssh_port: initial?.ssh_port ?? 22,
       ssh_key_path: initial?.ssh_key_path ?? "",
-      environment: (initial?.environment as "vps" | "semed") ?? "semed",
+      environment: (initial?.environment as "vps" | "semed" | "client") ?? "semed",
       description: initial?.description ?? "",
+      kind: initial?.kind ?? "server",
+      os_family: initial?.os_family ?? "",
+      admin_user: initial?.admin_user ?? "",
+      darckware_client_id: initial?.darckware_client_id ?? "",
+      location: initial?.location ?? "",
     },
   });
+  const kind = watch("kind");
+  const selectedClientId = watch("darckware_client_id");
+  // Groups offered: the selected client's, plus groups with no client.
+  const groupChoices = (hostGroups ?? []).filter(
+    (g) => !g.darckware_client_id || g.darckware_client_id === (selectedClientId || null),
+  );
 
   function onSubmit(values: ServerFormValues) {
     setSaveError(null);
@@ -325,6 +342,16 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       ssh_key_path: values.ssh_key_path?.trim() || null,
       environment: values.environment,
       description: values.description?.trim() || null,
+      kind: values.kind,
+      os_family: values.os_family || null,
+      admin_user: values.admin_user?.trim() || null,
+      darckware_client_id: values.darckware_client_id || null,
+      darckware_client_name:
+        clientList?.items.find((c) => c.id === values.darckware_client_id)?.company_name
+        ?? (values.darckware_client_id === initial?.darckware_client_id ? initial?.darckware_client_name : null)
+        ?? null,
+      location: values.location?.trim() || null,
+      group_ids: groupIds.filter((id) => groupChoices.some((g) => g.id === id)),
     };
     // Only send the passphrase when the field was actually touched: an
     // untouched field is empty because the form never receives the stored
@@ -394,10 +421,87 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
               >
                 <option value="vps">{t("form.groups.vps")}</option>
                 <option value="semed">{t("form.groups.semed")}</option>
+                <option value="client">{t("form.groups.client")}</option>
               </select>
               {errors.environment && <p className="text-[11px] text-destructive">{errors.environment.message}</p>}
             </div>
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>{t("form.kind")}</Label>
+              <select {...register("kind")} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                <option value="server">{t("form.kinds.server")}</option>
+                <option value="workstation">{t("form.kinds.workstation")}</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>{t("form.os")}</Label>
+              <select {...register("os_family")} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                <option value="">{t("form.osNotSet")}</option>
+                <option value="windows">Windows</option>
+                <option value="linux">Linux</option>
+                <option value="macos">macOS</option>
+              </select>
+            </div>
+          </div>
+
+          {kind === "workstation" && (
+            <div className="space-y-4 rounded-md border border-border p-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{t("form.client")}</Label>
+                  <select {...register("darckware_client_id")} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    <option value="">{t("form.noClient")}</option>
+                    {initial?.darckware_client_id
+                      && !clientList?.items.some((c) => c.id === initial.darckware_client_id) && (
+                      <option value={initial.darckware_client_id}>
+                        {initial.darckware_client_name ?? initial.darckware_client_id}
+                      </option>
+                    )}
+                    {clientList?.items.map((c) => (
+                      <option key={c.id} value={c.id}>{c.company_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label>{t("form.adminUser")}</Label>
+                  <Input {...register("admin_user")} placeholder="Administrador" className="max-md:text-base" />
+                  <p className="text-[11px] text-muted-foreground">{t("form.adminUserHelp")}</p>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>{t("form.location")}</Label>
+                <Input {...register("location")} placeholder={t("form.locationExample")} className="max-md:text-base" />
+              </div>
+              <fieldset className="space-y-1">
+                <legend className="text-sm font-medium">{t("form.hostGroups")}</legend>
+                {groupChoices.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">{t("form.noHostGroups")}</p>
+                ) : (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {groupChoices.map((g) => (
+                      <label key={g.id} className="flex items-center gap-1.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={groupIds.includes(g.id)}
+                          onChange={(e) =>
+                            setGroupIds((cur) => (e.target.checked ? [...cur, g.id] : cur.filter((id) => id !== g.id)))
+                          }
+                        />
+                        {g.name}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </fieldset>
+              {initial?.tailnet_name && (
+                <p className="text-[11px] text-muted-foreground">
+                  {t("form.tailnetLinked", { name: initial.tailnet_name })}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1">
             <Label>{t("form.sshKeyPath")}</Label>

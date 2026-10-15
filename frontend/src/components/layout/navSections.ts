@@ -1,6 +1,5 @@
 import {
   Activity,
-  AlertTriangle,
   Bell,
   BookOpen,
   Bot,
@@ -12,7 +11,6 @@ import {
   Code2,
   Command,
   Database,
-  Download,
   FolderKanban,
   Gauge,
   Gem,
@@ -168,9 +166,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/deploy", labelKey: "nav.deployControl", icon: Server, module: "deploy" },
       { type: "link", to: "/servers", labelKey: "nav.servers", icon: Network, module: "servers" },
       { type: "link", to: "/clients", labelKey: "nav.clients", icon: Building2, module: "clients" },
-      { type: "link", to: "/nexo-agents", labelKey: "nav.nexoAgents", icon: Download, module: "clients", adminOnly: true },
-      { type: "link", to: "/irregularities", labelKey: "nav.irregularities", icon: AlertTriangle, module: "clients" },
-      { type: "link", to: "/vpn", labelKey: "nav.vpn", icon: ShieldEllipsis, module: "vpn", adminOnly: true },
+      { type: "link", to: "/remote-access", labelKey: "nav.remoteAccess", icon: ShieldEllipsis, module: "vpn", adminOnly: true },
       {
         type: "group",
         labelKey: "nav.database",

@@ -16,8 +16,18 @@ class ServerCreate(BaseModel):
     # the key_passphrase_stored boolean instead).
     key_passphrase: str | None = None
     access_enabled: bool = True
-    environment: Literal["vps", "semed"] = "semed"
+    environment: Literal["vps", "semed", "client"] = "semed"
     description: str | None = None
+    kind: Literal["server", "workstation"] = "server"
+    os_family: Literal["linux", "windows", "macos"] | None = None
+    admin_user: str | None = Field(default=None, max_length=100)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    location: str | None = Field(default=None, max_length=255)
+    tailnet_node_id: str | None = Field(default=None, max_length=64)
+    tailnet_name: str | None = Field(default=None, max_length=255)
+    # Replaces the machine's group memberships when sent.
+    group_ids: list[uuid.UUID] | None = None
 
 
 class ServerUpdate(BaseModel):
@@ -33,8 +43,18 @@ class ServerUpdate(BaseModel):
     # "omitted" and "explicitly null" stay distinguishable.
     key_passphrase: str | None = None
     access_enabled: bool | None = None
-    environment: Literal["vps", "semed"] | None = None
+    environment: Literal["vps", "semed", "client"] | None = None
     description: str | None = None
+    kind: Literal["server", "workstation"] | None = None
+    os_family: Literal["linux", "windows", "macos"] | None = None
+    admin_user: str | None = Field(default=None, max_length=100)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    location: str | None = Field(default=None, max_length=255)
+    tailnet_node_id: str | None = Field(default=None, max_length=64)
+    tailnet_name: str | None = Field(default=None, max_length=255)
+    # Replaces the machine's group memberships when sent.
+    group_ids: list[uuid.UUID] | None = None
 
 
 class ServerOut(BaseModel):
@@ -57,6 +77,15 @@ class ServerOut(BaseModel):
     access_enabled: bool = True
     environment: str = "semed"
     description: str | None
+    kind: str = "server"
+    os_family: str | None = None
+    admin_user: str | None = None
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = None
+    location: str | None = None
+    tailnet_node_id: str | None = None
+    tailnet_name: str | None = None
+    group_ids: list[uuid.UUID] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -227,3 +256,90 @@ class ServerPortScanResult(BaseModel):
     server_id: uuid.UUID
     scanned: int
     open_ports: list[ServerPortScanEntry]
+
+
+class HostGroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+    server_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class HostGroupUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+    # Replaces the member list when sent.
+    server_ids: list[uuid.UUID] | None = None
+
+
+class HostGroupOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    darckware_client_id: uuid.UUID | None
+    darckware_client_name: str | None
+    description: str | None
+    server_ids: list[uuid.UUID] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class TailnetSyncRequest(BaseModel):
+    # Peers reported as "available" by a previous call that should become
+    # workstations now. Empty = reconcile only, create nothing.
+    import_node_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+class TailnetSyncEntry(BaseModel):
+    node_id: str
+    name: str | None
+    tailscale_ipv4: str | None
+    os: str | None
+    online: bool = False
+    tags: list[str] = Field(default_factory=list)
+    # "created" -- imported now as a workstation; "updated" -- name (and a
+    # workstation's IP) refreshed on the linked row; "linked" -- an unlinked
+    # row matched by tailnet IP or name got the node ID; "unchanged";
+    # "available" -- in the tailnet, not in the inventory, not imported.
+    outcome: Literal["created", "updated", "linked", "unchanged", "available"]
+    server_id: uuid.UUID | None = None
+    # Client suggested by a "tag:client-<slug>" tag. Only a suggestion: never
+    # written over a client someone already set.
+    suggested_client_tag: str | None = None
+
+
+class TailnetSyncResult(BaseModel):
+    entries: list[TailnetSyncEntry]
+    # Linked rows whose node is no longer in the tailnet. Reported, never
+    # deleted -- a device that left the tailnet still has history here.
+    missing_server_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+HostReadiness = Literal[
+    "ready",            # reachable and the key logs in -- commands can run
+    "busy",             # an execution is running on it (from phase 4 on)
+    "online_no_access", # answers SSH, but our key is refused
+    "offline",          # tailnet says offline / port unreachable
+    "not_prepared",     # online in the tailnet, but SSH is not enabled yet
+    "disabled",         # parked in ForgeHub (access_enabled = false)
+    "unknown",          # a source could not be read -- never shown as offline
+]
+
+
+class HostReadinessEntry(BaseModel):
+    server_id: uuid.UUID
+    readiness: HostReadiness
+    tailnet_online: bool | None = None
+    ssh: str | None = None
+    detail: str | None = None
+
+
+class HostReadinessResult(BaseModel):
+    entries: list[HostReadinessEntry]
+    checked_at: datetime
+    tailnet_available: bool
+    ssh_checked_at: datetime | None = None

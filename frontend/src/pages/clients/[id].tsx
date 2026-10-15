@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Circle, CircleOff, Download, History, Laptop, Loader2, Network, Package, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Circle, CircleOff, Download, Laptop, Loader2, Network, Package, ShieldCheck } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -173,9 +173,6 @@ export default function ClientDetailPage() {
                     <Button size="sm" variant="outline" className="gap-1.5" aria-label={t("detail.installation.generateFor", { workstation: workstationName(item) })} aria-describedby={!build ? `nexo-build-help-${item.id}` : undefined} disabled={!build || builds.isLoading || generatePackage.isPending} onClick={() => { if (build) { generatePackage.reset(); setPackageNotice(""); setPackageTarget({ workstation: item, build }); } }}>
                       <Download className="h-3.5 w-3.5" aria-hidden="true" />{t("detail.installation.generate")}
                     </Button>
-                    {installation && <Link aria-label={t("detail.installation.historyFor", { workstation: workstationName(item) })} className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" to={`/nexo-agents?client_id=${encodeURIComponent(id)}&workstation_id=${encodeURIComponent(item.id)}`}>
-                      <History className="h-3.5 w-3.5" aria-hidden="true" />{t("detail.installation.history")}
-                    </Link>}
                   </div>
                   {!build && <p id={`nexo-build-help-${item.id}`} className="text-xs text-muted-foreground lg:col-start-3 lg:text-right">{builds.isLoading ? t("detail.installation.buildLoading") : builds.isError ? t("detail.installation.buildLoadError") : t("detail.installation.buildRequired")}</p>}
                 </li>

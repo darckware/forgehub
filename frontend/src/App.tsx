@@ -47,10 +47,8 @@ import ClientEmailsPage from "@/pages/client-emails";
 import PersonalPage from "@/pages/personal";
 import ClientAccountsPage from "@/pages/client-accounts";
 import ClientAccountPage from "@/pages/client-accounts/[id]";
-import NexoAgentsPage from "@/pages/nexo-agents";
 import NewClientPage from "@/pages/clients/new";
 import ClientDetailPage from "@/pages/clients/[id]";
-import IrregularitiesPage from "@/pages/irregularities";
 import DatabaseLayout from "@/pages/database/DatabaseLayout";
 import DatabaseSchemaPage from "@/pages/database/SchemaPage";
 import DatabaseDiagramPage from "@/pages/database/DiagramPage";
@@ -64,7 +62,7 @@ import ConceptionPage from "@/pages/conception";
 import SystemMapPage from "@/pages/system-map";
 import ProjectScopePage from "@/pages/project-scope";
 import CockpitPage from "@/pages/cockpit";
-import VpnPage from "@/pages/vpn";
+import RemoteAccessPage from "@/pages/remote-access";
 
 import ScreenInspectorPage from "@/pages/screen-inspector";
 import ConceptErdViewerPage from "@/pages/concept-erd";
@@ -140,11 +138,10 @@ export default function App() {
         <Route path="personal" element={<PersonalPage />} />
         <Route path="client-accounts" element={<ClientAccountsPage />} />
         <Route path="client-accounts/:id" element={<ClientAccountPage />} />
-        <Route path="nexo-agents" element={<RequireAdmin><NexoAgentsPage /></RequireAdmin>} />
         <Route path="clients/new" element={<NewClientPage />} />
         <Route path="clients/:id" element={<ClientDetailPage />} />
-        <Route path="irregularities" element={<IrregularitiesPage />} />
-        <Route path="vpn" element={<RequireAdmin><VpnPage /></RequireAdmin>} />
+        <Route path="remote-access" element={<RequireAdmin><RemoteAccessPage /></RequireAdmin>} />
+        <Route path="vpn" element={<Navigate to="/remote-access" replace />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="profiles" element={<ProfilesPage />} />
         

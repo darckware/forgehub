@@ -1,0 +1,174 @@
+{
+  "title": "Remote Access",
+  "subtitle": "Tailscale private network: this server and the devices reachable for maintenance.",
+  "loading": "Loading the private network...",
+  "refresh": "Refresh",
+  "cancel": "Cancel",
+  "privateOnly": "Maintenance only uses the Tailscale private network; nothing goes over the public IP. Cloudflare remains responsible only for published services.",
+  "degraded": {
+    "title": "Partial read",
+    "description": "Some telemetry could not be refreshed. Available data is still shown; refresh before running an action."
+  },
+  "unavailable": {
+    "title": "Remote Access unavailable",
+    "description": "Could not query this server's Tailscale. Check the host bridge and try again."
+  },
+  "server": {
+    "title": "This server",
+    "daemon": "Service",
+    "dns": "Tailnet DNS",
+    "routes": "Accepts routes",
+    "ssh": "Tailscale SSH",
+    "exitNode": "Exit node",
+    "restart": "Restart Tailscale"
+  },
+  "totals": {
+    "devices": "Devices",
+    "online": "Online",
+    "offline": "Offline"
+  },
+  "devices": {
+    "title": "Tailnet devices",
+    "search": "Search by name, IP, OS or group",
+    "group": "Group",
+    "state": "State",
+    "allGroups": "All groups",
+    "noGroup": "No group",
+    "all": "All",
+    "empty": "No device matches these filters.",
+    "groupSummary": "{{online}} of {{total}} online",
+    "name": "Device",
+    "os": "OS",
+    "ip": "Private IP",
+    "status": "State",
+    "path": "Connection",
+    "lastSeen": "Last seen",
+    "actions": "Actions",
+    "now": "now",
+    "test": "Test",
+    "testFor": "Test connection to {{name}}"
+  },
+  "path": {
+    "direct": "Direct",
+    "derp": "Relay {{relay}}",
+    "idle": "No traffic",
+    "unavailable": "—"
+  },
+  "state": {
+    "online": "Online",
+    "offline": "Offline",
+    "needs_login": "Needs login",
+    "unavailable": "Unavailable"
+  },
+  "daemon": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "unavailable": "Unavailable"
+  },
+  "common": {
+    "enabled": "enabled",
+    "disabled": "disabled"
+  },
+  "result": {
+    "success": "{{summary}}",
+    "failure": "Failed: {{summary}}"
+  },
+  "action": {
+    "restart": "Restart",
+    "test": "Test",
+    "connect": "Connect",
+    "disconnect": "Disconnect"
+  },
+  "confirmRestart": {
+    "title": "Restart Tailscale on this server",
+    "description": "Restart the Tailscale service on {{hostname}}? Connectivity to every device may drop for a few seconds.",
+    "confirm": "Restart"
+  },
+  "target": {
+    "self": "This server",
+    "peer": "Device",
+    "local": "Local host (legacy)",
+    "remote": "Remote VPS (legacy)"
+  },
+  "history": {
+    "title": "Operation history",
+    "loading": "Loading history...",
+    "empty": "No operations recorded.",
+    "time": "Time",
+    "actor": "Operator",
+    "target": "Target",
+    "action": "Action",
+    "result": "Result",
+    "summary": "Detail"
+  },
+  "operationStatus": {
+    "running": "Running",
+    "succeeded": "Succeeded",
+    "failed": "Failed"
+  },
+  "readiness": {
+    "ready": "Ready",
+    "busy": "Busy",
+    "online_no_access": "Online, no access",
+    "offline": "Offline",
+    "not_prepared": "Not prepared",
+    "disabled": "Disabled",
+    "unknown": "Unknown"
+  },
+  "os": {
+    "windows": "Windows",
+    "linux": "Linux",
+    "macos": "macOS"
+  },
+  "workstations": {
+    "title": "Workstations",
+    "totals": "{{ready}} of {{total}} ready · {{attention}} need attention · {{offline}} offline",
+    "counts": "{{ready}}/{{total}} ready",
+    "attentionCount": "{{count}} need attention",
+    "offlineCount": "{{count}} offline",
+    "syncTailnet": "Sync from tailnet",
+    "probeNow": "Check now",
+    "newGroup": "New group",
+    "groupName": "Group name",
+    "client": "Client",
+    "noClient": "No client",
+    "createGroup": "Create group",
+    "search": "Search by name, IP, location or client",
+    "filter": "Filter by readiness",
+    "filters": {
+      "all": "All",
+      "attention": "Need attention"
+    },
+    "tailnetUnavailable": "The tailnet could not be read right now; readiness uses the SSH probe only, and anything unread shows as Unknown.",
+    "loadFailed": "Could not load the workstations.",
+    "empty": "No workstations yet. Use \"Sync from tailnet\" to bring in the private network's computers.",
+    "noMachines": "No workstations for this client.",
+    "columns": {
+      "name": "Workstation",
+      "os": "OS",
+      "location": "Location",
+      "groups": "Groups",
+      "login": "Login",
+      "readiness": "Readiness"
+    },
+    "edit": "Edit",
+    "editFor": "Edit {{name}}",
+    "deleteGroup": "Delete group",
+    "deleteGroupFor": "Delete group {{name}}",
+    "deleteGroupTitle": "Delete the group?",
+    "deleteGroupDescription": "Group {{name}} will be deleted. Its workstations stay registered; they just leave the group.",
+    "sync": {
+      "created": "{{count}} new",
+      "linked": "{{count}} linked",
+      "updated": "{{count}} updated",
+      "missing": "{{count}} left the tailnet (kept)",
+      "nothing": "Nothing changed in the tailnet.",
+      "failed": "Could not read the tailnet to sync.",
+      "available": "{{count}} available to import"
+    },
+    "import": {
+      "help": "Tailnet devices not in the inventory yet. Tick the ones that are client workstations; the rest stay in the tailnet only and never come back by themselves.",
+      "action": "Import selected ({{count}})"
+    }
+  }
+}

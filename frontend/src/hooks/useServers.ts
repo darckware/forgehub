@@ -3,6 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { apiClient } from "@/lib/api";
 
+export type HostKind = "server" | "workstation";
+export type HostOsFamily = "linux" | "windows" | "macos";
+
 export interface Server {
   id: string;
   name: string;
@@ -22,8 +25,23 @@ export interface Server {
    * terminal -- while the key, the vaulted copy and the server itself are all
    * left exactly as they were. */
   access_enabled: boolean;
-  environment?: "vps" | "semed" | string;
+  environment?: "vps" | "semed" | "client" | string;
   description: string | null;
+  /** "workstation" since the Remote Access rework (2026-10-15): a client's
+   * computer, maintained over the tailnet. Same row, same key/probe/terminal. */
+  kind: HostKind;
+  /** Picks the preparation/install script and the shell. Null = not stated. */
+  os_family: HostOsFamily | null;
+  /** Local administrator login used once to install the key. The password is
+   * typed per action and never stored. */
+  admin_user: string | null;
+  darckware_client_id: string | null;
+  darckware_client_name: string | null;
+  location: string | null;
+  /** Stable Tailscale node ID (set by "Sync from tailnet"). */
+  tailnet_node_id: string | null;
+  tailnet_name: string | null;
+  group_ids: string[];
   created_at: string;
   updated_at: string;
 }
@@ -43,8 +61,16 @@ export interface ServerCreate {
    * send "" to clear it. */
   key_passphrase?: string | null;
   access_enabled?: boolean;
-  environment?: "vps" | "semed" | string;
+  environment?: "vps" | "semed" | "client" | string;
   description?: string | null;
+  kind?: HostKind;
+  os_family?: HostOsFamily | null;
+  admin_user?: string | null;
+  darckware_client_id?: string | null;
+  darckware_client_name?: string | null;
+  location?: string | null;
+  /** Replaces the machine's group memberships when sent. */
+  group_ids?: string[];
 }
 
 /** Builds the terminal SSH command for a registered server, picking the auth
@@ -125,8 +151,14 @@ export const serverFormSchema = z.object({
     .max(65535, "Port must be between 1 and 65535"),
   ssh_key_path: z.string().trim().max(500).optional(),
   key_passphrase: z.string().optional(),
-  environment: z.enum(["vps", "semed"]).default("semed"),
+  environment: z.enum(["vps", "semed", "client"]).default("semed"),
   description: z.string().optional(),
+  kind: z.enum(["server", "workstation"]).default("server"),
+  // "" = not stated (the select's empty option); sent as null.
+  os_family: z.enum(["", "linux", "windows", "macos"]).default(""),
+  admin_user: z.string().trim().max(100).optional(),
+  darckware_client_id: z.string().optional(),
+  location: z.string().trim().max(255).optional(),
 });
 
 export type ServerFormValues = z.infer<typeof serverFormSchema>;

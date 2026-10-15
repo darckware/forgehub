@@ -7,8 +7,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-VpnNodeRole = Literal["local", "remote"]
-VpnAction = Literal["connect", "disconnect", "restart", "test"]
+# Remote Access (formerly "VPN", 2026-10-15). The tailnet is read from the
+# VPS's own point of view: `server` is this node, `peers` every device it can
+# reach. Operation targets are "self" or "peer"; "local"/"remote" (and the
+# connect/disconnect actions) only survive in older history rows.
+VpnAction = Literal["restart", "test"]
 VpnNodeState = Literal["online", "offline", "needs_login", "unavailable"]
 VpnPathKind = Literal["direct", "derp", "idle", "unavailable"]
 
@@ -29,31 +32,35 @@ class VpnSourceStatus(BaseModel):
     error_code: str | None = None
 
 
+class VpnConnection(BaseModel):
+    kind: VpnPathKind
+    relay: str | None = None
+
+
 class VpnNode(BaseModel):
-    role: VpnNodeRole
+    id: str
+    name: str | None = None
     hostname: str | None = None
+    dns_name: str | None = None
+    os: str | None = None
+    tags: list[str] = Field(default_factory=list)
     tailscale_ipv4: str | None = None
     state: VpnNodeState
     online: bool = False
     active: bool = False
     last_seen: str | None = None
+    key_expiry: str | None = None
     rx_bytes: int = 0
     tx_bytes: int = 0
-    daemon_state: str = "unavailable"
+    connection: VpnConnection | None = None
+    daemon_state: str | None = None
     posture: VpnPosture | None = None
 
 
-class VpnConnection(BaseModel):
-    kind: VpnPathKind
-    relay: str | None = None
-    latency_ms: float | None = None
-
-
 class VpnStatus(BaseModel):
-    independent_from_cloudflare: bool = True
     backend_state: str
-    nodes: list[VpnNode]
-    connection: VpnConnection
+    server: VpnNode
+    peers: list[VpnNode]
     checked_at: datetime
     source_error: str | None = None
     sources: list[VpnSourceStatus] = Field(default_factory=list)
@@ -70,6 +77,9 @@ class VpnActionResult(BaseModel):
     code: str
     summary: str
     operation_id: uuid.UUID
+    target_name: str | None = None
+    latency_ms: float | None = None
+    path: VpnPathKind | None = None
 
 
 class VpnOperationOut(BaseModel):
@@ -77,8 +87,9 @@ class VpnOperationOut(BaseModel):
 
     id: uuid.UUID
     actor_username: str | None = None
-    target: VpnNodeRole
-    action: VpnAction
+    target: str
+    target_name: str | None = None
+    action: str
     status: Literal["running", "succeeded", "failed"]
     result_code: str | None = None
     summary: str | None = None

@@ -37,8 +37,6 @@
     "installation": {
       "generate": "Generate and download",
       "generateFor": "Generate and download package for {{workstation}}",
-      "history": "View history",
-      "historyFor": "View history for {{workstation}}",
       "buildRequired": "A ready build is required for this operating system.",
       "buildLoading": "Loading available builds...",
       "buildLoadError": "Available builds could not be loaded.",

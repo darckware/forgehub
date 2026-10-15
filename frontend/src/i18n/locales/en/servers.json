@@ -12,7 +12,8 @@
   "form": {
     "loading": "Loading…", "save": "Save", "cancel": "Cancel", "saveFailed": "Could not save.", "createFailed": "Could not save. The name may already exist.",
     "editTitle": "Edit server", "newTitle": "New server", "name": "Server name", "ipAddress": "IP address", "sshPort": "SSH port", "remoteUser": "Remote user", "group": "Classification / Group",
-    "groups": { "vps": "VPS / Production (Darckware)", "semed": "SEMED (Client / Cloudflare)" },
+    "groups": { "vps": "VPS / Production (Darckware)", "semed": "SEMED (Client / Cloudflare)", "client": "Client (workstation)" },
+    "kind": "Type", "kinds": { "server": "Server", "workstation": "Workstation" }, "os": "Operating system", "osNotSet": "Not set", "client": "Client", "noClient": "No client", "adminUser": "Administrator login", "adminUserHelp": "Local account used once to install the key. The password is typed when needed and never stored.", "location": "Location", "locationExample": "Front office — ground floor", "hostGroups": "Groups", "noHostGroups": "No groups for this client. Create one in Remote Access › Workstations.", "tailnetLinked": "Linked to tailnet device {{name}}.",
     "sshKeyPath": "SSH key path (identity file)", "copyPathPublicKey": "Copy the public key of this path", "sshKeyHelpBefore": "Used as", "sshKeyHelpAfter": "when opening the SSH terminal. Leave blank to use the shell's default key or agent.", "sshKeyCopyHelp": "The copy button reads the public key (<path>.pub) and saves it to this record.",
     "description": "Description", "descriptionExample": "Main application server", "publicKey": "Public key (installed on the server)", "copyPublicKey": "Copy public key", "publicKeyHelp": "Stored encrypted; filled automatically by the Install SSH key action.",
     "vault": {

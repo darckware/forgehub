@@ -70,8 +70,6 @@
     "installation": {
       "generate": "Gerar e baixar",
       "generateFor": "Gerar e baixar pacote para {{workstation}}",
-      "history": "Ver histórico",
-      "historyFor": "Ver histórico de {{workstation}}",
       "buildRequired": "Uma build pronta é necessária para este sistema operacional.",
       "buildLoading": "Carregando builds disponíveis...",
       "buildLoadError": "Não foi possível carregar as builds disponíveis.",

@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.schemas.vpn import (
     VpnActionRequest,
     VpnActionResult,
-    VpnConnection,
     VpnNode,
     VpnOperationsOut,
     VpnOperationOut,
@@ -26,18 +25,24 @@ from app.db.models.vpn import VpnOperationEvent
 
 router = APIRouter(prefix="/api/v1/vpn", tags=["vpn"])
 
-ALLOWED_ACTIONS = {
-    "local": frozenset({"connect", "disconnect", "restart", "test"}),
-    "remote": frozenset({"restart", "test"}),
-}
+SELF_NODE = "self"
+SELF_ACTIONS = frozenset({"restart"})
+PEER_ACTIONS = frozenset({"test"})
+# Tailscale stable node IDs ("nKqVMEy38E11CNTRL"). The bridge re-validates and
+# resolves the address from a fresh status read; this only rejects garbage early.
+_PEER_ID_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
 _LOGIN_URL_RE = re.compile(r"https://login\.tailscale\.com/\S+", re.IGNORECASE)
 _PRIVATE_PATH_RE = re.compile(r"/root/(?:\.ssh|agents|\.hermes)/\S+")
 
 
-def validate_action(node: str, action: str) -> tuple[str, str]:
-    if node not in ALLOWED_ACTIONS or action not in ALLOWED_ACTIONS[node]:
-        raise ValueError("action_not_allowed")
-    return node, action
+def validate_action(node: str, action: str) -> str:
+    """Returns the operation's target kind ("self" or "peer")."""
+    if node == SELF_NODE:
+        if action in SELF_ACTIONS:
+            return SELF_NODE
+    elif _PEER_ID_RE.fullmatch(node) and action in PEER_ACTIONS:
+        return "peer"
+    raise ValueError("action_not_allowed")
 
 
 def sanitize_summary(value: object) -> str:
@@ -49,21 +54,24 @@ def sanitize_summary(value: object) -> str:
 
 
 def normalize_status(payload: dict[str, Any], *, checked_at: datetime | None = None) -> VpnStatus:
-    nodes = []
-    for role in ("local", "remote"):
-        raw = payload.get(role)
-        if not isinstance(raw, dict):
-            raw = {"role": role, "state": "unavailable"}
-        nodes.append(VpnNode.model_validate({"role": role, **raw}))
-    raw_connection = payload.get("connection")
-    if not isinstance(raw_connection, dict):
-        raw_connection = {"kind": "unavailable"}
+    raw_server = payload.get("self")
+    if not isinstance(raw_server, dict):
+        raw_server = {"id": SELF_NODE, "state": "unavailable"}
+    peers = []
+    raw_peers = payload.get("peers")
+    if isinstance(raw_peers, list):
+        for raw in raw_peers:
+            if isinstance(raw, dict):
+                try:
+                    peers.append(VpnNode.model_validate(raw))
+                except ValueError:
+                    continue
     error = payload.get("error")
     source_error = sanitize_summary(error.get("summary")) if isinstance(error, dict) else None
     return VpnStatus(
         backend_state=str(payload.get("backend_state", "Unavailable")),
-        nodes=nodes,
-        connection=VpnConnection.model_validate(raw_connection),
+        server=VpnNode.model_validate({**raw_server, "id": SELF_NODE}),
+        peers=peers,
         checked_at=checked_at or datetime.now(timezone.utc),
         source_error=source_error,
         sources=payload.get("sources", []),
@@ -84,15 +92,15 @@ async def _bridge_call(method: str, path: str, payload: dict | None = None) -> d
     except httpx.HTTPError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "VPN bridge is unavailable") from exc
     if response.status_code != 200:
-        mapped_status = response.status_code if response.status_code in {409, 502, 504} else 502
-        detail: object = "VPN bridge rejected the operation"
         try:
             bridge_error = response.json().get("detail")
-            if isinstance(bridge_error, dict):
-                detail = sanitize_summary(bridge_error.get("summary"))
         except (ValueError, AttributeError):
-            pass
-        raise HTTPException(mapped_status, detail)
+            bridge_error = None
+        # An operation that ran and failed (device offline, no reply, timeout)
+        # is a result to record and show, not a transport error.
+        if isinstance(bridge_error, dict) and isinstance(bridge_error.get("code"), str):
+            return {"success": False, **bridge_error}
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "VPN bridge rejected the operation")
     try:
         data = response.json()
     except ValueError as exc:
@@ -102,19 +110,26 @@ async def _bridge_call(method: str, path: str, payload: dict | None = None) -> d
     return data
 
 
-@router.get("/status", response_model=VpnStatus)
-async def get_vpn_status(_user: User = Depends(get_current_admin)) -> VpnStatus:
+async def fetch_tailnet_status() -> VpnStatus:
+    """The tailnet as this server sees it. Never raises: an unreachable bridge
+    reads as an "unavailable" server with no peers, which callers must treat as
+    "unknown", not as every device being offline. Shared with the server
+    inventory's tailnet sync and readiness (api/routes/server.py)."""
     try:
         payload = await _bridge_call("GET", "/v1/vpn/status")
     except HTTPException:
         payload = {
             "backend_state": "Unavailable",
-            "local": {"role": "local", "state": "unavailable"},
-            "remote": {"role": "remote", "state": "unavailable"},
-            "connection": {"kind": "unavailable"},
+            "self": {"id": SELF_NODE, "state": "unavailable"},
+            "peers": [],
             "error": {"summary": "VPN bridge is unavailable."},
         }
     return normalize_status(payload)
+
+
+@router.get("/status", response_model=VpnStatus)
+async def get_vpn_status(_user: User = Depends(get_current_admin)) -> VpnStatus:
+    return await fetch_tailnet_status()
 
 
 @router.post("/nodes/{node}/actions", response_model=VpnActionResult)
@@ -124,48 +139,51 @@ async def run_vpn_action(
     user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> VpnActionResult:
+    """`node` is "self" (this server: restart) or a peer's stable Tailscale ID
+    (test). Connect/disconnect were removed on 2026-10-15: on this host they
+    would rename the VPS or cut the only private path to the clients."""
     try:
-        validate_action(node, request.action)
+        target = validate_action(node, request.action)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "action_not_allowed") from exc
 
-    now = datetime.now(timezone.utc)
     event = VpnOperationEvent(
         actor_user_id=user.id,
-        target=node,
+        target=target,
+        target_node_id=None if target == SELF_NODE else node,
         action=request.action,
         status="running",
-        started_at=now,
+        started_at=datetime.now(timezone.utc),
     )
     db.add(event)
     await db.commit()
     try:
-        result = await _bridge_call(
-            "POST",
-            f"/v1/vpn/nodes/{node}/actions",
-            {"action": request.action},
-        )
-        success = result.get("success") is True
-        event.status = "succeeded" if success else "failed"
-        event.result_code = str(result.get("code", "ok" if success else "command_failed"))[:50]
-        event.summary = sanitize_summary(result.get("summary"))
+        result = await _bridge_call("POST", f"/v1/vpn/nodes/{node}/actions", {"action": request.action})
     except HTTPException as exc:
         event.status = "failed"
-        event.result_code = {
-            status.HTTP_409_CONFLICT: "peer_offline",
-            status.HTTP_504_GATEWAY_TIMEOUT: "timeout",
-        }.get(exc.status_code, "bridge_error")
+        event.result_code = "timeout" if exc.status_code == status.HTTP_504_GATEWAY_TIMEOUT else "bridge_error"
         event.summary = sanitize_summary(exc.detail)
         event.completed_at = datetime.now(timezone.utc)
         await db.commit()
         raise
+    success = result.get("success") is True
+    target_name = result.get("target_name")
+    event.status = "succeeded" if success else "failed"
+    event.result_code = str(result.get("code", "ok" if success else "command_failed"))[:50]
+    event.summary = sanitize_summary(result.get("summary"))
+    event.target_name = target_name[:255] if isinstance(target_name, str) else None
     event.completed_at = datetime.now(timezone.utc)
     await db.commit()
+    latency = result.get("latency_ms")
+    path = result.get("kind")
     return VpnActionResult(
         success=success,
         code=event.result_code or "command_failed",
         summary=event.summary or "VPN operation requires attention.",
         operation_id=event.id,
+        target_name=event.target_name,
+        latency_ms=float(latency) if isinstance(latency, (int, float)) else None,
+        path=path if path in {"direct", "derp"} else None,
     )
 
 
@@ -189,6 +207,7 @@ async def list_vpn_operations(
             id=row.id,
             actor_username=getattr(row.actor, "username", None),
             target=row.target,
+            target_name=row.target_name,
             action=row.action,
             status=row.status,
             result_code=row.result_code,

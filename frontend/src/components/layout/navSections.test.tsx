@@ -3,27 +3,27 @@ import { describe, expect, it } from "vitest";
 import { NAV_SECTIONS, isNavEntryVisible, type NavLinkEntry } from "./navSections";
 
 
-function vpnEntry(): NavLinkEntry {
+function remoteAccessEntry(): NavLinkEntry {
   const operations = NAV_SECTIONS.find((section) => section.labelKey === "nav.section.operations");
   const entry = operations?.entries.find(
-    (candidate) => candidate.type === "link" && candidate.to === "/vpn",
+    (candidate) => candidate.type === "link" && candidate.to === "/remote-access",
   );
-  if (!entry || entry.type !== "link") throw new Error("VPN entry missing");
+  if (!entry || entry.type !== "link") throw new Error("Remote Access entry missing");
   return entry;
 }
 
 
-describe("VPN navigation policy", () => {
-  it("places VPN in Operations as an administrator-only page", () => {
-    const entry = vpnEntry();
+describe("Remote Access navigation policy", () => {
+  it("places Remote Access in Operations as an administrator-only page", () => {
+    const entry = remoteAccessEntry();
 
-    expect(entry.labelKey).toBe("nav.vpn");
+    expect(entry.labelKey).toBe("nav.remoteAccess");
     expect(entry.module).toBe("vpn");
     expect(entry.adminOnly).toBe(true);
   });
 
   it("hides administrator-only links from non-admin navigation consumers", () => {
-    const entry = vpnEntry();
+    const entry = remoteAccessEntry();
 
     expect(isNavEntryVisible(entry, false)).toBe(false);
     expect(isNavEntryVisible(entry, true)).toBe(true);
@@ -31,11 +31,6 @@ describe("VPN navigation policy", () => {
 });
 
 describe("Clients navigation policy", () => {
-  it("places administrator-only Nexo agents under Operations and clients", () => {
-    const section = NAV_SECTIONS.find((item) => item.labelKey === "nav.section.operations");
-    const entry = section?.entries.find((item) => item.type === "link" && item.to === "/nexo-agents");
-    expect(entry).toMatchObject({ labelKey: "nav.nexoAgents", module: "clients", adminOnly: true });
-  });
   it("places Clients in Operations under the clients module", () => {
     const operations = NAV_SECTIONS.find((section) => section.labelKey === "nav.section.operations");
     const entry = operations?.entries.find(

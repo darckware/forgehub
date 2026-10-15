@@ -1,7 +1,9 @@
 """Server domain – SSH-accessible infrastructure registry.
 
 Endpoints:
-  GET    /api/v1/servers            – list all
+  GET    /api/v1/servers            – list all (servers and workstations)
+  POST   /api/v1/servers/tailnet:sync – register/refresh workstations from the tailnet
+  GET    /api/v1/servers/readiness  – per-machine readiness (tailnet + SSH probe)
   POST   /api/v1/servers            – create
   GET    /api/v1/servers/{id}       – get one
   PUT    /api/v1/servers/{id}       – full update
@@ -25,11 +27,12 @@ import io
 import logging
 import socket
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import paramiko
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 # paramiko's Transport runs its handshake in a background thread and logs
@@ -40,6 +43,8 @@ logging.getLogger("paramiko").setLevel(logging.CRITICAL)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.server import (
+    HostReadinessEntry,
+    HostReadinessResult,
     ServerCheckResult,
     ServerPortScanEntry,
     ServerPortScanResult,
@@ -56,12 +61,16 @@ from app.api.schemas.server import (
     ServerKeyVaultResult,
     ServerOut,
     ServerUpdate,
+    TailnetSyncEntry,
+    TailnetSyncRequest,
+    TailnetSyncResult,
 )
+from app.api.routes.vpn import fetch_tailnet_status
 from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
-from app.db.models.server import Server, ServerService
+from app.db.models.server import HostGroup, HostGroupMember, Server, ServerService
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/servers", tags=["servers"])
@@ -175,10 +184,58 @@ def _probe_ssh(
         client.close()
 
 
+async def _group_ids_by_server(
+    db: AsyncSession, server_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[uuid.UUID]]:
+    if not server_ids:
+        return {}
+    rows = await db.execute(
+        select(HostGroupMember.server_id, HostGroupMember.group_id).where(
+            HostGroupMember.server_id.in_(server_ids)
+        )
+    )
+    out: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for server_id, group_id in rows.all():
+        out.setdefault(server_id, []).append(group_id)
+    return out
+
+
+async def _out(db: AsyncSession, server: Server, schema: type[ServerOut] = ServerOut) -> ServerOut:
+    """ServerOut with the machine's group memberships filled in (they live in
+    host_group_members, not on the row)."""
+    groups = await _group_ids_by_server(db, [server.id])
+    out = schema.model_validate(server)
+    out.group_ids = groups.get(server.id, [])
+    return out
+
+
+async def _set_server_groups(
+    db: AsyncSession, server_id: uuid.UUID, group_ids: list[uuid.UUID]
+) -> None:
+    """Replaces a machine's memberships. Unknown group ids are a 422, not a
+    silent drop -- the form would otherwise show a save that didn't happen."""
+    wanted = set(group_ids)
+    if wanted:
+        found = set(
+            (await db.execute(select(HostGroup.id).where(HostGroup.id.in_(wanted)))).scalars()
+        )
+        if missing := wanted - found:
+            raise HTTPException(status_code=422, detail=f"Unknown group(s): {sorted(map(str, missing))}")
+    await db.execute(delete(HostGroupMember).where(HostGroupMember.server_id == server_id))
+    for group_id in wanted:
+        db.add(HostGroupMember(group_id=group_id, server_id=server_id))
+
+
 @router.get("", response_model=list[ServerOut])
 async def list_servers(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Server).order_by(Server.name))
-    return list(result.scalars().all())
+    servers = list((await db.execute(select(Server).order_by(Server.name))).scalars().all())
+    groups = await _group_ids_by_server(db, [s.id for s in servers])
+    out = []
+    for server in servers:
+        item = ServerOut.model_validate(server)
+        item.group_ids = groups.get(server.id, [])
+        out.append(item)
+    return out
 
 
 @router.post("", response_model=ServerOut, status_code=status.HTTP_201_CREATED)
@@ -190,13 +247,259 @@ async def create_server(payload: ServerCreate, db: AsyncSession = Depends(get_db
     # Write-only on the schema, encrypted column on the model -- the names
     # deliberately differ so a plain **fields splat can never persist it raw.
     passphrase = fields.pop("key_passphrase", None)
+    group_ids = fields.pop("group_ids", None)
     server = Server(**fields)
     if passphrase:
         server.key_passphrase_encrypted = encrypt_secret(passphrase)
     db.add(server)
-    await db.commit()
+    try:
+        await db.flush()
+        if group_ids:
+            await _set_server_groups(db, server.id, group_ids)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="This tailnet device is already linked to another machine") from None
     await db.refresh(server)
-    return server
+    return await _out(db, server)
+
+
+# --- Tailnet inventory & readiness -------------------------------------------
+# Declared before /{server_id} so "readiness" is never parsed as a server id.
+
+# Tailscale reports these OS names; phones/tablets are not maintenance targets.
+_TAILNET_OS_FAMILY = {"windows": "windows", "linux": "linux", "macos": "macos"}
+_CLIENT_TAG_PREFIX = "tag:client-"
+
+
+def _unique_name(base: str, taken: set[str]) -> str:
+    name, n = base, 2
+    while name in taken:
+        name, n = f"{base}-{n}", n + 1
+    taken.add(name)
+    return name
+
+
+@router.post("/tailnet:sync", response_model=TailnetSyncResult)
+async def sync_from_tailnet(
+    payload: TailnetSyncRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """Reconciles the inventory with the tailnet's Windows/Linux/macOS peers.
+
+    A peer already linked by node ID gets its tailnet name refreshed (and, for
+    a workstation, its address -- a server keeps the address it is reached by,
+    e.g. SEMED's 172.15.x); an unlinked row with the same tailnet IP or the
+    same name gets linked. Anything else is reported as "available" and only
+    becomes a workstation when its node ID is sent in `import_node_ids` -- so
+    a device someone deleted, or one that isn't a client machine (an admin's
+    own notebook), is never recreated behind their back. Client, OS, groups
+    and login are never overwritten. A "tag:client-<slug>" tag is a
+    suggestion only. Nothing is deleted: a linked device that left the tailnet
+    is listed in `missing_server_ids`.
+    """
+    to_import = set(payload.import_node_ids) if payload else set()
+    tailnet = await fetch_tailnet_status()
+    if tailnet.server.state == "unavailable":
+        raise HTTPException(status_code=502, detail="Tailnet status is unavailable")
+
+    servers = list((await db.execute(select(Server))).scalars().all())
+    by_node = {s.tailnet_node_id: s for s in servers if s.tailnet_node_id}
+    unlinked = [s for s in servers if not s.tailnet_node_id]
+    taken_names = {s.name for s in servers}
+    seen_nodes: set[str] = set()
+    entries: list[TailnetSyncEntry] = []
+
+    def find_unlinked(ip: str, names: set[str]) -> Server | None:
+        for candidate in unlinked:
+            if candidate.ip_address == ip or candidate.name.lower() in names:
+                return candidate
+        return None
+
+    for peer in tailnet.peers:
+        family = _TAILNET_OS_FAMILY.get((peer.os or "").lower())
+        if family is None or not peer.tailscale_ipv4:
+            continue
+        seen_nodes.add(peer.id)
+        display = peer.name or peer.hostname or peer.id
+        names = {n.lower() for n in (peer.name, peer.hostname) if n}
+        server = by_node.get(peer.id)
+        if server is not None:
+            new_ip = peer.tailscale_ipv4 if server.kind == "workstation" else server.ip_address
+            changed = server.tailnet_name != display or server.ip_address != new_ip
+            server.tailnet_name = display
+            server.ip_address = new_ip
+            outcome = "updated" if changed else "unchanged"
+        elif (server := find_unlinked(peer.tailscale_ipv4, names)) is not None:
+            unlinked.remove(server)
+            server.tailnet_node_id = peer.id
+            server.tailnet_name = display
+            outcome = "linked"
+        elif peer.id in to_import:
+            server = Server(
+                name=_unique_name(display, taken_names),
+                ip_address=peer.tailscale_ipv4,
+                remote_user="",
+                kind="workstation",
+                os_family=family,
+                environment="client",
+                tailnet_node_id=peer.id,
+                tailnet_name=display,
+            )
+            db.add(server)
+            await db.flush()
+            outcome = "created"
+        else:
+            outcome = "available"
+        tag = next((t for t in peer.tags if t.startswith(_CLIENT_TAG_PREFIX)), None)
+        entries.append(
+            TailnetSyncEntry(
+                node_id=peer.id,
+                name=display,
+                tailscale_ipv4=peer.tailscale_ipv4,
+                os=peer.os,
+                online=peer.online,
+                tags=peer.tags,
+                outcome=outcome,
+                server_id=server.id if server is not None else None,
+                suggested_client_tag=tag[len(_CLIENT_TAG_PREFIX):] if tag else None,
+            )
+        )
+    await db.commit()
+    missing = [s.id for node, s in by_node.items() if node not in seen_nodes]
+    return TailnetSyncResult(entries=entries, missing_server_ids=missing)
+
+
+# Probing every machine over SSH on each poll would be a storm of logins in
+# every station's security log; the tailnet answer is cheap and refreshed far
+# more often. Single uvicorn worker, so an in-process cache is enough.
+SSH_PROBE_TTL = timedelta(minutes=5)
+_ssh_probe_cache: dict[str, object] = {"at": None, "statuses": {}}
+_ssh_probe_lock = asyncio.Lock()
+
+
+async def _probe_many_via_bridge(servers: list[Server]) -> dict[str, str] | None:
+    if not servers:
+        return {}
+    payload = {
+        "servers": [
+            {
+                "id": str(s.id),
+                "ip_address": s.ip_address,
+                "remote_user": s.remote_user,
+                "ssh_port": s.ssh_port,
+                "ssh_key_path": s.ssh_key_path,
+            }
+            for s in servers
+        ]
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{settings.CHAT_BRIDGE_URL}/v1/servers/check-status",
+                json=payload,
+                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+            )
+        if resp.status_code != 200:
+            return None
+        statuses = resp.json()["statuses"]
+        return statuses if isinstance(statuses, dict) else None
+    except (httpx.HTTPError, KeyError, ValueError):
+        return None
+
+
+def classify_readiness(
+    server: Server,
+    *,
+    tailnet_available: bool,
+    tailnet_online: bool | None,
+    ssh: str | None,
+) -> tuple[str, str | None]:
+    """Pure decision table for one machine. `tailnet_online` is None when the
+    row isn't linked to a tailnet node (e.g. SEMED servers reached directly);
+    `ssh` is the bridge probe's answer, None when it couldn't be read. A
+    source that couldn't be read degrades to "unknown", never to "offline"."""
+    if not server.access_enabled:
+        return "disabled", "Access is turned off in ForgeHub"
+    if not server.remote_user:
+        return "not_prepared", "No login set for this machine yet"
+    if server.tailnet_node_id and tailnet_available and tailnet_online is False:
+        return "offline", "Offline in the tailnet"
+    if ssh == "active":
+        return "ready", None
+    if ssh == "not_installed":
+        return "online_no_access", "Answers SSH, but the key was refused"
+    if ssh == "off":
+        if tailnet_online:
+            return "not_prepared", "Online in the tailnet, but SSH is not enabled"
+        return "offline", "SSH port unreachable"
+    return "unknown", "Could not probe SSH"
+
+
+@router.get("/readiness", response_model=HostReadinessResult)
+async def get_readiness(
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """Whether each machine can take a command right now. The tailnet is read
+    on every call; the SSH probe is cached for 5 minutes (`refresh=true`
+    forces it) and only runs for machines that could answer (enabled, with a
+    login, not offline in the tailnet). "busy" arrives with phase 4 (command
+    executions) -- nothing produces it yet."""
+    servers = list((await db.execute(select(Server).order_by(Server.name))).scalars().all())
+    tailnet = await fetch_tailnet_status()
+    tailnet_available = tailnet.server.state != "unavailable"
+    online_by_node = {p.id: p.online for p in tailnet.peers}
+
+    def tailnet_online(server: Server) -> bool | None:
+        if not server.tailnet_node_id or not tailnet_available:
+            return None
+        return online_by_node.get(server.tailnet_node_id, False)
+
+    probe_targets = [
+        s
+        for s in servers
+        if s.access_enabled and s.remote_user and tailnet_online(s) is not False
+    ]
+    async with _ssh_probe_lock:
+        now = datetime.now(timezone.utc)
+        cached_at = _ssh_probe_cache["at"]
+        cached: dict[str, str] = _ssh_probe_cache["statuses"]  # type: ignore[assignment]
+        stale = [
+            s
+            for s in probe_targets
+            if refresh or cached_at is None or now - cached_at > SSH_PROBE_TTL or str(s.id) not in cached
+        ]
+        if stale:
+            fresh = await _probe_many_via_bridge(stale)
+            if fresh is not None:
+                if refresh or cached_at is None or now - cached_at > SSH_PROBE_TTL:
+                    cached = {}
+                    _ssh_probe_cache["at"] = now
+                cached.update(fresh)
+                _ssh_probe_cache["statuses"] = cached
+        ssh_checked_at = _ssh_probe_cache["at"]
+
+    entries = []
+    for server in servers:
+        online = tailnet_online(server)
+        ssh = cached.get(str(server.id))
+        readiness, detail = classify_readiness(
+            server, tailnet_available=tailnet_available, tailnet_online=online, ssh=ssh
+        )
+        entries.append(
+            HostReadinessEntry(
+                server_id=server.id, readiness=readiness, tailnet_online=online, ssh=ssh, detail=detail
+            )
+        )
+    return HostReadinessResult(
+        entries=entries,
+        checked_at=datetime.now(timezone.utc),
+        tailnet_available=tailnet_available,
+        ssh_checked_at=ssh_checked_at,  # type: ignore[arg-type]
+    )
 
 
 @router.get("/{server_id}", response_model=ServerDetailOut)
@@ -212,7 +515,7 @@ async def get_server(
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    out = ServerDetailOut.model_validate(server)
+    out = await _out(db, server, ServerDetailOut)
     if server.key_passphrase_encrypted:
         try:
             out.key_passphrase = decrypt_secret(server.key_passphrase_encrypted)
@@ -237,11 +540,18 @@ async def update_server(server_id: uuid.UUID, payload: ServerUpdate, db: AsyncSe
         # it.
         passphrase = fields.pop("key_passphrase")
         server.key_passphrase_encrypted = encrypt_secret(passphrase) if passphrase else None
+    group_ids = fields.pop("group_ids", None)
     for field, value in fields.items():
         setattr(server, field, value)
-    await db.commit()
+    if group_ids is not None:
+        await _set_server_groups(db, server.id, group_ids)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="This tailnet device is already linked to another machine") from None
     await db.refresh(server)
-    return server
+    return await _out(db, server)
 
 
 @router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -312,7 +622,7 @@ async def toggle_server_access(server_id: uuid.UUID, db: AsyncSession = Depends(
     server.access_enabled = not server.access_enabled
     await db.commit()
     await db.refresh(server)
-    return server
+    return await _out(db, server)
 
 
 @router.post("/{server_id}/install-key", response_model=ServerInstallKeyResult)
@@ -410,7 +720,7 @@ async def read_and_store_public_key(
     server.public_key = resp.json()["public_key"]
     await db.commit()
     await db.refresh(server)
-    return server
+    return await _out(db, server)
 
 
 # ---------------------------------------------------------------------------

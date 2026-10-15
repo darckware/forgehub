@@ -1,0 +1,174 @@
+{
+  "title": "Acceso Remoto",
+  "subtitle": "Red privada Tailscale: este servidor y los dispositivos alcanzables para mantenimiento.",
+  "loading": "Cargando la red privada...",
+  "refresh": "Actualizar",
+  "cancel": "Cancelar",
+  "privateOnly": "El mantenimiento usa solo la red privada Tailscale; nada pasa por la IP pública. Cloudflare sigue siendo responsable solo de los servicios publicados.",
+  "degraded": {
+    "title": "Lectura parcial",
+    "description": "Parte de la telemetría no pudo actualizarse. Los datos disponibles siguen visibles; actualice antes de ejecutar una acción."
+  },
+  "unavailable": {
+    "title": "Acceso Remoto no disponible",
+    "description": "No fue posible consultar el Tailscale de este servidor. Verifique el host bridge e intente de nuevo."
+  },
+  "server": {
+    "title": "Este servidor",
+    "daemon": "Servicio",
+    "dns": "DNS de la tailnet",
+    "routes": "Acepta rutas",
+    "ssh": "SSH de Tailscale",
+    "exitNode": "Exit node",
+    "restart": "Reiniciar Tailscale"
+  },
+  "totals": {
+    "devices": "Dispositivos",
+    "online": "En línea",
+    "offline": "Desconectados"
+  },
+  "devices": {
+    "title": "Dispositivos de la tailnet",
+    "search": "Buscar por nombre, IP, SO o grupo",
+    "group": "Grupo",
+    "state": "Estado",
+    "allGroups": "Todos los grupos",
+    "noGroup": "Sin grupo",
+    "all": "Todos",
+    "empty": "Ningún dispositivo con estos filtros.",
+    "groupSummary": "{{online}} de {{total}} en línea",
+    "name": "Dispositivo",
+    "os": "SO",
+    "ip": "IP privada",
+    "status": "Estado",
+    "path": "Conexión",
+    "lastSeen": "Visto por última vez",
+    "actions": "Acciones",
+    "now": "ahora",
+    "test": "Probar",
+    "testFor": "Probar conexión con {{name}}"
+  },
+  "path": {
+    "direct": "Directa",
+    "derp": "Relay {{relay}}",
+    "idle": "Sin tráfico",
+    "unavailable": "—"
+  },
+  "state": {
+    "online": "En línea",
+    "offline": "Desconectado",
+    "needs_login": "Requiere inicio de sesión",
+    "unavailable": "No disponible"
+  },
+  "daemon": {
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "unavailable": "No disponible"
+  },
+  "common": {
+    "enabled": "activado",
+    "disabled": "desactivado"
+  },
+  "result": {
+    "success": "{{summary}}",
+    "failure": "Falló: {{summary}}"
+  },
+  "action": {
+    "restart": "Reiniciar",
+    "test": "Probar",
+    "connect": "Conectar",
+    "disconnect": "Desconectar"
+  },
+  "confirmRestart": {
+    "title": "Reiniciar Tailscale en este servidor",
+    "description": "¿Reiniciar el servicio Tailscale en {{hostname}}? La conexión con todos los dispositivos puede oscilar unos segundos.",
+    "confirm": "Reiniciar"
+  },
+  "target": {
+    "self": "Este servidor",
+    "peer": "Dispositivo",
+    "local": "Host local (antiguo)",
+    "remote": "VPS remoto (antiguo)"
+  },
+  "history": {
+    "title": "Historial de operaciones",
+    "loading": "Cargando historial...",
+    "empty": "Ninguna operación registrada.",
+    "time": "Hora",
+    "actor": "Operador",
+    "target": "Destino",
+    "action": "Acción",
+    "result": "Resultado",
+    "summary": "Detalle"
+  },
+  "operationStatus": {
+    "running": "En curso",
+    "succeeded": "Completada",
+    "failed": "Falló"
+  },
+  "readiness": {
+    "ready": "Lista",
+    "busy": "Ocupada",
+    "online_no_access": "En línea sin acceso",
+    "offline": "Desconectada",
+    "not_prepared": "No preparada",
+    "disabled": "Desactivada",
+    "unknown": "Desconocido"
+  },
+  "os": {
+    "windows": "Windows",
+    "linux": "Linux",
+    "macos": "macOS"
+  },
+  "workstations": {
+    "title": "Estaciones de trabajo",
+    "totals": "{{ready}} de {{total}} listas · {{attention}} requieren atención · {{offline}} desconectadas",
+    "counts": "{{ready}}/{{total}} listas",
+    "attentionCount": "{{count}} requieren atención",
+    "offlineCount": "{{count}} desconectadas",
+    "syncTailnet": "Sincronizar desde la tailnet",
+    "probeNow": "Verificar ahora",
+    "newGroup": "Nuevo grupo",
+    "groupName": "Nombre del grupo",
+    "client": "Cliente",
+    "noClient": "Sin cliente",
+    "createGroup": "Crear grupo",
+    "search": "Buscar por nombre, IP, ubicación o cliente",
+    "filter": "Filtrar por disponibilidad",
+    "filters": {
+      "all": "Todas",
+      "attention": "Requieren atención"
+    },
+    "tailnetUnavailable": "No se pudo leer la tailnet ahora; la disponibilidad usa solo la sonda SSH y lo no leído aparece como Desconocido.",
+    "loadFailed": "No se pudieron cargar las estaciones.",
+    "empty": "No hay estaciones. Use \"Sincronizar desde la tailnet\" para traer los equipos de la red privada.",
+    "noMachines": "No hay estaciones para este cliente.",
+    "columns": {
+      "name": "Estación",
+      "os": "SO",
+      "location": "Ubicación",
+      "groups": "Grupos",
+      "login": "Login",
+      "readiness": "Disponibilidad"
+    },
+    "edit": "Editar",
+    "editFor": "Editar {{name}}",
+    "deleteGroup": "Eliminar grupo",
+    "deleteGroupFor": "Eliminar el grupo {{name}}",
+    "deleteGroupTitle": "¿Eliminar el grupo?",
+    "deleteGroupDescription": "Se eliminará el grupo {{name}}. Las estaciones siguen registradas; solo dejan de pertenecer a él.",
+    "sync": {
+      "created": "{{count}} nueva(s)",
+      "linked": "{{count}} vinculada(s)",
+      "updated": "{{count}} actualizada(s)",
+      "missing": "{{count}} fuera de la tailnet (conservadas)",
+      "nothing": "Nada cambió en la tailnet.",
+      "failed": "No se pudo leer la tailnet para sincronizar.",
+      "available": "{{count}} disponible(s) para importar"
+    },
+    "import": {
+      "help": "Dispositivos de la tailnet que aún no están en el inventario. Marque los que son estaciones de clientes; los demás siguen solo en la tailnet y no vuelven solos.",
+      "action": "Importar seleccionadas ({{count}})"
+    }
+  }
+}

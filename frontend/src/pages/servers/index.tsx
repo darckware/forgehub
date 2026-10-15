@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
@@ -318,7 +318,14 @@ function ImportCsvModal({ onClose }: { onClose: () => void }) {
 export default function ServersPage() {
   const { t } = useTranslation("servers");
   const navigate = useNavigate();
-  const { data: servers, isLoading } = useServers();
+  const { data: allMachines, isLoading } = useServers();
+  // Client workstations are managed on the Remote Access page; this one stays
+  // the infrastructure inventory. Memoized so the auto-check effect below
+  // keeps firing on a real change only.
+  const servers = useMemo(
+    () => allMachines?.filter((s) => s.kind !== "workstation"),
+    [allMachines],
+  );
   const deleteServer = useDeleteServer();
   const toggleAccess = useToggleServerAccess();
   // Probe state lives in a shared hook so the Workspace SSH menu shows the

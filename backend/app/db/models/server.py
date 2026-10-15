@@ -25,8 +25,29 @@ from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import Base, TimestampMixin
 
 
+# Plain String + CheckConstraint, per db/base.py's convention.
+HOST_KINDS = ("server", "workstation")
+HOST_OS_FAMILIES = ("linux", "windows", "macos")
+
+
 class Server(Base, TimestampMixin):
+    """A machine ForgeHub reaches over SSH -- a server or, since the Remote
+    Access rework (2026-10-15, docs/architecture/REMOTE_MAINTENANCE_PLAN.md),
+    a client's workstation. One table for both on purpose: the probe, the key
+    vault, the terminal and the Explorer already work per row, and a second
+    table would have to grow a copy of each."""
+
     __tablename__ = "servers"
+    __table_args__ = (
+        CheckConstraint("kind IN ('server', 'workstation')", name="ck_servers_kind"),
+        CheckConstraint(
+            "os_family IS NULL OR os_family IN ('linux', 'windows', 'macos')",
+            name="ck_servers_os_family",
+        ),
+        # A tailnet device is one machine: two rows claiming it would make the
+        # readiness of either a coin toss.
+        UniqueConstraint("tailnet_node_id", name="uq_servers_tailnet_node_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
@@ -97,6 +118,28 @@ class Server(Base, TimestampMixin):
         String(50), nullable=False, default="semed", server_default="semed"
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="server", server_default="server"
+    )
+    # Decides which preparation/install script and shell apply. NULL = not
+    # stated yet (every pre-2026-10-15 row), never guessed from the tailnet's
+    # reported OS without someone confirming it on the form.
+    os_family: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Local administrator login used once to install the key (and, later, the
+    # account whose password is rotated). Only the login -- the password is
+    # typed per action and never stored here.
+    admin_user: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Darckware client the machine belongs to (Darckware id, no FK -- same as
+    # products.darckware_client_id); the name is a display snapshot.
+    darckware_client_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    darckware_client_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Stable Tailscale node ID (survives renames and IP changes) and the
+    # machine name last seen for it.
+    tailnet_node_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tailnet_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     @property
     def private_key_stored(self) -> bool:
@@ -191,3 +234,45 @@ class ServerService(Base, TimestampMixin):
     # host so the URL is always rebuilt from the parent's current address.
     path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class HostGroup(Base, TimestampMixin):
+    """A named set of machines (e.g. "Secretaria -- térreo"), usually inside
+    one client, so a command or maintenance can target the set instead of
+    picking machines one by one. A machine can be in several groups."""
+
+    __tablename__ = "host_groups"
+    __table_args__ = (
+        # Same name may repeat across clients, never within one. NULLS NOT
+        # DISTINCT so client-less groups are unique among themselves too.
+        UniqueConstraint(
+            "darckware_client_id",
+            "name",
+            name="uq_host_groups_client_name",
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    darckware_client_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    darckware_client_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class HostGroupMember(Base, TimestampMixin):
+    __tablename__ = "host_group_members"
+    __table_args__ = (
+        UniqueConstraint("group_id", "server_id", name="uq_host_group_members_pair"),
+        Index("ix_host_group_members_server_id", "server_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.host_groups.id", ondelete="CASCADE"), nullable=False
+    )
+    server_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.servers.id", ondelete="CASCADE"), nullable=False
+    )

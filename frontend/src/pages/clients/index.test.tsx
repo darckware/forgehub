@@ -239,15 +239,10 @@ describe("Clients pages", () => {
     expect(mocks.revokeGrant).toHaveBeenCalledWith("grant-1", expect.objectContaining({ onSuccess: expect.any(Function) }));
   });
 
-  it("shows installation state and links to filtered history", () => {
+  it("shows installation state", () => {
     renderAt("/clients/client-1", <ClientDetailPage />, "/clients/:id");
 
     expect(screen.getByText("Online")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /ver histórico.*finance-01/i })).toHaveAttribute(
-      "href",
-      "/nexo-agents?client_id=client-1&workstation_id=ws-a",
-    );
-    expect(screen.queryByRole("link", { name: /ver histórico.*finance-02/i })).not.toBeInTheDocument();
     expect(screen.getAllByText("Não gerado")).toHaveLength(2);
   });
 

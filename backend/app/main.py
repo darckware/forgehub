@@ -67,6 +67,7 @@ from app.api.routes import (
     profiles,
     project,
     remote_access,
+    host_group,
     server,
     system_control,
     system_info,
@@ -380,6 +381,7 @@ app.include_router(database.router)
 app.include_router(users.router)
 app.include_router(profiles.router)
 app.include_router(server.router)
+app.include_router(host_group.router)
 app.include_router(remote_access.router)
 app.include_router(system_control.router)
 app.include_router(vpn.router)

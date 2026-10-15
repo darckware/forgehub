@@ -16,7 +16,7 @@ export const UI_LANGUAGE_OPTIONS = [
   { value: "es", label: "Español" },
 ] as const;
 
-export const NAMESPACES = ["artifact", "auditor", "clients", "crons", "deploy", "forgerouter", "nexoAgents", "vpn"] as const;
+export const NAMESPACES = ["artifact", "auditor", "clients", "crons", "deploy", "forgerouter", "remoteAccess"] as const;
 export type UiLanguage = (typeof SUPPORTED_UI_LANGUAGES)[number];
 
 function initialLanguage(): UiLanguage {

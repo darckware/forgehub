@@ -2,42 +2,49 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "@/lib/api";
 
-
-export type VpnNodeRole = "local" | "remote";
-export type VpnAction = "connect" | "disconnect" | "restart" | "test";
+/**
+ * Remote Access (formerly "VPN", 2026-10-15). The tailnet is read from the
+ * VPS's own point of view: `server` is this node and `peers` every device it
+ * can reach. Actions address "self" or a peer's stable Tailscale ID -- the
+ * backend resolves the address from a fresh read, never from the client.
+ */
+export type VpnAction = "restart" | "test";
 export type VpnNodeState = "online" | "offline" | "needs_login" | "unavailable";
 export type VpnPathKind = "direct" | "derp" | "idle" | "unavailable";
 
+export interface VpnPosture {
+  accept_dns: boolean;
+  accept_routes: boolean;
+  advertise_exit_node: boolean;
+  tailscale_ssh: boolean;
+  exit_node: boolean;
+  restricted: boolean;
+}
+
 export interface VpnNode {
-  role: VpnNodeRole;
+  id: string;
+  name: string | null;
   hostname: string | null;
+  dns_name: string | null;
+  os: string | null;
+  tags: string[];
   tailscale_ipv4: string | null;
   state: VpnNodeState;
   online: boolean;
   active: boolean;
   last_seen: string | null;
+  key_expiry: string | null;
   rx_bytes: number;
   tx_bytes: number;
-  daemon_state: string;
-  posture: {
-    accept_dns: boolean;
-    accept_routes: boolean;
-    advertise_exit_node: boolean;
-    tailscale_ssh: boolean;
-    exit_node: boolean;
-    restricted: boolean;
-  } | null;
+  connection: { kind: VpnPathKind; relay: string | null } | null;
+  daemon_state: string | null;
+  posture: VpnPosture | null;
 }
 
 export interface VpnStatus {
-  independent_from_cloudflare: true;
   backend_state: string;
-  nodes: VpnNode[];
-  connection: {
-    kind: VpnPathKind;
-    relay: string | null;
-    latency_ms: number | null;
-  };
+  server: VpnNode;
+  peers: VpnNode[];
   checked_at: string;
   source_error: string | null;
   sources: Array<{
@@ -51,8 +58,9 @@ export interface VpnStatus {
 export interface VpnOperation {
   id: string;
   actor_username: string | null;
-  target: VpnNodeRole;
-  action: VpnAction;
+  target: string;
+  target_name: string | null;
+  action: string;
   status: "running" | "succeeded" | "failed";
   result_code: string | null;
   summary: string | null;
@@ -66,22 +74,32 @@ export interface VpnActionResult {
   code: string;
   summary: string;
   operation_id: string;
+  target_name: string | null;
+  latency_ms: number | null;
+  path: "direct" | "derp" | null;
 }
+
+export const SELF_NODE = "self";
 
 export const vpnKeys = {
   status: ["vpn", "status"] as const,
   operations: ["vpn", "operations"] as const,
 };
 
-export function vpnActionPath(node: VpnNodeRole): string {
-  return `/api/v1/vpn/nodes/${node}/actions`;
+export function vpnActionPath(node: string): string {
+  return `/api/v1/vpn/nodes/${encodeURIComponent(node)}/actions`;
+}
+
+/** Tailscale tags are `tag:<name>`; the page groups and labels by `<name>`. */
+export function tagLabel(tag: string): string {
+  return tag.startsWith("tag:") ? tag.slice(4) : tag;
 }
 
 export function useVpnStatus() {
   return useQuery<VpnStatus>({
     queryKey: vpnKeys.status,
     queryFn: () => apiClient.get("/api/v1/vpn/status"),
-    refetchInterval: () => (document.visibilityState === "visible" ? 10_000 : false),
+    refetchInterval: () => (document.visibilityState === "visible" ? 15_000 : false),
     retry: false,
   });
 }
@@ -97,7 +115,7 @@ export function useVpnOperations() {
 
 export function useVpnAction() {
   const queryClient = useQueryClient();
-  return useMutation<VpnActionResult, Error, { node: VpnNodeRole; action: VpnAction }>({
+  return useMutation<VpnActionResult, Error, { node: string; action: VpnAction }>({
     mutationFn: ({ node, action }) => apiClient.post(vpnActionPath(node), { action }),
     onSettled: async () => {
       await Promise.all([

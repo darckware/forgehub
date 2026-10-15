@@ -13,7 +13,11 @@ from app.db.base import Base, TimestampMixin
 class VpnOperationEvent(Base, TimestampMixin):
     __tablename__ = "vpn_operation_events"
     __table_args__ = (
-        CheckConstraint("target IN ('local', 'remote')", name="ck_vpn_operation_events_target"),
+        # "self"/"peer" since the Remote Access rework (2026-10-15); "local"/
+        # "remote" and connect/disconnect only remain in older history rows.
+        CheckConstraint(
+            "target IN ('self', 'peer', 'local', 'remote')", name="ck_vpn_operation_events_target"
+        ),
         CheckConstraint(
             "action IN ('connect', 'disconnect', 'restart', 'test')",
             name="ck_vpn_operation_events_action",
@@ -33,6 +37,10 @@ class VpnOperationEvent(Base, TimestampMixin):
         nullable=True,
     )
     target: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Peer's stable Tailscale ID and machine name at the time of the action
+    # (the name is a snapshot: a device can be renamed later).
+    target_node_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     action: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
