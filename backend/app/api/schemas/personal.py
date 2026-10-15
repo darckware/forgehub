@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.personal_schedule import TZ
 from app.db.models.personal import (
+    PERSONAL_DEMAND_STATUSES,
     PERSONAL_EVENT_STATUSES,
     PERSONAL_RECURRENCES,
     PERSONAL_TASK_PRIORITIES,
@@ -180,3 +181,60 @@ class RemindersDueOut(BaseModel):
 class DaySummaryOut(BaseModel):
     day: str
     text: str
+
+
+class PersonalDemandTypeCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+    @field_validator("name")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("name is required")
+        return v
+
+
+class PersonalDemandTypeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    created_by: str
+    created_at: datetime
+
+
+class PersonalDemandCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    notes: str | None = None
+    type_id: uuid.UUID | None = None
+
+
+class PersonalDemandUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    notes: str | None = None
+    type_id: uuid.UUID | None = None
+    status: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status(cls, v: str | None) -> str | None:
+        return _choice(v, PERSONAL_DEMAND_STATUSES, "status")
+
+
+class PersonalDemandOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    notes: str | None
+    type_id: uuid.UUID | None
+    status: str
+    completed_at: datetime | None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonalDemandsDelete(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=200)

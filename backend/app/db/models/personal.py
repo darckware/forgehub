@@ -1,4 +1,4 @@
-"""Personal domain -- Marcelo's own tasks, agenda and notes (2026-10-07).
+"""Personal domain -- Marcelo's own tasks, agenda, notes (2026-10-07) and demands (2026-10-14).
 
 Marcelo: "não seria bom criar no ForgeHub lista de tarefas, anotações, agenda para a Maia ter
 acesso". These rows belong to Marcelo, not to any product/version/project: the traceability chain of
@@ -14,7 +14,7 @@ and moving the moment re-arms them. Recurring items roll forward to their next o
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,7 @@ PERSONAL_RECURRENCES = ("", "daily", "weekly", "monthly", "yearly")
 PERSONAL_TASK_STATUSES = ("pending", "done", "cancelled")
 PERSONAL_TASK_PRIORITIES = ("low", "normal", "high")
 PERSONAL_EVENT_STATUSES = ("scheduled", "cancelled")
+PERSONAL_DEMAND_STATUSES = ("open", "done")
 
 
 def _in(values: tuple[str, ...]) -> str:
@@ -88,4 +89,36 @@ class PersonalNote(Base, TimestampMixin):
     tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False, default="marcelo", server_default="marcelo")
+
+
+class PersonalDemandType(Base, TimestampMixin):
+    """A demand type Marcelo registers and removes on the Pessoal screen's Demandas tab
+    (2026-10-14: "agrupar por tipo. Os tipo posso cadastrar e remover dentro da própria tela,
+    ela se torna um tag"). Shown as the demand's tag and as its group header."""
+
+    __tablename__ = "personal_demand_types"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(60), nullable=False, unique=True)
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False, default="marcelo", server_default="marcelo")
+
+
+class PersonalDemand(Base, TimestampMixin):
+    """Something Marcelo has to get done, grouped by type. Removing a type never removes its
+    demands: the FK is SET NULL, so they fall back to the "Sem tipo" group."""
+
+    __tablename__ = "personal_demands"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(PERSONAL_DEMAND_STATUSES)})", name="ck_personal_demands_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    type_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.personal_demand_types.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="open", server_default="open")
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str] = mapped_column(String(50), nullable=False, default="marcelo", server_default="marcelo")

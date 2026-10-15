@@ -1,4 +1,4 @@
-/** Personal domain (Marcelo's tasks, agenda and notes -- api/routes/personal.py).
+/** Personal domain (Marcelo's tasks, agenda, notes and demands -- api/routes/personal.py).
  *
  * Datetimes travel as naive São Paulo wall time ("2026-10-08T15:00:00"), the backend's convention:
  * the agenda belongs to one person in one city. Helpers below build/split those strings from the
@@ -68,6 +68,30 @@ export interface AgendaItem {
   overdue: boolean;
 }
 
+/** A demand type: registered and removed on the Demandas tab, shown as the demand's tag. */
+export interface PersonalDemandType {
+  id: string;
+  name: string;
+  created_by: string;
+  created_at: string;
+}
+
+export type DemandStatus = "open" | "done";
+
+export interface PersonalDemand {
+  id: string;
+  title: string;
+  notes: string | null;
+  type_id: string | null;
+  status: DemandStatus;
+  completed_at: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DemandInput = Partial<Pick<PersonalDemand, "title" | "notes" | "type_id" | "status">>;
+
 export type TaskInput = Partial<Pick<PersonalTask, "title" | "notes" | "list_name" | "priority" | "due_at" | "due_has_time" | "recurrence" | "reminders" | "status">>;
 export type EventInput = Partial<Pick<PersonalEvent, "title" | "starts_at" | "ends_at" | "all_day" | "location" | "notes" | "recurrence" | "reminders" | "status">>;
 export type NoteInput = Partial<Pick<PersonalNote, "title" | "content" | "tags" | "pinned" | "archived">>;
@@ -77,6 +101,8 @@ const keys = {
   tasks: (status: string) => ["personal", "tasks", status] as const,
   agenda: (start: string, end: string) => ["personal", "agenda", start, end] as const,
   notes: (q: string, archived: boolean) => ["personal", "notes", q, archived] as const,
+  demands: (status: string) => ["personal", "demands", status] as const,
+  demandTypes: ["personal", "demand-types"] as const,
 };
 
 function qs(params: Record<string, string | boolean | undefined>): string {
@@ -193,6 +219,62 @@ export function useDeletePersonalItem() {
   const invalidate = useInvalidatePersonal();
   return useMutation<void, Error, { kind: "tasks" | "events" | "notes"; id: string }>({
     mutationFn: ({ kind, id }) => apiClient.delete(`${BASE}/${kind}/${id}`),
+    onSettled: invalidate,
+  });
+}
+
+export function usePersonalDemands(status: DemandStatus) {
+  return useQuery<PersonalDemand[]>({
+    queryKey: keys.demands(status),
+    queryFn: () => apiClient.get(`${BASE}/demands${qs({ status })}`),
+  });
+}
+
+export function usePersonalDemandTypes() {
+  return useQuery<PersonalDemandType[]>({
+    queryKey: keys.demandTypes,
+    queryFn: () => apiClient.get(`${BASE}/demand-types`),
+  });
+}
+
+export function useCreatePersonalDemand() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<PersonalDemand, Error, DemandInput>({
+    mutationFn: (body) => apiClient.post(`${BASE}/demands`, body),
+    onSettled: invalidate,
+  });
+}
+
+export function useUpdatePersonalDemand() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<PersonalDemand, Error, { id: string; body: DemandInput }>({
+    mutationFn: ({ id, body }) => apiClient.patch(`${BASE}/demands/${id}`, body),
+    onSettled: invalidate,
+  });
+}
+
+/** One or many demands at once (the tab's bulk and per-row delete share it). */
+export function useDeletePersonalDemands() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<void, Error, string[]>({
+    mutationFn: (ids) => apiClient.post(`${BASE}/demands:delete`, { ids }),
+    onSettled: invalidate,
+  });
+}
+
+export function useCreatePersonalDemandType() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<PersonalDemandType, Error, string>({
+    mutationFn: (name) => apiClient.post(`${BASE}/demand-types`, { name }),
+    onSettled: invalidate,
+  });
+}
+
+/** Removes the tag only; its demands stay, with no type. */
+export function useDeletePersonalDemandType() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => apiClient.delete(`${BASE}/demand-types/${id}`),
     onSettled: invalidate,
   });
 }

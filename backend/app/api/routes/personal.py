@@ -1,4 +1,4 @@
-"""Personal domain routes: Marcelo's tasks, agenda and notes (2026-10-07).
+"""Personal domain routes: Marcelo's tasks, agenda, notes (2026-10-07) and demands (2026-10-14).
 
 Access: the admin user (the ForgeHub UI) and the agents in ``settings.PERSONAL_AGENT_SLUGS``
 (default ``maia``, his personal assistant, with her own ``agt_`` credential). Every other user or
@@ -13,11 +13,17 @@ import uuid
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.personal import (
     AgendaItemOut,
+    PersonalDemandCreate,
+    PersonalDemandOut,
+    PersonalDemandsDelete,
+    PersonalDemandTypeCreate,
+    PersonalDemandTypeOut,
+    PersonalDemandUpdate,
     DaySummaryOut,
     PersonalEventCreate,
     PersonalEventOut,
@@ -41,7 +47,7 @@ from app.core.personal_schedule import (
     task_moment,
 )
 from app.db.base import get_db
-from app.db.models.personal import PersonalEvent, PersonalNote, PersonalTask
+from app.db.models.personal import PersonalDemand, PersonalDemandType, PersonalEvent, PersonalNote, PersonalTask
 
 router = APIRouter(prefix="/api/v1/personal", tags=["personal"])
 
@@ -281,6 +287,97 @@ async def delete_note(note_id: uuid.UUID, actor: str = Depends(personal_actor),
                       db: AsyncSession = Depends(get_db)) -> None:
     _owner_only(actor)
     await db.delete(await _get(db, PersonalNote, note_id))
+    await db.commit()
+
+
+# --- demands and their types --------------------------------------------------------------------
+
+@router.get("/demand-types", response_model=list[PersonalDemandTypeOut])
+async def list_demand_types(actor: str = Depends(personal_actor),
+                            db: AsyncSession = Depends(get_db)) -> list[PersonalDemandType]:
+    stmt = select(PersonalDemandType).order_by(func.lower(PersonalDemandType.name))
+    return list((await db.execute(stmt)).scalars())
+
+
+@router.post("/demand-types", response_model=PersonalDemandTypeOut, status_code=status.HTTP_201_CREATED)
+async def create_demand_type(payload: PersonalDemandTypeCreate, actor: str = Depends(personal_actor),
+                             db: AsyncSession = Depends(get_db)) -> PersonalDemandType:
+    """Case-insensitive unique: "Casa" and "casa" are the same tag (409)."""
+    clash = (
+        await db.execute(select(PersonalDemandType).where(func.lower(PersonalDemandType.name) == payload.name.lower()))
+    ).scalars().first()
+    if clash is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "A demand type with this name already exists")
+    demand_type = PersonalDemandType(name=payload.name, created_by=actor)
+    db.add(demand_type)
+    await db.commit()
+    await db.refresh(demand_type)
+    return demand_type
+
+
+@router.delete("/demand-types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_demand_type(type_id: uuid.UUID, actor: str = Depends(personal_actor),
+                             db: AsyncSession = Depends(get_db)) -> None:
+    """Removes the tag only: its demands stay, with no type (FK ON DELETE SET NULL)."""
+    _owner_only(actor)
+    await db.delete(await _get(db, PersonalDemandType, type_id))
+    await db.commit()
+
+
+@router.get("/demands", response_model=list[PersonalDemandOut])
+async def list_demands(
+    demand_status: str | None = Query(default="open", alias="status"),
+    type_id: uuid.UUID | None = None,
+    actor: str = Depends(personal_actor),
+    db: AsyncSession = Depends(get_db),
+) -> list[PersonalDemand]:
+    stmt = select(PersonalDemand)
+    if demand_status:
+        stmt = stmt.where(PersonalDemand.status == demand_status)
+    if type_id:
+        stmt = stmt.where(PersonalDemand.type_id == type_id)
+    stmt = stmt.order_by(PersonalDemand.created_at.desc())
+    return list((await db.execute(stmt)).scalars())
+
+
+async def _check_type(db: AsyncSession, type_id: uuid.UUID | None) -> None:
+    if type_id is not None and await db.get(PersonalDemandType, type_id) is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown demand type")
+
+
+@router.post("/demands", response_model=PersonalDemandOut, status_code=status.HTTP_201_CREATED)
+async def create_demand(payload: PersonalDemandCreate, actor: str = Depends(personal_actor),
+                        db: AsyncSession = Depends(get_db)) -> PersonalDemand:
+    await _check_type(db, payload.type_id)
+    demand = PersonalDemand(**payload.model_dump(), created_by=actor)
+    db.add(demand)
+    await db.commit()
+    await db.refresh(demand)
+    return demand
+
+
+@router.patch("/demands/{demand_id}", response_model=PersonalDemandOut)
+async def update_demand(demand_id: uuid.UUID, payload: PersonalDemandUpdate, actor: str = Depends(personal_actor),
+                        db: AsyncSession = Depends(get_db)) -> PersonalDemand:
+    demand = await _get(db, PersonalDemand, demand_id)
+    changes = payload.model_dump(exclude_unset=True)
+    if "type_id" in changes:
+        await _check_type(db, changes["type_id"])
+    if "status" in changes and changes["status"] != demand.status:
+        demand.completed_at = datetime.now().astimezone() if changes["status"] == "done" else None
+    for key, value in changes.items():
+        setattr(demand, key, value)
+    await db.commit()
+    await db.refresh(demand)
+    return demand
+
+
+@router.post("/demands:delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_demands(payload: PersonalDemandsDelete, actor: str = Depends(personal_actor),
+                         db: AsyncSession = Depends(get_db)) -> None:
+    """One or many at once (the screen's bulk delete); unknown ids are simply ignored."""
+    _owner_only(actor)
+    await db.execute(delete(PersonalDemand).where(PersonalDemand.id.in_(payload.ids)))
     await db.commit()
 
 

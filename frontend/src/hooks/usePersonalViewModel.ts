@@ -1,4 +1,4 @@
-/** ViewModels of the Personal page (tasks, agenda, notes) -- §21 pattern: state and actions here,
+/** ViewModels of the Personal page (tasks, agenda, notes, demands) -- §21 pattern: state and actions here,
  * the page renders them. Each tab has its own small state machine; destructive actions go through
  * a `confirming` target the page shows in a ConfirmDialog. */
 import { useMemo, useState } from "react";
@@ -7,6 +7,13 @@ import {
   joinLocal,
   todayLocal,
   useCompletePersonalTask,
+  useCreatePersonalDemand,
+  useCreatePersonalDemandType,
+  useDeletePersonalDemands,
+  useDeletePersonalDemandType,
+  usePersonalDemandTypes,
+  usePersonalDemands,
+  useUpdatePersonalDemand,
   useCreatePersonalEvent,
   useCreatePersonalNote,
   useCreatePersonalTask,
@@ -18,6 +25,8 @@ import {
   useUpdatePersonalNote,
   useUpdatePersonalTask,
   type AgendaItem,
+  type PersonalDemand,
+  type PersonalDemandType,
   type PersonalNote,
   type PersonalTask,
   type Recurrence,
@@ -271,3 +280,177 @@ export function usePersonalDeleteViewModel() {
     error: del.error ? errorText(del.error) : null,
   };
 }
+
+/* ---------------------------------------------------------------- demands */
+
+/** Group key of demands with no type (never registered, or their type was removed). */
+export const NO_TYPE = "";
+
+export interface DemandGroup {
+  typeId: string;
+  name: string | null;
+  demands: PersonalDemand[];
+}
+
+/** One group per type in the types' own order, then "Sem tipo"; empty groups are left out. */
+export function groupDemands(demands: PersonalDemand[], types: PersonalDemandType[]): DemandGroup[] {
+  const known = new Set(types.map((t) => t.id));
+  const groups: DemandGroup[] = types.map((t) => ({ typeId: t.id, name: t.name, demands: [] }));
+  const untyped: DemandGroup = { typeId: NO_TYPE, name: null, demands: [] };
+  const byId = new Map(groups.map((g) => [g.typeId, g]));
+  for (const d of demands) {
+    (d.type_id && known.has(d.type_id) ? byId.get(d.type_id)! : untyped).demands.push(d);
+  }
+  return [...groups, untyped].filter((g) => g.demands.length > 0);
+}
+
+export interface DemandDraft {
+  title: string;
+  notes: string;
+  typeId: string;
+}
+
+/** Either demands (one or many) or a type awaiting the delete confirmation. */
+export type DemandDeleteTarget =
+  | { kind: "demands"; ids: string[]; title?: string }
+  | { kind: "type"; id: string; name: string; count: number };
+
+export function usePersonalDemandsViewModel() {
+  const [showDone, setShowDone] = useState(false);
+  const query = usePersonalDemands(showDone ? "done" : "open");
+  const typesQuery = usePersonalDemandTypes();
+  const create = useCreatePersonalDemand();
+  const update = useUpdatePersonalDemand();
+  const remove = useDeletePersonalDemands();
+  const createType = useCreatePersonalDemandType();
+  const removeType = useDeletePersonalDemandType();
+  const [draft, setDraft] = useState<DemandDraft>({ title: "", notes: "", typeId: NO_TYPE });
+  const [status, setStatus] = useState<FormStatus>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [typeName, setTypeName] = useState("");
+  const [typeError, setTypeError] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [checked, setChecked] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<DemandDeleteTarget | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const demands = query.data ?? [];
+  const types = typesQuery.data ?? [];
+  const groups = useMemo(() => groupDemands(demands, types), [demands, types]);
+  const visibleGroups = typeFilter === null ? groups : groups.filter((g) => g.typeId === typeFilter);
+  const visibleIds = visibleGroups.flatMap((g) => g.demands.map((d) => d.id));
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const g of groups) c[g.typeId] = g.demands.length;
+    return c;
+  }, [groups]);
+  const allChecked = visibleIds.length > 0 && visibleIds.every((id) => checked.includes(id));
+
+  return {
+    query,
+    types,
+    groups: visibleGroups,
+    counts,
+    typeName: (id: string | null) => types.find((t) => t.id === id)?.name ?? null,
+    showDone,
+    setShowDone(value: boolean) {
+      setShowDone(value);
+      setChecked([]);
+    },
+    typeFilter,
+    setTypeFilter(value: string | null) {
+      setTypeFilter(value);
+      setChecked([]);
+    },
+    draft,
+    setDraft,
+    status: create.isPending ? ("submitting" as const) : status,
+    error,
+    async submit() {
+      if (!draft.title.trim()) return;
+      try {
+        await create.mutateAsync({
+          title: draft.title.trim(),
+          notes: draft.notes.trim() || null,
+          type_id: draft.typeId || null,
+        });
+        // Keeps the chosen type: several demands of the same type are usually added in a row.
+        setDraft({ title: "", notes: "", typeId: draft.typeId });
+        setStatus("idle");
+        setError(null);
+      } catch (e) {
+        setStatus("error");
+        setError(errorText(e));
+      }
+    },
+    newTypeName: typeName,
+    setNewTypeName: setTypeName,
+    typeError,
+    addingType: createType.isPending,
+    async addType() {
+      const name = typeName.trim();
+      if (!name) return;
+      try {
+        const created = await createType.mutateAsync(name);
+        setTypeName("");
+        setTypeError(null);
+        setDraft((d) => ({ ...d, typeId: d.typeId || created.id }));
+      } catch (e) {
+        setTypeError(errorText(e));
+      }
+    },
+    busyId,
+    async toggleDone(demand: PersonalDemand) {
+      setBusyId(demand.id);
+      try {
+        await update.mutateAsync({ id: demand.id, body: { status: demand.status === "done" ? "open" : "done" } });
+        setChecked((c) => c.filter((id) => id !== demand.id));
+      } finally {
+        setBusyId(null);
+      }
+    },
+    async changeType(demand: PersonalDemand, typeId: string) {
+      await update.mutateAsync({ id: demand.id, body: { type_id: typeId || null } });
+    },
+    checked,
+    isChecked: (id: string) => checked.includes(id),
+    toggleChecked(id: string) {
+      setChecked((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+    },
+    allChecked,
+    toggleAll() {
+      setChecked(allChecked ? [] : visibleIds);
+    },
+    deleteTarget,
+    deleteError,
+    deleting: remove.isPending || removeType.isPending,
+    askDeleteDemands(ids: string[], title?: string) {
+      setDeleteError(null);
+      if (ids.length > 0) setDeleteTarget({ kind: "demands", ids, title });
+    },
+    askDeleteType(type: PersonalDemandType) {
+      setDeleteError(null);
+      setDeleteTarget({ kind: "type", id: type.id, name: type.name, count: counts[type.id] ?? 0 });
+    },
+    cancelDelete: () => setDeleteTarget(null),
+    async confirmDelete() {
+      if (!deleteTarget) return;
+      try {
+        if (deleteTarget.kind === "demands") {
+          await remove.mutateAsync(deleteTarget.ids);
+          setChecked((c) => c.filter((id) => !deleteTarget.ids.includes(id)));
+        } else {
+          await removeType.mutateAsync(deleteTarget.id);
+          if (typeFilter === deleteTarget.id) setTypeFilter(null);
+          if (draft.typeId === deleteTarget.id) setDraft((d) => ({ ...d, typeId: NO_TYPE }));
+        }
+        setDeleteTarget(null);
+      } catch (e) {
+        setDeleteError(errorText(e));
+      }
+    },
+  };
+}
+
+export type PersonalDemandsViewModel = ReturnType<typeof usePersonalDemandsViewModel>;

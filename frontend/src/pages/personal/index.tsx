@@ -6,6 +6,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Circle,
+  ClipboardList,
   ListTodo,
   Loader2,
   MapPin,
@@ -14,6 +15,7 @@ import {
   PinOff,
   Plus,
   Repeat,
+  Tag,
   Trash2,
   User,
   X,
@@ -29,8 +31,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { splitLocal, todayLocal, type AgendaItem, type PersonalTask, type Recurrence } from "@/hooks/usePersonal";
 import {
+  NO_TYPE,
   usePersonalAgendaViewModel,
   usePersonalDeleteViewModel,
+  usePersonalDemandsViewModel,
   usePersonalNotesViewModel,
   usePersonalTasksViewModel,
   type DeleteTarget,
@@ -67,10 +71,12 @@ export default function PersonalPage() {
           <TabsTrigger value="tasks"><ListTodo className="mr-1.5 h-4 w-4" />{t("tabs.tasks")}</TabsTrigger>
           <TabsTrigger value="agenda"><CalendarDays className="mr-1.5 h-4 w-4" />{t("tabs.agenda")}</TabsTrigger>
           <TabsTrigger value="notes"><NotebookPen className="mr-1.5 h-4 w-4" />{t("tabs.notes")}</TabsTrigger>
+          <TabsTrigger value="demands"><ClipboardList className="mr-1.5 h-4 w-4" />{t("tabs.demands")}</TabsTrigger>
         </TabsList>
         <TabsContent value="tasks"><TasksTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="agenda"><AgendaTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="notes"><NotesTab onDelete={del.ask} /></TabsContent>
+        <TabsContent value="demands"><DemandsTab /></TabsContent>
       </Tabs>
       <ConfirmDialog
         open={Boolean(del.target)}
@@ -201,6 +207,214 @@ function TasksTab({ onDelete }: { onDelete: (t: DeleteTarget) => void }) {
           </section>
         ),
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ demands */
+
+/** Demands grouped by type (2026-10-14, Marcelo: "uma aba de demandas que posso adicionar e
+ * agrupar por tipo. Os tipo posso cadastrar e remover dentro da própria tela, ela se torna um tag"). */
+function DemandsTab() {
+  const { t } = useTranslation("personal");
+  const vm = usePersonalDemandsViewModel();
+  const target = vm.deleteTarget;
+
+  return (
+    <div className="flex flex-col gap-4 pt-4">
+      <Card>
+        <CardContent className="flex flex-col gap-3 p-4">
+          <form
+            className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,3fr)_minmax(0,1fr)_auto]"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void vm.submit();
+            }}
+          >
+            <Input
+              placeholder={t("demands.newPlaceholder")}
+              value={vm.draft.title}
+              onChange={(e) => vm.setDraft({ ...vm.draft, title: e.target.value })}
+              className="max-md:text-base"
+            />
+            <select className={fieldClass} value={vm.draft.typeId} aria-label={t("demands.type")}
+              onChange={(e) => vm.setDraft({ ...vm.draft, typeId: e.target.value })}>
+              <option value={NO_TYPE}>{t("demands.noType")}</option>
+              {vm.types.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+            </select>
+            <Button type="submit" disabled={vm.status === "submitting" || !vm.draft.title.trim()}>
+              {vm.status === "submitting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              <span className="ml-1">{t("actions.add")}</span>
+            </Button>
+          </form>
+          <Textarea
+            rows={2}
+            placeholder={t("demands.notesPlaceholder")}
+            value={vm.draft.notes}
+            onChange={(e) => vm.setDraft({ ...vm.draft, notes: e.target.value })}
+            className="max-md:text-base"
+          />
+          {vm.error && <p className="text-sm text-destructive">{vm.error}</p>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="flex flex-col gap-2 p-4">
+          <p className="text-sm font-semibold">{t("demands.types")}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant={vm.typeFilter === null ? "default" : "outline"} onClick={() => vm.setTypeFilter(null)}>
+              {t("demands.allTypes")}
+            </Button>
+            {vm.types.map((type) => (
+              <span
+                key={type.id}
+                className={cn(
+                  "inline-flex items-center rounded-full border text-sm",
+                  vm.typeFilter === type.id && "border-primary bg-primary text-primary-foreground",
+                )}
+              >
+                <button type="button" className="inline-flex items-center gap-1 py-1 pl-3 pr-1" onClick={() => vm.setTypeFilter(type.id)}>
+                  <Tag className="h-3.5 w-3.5" />
+                  {type.name}
+                  <span className="opacity-70">({vm.counts[type.id] ?? 0})</span>
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full p-1 pr-2 opacity-70 hover:opacity-100"
+                  aria-label={t("demands.removeType", { name: type.name })}
+                  onClick={() => vm.askDeleteType(type)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+            <form
+              className="flex items-center gap-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void vm.addType();
+              }}
+            >
+              <Input
+                placeholder={t("demands.newType")}
+                value={vm.newTypeName}
+                onChange={(e) => vm.setNewTypeName(e.target.value)}
+                className="h-8 w-40 max-md:text-base"
+                maxLength={60}
+              />
+              <Button type="submit" size="sm" variant="outline" disabled={vm.addingType || !vm.newTypeName.trim()}>
+                {vm.addingType ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              </Button>
+            </form>
+          </div>
+          {vm.typeError && <p className="text-sm text-destructive">{vm.typeError}</p>}
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {vm.groups.length > 0 && (
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" className="h-4 w-4" checked={vm.allChecked} onChange={vm.toggleAll} />
+            {vm.checked.length > 0 ? t("demands.selected", { count: vm.checked.length }) : t("demands.selectAll")}
+          </label>
+        )}
+        {vm.checked.length > 0 && (
+          <Button size="sm" variant="destructive" onClick={() => vm.askDeleteDemands(vm.checked)}>
+            <Trash2 className="mr-1 h-4 w-4" /> {t("demands.deleteSelected", { count: vm.checked.length })}
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => vm.setShowDone(!vm.showDone)}>
+          {vm.showDone ? t("demands.showOpen") : t("demands.showDone")}
+        </Button>
+      </div>
+
+      {vm.query.isLoading && <Loader2 className="mx-auto h-5 w-5 animate-spin" />}
+      {vm.query.isError && <p className="text-sm text-destructive">{String(vm.query.error)}</p>}
+      {!vm.query.isLoading && vm.groups.length === 0 && (
+        <p className="text-sm text-muted-foreground">{vm.showDone ? t("demands.emptyDone") : t("demands.empty")}</p>
+      )}
+
+      {vm.groups.map((group) => (
+        <section key={group.typeId || "none"} className="flex flex-col gap-2">
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+            <Tag className="h-3.5 w-3.5" />
+            {group.name ?? t("demands.noType")} <span className="text-muted-foreground">({group.demands.length})</span>
+          </h3>
+          <Card>
+            <ul className="divide-y">
+              {group.demands.map((demand) => (
+                <li key={demand.id} className="flex items-start gap-3 p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4"
+                    checked={vm.isChecked(demand.id)}
+                    onChange={() => vm.toggleChecked(demand.id)}
+                    aria-label={t("demands.select", { title: demand.title })}
+                  />
+                  <button
+                    type="button"
+                    className="mt-0.5 text-muted-foreground hover:text-primary"
+                    aria-label={demand.status === "done" ? t("actions.reopen") : t("actions.complete")}
+                    disabled={vm.busyId === demand.id}
+                    onClick={() => void vm.toggleDone(demand)}
+                  >
+                    {vm.busyId === demand.id ? <Loader2 className="h-5 w-5 animate-spin" />
+                      : demand.status === "done" ? <CheckCircle2 className="h-5 w-5 text-primary" /> : <Circle className="h-5 w-5" />}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className={cn("break-words text-sm font-medium", demand.status === "done" && "text-muted-foreground line-through")}>
+                      {demand.title}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      {vm.typeName(demand.type_id) && (
+                        <Badge variant="outline"><Tag className="mr-1 h-3 w-3" />{vm.typeName(demand.type_id)}</Badge>
+                      )}
+                      {demand.created_by !== "marcelo" && <span>{t("byAgent", { agent: demand.created_by })}</span>}
+                    </div>
+                    {demand.notes && <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">{demand.notes}</p>}
+                  </div>
+                  <select
+                    className={cn(fieldClass, "h-8 max-w-[9rem] text-xs max-md:hidden")}
+                    value={demand.type_id ?? NO_TYPE}
+                    aria-label={t("demands.type")}
+                    onChange={(e) => void vm.changeType(demand, e.target.value)}
+                  >
+                    <option value={NO_TYPE}>{t("demands.noType")}</option>
+                    {vm.types.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+                  </select>
+                  <Button size="icon" variant="ghost" aria-label={t("actions.delete")}
+                    className="opacity-60 hover:opacity-100"
+                    onClick={() => vm.askDeleteDemands([demand.id], demand.title)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </section>
+      ))}
+
+      <ConfirmDialog
+        open={Boolean(target)}
+        title={
+          target?.kind === "type"
+            ? t("demands.deleteType.title", { name: target.name })
+            : t("demands.deleteDemands.title", { count: target?.kind === "demands" ? target.ids.length : 0 })
+        }
+        description={
+          target?.kind === "type"
+            ? t("demands.deleteType.description", { count: target.count })
+            : target?.kind === "demands" && target.title
+              ? t("delete.description", { title: target.title })
+              : t("demands.deleteDemands.description", { count: target?.kind === "demands" ? target.ids.length : 0 })
+        }
+        confirmLabel={t("delete.confirm")}
+        variant="destructive"
+        loading={vm.deleting}
+        error={vm.deleteError}
+        onConfirm={() => void vm.confirmDelete()}
+        onCancel={vm.cancelDelete}
+      />
     </div>
   );
 }

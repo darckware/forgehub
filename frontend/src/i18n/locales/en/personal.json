@@ -4,7 +4,8 @@
   "tabs": {
     "tasks": "Tasks",
     "agenda": "Agenda",
-    "notes": "Notes"
+    "notes": "Notes",
+    "demands": "Demands"
   },
   "fields": {
     "date": "Date",
@@ -85,5 +86,36 @@
     "description": "\"{{title}}\" will be deleted and cannot be recovered.",
     "confirm": "Delete"
   },
-  "byAgent": "created by {{agent}}"
+  "byAgent": "created by {{agent}}",
+  "demands": {
+    "newPlaceholder": "New demand...",
+    "notesPlaceholder": "Details (optional)",
+    "type": "Type",
+    "noType": "No type",
+    "types": "Types",
+    "allTypes": "All",
+    "newType": "New type",
+    "removeType": "Remove type {{name}}",
+    "selectAll": "Select all",
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "select": "Select \"{{title}}\"",
+    "deleteSelected": "Delete ({{count}})",
+    "showDone": "Show done",
+    "showOpen": "Show open",
+    "empty": "No open demands.",
+    "emptyDone": "No done demands.",
+    "deleteDemands": {
+      "title_one": "Delete demand?",
+      "title_other": "Delete {{count}} demands?",
+      "description_one": "The demand will be deleted and can't be recovered.",
+      "description_other": "The {{count}} demands will be deleted and can't be recovered."
+    },
+    "deleteType": {
+      "title": "Remove type \"{{name}}\"?",
+      "description_zero": "No open demand uses this type.",
+      "description_one": "Its demand stays, now under \"No type\".",
+      "description_other": "Its {{count}} demands stay, now under \"No type\"."
+    }
+  }
 }

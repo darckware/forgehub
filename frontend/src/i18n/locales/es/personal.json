@@ -4,7 +4,8 @@
   "tabs": {
     "tasks": "Tareas",
     "agenda": "Agenda",
-    "notes": "Notas"
+    "notes": "Notas",
+    "demands": "Demandas"
   },
   "fields": {
     "date": "Fecha",
@@ -85,5 +86,36 @@
     "description": "\"{{title}}\" se eliminará y no se podrá recuperar.",
     "confirm": "Eliminar"
   },
-  "byAgent": "creada por {{agent}}"
+  "byAgent": "creada por {{agent}}",
+  "demands": {
+    "newPlaceholder": "Nueva demanda...",
+    "notesPlaceholder": "Detalles (opcional)",
+    "type": "Tipo",
+    "noType": "Sin tipo",
+    "types": "Tipos",
+    "allTypes": "Todos",
+    "newType": "Nuevo tipo",
+    "removeType": "Quitar el tipo {{name}}",
+    "selectAll": "Seleccionar todas",
+    "selected_one": "{{count}} seleccionada",
+    "selected_other": "{{count}} seleccionadas",
+    "select": "Seleccionar \"{{title}}\"",
+    "deleteSelected": "Eliminar ({{count}})",
+    "showDone": "Ver concluidas",
+    "showOpen": "Ver abiertas",
+    "empty": "Ninguna demanda abierta.",
+    "emptyDone": "Ninguna demanda concluida.",
+    "deleteDemands": {
+      "title_one": "¿Eliminar demanda?",
+      "title_other": "¿Eliminar {{count}} demandas?",
+      "description_one": "La demanda se eliminará y no podrá recuperarse.",
+      "description_other": "Las {{count}} demandas se eliminarán y no podrán recuperarse."
+    },
+    "deleteType": {
+      "title": "¿Quitar el tipo \"{{name}}\"?",
+      "description_zero": "Ninguna demanda abierta usa este tipo.",
+      "description_one": "Su demanda sigue existiendo, ahora en \"Sin tipo\".",
+      "description_other": "Sus {{count}} demandas siguen existiendo, ahora en \"Sin tipo\"."
+    }
+  }
 }

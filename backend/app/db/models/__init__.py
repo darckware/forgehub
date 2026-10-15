@@ -116,4 +116,10 @@ from app.db.models.operations import (  # noqa: F401
     AgentRoutineRun,
     OperationsPolicy,
 )
-from app.db.models.personal import PersonalEvent, PersonalNote, PersonalTask  # noqa: F401
+from app.db.models.personal import (  # noqa: F401
+    PersonalDemand,
+    PersonalDemandType,
+    PersonalEvent,
+    PersonalNote,
+    PersonalTask,
+)
