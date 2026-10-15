@@ -4,8 +4,10 @@
  * groups, a live readiness badge per machine and "Sync from tailnet". State
  * lives in useWorkstationsViewModel; this file only renders it.
  */
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderPlus, Loader2, Monitor, Pencil, RefreshCw, Search, Trash2, Waypoints, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { FolderPlus, Loader2, Monitor, Pencil, RefreshCw, Search, TerminalSquare, Trash2, Waypoints, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +20,7 @@ import { useDarckwareClients } from "@/hooks/useClientOps";
 import type { HostReadiness, HostReadinessEntry, ReadinessCounts } from "@/hooks/useHostInventory";
 import { useWorkstationsViewModel, type ReadinessFilter } from "@/hooks/useWorkstationsViewModel";
 import { ServerForm } from "@/pages/servers/ServerForm";
+import { RunCommandDialog } from "./RunCommandDialog";
 
 const READINESS_VARIANT: Record<HostReadiness, "success" | "warning" | "destructive" | "outline" | "secondary"> = {
   ready: "success",
@@ -52,6 +55,8 @@ export function WorkstationsCard() {
   const { t } = useTranslation("remoteAccess");
   const vm = useWorkstationsViewModel();
   const { data: clientList } = useDarckwareClients();
+  const navigate = useNavigate();
+  const [runOn, setRunOn] = useState<string[] | null>(null);
 
   const syncSummary = vm.syncResult
     ? (["created", "linked", "updated", "available"] as const)
@@ -254,7 +259,17 @@ export function WorkstationsCard() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{machine.remote_user || "—"}</TableCell>
                         <TableCell><ReadinessBadge entry={vm.readinessOf(machine.id)} t={t} /></TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="whitespace-nowrap text-right">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setRunOn([machine.id])}
+                            aria-label={t("workstations.runFor", { name: machine.name })}
+                            className="mr-2 cursor-pointer gap-1.5"
+                          >
+                            <TerminalSquare className="h-3.5 w-3.5" aria-hidden="true" /> {t("workstations.run")}
+                          </Button>
                           <Button
                             type="button"
                             size="sm"
@@ -277,6 +292,13 @@ export function WorkstationsCard() {
       </CardContent>
 
       {vm.editing && <ServerForm initial={vm.editing} onClose={vm.closeEdit} />}
+      {runOn && (
+        <RunCommandDialog
+          initialServerIds={runOn}
+          onClose={() => setRunOn(null)}
+          onStarted={(execution) => navigate(`/remote-access/executions/${execution.id}`)}
+        />
+      )}
 
       <ConfirmDialog
         open={vm.deletingGroup !== null}

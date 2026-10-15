@@ -169,6 +169,80 @@
     "import": {
       "help": "Dispositivos de la tailnet que aún no están en el inventario. Marque los que son estaciones de clientes; los demás siguen solo en la tailnet y no vuelven solos.",
       "action": "Importar seleccionadas ({{count}})"
-    }
+    },
+    "run": "Ejecutar",
+    "runFor": "Ejecutar comando en {{name}}"
+  },
+  "verdict": {
+    "running": "En ejecución",
+    "pending": "En cola",
+    "succeeded": "Completada con éxito",
+    "failed": "Falló",
+    "skipped": "No ejecutada",
+    "nothing_ran": "Nada ejecutado"
+  },
+  "failure": {
+    "timeout": "Tiempo agotado",
+    "auth": "Clave rechazada (acceso denegado)",
+    "connection": "No conectó — el comando no se ejecutó",
+    "command": "El comando terminó con error",
+    "interrupted": "Interrumpida por un reinicio de ForgeHub"
+  },
+  "run": {
+    "title": "Ejecutar comando",
+    "targets": "Dónde ejecutar",
+    "groupLabel": "Grupo {{name}} ({{size}})",
+    "targetCount_one": "{{count}} máquina seleccionada",
+    "targetCount_other": "{{count}} máquinas seleccionadas",
+    "shell": "Tipo de comando",
+    "shells": {
+      "sh": "Linux/macOS (sh)",
+      "powershell": "Windows (PowerShell)"
+    },
+    "timeout": "Tiempo límite (segundos)",
+    "mixedOs": "La selección mezcla Windows con Linux/macOS: las máquinas incompatibles con el tipo elegido quedan como \"No ejecutada\".",
+    "command": "Comando",
+    "maskingNote": "Contraseñas, tokens y claves en el comando y la salida se enmascaran antes de guardarse.",
+    "review": "Revisar",
+    "back": "Volver",
+    "reviewSummary_one": "Se ejecutará en {{count}} máquina, como {{shell}}, con límite de {{timeout}} s:",
+    "reviewSummary_other": "Se ejecutará en {{count}} máquinas, como {{shell}}, con límite de {{timeout}} s:",
+    "reviewNote": "Las máquinas desactivadas, sin login, con sistema incompatible u ocupadas con otro comando se omiten y muestran el motivo.",
+    "confirm_one": "Ejecutar en {{count}} máquina",
+    "confirm_other": "Ejecutar en {{count}} máquinas"
+  },
+  "executions": {
+    "title": "Ejecuciones",
+    "run": "Ejecutar comando",
+    "loadFailed": "No se pudieron cargar las ejecuciones.",
+    "empty": "Aún no se ejecutaron comandos.",
+    "when": "Cuándo",
+    "command": "Comando",
+    "targets": "Dónde",
+    "results": "Resultado",
+    "verdict": "Estado",
+    "followUp": "Corrección de una ejecución anterior",
+    "countsLine": "{{ok}} ok · {{failed}} con fallo · {{skipped}} omitida(s) de {{total}}"
+  },
+  "execution": {
+    "title": "Ejecución",
+    "subtitle": "Por {{who}} el {{when}} · {{targets}}",
+    "notFound": "Ejecución no encontrada.",
+    "loadFailed": "No se pudo cargar la ejecución.",
+    "cancel": "Detener",
+    "cancelled": "Detenida",
+    "cancelTitle": "¿Detener la ejecución?",
+    "cancelDescription": "{{count}} máquina(s) que aún no comenzaron no se ejecutarán. Las que ya están corriendo terminan normalmente.",
+    "fixFailed": "Corregir las que fallaron ({{count}})",
+    "fixTitle": "Corrección en las {{count}} máquina(s) que fallaron",
+    "runFix": "Ejecutar corrección ({{count}})",
+    "command": "Comando ({{shell}})",
+    "parent": "Corrección de la ejecución anterior",
+    "followUpLink": "Corrección {{n}}",
+    "perMachine": "Resultado por máquina",
+    "exitCode": "código {{code}}",
+    "stdout": "Salida",
+    "stderr": "Errores",
+    "truncated": "Salida cortada en 64 KB."
   }
 }

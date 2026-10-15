@@ -26,6 +26,7 @@ vi.mock("@/hooks/useVpn", async (importOriginal) => {
 
 // The workstations card has its own test (WorkstationsCard.test.tsx).
 vi.mock("./WorkstationsCard", () => ({ WorkstationsCard: () => null }));
+vi.mock("./ExecutionsCard", () => ({ ExecutionsCard: () => null }));
 
 function node(overrides: Partial<VpnNode>): VpnNode {
   return {

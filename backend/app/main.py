@@ -67,6 +67,7 @@ from app.api.routes import (
     profiles,
     project,
     remote_access,
+    host_execution,
     host_group,
     server,
     system_control,
@@ -86,6 +87,19 @@ from app.api.routes import (
 )
 
 
+async def _recover_host_executions() -> None:
+    """Commands that were running when the process stopped can't report back;
+    close them as interrupted instead of leaving them "running" forever."""
+    from app.core.host_exec_runner import recover_interrupted_executions
+
+    try:
+        closed = await recover_interrupted_executions()
+        if closed:
+            logger.warning("Closed %d host execution result(s) interrupted by a restart", closed)
+    except Exception:
+        logger.exception("Could not recover interrupted host executions")
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Initialize application state and own every background worker.
@@ -95,6 +109,7 @@ async def _lifespan(_app: FastAPI):
     started here is cancelled when the application exits.
     """
     await _bootstrap_admin()
+    await _recover_host_executions()
     await _start_background_tasks()
     try:
         yield
@@ -382,6 +397,7 @@ app.include_router(users.router)
 app.include_router(profiles.router)
 app.include_router(server.router)
 app.include_router(host_group.router)
+app.include_router(host_execution.router)
 app.include_router(remote_access.router)
 app.include_router(system_control.router)
 app.include_router(vpn.router)

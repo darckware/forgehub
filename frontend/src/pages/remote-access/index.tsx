@@ -27,6 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useRemoteAccessViewModel, type DeviceStateFilter } from "@/hooks/useRemoteAccessViewModel";
 import type { VpnNode, VpnOperation } from "@/hooks/useVpn";
 import { cn } from "@/lib/utils";
+import { ExecutionsCard } from "./ExecutionsCard";
 import { WorkstationsCard } from "./WorkstationsCard";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
@@ -185,6 +186,8 @@ export default function RemoteAccessPage() {
       </div>
 
       <WorkstationsCard />
+
+      <ExecutionsCard />
 
       <Card>
         <CardHeader className="flex flex-col gap-3 space-y-0 pb-3">

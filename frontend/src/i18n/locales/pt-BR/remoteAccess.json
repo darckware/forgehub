@@ -169,6 +169,80 @@
     "import": {
       "help": "Dispositivos da tailnet que ainda não estão no inventário. Marque os que são estações de clientes; os demais continuam só na tailnet e não voltam sozinhos.",
       "action": "Importar selecionadas ({{count}})"
-    }
+    },
+    "run": "Executar",
+    "runFor": "Executar comando em {{name}}"
+  },
+  "verdict": {
+    "running": "Em execução",
+    "pending": "Na fila",
+    "succeeded": "Concluída com sucesso",
+    "failed": "Falhou",
+    "skipped": "Não executada",
+    "nothing_ran": "Nada executado"
+  },
+  "failure": {
+    "timeout": "Tempo esgotado",
+    "auth": "Chave recusada (acesso negado)",
+    "connection": "Não conectou — o comando não rodou",
+    "command": "O comando terminou com erro",
+    "interrupted": "Interrompida por reinício do ForgeHub"
+  },
+  "run": {
+    "title": "Executar comando",
+    "targets": "Onde executar",
+    "groupLabel": "Grupo {{name}} ({{size}})",
+    "targetCount_one": "{{count}} máquina selecionada",
+    "targetCount_other": "{{count}} máquinas selecionadas",
+    "shell": "Tipo de comando",
+    "shells": {
+      "sh": "Linux/macOS (sh)",
+      "powershell": "Windows (PowerShell)"
+    },
+    "timeout": "Tempo limite (segundos)",
+    "mixedOs": "A seleção mistura Windows com Linux/macOS: as máquinas incompatíveis com o tipo escolhido ficam como \"Não executada\".",
+    "command": "Comando",
+    "maskingNote": "Senhas, tokens e chaves no comando e na saída são mascarados antes de serem gravados.",
+    "review": "Revisar",
+    "back": "Voltar",
+    "reviewSummary_one": "Será executado em {{count}} máquina, como {{shell}}, com limite de {{timeout}} s:",
+    "reviewSummary_other": "Será executado em {{count}} máquinas, como {{shell}}, com limite de {{timeout}} s:",
+    "reviewNote": "Máquinas desativadas, sem login, com sistema incompatível ou ocupadas com outro comando são puladas e aparecem com o motivo.",
+    "confirm_one": "Executar em {{count}} máquina",
+    "confirm_other": "Executar em {{count}} máquinas"
+  },
+  "executions": {
+    "title": "Execuções",
+    "run": "Executar comando",
+    "loadFailed": "Não foi possível carregar as execuções.",
+    "empty": "Nenhum comando executado ainda.",
+    "when": "Quando",
+    "command": "Comando",
+    "targets": "Onde",
+    "results": "Resultado",
+    "verdict": "Situação",
+    "followUp": "Correção de uma execução anterior",
+    "countsLine": "{{ok}} ok · {{failed}} falha(s) · {{skipped}} pulada(s) de {{total}}"
+  },
+  "execution": {
+    "title": "Execução",
+    "subtitle": "Por {{who}} em {{when}} · {{targets}}",
+    "notFound": "Execução não encontrada.",
+    "loadFailed": "Não foi possível carregar a execução.",
+    "cancel": "Parar",
+    "cancelled": "Parada",
+    "cancelTitle": "Parar a execução?",
+    "cancelDescription": "{{count}} máquina(s) que ainda não começaram não vão executar. As que já estão rodando terminam normalmente.",
+    "fixFailed": "Corrigir as que falharam ({{count}})",
+    "fixTitle": "Correção nas {{count}} máquina(s) que falharam",
+    "runFix": "Executar correção ({{count}})",
+    "command": "Comando ({{shell}})",
+    "parent": "Correção da execução anterior",
+    "followUpLink": "Correção {{n}}",
+    "perMachine": "Resultado por máquina",
+    "exitCode": "código {{code}}",
+    "stdout": "Saída",
+    "stderr": "Erros",
+    "truncated": "Saída cortada em 64 KB."
   }
 }

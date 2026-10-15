@@ -169,6 +169,80 @@
     "import": {
       "help": "Tailnet devices not in the inventory yet. Tick the ones that are client workstations; the rest stay in the tailnet only and never come back by themselves.",
       "action": "Import selected ({{count}})"
-    }
+    },
+    "run": "Run",
+    "runFor": "Run a command on {{name}}"
+  },
+  "verdict": {
+    "running": "Running",
+    "pending": "Queued",
+    "succeeded": "Succeeded",
+    "failed": "Failed",
+    "skipped": "Not run",
+    "nothing_ran": "Nothing ran"
+  },
+  "failure": {
+    "timeout": "Timed out",
+    "auth": "Key refused (access denied)",
+    "connection": "Could not connect — the command did not run",
+    "command": "The command exited with an error",
+    "interrupted": "Interrupted by a ForgeHub restart"
+  },
+  "run": {
+    "title": "Run a command",
+    "targets": "Where to run",
+    "groupLabel": "Group {{name}} ({{size}})",
+    "targetCount_one": "{{count}} machine selected",
+    "targetCount_other": "{{count}} machines selected",
+    "shell": "Command type",
+    "shells": {
+      "sh": "Linux/macOS (sh)",
+      "powershell": "Windows (PowerShell)"
+    },
+    "timeout": "Timeout (seconds)",
+    "mixedOs": "The selection mixes Windows with Linux/macOS: machines that don't fit the chosen type show as \"Not run\".",
+    "command": "Command",
+    "maskingNote": "Passwords, tokens and keys in the command and output are masked before being stored.",
+    "review": "Review",
+    "back": "Back",
+    "reviewSummary_one": "Will run on {{count}} machine, as {{shell}}, with a {{timeout}} s limit:",
+    "reviewSummary_other": "Will run on {{count}} machines, as {{shell}}, with a {{timeout}} s limit:",
+    "reviewNote": "Machines that are disabled, have no login, run an incompatible OS or are busy with another command are skipped and show the reason.",
+    "confirm_one": "Run on {{count}} machine",
+    "confirm_other": "Run on {{count}} machines"
+  },
+  "executions": {
+    "title": "Executions",
+    "run": "Run a command",
+    "loadFailed": "Could not load executions.",
+    "empty": "No commands run yet.",
+    "when": "When",
+    "command": "Command",
+    "targets": "Where",
+    "results": "Results",
+    "verdict": "Status",
+    "followUp": "Fix for an earlier execution",
+    "countsLine": "{{ok}} ok · {{failed}} failed · {{skipped}} skipped of {{total}}"
+  },
+  "execution": {
+    "title": "Execution",
+    "subtitle": "By {{who}} on {{when}} · {{targets}}",
+    "notFound": "Execution not found.",
+    "loadFailed": "Could not load the execution.",
+    "cancel": "Stop",
+    "cancelled": "Stopped",
+    "cancelTitle": "Stop the execution?",
+    "cancelDescription": "{{count}} machine(s) that haven't started won't run. Those already running finish normally.",
+    "fixFailed": "Fix the failed ones ({{count}})",
+    "fixTitle": "Fix on the {{count}} failed machine(s)",
+    "runFix": "Run fix ({{count}})",
+    "command": "Command ({{shell}})",
+    "parent": "Fix for the previous execution",
+    "followUpLink": "Fix {{n}}",
+    "perMachine": "Result per machine",
+    "exitCode": "exit {{code}}",
+    "stdout": "Output",
+    "stderr": "Errors",
+    "truncated": "Output cut at 64 KB."
   }
 }

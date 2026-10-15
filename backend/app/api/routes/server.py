@@ -65,6 +65,7 @@ from app.api.schemas.server import (
     TailnetSyncRequest,
     TailnetSyncResult,
 )
+from app.api.routes.host_execution import busy_server_ids
 from app.api.routes.vpn import fetch_tailnet_status
 from app.core.config import settings
 from app.core.deps import get_current_admin
@@ -447,7 +448,7 @@ async def get_readiness(
     on every call; the SSH probe is cached for 5 minutes (`refresh=true`
     forces it) and only runs for machines that could answer (enabled, with a
     login, not offline in the tailnet). "busy" arrives with phase 4 (command
-    executions) -- nothing produces it yet."""
+    executions) -- a machine with a command queued or running."""
     servers = list((await db.execute(select(Server).order_by(Server.name))).scalars().all())
     tailnet = await fetch_tailnet_status()
     tailnet_available = tailnet.server.state != "unavailable"
@@ -482,6 +483,7 @@ async def get_readiness(
                 _ssh_probe_cache["statuses"] = cached
         ssh_checked_at = _ssh_probe_cache["at"]
 
+    busy = await busy_server_ids(db)
     entries = []
     for server in servers:
         online = tailnet_online(server)
@@ -489,6 +491,8 @@ async def get_readiness(
         readiness, detail = classify_readiness(
             server, tailnet_available=tailnet_available, tailnet_online=online, ssh=ssh
         )
+        if server.id in busy and readiness != "disabled":
+            readiness, detail = "busy", "Running a command"
         entries.append(
             HostReadinessEntry(
                 server_id=server.id, readiness=readiness, tailnet_online=online, ssh=ssh, detail=detail

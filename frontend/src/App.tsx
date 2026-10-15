@@ -63,6 +63,7 @@ import SystemMapPage from "@/pages/system-map";
 import ProjectScopePage from "@/pages/project-scope";
 import CockpitPage from "@/pages/cockpit";
 import RemoteAccessPage from "@/pages/remote-access";
+import ExecutionPage from "@/pages/remote-access/ExecutionPage";
 
 import ScreenInspectorPage from "@/pages/screen-inspector";
 import ConceptErdViewerPage from "@/pages/concept-erd";
@@ -141,6 +142,7 @@ export default function App() {
         <Route path="clients/new" element={<NewClientPage />} />
         <Route path="clients/:id" element={<ClientDetailPage />} />
         <Route path="remote-access" element={<RequireAdmin><RemoteAccessPage /></RequireAdmin>} />
+        <Route path="remote-access/executions/:id" element={<RequireAdmin><ExecutionPage /></RequireAdmin>} />
         <Route path="vpn" element={<Navigate to="/remote-access" replace />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="profiles" element={<ProfilesPage />} />

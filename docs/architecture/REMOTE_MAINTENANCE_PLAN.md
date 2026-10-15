@@ -56,13 +56,19 @@ manutenções agendadas, credenciais na ForgeVault e tudo documentado/auditado.
 - [ ] Rotação de senha admin e RustDesk (manual, com validação).
 
 ### Fase 4 — Execução avulsa
-- [ ] Comando numa estação/grupo, resultado por estação, AuditEvent, mascaramento de segredos.
-- [ ] **Tela de execução** (Marcelo, 2026-10-15): por estação, o retorno de cada comando —
-      saída (stdout/stderr), exit code, duração — e o veredito claro: concluída com sucesso / falhou.
-- [ ] **Em caso de erro, encadear outros scripts**: a partir de uma execução com falha, escolher
-      um ou mais scripts da biblioteca e rodar só nas estações que falharam; a nova execução fica
-      ligada à original (histórico mostra a sequência: falha → correção → resultado).
+- [x] Comando numa estação/grupo, resultado por estação, AuditEvent, mascaramento de segredos
+      (`host_executions`/`host_execution_results`, migration `9d97a3417ce1`; bridge `POST /v1/servers/exec`
+      em `host-bridge/host_exec.py`; `core/secret_masking.py`). Uma execução por máquina por vez
+      (ocupada = "Não executada" com motivo, e "Ocupada" na prontidão). Recuperação por heartbeat:
+      só fecha como "interrompida" o que parou de dar sinal (dev e produção dividem o banco).
+- [x] **Tela de execução** (`/remote-access/executions/:id`): por estação, saída (stdout/stderr), exit code,
+      duração e veredito (concluída com sucesso / falhou / não executada, com o motivo); parar as que não começaram.
+- [x] **Em caso de erro, encadear correção**: "Corrigir as que falharam" roda outro comando só nas estações
+      que falharam; a nova execução fica ligada à original (falha → correção → resultado).
+      Escolher o script da biblioteca entra com a Fase 5.
 - [ ] Terminal/Explorer para Windows (PowerShell) — os atuais assumem shell POSIX.
+- [ ] Validar PowerShell numa estação Windows real (piloto). PowerShell por enquanto limitado a ~2.800
+      caracteres (linha de comando do cmd.exe); scripts maiores chegam com a biblioteca (cópia para a estação).
 
 ### Fase 5 — Roteiros, lote e agendamento
 - [ ] **Biblioteca de scripts (tarefas pré-cadastradas)**, reutilizáveis, versionados,
@@ -73,7 +79,7 @@ manutenções agendadas, credenciais na ForgeVault e tudo documentado/auditado.
 - [ ] Lote com canário e parada por limite de falhas; uma execução por estação.
 - [ ] Agendamento com janela no fuso do cliente; offline aguarda; janela fechada = "não executada".
 - [ ] Aprovação (Approval) para destrutivo/avulso; botão "parar todas as execuções".
-- [ ] Rotação em lote, periódica e após revelação.
+- [ ] Rotação em lote (sob demanda — sem rotação periódica, decisão 2).
 
 ### Fase 6 — Agente
 - [ ] MCP `list_hosts`/`host_exec`/`run_runbook`; despacho pelo Messages.
@@ -91,8 +97,15 @@ permissões por cliente, fuso, sudo sem senha (Linux/macOS), inventário, alerta
 retenção/mascaramento de logs, LGPD/contrato, estação de testes.
 
 ## Decisões pendentes
-1. Rotacionar a conta admin do cliente ou uma conta nossa (`darckware-adm`)?
-2. Intervalo padrão de rotação (30 dias?) e rotação após revelar (sim/não)?
+1. ~~Rotacionar a conta admin do cliente ou uma conta nossa?~~ **Decidido (Marcelo, 2026-10-15):**
+   a preparação entra com a conta local do cliente (`administrador`; a senha é digitada no
+   formulário a cada ação, nunca guardada). Ela cria em cada estação uma conta própria
+   **`darckware`**, com **senha forte única por estação** gravada na ForgeVault
+   (`WS_<CLIENTE>_<HOSTNAME>_LOGIN`) e a chave SSH instalada. Só depois de validar o login
+   com a `darckware`, a conta `administrador` é **desativada** (nunca antes, para não trancar a
+   estação). Daí em diante, a rotação é sempre da senha da `darckware`.
+2. ~~Intervalo de rotação?~~ **Decidido (Marcelo, 2026-10-15): rotação só quando solicitada**
+   (botão individual ou em lote), nunca automática por tempo nem disparada sozinha após revelar.
 3. Aprovação também para "alteração" ou só "destrutivo"?
 4. Manutenção consome franquia / entra no informe?
 5. Servidores SEMED 172.15.x: subnet router no `srv-sup` ou ProxyJump? (172.15/16 não é faixa privada.)

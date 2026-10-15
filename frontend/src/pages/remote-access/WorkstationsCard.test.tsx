@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import i18n from "@/i18n";
@@ -43,7 +44,7 @@ function renderCard() {
     return { items: [{ id: "c1", company_name: "Gatling" }] } as never;
   });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}><WorkstationsCard /></QueryClientProvider>);
+  return render(<MemoryRouter><QueryClientProvider client={qc}><WorkstationsCard /></QueryClientProvider></MemoryRouter>);
 }
 
 describe("WorkstationsCard", () => {
