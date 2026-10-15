@@ -36,6 +36,7 @@ HERMES_BIN = os.environ.get("HERMES_BIN", "/usr/local/bin/hermes")
 VALIDADE_S = 30 * 60
 MAX_TENTATIVAS = 3
 MAX_TEXTO = 4000
+INVENTARIO_STALE_S = 30 * 86400
 
 
 class GroupError(Exception):
@@ -72,14 +73,91 @@ def _mensagens(chat: str) -> list[dict]:
     return itens
 
 
+def _grupo_id_from_filename(caminho: Path) -> str | None:
+    """Returns a group id only for the plugin's safe, numeric file names."""
+    if caminho.name.startswith("_") or caminho.suffix != ".jsonl":
+        return None
+    prefix = caminho.stem
+    if not prefix.isdigit():
+        return None
+    return f"{prefix}@g.us"
+
+
+def _bridge_group_catalog() -> None:
+    """The current WhatsApp bridge has no read-only group-catalog endpoint.
+
+    Keep this seam explicit so a future bridge catalog can be added without
+    making synchronization depend on sending a message or querying members.
+    """
+    return None
+
+
+def sync_groups(*, agora: float | None = None, dry_run: bool = False) -> dict[str, Any]:
+    """Rebuild the safe local inventory without contacting WhatsApp.
+
+    The group plugin is an event sink, not a catalog API. Therefore this
+    routine merges its index with observed group event files and reports the
+    bridge limitation instead of claiming that the inventory is complete.
+    """
+    agora = time.time() if agora is None else agora
+    indice = _ler_json(GRUPOS / "_grupos.json", {})
+    if not isinstance(indice, dict):
+        indice = {}
+    grupos = {str(chat): dict(info) for chat, info in indice.items() if isinstance(info, dict)}
+    for caminho in GRUPOS.glob("*.jsonl"):
+        chat = _grupo_id_from_filename(caminho)
+        if not chat:
+            continue
+        mensagens = _mensagens(chat)
+        item = grupos.setdefault(chat, {})
+        for mensagem in reversed(mensagens):
+            nome = str(mensagem.get("grupo") or mensagem.get("nome") or "").strip()
+            if nome and not nome.isdigit():
+                item["nome"] = nome
+                break
+        if mensagens:
+            item["ultimo_ts"] = max(float(m.get("ts", 0) or 0) for m in mensagens)
+        item["arquivo"] = caminho.name
+
+    resultado = []
+    for chat, item in grupos.items():
+        nome = str(item.get("nome") or chat.removesuffix("@g.us"))
+        ultimo_ts = float(item.get("ultimo_ts", 0) or 0)
+        item["nome"] = nome
+        item["id"] = chat
+        item["status"] = "active" if ultimo_ts and agora - ultimo_ts <= INVENTARIO_STALE_S else "stale"
+        resultado.append({"grupo": nome, "id": chat, "status": item["status"]})
+    resultado.sort(key=lambda grupo: grupo["grupo"].casefold())
+    novo_indice = {chat: grupos[chat] for chat in sorted(grupos)}
+    alterado = novo_indice != indice
+    if alterado and not dry_run:
+        _gravar_json(GRUPOS / "_grupos.json", novo_indice)
+
+    catalogo = _bridge_group_catalog()
+    return {
+        "grupos": resultado,
+        "descobertos": len(resultado),
+        "alterado": alterado and not dry_run,
+        "dry_run": dry_run,
+        "complete": catalogo is not None,
+        "status_bridge": "catalogo_disponivel" if catalogo is not None else "sem_catalogo_read_only",
+        "limitacoes": [] if catalogo is not None else [
+            "A bridge da sessão Maia não expõe catálogo read-only de grupos; "
+            "o inventário local contém apenas grupos observados pelo plugin."
+        ],
+    }
+
+
 def list_groups(agora: float | None = None) -> list[dict[str, Any]]:
-    agora = agora or time.time()
+    agora = time.time() if agora is None else agora
+    sync_groups(agora=agora)
     grupos = []
     for chat, info in _ler_json(GRUPOS / "_grupos.json", {}).items():
         msgs = _mensagens(chat)
         grupos.append({
             "grupo": info.get("nome") or chat,
             "id": chat,
+            "status": info.get("status", "unknown"),
             "mensagens_24h": sum(1 for m in msgs if float(m.get("ts", 0)) >= agora - 86400),
             "ultima_mensagem": msgs[-1].get("quando") if msgs else None,
         })
@@ -97,7 +175,7 @@ def resolve_group(ref: str) -> tuple[str, str]:
     exatos = [(c, i.get("nome") or c) for c, i in indice.items() if (i.get("nome") or "").lower() == ref.lower()]
     candidatos = exatos or [(c, i.get("nome") or c) for c, i in indice.items() if ref.lower() in (i.get("nome") or "").lower()]
     if not candidatos:
-        raise GroupError(f"Nenhum grupo conhecido corresponde a '{ref}'. Só aparecem grupos que já tiveram mensagem.")
+        raise GroupError(f"Nenhum grupo conhecido corresponde a '{ref}'. O inventário só inclui grupos observados pela bridge.")
     if len(candidatos) > 1:
         raise GroupError("Mais de um grupo corresponde: " + "; ".join(n for _, n in candidatos) + ". Seja mais específico.")
     return candidatos[0]
@@ -189,18 +267,31 @@ def send(rid: str, codigo: str, agora: float | None = None, _runner=None) -> dic
         raise GroupError("O texto do rascunho foi alterado depois da autorização; envio recusado.")
     r["usado"] = True  # uso único: marcado antes de enviar
     _gravar_json(RASCUNHOS, rascunhos)
-    proc = (_runner or subprocess.run)(
-        [HERMES_BIN, "-p", "maia", "send", "--to", f"whatsapp:{r['chat']}", "--json", "--file", "-"],
-        input=r["texto"], capture_output=True, text=True, timeout=90)
+    sucesso = False
+    erro = None
+    resultado = {}
     try:
-        resultado = json.loads(proc.stdout or "{}")
-    except ValueError:
-        resultado = {}
-    if proc.returncode != 0 or not resultado.get("success"):
-        raise GroupError(f"O WhatsApp não aceitou o envio: {resultado.get('error') or (proc.stderr or '')[-300:] or 'erro'}")
+        proc = (_runner or subprocess.run)(
+            [HERMES_BIN, "-p", "maia", "send", "--to", f"whatsapp:{r['chat']}", "--json", "--file", "-"],
+            input=r["texto"], capture_output=True, text=True, timeout=90)
+        try:
+            resultado = json.loads(proc.stdout or "{}")
+        except ValueError:
+            resultado = {}
+        if proc.returncode == 0 and resultado.get("success"):
+            sucesso = True
+        else:
+            erro = resultado.get("error") or (proc.stderr or "")[-300:] or "erro"
+    except Exception as e:
+        erro = str(e)
+
+    # Log the attempt
     with ENVIOS_LOG.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps({"ts": agora, "rascunho": rid, "grupo": r["grupo"], "chat": r["chat"],
-                             "texto": r["texto"]}, ensure_ascii=False) + "\n")
+                             "texto": r["texto"], "sucesso": sucesso, "erro": erro}, ensure_ascii=False) + "\n")
+
+    if not sucesso:
+        raise GroupError(erro or "Erro desconhecido")
     return {"enviado_para_grupo": r["grupo"], "message_id": resultado.get("message_id")}
 
 
@@ -215,9 +306,9 @@ def register(mcp) -> None:
 
     @mcp.tool()
     async def personal_whatsapp_groups() -> dict[str, Any]:
-        """Grupos do WhatsApp pessoal do Marcelo que a Maia acompanha (só leitura), com o número de
-        mensagens nas últimas 24 h. Você NUNCA escreve em grupo por conta própria."""
-        return {"grupos": list_groups()}
+        """Inventário local de grupos observados, sem contactar ou escrever no WhatsApp."""
+        sincronizacao = sync_groups()
+        return {"grupos": list_groups(), "sincronizacao": sincronizacao}
 
     @mcp.tool()
     async def personal_whatsapp_group_messages(grupo: str, horas: float = 24) -> dict[str, Any]:

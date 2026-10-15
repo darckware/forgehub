@@ -53,9 +53,34 @@ def _runner(calls, ok=True):
 
 def test_list_and_read_groups(base):
     grupos = pg.list_groups(agora=1000.0 + 60)
-    assert grupos[0] == {"grupo": "Família Ferreira", "id": CHAT, "mensagens_24h": 1, "ultima_mensagem": "12/10/2026 10:00"}
+    assert grupos[0] == {"grupo": "Família Ferreira", "id": CHAT, "status": "active", "mensagens_24h": 1, "ultima_mensagem": "12/10/2026 10:00"}
     msgs = pg.group_messages("família", horas=24, agora=1000.0 + 60)
     assert msgs["mensagens"] == [{"quando": "12/10/2026 10:00", "autor": "Ana", "texto": "almoço domingo?"}]
+
+
+def test_sync_is_read_only_and_reports_bridge_limitation(base, monkeypatch):
+    before = (base / "_grupos.json").read_text()
+    monkeypatch.setattr(pg, "_bridge_group_catalog", lambda: None)
+    resultado = pg.sync_groups(agora=1000.0 + 60, dry_run=True)
+    assert resultado["descobertos"] == 2
+    assert resultado["complete"] is False
+    assert resultado["status_bridge"] == "sem_catalogo_read_only"
+    assert {grupo["id"] for grupo in resultado["grupos"]} == {CHAT, "2@g.us"}
+    assert (base / "_grupos.json").read_text() == before
+
+
+def test_sync_merges_observed_group_without_network_or_send(base, monkeypatch):
+    novo = "120363999999999999@g.us"
+    (base / "120363999999999999.jsonl").write_text(json.dumps({
+        "ts": 1100.0, "chat": novo, "grupo": "Grupo Novo", "texto": "olá"
+    }) + "\n")
+    monkeypatch.setattr(pg, "_bridge_group_catalog", lambda: None)
+    resultado = pg.sync_groups(agora=1200.0)
+    assert resultado["alterado"] is True
+    salvo = json.loads((base / "_grupos.json").read_text())
+    assert salvo[novo]["nome"] == "Grupo Novo"
+    assert salvo[novo]["id"] == novo
+    assert salvo[novo]["status"] == "active"
 
 
 def test_resolve_rejects_unknown_and_ambiguous(base):
