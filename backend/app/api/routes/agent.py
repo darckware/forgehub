@@ -367,7 +367,11 @@ async def run_forgerouter_key_sync_pass(db: AsyncSession) -> ForgeRouterKeySyncO
     it -- Lara, Themis and Dartan had drifted, Dartan's Messages dispatches
     (agy runs on this copy, Hermes profiles on their own config.yaml) were
     sending a key ForgeRouter refuses, and Maia/Vector had none at all."""
-    result = await db.execute(select(Agent).where(Agent.is_active.is_(True)).order_by(Agent.name))
+    # A retired agent never gets a key back, even while its ForgeRouter row
+    # still exists (2026-10-14: Vector, retired 2026-10-12, was refilled).
+    result = await db.execute(
+        select(Agent).where(Agent.is_active.is_(True), Agent.status != "retired").order_by(Agent.name)
+    )
     agents = list(result.scalars().all())
     keys_by_name = {k.name.strip().lower(): k.api_key for k in await forgerouter_sync.read_forgerouter_agent_keys()}
 
