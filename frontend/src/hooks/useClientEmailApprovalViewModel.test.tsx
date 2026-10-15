@@ -96,4 +96,25 @@ describe("useClientEmailApprovalViewModel", () => {
     await act(() => result.current.confirmReject());
     expect(apiClient.post).not.toHaveBeenCalled();
   });
+
+  it("deletes the ticked e-mails after confirming, skipping one being sent", async () => {
+    const sending = { ...EMAIL, id: "e2", status: "enviando" };
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) =>
+      path.startsWith("/api/v1/client-ops/emails/") ? EMAIL : { items: [EMAIL, sending], total: 2 },
+    );
+    vi.mocked(apiClient.post).mockResolvedValue({ deleted: ["e1"], failed: [] });
+    const { result } = renderHook(() => useClientEmailApprovalViewModel(), { wrapper });
+    await waitFor(() => expect(result.current.emails).toHaveLength(2));
+    act(() => result.current.toggleChecked(sending as never));
+    expect(result.current.checked).toEqual([]);
+    act(() => result.current.toggleAllChecked());
+    expect(result.current.checked).toEqual(["e1"]);
+    act(() => result.current.requestDelete(result.current.checked));
+    expect(result.current.dialog).toBe("delete");
+    expect(apiClient.post).not.toHaveBeenCalled();
+    await act(() => result.current.confirmDelete());
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/client-ops/emails:delete", { ids: ["e1"] });
+    expect(result.current.dialog).toBeUndefined();
+    expect(result.current.checked).toEqual([]);
+  });
 });

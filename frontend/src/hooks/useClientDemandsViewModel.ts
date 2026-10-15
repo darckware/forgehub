@@ -3,7 +3,9 @@ import {
   useClientOpsText,
   localDateTimeToIso,
   useClientFactory,
+  useDeleteWorkItems,
   useLogTime,
+  useTranslateTexts,
   useCreateProjectFromItem,
   useWorkItem,
   useWorkItemAction,
@@ -14,6 +16,7 @@ import {
   type WorkItemDetail,
   type WorkItemFilters,
   type WorkItemKind,
+  type WorkItemRef,
 } from "@/hooks/useClientOps";
 
 /**
@@ -24,7 +27,27 @@ import {
  * only queued for approval, never sent from here, which is why the dialog
  * says "queue e-mail" rather than "send".
  */
-export type ClientDemandsStatus = "loading" | "ready" | "acting" | "submitting" | "error";
+export type ClientDemandsStatus = "loading" | "ready" | "acting" | "confirming" | "submitting" | "error";
+
+/** Only Darckware demands can be deleted (archived); tickets are the client's portal records. */
+export function isDeletable(item: { kind: WorkItemKind }): boolean {
+  return item.kind === "demand";
+}
+
+const refKey = (ref: WorkItemRef) => `${ref.kind}:${ref.id}`;
+
+/** The detail with title, description and timeline notes swapped for their translation. */
+export function applyTranslation(detail: WorkItemDetail, texts: string[]): WorkItemDetail {
+  const [title, description, ...notes] = texts;
+  return {
+    ...detail,
+    title: title || detail.title,
+    description: detail.description ? description || detail.description : detail.description,
+    timeline: detail.timeline.map((e, i) => (e.note ? { ...e, note: notes[i] || e.note } : e)),
+  };
+}
+
+export type TranslationState = "off" | "translating" | "on";
 
 /** Actions available per stage -- the screen never offers a transition the stage can't take. */
 export const ACTIONS_BY_STAGE: Record<string, WorkItemAction[]> = {
@@ -125,6 +148,26 @@ export interface ClientDemandsViewModel {
   /** Length of the period being logged, in minutes (0 while incomplete). */
   timeDraftMinutes: number;
   canSubmitTime: boolean;
+  /** Demands ticked for a bulk delete. */
+  checked: WorkItemRef[];
+  isChecked(item: WorkItemRef): boolean;
+  toggleChecked(item: WorkItem): void;
+  /** Ticks every deletable item in the list, or clears them all when they already are. */
+  toggleAllChecked(): void;
+  allChecked: boolean;
+  deletableCount: number;
+  /** Items awaiting the delete confirmation. */
+  deleteTarget?: WorkItemRef[];
+  requestDelete(items: WorkItemRef[]): void;
+  cancelDelete(): void;
+  confirmDelete(): Promise<void>;
+  /** How many of the last delete Darckware refused (0 = all went through). */
+  deleteFailedCount: number;
+  /** The detail as shown: translated when the translation is on. */
+  shownDetail?: WorkItemDetail;
+  translation: TranslationState;
+  translate(language: string): Promise<void>;
+  showOriginal(): void;
   setFilter<K extends keyof WorkItemFilters>(key: K, value: WorkItemFilters[K] | undefined): void;
   select(item: WorkItem | undefined): void;
   openAction(action: WorkItemAction): void;
@@ -171,6 +214,13 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
   const factory = useClientFactory(detail.data?.project ? undefined : detail.data?.client_account_id);
   const createProject = useCreateProjectFromItem();
   const logTime = useLogTime();
+  const deleteItems = useDeleteWorkItems();
+  const translateTexts = useTranslateTexts();
+  const [checked, setChecked] = useState<WorkItemRef[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<WorkItemRef[]>();
+  const [deleteFailedCount, setDeleteFailedCount] = useState(0);
+  const [translated, setTranslated] = useState<{ id: string; texts: string[] }>();
+  const [translationOn, setTranslationOn] = useState(false);
   const [timeDraft, setTimeDraft] = useState<TimeDraft>();
   const timeError = timeDraft ? timeDraftError(timeDraft) : undefined;
   const projectProducts = [...(factory.data?.products ?? []), ...(factory.data?.unlinked_products ?? [])];
@@ -182,8 +232,20 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
   const hoursOk = !hoursRequired || resolveMinutes > 0;
   const emailOk = !draft?.withEmail || (draft.subject.trim().length > 0 && draft.body_text.trim().length > 0);
 
+  const items = list.data?.items ?? [];
+  const deletable = items.filter(isDeletable);
+  const checkedKeys = new Set(checked.map(refKey));
+  const allChecked = deletable.length > 0 && deletable.every((i) => checkedKeys.has(refKey(i)));
+  const translationFits = translated && translated.id === detail.data?.id;
+  const translation: TranslationState = translateTexts.isPending
+    ? "translating"
+    : translationOn && translationFits
+      ? "on"
+      : "off";
+
   let status: ClientDemandsStatus;
-  if (act.isPending || createProject.isPending || logTime.isPending) status = "submitting";
+  if (act.isPending || createProject.isPending || logTime.isPending || deleteItems.isPending) status = "submitting";
+  else if (deleteTarget) status = "confirming";
   else if (draft || projectDraft || timeDraft) status = "acting";
   else if (errorMessage) status = "error";
   else if (list.isLoading) status = "loading";
@@ -192,7 +254,65 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
   return {
     status,
     filters,
-    items: list.data?.items ?? [],
+    items,
+    checked,
+    isChecked: (item) => checkedKeys.has(refKey(item)),
+    toggleChecked(item) {
+      if (!isDeletable(item)) return;
+      setChecked((current) =>
+        current.some((c) => refKey(c) === refKey(item))
+          ? current.filter((c) => refKey(c) !== refKey(item))
+          : [...current, { kind: item.kind, id: item.id }],
+      );
+    },
+    toggleAllChecked() {
+      setChecked(allChecked ? [] : deletable.map((i) => ({ kind: i.kind, id: i.id })));
+    },
+    allChecked,
+    deletableCount: deletable.length,
+    deleteTarget,
+    requestDelete(refs) {
+      setDeleteFailedCount(0);
+      if (refs.length > 0) setDeleteTarget(refs);
+    },
+    cancelDelete: () => setDeleteTarget(undefined),
+    async confirmDelete() {
+      if (!deleteTarget) return;
+      try {
+        const result = await deleteItems.mutateAsync(deleteTarget);
+        const gone = new Set(result.deleted.map(refKey));
+        setChecked((current) => current.filter((c) => !gone.has(refKey(c))));
+        if (selected && gone.has(refKey(selected))) setSelected(undefined);
+        setDeleteFailedCount(result.failed.length);
+        setDeleteTarget(undefined);
+      } catch (error) {
+        setDeleteTarget(undefined);
+        setErrorMessage(errorText(error));
+      }
+    },
+    deleteFailedCount,
+    shownDetail:
+      detail.data && translation === "on" && translated ? applyTranslation(detail.data, translated.texts) : detail.data,
+    translation,
+    async translate(language) {
+      const current = detail.data;
+      if (!current) return;
+      if (translated?.id === current.id) {
+        setTranslationOn(true);
+        return;
+      }
+      try {
+        const result = await translateTexts.mutateAsync({
+          texts: [current.title, current.description ?? "", ...current.timeline.map((e) => e.note ?? "")],
+          target_language: language,
+        });
+        setTranslated({ id: current.id, texts: result.texts });
+        setTranslationOn(true);
+      } catch (error) {
+        setErrorMessage(errorText(error));
+      }
+    },
+    showOriginal: () => setTranslationOn(false),
     byStage: list.data?.by_stage,
     loadError: list.isError ? errorText(list.error) : undefined,
     selected,
@@ -223,6 +343,7 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
       // A new filter is a new list: the detail on the right referred to the old
       // one, so it (and any dialog open for it) is cleared (2026-10-05, Marcelo).
       setSelected(undefined);
+      setChecked([]);
       setDraft(undefined);
       setProjectDraft(undefined);
       setTimeDraft(undefined);
@@ -231,6 +352,7 @@ export function useClientDemandsViewModel(initial: ClientDemandsInitial = {}): C
     },
     select(item) {
       setSelected(item ? { kind: item.kind, id: item.id } : undefined);
+      setTranslationOn(false);
       setDraft(undefined);
       setProjectDraft(undefined);
       setTimeDraft(undefined);

@@ -217,3 +217,61 @@ describe("useClientDemandsViewModel filters", () => {
   });
 });
 
+
+describe("useClientDemandsViewModel: delete and translate", () => {
+  const DEMAND = { ...ITEM, kind: "demand" as const, id: "d1", title: "Regarding your site", description: "Hello" };
+  beforeEach(() => {
+    vi.mocked(apiClient.get).mockReset();
+    vi.mocked(apiClient.post).mockReset();
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+      if (path.endsWith("/factory")) return { products: [], projects: [], unlinked_products: [] };
+      if (path.startsWith("/api/v1/client-ops/work-items/demand/"))
+        return { ...DEMAND, timeline: [{ at: "x", actor: "w", type: "nota", note: "Body" }], time_entries: [], emails: [], project: null };
+      return { items: [ITEM, DEMAND], total: 2, by_stage: { novo: 2 } };
+    });
+  });
+
+  it("only ticks demands, and deletes the ticked ones after confirming", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ deleted: [{ kind: "demand", id: "d1" }], failed: [] });
+    const { result } = renderHook(() => useClientDemandsViewModel(), { wrapper });
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    expect(result.current.deletableCount).toBe(1);
+    act(() => result.current.toggleChecked(result.current.items[0])); // a ticket: ignored
+    expect(result.current.checked).toEqual([]);
+    act(() => result.current.toggleAllChecked());
+    expect(result.current.checked).toEqual([{ kind: "demand", id: "d1" }]);
+    expect(result.current.allChecked).toBe(true);
+
+    act(() => result.current.requestDelete(result.current.checked));
+    expect(result.current.status).toBe("confirming");
+    expect(apiClient.post).not.toHaveBeenCalled();
+    await act(() => result.current.confirmDelete());
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/client-ops/work-items:delete", { items: [{ kind: "demand", id: "d1" }] });
+    expect(result.current.deleteTarget).toBeUndefined();
+    expect(result.current.checked).toEqual([]);
+  });
+
+  it("shows the translation and goes back to the original without a second call", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ texts: ["Sobre seu site", "Olá", "Corpo"] });
+    const { result } = renderHook(() => useClientDemandsViewModel(), { wrapper });
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    act(() => result.current.select(result.current.items[1]));
+    await waitFor(() => expect(result.current.detail?.id).toBe("d1"));
+
+    await act(() => result.current.translate("pt-BR"));
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/client-ops/translate", {
+      texts: ["Regarding your site", "Hello", "Body"],
+      target_language: "pt-BR",
+    });
+    expect(result.current.translation).toBe("on");
+    expect(result.current.shownDetail?.title).toBe("Sobre seu site");
+    expect(result.current.shownDetail?.timeline[0].note).toBe("Corpo");
+    expect(result.current.detail?.title).toBe("Regarding your site");
+
+    act(() => result.current.showOriginal());
+    expect(result.current.shownDetail?.title).toBe("Regarding your site");
+    await act(() => result.current.translate("pt-BR"));
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(result.current.translation).toBe("on");
+  });
+});

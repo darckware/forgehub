@@ -149,6 +149,9 @@ class FakeDarckware:
                 return httpx.Response(500, text="boom")
             self.ticket = {**self.ticket, "status": body["status"]}
             return httpx.Response(200, json=self.ticket)
+        if path == f"{a}/demands/{DEMAND_ID}/archive" and request.method == "POST":
+            self.demand = {**self.demand, "status": "arquivada"}
+            return httpx.Response(200, json={"success": True, "id": DEMAND_ID, "status": "arquivada"})
         if path == f"{a}/demands" and request.method == "GET":
             return httpx.Response(200, json={"items": [self.demand], "total": 1})
         if path == f"{a}/outbound-emails" and request.method == "GET" and not request.url.params.get("source_ref"):
@@ -209,6 +212,9 @@ class FakeDarckware:
                     ]
                 },
             )
+        if path == f"{a}/outbound-emails/{EMAIL_ID}/hide":
+            self.email = {**self.email, "status": "cancelado", "hidden_at": "2026-10-14T10:00:00+00:00"}
+            return httpx.Response(200, json=self.email)
         if path == f"{a}/outbound-emails/{EMAIL_ID}/cancel":
             return httpx.Response(200, json={**self.email, "status": "cancelado"})
         return httpx.Response(404, json={"detail": f"unmocked {request.method} {path}"})
@@ -708,3 +714,79 @@ async def test_registration_approval_uses_approver_and_is_audited(client, darckw
             await db.delete(e)
         await db.commit()
 
+
+
+@pytest.mark.asyncio
+async def test_delete_archives_demands_and_refuses_tickets(client, darckware):
+    missing = str(uuid.uuid4())
+    r = await client.post(
+        "/api/v1/client-ops/work-items:delete",
+        json={"items": [{"kind": "demand", "id": DEMAND_ID}, {"kind": "ticket", "id": TICKET_ID}, {"kind": "demand", "id": missing}]},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["deleted"] == [{"kind": "demand", "id": DEMAND_ID}]
+    assert {f["id"]: f["code"] for f in body["failed"]} == {TICKET_ID: "ticket_not_deletable", missing: "darckware_rejected"}
+    archive = next(c for c in darckware.calls if c[1].endswith("/archive"))
+    assert archive[2]["actor"].startswith("forgehub:")
+    # An archived demand is gone from every list, "all stages" included.
+    listed = (await client.get("/api/v1/client-ops/work-items")).json()["items"]
+    assert DEMAND_ID not in {i["id"] for i in listed}
+    async with AsyncSessionLocal() as db:
+        events = (
+            await db.execute(select(AuditEvent).where(AuditEvent.entity_id == uuid.UUID(DEMAND_ID), AuditEvent.event_type == "deleted"))
+        ).scalars().all()
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_translate_returns_texts_in_order(client, monkeypatch):
+    from app.core import translation
+
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        seen["auth"] = request.headers.get("authorization")
+        reply = '```json\n["Olá", ""]\n```'
+        return httpx.Response(200, json={"choices": [{"message": {"content": reply}}]})
+
+    async def fake_key(_db):
+        return "router-key"
+
+    monkeypatch.setattr(translation, "transport", httpx.MockTransport(handler))
+    monkeypatch.setattr(translation, "_api_key", fake_key)
+    r = await client.post("/api/v1/client-ops/translate", json={"texts": ["Hello", ""], "target_language": "pt-BR"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"texts": ["Olá", ""]}
+    assert seen["auth"] == "Bearer router-key"
+    assert "Brazilian Portuguese" in seen["body"]["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_translate_wrong_shape_is_502(client, monkeypatch):
+    from app.core import translation
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": '["só um"]'}}]})
+
+    async def fake_key(_db):
+        return "router-key"
+
+    monkeypatch.setattr(translation, "transport", httpx.MockTransport(handler))
+    monkeypatch.setattr(translation, "_api_key", fake_key)
+    r = await client.post("/api/v1/client-ops/translate", json={"texts": ["a", "b"], "target_language": "es"})
+    assert r.status_code == 502
+    assert r.json()["detail"]["code"] == "translation_failed"
+
+
+@pytest.mark.asyncio
+async def test_delete_emails_hides_each_and_reports_failures(client, darckware):
+    missing = str(uuid.uuid4())
+    r = await client.post("/api/v1/client-ops/emails:delete", json={"ids": [EMAIL_ID, missing]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["deleted"] == [EMAIL_ID]
+    assert [f["id"] for f in body["failed"]] == [missing]
+    hide = next(c for c in darckware.calls if c[1].endswith("/hide"))
+    assert hide[2]["hidden_by"].startswith("forgehub:")

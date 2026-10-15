@@ -131,6 +131,28 @@
       "client": "Mensaje del cliente",
       "note": "Nota",
       "by": "por {{who}}"
+    },
+    "backToDetail": "Volver a la demanda",
+    "delete": {
+      "selectAll": "Seleccionar todas",
+      "selected_one": "{{count}} seleccionada",
+      "selected_other": "{{count}} seleccionadas",
+      "bulk_one": "Eliminar {{count}}",
+      "bulk_other": "Eliminar {{count}}",
+      "check": "Seleccionar \"{{title}}\"",
+      "one": "Eliminar",
+      "confirmTitle_one": "¿Eliminar demanda?",
+      "confirmTitle_other": "¿Eliminar {{count}} demandas?",
+      "confirmText_one": "La demanda sale de esta lista. En Darckware queda archivada, con su historial.",
+      "confirmText_other": "Las {{count}} demandas salen de esta lista. En Darckware quedan archivadas, con su historial.",
+      "confirm": "Eliminar",
+      "partial_one": "{{count}} elemento no se pudo eliminar (los tickets del portal no se eliminan aquí).",
+      "partial_other": "{{count}} elementos no se pudieron eliminar (los tickets del portal no se eliminan aquí)."
+    },
+    "translate": {
+      "action": "Traducir",
+      "original": "Ver original",
+      "notice": "Traducción automática — el texto original sigue guardado en Darckware."
     }
   },
   "emails": {
@@ -186,6 +208,22 @@
       "envio_incerto": "Envío incierto",
       "rejeitado": "Rechazado",
       "cancelado": "Cancelado"
+    },
+    "delete": {
+      "selectAll": "Seleccionar todos",
+      "selected_one": "{{count}} seleccionado",
+      "selected_other": "{{count}} seleccionados",
+      "bulk_one": "Eliminar {{count}}",
+      "bulk_other": "Eliminar {{count}}",
+      "check": "Seleccionar \"{{subject}}\"",
+      "one": "Eliminar",
+      "confirmTitle_one": "¿Eliminar e-mail?",
+      "confirmTitle_other": "¿Eliminar {{count}} e-mails?",
+      "confirmText_one": "El e-mail sale de esta pantalla. Si aún no se envió, se cancela y ya no sale. Darckware guarda el registro.",
+      "confirmText_other": "Los {{count}} e-mails salen de esta pantalla. Los que aún no se enviaron se cancelan y ya no salen. Darckware guarda el registro.",
+      "confirm": "Eliminar",
+      "partial_one": "{{count}} e-mail no se pudo eliminar (¿enviándose ahora?).",
+      "partial_other": "{{count}} e-mails no se pudieron eliminar (¿enviándose ahora?)."
     }
   },
   "nav": {
@@ -386,7 +424,11 @@
     "no_client": "Esta demanda aún no tiene cliente (vino de un lead): convierta el lead en cliente primero.",
     "project_exists": "Ya existe el proyecto \"{{project}}\" para este elemento.",
     "version_not_in_product": "La versión elegida no pertenece a este producto.",
-    "all_versions_published": "Todas las versiones de este producto están publicadas: cree una nueva versión en el Cockpit."
+    "all_versions_published": "Todas las versiones de este producto están publicadas: cree una nueva versión en el Cockpit.",
+    "translator_not_configured": "Traducción no disponible: el agente traductor no tiene clave de ForgeRouter.",
+    "translation_failed": "No se pudo traducir ahora. Inténtalo de nuevo.",
+    "translation_too_long": "Demasiado texto para traducir de una vez.",
+    "ticket_not_deletable": "Los tickets del portal no se pueden eliminar."
   },
   "source": {
     "portal": "Portal del cliente",

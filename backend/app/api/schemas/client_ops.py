@@ -239,3 +239,32 @@ class MonthlyReportIn(BaseModel):
     """`reference`: any day inside the cycle to report (default: yesterday)."""
 
     reference: date | None = None
+
+
+class WorkItemRef(BaseModel):
+    kind: WorkItemKind
+    id: uuid.UUID
+
+
+class WorkItemsDelete(BaseModel):
+    """"Excluir" one or many work items (2026-10-14). Darckware keeps every
+    demand: deleting archives it (status `arquivada`), which takes it off
+    every list here. Tickets belong to the client's portal and can't be
+    deleted from ForgeHub."""
+
+    items: list[WorkItemRef] = Field(..., min_length=1, max_length=100)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class TranslateIn(BaseModel):
+    """Texts translated together, in order, into the reader's UI language."""
+
+    texts: list[str] = Field(..., min_length=1, max_length=20)
+    #: i18next language code of the screen (pt-BR, en, es).
+    target_language: str = Field(..., pattern=r"^[a-zA-Z]{2}(-[a-zA-Z]{2})?$")
+
+
+class EmailsDelete(BaseModel):
+    """"Excluir" e-mails (2026-10-14): Darckware hides them, the record stays."""
+
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=100)

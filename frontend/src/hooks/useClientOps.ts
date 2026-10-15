@@ -232,6 +232,42 @@ export function useWorkItemAction() {
   });
 }
 
+export interface WorkItemRef {
+  kind: WorkItemKind;
+  id: string;
+}
+
+export interface DeleteWorkItemsResult {
+  deleted: WorkItemRef[];
+  failed: (WorkItemRef & { code: string })[];
+}
+
+/** "Excluir" (2026-10-14): Darckware archives each demand; tickets are refused per item. */
+export function useDeleteWorkItems() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<DeleteWorkItemsResult, Error, WorkItemRef[]>({
+    mutationFn: (items) => apiClient.post(`${BASE}/work-items:delete`, { items }),
+    onSettled: invalidate,
+  });
+}
+
+/** "Traduzir": texts back in the screen's language, same order. Nothing is stored. */
+export function useTranslateTexts() {
+  return useMutation<{ texts: string[] }, Error, { texts: string[]; target_language: string }>({
+    mutationFn: (body) => apiClient.post(`${BASE}/translate`, body),
+  });
+}
+
+/** "Excluir" e-mails (2026-10-14): Darckware hides each one (cancelling it first if it could
+ * still leave); the record stays. One being sent right now is refused for that item only. */
+export function useDeleteOutboundEmails() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<{ deleted: string[]; failed: { id: string; code: string; reason: string }[] }, Error, string[]>({
+    mutationFn: (ids) => apiClient.post(`${BASE}/emails:delete`, { ids }),
+    onSettled: invalidate,
+  });
+}
+
 export function useOutboundEmails(status?: string) {
   return useQuery<{ items: OutboundEmail[]; total: number }>({
     queryKey: ["client-ops", "emails", status ?? "all"],

@@ -9,10 +9,13 @@ import {
   CirclePlus,
   Clock,
   FolderKanban,
+  Languages,
   Loader2,
   Mail,
   MessageSquare,
   Plus,
+  Trash2,
+  Undo2,
   User,
   X,
 } from "lucide-react";
@@ -20,6 +23,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -38,6 +42,7 @@ import { billableHours, buildTimeline, STAGE_FLOW } from "@/hooks/clientDemandTi
 import {
   ACTIONS_BY_STAGE,
   ACTION_EMAIL,
+  isDeletable,
   parseDemandsSearch,
   useClientDemandsViewModel,
   type ClientDemandsViewModel,
@@ -47,7 +52,7 @@ import { NewWorkItemDialog } from "./NewWorkItemDialog";
 import { ClientOpsStatusBanner, stageVariant } from "./shared";
 
 export default function ClientDemandsPage() {
-  const { t } = useTranslation("clientOps");
+  const { t, i18n } = useTranslation("clientOps");
   const [search] = useSearchParams();
   const [initial] = useState(() => parseDemandsSearch(search));
   const vm = useClientDemandsViewModel(initial);
@@ -140,14 +145,48 @@ export default function ClientDemandsPage() {
             {!vm.loadError && vm.status !== "loading" && vm.items.length === 0 && (
               <p className="p-6 text-sm text-muted-foreground">{t("demands.empty")}</p>
             )}
+            {vm.deletableCount > 0 && (
+              <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-2">
+                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <input type="checkbox" className="h-4 w-4" checked={vm.allChecked} onChange={vm.toggleAllChecked} />
+                  {vm.checked.length > 0
+                    ? t("demands.delete.selected", { count: vm.checked.length })
+                    : t("demands.delete.selectAll")}
+                </label>
+                {vm.checked.length > 0 && (
+                  <Button size="sm" variant="destructive" onClick={() => vm.requestDelete(vm.checked)}>
+                    <Trash2 className="mr-2 h-4 w-4" /> {t("demands.delete.bulk", { count: vm.checked.length })}
+                  </Button>
+                )}
+              </div>
+            )}
+            {vm.deleteFailedCount > 0 && (
+              <p className="border-b px-4 py-2 text-sm text-destructive">
+                {t("demands.delete.partial", { count: vm.deleteFailedCount })}
+              </p>
+            )}
             <ul className="divide-y">
               {vm.items.map((item) => (
-                <li key={`${item.kind}:${item.id}`}>
+                <li key={`${item.kind}:${item.id}`} className="flex items-stretch">
+                  {vm.deletableCount > 0 && (
+                    <div className="flex w-10 shrink-0 justify-center pt-4">
+                      {isDeletable(item) && (
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={vm.isChecked(item)}
+                          onChange={() => vm.toggleChecked(item)}
+                          aria-label={t("demands.delete.check", { title: item.title })}
+                        />
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => vm.select(item)}
                     className={cn(
-                      "w-full space-y-1 px-4 py-3 text-left hover:bg-muted/50",
+                      "min-w-0 flex-1 space-y-1 py-3 pr-4 text-left hover:bg-muted/50",
+                      vm.deletableCount === 0 && "pl-4",
                       vm.selected?.id === item.id && "bg-muted",
                     )}
                   >
@@ -172,12 +211,21 @@ export default function ClientDemandsPage() {
 
         <Card className={cn("md:min-h-0 md:overflow-auto", !vm.selected && "max-md:hidden")}>
           <CardContent className="space-y-4 p-4">
-            <WorkItemDetailPane vm={vm} />
+            {vm.draft ? <ActionPanel vm={vm} /> : <WorkItemDetailPane vm={vm} language={i18n.language} />}
           </CardContent>
         </Card>
       </div>
 
-      {vm.draft && <ActionDialog vm={vm} />}
+      <ConfirmDialog
+        open={Boolean(vm.deleteTarget)}
+        title={t("demands.delete.confirmTitle", { count: vm.deleteTarget?.length ?? 0 })}
+        description={t("demands.delete.confirmText", { count: vm.deleteTarget?.length ?? 0 })}
+        confirmLabel={t("demands.delete.confirm")}
+        cancelLabel={t("demands.dialog.cancel")}
+        loading={vm.status === "submitting"}
+        onConfirm={() => void vm.confirmDelete()}
+        onCancel={vm.cancelDelete}
+      />
       {vm.projectDraft && <CreateProjectDialog vm={vm} />}
       {vm.timeDraft && <LogTimeDialog vm={vm} />}
       <NewWorkItemDialog
@@ -192,10 +240,10 @@ export default function ClientDemandsPage() {
   );
 }
 
-function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
+function WorkItemDetailPane({ vm, language }: { vm: ClientDemandsViewModel; language: string }) {
   const { t } = useTranslation("clientOps");
   const fmt = useClientOpsText();
-  const detail = vm.detail;
+  const detail = vm.shownDetail;
   if (!vm.selected) return <p className="text-sm text-muted-foreground">{t("demands.selectHint")}</p>;
   const actions = detail ? (ACTIONS_BY_STAGE[detail.stage] ?? []) : [];
   const canLogTime = Boolean(detail?.client_account_id) && detail?.stage !== "fechado";
@@ -231,7 +279,41 @@ function WorkItemDetailPane({ vm }: { vm: ClientDemandsViewModel }) {
       )}
       {detail && (
         <>
-          <h2 className="break-words text-lg font-semibold">{detail.title}</h2>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <h2 className="break-words text-lg font-semibold">{detail.title}</h2>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {vm.translation === "on" ? (
+                <Button size="sm" variant="outline" onClick={vm.showOriginal}>
+                  <Undo2 className="mr-2 h-4 w-4" /> {t("demands.translate.original")}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void vm.translate(language)}
+                  disabled={vm.translation === "translating"}
+                >
+                  {vm.translation === "translating" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Languages className="mr-2 h-4 w-4" />
+                  )}
+                  {t("demands.translate.action")}
+                </Button>
+              )}
+              {isDeletable(detail) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => vm.requestDelete([{ kind: detail.kind, id: detail.id }])}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> {t("demands.delete.one")}
+                </Button>
+              )}
+            </div>
+          </div>
+          {vm.translation === "on" && <p className="text-xs text-muted-foreground">{t("demands.translate.notice")}</p>}
           <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
             <Field label={t("demands.fields.situation")}>
               <Badge variant={stageVariant(detail.stage)}>{t(`stage.${detail.stage}`)}</Badge>
@@ -449,109 +531,121 @@ function WorkItemTimeline({ detail }: { detail: WorkItemDetail }) {
   );
 }
 
-function ActionDialog({ vm }: { vm: ClientDemandsViewModel }) {
+/** A status action's form, opened in the right-hand panel in place of the
+ * detail (2026-10-14, Marcelo: "remova as tela no modal e adiciona a abertura
+ * no direita"); "Voltar" returns to the detail without changing anything. */
+function ActionPanel({ vm }: { vm: ClientDemandsViewModel }) {
   const { t } = useTranslation("clientOps");
   const draft = vm.draft!;
   const submitting = vm.status === "submitting";
   return (
-    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto p-4">
-      <div className="fixed inset-0 bg-black/60" onClick={vm.cancelAction} aria-hidden />
-      <div className="relative my-auto w-full max-w-lg space-y-4 rounded-lg border bg-background p-5 shadow-xl">
+    <section className="space-y-4">
+      <button
+        type="button"
+        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        onClick={vm.cancelAction}
+        disabled={submitting}
+      >
+        <ArrowLeft className="h-4 w-4" /> {t("demands.backToDetail")}
+      </button>
+      <div className="space-y-1">
         <h2 className="text-lg font-semibold">{t(`demands.actions.${draft.action}`)}</h2>
-        <div className="space-y-1">
-          <Label htmlFor="action-text">{t(`demands.dialog.text.${draft.action}`)}</Label>
-          <Textarea
-            id="action-text"
-            rows={3}
-            className="max-md:text-base"
-            value={draft.text}
-            onChange={(e) => vm.updateDraft({ text: e.target.value })}
-          />
-        </div>
-        {draft.action === "resolve" && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="action-hours">{t("time.spent")}</Label>
-              <Input
-                id="action-hours"
-                inputMode="decimal"
-                placeholder="1,5"
-                className="max-md:text-base"
-                value={draft.hours}
-                onChange={(e) => vm.updateDraft({ hours: e.target.value })}
-              />
-              <p className="text-xs text-muted-foreground">
-                {vm.hoursRequired ? t("time.spentHelp") : t("time.spentNoClient")}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="action-service">{t("time.serviceType")}</Label>
-              <Select
-                id="action-service"
-                className="max-md:text-base"
-                value={draft.serviceType}
-                onChange={(e) => vm.updateDraft({ serviceType: e.target.value as "remoto" | "presencial" })}
-              >
-                <option value="remoto">{t("time.remoto")}</option>
-                <option value="presencial">{t("time.presencial")}</option>
-              </Select>
-            </div>
-          </div>
-        )}
-        {ACTION_EMAIL[draft.action] && (
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={draft.withEmail}
-              onChange={(e) => vm.updateDraft({ withEmail: e.target.checked })}
-            />
-            {t("demands.dialog.withEmail")}
-          </label>
-        )}
-        {draft.withEmail && (
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label htmlFor="action-to">{t("demands.dialog.to")}</Label>
-              <Input
-                id="action-to"
-                className="max-md:text-base"
-                value={draft.to_email}
-                onChange={(e) => vm.updateDraft({ to_email: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="action-subject">{t("demands.dialog.subject")}</Label>
-              <Input
-                id="action-subject"
-                className="max-md:text-base"
-                value={draft.subject}
-                onChange={(e) => vm.updateDraft({ subject: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="action-body">{t("demands.dialog.body")}</Label>
-              <Textarea
-                id="action-body"
-                rows={8}
-                className="max-md:text-base"
-                value={draft.body_text}
-                onChange={(e) => vm.updateDraft({ body_text: e.target.value })}
-              />
-            </div>
-          </div>
-        )}
-        {vm.errorMessage && <p className="break-words text-sm text-destructive">{vm.errorMessage}</p>}
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" onClick={vm.cancelAction} disabled={submitting}>
-            {t("demands.dialog.cancel")}
-          </Button>
-          <Button onClick={() => void vm.submitAction()} disabled={!vm.canSubmitAction}>
-            {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {t("demands.dialog.confirm")}
-          </Button>
-        </div>
+        {vm.detail && <p className="break-words text-sm text-muted-foreground">{vm.detail.title}</p>}
+        <p className="text-xs text-muted-foreground">{t(`demands.actionHelp.${draft.action}`)}</p>
       </div>
-    </div>
+      <div className="space-y-1">
+        <Label htmlFor="action-text">{t(`demands.dialog.text.${draft.action}`)}</Label>
+        <Textarea
+          id="action-text"
+          rows={3}
+          className="max-md:text-base"
+          value={draft.text}
+          onChange={(e) => vm.updateDraft({ text: e.target.value })}
+        />
+      </div>
+      {draft.action === "resolve" && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="action-hours">{t("time.spent")}</Label>
+            <Input
+              id="action-hours"
+              inputMode="decimal"
+              placeholder="1,5"
+              className="max-md:text-base"
+              value={draft.hours}
+              onChange={(e) => vm.updateDraft({ hours: e.target.value })}
+            />
+            <p className="text-xs text-muted-foreground">
+              {vm.hoursRequired ? t("time.spentHelp") : t("time.spentNoClient")}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="action-service">{t("time.serviceType")}</Label>
+            <Select
+              id="action-service"
+              className="max-md:text-base"
+              value={draft.serviceType}
+              onChange={(e) => vm.updateDraft({ serviceType: e.target.value as "remoto" | "presencial" })}
+            >
+              <option value="remoto">{t("time.remoto")}</option>
+              <option value="presencial">{t("time.presencial")}</option>
+            </Select>
+          </div>
+        </div>
+      )}
+      {ACTION_EMAIL[draft.action] && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={draft.withEmail}
+            onChange={(e) => vm.updateDraft({ withEmail: e.target.checked })}
+          />
+          {t("demands.dialog.withEmail")}
+        </label>
+      )}
+      {draft.withEmail && (
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="action-to">{t("demands.dialog.to")}</Label>
+            <Input
+              id="action-to"
+              className="max-md:text-base"
+              value={draft.to_email}
+              onChange={(e) => vm.updateDraft({ to_email: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="action-subject">{t("demands.dialog.subject")}</Label>
+            <Input
+              id="action-subject"
+              className="max-md:text-base"
+              value={draft.subject}
+              onChange={(e) => vm.updateDraft({ subject: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="action-body">{t("demands.dialog.body")}</Label>
+            <Textarea
+              id="action-body"
+              rows={8}
+              className="max-md:text-base"
+              value={draft.body_text}
+              onChange={(e) => vm.updateDraft({ body_text: e.target.value })}
+            />
+          </div>
+        </div>
+      )}
+      {vm.errorMessage && <p className="break-words text-sm text-destructive">{vm.errorMessage}</p>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" onClick={vm.cancelAction} disabled={submitting}>
+          {t("demands.dialog.cancel")}
+        </Button>
+        <Button onClick={() => void vm.submitAction()} disabled={!vm.canSubmitAction}>
+          {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {t("demands.dialog.confirm")}
+        </Button>
+      </div>
+    </section>
   );
 }
 

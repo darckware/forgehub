@@ -131,6 +131,28 @@
       "client": "Client message",
       "note": "Note",
       "by": "by {{who}}"
+    },
+    "backToDetail": "Back to the demand",
+    "delete": {
+      "selectAll": "Select all",
+      "selected_one": "{{count}} selected",
+      "selected_other": "{{count}} selected",
+      "bulk_one": "Delete {{count}}",
+      "bulk_other": "Delete {{count}}",
+      "check": "Select \"{{title}}\"",
+      "one": "Delete",
+      "confirmTitle_one": "Delete demand?",
+      "confirmTitle_other": "Delete {{count}} demands?",
+      "confirmText_one": "The demand leaves this list. Darckware keeps it archived, with its history.",
+      "confirmText_other": "The {{count}} demands leave this list. Darckware keeps them archived, with their history.",
+      "confirm": "Delete",
+      "partial_one": "{{count}} item could not be deleted (portal tickets can't be deleted here).",
+      "partial_other": "{{count}} items could not be deleted (portal tickets can't be deleted here)."
+    },
+    "translate": {
+      "action": "Translate",
+      "original": "Show original",
+      "notice": "Machine translation — the original text stays in Darckware."
     }
   },
   "emails": {
@@ -186,6 +208,22 @@
       "envio_incerto": "Send uncertain",
       "rejeitado": "Rejected",
       "cancelado": "Cancelled"
+    },
+    "delete": {
+      "selectAll": "Select all",
+      "selected_one": "{{count}} selected",
+      "selected_other": "{{count}} selected",
+      "bulk_one": "Delete {{count}}",
+      "bulk_other": "Delete {{count}}",
+      "check": "Select \"{{subject}}\"",
+      "one": "Delete",
+      "confirmTitle_one": "Delete e-mail?",
+      "confirmTitle_other": "Delete {{count}} e-mails?",
+      "confirmText_one": "The e-mail leaves this screen. If not sent yet, it is cancelled and never goes out. Darckware keeps the record.",
+      "confirmText_other": "The {{count}} e-mails leave this screen. Those not sent yet are cancelled and never go out. Darckware keeps the record.",
+      "confirm": "Delete",
+      "partial_one": "{{count}} e-mail could not be deleted (being sent right now?).",
+      "partial_other": "{{count}} e-mails could not be deleted (being sent right now?)."
     }
   },
   "nav": {
@@ -386,7 +424,11 @@
     "no_client": "This demand has no client yet (it came from a lead): convert the lead into a client first.",
     "project_exists": "Project \"{{project}}\" already exists for this item.",
     "version_not_in_product": "The chosen version does not belong to this product.",
-    "all_versions_published": "Every version of this product is published: create a new version in the Cockpit."
+    "all_versions_published": "Every version of this product is published: create a new version in the Cockpit.",
+    "translator_not_configured": "Translation unavailable: the translator agent has no ForgeRouter key.",
+    "translation_failed": "Could not translate right now. Try again.",
+    "translation_too_long": "Too much text to translate at once.",
+    "ticket_not_deletable": "Portal tickets can't be deleted."
   },
   "source": {
     "portal": "Client portal",

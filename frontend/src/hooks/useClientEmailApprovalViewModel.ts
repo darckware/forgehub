@@ -3,6 +3,7 @@ import {
   useClientOpsText,
   useApproveOutboundEmail,
   useCancelOutboundEmail,
+  useDeleteOutboundEmails,
   useOutboundEmail,
   useOutboundEmails,
   useRejectOutboundEmail,
@@ -47,7 +48,19 @@ export interface EmailApprovalViewModel {
   selected?: OutboundEmail;
   /** Which confirmation is open -- stays set while its request is in flight,
    * so the dialog can show its spinner instead of closing early. */
-  dialog?: "approve" | "reject" | "cancel";
+  dialog?: "approve" | "reject" | "cancel" | "delete";
+  /** E-mails ticked for a bulk delete. */
+  checked: string[];
+  isChecked(id: string): boolean;
+  toggleChecked(email: OutboundEmail): void;
+  toggleAllChecked(): void;
+  allChecked: boolean;
+  /** E-mails awaiting the delete confirmation (one, or the ticked ones). */
+  deleteIds: string[];
+  /** How many of the last delete Darckware refused. */
+  deleteFailedCount: number;
+  requestDelete(ids: string[]): void;
+  confirmDelete(): Promise<void>;
   /** Edit form open -- independent of `status`, which reads "submitting" while it saves. */
   editing: boolean;
   detailLoading: boolean;
@@ -72,6 +85,11 @@ export interface EmailApprovalViewModel {
   dismiss(): void;
 }
 
+/** Anything but an e-mail in the middle of being sent can be deleted (hidden in Darckware). */
+export function isDeletableEmail(email: { status: string }): boolean {
+  return email.status !== "enviando";
+}
+
 const APPROVABLE = new Set(["aguardando_aprovacao", "falhou", "envio_incerto"]);
 const EDITABLE = new Set(["rascunho", "aguardando_aprovacao", "aprovado", "falhou", "envio_incerto"]);
 
@@ -81,7 +99,10 @@ export function useClientEmailApprovalViewModel(initialId?: string): EmailApprov
   const { errorText } = useClientOpsText();
   const [filter, setFilter] = useState<EmailListFilter>(initialId ? "all" : "pending");
   const [selectedId, setSelectedId] = useState<string | undefined>(initialId);
-  const [mode, setMode] = useState<"view" | "editing" | "confirming" | "rejecting" | "cancelling">("view");
+  const [mode, setMode] = useState<"view" | "editing" | "confirming" | "rejecting" | "cancelling" | "deleting">("view");
+  const [checked, setChecked] = useState<string[]>([]);
+  const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  const [deleteFailedCount, setDeleteFailedCount] = useState(0);
   const [draft, setDraftState] = useState({ subject: "", body_text: "", to_email: "" });
   const [rejectReason, setRejectReason] = useState("");
   const [errorMessage, setErrorMessage] = useState<string>();
@@ -92,9 +113,13 @@ export function useClientEmailApprovalViewModel(initialId?: string): EmailApprov
   const approve = useApproveOutboundEmail();
   const reject = useRejectOutboundEmail();
   const cancel = useCancelOutboundEmail();
+  const remove = useDeleteOutboundEmails();
 
   const selected = detail.data;
-  const submitting = update.isPending || approve.isPending || reject.isPending || cancel.isPending;
+  const submitting = update.isPending || approve.isPending || reject.isPending || cancel.isPending || remove.isPending;
+  const emails = list.data?.items ?? [];
+  const deletable = emails.filter(isDeletableEmail);
+  const allChecked = deletable.length > 0 && deletable.every((e) => checked.includes(e.id));
 
   let status: EmailApprovalStatus;
   if (submitting) status = "submitting";
@@ -102,6 +127,7 @@ export function useClientEmailApprovalViewModel(initialId?: string): EmailApprov
   else if (mode === "confirming") status = "confirming";
   else if (mode === "rejecting") status = "rejecting";
   else if (mode === "cancelling") status = "cancelling";
+  else if (mode === "deleting") status = "confirming";
   else if (errorMessage) status = "error";
   else if (list.isLoading) status = "loading";
   else status = "ready";
@@ -121,12 +147,48 @@ export function useClientEmailApprovalViewModel(initialId?: string): EmailApprov
   return {
     status,
     filter,
-    emails: list.data?.items ?? [],
+    emails,
     loadError: list.isError ? errorText(list.error) : undefined,
     selectedId,
     selected,
     dialog:
-      mode === "confirming" ? "approve" : mode === "rejecting" ? "reject" : mode === "cancelling" ? "cancel" : undefined,
+      mode === "confirming"
+        ? "approve"
+        : mode === "rejecting"
+          ? "reject"
+          : mode === "cancelling"
+            ? "cancel"
+            : mode === "deleting"
+              ? "delete"
+              : undefined,
+    checked,
+    isChecked: (id) => checked.includes(id),
+    toggleChecked(email) {
+      if (!isDeletableEmail(email)) return;
+      setChecked((c) => (c.includes(email.id) ? c.filter((x) => x !== email.id) : [...c, email.id]));
+    },
+    toggleAllChecked() {
+      setChecked(allChecked ? [] : deletable.map((e) => e.id));
+    },
+    allChecked,
+    deleteIds,
+    deleteFailedCount,
+    requestDelete(ids) {
+      if (ids.length === 0) return;
+      setDeleteFailedCount(0);
+      setDeleteIds(ids);
+      setMode("deleting");
+    },
+    async confirmDelete() {
+      if (deleteIds.length === 0) return;
+      await run(async () => {
+        const result = await remove.mutateAsync(deleteIds);
+        const gone = new Set(result.deleted);
+        setChecked((c) => c.filter((id) => !gone.has(id)));
+        if (selectedId && gone.has(selectedId)) setSelectedId(undefined);
+        setDeleteFailedCount(result.failed.length);
+      });
+    },
     editing: mode === "editing",
     detailLoading: detail.isLoading && Boolean(selectedId),
     draft,
@@ -136,6 +198,7 @@ export function useClientEmailApprovalViewModel(initialId?: string): EmailApprov
     canEdit: Boolean(selected && EDITABLE.has(selected.status)),
     setFilter(next) {
       setFilter(next);
+      setChecked([]);
       setSelectedId(undefined);
       setMode("view");
     },

@@ -122,6 +122,12 @@ class Settings(BaseSettings):
     DARCKWARE_API_URL: str = "http://darckware-backend:8020"
     DARCKWARE_AGENT_TOKEN: str = ""
     DARCKWARE_APPROVER_TOKEN: str = ""
+    # "Traduzir" on a client demand (2026-10-14): a plain ForgeRouter chat
+    # completion billed to this agent's own key -- Lara, who owns the client
+    # mailbox. Not a Hermes turn: a translation has no tools and must not
+    # land in the agent's memory.
+    CLIENT_OPS_TRANSLATOR_AGENT: str = "lara"
+    CLIENT_OPS_TRANSLATOR_MODEL: str = "forgerouter/standard"
 
     # Hindsight/Foundation PostgreSQL instance.
     FOUNDATION_POSTGRES_HOST: str = "hindsight_postgres"

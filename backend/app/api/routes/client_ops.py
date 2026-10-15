@@ -57,8 +57,12 @@ from app.api.schemas.client_ops import (
     WorkItemKind,
     WorkItemReopen,
     WorkItemResolve,
+    WorkItemsDelete,
+    TranslateIn,
+    EmailsDelete,
 )
 from app.core import darckware_client as dw
+from app.core.translation import translate_texts
 from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.db.base import get_db
@@ -113,6 +117,8 @@ _STAGE_BY_KIND: dict[str, dict[str, str]] = {
 }
 STAGES = ("novo", "em_andamento", "aguardando_cliente", "resolvido", "fechado")
 OPEN_STAGES = ("novo", "em_andamento", "aguardando_cliente")
+#: What "Excluir" turns a demand into -- Darckware never hard-deletes one.
+ARCHIVED_DEMAND_STATUS = "arquivada"
 
 #: Action -> raw status, per kind.
 _ACTION_STATUS: dict[str, dict[str, str]] = {
@@ -329,6 +335,9 @@ async def list_work_items(
     if kind in (None, "demand"):
         demand_status = raw_statuses("demand")
         for d in results[idx].get("items", []):
+            # Archived = "excluída" here (see delete_work_items): never listed.
+            if d.get("status") == ARCHIVED_DEMAND_STATUS:
+                continue
             if demand_status is not None and d.get("status") not in demand_status:
                 continue
             items.append(_demand_item(d, companies))
@@ -585,6 +594,61 @@ async def reopen_work_item(
     return await _transition(kind, item_id, "reopen", f"Reaberto: {payload.reason}", None, "outro", admin, db)
 
 
+@router.post("/work-items:delete")
+async def delete_work_items(
+    payload: WorkItemsDelete,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """"Excluir" one or many work items (2026-10-14, Marcelo: "excluir os
+    emails em lote ou unitário"). A demand is archived in Darckware (status
+    `arquivada`, with an event naming who did it) rather than erased -- the
+    record and its history stay in the CRM, it just leaves every list here.
+    A ticket is the client's own portal record, so it is refused per item.
+    Each item succeeds or fails on its own: one bad id never blocks the rest.
+    """
+    actor = f"forgehub:{admin.username}"
+    reason = payload.reason or "Excluída no ForgeHub"
+    deleted: list[dict[str, str]] = []
+    failed: list[dict[str, str]] = []
+    for ref in payload.items:
+        if ref.kind != "demand":
+            failed.append({"kind": ref.kind, "id": str(ref.id), "code": "ticket_not_deletable"})
+            continue
+        try:
+            await dw.request("POST", f"/demands/{ref.id}/archive", json={"actor": actor, "reason": reason})
+        except HTTPException as exc:
+            code = exc.detail.get("code") if isinstance(exc.detail, dict) else "darckware_error"
+            failed.append({"kind": ref.kind, "id": str(ref.id), "code": code or "darckware_error"})
+            continue
+        db.add(
+            AuditEvent(
+                entity_type="darckware_demand",
+                entity_id=ref.id,
+                event_type="deleted",
+                actor=admin.username,
+                payload={"darckware_status": ARCHIVED_DEMAND_STATUS, "reason": reason},
+            )
+        )
+        deleted.append({"kind": ref.kind, "id": str(ref.id)})
+    await db.commit()
+    return {"deleted": deleted, "failed": failed}
+
+
+@router.post("/translate")
+async def translate(
+    payload: TranslateIn,
+    _admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """"Traduzir" (2026-10-14): the screen sends what it shows (title,
+    description, timeline notes) and gets it back in its own UI language.
+    Read-only -- nothing is written to Darckware or here."""
+    if sum(len(t) for t in payload.texts) > 40000:
+        raise dw.client_ops_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "translation_too_long", "Too much text to translate at once")
+    return {"texts": await translate_texts(db, payload.texts, payload.target_language)}
+
+
 # ---------------------------------------------------------------------------
 # Outbound e-mail approval
 # ---------------------------------------------------------------------------
@@ -681,6 +745,36 @@ async def cancel_email(
     cancelled = await dw.request("POST", f"/outbound-emails/{email_id}/cancel")
     await _audit(db, "email", str(email_id), "cancelled", admin, {})
     return cancelled
+
+
+@router.post("/emails:delete")
+async def delete_emails(
+    payload: EmailsDelete,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """"Excluir" one or many e-mails (2026-10-14). Darckware hides them, never
+    erases: the row is the record of what was said to the client and the
+    monthly report's idempotency key. One still able to leave is cancelled
+    first; one being sent right now is refused (409) for that item only."""
+    actor = f"forgehub:{admin.username}"
+    deleted: list[str] = []
+    failed: list[dict[str, str]] = []
+    for email_id in payload.ids:
+        try:
+            await dw.request("POST", f"/outbound-emails/{email_id}/hide", json={"hidden_by": actor})
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            failed.append({"id": str(email_id), "code": detail.get("code") or "darckware_error", "reason": str(detail.get("message") or "")})
+            continue
+        db.add(
+            AuditEvent(
+                entity_type="darckware_email", entity_id=email_id, event_type="deleted", actor=admin.username, payload={}
+            )
+        )
+        deleted.append(str(email_id))
+    await db.commit()
+    return {"deleted": deleted, "failed": failed}
 
 
 # ---------------------------------------------------------------------------

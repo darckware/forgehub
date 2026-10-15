@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Check, Loader2, Mail, Pencil, X } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Mail, Pencil, Trash2, X } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ClientOpsStatusBanner, emailStatusVariant } from "@/pages/client-demands/shared";
 import { useClientOpsStatus } from "@/hooks/useClientOps";
 import {
+  isDeletableEmail,
   useClientEmailApprovalViewModel,
   type EmailListFilter,
 } from "@/hooks/useClientEmailApprovalViewModel";
@@ -53,14 +54,45 @@ export default function ClientEmailsPage() {
             {!vm.loadError && vm.status !== "loading" && vm.emails.length === 0 && (
               <p className="p-6 text-sm text-muted-foreground">{t("emails.empty")}</p>
             )}
+            {vm.emails.length > 0 && (
+              <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-2">
+                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <input type="checkbox" className="h-4 w-4" checked={vm.allChecked} onChange={vm.toggleAllChecked} />
+                  {vm.checked.length > 0
+                    ? t("emails.delete.selected", { count: vm.checked.length })
+                    : t("emails.delete.selectAll")}
+                </label>
+                {vm.checked.length > 0 && (
+                  <Button size="sm" variant="destructive" onClick={() => vm.requestDelete(vm.checked)}>
+                    <Trash2 className="mr-2 h-4 w-4" /> {t("emails.delete.bulk", { count: vm.checked.length })}
+                  </Button>
+                )}
+              </div>
+            )}
+            {vm.deleteFailedCount > 0 && (
+              <p className="border-b px-4 py-2 text-sm text-destructive">
+                {t("emails.delete.partial", { count: vm.deleteFailedCount })}
+              </p>
+            )}
             <ul className="divide-y">
               {vm.emails.map((email) => (
-                <li key={email.id}>
+                <li key={email.id} className="flex items-stretch">
+                  <div className="flex w-10 shrink-0 justify-center pt-4">
+                    {isDeletableEmail(email) && (
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={vm.isChecked(email.id)}
+                        onChange={() => vm.toggleChecked(email)}
+                        aria-label={t("emails.delete.check", { subject: email.subject })}
+                      />
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => vm.select(email.id)}
                     className={cn(
-                      "w-full space-y-1 px-4 py-3 text-left hover:bg-muted/50",
+                      "min-w-0 flex-1 space-y-1 py-3 pr-4 text-left hover:bg-muted/50",
                       vm.selectedId === email.id && "bg-muted",
                     )}
                   >
@@ -205,6 +237,15 @@ export default function ClientEmailsPage() {
                           {t("emails.cancelEmail")}
                         </Button>
                       )}
+                      {isDeletableEmail(selected) && (
+                        <Button
+                          variant="outline"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => vm.requestDelete([selected.id])}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> {t("emails.delete.one")}
+                        </Button>
+                      )}
                     </div>
                     <div className="space-y-1">
                       <p className="text-sm font-medium">{t("emails.preview")}</p>
@@ -260,6 +301,15 @@ export default function ClientEmailsPage() {
           />
         </div>
       </ConfirmDialog>
+      <ConfirmDialog
+        open={vm.dialog === "delete"}
+        loading={vm.status === "submitting"}
+        title={t("emails.delete.confirmTitle", { count: vm.deleteIds.length })}
+        description={t("emails.delete.confirmText", { count: vm.deleteIds.length })}
+        confirmLabel={t("emails.delete.confirm")}
+        onConfirm={() => void vm.confirmDelete()}
+        onCancel={vm.dismiss}
+      />
       <ConfirmDialog
         open={vm.dialog === "cancel"}
         loading={vm.status === "submitting"}
