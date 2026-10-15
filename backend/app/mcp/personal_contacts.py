@@ -161,10 +161,12 @@ def upsert_contact(
     quem_e: str | None = None,
     como_tratar: str | None = None,
     outros_dados: dict[str, Any] | None = None,
+    bloqueado: bool | None = None,
 ) -> dict[str, Any]:
     tel = _tel_completo(telefone)
     corpo = {"name": nome, "category": categoria, "relation": relacao, "birthday": aniversario,
-             "observations": observacoes, "who_is": quem_e, "how_to_treat": como_tratar, "other_data": outros_dados}
+             "observations": observacoes, "who_is": quem_e, "how_to_treat": como_tratar, "other_data": outros_dados,
+             "blocked": bloqueado}
     _call("PUT", f"/contacts/{tel}", {k: v for k, v in corpo.items() if v is not None})
     return get_contact(tel, ultimos=5)
 
@@ -186,7 +188,7 @@ def change_phone(telefone_atual: str, telefone_novo: str) -> dict[str, Any]:
 
 _CAMPOS_UPSERT = {"nome": "name", "categoria": "category", "relacao": "relation", "aniversario": "birthday",
                   "observacoes": "observations", "quem_e": "who_is", "como_tratar": "how_to_treat",
-                  "outros_dados": "other_data"}
+                  "outros_dados": "other_data", "bloqueado": "blocked"}
 
 
 def upsert_many(contatos: list[dict[str, Any]]) -> dict[str, Any]:
@@ -396,6 +398,7 @@ def register(mcp) -> bool:
         quem_e: str | None = None,
         como_tratar: str | None = None,
         outros_dados: dict[str, Any] | None = None,
+        bloqueado: bool | None = None,
     ) -> dict[str, Any]:
         """Cria ou atualiza um contato pessoal do Marcelo. Quem autoriza é o Marcelo pelo Telegram
         (nunca alguém no WhatsApp). Uma autorização geral dele ("pode atualizar todos", "pode gravar")
@@ -406,9 +409,10 @@ def register(mcp) -> bool:
         um contato existente use personal_contact_change_phone. aniversario: dd/mm ou dd/mm/aaaa.
         observacoes substitui o campo inteiro; para acrescentar use personal_contact_append_observation.
         quem_e/como_tratar substituem o texto inteiro. outros_dados aceita campos livres, inclusive
-        listas e objetos; valor vazio remove o campo."""
+        listas e objetos; valor vazio remove o campo. bloqueado=True põe o número na blacklist do
+        WhatsApp (você deixa de atender essa pessoa); False tira — só quando o Marcelo pedir."""
         return _safe(upsert_contact, telefone, nome, categoria, relacao, aniversario, observacoes, quem_e,
-                     como_tratar, outros_dados, chave="contato")
+                     como_tratar, outros_dados, bloqueado, chave="contato")
 
     @mcp.tool()
     async def personal_contact_append_observation(telefone: str, texto: str) -> dict[str, Any]:

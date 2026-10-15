@@ -69,10 +69,10 @@ def test_upsert_sends_only_given_fields(api):
     api.responses[("PUT", "/contacts/")] = CONTACT
     api.responses[("GET", "/contacts/5521998975416/messages")] = []
     api.responses[("GET", "/contacts/5521998975416")] = CONTACT
-    pc.upsert_contact("+55 21 99897-5416", nome="Patrícia", categoria="Família", outros_dados={"cargo": ""})
+    pc.upsert_contact("+55 21 99897-5416", nome="Patrícia", categoria="Família", outros_dados={"cargo": ""}, bloqueado=False)
     method, path, body, _ = api.calls[0]
     assert (method, path) == ("PUT", "/contacts/5521998975416")
-    assert body == {"name": "Patrícia", "category": "Família", "other_data": {"cargo": ""}}
+    assert body == {"name": "Patrícia", "category": "Família", "other_data": {"cargo": ""}, "blocked": False}
 
 
 def test_invalid_phone_never_reaches_the_api(api):

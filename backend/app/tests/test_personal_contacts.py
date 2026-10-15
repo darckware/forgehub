@@ -91,6 +91,8 @@ def test_phone_category_and_birthday_rules():
         rules.check_birthday("3 de maio")
     assert rules.merge_other_data({"cargo": "x", "setor": "y"}, {"cargo": "", "empresa": "Acme"}) == {
         "setor": "y", "empresa": "Acme"}
+    assert rules.split_blacklist_marker({"tipo": "blacklist", "motivo": "spam"}) == ({"motivo": "spam"}, True)
+    assert rules.split_blacklist_marker({"tipo": "fornecedor"}) == ({"tipo": "fornecedor"}, None)
     assert rules.upcoming_birthday("16/10/1990", date(2026, 10, 14), 30) == {"data": "16/10/2026", "faltam_dias": 2, "idade": 36}
 
 
@@ -150,6 +152,10 @@ async def test_upsert_list_get_and_validation(client, admin_headers, phones):
 
     r = await client.put(f"{BASE}/contacts/{phone}", headers=admin_headers, json={"other_data": {"cargo": "", "setor": "TI"}})
     assert r.json()["other_data"] == {"setor": "TI"} and r.json()["name"] == "Teste Contato"
+
+    # The file-era blacklist marker still blocks for real.
+    r = await client.put(f"{BASE}/contacts/{phone}", headers=admin_headers, json={"other_data": {"tipo": "blacklist"}})
+    assert r.json()["blocked"] is True and "tipo" not in r.json()["other_data"]
 
     listed = (await client.get(f"{BASE}/contacts", headers=admin_headers, params={"q": "Teste Contato"})).json()
     assert phone in {c["phone"] for c in listed}

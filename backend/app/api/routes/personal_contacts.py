@@ -127,10 +127,13 @@ async def _upsert(db: AsyncSession, phone: str, payload: ContactUpsert, actor: s
         contact.category = category
     if birthday is not None:
         contact.birthday = birthday
+    other_data, blocked_by_marker = rules.split_blacklist_marker(payload.other_data)
     if payload.blocked is not None:
         contact.blocked = payload.blocked
-    if payload.other_data:
-        contact.other_data = rules.merge_other_data(contact.other_data, payload.other_data)
+    elif blocked_by_marker is not None:
+        contact.blocked = blocked_by_marker
+    if other_data:
+        contact.other_data = rules.merge_other_data(contact.other_data, other_data)
     return contact
 
 

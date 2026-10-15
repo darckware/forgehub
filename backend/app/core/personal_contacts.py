@@ -98,6 +98,19 @@ def merge_other_data(current: dict[str, Any], changes: dict[str, Any] | None) ->
     return merged
 
 
+def split_blacklist_marker(changes: dict[str, Any] | None) -> tuple[dict[str, Any] | None, bool | None]:
+    """The file-era way to block someone was ``outros_dados={"tipo": "blacklist"}`` (and the Maia's skill
+    still says so). Keep honoring it: that key becomes the ``blocked`` flag instead of a dead note.
+    Returns (other_data without the marker, blocked or None when the marker wasn't there)."""
+    if not changes or "tipo" not in changes:
+        return changes, None
+    value = changes.get("tipo")
+    if not isinstance(value, str) or value.strip().lower() != "blacklist":
+        return changes, None
+    rest = {k: v for k, v in changes.items() if k != "tipo"}
+    return rest, True
+
+
 def upcoming_birthday(birthday: str, today: date, days: int) -> dict[str, Any] | None:
     m = re.fullmatch(r"(\d{2})/(\d{2})(?:/(\d{4}))?", (birthday or "").strip())
     if not m:
