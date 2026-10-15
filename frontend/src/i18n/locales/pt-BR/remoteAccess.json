@@ -244,5 +244,20 @@
     "stdout": "Saída",
     "stderr": "Erros",
     "truncated": "Saída cortada em 64 KB."
+  },
+  "prepare": {
+    "title": "Preparar {{name}}",
+    "action": "Preparar",
+    "for": "Preparar {{name}} para acesso remoto",
+    "loading": "Gerando a chave e o script…",
+    "step1": "Abra a estação pelo RustDesk.",
+    "step2Windows": "Abra o PowerShell como administrador, cole o script abaixo e pressione Enter.",
+    "step2Posix": "Abra o Terminal, salve o script como preparar.sh e rode: sudo sh preparar.sh",
+    "step3": "Volte aqui e clique em \"Verificar agora\": a estação deve ficar Pronta.",
+    "keyCreated": "Uma chave nova foi gerada para esta estação e guardada (cópia criptografada).",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "safeNote": "O script pode ser rodado mais de uma vez. Ele só liga o SSH (aceitando conexões apenas da tailnet) e adiciona a chave do ForgeHub; não remove contas nem outras chaves.",
+    "close": "Fechar"
   }
 }

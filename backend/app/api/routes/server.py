@@ -25,6 +25,7 @@ import asyncio
 import csv
 import io
 import logging
+import re
 import socket
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -43,6 +44,7 @@ logging.getLogger("paramiko").setLevel(logging.CRITICAL)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.server import (
+    HostPreparationOut,
     HostReadinessEntry,
     HostReadinessResult,
     ServerCheckResult,
@@ -69,8 +71,10 @@ from app.api.routes.host_execution import busy_server_ids
 from app.api.routes.vpn import fetch_tailnet_status
 from app.core.config import settings
 from app.core.deps import get_current_admin
+from app.core.host_preparation import PreparationError, preparation_script
 from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
+from app.db.models.governance import AuditEvent
 from app.db.models.server import HostGroup, HostGroupMember, Server, ServerService
 from app.db.models.user import User
 
@@ -792,6 +796,67 @@ async def backup_server_key(
     await db.commit()
     return ServerKeyVaultResult(
         server_id=server.id, private_key_stored=True, key_path=data.get("key_path")
+    )
+
+
+@router.post("/{server_id}/preparation", response_model=HostPreparationOut)
+async def prepare_host(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Script for the station's OS that enables SSH (tailnet only) and
+    authorizes this machine's key for its login -- to paste once through
+    RustDesk. Ensures the key exists first: a row without `ssh_key_path` gets
+    a dedicated ed25519 pair on this host (same naming as install-key), the
+    path and public key are recorded, and an encrypted copy is vaulted on the
+    row. A row that already has a key keeps it. Calling it again is safe."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.os_family:
+        raise HTTPException(status_code=422, detail="Set the machine's operating system first")
+    if not server.remote_user:
+        raise HTTPException(status_code=422, detail="Set the machine's login first")
+
+    key_created = False
+    if not server.ssh_key_path or not server.public_key:
+        resp = await _bridge_post(
+            "/v1/servers/ensure-key",
+            {"ip_address": server.ip_address, "comment": f"forgehub@{re.sub(r'[^A-Za-z0-9.-]', '-', server.name)}"},
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Host bridge error: {_bridge_detail(resp)}")
+        data = resp.json()
+        key_created = bool(data.get("created"))
+        server.ssh_key_path = data["key_path"]
+        server.public_key = data["public_key"]
+        vault = await _bridge_post("/v1/servers/read-private-key", {"key_path": server.ssh_key_path})
+        if vault.status_code == 200:
+            server.private_key_encrypted = encrypt_secret(vault.json()["private_key"])
+
+    try:
+        script, language = preparation_script(server.os_family, server.remote_user, server.public_key or "")
+    except PreparationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.add(
+        AuditEvent(
+            entity_type="server",
+            entity_id=server.id,
+            event_type="preparation_script_generated",
+            actor=admin.username,
+            payload={"os_family": server.os_family, "login": server.remote_user, "key_created": key_created},
+        )
+    )
+    await db.commit()
+    return HostPreparationOut(
+        server_id=server.id,
+        os_family=server.os_family,
+        language=language,
+        script=script,
+        public_key=server.public_key or "",
+        key_created=key_created,
+        key_path=server.ssh_key_path or "",
     )
 
 

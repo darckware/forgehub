@@ -244,5 +244,20 @@
     "stdout": "Output",
     "stderr": "Errors",
     "truncated": "Output cut at 64 KB."
+  },
+  "prepare": {
+    "title": "Prepare {{name}}",
+    "action": "Prepare",
+    "for": "Prepare {{name}} for remote access",
+    "loading": "Generating the key and script…",
+    "step1": "Open the station through RustDesk.",
+    "step2Windows": "Open PowerShell as administrator, paste the script below and press Enter.",
+    "step2Posix": "Open Terminal, save the script as preparar.sh and run: sudo sh preparar.sh",
+    "step3": "Come back and click \"Check now\": the station should become Ready.",
+    "keyCreated": "A new key was generated for this station and stored (encrypted copy).",
+    "copy": "Copy",
+    "copied": "Copied",
+    "safeNote": "The script can be run more than once. It only turns SSH on (accepting the tailnet only) and adds ForgeHub's key; it never removes accounts or other keys.",
+    "close": "Close"
   }
 }

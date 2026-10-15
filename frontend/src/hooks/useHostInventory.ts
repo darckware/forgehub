@@ -198,3 +198,23 @@ export function bucketByClient(machines: Server[], groups: HostGroup[]): ClientB
     return (a.clientName ?? "").localeCompare(b.clientName ?? "");
   });
 }
+
+export interface HostPreparation {
+  server_id: string;
+  os_family: string;
+  language: "powershell" | "sh";
+  script: string;
+  public_key: string;
+  key_created: boolean;
+  key_path: string;
+}
+
+/** Ensures the machine's key and returns the one-time preparation script
+ * for its OS (pasted on the station through RustDesk). */
+export function usePrepareHost() {
+  const qc = useQueryClient();
+  return useMutation<HostPreparation, Error, string>({
+    mutationFn: (serverId) => apiClient.post(`/api/v1/servers/${serverId}/preparation`, {}),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["servers"] }),
+  });
+}

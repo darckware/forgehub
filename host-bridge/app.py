@@ -3612,6 +3612,41 @@ async def read_public_key(req: ReadPubKeyRequest, x_bridge_token: str | None = H
     return {"public_key": content, "pub_path": pub_path}
 
 
+class EnsureKeyRequest(BaseModel):
+    ip_address: str
+    comment: str | None = None
+
+
+@app.post("/v1/servers/ensure-key")
+async def ensure_server_key(req: EnsureKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Creates (or reuses) the ed25519 pair a machine's preparation script
+    authorizes -- same file naming as install-key, so both flows meet on the
+    same identity. Used by Remote Access's "Prepare" for stations where the
+    key is authorized by a script run on the station (RustDesk), not pushed
+    with a password from here. Returns only the public half and the path."""
+    _check_token(x_bridge_token)
+    if not re.fullmatch(r"[\w.:-]+", req.ip_address):
+        raise HTTPException(status_code=400, detail="Invalid ip_address")
+    comment = req.comment or f"forgehub@{req.ip_address}"
+    if not re.fullmatch(r"[\w.@:-]+", comment):
+        raise HTTPException(status_code=400, detail="Invalid comment")
+    key_path = os.path.join(SSH_KEYS_DIR, re.sub(r"[.:]", "_", req.ip_address) + "_key")
+    pub_path = key_path + ".pub"
+    os.makedirs(SSH_KEYS_DIR, exist_ok=True)
+    created = False
+    if not (os.path.exists(key_path) and os.path.exists(pub_path)):
+        code, out = await _run_step(
+            ["ssh-keygen", "-q", "-t", "ed25519", "-f", key_path, "-N", "", "-C", comment], timeout=30
+        )
+        if code != 0:
+            raise HTTPException(status_code=500, detail=f"ssh-keygen failed: {out[-300:]}")
+        created = True
+    os.chmod(key_path, 0o600)
+    with open(pub_path, encoding="utf-8") as fh:
+        public_key = fh.read().strip()
+    return {"key_path": key_path, "public_key": public_key, "created": created}
+
+
 @app.post("/v1/servers/install-key")
 async def install_server_key(
     req: InstallKeyRequest, x_bridge_token: str | None = Header(default=None)

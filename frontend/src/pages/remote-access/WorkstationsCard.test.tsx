@@ -99,4 +99,18 @@ describe("WorkstationsCard", () => {
     expect(await screen.findByText("1 nova(s) · 1 disponível(is) para importar")).toBeInTheDocument();
     expect(apiClient.post).toHaveBeenLastCalledWith("/api/v1/servers/tailnet:sync", { import_node_ids: ["pc-a"] });
   });
+
+  it("prepares a not-prepared station with a one-time script", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({
+      server_id: "m2", os_family: "windows", language: "powershell", script: "Add-WindowsCapability ...",
+      public_key: "ssh-ed25519 AAAA", key_created: true, key_path: "/k",
+    } as never);
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar GAT-ADM-PC02 para acesso remoto" }));
+    expect(await screen.findByText("Add-WindowsCapability ...")).toBeInTheDocument();
+    expect(screen.getByText(/Abra o PowerShell como administrador/)).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/m2/preparation", {});
+    // A ready station has no Prepare button.
+    expect(screen.queryByRole("button", { name: "Preparar GAT-ADM-PC01 para acesso remoto" })).not.toBeInTheDocument();
+  });
 });

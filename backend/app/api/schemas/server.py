@@ -343,3 +343,16 @@ class HostReadinessResult(BaseModel):
     checked_at: datetime
     tailnet_available: bool
     ssh_checked_at: datetime | None = None
+
+
+class HostPreparationOut(BaseModel):
+    """Script to paste on the station once (via RustDesk) so it becomes Ready."""
+
+    server_id: uuid.UUID
+    os_family: str
+    language: Literal["powershell", "sh"]
+    script: str
+    public_key: str
+    # A new key pair was generated for this machine on this call.
+    key_created: bool
+    key_path: str

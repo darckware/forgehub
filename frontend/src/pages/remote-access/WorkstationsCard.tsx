@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { FolderPlus, Loader2, Monitor, Pencil, RefreshCw, Search, TerminalSquare, Trash2, Waypoints, X } from "lucide-react";
+import { FolderPlus, Loader2, Monitor, Pencil, RefreshCw, Search, TerminalSquare, Trash2, Waypoints, Wrench, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,8 +18,10 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDarckwareClients } from "@/hooks/useClientOps";
 import type { HostReadiness, HostReadinessEntry, ReadinessCounts } from "@/hooks/useHostInventory";
+import type { Server } from "@/hooks/useServers";
 import { useWorkstationsViewModel, type ReadinessFilter } from "@/hooks/useWorkstationsViewModel";
 import { ServerForm } from "@/pages/servers/ServerForm";
+import { PrepareDialog } from "./PrepareDialog";
 import { RunCommandDialog } from "./RunCommandDialog";
 
 const READINESS_VARIANT: Record<HostReadiness, "success" | "warning" | "destructive" | "outline" | "secondary"> = {
@@ -57,6 +59,7 @@ export function WorkstationsCard() {
   const { data: clientList } = useDarckwareClients();
   const navigate = useNavigate();
   const [runOn, setRunOn] = useState<string[] | null>(null);
+  const [preparing, setPreparing] = useState<Server | null>(null);
 
   const syncSummary = vm.syncResult
     ? (["created", "linked", "updated", "available"] as const)
@@ -260,6 +263,18 @@ export function WorkstationsCard() {
                         <TableCell className="font-mono text-xs">{machine.remote_user || "—"}</TableCell>
                         <TableCell><ReadinessBadge entry={vm.readinessOf(machine.id)} t={t} /></TableCell>
                         <TableCell className="whitespace-nowrap text-right">
+                          {["not_prepared", "online_no_access"].includes(vm.readinessOf(machine.id)?.readiness ?? "") && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setPreparing(machine)}
+                              aria-label={t("prepare.for", { name: machine.name })}
+                              className="mr-2 cursor-pointer gap-1.5"
+                            >
+                              <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t("prepare.action")}
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             size="sm"
@@ -292,6 +307,7 @@ export function WorkstationsCard() {
       </CardContent>
 
       {vm.editing && <ServerForm initial={vm.editing} onClose={vm.closeEdit} />}
+      {preparing && <PrepareDialog machine={preparing} onClose={() => setPreparing(null)} />}
       {runOn && (
         <RunCommandDialog
           initialServerIds={runOn}

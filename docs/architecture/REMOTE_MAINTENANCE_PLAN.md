@@ -51,7 +51,12 @@ manutenções agendadas, credenciais na ForgeVault e tudo documentado/auditado.
 ### Fase 3 — ForgeVault e preparação
 - [ ] ServiceAccount do ForgeHub na ForgeVault (**precisa token admin de organização**).
 - [ ] Projeto `infra`, ambiente por cliente; chaves por identidade.
-- [ ] Comando de preparação por SO; "Instalar chave" por SO; host key fixada na preparação.
+- [x] Comando de preparação por SO — botão **Preparar** (`POST /servers/{id}/preparation`,
+      `core/host_preparation.py`): garante a chave da estação (bridge `/v1/servers/ensure-key`, cópia
+      criptografada no cadastro) e devolve o script para colar uma vez pelo RustDesk (Windows: OpenSSH +
+      firewall só da tailnet + `administrators_authorized_keys`; Linux: sshd + ufw; macOS: Login Remoto).
+      Idempotente; só adiciona, nunca remove contas ou chaves.
+- [ ] Host key fixada na preparação (hoje: aceita na primeira conexão, recusa se mudar).
 - [ ] Migrar as chaves Fernet de `servers` e arquivos em `/root/agents/aegis/...` para a ForgeVault.
 - [ ] Rotação de senha admin e RustDesk (manual, com validação).
 
@@ -67,7 +72,10 @@ manutenções agendadas, credenciais na ForgeVault e tudo documentado/auditado.
       que falharam; a nova execução fica ligada à original (falha → correção → resultado).
       Escolher o script da biblioteca entra com a Fase 5.
 - [ ] Terminal/Explorer para Windows (PowerShell) — os atuais assumem shell POSIX.
-- [ ] Validar PowerShell numa estação Windows real (piloto). PowerShell por enquanto limitado a ~2.800
+- [ ] Validar PowerShell numa estação Windows real (piloto). **Pendente (2026-10-15):** `gat-adm-pc01`
+      importada (cliente HW Clube de Tiros, login `administrador`, chave `.../ssh_keys/100_82_42_10_key`
+      com cópia no cofre); as três máquinas Gatling respondem na tailnet mas sem SSH — falta rodar o
+      script do "Preparar" nelas pelo RustDesk. Depois: validar login, `Get-ComputerInfo` e a tela de execução. PowerShell por enquanto limitado a ~2.800
       caracteres (linha de comando do cmd.exe); scripts maiores chegam com a biblioteca (cópia para a estação).
 
 ### Fase 5 — Roteiros, lote e agendamento
