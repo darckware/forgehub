@@ -33,6 +33,17 @@ def test_scripts_carry_key_and_are_idempotent(os_family, language, must_have):
         assert fragment in script
 
 
+@pytest.mark.parametrize("os_family", ["windows", "linux", "macos"])
+def test_scripts_have_no_control_characters(os_family):
+    # Regression (2026-10-16): "\\v1.0" in an f-string became a vertical tab,
+    # the station's OpenSSH DefaultShell pointed nowhere and sshd refused
+    # every login on it.
+    script, _ = preparation_script(os_family, "darckware", KEY)
+    assert not [c for c in script if ord(c) < 32 and c not in "\n\r\t"]
+    if os_family == "windows":
+        assert r'"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"' in script
+
+
 @pytest.mark.parametrize("login, key, os_family", [
     ("adm'; rm -rf /", KEY, "linux"),
     ("", KEY, "windows"),
