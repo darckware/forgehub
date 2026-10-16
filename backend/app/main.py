@@ -69,6 +69,7 @@ from app.api.routes import (
     remote_access,
     host_execution,
     host_group,
+    host_script,
     server,
     system_control,
     system_info,
@@ -100,6 +101,18 @@ async def _recover_host_executions() -> None:
         logger.exception("Could not recover interrupted host executions")
 
 
+async def _seed_system_scripts() -> None:
+    """Remote Access system scripts (core/system_scripts.py) in the library."""
+    from app.core.system_scripts import seed_system_scripts
+
+    try:
+        changed = await seed_system_scripts()
+        if changed:
+            logger.info("Seeded/updated %d system script(s)", changed)
+    except Exception:
+        logger.exception("Could not seed system scripts")
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Initialize application state and own every background worker.
@@ -110,6 +123,7 @@ async def _lifespan(_app: FastAPI):
     """
     await _bootstrap_admin()
     await _recover_host_executions()
+    await _seed_system_scripts()
     await _start_background_tasks()
     try:
         yield
@@ -398,6 +412,8 @@ app.include_router(profiles.router)
 app.include_router(server.router)
 app.include_router(host_group.router)
 app.include_router(host_execution.router)
+app.include_router(host_script.router)
+app.include_router(host_script.schedules_router)
 app.include_router(remote_access.router)
 app.include_router(system_control.router)
 app.include_router(vpn.router)
@@ -867,6 +883,22 @@ async def _client_ops_poll_loop() -> None:
         await asyncio.sleep(CLIENT_OPS_POLL_INTERVAL_SECONDS)
 
 
+HOST_SCHEDULE_POLL_SECONDS = 60
+
+
+async def _host_schedule_poll_loop() -> None:
+    """Remote Access schedules (api/routes/host_script.py). Its own loop: a
+    stuck host-bridge must not hold other workers back, and vice versa."""
+    from app.api.routes.host_script import run_due_schedules
+
+    while True:
+        try:
+            await run_due_schedules()
+        except Exception:
+            logger.exception("Host schedule poll failed")
+        await asyncio.sleep(HOST_SCHEDULE_POLL_SECONDS)
+
+
 async def _start_background_tasks() -> None:
     """Start each independent maintenance loop exactly once."""
     global _background_tasks
@@ -894,6 +926,7 @@ async def _start_background_tasks() -> None:
         ("demand-retention-poll", _demand_retention_poll_loop),
         ("agent-activity-retention", _agent_activity_retention_loop),
         ("workstation-staleness-poll", _workstation_staleness_poll_loop),
+        ("host-schedule-poll", _host_schedule_poll_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]
 

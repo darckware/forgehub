@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.vpn import (
+    TailscaleApiKeyIn,
+    TailscaleApiKeyStatus,
     TailnetPolicyAnalysisOut,
     TailnetPolicyCreate,
     TailnetPolicyOut,
@@ -29,7 +31,9 @@ from app.db.base import get_db
 from app.db.models.user import User
 from app.core.tailnet_policy import SERVER_TAG, PolicyParseError, analyze_policy, parse_hujson
 from app.db.models.governance import AuditEvent
-from app.db.models.vpn import TailnetPolicyVersion, VpnOperationEvent
+from app.core.secrets import decrypt_secret, encrypt_secret
+from app.core.tailscale_api import API_KEY_NAME
+from app.db.models.vpn import RemoteAccessSecret, TailnetPolicyVersion, VpnOperationEvent
 
 router = APIRouter(prefix="/api/v1/vpn", tags=["vpn"])
 
@@ -283,3 +287,61 @@ async def save_tailnet_policy(
     await db.commit()
     await db.refresh(row)
     return _policy_out(row)
+
+
+async def _api_key_row(db: AsyncSession) -> RemoteAccessSecret | None:
+    return (
+        await db.execute(select(RemoteAccessSecret).where(RemoteAccessSecret.name == API_KEY_NAME))
+    ).scalar_one_or_none()
+
+
+def _api_key_status(row: RemoteAccessSecret | None) -> TailscaleApiKeyStatus:
+    if row is None:
+        return TailscaleApiKeyStatus(configured=False)
+    try:
+        hint = decrypt_secret(row.value_encrypted)[-4:]
+    except ValueError:
+        hint = None
+    return TailscaleApiKeyStatus(configured=True, hint=hint, updated_by=row.updated_by, updated_at=row.updated_at)
+
+
+@router.get("/tailscale-api-key", response_model=TailscaleApiKeyStatus)
+async def get_tailscale_api_key_status(
+    _user: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> TailscaleApiKeyStatus:
+    """Whether the key "Enroll station" uses is configured. The key itself is
+    never returned."""
+    return _api_key_status(await _api_key_row(db))
+
+
+@router.put("/tailscale-api-key", response_model=TailscaleApiKeyStatus)
+async def set_tailscale_api_key(
+    payload: TailscaleApiKeyIn,
+    user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TailscaleApiKeyStatus:
+    row = await _api_key_row(db)
+    if row is None:
+        row = RemoteAccessSecret(name=API_KEY_NAME, value_encrypted="", updated_by=user.username)
+        db.add(row)
+    row.value_encrypted = encrypt_secret(payload.api_key)
+    row.updated_by = user.username
+    await db.flush()
+    db.add(AuditEvent(entity_type="remote_access_secret", entity_id=row.id, event_type="tailscale_api_key_set",
+                      actor=user.username, payload=None))
+    await db.commit()
+    await db.refresh(row)
+    return _api_key_status(row)
+
+
+@router.delete("/tailscale-api-key", response_model=TailscaleApiKeyStatus)
+async def delete_tailscale_api_key(
+    user: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> TailscaleApiKeyStatus:
+    row = await _api_key_row(db)
+    if row is not None:
+        db.add(AuditEvent(entity_type="remote_access_secret", entity_id=row.id, event_type="tailscale_api_key_removed",
+                          actor=user.username, payload=None))
+        await db.delete(row)
+        await db.commit()
+    return TailscaleApiKeyStatus(configured=False)

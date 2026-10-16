@@ -28,9 +28,11 @@ import asyncio
 import base64
 import contextlib
 import html
+import os
 import re
 import time
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from typing import Callable, Literal
 
 from fastapi import APIRouter, Header, HTTPException
@@ -51,9 +53,28 @@ class ExecTarget:
     user: str
     port: int = 22
     key: str | None = None
+    # Only for one-off runs on a machine ForgeHub has no key for yet ("Enroll
+    # station" over SSH). Travels to sshpass through the environment, never
+    # argv, and is never logged or stored.
+    password: str | None = field(default=None, repr=False)
 
 
 def ssh_base(target: ExecTarget) -> list[str]:
+    if target.password:
+        args = [
+            "sshpass", "-e", "ssh",
+            "-o", "BatchMode=no",
+            "-o", "PubkeyAuthentication=no",
+            "-o", "PreferredAuthentications=password,keyboard-interactive",
+            "-o", "NumberOfPasswordPrompts=1",
+            "-o", "ConnectTimeout=10",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=4",
+        ]
+        if target.port != 22:
+            args += ["-p", str(target.port)]
+        return [*args, f"{target.user}@{target.host}"]
     args = [
         "ssh",
         "-o", "BatchMode=yes",
@@ -99,17 +120,46 @@ def encode_powershell(script: str) -> str:
     return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
 
 
+def _powershell_remote(script: str) -> str:
+    return (
+        "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass "
+        f"-EncodedCommand {encode_powershell(script)}"
+    )
+
+
 def build_command(target: ExecTarget, shell: Shell, script: str) -> tuple[list[str], bytes | None]:
-    """argv for the local `ssh` and the bytes to feed its stdin."""
+    """argv for the local `ssh` and the bytes to feed its stdin. A PowerShell
+    script longer than MAX_POWERSHELL_CHARS doesn't fit cmd.exe's command line;
+    run_script uploads those in chunks instead (powershell_upload_commands)."""
     if shell == "sh":
         return [*ssh_base(target), "sh -s"], script.encode()
     if len(script) > MAX_POWERSHELL_CHARS:
-        raise ValueError(f"PowerShell script is limited to {MAX_POWERSHELL_CHARS} characters for now")
-    remote = (
-        "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass "
-        f"-EncodedCommand {encode_powershell(POWERSHELL_PRELUDE + script)}"
+        raise ValueError(f"PowerShell script is limited to {MAX_POWERSHELL_CHARS} characters in one command")
+    return [*ssh_base(target), _powershell_remote(POWERSHELL_PRELUDE + script)], None
+
+
+UPLOAD_CHUNK_BYTES = 1500
+
+
+def powershell_upload_commands(script: str, token: str | None = None) -> tuple[list[str], str]:
+    """Remote commands that write the script to %TEMP% piece by piece (UTF-8
+    with BOM, so Windows PowerShell 5.1 reads accents right) and one that runs
+    it as a file and deletes it. Each piece fits cmd.exe's 8191-char line."""
+    token = token or uuid.uuid4().hex
+    path = f"$env:TEMP\\forgehub-{token}.ps1"
+    data = (POWERSHELL_PRELUDE + script).encode("utf-8")
+    uploads = []
+    for i in range(0, len(data), UPLOAD_CHUNK_BYTES):
+        b64 = base64.b64encode(data[i:i + UPLOAD_CHUNK_BYTES]).decode("ascii")
+        uploads.append(_powershell_remote(
+            f'[IO.File]::AppendAllText("{path}", '
+            f"[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')), [Text.Encoding]::UTF8)"
+        ))
+    run = _powershell_remote(
+        f'& powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{path}"; '
+        f'$c = $LASTEXITCODE; Remove-Item -Force "{path}" -ErrorAction SilentlyContinue; exit $c'
     )
-    return [*ssh_base(target), remote], None
+    return [*uploads, run], path
 
 
 async def _read_capped(stream: asyncio.StreamReader, cap: int) -> tuple[bytes, bool]:
@@ -140,21 +190,16 @@ def classify_failure(exit_code: int | None, stderr: str, timed_out: bool) -> str
     return "command"
 
 
-async def run_script(
-    target: ExecTarget,
-    shell: Shell,
-    script: str,
-    timeout: float,
-    *,
-    build: Callable[[ExecTarget, Shell, str], tuple[list[str], bytes | None]] | None = None,
-) -> dict:
-    argv, stdin = (build or build_command)(target, shell, script)
-    started = time.monotonic()
+async def _exec_once(
+    argv: list[str], stdin: bytes | None, timeout: float, env: dict | None
+) -> tuple[int | None, bytes, bytes, bool, bool]:
+    """(exit_code or None on timeout, stdout, stderr, truncated, timed_out)."""
     proc = await asyncio.create_subprocess_exec(
         *argv,
         stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
 
     async def feed() -> None:
@@ -164,7 +209,6 @@ async def run_script(
                 await proc.stdin.drain()
             proc.stdin.close()
 
-    timed_out = False
     gathered = asyncio.gather(
         feed(),
         _read_capped(proc.stdout, MAX_OUTPUT_BYTES),
@@ -174,22 +218,82 @@ async def run_script(
     try:
         _, (out, out_cut), (err, err_cut), _ = await asyncio.wait_for(gathered, timeout=timeout)
     except asyncio.TimeoutError:
-        timed_out = True
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
         await proc.wait()
-        out, out_cut, err, err_cut = b"", False, b"", False
-    stderr = decode_clixml(err.decode(errors="replace")) if shell == "powershell" else err.decode(errors="replace")
-    exit_code = None if timed_out else proc.returncode
+        return None, b"", b"", False, True
+    return proc.returncode, out, err, out_cut or err_cut, False
+
+
+def _env_for(target: ExecTarget) -> dict | None:
+    if not target.password:
+        return None
+    return {**os.environ, "SSHPASS": target.password}
+
+
+async def run_script(
+    target: ExecTarget,
+    shell: Shell,
+    script: str,
+    timeout: float,
+    *,
+    build: Callable[[ExecTarget, Shell, str], tuple[list[str], bytes | None]] | None = None,
+) -> dict:
+    started = time.monotonic()
+    env = _env_for(target)
+    if shell == "powershell" and len(script) > MAX_POWERSHELL_CHARS and build is None:
+        commands, _ = powershell_upload_commands(script)
+        base = ssh_base(target)
+        for upload in commands[:-1]:
+            code, _out, err, _cut, timed_out = await _exec_once([*base, upload], None, 60, env)
+            if timed_out or code != 0:
+                stderr = decode_clixml(err.decode(errors="replace"))
+                return {
+                    "exit_code": None if timed_out else code, "stdout": "",
+                    "stderr": "Could not upload the script to the machine.\n" + stderr,
+                    "truncated": False, "timed_out": timed_out,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "failure": classify_failure(code, stderr, timed_out) or "command",
+                }
+        argv, stdin = [*base, commands[-1]], None
+    else:
+        argv, stdin = (build or build_command)(target, shell, script)
+    remaining = max(5.0, timeout - (time.monotonic() - started))
+    exit_code, out, err, truncated, timed_out = await _exec_once(argv, stdin, remaining, env)
+    stderr = err.decode(errors="replace")
+    if shell == "powershell":
+        stderr = decode_clixml(stderr)
     return {
         "exit_code": exit_code,
         "stdout": out.decode(errors="replace"),
         "stderr": stderr,
-        "truncated": out_cut or err_cut,
+        "truncated": truncated,
         "timed_out": timed_out,
         "duration_ms": int((time.monotonic() - started) * 1000),
         "failure": classify_failure(exit_code, stderr, timed_out),
     }
+
+
+async def detect_os(target: ExecTarget) -> dict:
+    """Which OS answers on the other side: `uname -s` first (Linux/macOS),
+    then PowerShell (Windows). Raises ValueError("auth"/"connection") when
+    the login itself fails."""
+    env = _env_for(target)
+    base = ssh_base(target)
+    code, out, err, _cut, timed_out = await _exec_once([*base, "uname -s"], None, 30, env)
+    text = out.decode(errors="replace").strip()
+    if code == 255 or timed_out:
+        failure = classify_failure(code, err.decode(errors="replace"), timed_out)
+        raise ValueError(failure if failure in ("auth", "connection") else "connection")
+    if code == 0 and text in ("Linux", "Darwin"):
+        return {"os_family": "linux" if text == "Linux" else "macos", "detail": text}
+    code, out, _err, _cut, _to = await _exec_once(
+        [*base, _powershell_remote("[Environment]::OSVersion.VersionString")], None, 60, env
+    )
+    text = out.decode(errors="replace").strip()
+    if code == 0 and "Windows" in text:
+        return {"os_family": "windows", "detail": text}
+    return {"os_family": None, "detail": text[:200] or "unknown"}
 
 
 class ExecRequest(BaseModel):
@@ -197,9 +301,18 @@ class ExecRequest(BaseModel):
     user: str
     port: int = Field(default=22, ge=1, le=65535)
     key_path: str | None = None
+    password: str | None = Field(default=None, min_length=1, max_length=256)
     shell: Shell
     script: str = Field(min_length=1, max_length=200_000)
     timeout_seconds: int = Field(default=300, ge=5, le=MAX_TIMEOUT_SECONDS)
+
+
+class DetectOsRequest(BaseModel):
+    host: str
+    user: str
+    port: int = Field(default=22, ge=1, le=65535)
+    key_path: str | None = None
+    password: str | None = Field(default=None, min_length=1, max_length=256)
 
 
 def make_host_exec_router(
@@ -214,16 +327,33 @@ def make_host_exec_router(
             raise HTTPException(status_code=400, detail="Invalid host")
         if not _USER_RE.match(req.user):
             raise HTTPException(status_code=400, detail="Invalid user")
-        target = ExecTarget(
+        try:
+            return await run_script(_target(req), req.shell, req.script, req.timeout_seconds)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/v1/servers/detect-os")
+    async def detect_server_os(req: DetectOsRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+        check_token(x_bridge_token)
+        if not _HOST_RE.match(req.host):
+            raise HTTPException(status_code=400, detail="Invalid host")
+        if not _USER_RE.match(req.user):
+            raise HTTPException(status_code=400, detail="Invalid user")
+        try:
+            return await detect_os(_target(req))
+        except ValueError as exc:
+            reason = str(exc)
+            detail = "Login refused (check user and password)" if reason == "auth" else "Machine unreachable on SSH"
+            raise HTTPException(status_code=502, detail=detail) from exc
+
+    def _target(req) -> ExecTarget:
+        return ExecTarget(
             host=req.host,
             user=req.user,
             port=req.port,
             key=resolve_key_path(req.key_path) if req.key_path else None,
+            password=req.password,
         )
-        try:
-            return await run_script(target, req.shell, req.script, req.timeout_seconds)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return router
 

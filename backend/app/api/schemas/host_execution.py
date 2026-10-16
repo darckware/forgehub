@@ -11,22 +11,30 @@ MAX_TARGETS = 200
 
 
 class HostExecutionCreate(BaseModel):
+    """Either a library script (`script_id` + `parameter_values`) or an ad-hoc
+    `command` + `shell`."""
+
     model_config = ConfigDict(extra="forbid")
 
-    command: str = Field(min_length=1, max_length=100_000)
-    shell: ExecShell
+    script_id: uuid.UUID | None = None
+    parameter_values: dict[str, str | None] = Field(default_factory=dict)
+    command: str | None = Field(default=None, min_length=1, max_length=100_000)
+    shell: ExecShell | None = None
     server_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_TARGETS)
     group_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
     timeout_seconds: int = Field(default=300, ge=5, le=1800)
 
 
 class HostExecutionFollowUp(BaseModel):
-    """Run another command on the machines where the parent failed."""
+    """Run a library script or another command on the machines where the
+    parent failed."""
 
     model_config = ConfigDict(extra="forbid")
 
-    command: str = Field(min_length=1, max_length=100_000)
-    shell: ExecShell
+    script_id: uuid.UUID | None = None
+    parameter_values: dict[str, str | None] = Field(default_factory=dict)
+    command: str | None = Field(default=None, min_length=1, max_length=100_000)
+    shell: ExecShell | None = None
     timeout_seconds: int = Field(default=300, ge=5, le=1800)
 
 
@@ -62,6 +70,14 @@ class HostExecutionSummary(BaseModel):
 
     id: uuid.UUID
     parent_execution_id: uuid.UUID | None
+    trigger: Literal["manual", "schedule", "agent"] = "manual"
+    agent_id: uuid.UUID | None = None
+    agent_name: str | None = None
+    schedule_id: uuid.UUID | None = None
+    script_id: uuid.UUID | None = None
+    script_name: str | None = None
+    script_version: int | None = None
+    retry_until: datetime | None = None
     shell: str
     command: str
     timeout_seconds: int

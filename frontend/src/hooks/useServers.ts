@@ -21,6 +21,13 @@ export interface Server {
   /** A passphrase for that key is on file. Like the key, never sent to the
    * browser -- the form renders "stored" from this boolean alone. */
   key_passphrase_stored: boolean;
+  /** "Enroll station" stored the login's password (never sent; see
+   * useRevealLoginPassword in useHostInventory.ts). */
+  login_password_stored?: boolean;
+  /** RustDesk ID and whether its permanent password is on file (recorded by
+   * the RustDesk system scripts after they succeed). */
+  rustdesk_id?: string | null;
+  rustdesk_password_stored?: boolean;
   /** ForgeHub-side access switch. False parks the server: no status probe, no
    * terminal -- while the key, the vaulted copy and the server itself are all
    * left exactly as they were. */

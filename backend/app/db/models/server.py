@@ -140,6 +140,17 @@ class Server(Base, TimestampMixin):
     # machine name last seen for it.
     tailnet_node_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tailnet_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Password of the machine's login (remote_user), Fernet-encrypted, set by
+    # "Enroll station" which generates one strong password per station
+    # (2026-10-16, Marcelo: "senha no cadastro" -- a stand-in until phase 3
+    # moves it to ForgeVault). Never serialized; read only through the
+    # admin-only, audited reveal route.
+    login_password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # RustDesk on the machine: its ID (what you type in RustDesk to reach it)
+    # and the permanent password, encrypted. Written only after the install /
+    # password-change system script succeeded on that machine.
+    rustdesk_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    rustdesk_password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     @property
     def private_key_stored(self) -> bool:
@@ -147,6 +158,14 @@ class Server(Base, TimestampMixin):
         Surfaced instead of the material itself so the key never reaches a
         response body."""
         return bool(self.private_key_encrypted)
+
+    @property
+    def rustdesk_password_stored(self) -> bool:
+        return bool(self.rustdesk_password_encrypted)
+
+    @property
+    def login_password_stored(self) -> bool:
+        return bool(self.login_password_encrypted)
 
     @property
     def key_passphrase_stored(self) -> bool:

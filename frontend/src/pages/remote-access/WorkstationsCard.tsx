@@ -6,8 +6,7 @@
  */
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
-import { FolderPlus, Loader2, Monitor, Pencil, RefreshCw, Search, TerminalSquare, Trash2, Waypoints, Wrench, X } from "lucide-react";
+import { FolderPlus, KeyRound, Loader2, Monitor, MonitorSmartphone, Pencil, RefreshCw, Search, Trash2, Waypoints, Wrench, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,7 +21,7 @@ import type { Server } from "@/hooks/useServers";
 import { useWorkstationsViewModel, type ReadinessFilter } from "@/hooks/useWorkstationsViewModel";
 import { ServerForm } from "@/pages/servers/ServerForm";
 import { PrepareDialog } from "./PrepareDialog";
-import { RunCommandDialog } from "./RunCommandDialog";
+import { RevealPasswordDialog } from "./RevealPasswordDialog";
 
 const READINESS_VARIANT: Record<HostReadiness, "success" | "warning" | "destructive" | "outline" | "secondary"> = {
   ready: "success",
@@ -57,9 +56,8 @@ export function WorkstationsCard() {
   const { t } = useTranslation("remoteAccess");
   const vm = useWorkstationsViewModel();
   const { data: clientList } = useDarckwareClients();
-  const navigate = useNavigate();
-  const [runOn, setRunOn] = useState<string[] | null>(null);
   const [preparing, setPreparing] = useState<Server | null>(null);
+  const [revealing, setRevealing] = useState<{ machine: Server; kind: "login" | "rustdesk" } | null>(null);
 
   const syncSummary = vm.syncResult
     ? (["created", "linked", "updated", "available"] as const)
@@ -275,16 +273,32 @@ export function WorkstationsCard() {
                               <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t("prepare.action")}
                             </Button>
                           )}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setRunOn([machine.id])}
-                            aria-label={t("workstations.runFor", { name: machine.name })}
-                            className="mr-2 cursor-pointer gap-1.5"
-                          >
-                            <TerminalSquare className="h-3.5 w-3.5" aria-hidden="true" /> {t("workstations.run")}
-                          </Button>
+                          {machine.rustdesk_password_stored && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setRevealing({ machine, kind: "rustdesk" })}
+                              aria-label={t("password.rustdeskFor", { name: machine.name })}
+                              title={t("password.rustdeskFor", { name: machine.name })}
+                              className="mr-2 h-8 cursor-pointer gap-1.5 font-mono text-xs"
+                            >
+                              <MonitorSmartphone className="h-3.5 w-3.5" aria-hidden="true" /> {machine.rustdesk_id ?? "RustDesk"}
+                            </Button>
+                          )}
+                          {machine.login_password_stored && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              onClick={() => setRevealing({ machine, kind: "login" })}
+                              aria-label={t("password.for", { name: machine.name })}
+                              title={t("password.for", { name: machine.name })}
+                              className="mr-2 h-8 w-8 cursor-pointer"
+                            >
+                              <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             size="sm"
@@ -307,14 +321,8 @@ export function WorkstationsCard() {
       </CardContent>
 
       {vm.editing && <ServerForm initial={vm.editing} onClose={vm.closeEdit} />}
+      {revealing && <RevealPasswordDialog machine={revealing.machine} kind={revealing.kind} onClose={() => setRevealing(null)} />}
       {preparing && <PrepareDialog machine={preparing} onClose={() => setPreparing(null)} />}
-      {runOn && (
-        <RunCommandDialog
-          initialServerIds={runOn}
-          onClose={() => setRunOn(null)}
-          onStarted={(execution) => navigate(`/remote-access/executions/${execution.id}`)}
-        />
-      )}
 
       <ConfirmDialog
         open={vm.deletingGroup !== null}

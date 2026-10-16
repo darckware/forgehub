@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -28,8 +29,16 @@ from app.db.models.server import Server
 logger = logging.getLogger(__name__)
 
 MAX_PARALLEL = 8
+# Scheduled runs: an unreachable machine is retried this often until the
+# execution's retry_until, then reads "not run" (decision: closed window =
+# not executed).
+RETRY_INTERVAL_SECONDS = 60
 HEARTBEAT_SECONDS = 20
 STALE_AFTER = timedelta(seconds=90)
+# Called after a machine's run succeeded: (server_id, outcome). Used by system
+# scripts to record what they changed (RustDesk ID/password).
+OnSuccess = Callable[[uuid.UUID, dict], Awaitable[None]]
+
 # Kept so the tasks aren't garbage-collected mid-run.
 _running: dict[uuid.UUID, asyncio.Task] = {}
 
@@ -68,7 +77,11 @@ async def call_bridge_exec(server: Server, shell: str, script: str, timeout_seco
     return resp.json()
 
 
-async def _run_one(result_id: uuid.UUID, shell: str, script: str, timeout: int, secrets: list[str]) -> None:
+async def _run_one(
+    result_id: uuid.UUID, shell: str, script: str, timeout: int, secrets: list[str],
+    retry_until: datetime | None = None,
+    on_success: OnSuccess | None = None,
+) -> None:
     async with AsyncSessionLocal() as db:
         result = await db.get(HostExecutionResult, result_id)
         execution = await db.get(HostExecution, result.execution_id)
@@ -87,10 +100,24 @@ async def _run_one(result_id: uuid.UUID, shell: str, script: str, timeout: int, 
         await db.commit()
 
     outcome = await call_bridge_exec(server, shell, script, timeout)
+    while outcome.get("failure") == "connection" and retry_until and _now() < retry_until:
+        async with AsyncSessionLocal() as db:
+            execution = await db.get(HostExecution, result.execution_id)
+            if execution is None or execution.status == "cancelled":
+                break
+        await asyncio.sleep(RETRY_INTERVAL_SECONDS)
+        outcome = await call_bridge_exec(server, shell, script, timeout)
 
     async with AsyncSessionLocal() as db:
         result = await db.get(HostExecutionResult, result_id)
         failure = outcome.get("failure")
+        if failure == "connection" and retry_until:
+            result.status, result.failure = "skipped", None
+            result.skip_reason = "Unreachable until the scheduled window closed"
+            result.stderr = mask_secrets(outcome.get("stderr"), secrets)
+            result.finished_at = _now()
+            await db.commit()
+            return
         result.status = "failed" if failure else "succeeded"
         result.failure = failure
         result.exit_code = outcome.get("exit_code")
@@ -100,10 +127,17 @@ async def _run_one(result_id: uuid.UUID, shell: str, script: str, timeout: int, 
         result.duration_ms = outcome.get("duration_ms")
         result.finished_at = _now()
         await db.commit()
+    if not failure and on_success is not None and server is not None:
+        try:
+            await on_success(server.id, outcome)
+        except Exception:
+            logger.exception("host execution: on_success hook failed for %s", server.id)
 
 
 async def _run_execution(
-    execution_id: uuid.UUID, shell: str, script: str, timeout: int, secrets: list[str]
+    execution_id: uuid.UUID, shell: str, script: str, timeout: int, secrets: list[str],
+    retry_until: datetime | None = None,
+    on_success: OnSuccess | None = None,
 ) -> None:
     try:
         async with AsyncSessionLocal() as db:
@@ -123,7 +157,7 @@ async def _run_execution(
         async def guarded(result_id: uuid.UUID) -> None:
             async with gate:
                 try:
-                    await _run_one(result_id, shell, script, timeout, secrets)
+                    await _run_one(result_id, shell, script, timeout, secrets, retry_until, on_success)
                 except Exception:
                     logger.exception("host execution %s: result %s crashed", execution_id, result_id)
                     async with AsyncSessionLocal() as db:
@@ -168,10 +202,12 @@ async def _heartbeat(execution_id: uuid.UUID) -> None:
 
 
 def start_execution(
-    execution_id: uuid.UUID, shell: str, script: str, timeout: int, secrets: list[str] | None = None
+    execution_id: uuid.UUID, shell: str, script: str, timeout: int, secrets: list[str] | None = None,
+    retry_until: datetime | None = None,
+    on_success: OnSuccess | None = None,
 ) -> asyncio.Task:
     task = asyncio.create_task(
-        _run_execution(execution_id, shell, script, timeout, list(secrets or [])),
+        _run_execution(execution_id, shell, script, timeout, list(secrets or []), retry_until, on_success),
         name=f"host-execution-{execution_id}",
     )
     _running[execution_id] = task

@@ -15,6 +15,7 @@ recorded as "skipped" with the reason, never silently dropped: parked in
 ForgeHub, no login yet, OS incompatible with the shell, or already running
 another command (one execution per machine at a time).
 """
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -32,11 +33,15 @@ from app.api.schemas.host_execution import (
     HostExecutionSummary,
 )
 from app.core import host_exec_runner
+from app.core.host_scripts import ScriptError, compatible, render_script, resolve_values, shell_for
 from app.core.deps import get_current_admin
 from app.core.secret_masking import mask_secrets
+from app.core.secrets import encrypt_secret
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
+from app.db.models.agent import Agent
 from app.db.models.host_execution import HostExecution, HostExecutionResult
+from app.db.models.host_script import HostScript
 from app.db.models.server import HostGroup, HostGroupMember, Server
 from app.db.models.user import User
 
@@ -59,14 +64,21 @@ async def busy_server_ids(db: AsyncSession) -> set[uuid.UUID]:
     return set(rows.scalars())
 
 
-def skip_reason(server: Server, shell: str, busy: set[uuid.UUID]) -> str | None:
+def skip_reason(
+    server: Server, shell: str, busy: set[uuid.UUID], platform: str | None = None
+) -> str | None:
     if not server.access_enabled:
         return "Access is turned off in ForgeHub"
     if not server.remote_user:
         return "No login set for this machine yet"
-    if shell == "powershell" and server.os_family != "windows":
+    if not server.ip_address:
+        return "Waiting for the machine to join the tailnet"
+    if platform is not None:
+        if not compatible(platform, server.os_family):
+            return f"This script is for {platform.capitalize()} machines"
+    elif shell == "powershell" and server.os_family != "windows":
         return "PowerShell runs only on Windows machines"
-    if shell == "sh" and server.os_family == "windows":
+    elif shell == "sh" and server.os_family == "windows":
         return "sh does not run on Windows machines"
     if server.id in busy:
         return "Already running another command"
@@ -99,10 +111,15 @@ async def _summaries(db: AsyncSession, executions: list[HostExecution]) -> list[
         )
         for execution_id, result_status in rows.all():
             statuses[execution_id].append(result_status)
+    agent_ids = {e.agent_id for e in executions if e.agent_id}
+    names = {}
+    if agent_ids:
+        names = dict((await db.execute(select(Agent.id, Agent.name).where(Agent.id.in_(agent_ids)))).all())
     out = []
     for execution in executions:
         summary = HostExecutionSummary.model_validate(execution)
         summary.counts, summary.verdict = _counts_and_verdict(statuses[execution.id])
+        summary.agent_name = names.get(execution.agent_id)
         out.append(summary)
     return out
 
@@ -127,6 +144,9 @@ async def _detail(db: AsyncSession, execution: HostExecution) -> HostExecutionDe
         ).scalars()
     )
     detail = HostExecutionDetail.model_validate(execution)
+    if execution.agent_id:
+        agent = await db.get(Agent, execution.agent_id)
+        detail.agent_name = agent.name if agent else None
     detail.results = [HostExecutionResultOut.model_validate(r) for r in results]
     detail.counts, detail.verdict = _counts_and_verdict([r.status for r in results])
     detail.follow_up_ids = follow_ups
@@ -144,6 +164,13 @@ async def launch_execution(
     target_summary: str,
     parent_execution_id: uuid.UUID | None = None,
     secrets: list[str] | None = None,
+    trigger: str = "manual",
+    agent_id: uuid.UUID | None = None,
+    schedule_id: uuid.UUID | None = None,
+    script: HostScript | None = None,
+    retry_until=None,
+    on_success=None,
+    values_for_hook: dict | None = None,
 ) -> HostExecution:
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
@@ -161,11 +188,18 @@ async def launch_execution(
         requested_by=actor,
         target_summary=target_summary[:500],
         started_at=now,
+        trigger=trigger,
+        agent_id=agent_id,
+        schedule_id=schedule_id,
+        script_id=script.id if script else None,
+        script_version=script.current_version if script else None,
+        script_name=script.name if script else None,
+        retry_until=retry_until,
     )
     db.add(execution)
     await db.flush()
     for server in servers:
-        reason = skip_reason(server, shell, busy)
+        reason = skip_reason(server, shell, busy, script.platform if script else None)
         db.add(
             HostExecutionResult(
                 execution_id=execution.id,
@@ -187,13 +221,83 @@ async def launch_execution(
                 "command": masked,
                 "machines": [str(s.id) for s in servers],
                 "parent_execution_id": str(parent_execution_id) if parent_execution_id else None,
+                "trigger": trigger,
+                "agent_id": str(agent_id) if agent_id else None,
+                "script": f"{script.name} v{script.current_version}" if script else None,
             },
         )
     )
     await db.commit()
     await db.refresh(execution)
-    host_exec_runner.start_execution(execution.id, shell, command, timeout_seconds, secrets)
+    if on_success is None and script is not None:
+        on_success = system_script_hook(script, values_for_hook)
+    host_exec_runner.start_execution(execution.id, shell, command, timeout_seconds, secrets, retry_until, on_success)
     return execution
+
+
+async def resolve_targets(
+    db: AsyncSession, server_ids: list, group_ids: list
+) -> tuple[list[Server], list[str]]:
+    """Machines from explicit ids + group members, and the group names."""
+    wanted = {uuid.UUID(str(i)) for i in server_ids}
+    group_names: list[str] = []
+    if group_ids:
+        gids = [uuid.UUID(str(g)) for g in group_ids]
+        groups = list((await db.execute(select(HostGroup).where(HostGroup.id.in_(gids)))).scalars())
+        if len(groups) != len(set(gids)):
+            raise HTTPException(status_code=422, detail="Unknown group")
+        group_names = [g.name for g in groups]
+        members = await db.execute(select(HostGroupMember.server_id).where(HostGroupMember.group_id.in_(gids)))
+        wanted |= set(members.scalars())
+    if len(wanted) > MAX_TARGETS:
+        raise HTTPException(status_code=422, detail=f"At most {MAX_TARGETS} machines per execution")
+    servers = list((await db.execute(select(Server).where(Server.id.in_(wanted)).order_by(Server.name))).scalars())
+    if len(servers) != len(wanted):
+        raise HTTPException(status_code=422, detail="Unknown machine")
+    return servers, group_names
+
+
+_RUSTDESK_ID_RE = re.compile(r"RUSTDESK_ID=(\d{6,15})")
+
+
+def system_script_hook(script: HostScript, values: dict | None):
+    """What a system script records on a machine once it succeeded there:
+    RustDesk install/password change -> the new permanent password and the
+    RustDesk ID, on the machine's row. Never before success, so a failed
+    change can't leave a password on file that the machine doesn't have."""
+    if not (script.system_key or "").startswith(("rustdesk_install:", "rustdesk_password:")):
+        return None
+    password = (values or {}).get("RUSTDESK_PASSWORD")
+    if not password:
+        return None
+
+    async def record(server_id: uuid.UUID, outcome: dict) -> None:
+        from app.db.base import AsyncSessionLocal
+
+        match = _RUSTDESK_ID_RE.search(outcome.get("stdout") or "")
+        async with AsyncSessionLocal() as db:
+            server = await db.get(Server, server_id)
+            if server is None:
+                return
+            server.rustdesk_password_encrypted = encrypt_secret(password)
+            if match:
+                server.rustdesk_id = match.group(1)
+            db.add(AuditEvent(entity_type="server", entity_id=server_id, event_type="rustdesk_password_recorded",
+                              actor="forgehub", payload={"script": script.system_key, "rustdesk_id": server.rustdesk_id}))
+            await db.commit()
+
+    return record
+
+
+def prepare_script_run(script: HostScript, values: dict | None) -> tuple[str, str, list[str]]:
+    """(rendered script, shell, secrets to mask) -- 422 on bad parameters."""
+    if script.archived:
+        raise HTTPException(status_code=409, detail="This script is archived")
+    try:
+        resolved, secrets = resolve_values(script.parameters, values)
+    except ScriptError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return render_script(script.platform, script.content, resolved), shell_for(script.platform), secrets
 
 
 @router.post("", response_model=HostExecutionDetail, status_code=status.HTTP_201_CREATED)
@@ -202,24 +306,21 @@ async def create_execution(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    wanted = set(payload.server_ids)
-    group_names: list[str] = []
-    if payload.group_ids:
-        groups = list((await db.execute(select(HostGroup).where(HostGroup.id.in_(payload.group_ids)))).scalars())
-        if len(groups) != len(set(payload.group_ids)):
-            raise HTTPException(status_code=422, detail="Unknown group")
-        group_names = [g.name for g in groups]
-        members = await db.execute(
-            select(HostGroupMember.server_id).where(HostGroupMember.group_id.in_(payload.group_ids))
-        )
-        wanted |= set(members.scalars())
-    if not wanted:
+    servers, group_names = await resolve_targets(db, payload.server_ids, payload.group_ids)
+    if not servers:
         raise HTTPException(status_code=422, detail="Pick at least one machine or a group with machines")
-    if len(wanted) > MAX_TARGETS:
-        raise HTTPException(status_code=422, detail=f"At most {MAX_TARGETS} machines per execution")
-    servers = list((await db.execute(select(Server).where(Server.id.in_(wanted)).order_by(Server.name))).scalars())
-    if len(servers) != len(wanted):
-        raise HTTPException(status_code=422, detail="Unknown machine")
+    script = None
+    secrets: list[str] = []
+    if payload.script_id:
+        script = await db.get(HostScript, payload.script_id)
+        if not script:
+            raise HTTPException(status_code=404, detail="Script not found")
+        command, shell, secrets = prepare_script_run(script, payload.parameter_values)
+        timeout = payload.timeout_seconds if "timeout_seconds" in payload.model_fields_set else script.timeout_seconds
+    else:
+        if not payload.command or not payload.shell:
+            raise HTTPException(status_code=422, detail="Pick a script or write a command")
+        command, shell, timeout = payload.command, payload.shell, payload.timeout_seconds
 
     loose = len(payload.server_ids)
     parts = [*group_names]
@@ -228,11 +329,14 @@ async def create_execution(
     execution = await launch_execution(
         db,
         servers=servers,
-        command=payload.command,
-        shell=payload.shell,
-        timeout_seconds=payload.timeout_seconds,
+        command=command,
+        shell=shell,
+        timeout_seconds=timeout,
         actor=admin.username,
         target_summary=" + ".join(parts),
+        secrets=secrets,
+        script=script,
+        values_for_hook=payload.parameter_values,
     )
     return await _detail(db, execution)
 
@@ -241,9 +345,15 @@ async def create_execution(
 async def list_executions(
     limit: int = Query(default=30, ge=1, le=200),
     server_id: uuid.UUID | None = None,
+    agent_id: uuid.UUID | None = None,
+    requested_by: str | None = None,
+    trigger: str | None = Query(default=None, pattern="^(manual|schedule|agent)$"),
+    script_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ):
+    """Execution log. Filters: by machine, by agent (decision 7 -- what each
+    agent ran, where, with what result), by person, by origin, by script."""
     await host_exec_runner.recover_interrupted_executions()
     query = select(HostExecution).order_by(HostExecution.started_at.desc()).limit(limit)
     if server_id is not None:
@@ -252,6 +362,14 @@ async def list_executions(
                 select(HostExecutionResult.execution_id).where(HostExecutionResult.server_id == server_id)
             )
         )
+    if agent_id is not None:
+        query = query.where(HostExecution.agent_id == agent_id)
+    if requested_by:
+        query = query.where(HostExecution.requested_by == requested_by)
+    if trigger:
+        query = query.where(HostExecution.trigger == trigger)
+    if script_id is not None:
+        query = query.where(HostExecution.script_id == script_id)
     executions = list((await db.execute(query)).scalars())
     return await _summaries(db, executions)
 
@@ -292,15 +410,30 @@ async def follow_up_execution(
     if not failed_ids:
         raise HTTPException(status_code=409, detail="No machine failed in this execution")
     servers = list((await db.execute(select(Server).where(Server.id.in_(failed_ids)).order_by(Server.name))).scalars())
+    script = None
+    secrets: list[str] = []
+    if payload.script_id:
+        script = await db.get(HostScript, payload.script_id)
+        if not script:
+            raise HTTPException(status_code=404, detail="Script not found")
+        command, shell, secrets = prepare_script_run(script, payload.parameter_values)
+        timeout = payload.timeout_seconds if "timeout_seconds" in payload.model_fields_set else script.timeout_seconds
+    else:
+        if not payload.command or not payload.shell:
+            raise HTTPException(status_code=422, detail="Pick a script or write a command")
+        command, shell, timeout = payload.command, payload.shell, payload.timeout_seconds
     execution = await launch_execution(
         db,
         servers=servers,
-        command=payload.command,
-        shell=payload.shell,
-        timeout_seconds=payload.timeout_seconds,
+        command=command,
+        shell=shell,
+        timeout_seconds=timeout,
         actor=admin.username,
         target_summary=f"{len(servers)} failed machine(s) of {parent.target_summary or 'previous run'}",
         parent_execution_id=parent.id,
+        secrets=secrets,
+        script=script,
+        values_for_hook=payload.parameter_values,
     )
     return await _detail(db, execution)
 

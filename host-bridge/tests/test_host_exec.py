@@ -109,3 +109,61 @@ def test_decode_clixml_keeps_only_errors():
     assert host_exec.decode_clixml("plain error\n") == "plain error\n"
     progress_only = '#< CLIXML\n<Objs><Obj S="progress"><AV>x</AV></Obj></Objs>'
     assert host_exec.decode_clixml(progress_only) == ""
+
+
+def test_long_powershell_is_uploaded_in_chunks_that_fit_cmd():
+    script = "Write-Output 'manutenção ação'\n" * 400  # ~13 KB, accents included
+    commands, path = host_exec.powershell_upload_commands(script, token="abc")
+    assert path.endswith("forgehub-abc.ps1") and len(commands) > 2
+    rebuilt = b""
+    for remote in commands[:-1]:
+        assert len(remote) < 8191  # cmd.exe command-line limit
+        inner = base64.b64decode(remote.rsplit(" ", 1)[-1]).decode("utf-16-le")
+        chunk = inner.split("FromBase64String('", 1)[1].split("')", 1)[0]
+        rebuilt += base64.b64decode(chunk)
+    assert rebuilt.decode("utf-8") == host_exec.POWERSHELL_PRELUDE + script
+    final = base64.b64decode(commands[-1].rsplit(" ", 1)[-1]).decode("utf-16-le")
+    assert "-File" in final and "Remove-Item" in final and "exit $c" in final
+
+
+def test_password_target_uses_sshpass_and_never_puts_password_in_argv():
+    target = host_exec.ExecTarget(host="ws01", user="administrador", password="S3cr3t!")
+    argv = host_exec.ssh_base(target)
+    assert argv[:3] == ["sshpass", "-e", "ssh"] and "S3cr3t!" not in " ".join(argv)
+    assert "PubkeyAuthentication=no" in argv and "BatchMode=no" in argv
+    assert host_exec._env_for(target)["SSHPASS"] == "S3cr3t!"
+    assert "S3cr3t!" not in repr(target)
+    assert host_exec._env_for(TARGET) is None
+
+
+def test_run_script_uploads_long_powershell_then_runs(monkeypatch):
+    calls = []
+
+    async def fake_exec(argv, stdin, timeout, env):
+        calls.append(argv[-1])
+        return 0, b"done", b"", False, False
+
+    monkeypatch.setattr(host_exec, "_exec_once", fake_exec)
+    result = asyncio.run(host_exec.run_script(TARGET, "powershell", "x" * 5000, 60))
+    assert result["exit_code"] == 0 and result["stdout"] == "done"
+    assert len(calls) == len(host_exec.powershell_upload_commands("x" * 5000)[0])
+
+
+def test_detect_os(monkeypatch):
+    answers = {"uname -s": (0, b"Linux\n")}
+
+    async def fake_exec(argv, stdin, timeout, env):
+        code, out = answers.get(argv[-1], (0, b"Microsoft Windows NT 10.0.26300.0\n"))
+        return code, out, b"", False, False
+
+    monkeypatch.setattr(host_exec, "_exec_once", fake_exec)
+    assert asyncio.run(host_exec.detect_os(TARGET))["os_family"] == "linux"
+    answers["uname -s"] = (1, b"")
+    assert asyncio.run(host_exec.detect_os(TARGET)) == {"os_family": "windows", "detail": "Microsoft Windows NT 10.0.26300.0"}
+
+    async def refused(argv, stdin, timeout, env):
+        return 255, b"", b"Permission denied (password).", False, False
+
+    monkeypatch.setattr(host_exec, "_exec_once", refused)
+    with pytest.raises(ValueError, match="auth"):
+        asyncio.run(host_exec.detect_os(TARGET))

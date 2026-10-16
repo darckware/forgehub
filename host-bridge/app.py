@@ -3619,7 +3619,11 @@ async def read_public_key(req: ReadPubKeyRequest, x_bridge_token: str | None = H
 
 
 class EnsureKeyRequest(BaseModel):
-    ip_address: str
+    # One of the two names the key file: the IP (install-key's convention) or,
+    # for a station that hasn't joined the tailnet yet and so has no IP, an
+    # explicit key_name ("ws_<uuid>").
+    ip_address: str | None = None
+    key_name: str | None = None
     comment: str | None = None
 
 
@@ -3631,12 +3635,18 @@ async def ensure_server_key(req: EnsureKeyRequest, x_bridge_token: str | None = 
     key is authorized by a script run on the station (RustDesk), not pushed
     with a password from here. Returns only the public half and the path."""
     _check_token(x_bridge_token)
-    if not re.fullmatch(r"[\w.:-]+", req.ip_address):
+    if req.key_name:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", req.key_name):
+            raise HTTPException(status_code=400, detail="Invalid key_name")
+        base = req.key_name
+    elif req.ip_address and re.fullmatch(r"[\w.:-]+", req.ip_address):
+        base = re.sub(r"[.:]", "_", req.ip_address)
+    else:
         raise HTTPException(status_code=400, detail="Invalid ip_address")
-    comment = req.comment or f"forgehub@{req.ip_address}"
+    comment = req.comment or f"forgehub@{base}"
     if not re.fullmatch(r"[\w.@:-]+", comment):
         raise HTTPException(status_code=400, detail="Invalid comment")
-    key_path = os.path.join(SSH_KEYS_DIR, re.sub(r"[.:]", "_", req.ip_address) + "_key")
+    key_path = os.path.join(SSH_KEYS_DIR, base + "_key")
     pub_path = key_path + ".pub"
     os.makedirs(SSH_KEYS_DIR, exist_ok=True)
     created = False

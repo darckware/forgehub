@@ -218,3 +218,91 @@ export function usePrepareHost() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["servers"] }),
   });
 }
+
+// --- Enroll station ---------------------------------------------------------
+
+export interface TailscaleApiKeyStatus {
+  configured: boolean;
+  hint: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+export function useTailscaleApiKey() {
+  return useQuery<TailscaleApiKeyStatus>({
+    queryKey: ["vpn", "tailscale-api-key"],
+    queryFn: () => apiClient.get("/api/v1/vpn/tailscale-api-key"),
+  });
+}
+
+export function useSaveTailscaleApiKey() {
+  const qc = useQueryClient();
+  return useMutation<TailscaleApiKeyStatus, Error, string>({
+    mutationFn: (api_key) => apiClient.put("/api/v1/vpn/tailscale-api-key", { api_key }),
+    onSuccess: (data) => qc.setQueryData(["vpn", "tailscale-api-key"], data),
+  });
+}
+
+export interface EnrollmentInput {
+  name: string;
+  os_family: "windows" | "linux";
+  tag: string;
+  darckware_client_id: string | null;
+  darckware_client_name: string | null;
+  location: string | null;
+  group_ids: string[];
+}
+
+export interface Enrollment {
+  server_id: string;
+  name: string;
+  tag: string;
+  language: "powershell" | "sh";
+  script: string;
+  auth_key_expires_hours: number;
+}
+
+export function useEnrollStation() {
+  const qc = useQueryClient();
+  return useMutation<Enrollment, Error, EnrollmentInput>({
+    mutationFn: (data) => apiClient.post("/api/v1/servers/enrollments", data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["servers"] }),
+  });
+}
+
+export interface EnrollmentCheck {
+  server_id: string;
+  state: "waiting" | "joined";
+  tailscale_ipv4: string | null;
+  tailnet_name: string | null;
+}
+
+/** Polls every 5 s until the device shows up in the tailnet and is linked. */
+export function useEnrollmentCheck(serverId: string | null) {
+  const qc = useQueryClient();
+  return useQuery<EnrollmentCheck>({
+    queryKey: ["servers", "enrollment", serverId],
+    queryFn: async () => {
+      const result = await apiClient.post<EnrollmentCheck>(`/api/v1/servers/${serverId}/enrollment:check`, {});
+      if (result.state === "joined") void qc.invalidateQueries({ queryKey: ["servers"] });
+      return result;
+    },
+    enabled: Boolean(serverId),
+    refetchInterval: (query) => (query.state.data?.state === "joined" ? false : 5_000),
+  });
+}
+
+export interface LoginPassword {
+  server_id: string;
+  login: string;
+  password: string;
+}
+
+/** Admin-only and audited on the backend: every reveal is recorded.
+ * `kind`: the machine login's password, or RustDesk's (login = RustDesk ID). */
+export function useRevealLoginPassword(kind: "login" | "rustdesk" = "login") {
+  return useMutation<LoginPassword, Error, string>({
+    mutationFn: (serverId) =>
+      apiClient.get(`/api/v1/servers/${serverId}/${kind === "rustdesk" ? "rustdesk-password" : "login-password"}`),
+  });
+}

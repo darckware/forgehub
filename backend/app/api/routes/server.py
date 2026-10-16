@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import paramiko
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 # paramiko's Transport runs its handshake in a background thread and logs
@@ -44,7 +44,11 @@ logging.getLogger("paramiko").setLevel(logging.CRITICAL)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.server import (
+    EnrollmentCheckOut,
+    EnrollmentCreate,
+    EnrollmentOut,
     HostPreparationOut,
+    LoginPasswordOut,
     HostReadinessEntry,
     HostReadinessResult,
     ServerCheckResult,
@@ -71,7 +75,15 @@ from app.api.routes.host_execution import busy_server_ids
 from app.api.routes.vpn import fetch_tailnet_status
 from app.core.config import settings
 from app.core.deps import get_current_admin
+from app.core.host_enrollment import (
+    LOGIN as ENROLL_LOGIN,
+    EnrollmentError,
+    enrollment_script,
+    generate_password,
+    validate_station_name,
+)
 from app.core.host_preparation import PreparationError, preparation_script
+from app.core.tailscale_api import AUTH_KEY_TTL_SECONDS, create_auth_key, load_api_key
 from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
@@ -340,6 +352,8 @@ async def sync_from_tailnet(
             unlinked.remove(server)
             server.tailnet_node_id = peer.id
             server.tailnet_name = display
+            if server.kind == "workstation":
+                server.ip_address = peer.tailscale_ipv4
             outcome = "linked"
         elif peer.id in to_import:
             server = Server(
@@ -374,6 +388,113 @@ async def sync_from_tailnet(
     await db.commit()
     missing = [s.id for node, s in by_node.items() if node not in seen_nodes]
     return TailnetSyncResult(entries=entries, missing_server_ids=missing)
+
+
+@router.post("/enrollments", response_model=EnrollmentOut, status_code=status.HTTP_201_CREATED)
+async def enroll_station(
+    payload: EnrollmentCreate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """"Enroll station": registers the workstation and returns the one script
+    that puts it in remote support (core/host_enrollment.py) -- Tailscale with
+    the client's tag via a single-use auth key minted now, SSH from the
+    tailnet only, and the `darckware` login with a password generated for
+    this station (stored encrypted on the row) and ForgeHub's key. The row
+    starts with no address and reads "waiting to join"; it is linked by name
+    when the device shows up (POST /{id}/enrollment:check, or the sync).
+    Secrets in the script are never logged or audited."""
+    try:
+        name = validate_station_name(payload.name)
+    except EnrollmentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if (await db.execute(select(Server).where(func.lower(Server.name) == name))).scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"A machine named '{name}' already exists")
+    api_key = await load_api_key(db)
+    if not api_key:
+        raise HTTPException(status_code=409, detail="Configure the Tailscale API key first")
+
+    server = Server(
+        name=name,
+        ip_address="",
+        remote_user=ENROLL_LOGIN,
+        admin_user=ENROLL_LOGIN,
+        kind="workstation",
+        os_family=payload.os_family,
+        environment="client",
+        darckware_client_id=payload.darckware_client_id,
+        darckware_client_name=payload.darckware_client_name,
+        location=payload.location,
+        description="Ingressada pelo ForgeHub",
+    )
+    db.add(server)
+    await db.flush()
+    if payload.group_ids:
+        await _set_server_groups(db, server.id, payload.group_ids)
+
+    resp = await _bridge_post(
+        "/v1/servers/ensure-key", {"key_name": f"ws_{server.id.hex}", "comment": f"forgehub@{name}"}
+    )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host bridge error: {_bridge_detail(resp)}")
+    key = resp.json()
+    server.ssh_key_path = key["key_path"]
+    server.public_key = key["public_key"]
+    vault = await _bridge_post("/v1/servers/read-private-key", {"key_path": server.ssh_key_path})
+    if vault.status_code == 200:
+        server.private_key_encrypted = encrypt_secret(vault.json()["private_key"])
+
+    password = generate_password()
+    server.login_password_encrypted = encrypt_secret(password)
+    auth_key = await create_auth_key(api_key, payload.tag, f"forgehub {name}")
+    try:
+        script, language = enrollment_script(
+            payload.os_family, name=name, tag=payload.tag, auth_key=auth_key,
+            password=password, public_key=key["public_key"],
+        )
+    except EnrollmentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.add(
+        AuditEvent(
+            entity_type="server", entity_id=server.id, event_type="enrollment_started", actor=admin.username,
+            payload={"name": name, "os_family": payload.os_family, "tag": payload.tag,
+                     "client": payload.darckware_client_name},
+        )
+    )
+    await db.commit()
+    return EnrollmentOut(
+        server_id=server.id, name=name, tag=payload.tag, language=language, script=script,
+        auth_key_expires_hours=AUTH_KEY_TTL_SECONDS // 3600,
+    )
+
+
+@router.post("/{server_id}/enrollment:check", response_model=EnrollmentCheckOut)
+async def check_enrollment(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """Links the enrolled row to its tailnet device as soon as a peer with the
+    same name appears (the script names the device after the row)."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.tailnet_node_id:
+        tailnet = await fetch_tailnet_status()
+        taken = set((await db.execute(select(Server.tailnet_node_id).where(Server.tailnet_node_id.is_not(None)))).scalars())
+        for peer in tailnet.peers:
+            names = {n.lower() for n in (peer.name, peer.hostname) if n}
+            if server.name.lower() in names and peer.id not in taken and peer.tailscale_ipv4:
+                server.tailnet_node_id = peer.id
+                server.tailnet_name = peer.name or peer.hostname
+                server.ip_address = peer.tailscale_ipv4
+                await db.commit()
+                break
+    if not server.tailnet_node_id:
+        return EnrollmentCheckOut(server_id=server.id, state="waiting")
+    return EnrollmentCheckOut(
+        server_id=server.id, state="joined", tailscale_ipv4=server.ip_address or None, tailnet_name=server.tailnet_name
+    )
 
 
 # Probing every machine over SSH on each poll would be a storm of logins in
@@ -429,6 +550,8 @@ def classify_readiness(
         return "disabled", "Access is turned off in ForgeHub"
     if not server.remote_user:
         return "not_prepared", "No login set for this machine yet"
+    if not server.ip_address:
+        return "not_prepared", "Waiting for the station to join the tailnet"
     if server.tailnet_node_id and tailnet_available and tailnet_online is False:
         return "offline", "Offline in the tailnet"
     if ssh == "active":
@@ -466,7 +589,7 @@ async def get_readiness(
     probe_targets = [
         s
         for s in servers
-        if s.access_enabled and s.remote_user and tailnet_online(s) is not False
+        if s.access_enabled and s.remote_user and s.ip_address and tailnet_online(s) is not False
     ]
     async with _ssh_probe_lock:
         now = datetime.now(timezone.utc)
@@ -858,6 +981,52 @@ async def prepare_host(
         key_created=key_created,
         key_path=server.ssh_key_path or "",
     )
+
+
+@router.get("/{server_id}/login-password", response_model=LoginPasswordOut)
+async def reveal_login_password(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """The station login's password, for when someone has to sign in by hand.
+    Admin-only and audited: every reveal is recorded."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.login_password_encrypted:
+        raise HTTPException(status_code=404, detail="No password stored for this machine")
+    try:
+        password = decrypt_secret(server.login_password_encrypted)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Stored password can't be decrypted") from exc
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="login_password_revealed",
+                      actor=admin.username, payload={"login": server.remote_user}))
+    await db.commit()
+    return LoginPasswordOut(server_id=server.id, login=server.remote_user, password=password)
+
+
+@router.get("/{server_id}/rustdesk-password", response_model=LoginPasswordOut)
+async def reveal_rustdesk_password(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """The machine's RustDesk permanent password (login = RustDesk ID).
+    Admin-only and audited."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.rustdesk_password_encrypted:
+        raise HTTPException(status_code=404, detail="No RustDesk password stored for this machine")
+    try:
+        password = decrypt_secret(server.rustdesk_password_encrypted)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Stored password can't be decrypted") from exc
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="rustdesk_password_revealed",
+                      actor=admin.username, payload=None))
+    await db.commit()
+    return LoginPasswordOut(server_id=server.id, login=server.rustdesk_id or "", password=password)
 
 
 @router.put("/{server_id}/key", response_model=ServerKeyVaultResult)

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   Activity,
@@ -13,6 +14,7 @@ import {
   ShieldCheck,
   Smartphone,
   TriangleAlert,
+  Wrench,
   XCircle,
 } from "lucide-react";
 
@@ -24,12 +26,16 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRemoteAccessViewModel, type DeviceStateFilter } from "@/hooks/useRemoteAccessViewModel";
 import type { VpnNode, VpnOperation } from "@/hooks/useVpn";
 import { cn } from "@/lib/utils";
 import { ExecutionsCard } from "./ExecutionsCard";
 import { TailnetPolicyCard } from "./TailnetPolicyCard";
 import { WorkstationsCard } from "./WorkstationsCard";
+import { ExecutionComposer } from "./ExecutionComposer";
+import { SchedulesPanel } from "./SchedulesPanel";
+import { ScriptLibrary } from "./ScriptLibrary";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
@@ -55,14 +61,10 @@ function osIcon(os: string | null) {
   return Laptop;
 }
 
-export default function RemoteAccessPage() {
+function NetworkTab() {
   const { t, i18n } = useTranslation("remoteAccess");
   const vm = useRemoteAccessViewModel();
   const locale = i18n.language;
-
-  useEffect(() => {
-    document.title = `${t("title")} · ForgeHub`;
-  }, [t]);
 
   if (vm.status === "loading") {
     return (
@@ -95,17 +97,12 @@ export default function RemoteAccessPage() {
 
   return (
     <div className="space-y-6 max-md:break-words">
-      <PageHeader
-        icon={<ShieldCheck className="h-7 w-7 text-primary" aria-hidden="true" />}
-        title={t("title")}
-        description={t("subtitle")}
-        actions={
-          <Button variant="outline" onClick={vm.refresh} disabled={vm.refreshing} aria-busy={vm.refreshing} className="cursor-pointer gap-2">
-            {vm.refreshing ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
-            {t("refresh")}
-          </Button>
-        }
-      />
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={vm.refresh} disabled={vm.refreshing} aria-busy={vm.refreshing} className="cursor-pointer gap-2">
+          {vm.refreshing ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+          {t("refresh")}
+        </Button>
+      </div>
 
       <p className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-muted-foreground" role="note">
         {t("privateOnly")}
@@ -186,11 +183,6 @@ export default function RemoteAccessPage() {
         </div>
       </div>
 
-      <TailnetPolicyCard />
-
-      <WorkstationsCard />
-
-      <ExecutionsCard />
 
       <Card>
         <CardHeader className="flex flex-col gap-3 space-y-0 pb-3">
@@ -332,6 +324,8 @@ export default function RemoteAccessPage() {
         </CardContent>
       </Card>
 
+      <TailnetPolicyCard />
+
       <ConfirmDialog
         open={vm.confirmingRestart}
         title={t("confirmRestart.title")}
@@ -345,6 +339,92 @@ export default function RemoteAccessPage() {
         onConfirm={vm.confirmRestart}
         onCancel={vm.cancelRestart}
       />
+    </div>
+  );
+}
+
+type MainTab = "machines" | "scripts" | "network";
+type ScriptsTab = "run" | "library" | "schedules" | "history";
+
+/** Remote Access (2026-10-16 restructure, docs/architecture/REMOTE_MAINTENANCE_PLAN.md):
+ * Machines / Scripts and executions / Network. Tabs live in the URL
+ * (?tab=&sub=&system=) so the Machines tab's install buttons can open the
+ * execution screen with a system script already chosen. */
+export default function RemoteAccessPage() {
+  const { t } = useTranslation("remoteAccess");
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const tab = (params.get("tab") as MainTab) || "machines";
+  const sub = (params.get("sub") as ScriptsTab) || "run";
+  const system = params.get("system");
+
+  useEffect(() => {
+    document.title = `${t("title")} · ForgeHub`;
+  }, [t]);
+
+  const go = (next: Record<string, string | null>) => {
+    const merged = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(next)) {
+      if (v === null) merged.delete(k);
+      else merged.set(k, v);
+    }
+    setParams(merged, { replace: true });
+  };
+
+  return (
+    <div className="space-y-6 max-md:break-words">
+      <PageHeader
+        icon={<ShieldCheck className="h-7 w-7 text-primary" aria-hidden="true" />}
+        title={t("title")}
+        description={t("subtitle")}
+      />
+      <Tabs value={tab} onValueChange={(v) => go({ tab: v, system: null })} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="machines">{t("tabs.machines")}</TabsTrigger>
+          <TabsTrigger value="scripts">{t("tabs.scripts")}</TabsTrigger>
+          <TabsTrigger value="network">{t("tabs.network")}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="machines" className="space-y-6">
+          <div className="flex flex-wrap gap-2" role="group" aria-label={t("quick.title")}>
+            {(["tailscale_install", "rustdesk_install", "rustdesk_password"] as const).map((action) => (
+              <Button key={action} type="button" variant="outline" size="sm" className="cursor-pointer gap-1.5"
+                onClick={() => go({ tab: "scripts", sub: "run", system: action })}>
+                <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t(`quick.${action}`)}
+              </Button>
+            ))}
+          </div>
+          <WorkstationsCard />
+        </TabsContent>
+
+        <TabsContent value="scripts" className="space-y-6">
+          <Tabs value={sub} onValueChange={(v) => go({ sub: v, system: null })} className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="run">{t("tabs.run")}</TabsTrigger>
+              <TabsTrigger value="library">{t("tabs.library")}</TabsTrigger>
+              <TabsTrigger value="schedules">{t("tabs.schedules")}</TabsTrigger>
+              <TabsTrigger value="history">{t("tabs.history")}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="run">
+              <ExecutionComposer
+                key={system ?? "free"}
+                initialSystem={system}
+                onRan={(execution) => navigate(`/remote-access/executions/${execution.id}`)}
+                onScheduled={() => go({ sub: "schedules", system: null })}
+              />
+            </TabsContent>
+            <TabsContent value="library"><ScriptLibrary /></TabsContent>
+            <TabsContent value="schedules">
+              <SchedulesPanel onRan={(execution) => navigate(`/remote-access/executions/${execution.id}`)} />
+            </TabsContent>
+            <TabsContent value="history"><ExecutionsCard /></TabsContent>
+          </Tabs>
+        </TabsContent>
+
+        <TabsContent value="network" className="space-y-6">
+          <NetworkTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

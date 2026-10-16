@@ -72,6 +72,11 @@ class ServerOut(BaseModel):
     private_key_stored: bool = False
     # Whether a passphrase for that key is on file. Also never serialized.
     key_passphrase_stored: bool = False
+    # Whether "Enroll station" stored the login's password (never serialized;
+    # see the admin-only reveal route).
+    login_password_stored: bool = False
+    rustdesk_id: str | None = None
+    rustdesk_password_stored: bool = False
     # ForgeHub-side access switch: false parks the server (no probe, no
     # terminal) without touching any key -- see Server.access_enabled.
     access_enabled: bool = True
@@ -356,3 +361,38 @@ class HostPreparationOut(BaseModel):
     # A new key pair was generated for this machine on this call.
     key_created: bool
     key_path: str
+
+
+class EnrollmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Becomes the Tailscale device name too, so it must be a DNS label.
+    name: str = Field(min_length=1, max_length=63)
+    os_family: Literal["windows", "linux"]
+    tag: str = Field(min_length=5, max_length=70)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    location: str | None = Field(default=None, max_length=255)
+    group_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class EnrollmentOut(BaseModel):
+    server_id: uuid.UUID
+    name: str
+    tag: str
+    language: Literal["powershell", "sh"]
+    script: str
+    auth_key_expires_hours: int
+
+
+class EnrollmentCheckOut(BaseModel):
+    server_id: uuid.UUID
+    state: Literal["waiting", "joined"]
+    tailscale_ipv4: str | None = None
+    tailnet_name: str | None = None
+
+
+class LoginPasswordOut(BaseModel):
+    server_id: uuid.UUID
+    login: str
+    password: str

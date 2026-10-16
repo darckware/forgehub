@@ -66,3 +66,18 @@ class TailnetPolicyVersion(Base, TimestampMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     saved_by: Mapped[str] = mapped_column(String(150), nullable=False)
+
+
+class RemoteAccessSecret(Base, TimestampMixin):
+    """Named secrets Remote Access needs on the ForgeHub side, encrypted at
+    rest (core/secrets.py) and never returned by any endpoint -- today only
+    the Tailscale API key ("tailscale_api_key"), used to mint a single-use,
+    pre-tagged auth key per station enrollment. Moves to ForgeVault with
+    phase 3."""
+
+    __tablename__ = "remote_access_secrets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    value_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(150), nullable=False)

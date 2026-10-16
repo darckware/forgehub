@@ -32,9 +32,19 @@ export interface HostExecutionResult {
   finished_at: string | null;
 }
 
+export type ExecTrigger = "manual" | "schedule" | "agent";
+
 export interface HostExecutionSummary {
   id: string;
   parent_execution_id: string | null;
+  trigger: ExecTrigger;
+  agent_id: string | null;
+  agent_name: string | null;
+  schedule_id: string | null;
+  script_id: string | null;
+  script_name: string | null;
+  script_version: number | null;
+  retry_until: string | null;
   shell: ExecShell;
   command: string;
   timeout_seconds: number;
@@ -53,8 +63,10 @@ export interface HostExecutionDetail extends HostExecutionSummary {
 }
 
 export interface HostExecutionCreate {
-  command: string;
-  shell: ExecShell;
+  script_id?: string | null;
+  parameter_values?: Record<string, string | null>;
+  command?: string | null;
+  shell?: ExecShell | null;
   server_ids: string[];
   group_ids: string[];
   timeout_seconds: number;
@@ -66,10 +78,22 @@ function isLive(e: { verdict: ExecVerdict } | undefined) {
   return e?.verdict === "running";
 }
 
-export function useHostExecutions(limit = 20) {
+export interface ExecutionLogFilters {
+  agent_id?: string;
+  requested_by?: string;
+  trigger?: ExecTrigger;
+  server_id?: string;
+  script_id?: string;
+}
+
+/** Execution log. Filters by agent (decision 7: what each agent ran), person,
+ * origin, machine or script. */
+export function useHostExecutions(limit = 20, filters: ExecutionLogFilters = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  for (const [k, v] of Object.entries(filters)) if (v) params.set(k, v);
   return useQuery<HostExecutionSummary[]>({
-    queryKey: [...KEY, "list", limit],
-    queryFn: () => apiClient.get(`/api/v1/host-executions?limit=${limit}`),
+    queryKey: [...KEY, "list", limit, filters],
+    queryFn: () => apiClient.get(`/api/v1/host-executions?${params.toString()}`),
     refetchInterval: (query) => (query.state.data?.some(isLive) ? 3_000 : 30_000),
   });
 }
@@ -105,7 +129,14 @@ export function useFollowUpHostExecution() {
   return useMutation<
     HostExecutionDetail,
     Error,
-    { id: string; command: string; shell: ExecShell; timeout_seconds: number }
+    {
+      id: string;
+      command?: string | null;
+      shell?: ExecShell | null;
+      script_id?: string | null;
+      parameter_values?: Record<string, string | null>;
+      timeout_seconds?: number;
+    }
   >({
     mutationFn: ({ id, ...data }) => apiClient.post(`/api/v1/host-executions/${id}:follow-up`, data),
     onSuccess: invalidate,

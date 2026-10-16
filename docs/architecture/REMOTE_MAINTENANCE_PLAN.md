@@ -15,8 +15,8 @@ manutenções agendadas, credenciais na ForgeVault e tudo documentado/auditado.
   `/api/v1/vpn` e o módulo de permissão continua `vpn`, para não quebrar perfis já concedidos.
 - **Toda chave e senha criada fica na ForgeVault.** O ForgeHub guarda só `forgevault_secret_id`,
   chave pública e fingerprint. A privada nunca em disco: carregada num `ssh-agent` efêmero.
-- **Chave SSH por identidade (agente), não por máquina** — o fingerprint no log da estação diz
-  quem entrou. `SSH_<IDENTIDADE>_PRIVATE_KEY`.
+- ~~Chave SSH por identidade (agente)~~ → **uma chave por máquina** (decisão 6, 2026-10-16); quem pediu
+  cada execução fica no log de execuções do ForgeHub (decisão 7), não no fingerprint.
 - Cadastro da estação tem **SO (Windows/Linux/macOS)** e **login do administrador**; o
   "Instalar chave" usa um script por SO (mesmo fluxo de `/servers/{id}/install-key`).
   Pré-requisito: comando de preparação por SO (ativar OpenSSH/Login Remoto), rodado uma vez via RustDesk.
@@ -103,6 +103,139 @@ Terminal/Explorer · saída como dado · lote em etapas · desligamento de clien
 Depois: aviso ao usuário, limites do SSH no Windows (sessão 0), repositório de instaladores,
 permissões por cliente, fuso, sudo sem senha (Linux/macOS), inventário, alertas, relatório,
 retenção/mascaramento de logs, LGPD/contrato, estação de testes.
+
+## Replanejamento (2026-10-16)
+
+Pedidos de Marcelo no dia: escolher **estação ou servidor**; ingressar por **SSH com usuário e senha**
+(ForgeHub detecta Linux/Windows/macOS e instala tudo); instalar **Tailscale** (chave automática ou
+informada) e, se preciso, **RustDesk** já configurado (rede da Darckware) com **senha rotacionável**;
+e uma **tela única de scripts**: escolher máquinas, biblioteca de scripts com classificação e
+descrição, executar ou **agendar**.
+
+### Análise da estrutura atual
+| Peça | Onde está | Problema |
+|---|---|---|
+| Servidores | página Servidores (`kind=server`) | inventário separado das estações; "Instalar chave" só lá |
+| Estações | card no Acesso Remoto (`kind=workstation`) | mesma tabela `servers`, telas diferentes |
+| Entrar no suporte | Sincronizar/Importar, Preparar, Ingressar, Instalar chave | 4 caminhos que se sobrepõem |
+| Executar | diálogo "Executar comando" + card Execuções + tela da execução | comando avulso; sem biblioteca nem agendamento |
+| Rede | estado da tailnet + card da política | ok |
+| Instalador Windows | `darckware-remote` (fora do ForgeHub) | já faz Tailscale+RustDesk com hash/assinatura — **reaproveitar**, não duplicar |
+| Segredos | Fernet no cadastro (chave SSH, senha `darckware`, chave API Tailscale) | provisório até a ForgeVault |
+
+### Estrutura proposta — Acesso Remoto com 3 abas
+1. **Máquinas** — inventário único (servidores + estações), filtro por tipo/cliente/grupo/SO/prontidão,
+   botão **Adicionar máquina** (assistente) e, por linha, só: Senha, RustDesk (ID, senha), Editar.
+   **Sem botão Executar nem Preparar por linha** (Marcelo, 2026-10-16): toda execução parte da tela de
+   scripts, e preparação/ingresso/rotação viram **scripts de sistema** da biblioteca.
+2. **Scripts e execuções** — biblioteca de scripts + tela única de execução (escolher máquinas → script
+   → agora ou agendado) + histórico (já existente: tela da execução, correção nas que falharam).
+3. **Rede** — tailnet, política (ACL), dispositivos.
+
+A página Servidores continua para serviços web e cofre de chave de infraestrutura, apontando para cá.
+
+### Assistente "Adicionar máquina"
+- Tipo: estação ou servidor · Cliente · Tag da tailnet · Local/grupo.
+- Caminho de acesso:
+  a) **Já está na tailnet** → importar (sync existente);
+  b) **Script pelo RustDesk** → script único para colar (SO escolhido);
+  c) **SSH com usuário e senha** → ForgeHub conecta uma vez, **detecta o SO**, roda a instalação e mostra
+     a saída na tela de execução; a senha informada não é gravada.
+- Instala: Tailscale (chave de uso único gerada pela API, ou colada) · OpenSSH (Windows) · conta
+  `darckware` (admin, senha única gerada e guardada) · chave do ForgeHub · RustDesk opcional
+  (padrão: sim em estação, não em servidor) configurado com o servidor da Darckware.
+- Windows usa o instalador `darckware-remote` (fixado num commit) para Tailscale+RustDesk; Linux usa
+  script próprio (Tailscale `install.sh`, RustDesk .deb 1.4.9). macOS fica para depois.
+- Ao final o ForgeHub registra IP da tailnet e o **ID do RustDesk** e a máquina fica Pronta.
+
+### RustDesk
+- ID e senha permanente guardados por máquina (criptografados); **Rotacionar** troca via SSH e só grava a
+  nova após sucesso; revelar é auditado. Rotação só quando pedida (decisão 2), individual ou em lote.
+
+### Scripts e agendamento
+- Script: nome, **classificação** (categoria), **descrição**, tipo (PowerShell / Linux sh / macOS),
+  risco (leitura / alteração / destrutivo), timeout, parâmetros, versões, autor.
+- Tela única: filtro de máquinas (cliente, grupo, SO, prontidão) → script da biblioteca (só os
+  compatíveis com o SO) ou avulso → **Executar agora** ou **Agendar** (data/hora no fuso do cliente;
+  máquina offline aguarda até o fim da janela, depois "não executada").
+- Usa o motor atual (`host_executions`): resultado por máquina, correção nas que falharam.
+- **Scripts de sistema** (cadastrados pelo ForgeHub, classificação "Instalação/Ingresso"): preparação,
+  ingresso (Tailscale/OpenSSH/darckware/RustDesk), rotação da senha do RustDesk. Parâmetros por máquina
+  (chave do ForgeHub, senha gerada, chave Tailscale de uso único) são preenchidos na hora e mascarados.
+- **Rotação na tela de execução** (Marcelo, 2026-10-16), por máquina ou em lote, como scripts de sistema:
+  - **senha da conta `darckware`**: gera → grava nova versão na ForgeVault → aplica por SSH → valida login
+    com a nova → só então vira a versão atual (falha = a anterior continua valendo);
+  - **chave SSH**: gera par novo → adiciona a pública nova usando a chave atual → valida login com a nova →
+    remove a pública antiga → nova versão na ForgeVault (nunca fica sem acesso no meio do caminho);
+  - **senha do RustDesk**: mesmo fluxo da senha (`rustdesk --password`).
+- **Todas as senhas e chaves das máquinas na ForgeVault** (Marcelo, 2026-10-16) — nada mais em coluna
+  criptografada no cadastro nem em arquivo em `/root/agents/aegis/...`. O ForgeHub guarda só o
+  `forgevault_secret_id`. Na execução, a chave privada é buscada na ForgeVault e carregada num `ssh-agent`
+  efêmero do bridge (nunca em disco); cada busca fica na auditoria da ForgeVault.
+  Pré-requisito: projeto da ForgeVault para infraestrutura e ServiceAccount do ForgeHub com permissão de
+  criar/rotacionar segredos nele (precisa de um admin da organização, uma vez). Migração: chaves e senhas
+  hoje no cadastro (Fernet) e arquivos em `/root/agents/aegis/server-management/ssh_keys/`.
+- Máquina ainda sem acesso (não preparada): a tela oferece **executar por SSH com usuário e senha**
+  (informados na hora, não gravados) ou **copiar o script pronto** para colar pelo RustDesk.
+
+### Tela Servidores e Workspace: o que fica, o que muda, o que sai (análise 2026-10-16)
+| Recurso da tela Servidores | Destino |
+|---|---|
+| Lista agrupada VPS/SEMED + filtro de ambiente | **vira a aba Máquinas** (filtros tipo/cliente/grupo/SO/prontidão; ambiente vira filtro) |
+| Verificar status (sonda SSH) | **substituído pela prontidão** (mesma sonda do bridge, com cache) |
+| Ligar/desligar acesso (estacionar) | **fica**, na aba Máquinas |
+| Formulário (nome, IP, porta, usuário, ambiente, tipo, SO, cliente, grupos) | **reaproveitado** como cadastro da máquina; saem caminho da chave e passphrase |
+| Instalar chave SSH com senha (cria usuário) | **sai** → script de sistema de ingresso/preparação ("SSH com usuário e senha") |
+| Copiar chave pública / ler `.pub` do caminho | **sai** → chave pública vem da ForgeVault |
+| Cofre de chave (backup/restaurar/colar/remover, Fernet) | **sai após migrar** para a ForgeVault |
+| Passphrase da chave | **sai** (chaves geradas pelo ForgeHub não têm passphrase; ficam na ForgeVault) |
+| Importar CSV | **fica**, adaptado aos campos novos (aba Máquinas) |
+| Serviços web por porta + varredura | **fica**, como seção "Serviços" no detalhe da máquina |
+| Copiar comando SSH / abrir terminal | **fica** como "Abrir terminal" (sessão interativa ≠ execução de script) |
+
+**Workspace (reflexo direto):**
+- **Menu SSH do terminal** lê a mesma tabela: hoje lista tudo, inclusive estações, agrupado só VPS/SEMED, e
+  monta `ssh -i <arquivo>`. Muda para: inventário único agrupado por cliente/tipo, **prontidão** no lugar da
+  sonda própria, esconde máquina sem IP/não preparada, e **autenticação pela chave da ForgeVault** — o bridge
+  carrega a chave num `ssh-agent` efêmero da sessão do terminal (sem `-i` arquivo). Windows abre em PowerShell.
+- **Explorer remoto** (`/v1/remote-fs`) usa os mesmos dados e scripts POSIX: mesma troca de autenticação;
+  em máquina Windows o botão fica oculto até existir o Explorer em PowerShell (Fase 4, pendente).
+- Página Servidores **descontinuada** ao fim da migração; a rota `/servers` redireciona para Acesso Remoto › Máquinas.
+
+### Entregue em 2026-10-16 (passo 1, ainda sem commit/deploy na redação desta nota)
+- [x] Acesso Remoto em abas: **Máquinas / Scripts e execuções / Rede** (`?tab=&sub=&system=`).
+- [x] Biblioteca de scripts (`host_scripts`, versões, classificação fixa ampliável, risco, parâmetros como
+      variáveis entre aspas, segredos mascarados), tela única **Executar** (filtros de máquina, script
+      compatível com o SO, agora / uma vez / toda semana, janela de nova tentativa), **Agendamentos**
+      (`host_schedules`, laço de 1 min com `FOR UPDATE SKIP LOCKED`) e **Histórico** com filtro por agente,
+      pessoa e origem (`host_executions.trigger/agent_id/script_*`).
+- [x] Scripts de sistema: Instalar Tailscale, Instalar RustDesk, Trocar senha do RustDesk (Windows via
+      `darckware-remote` fixado em commit; Linux próprio); botões na aba Máquinas; senha + ID do RustDesk
+      gravados só após sucesso; revelar senha do RustDesk auditado.
+- [x] "Copiar script pronto" para máquina sem SSH (render auditado, nunca gravado).
+- [x] Bridge: SSH com usuário/senha (sshpass via ambiente), detecção de SO, PowerShell longo em partes.
+- [x] Saiu o botão Executar por linha e o diálogo "Ingressar estação" (rotas de backend mantidas).
+- [ ] Script de sistema de **preparação/ingresso** (OpenSSH + conta darckware + bloqueio do administrador) —
+      enquanto não existe, o botão Preparar continua na linha da estação.
+
+### Ordem de entrega (revisada)
+0. **ForgeVault**: projeto + ServiceAccount do ForgeHub; senhas/chaves passam a ser gravadas lá (bloqueia 1–3).
+1. **Assistente "Adicionar máquina"** (em andamento: ingresso por script, chave API, senha no cadastro já
+   prontos e testados; faltam SSH+senha, detecção de SO, RustDesk, tipo servidor).
+2. **RustDesk**: ID, senha por máquina, revelar e rotacionar.
+3. **Abas do Acesso Remoto** (Máquinas / Scripts e execuções / Rede) unificando as telas.
+4. **Biblioteca de scripts + execução em tela única + agendamento.**
+5. ForgeVault (Fase 3), host key fixada, Terminal/Explorer Windows, agentes (MCP), relatórios.
+
+### Decisões (Marcelo, 2026-10-16)
+1. **Inventário único** no Acesso Remoto (servidores + estações); página Servidores só para serviços/infra.
+2. Senha do RustDesk **uma por máquina**.
+3. Agendamento **único e recorrente** (ex.: toda segunda 22h).
+4. Classificação de scripts em **lista fixa ampliável** (Diagnóstico, Manutenção, Instalação, Segurança, Limpeza).
+5. **Não** instalar RustDesk em servidor Linux sem tela.
+6. Chave SSH **uma por máquina** (substitui "por identidade" do plano original).
+7. **Logs de execução por agente**: cada execução registra quem pediu — pessoa (tela) ou agente (MCP) —
+   e a tela de logs filtra por agente (o que cada um executou, onde, resultado).
 
 ## Decisões pendentes
 1. ~~Rotacionar a conta admin do cliente ou uma conta nossa?~~ **Decidido (Marcelo, 2026-10-15):**

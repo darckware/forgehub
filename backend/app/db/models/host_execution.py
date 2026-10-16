@@ -33,6 +33,9 @@ class HostExecution(Base, TimestampMixin):
             "status IN ('running', 'completed', 'cancelled')", name="ck_host_executions_status"
         ),
         Index("ix_host_executions_parent", "parent_execution_id"),
+        CheckConstraint(
+            "trigger IN ('manual', 'schedule', 'agent')", name="ck_host_executions_trigger"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -45,6 +48,24 @@ class HostExecution(Base, TimestampMixin):
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
     requested_by: Mapped[str] = mapped_column(String(150), nullable=False)
+    # Where it came from (decision 7, 2026-10-16: logs per agent): "manual"
+    # (a person on the screen), "schedule" or "agent" (MCP). `agent_id` is
+    # the agent that asked -- directly, or by owning the schedule.
+    trigger: Mapped[str] = mapped_column(String(20), nullable=False, default="manual", server_default="manual")
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    schedule_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.host_schedules.id", ondelete="SET NULL"), nullable=True
+    )
+    # The library script and exact version that ran (NULL = ad-hoc command).
+    script_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.host_scripts.id", ondelete="SET NULL"), nullable=True
+    )
+    script_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    script_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    # Unreachable machines are retried until this instant (scheduled runs).
+    retry_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Human description of what was targeted ("Secretaria + 2 machines").
     target_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

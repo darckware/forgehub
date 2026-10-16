@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
@@ -28,6 +29,26 @@ vi.mock("@/hooks/useVpn", async (importOriginal) => {
 vi.mock("./WorkstationsCard", () => ({ WorkstationsCard: () => null }));
 vi.mock("./ExecutionsCard", () => ({ ExecutionsCard: () => null }));
 vi.mock("./TailnetPolicyCard", () => ({ TailnetPolicyCard: () => null }));
+vi.mock("./ExecutionComposer", () => ({
+  ExecutionComposer: ({ initialSystem }: { initialSystem?: string | null }) => <p>composer:{initialSystem ?? "none"}</p>,
+}));
+vi.mock("./ScriptLibrary", () => ({ ScriptLibrary: () => <p>library</p> }));
+vi.mock("./SchedulesPanel", () => ({ SchedulesPanel: () => <p>schedules</p> }));
+
+function Where() {
+  const location = useLocation();
+  return <p data-testid="where">{location.search}</p>;
+}
+
+function renderAt(search = "?tab=network") {
+  return render(
+    <MemoryRouter initialEntries={[`/remote-access${search}`]}>
+      <Routes>
+        <Route path="/remote-access" element={<><RemoteAccessPage /><Where /></>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 function node(overrides: Partial<VpnNode>): VpnNode {
   return {
@@ -114,7 +135,7 @@ beforeEach(async () => {
 
 describe("Remote Access page", () => {
   it("shows this server and every tailnet device grouped by tag", () => {
-    render(<RemoteAccessPage />);
+    renderAt();
 
     expect(screen.getByRole("heading", { name: "Acesso Remoto" })).toBeInTheDocument();
     expect(screen.getByText("darckware-srv")).toBeInTheDocument();
@@ -128,14 +149,14 @@ describe("Remote Access page", () => {
   });
 
   it("never offers connect/disconnect on this server", () => {
-    render(<RemoteAccessPage />);
+    renderAt();
 
     expect(screen.queryByRole("button", { name: /conectar/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /desconectar/i })).not.toBeInTheDocument();
   });
 
   it("tests an online device by its stable id and disables offline ones", () => {
-    render(<RemoteAccessPage />);
+    renderAt();
 
     fireEvent.click(screen.getByRole("button", { name: "Testar conexão com gat-adm-pc01" }));
     expect(mocks.mutate).toHaveBeenCalledWith({ node: "nAAA11CNTRL", action: "test" }, expect.any(Object));
@@ -143,7 +164,7 @@ describe("Remote Access page", () => {
   });
 
   it("asks for confirmation before restarting Tailscale on this server", () => {
-    render(<RemoteAccessPage />);
+    renderAt();
 
     fireEvent.click(screen.getByRole("button", { name: /Reiniciar Tailscale/ }));
     expect(mocks.mutate).not.toHaveBeenCalled();
@@ -153,7 +174,7 @@ describe("Remote Access page", () => {
   });
 
   it("filters by group, state and search text", () => {
-    render(<RemoteAccessPage />);
+    renderAt();
 
     fireEvent.change(screen.getByPlaceholderText(/Buscar por nome/), { target: { value: "srv-sup" } });
     expect(screen.getByRole("region", { name: "semed-srv" })).toBeInTheDocument();
@@ -166,15 +187,25 @@ describe("Remote Access page", () => {
   });
 
   it("labels history rows with the device name", () => {
-    render(<RemoteAccessPage />);
+    renderAt();
 
     expect(screen.getByText("gat-adm-pc01 answered in 34 ms (direct).")).toBeInTheDocument();
   });
 
   it("degrades to an explicit unavailable state", () => {
     mocks.status.mockReturnValue({ data: undefined, isLoading: false, isError: true, isFetching: false, refetch: mocks.refetch });
-    render(<RemoteAccessPage />);
+    renderAt();
 
     expect(screen.getByRole("alert")).toHaveTextContent("Acesso Remoto indisponível");
+  });
+
+  it("opens on Machines and the install buttons open the execution screen with that script", () => {
+    renderAt("");
+    expect(screen.getByRole("tab", { name: "Máquinas" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: /Instalar RustDesk/ }));
+    expect(screen.getByText("composer:rustdesk_install")).toBeInTheDocument();
+    expect(screen.getByTestId("where").textContent).toContain("system=rustdesk_install");
+    fireEvent.click(screen.getByRole("tab", { name: "Biblioteca" }));
+    expect(screen.getByText("library")).toBeInTheDocument();
   });
 });

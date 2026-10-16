@@ -56,7 +56,13 @@ from app.db.models.profile import Profile, ProfilePermission, ProfileActionPermi
 from app.db.models.user import User  # noqa: F401
 from app.db.models.server import HostGroup, HostGroupMember, Server  # noqa: F401
 from app.db.models.host_execution import HostExecution, HostExecutionResult  # noqa: F401
-from app.db.models.vpn import TailnetPolicyVersion, VpnOperationEvent  # noqa: F401
+from app.db.models.host_script import (  # noqa: F401
+    HostSchedule,
+    HostScript,
+    HostScriptCategory,
+    HostScriptVersion,
+)
+from app.db.models.vpn import RemoteAccessSecret, TailnetPolicyVersion, VpnOperationEvent  # noqa: F401
 from app.db.models.notification import Notification, NotificationIngestState  # noqa: F401
 from app.db.models.tool import AgentTool  # noqa: F401
 from app.db.models.audit import AuditCheck, AuditCheckRun  # noqa: F401

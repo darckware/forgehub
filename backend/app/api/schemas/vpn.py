@@ -136,3 +136,17 @@ class TailnetPolicyOut(TailnetPolicyVersionOut):
 class TailnetPolicyStateOut(BaseModel):
     current: TailnetPolicyOut | None
     versions: list[TailnetPolicyVersionOut]
+
+
+class TailscaleApiKeyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    api_key: str = Field(min_length=10, max_length=300, pattern=r"^tskey-api-[A-Za-z0-9-]+$")
+
+
+class TailscaleApiKeyStatus(BaseModel):
+    configured: bool
+    # Last 4 characters only, to tell keys apart.
+    hint: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime | None = None
