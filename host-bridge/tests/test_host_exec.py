@@ -73,7 +73,8 @@ def test_build_command_powershell_is_encoded_and_bounded():
     argv, stdin = host_exec.build_command(TARGET, "powershell", "Get-Date; 'a \"b\" c'")
     assert stdin is None
     encoded = argv[-1].rsplit(" ", 1)[-1]
-    assert base64.b64decode(encoded).decode("utf-16-le") == "Get-Date; 'a \"b\" c'"
+    decoded = base64.b64decode(encoded).decode("utf-16-le")
+    assert decoded == host_exec.POWERSHELL_PRELUDE + "Get-Date; 'a \"b\" c'"
     with pytest.raises(ValueError):
         host_exec.build_command(TARGET, "powershell", "x" * (host_exec.MAX_POWERSHELL_CHARS + 1))
 
@@ -94,3 +95,17 @@ def test_route_validates_token_and_target(monkeypatch):
                        headers={"X-Bridge-Token": TOKEN}).status_code == 400
     ok = client.post("/v1/servers/exec", json=body, headers={"X-Bridge-Token": TOKEN})
     assert ok.status_code == 200 and ok.json()["stdout"] == "ok\n"
+
+
+def test_decode_clixml_keeps_only_errors():
+    raw = (
+        '#< CLIXML\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+        '<Obj S="progress" RefId="0"><TN RefId="0"><T>System.Object</T></TN><MS><PR N="Record">'
+        '<AV>Preparando m\u00f3dulos para primeiro uso.</AV></PR></MS></Obj>'
+        '<S S="Error">Get-Item : acesso negado_x000D__x000A_</S>'
+        '<S S="Error">No linha:1 caractere:1 &amp; mais_x000D__x000A_</S></Objs>'
+    )
+    assert host_exec.decode_clixml(raw) == "Get-Item : acesso negado\nNo linha:1 caractere:1 & mais\n"
+    assert host_exec.decode_clixml("plain error\n") == "plain error\n"
+    progress_only = '#< CLIXML\n<Objs><Obj S="progress"><AV>x</AV></Obj></Objs>'
+    assert host_exec.decode_clixml(progress_only) == ""

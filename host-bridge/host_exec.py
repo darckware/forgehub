@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import html
 import re
 import time
 from dataclasses import dataclass
@@ -70,6 +71,30 @@ def ssh_base(target: ExecTarget) -> list[str]:
     return [*args, f"{target.user}@{target.host}"]
 
 
+# Prepended to every PowerShell script: no progress records (PowerShell
+# serializes them to stderr as CLIXML when it isn't attached to a console),
+# and UTF-8 out so accents survive.
+POWERSHELL_PRELUDE = (
+    "$ProgressPreference='SilentlyContinue';"
+    "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+    "$OutputEncoding=[Text.Encoding]::UTF8\n"
+)
+_CLIXML_ERROR_RE = re.compile(r'<S S="Error">(.*?)</S>', re.S)
+_CLIXML_ESCAPE_RE = re.compile(r"_x([0-9A-Fa-f]{4})_")
+
+
+def decode_clixml(stderr: str) -> str:
+    """PowerShell's `#< CLIXML` stderr -> the plain error lines it carries
+    (progress and other records dropped). Anything else is returned as is."""
+    if not stderr.lstrip().startswith("#< CLIXML"):
+        return stderr
+    parts = [
+        _CLIXML_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), html.unescape(chunk))
+        for chunk in _CLIXML_ERROR_RE.findall(stderr)
+    ]
+    return "".join(parts).replace("\r\n", "\n")
+
+
 def encode_powershell(script: str) -> str:
     return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
 
@@ -82,7 +107,7 @@ def build_command(target: ExecTarget, shell: Shell, script: str) -> tuple[list[s
         raise ValueError(f"PowerShell script is limited to {MAX_POWERSHELL_CHARS} characters for now")
     remote = (
         "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass "
-        f"-EncodedCommand {encode_powershell(script)}"
+        f"-EncodedCommand {encode_powershell(POWERSHELL_PRELUDE + script)}"
     )
     return [*ssh_base(target), remote], None
 
@@ -154,7 +179,7 @@ async def run_script(
             proc.kill()
         await proc.wait()
         out, out_cut, err, err_cut = b"", False, b"", False
-    stderr = err.decode(errors="replace")
+    stderr = decode_clixml(err.decode(errors="replace")) if shell == "powershell" else err.decode(errors="replace")
     exit_code = None if timed_out else proc.returncode
     return {
         "exit_code": exit_code,

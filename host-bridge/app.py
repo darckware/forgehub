@@ -3398,16 +3398,22 @@ async def _check_one_server(entry: ServerCheckEntry) -> str:
         ssh_args += ["-i", entry.ssh_key_path]
     if entry.ssh_port != 22:
         ssh_args += ["-p", str(entry.ssh_port)]
-    ssh_args += [f"{entry.remote_user}@{entry.ip_address}", "true"]
+    # `exit`, not `true`: it is a builtin of sh, cmd.exe and PowerShell alike,
+    # so a Windows station (whose OpenSSH shell is PowerShell) doesn't read
+    # as "key refused" just because `true` isn't a command there
+    # (2026-10-16). And only ssh's own 255 means "couldn't log in": any other
+    # exit code means the key was accepted and the remote shell ran.
+    ssh_args += [f"{entry.remote_user}@{entry.ip_address}", "exit"]
 
     try:
         proc = await asyncio.create_subprocess_exec(
             *ssh_args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
         )
-        returncode = await asyncio.wait_for(proc.wait(), timeout=6.0)
+        # PowerShell takes a few seconds to start on a cold station.
+        returncode = await asyncio.wait_for(proc.wait(), timeout=20.0)
     except Exception:
         return "not_installed"
-    return "active" if returncode == 0 else "not_installed"
+    return "not_installed" if returncode == 255 else "active"
 
 
 @app.post("/v1/servers/check-status")
