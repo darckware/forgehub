@@ -38,6 +38,7 @@ import {
   useServers,
   useServerStatusProbe,
   buildSshCommand,
+  resolveSshCommand,
   type Server,
   type ServerCheckStatus,
 } from "@/hooks/useServers";
@@ -301,8 +302,10 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
             </p>
           )}
           {(() => {
-            const vpsList = (servers ?? []).filter((s) => s.environment === "vps");
-            const semedList = (servers ?? []).filter((s) => s.environment !== "vps");
+            // A machine still waiting to join the tailnet has no address to connect to.
+            const reachable = (servers ?? []).filter((s) => s.ip_address);
+            const vpsList = reachable.filter((s) => s.environment === "vps");
+            const semedList = reachable.filter((s) => s.environment !== "vps");
 
             const renderServerButton = (s: Server) => {
               const result = probe.statuses[s.id];
@@ -316,8 +319,10 @@ function SshLauncherMenu({ onLaunch }: { onLaunch: (label: string, command: stri
                   className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                   title={parked ? t("toolbar.sshAccessOff") : result?.detail}
                   onClick={() => {
-                    onLaunch(s.name, buildSshCommand(s), { id: s.id, name: s.name, home: serverHome(s.remote_user) });
                     setOpen(false);
+                    void resolveSshCommand(s)
+                      .then((command) => onLaunch(s.name, command, { id: s.id, name: s.name, home: serverHome(s.remote_user) }))
+                      .catch(() => onLaunch(s.name, buildSshCommand(s), { id: s.id, name: s.name, home: serverHome(s.remote_user) }));
                   }}
                 >
                   <span className="flex w-full items-center gap-1.5">

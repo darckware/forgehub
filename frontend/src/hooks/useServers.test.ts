@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { buildSshCommand, resolveLiveServer, type Server } from "./useServers";
+import { describe, expect, it, vi } from "vitest";
+import { apiClient } from "@/lib/api";
+import { buildSshCommand, resolveLiveServer, resolveSshCommand, type Server } from "./useServers";
+
+vi.mock("@/lib/api", () => ({ apiClient: { post: vi.fn() } }));
 
 function server(overrides: Partial<Server> = {}): Server {
   return {
@@ -71,5 +74,17 @@ describe("resolveLiveServer", () => {
   it("keeps the captured row when it is no longer in the list", () => {
     const captured = server({ id: "gone" });
     expect(resolveLiveServer([server({ id: "other" })], captured)).toBe(captured);
+  });
+});
+
+
+describe("resolveSshCommand", () => {
+  it("asks the backend when the key is in ForgeVault, builds locally otherwise", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ command: "ssh -o IdentityAgent=/dev/shm/a.sock darckware@100.64.0.1" } as never);
+    const vault = await resolveSshCommand(server({ id: "v", ssh_key_in_vault: true }));
+    expect(vault).toBe("ssh -o IdentityAgent=/dev/shm/a.sock darckware@100.64.0.1");
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/v/terminal-command", {});
+    const local = await resolveSshCommand(server({ ssh_key_path: "/k" }));
+    expect(local).toBe("ssh -i /k aegis@172.15.2.3");
   });
 });

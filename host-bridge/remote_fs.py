@@ -35,7 +35,7 @@ import re
 import shlex
 import uuid
 from dataclasses import dataclass
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator, Awaitable, Callable
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -111,6 +111,8 @@ class SshTarget:
     user: str
     port: int
     key: str | None
+    # ssh-agent socket holding the machine's ForgeVault key (host_exec.AgentCache).
+    agent_sock: str | None = None
 
     @property
     def label(self) -> str:
@@ -128,7 +130,9 @@ def ssh_args(target: SshTarget) -> list[str]:
         "-o", "ControlPersist=300",
         "-o", "ServerAliveInterval=15",
     ]
-    if target.key:
+    if target.agent_sock:
+        args += ["-o", f"IdentityAgent={target.agent_sock}"]
+    elif target.key:
         args += ["-i", target.key, "-o", "IdentitiesOnly=yes"]
     if target.port != 22:
         args += ["-p", str(target.port)]
@@ -271,7 +275,9 @@ async def _stream(target: SshTarget, script: str, *args: str) -> AsyncIterator[b
 
 
 def make_remote_fs_router(
-    check_token: Callable[[str | None], None], resolve_key_path: Callable[[str], str]
+    check_token: Callable[[str | None], None],
+    resolve_key_path: Callable[[str], str],
+    agent_socket_for: Callable[[str], Awaitable[str]] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1/remote-fs")
 
@@ -293,14 +299,24 @@ def make_remote_fs_router(
 
     # One dependency shared by every route: FastAPI reads the headers by
     # parameter name (x_ssh_host -> X-Ssh-Host).
-    def headers(
+    async def headers(
         x_bridge_token: str | None = Header(default=None),
         x_ssh_host: str | None = Header(default=None),
         x_ssh_user: str | None = Header(default=None),
         x_ssh_port: str | None = Header(default=None),
         x_ssh_key: str | None = Header(default=None),
+        x_ssh_key_ref: str | None = Header(default=None),
     ) -> SshTarget:
-        return target_of(x_bridge_token, x_ssh_host, x_ssh_user, x_ssh_port, x_ssh_key)
+        target = target_of(x_bridge_token, x_ssh_host, x_ssh_user, x_ssh_port, None if x_ssh_key_ref else x_ssh_key)
+        if x_ssh_key_ref:
+            if agent_socket_for is None or not re.fullmatch(r"[0-9a-f-]{36}", x_ssh_key_ref):
+                raise HTTPException(status_code=400, detail="Invalid X-Ssh-Key-Ref")
+            try:
+                sock = await agent_socket_for(x_ssh_key_ref)
+            except ValueError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            target = SshTarget(host=target.host, user=target.user, port=target.port, key=None, agent_sock=sock)
+        return target
 
     Target = Depends(headers)
 

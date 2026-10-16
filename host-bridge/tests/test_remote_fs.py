@@ -172,3 +172,27 @@ def test_ssh_failures_become_clear_messages():
     with pytest.raises(HTTPException) as exc:
         remote_fs.raise_for_exit(target, 255, "ssh: connect to host h port 22: Connection timed out")
     assert "Cannot reach u@h" in exc.value.detail
+
+
+def test_key_ref_header_uses_the_vault_agent(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_args(target):
+        seen["target"] = target
+        return ["sh", "-c"]
+
+    async def socket_for(ref):
+        seen["ref"] = ref
+        return "/dev/shm/fh-agent-x/agent.sock"
+
+    monkeypatch.setattr(remote_fs, "ssh_args", fake_args)
+    monkeypatch.setattr(remote_fs, "_CONTROL_DIR", str(tmp_path / ".control"))
+    app = FastAPI()
+    app.include_router(remote_fs.make_remote_fs_router(_check_token, lambda raw: raw, socket_for))
+    client = TestClient(app)
+    ref = "12345678-1234-1234-1234-123456789012"
+    client.get("/v1/remote-fs/list", params={"path": str(tmp_path)}, headers={**HEADERS, "X-Ssh-Key-Ref": ref, "X-Ssh-Key": "/old/file"})
+    assert seen["ref"] == ref
+    assert seen["target"].agent_sock == "/dev/shm/fh-agent-x/agent.sock" and seen["target"].key is None
+    bad = client.get("/v1/remote-fs/list", params={"path": "/"}, headers={**HEADERS, "X-Ssh-Key-Ref": "../etc"})
+    assert bad.status_code == 400

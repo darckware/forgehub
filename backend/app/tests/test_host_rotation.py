@@ -185,3 +185,19 @@ async def test_keys_to_vault_falls_back_to_the_encrypted_copy(client, station):
         out = (await client.post(f"/api/v1/servers/keys:to-vault?server_ids={station.id}")).json()
     assert out["stored"] == [station.name]
     assert list(vault.versions.values()) == [["COPY-PRIV"]]
+
+
+@pytest.mark.asyncio
+async def test_terminal_command_uses_the_vault_agent(client, station):
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        row.ssh_key_ref = "00000000-0000-0000-0000-00000000cccc"
+        await db.commit()
+
+    async def bridge(path, payload, timeout=20.0):
+        assert path == "/v1/servers/agent:open" and payload["key_ref"].endswith("cccc")
+        return _resp({"socket": "/dev/shm/fh-agent-1/agent.sock"})
+
+    with patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=bridge)):
+        out = (await client.post(f"/api/v1/servers/{station.id}/terminal-command")).json()
+    assert out == {"command": "ssh -o IdentityAgent=/dev/shm/fh-agent-1/agent.sock darckware@100.127.4.1", "vault_key": True}

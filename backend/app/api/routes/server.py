@@ -52,6 +52,7 @@ from app.api.schemas.server import (
     KeysToVaultOut,
     RotationOut,
     RotationRequest,
+    TerminalCommandOut,
     LoginPasswordOut,
     HostReadinessEntry,
     HostReadinessResult,
@@ -1146,6 +1147,34 @@ async def _rotate_key(db: AsyncSession, server: Server) -> dict:
     db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="ssh_key_rotated", actor="forgehub", payload={"key_path": new_path}))
     await db.commit()
     return {"exit_code": 0, "failure": None, "stdout": "\n".join(log), "stderr": "", "duration_ms": check.get("duration_ms")}
+
+
+@router.post("/{server_id}/terminal-command", response_model=TerminalCommandOut)
+async def terminal_command(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """The `ssh` command the Workspace terminal runs for this machine. With the
+    key in ForgeVault, it points at the bridge's in-memory agent for that key
+    (`-o IdentityAgent=...`) -- no key file. Otherwise the legacy form (key
+    file, or password prompt), same as the frontend's buildSshCommand."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.access_enabled:
+        raise HTTPException(status_code=403, detail=f"Access to {server.name} is disabled in ForgeHub")
+    if not server.ip_address:
+        raise HTTPException(status_code=409, detail="The machine has no address yet")
+    port = ["-p", str(server.ssh_port)] if server.ssh_port and server.ssh_port != 22 else []
+    target = f"{server.remote_user}@{server.ip_address}"
+    if server.ssh_key_ref:
+        resp = await _bridge_post("/v1/servers/agent:open", {"key_ref": server.ssh_key_ref})
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Could not load the key from ForgeVault: {_bridge_detail(resp)}")
+        parts = ["ssh", "-o", f"IdentityAgent={resp.json()['socket']}", *port, target]
+        return TerminalCommandOut(command=" ".join(parts), vault_key=True)
+    if server.ssh_key_path:
+        parts = ["ssh", "-i", server.ssh_key_path, *port, target]
+    else:
+        parts = ["ssh", "-o", "PasswordAuthentication=yes", "-o", "BatchMode=no", *port, target]
+    return TerminalCommandOut(command=" ".join(parts), vault_key=False)
 
 
 STATION_LOGIN = "darckware"

@@ -122,7 +122,10 @@ async def explorer_target(
         "X-Ssh-User": server.remote_user,
         "X-Ssh-Port": str(server.ssh_port or 22),
     }
-    if server.ssh_key_path:
+    if server.ssh_key_ref:
+        # Key kept in ForgeVault: the bridge loads it into an in-memory agent.
+        headers["X-Ssh-Key-Ref"] = server.ssh_key_ref
+    elif server.ssh_key_path:
         headers["X-Ssh-Key"] = server.ssh_key_path
     return ExplorerTarget(server=server, headers=headers)
 

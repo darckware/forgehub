@@ -63,7 +63,7 @@ from nexo_builds import build_agent, inspect_source
 from agent_runtime import resolve_runtime_executable, validate_working_directory
 from vpn_control import VpnControl, VpnPolicyError
 from remote_fs import make_remote_fs_router
-from host_exec import make_host_exec_router
+from host_exec import AgentCache, make_host_exec_router
 from forgevault_proxy import VaultClient, make_forgevault_router
 from hindsight_retention import read_status as read_hindsight_retention_status
 
@@ -5077,10 +5077,37 @@ async def fs_upload(
 # Workspace Explorer on a remote server (an SSH tab's server): the same
 # routes as above under /v1/remote-fs/*, run through this host's `ssh`.
 # See remote_fs.py.
-app.include_router(make_remote_fs_router(_check_token, _resolve_key_path))
+# Interactive SSH (Workspace terminal/Explorer) with keys kept in ForgeVault:
+# one in-memory ssh-agent per key, killed after 30 min idle (host_exec.AgentCache).
+_agent_cache = None
+
+
+async def _agent_socket_for(key_ref: str) -> str:
+    return await _agent_cache.socket_for(key_ref)
+
+
+app.include_router(make_remote_fs_router(_check_token, _resolve_key_path, _agent_socket_for))
 # See host_exec.py (Remote Access phase 4: one script on one machine).
 _vault_client = VaultClient()
+_agent_cache = AgentCache(_vault_client.reveal)
 app.include_router(make_host_exec_router(_check_token, _resolve_key_path, _vault_client.reveal))
+
+
+class TerminalAgentRequest(BaseModel):
+    key_ref: str = Field(min_length=36, max_length=36)
+
+
+@app.post("/v1/servers/agent:open")
+async def open_terminal_agent(req: TerminalAgentRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Socket of the in-memory agent holding a machine's ForgeVault key, for
+    the Workspace SSH terminal's `ssh -o IdentityAgent=<socket>`."""
+    _check_token(x_bridge_token)
+    if not re.fullmatch(r"[0-9a-f-]{36}", req.key_ref):
+        raise HTTPException(status_code=400, detail="Invalid key_ref")
+    try:
+        return {"socket": await _agent_cache.socket_for(req.key_ref)}
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 # See forgevault_proxy.py (Remote Access secrets in ForgeVault, infra/Production only).
 app.include_router(make_forgevault_router(_check_token))
 

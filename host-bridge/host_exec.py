@@ -131,6 +131,74 @@ async def ephemeral_agent(private_key: str):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+class AgentCache:
+    """Long-lived counterpart of ephemeral_agent for interactive use (the
+    Workspace SSH terminal and Explorer): one ssh-agent per ForgeVault key,
+    reused while in use and killed after `ttl` seconds idle. The key still
+    never touches a file -- it lives only in the agent's memory -- and the
+    socket sits in a 0700 directory under /dev/shm."""
+
+    def __init__(self, reveal: Callable[[str], Awaitable[str]], ttl: float = 1800.0):
+        self._reveal = reveal
+        self._ttl = ttl
+        self._agents: dict[str, tuple[asyncio.subprocess.Process, str, str, float]] = {}
+        self._lock = asyncio.Lock()
+        self._reaper: asyncio.Task | None = None
+
+    async def socket_for(self, key_ref: str) -> str:
+        async with self._lock:
+            entry = self._agents.get(key_ref)
+            if entry and entry[0].returncode is None and os.path.exists(entry[1]):
+                self._agents[key_ref] = (entry[0], entry[1], entry[2], time.monotonic())
+                return entry[1]
+            if entry:
+                self._stop(key_ref)
+            private_key = await self._reveal(key_ref)
+            tmp = tempfile.mkdtemp(prefix="fh-agent-", dir="/dev/shm" if os.path.isdir("/dev/shm") else None)
+            os.chmod(tmp, 0o700)
+            sock = os.path.join(tmp, "agent.sock")
+            agent = await asyncio.create_subprocess_exec(
+                "ssh-agent", "-D", "-a", sock, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+            )
+            for _ in range(50):
+                if os.path.exists(sock):
+                    break
+                await asyncio.sleep(0.05)
+            add = await asyncio.create_subprocess_exec(
+                "ssh-add", "-q", "-", stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                env={**os.environ, "SSH_AUTH_SOCK": sock},
+            )
+            await add.communicate((private_key.rstrip("\n") + "\n").encode())
+            if add.returncode != 0:
+                with contextlib.suppress(ProcessLookupError):
+                    agent.kill()
+                shutil.rmtree(tmp, ignore_errors=True)
+                raise ValueError("Could not load the machine's key from ForgeVault")
+            self._agents[key_ref] = (agent, sock, tmp, time.monotonic())
+            if self._reaper is None or self._reaper.done():
+                self._reaper = asyncio.create_task(self._reap())
+            return sock
+
+    def _stop(self, key_ref: str) -> None:
+        agent, _sock, tmp, _ = self._agents.pop(key_ref)
+        with contextlib.suppress(ProcessLookupError):
+            agent.kill()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    async def reap_idle(self) -> int:
+        async with self._lock:
+            idle = [ref for ref, (_, _, _, used) in self._agents.items() if time.monotonic() - used > self._ttl]
+            for ref in idle:
+                self._stop(ref)
+            return len(idle)
+
+    async def _reap(self) -> None:
+        while self._agents:
+            await asyncio.sleep(60)
+            await self.reap_idle()
+
+
 # Prepended to every PowerShell script: no progress records (PowerShell
 # serializes them to stderr as CLIXML when it isn't attached to a console),
 # and UTF-8 out so accents survive.

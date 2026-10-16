@@ -226,13 +226,18 @@ A página Servidores continua para serviços web e cofre de chave de infraestrut
       (`login_password_ref`, `rustdesk_password_ref`). `RUSTDESK_SERVER_PUBLIC_KEY` gravada.
 - [x] Chaves SSH das máquinas na ForgeVault (`WS_<CLIENTE>_<MÁQUINA>_SSH_KEY`, `ssh_key_ref`): as execuções
       buscam a chave no cofre e o bridge a carrega num `ssh-agent` efêmero em `/dev/shm` só durante a conexão.
-      Migração das chaves existentes: `POST /servers/keys:to-vault`. O terminal e o Explorer interativos ainda
-      usam o arquivo do host (próxima melhoria: mesma troca para eles).
+      Migração das chaves existentes: `POST /servers/keys:to-vault` (7 chaves migradas; `host-pve01/02` sem chave
+      recuperável — instalar chave nova quando voltarem a ser alcançáveis). Terminal e Explorer do Workspace
+      também usam a chave do cofre: o bridge mantém um `ssh-agent` em memória por chave (morto após 30 min
+      ocioso); o terminal recebe `ssh -o IdentityAgent=…` de `POST /servers/{id}/terminal-command`.
 - [x] **Rotação sob demanda** (aba Máquinas → Rotacionar senha / Rotacionar chave SSH, uma ou várias máquinas,
       vira execução): senha da darckware (nova versão no cofre → aplica → testa; falha restaura a anterior) e
       chave SSH (nova instalada e testada antes de remover a antiga; nova privada no cofre).
 - [x] Estação piloto `gat-adm-pc01` preparada de verdade pelo modo SSH (2026-10-16): darckware criada, login
-      pela chave confirmado, `administrador` bloqueado.
+      pela chave confirmado, `administrador` bloqueado. `gat-ges-nb01` (notebook `alessandra-note`) preparada
+      **sem** bloquear o administrador (pode ser a conta de uso diário dela) — bloquear só após confirmação.
+      `gat-srv-01` (servidor do cliente) não preparada: bloquear o administrador de um servidor pode parar
+      serviços — decidir com o Marcelo.
 
 ### Ordem de entrega (revisada)
 0. **ForgeVault**: projeto + ServiceAccount do ForgeHub; senhas/chaves passam a ser gravadas lá (bloqueia 1–3).

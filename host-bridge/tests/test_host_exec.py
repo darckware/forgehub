@@ -217,3 +217,29 @@ def test_route_uses_the_vault_key_through_an_agent(monkeypatch):
     assert seen["key"] == "PRIVATE-KEY-FROM-VAULT"
     assert seen["target"].agent_sock == "/dev/shm/fake.sock" and seen["target"].key is None
     assert "IdentityAgent=/dev/shm/fake.sock" in " ".join(host_exec.ssh_base(seen["target"]))
+
+
+def test_agent_cache_reuses_per_key_and_reaps_idle(tmp_path):
+    import os
+    import subprocess
+
+    keyfile = tmp_path / "k"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(keyfile)], check=True)
+    reveals = []
+
+    async def reveal(ref):
+        reveals.append(ref)
+        return keyfile.read_text()
+
+    async def scenario():
+        cache = host_exec.AgentCache(reveal, ttl=0.0)
+        first = await cache.socket_for("ref-1")
+        second = await cache.socket_for("ref-1")
+        listed = subprocess.run(["ssh-add", "-l"], env={**os.environ, "SSH_AUTH_SOCK": first}, capture_output=True, text=True)
+        reaped = await cache.reap_idle()
+        return first, second, listed.returncode, reaped
+
+    first, second, code, reaped = asyncio.run(scenario())
+    assert first == second and reveals == ["ref-1"]  # one agent, one vault read
+    assert code == 0 and reaped == 1
+    assert not os.path.exists(first)

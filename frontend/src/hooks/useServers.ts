@@ -28,6 +28,9 @@ export interface Server {
    * the RustDesk system scripts after they succeed). */
   rustdesk_id?: string | null;
   rustdesk_password_stored?: boolean;
+  /** The SSH key lives in ForgeVault; the terminal asks the backend for the
+   * command (it points at the bridge's in-memory agent, no key file). */
+  ssh_key_in_vault?: boolean;
   /** ForgeHub-side access switch. False parks the server: no status probe, no
    * terminal -- while the key, the vaulted copy and the server itself are all
    * left exactly as they were. */
@@ -442,4 +445,13 @@ export function useServerStatusProbe(): ServerStatusProbe {
     markDisabled,
     clearStatus,
   };
+}
+
+
+/** The terminal command for a machine: from the backend when its key is in
+ * ForgeVault (in-memory agent), else built locally (buildSshCommand). */
+export async function resolveSshCommand(server: Server): Promise<string> {
+  if (!server.ssh_key_in_vault) return buildSshCommand(server);
+  const out = await apiClient.post<{ command: string }>(`/api/v1/servers/${server.id}/terminal-command`, {});
+  return out.command;
 }

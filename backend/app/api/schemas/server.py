@@ -435,3 +435,9 @@ class KeysToVaultOut(BaseModel):
     stored: list[str] = Field(default_factory=list)
     already: list[str] = Field(default_factory=list)
     failed: dict[str, str] = Field(default_factory=dict)
+
+
+class TerminalCommandOut(BaseModel):
+    command: str
+    # True when authentication comes from the machine's ForgeVault key.
+    vault_key: bool
