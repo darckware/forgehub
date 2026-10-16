@@ -215,8 +215,17 @@ A página Servidores continua para serviços web e cofre de chave de infraestrut
 - [x] "Copiar script pronto" para máquina sem SSH (render auditado, nunca gravado).
 - [x] Bridge: SSH com usuário/senha (sshpass via ambiente), detecção de SO, PowerShell longo em partes.
 - [x] Saiu o botão Executar por linha e o diálogo "Ingressar estação" (rotas de backend mantidas).
-- [ ] Script de sistema de **preparação/ingresso** (OpenSSH + conta darckware + bloqueio do administrador) —
-      enquanto não existe, o botão Preparar continua na linha da estação.
+- [x] **Preparar estação** (ação da aba Máquinas, não mais por linha): OpenSSH (só tailnet, PowerShell como
+      shell), conta `darckware` administradora com senha forte gerada e gravada na **ForgeVault**
+      (`WS_<CLIENTE>_<MÁQUINA>_LOGIN`), chave do ForgeHub. Modo SSH: entra uma vez com o administrador do
+      cliente (senha não gravada), testa o login da darckware pela chave e **só então** bloqueia o
+      administrador; tudo vira uma execução visível. Modo copiar: script para colar pelo RustDesk.
+- [x] **ForgeVault**: projeto `infra`/`Production`, service account `forgehub-remote-access` (criados pelo
+      comando local `host-bootstrap` da ForgeVault); o bridge (`host-bridge/forgevault_proxy.py`) é o único que
+      fala com o cofre; senhas da darckware e do RustDesk vão para lá e o cadastro guarda só o id
+      (`login_password_ref`, `rustdesk_password_ref`). `RUSTDESK_SERVER_PUBLIC_KEY` gravada.
+- [ ] Chaves SSH das máquinas na ForgeVault (hoje: arquivo no host + cópia Fernet no cadastro) com `ssh-agent`
+      efêmero no bridge — próxima etapa.
 
 ### Ordem de entrega (revisada)
 0. **ForgeVault**: projeto + ServiceAccount do ForgeHub; senhas/chaves passam a ser gravadas lá (bloqueia 1–3).

@@ -36,7 +36,7 @@ from app.core import host_exec_runner
 from app.core.host_scripts import ScriptError, compatible, render_script, resolve_values, shell_for
 from app.core.deps import get_current_admin
 from app.core.secret_masking import mask_secrets
-from app.core.secrets import encrypt_secret
+from app.core.forgevault import machine_secret_name, vault_store
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
 from app.db.models.agent import Agent
@@ -171,6 +171,8 @@ async def launch_execution(
     retry_until=None,
     on_success=None,
     values_for_hook: dict | None = None,
+    executor=None,
+    script_label: str | None = None,
 ) -> HostExecution:
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
@@ -193,7 +195,7 @@ async def launch_execution(
         schedule_id=schedule_id,
         script_id=script.id if script else None,
         script_version=script.current_version if script else None,
-        script_name=script.name if script else None,
+        script_name=script.name if script else script_label,
         retry_until=retry_until,
     )
     db.add(execution)
@@ -231,7 +233,9 @@ async def launch_execution(
     await db.refresh(execution)
     if on_success is None and script is not None:
         on_success = system_script_hook(script, values_for_hook)
-    host_exec_runner.start_execution(execution.id, shell, command, timeout_seconds, secrets, retry_until, on_success)
+    host_exec_runner.start_execution(
+        execution.id, shell, command, timeout_seconds, secrets, retry_until, on_success, executor
+    )
     return execution
 
 
@@ -279,7 +283,11 @@ def system_script_hook(script: HostScript, values: dict | None):
             server = await db.get(Server, server_id)
             if server is None:
                 return
-            server.rustdesk_password_encrypted = encrypt_secret(password)
+            server.rustdesk_password_ref = await vault_store(
+                machine_secret_name(server, "RUSTDESK"), password,
+                f"Senha permanente do RustDesk em {server.name} ({server.darckware_client_name or 'sem cliente'})",
+            )
+            server.rustdesk_password_encrypted = None
             if match:
                 server.rustdesk_id = match.group(1)
             db.add(AuditEvent(entity_type="server", entity_id=server_id, event_type="rustdesk_password_recorded",

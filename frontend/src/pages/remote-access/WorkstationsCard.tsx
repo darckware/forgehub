@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderPlus, KeyRound, Loader2, Monitor, MonitorSmartphone, Pencil, RefreshCw, Search, Trash2, Waypoints, Wrench, X } from "lucide-react";
+import { FolderPlus, KeyRound, Loader2, Monitor, MonitorSmartphone, Pencil, RefreshCw, Search, Trash2, Waypoints, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,6 @@ import type { HostReadiness, HostReadinessEntry, ReadinessCounts } from "@/hooks
 import type { Server } from "@/hooks/useServers";
 import { useWorkstationsViewModel, type ReadinessFilter } from "@/hooks/useWorkstationsViewModel";
 import { ServerForm } from "@/pages/servers/ServerForm";
-import { PrepareDialog } from "./PrepareDialog";
 import { RevealPasswordDialog } from "./RevealPasswordDialog";
 
 const READINESS_VARIANT: Record<HostReadiness, "success" | "warning" | "destructive" | "outline" | "secondary"> = {
@@ -56,7 +55,6 @@ export function WorkstationsCard() {
   const { t } = useTranslation("remoteAccess");
   const vm = useWorkstationsViewModel();
   const { data: clientList } = useDarckwareClients();
-  const [preparing, setPreparing] = useState<Server | null>(null);
   const [revealing, setRevealing] = useState<{ machine: Server; kind: "login" | "rustdesk" } | null>(null);
 
   const syncSummary = vm.syncResult
@@ -261,18 +259,6 @@ export function WorkstationsCard() {
                         <TableCell className="font-mono text-xs">{machine.remote_user || "—"}</TableCell>
                         <TableCell><ReadinessBadge entry={vm.readinessOf(machine.id)} t={t} /></TableCell>
                         <TableCell className="whitespace-nowrap text-right">
-                          {["not_prepared", "online_no_access"].includes(vm.readinessOf(machine.id)?.readiness ?? "") && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setPreparing(machine)}
-                              aria-label={t("prepare.for", { name: machine.name })}
-                              className="mr-2 cursor-pointer gap-1.5"
-                            >
-                              <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t("prepare.action")}
-                            </Button>
-                          )}
                           {machine.rustdesk_password_stored && (
                             <Button
                               type="button"
@@ -322,7 +308,6 @@ export function WorkstationsCard() {
 
       {vm.editing && <ServerForm initial={vm.editing} onClose={vm.closeEdit} />}
       {revealing && <RevealPasswordDialog machine={revealing.machine} kind={revealing.kind} onClose={() => setRevealing(null)} />}
-      {preparing && <PrepareDialog machine={preparing} onClose={() => setPreparing(null)} />}
 
       <ConfirmDialog
         open={vm.deletingGroup !== null}

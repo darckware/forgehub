@@ -350,17 +350,34 @@ class HostReadinessResult(BaseModel):
     ssh_checked_at: datetime | None = None
 
 
+class HostPreparationRequest(BaseModel):
+    """"copy": the script to paste once through RustDesk. "ssh": ForgeHub logs in
+    once with the client's administrator (password typed now, never stored),
+    runs it, verifies the new login with the key and only then -- when asked --
+    disables that administrator."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["copy", "ssh"] = "copy"
+    admin_user: str | None = Field(default=None, min_length=1, max_length=100)
+    admin_password: str | None = Field(default=None, min_length=1, max_length=256)
+    disable_admin: bool = True
+
+
 class HostPreparationOut(BaseModel):
     """Script to paste on the station once (via RustDesk) so it becomes Ready."""
 
     server_id: uuid.UUID
     os_family: str
     language: Literal["powershell", "sh"]
-    script: str
+    script: str | None = None
     public_key: str
     # A new key pair was generated for this machine on this call.
     key_created: bool
     key_path: str
+    login: str = "darckware"
+    # mode="ssh": the execution that runs preparation -> check -> lock admin.
+    execution_id: uuid.UUID | None = None
 
 
 class EnrollmentCreate(BaseModel):

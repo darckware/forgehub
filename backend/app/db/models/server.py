@@ -149,6 +149,11 @@ class Server(Base, TimestampMixin):
     # RustDesk on the machine: its ID (what you type in RustDesk to reach it)
     # and the permanent password, encrypted. Written only after the install /
     # password-change system script succeeded on that machine.
+    # ForgeVault secret ids (core/forgevault.py) -- where the machine's
+    # passwords live since 2026-10-16. The *_encrypted columns above are the
+    # pre-vault stand-ins: read as a fallback, never written any more.
+    login_password_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    rustdesk_password_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
     rustdesk_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rustdesk_password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -161,11 +166,11 @@ class Server(Base, TimestampMixin):
 
     @property
     def rustdesk_password_stored(self) -> bool:
-        return bool(self.rustdesk_password_encrypted)
+        return bool(self.rustdesk_password_ref or self.rustdesk_password_encrypted)
 
     @property
     def login_password_stored(self) -> bool:
-        return bool(self.login_password_encrypted)
+        return bool(self.login_password_ref or self.login_password_encrypted)
 
     @property
     def key_passphrase_stored(self) -> bool:

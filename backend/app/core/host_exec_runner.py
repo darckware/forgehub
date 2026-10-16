@@ -38,6 +38,10 @@ STALE_AFTER = timedelta(seconds=90)
 # Called after a machine's run succeeded: (server_id, outcome). Used by system
 # scripts to record what they changed (RustDesk ID/password).
 OnSuccess = Callable[[uuid.UUID, dict], Awaitable[None]]
+# Replaces the single bridge call for a machine with a custom sequence (e.g.
+# preparation: run as the client's admin, verify the new login, then lock the
+# admin). Returns the same outcome dict as call_bridge_exec.
+Executor = Callable[[Server], Awaitable[dict]]
 
 # Kept so the tasks aren't garbage-collected mid-run.
 _running: dict[uuid.UUID, asyncio.Task] = {}
@@ -48,13 +52,25 @@ def _now() -> datetime:
 
 
 async def call_bridge_exec(server: Server, shell: str, script: str, timeout_seconds: int) -> dict:
+    return await call_bridge_exec_as(
+        host=server.ip_address, user=server.remote_user, port=server.ssh_port,
+        key_path=server.ssh_key_path, password=None,
+        shell=shell, script=script, timeout_seconds=timeout_seconds,
+    )
+
+
+async def call_bridge_exec_as(
+    *, host: str, user: str, port: int, key_path: str | None, password: str | None,
+    shell: str, script: str, timeout_seconds: int,
+) -> dict:
     """One machine. Never raises: a bridge that can't be reached is reported
     as a connection failure on that machine, like an unreachable station."""
     payload = {
-        "host": server.ip_address,
-        "user": server.remote_user,
-        "port": server.ssh_port,
-        "key_path": server.ssh_key_path,
+        "host": host,
+        "user": user,
+        "port": port,
+        "key_path": key_path,
+        "password": password,
         "shell": shell,
         "script": script,
         "timeout_seconds": timeout_seconds,
@@ -81,6 +97,7 @@ async def _run_one(
     result_id: uuid.UUID, shell: str, script: str, timeout: int, secrets: list[str],
     retry_until: datetime | None = None,
     on_success: OnSuccess | None = None,
+    executor: Executor | None = None,
 ) -> None:
     async with AsyncSessionLocal() as db:
         result = await db.get(HostExecutionResult, result_id)
@@ -99,7 +116,7 @@ async def _run_one(
         result.status, result.started_at = "running", _now()
         await db.commit()
 
-    outcome = await call_bridge_exec(server, shell, script, timeout)
+    outcome = await executor(server) if executor else await call_bridge_exec(server, shell, script, timeout)
     while outcome.get("failure") == "connection" and retry_until and _now() < retry_until:
         async with AsyncSessionLocal() as db:
             execution = await db.get(HostExecution, result.execution_id)
@@ -138,6 +155,7 @@ async def _run_execution(
     execution_id: uuid.UUID, shell: str, script: str, timeout: int, secrets: list[str],
     retry_until: datetime | None = None,
     on_success: OnSuccess | None = None,
+    executor: Executor | None = None,
 ) -> None:
     try:
         async with AsyncSessionLocal() as db:
@@ -157,7 +175,7 @@ async def _run_execution(
         async def guarded(result_id: uuid.UUID) -> None:
             async with gate:
                 try:
-                    await _run_one(result_id, shell, script, timeout, secrets, retry_until, on_success)
+                    await _run_one(result_id, shell, script, timeout, secrets, retry_until, on_success, executor)
                 except Exception:
                     logger.exception("host execution %s: result %s crashed", execution_id, result_id)
                     async with AsyncSessionLocal() as db:
@@ -205,9 +223,10 @@ def start_execution(
     execution_id: uuid.UUID, shell: str, script: str, timeout: int, secrets: list[str] | None = None,
     retry_until: datetime | None = None,
     on_success: OnSuccess | None = None,
+    executor: Executor | None = None,
 ) -> asyncio.Task:
     task = asyncio.create_task(
-        _run_execution(execution_id, shell, script, timeout, list(secrets or []), retry_until, on_success),
+        _run_execution(execution_id, shell, script, timeout, list(secrets or []), retry_until, on_success, executor),
         name=f"host-execution-{execution_id}",
     )
     _running[execution_id] = task

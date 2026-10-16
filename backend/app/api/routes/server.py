@@ -48,6 +48,7 @@ from app.api.schemas.server import (
     EnrollmentCreate,
     EnrollmentOut,
     HostPreparationOut,
+    HostPreparationRequest,
     LoginPasswordOut,
     HostReadinessEntry,
     HostReadinessResult,
@@ -71,10 +72,13 @@ from app.api.schemas.server import (
     TailnetSyncRequest,
     TailnetSyncResult,
 )
-from app.api.routes.host_execution import busy_server_ids
+from app.api.routes.host_execution import busy_server_ids, launch_execution
+from app.core.host_exec_runner import call_bridge_exec_as
+from app.db.base import AsyncSessionLocal
 from app.api.routes.vpn import fetch_tailnet_status
 from app.core.config import settings
 from app.core.deps import get_current_admin
+from app.core.forgevault import machine_secret_name, vault_reveal, vault_store
 from app.core.host_enrollment import (
     LOGIN as ENROLL_LOGIN,
     EnrollmentError,
@@ -445,7 +449,10 @@ async def enroll_station(
         server.private_key_encrypted = encrypt_secret(vault.json()["private_key"])
 
     password = generate_password()
-    server.login_password_encrypted = encrypt_secret(password)
+    server.login_password_ref = await vault_store(
+        machine_secret_name(server, "LOGIN"), password,
+        f"Senha da conta {ENROLL_LOGIN} em {server.name} ({server.darckware_client_name or 'sem cliente'})",
+    )
     auth_key = await create_auth_key(api_key, payload.tag, f"forgehub {name}")
     try:
         script, language = enrollment_script(
@@ -922,31 +929,55 @@ async def backup_server_key(
     )
 
 
+STATION_LOGIN = "darckware"
+
+
+def _lock_admin_script(os_family: str, admin_user: str) -> str:
+    if os_family == "windows":
+        return f"Disable-LocalUser -Name '{admin_user}'; (Get-LocalUser -Name '{admin_user}').Enabled"
+    return f"sudo -n usermod -L {admin_user} && sudo -n passwd -S {admin_user}"
+
+
 @router.post("/{server_id}/preparation", response_model=HostPreparationOut)
 async def prepare_host(
     server_id: uuid.UUID,
+    payload: HostPreparationRequest | None = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Script for the station's OS that enables SSH (tailnet only) and
-    authorizes this machine's key for its login -- to paste once through
-    RustDesk. Ensures the key exists first: a row without `ssh_key_path` gets
-    a dedicated ed25519 pair on this host (same naming as install-key), the
-    path and public key are recorded, and an encrypted copy is vaulted on the
-    row. A row that already has a key keeps it. Calling it again is safe."""
+    """Puts a station under ForgeHub's own login (decision 1, 2026-10-15/16):
+
+    1. ensures the station's key pair (one per machine) and generates a strong
+       password for `darckware`, stored in ForgeVault before anything runs;
+    2. builds the OS script: OpenSSH (tailnet only, PowerShell as shell on
+       Windows), the `darckware` administrator with that password, ForgeHub's key;
+    3. mode "copy" returns it to paste through RustDesk; mode "ssh" runs it
+       logged in once as the client's administrator, then logs in as
+       `darckware` with the key, and only if that worked (and `disable_admin`)
+       disables the administrator -- never before, so the station can't be left
+       without a working account. The run is an ordinary execution (screen,
+       audit); the admin password is used for that one connection only.
+    """
+    payload = payload or HostPreparationRequest()
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    if not server.os_family:
-        raise HTTPException(status_code=422, detail="Set the machine's operating system first")
-    if not server.remote_user:
-        raise HTTPException(status_code=422, detail="Set the machine's login first")
+    if server.os_family not in ("windows", "linux"):
+        raise HTTPException(status_code=422, detail="Set the machine's operating system (Windows or Linux) first")
+    admin_user = (payload.admin_user or server.admin_user or "").strip()
+    if payload.mode == "ssh":
+        if not admin_user or not payload.admin_password:
+            raise HTTPException(status_code=422, detail="Inform the administrator login and password")
+        if not server.ip_address:
+            raise HTTPException(status_code=422, detail="The machine has no address yet (not in the tailnet)")
+        if admin_user.lower() == STATION_LOGIN:
+            raise HTTPException(status_code=422, detail="Use the client's administrator account, not darckware")
 
     key_created = False
     if not server.ssh_key_path or not server.public_key:
         resp = await _bridge_post(
             "/v1/servers/ensure-key",
-            {"ip_address": server.ip_address, "comment": f"forgehub@{re.sub(r'[^A-Za-z0-9.-]', '-', server.name)}"},
+            {"key_name": f"ws_{server.id.hex}", "comment": f"forgehub@{re.sub(r'[^A-Za-z0-9.-]', '-', server.name)}"},
         )
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Host bridge error: {_bridge_detail(resp)}")
@@ -958,29 +989,98 @@ async def prepare_host(
         if vault.status_code == 200:
             server.private_key_encrypted = encrypt_secret(vault.json()["private_key"])
 
+    password = generate_password()
     try:
-        script, language = preparation_script(server.os_family, server.remote_user, server.public_key or "")
+        script, language = preparation_script(server.os_family, STATION_LOGIN, server.public_key or "", password)
     except PreparationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    db.add(
-        AuditEvent(
-            entity_type="server",
-            entity_id=server.id,
-            event_type="preparation_script_generated",
-            actor=admin.username,
-            payload={"os_family": server.os_family, "login": server.remote_user, "key_created": key_created},
+    server.login_password_ref = await vault_store(
+        machine_secret_name(server, "LOGIN"), password,
+        f"Senha da conta {STATION_LOGIN} em {server.name} ({server.darckware_client_name or 'sem cliente'})",
+    )
+    server.login_password_encrypted = None
+    if admin_user:
+        server.admin_user = admin_user
+    db.add(AuditEvent(
+        entity_type="server", entity_id=server.id, event_type="preparation_started", actor=admin.username,
+        payload={"mode": payload.mode, "os_family": server.os_family, "admin_user": admin_user or None,
+                 "disable_admin": payload.disable_admin, "key_created": key_created},
+    ))
+
+    if payload.mode == "copy":
+        # Readiness probes as `darckware` from now on: the station reads Ready
+        # as soon as someone runs the script.
+        server.remote_user = STATION_LOGIN
+        await db.commit()
+        return HostPreparationOut(
+            server_id=server.id, os_family=server.os_family, language=language, script=script,
+            public_key=server.public_key or "", key_created=key_created, key_path=server.ssh_key_path or "",
         )
-    )
+
     await db.commit()
-    return HostPreparationOut(
-        server_id=server.id,
-        os_family=server.os_family,
-        language=language,
-        script=script,
-        public_key=server.public_key or "",
-        key_created=key_created,
-        key_path=server.ssh_key_path or "",
+    host, port, key_path = server.ip_address, server.ssh_port, server.ssh_key_path
+    admin_password, os_family, disable = payload.admin_password, server.os_family, payload.disable_admin
+    station_id = server.id
+
+    async def executor(_server: Server) -> dict:
+        log: list[str] = []
+        prep = await call_bridge_exec_as(
+            host=host, user=admin_user, port=port, key_path=None, password=admin_password,
+            shell=language, script=script, timeout_seconds=900,
+        )
+        log.append(f"== 1/3 Preparação como {admin_user}: " + ("ok" if not prep.get("failure") else "FALHOU"))
+        log.append((prep.get("stdout") or "").strip())
+        if prep.get("failure"):
+            return {**prep, "stdout": "\n".join(log), "stderr": prep.get("stderr")}
+        check = await call_bridge_exec_as(
+            host=host, user=STATION_LOGIN, port=port, key_path=key_path, password=None,
+            shell=language, script="whoami", timeout_seconds=60,
+        )
+        ok = not check.get("failure") and STATION_LOGIN in (check.get("stdout") or "").lower()
+        log.append(f"== 2/3 Login de {STATION_LOGIN} pela chave: " + ("ok" if ok else "FALHOU"))
+        if not ok:
+            return {"exit_code": check.get("exit_code") or 1, "failure": check.get("failure") or "command",
+                    "stdout": "\n".join(log), "stderr": check.get("stderr"), "duration_ms": prep.get("duration_ms")}
+        async with AsyncSessionLocal() as session:
+            row = await session.get(Server, station_id)
+            row.remote_user = STATION_LOGIN
+            await session.commit()
+        if disable:
+            lock = await call_bridge_exec_as(
+                host=host, user=STATION_LOGIN, port=port, key_path=key_path, password=None,
+                shell=language, script=_lock_admin_script(os_family, admin_user), timeout_seconds=60,
+            )
+            log.append(f"== 3/3 Bloqueio de {admin_user}: " + ("ok" if not lock.get("failure") else "FALHOU"))
+            log.append((lock.get("stdout") or "").strip())
+            if lock.get("failure"):
+                return {**lock, "stdout": "\n".join(log)}
+        else:
+            log.append(f"== 3/3 Bloqueio de {admin_user}: não solicitado")
+        return {"exit_code": 0, "failure": None, "stdout": "\n".join(log), "stderr": "", "duration_ms": prep.get("duration_ms")}
+
+    execution = await launch_execution(
+        db, servers=[server], command=script, shell=language, timeout_seconds=900,
+        actor=admin.username, target_summary=server.name, secrets=[password, admin_password],
+        executor=executor, script_label="Preparar estação",
     )
+    return HostPreparationOut(
+        server_id=server.id, os_family=server.os_family, language=language, script=None,
+        public_key=server.public_key or "", key_created=key_created, key_path=server.ssh_key_path or "",
+        execution_id=execution.id,
+    )
+
+
+async def _read_machine_secret(ref: str | None, legacy_encrypted: str | None) -> str:
+    """ForgeVault first (the secret id on the row); the pre-vault encrypted
+    column only as a fallback for rows not migrated yet."""
+    if ref:
+        return await vault_reveal(ref)
+    if legacy_encrypted:
+        try:
+            return decrypt_secret(legacy_encrypted)
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail="Stored password can't be decrypted") from exc
+    raise HTTPException(status_code=404, detail="No password stored for this machine")
 
 
 @router.get("/{server_id}/login-password", response_model=LoginPasswordOut)
@@ -994,12 +1094,7 @@ async def reveal_login_password(
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    if not server.login_password_encrypted:
-        raise HTTPException(status_code=404, detail="No password stored for this machine")
-    try:
-        password = decrypt_secret(server.login_password_encrypted)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail="Stored password can't be decrypted") from exc
+    password = await _read_machine_secret(server.login_password_ref, server.login_password_encrypted)
     db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="login_password_revealed",
                       actor=admin.username, payload={"login": server.remote_user}))
     await db.commit()
@@ -1017,12 +1112,7 @@ async def reveal_rustdesk_password(
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    if not server.rustdesk_password_encrypted:
-        raise HTTPException(status_code=404, detail="No RustDesk password stored for this machine")
-    try:
-        password = decrypt_secret(server.rustdesk_password_encrypted)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail="Stored password can't be decrypted") from exc
+    password = await _read_machine_secret(server.rustdesk_password_ref, server.rustdesk_password_encrypted)
     db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="rustdesk_password_revealed",
                       actor=admin.username, payload=None))
     await db.commit()

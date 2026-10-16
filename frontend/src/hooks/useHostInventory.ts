@@ -203,19 +203,36 @@ export interface HostPreparation {
   server_id: string;
   os_family: string;
   language: "powershell" | "sh";
-  script: string;
+  /** mode "copy": the script to paste once through RustDesk. */
+  script: string | null;
   public_key: string;
   key_created: boolean;
   key_path: string;
+  login: string;
+  /** mode "ssh": the execution running preparation -> key check -> lock admin. */
+  execution_id: string | null;
 }
 
-/** Ensures the machine's key and returns the one-time preparation script
- * for its OS (pasted on the station through RustDesk). */
+export interface HostPreparationInput {
+  serverId: string;
+  mode: "copy" | "ssh";
+  admin_user: string | null;
+  admin_password: string | null;
+  disable_admin: boolean;
+}
+
+/** Puts a station under the `darckware` login (password generated and kept in
+ * ForgeVault). "ssh" logs in once as the client's administrator (password
+ * never stored), checks the new login with the key, then -- only if that
+ * worked -- disables the administrator. "copy" returns the script for RustDesk. */
 export function usePrepareHost() {
   const qc = useQueryClient();
-  return useMutation<HostPreparation, Error, string>({
-    mutationFn: (serverId) => apiClient.post(`/api/v1/servers/${serverId}/preparation`, {}),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["servers"] }),
+  return useMutation<HostPreparation, Error, HostPreparationInput>({
+    mutationFn: ({ serverId, ...body }) => apiClient.post(`/api/v1/servers/${serverId}/preparation`, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["servers"] });
+      void qc.invalidateQueries({ queryKey: ["host-executions"] });
+    },
   });
 }
 

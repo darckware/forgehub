@@ -6,8 +6,15 @@ already carrying the station's public key, so a single run leaves the station
 "Ready": SSH server on and starting with the machine, the port open to the
 tailnet only (100.64.0.0/10), and ForgeHub's key authorized for the login.
 
-Every script is idempotent (safe to run twice) and only ever *adds* the key;
-it never removes another key or account. The login and key are validated
+With a `password`, the script also creates (or resets) the login as a local
+administrator with that password -- the station's own `darckware` account,
+whose password ForgeHub generated and stored in ForgeVault (2026-10-16). The
+client's administrator account is never touched by the script: disabling it
+is a separate step ForgeHub only takes after logging in as `darckware` with
+the key worked (api/routes/server.py, prepare_host).
+
+Every script is idempotent (safe to run twice) and only ever *adds*; it never
+removes another key or account. The login and key are validated
 before being embedded, so nothing a user typed in the form becomes script
 syntax.
 """
@@ -16,21 +23,43 @@ import re
 TAILNET_CIDR = "100.64.0.0/10"
 _LOGIN_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$")
 _PUBKEY_RE = re.compile(r"^ssh-(?:ed25519|rsa) [A-Za-z0-9+/=]+(?: [\w.@:-]+)?$")
+# Generated passwords only (no quotes, $, backtick or backslash), so they are
+# safe inside single quotes in PowerShell and sh.
+_PASSWORD_RE = re.compile(r"^[A-Za-z0-9!#%*+=?@_-]{12,64}$")
 
 
 class PreparationError(ValueError):
     pass
 
 
-def _check(login: str, public_key: str) -> None:
+def _check(login: str, public_key: str, password: str | None = None) -> None:
+    if password is not None and not _PASSWORD_RE.match(password):
+        raise PreparationError("Invalid generated password")
     if not _LOGIN_RE.match(login or ""):
         raise PreparationError("The machine's login is missing or has characters a script can't carry safely")
     if not _PUBKEY_RE.match(public_key or ""):
         raise PreparationError("The machine's public key is not a valid ssh-ed25519/ssh-rsa line")
 
 
-def windows_script(login: str, public_key: str) -> str:
-    _check(login, public_key)
+def _windows_account_block(login: str, password: str) -> str:
+    return f"""
+# 2b) Conta '{login}' (administradora local) com a senha gerada pelo ForgeHub
+$pw = ConvertTo-SecureString '{password}' -AsPlainText -Force
+if (Get-LocalUser -Name '{login}' -ErrorAction SilentlyContinue) {{
+    Set-LocalUser -Name '{login}' -Password $pw -PasswordNeverExpires $true
+    Enable-LocalUser -Name '{login}'
+}} else {{
+    New-LocalUser -Name '{login}' -Password $pw -PasswordNeverExpires -AccountNeverExpires `
+        -Description 'ForgeHub - suporte remoto Darckware' | Out-Null
+}}
+if (-not (Get-LocalGroupMember -SID S-1-5-32-544 | Where-Object {{ $_.Name -like '*\\{login}' }})) {{
+    Add-LocalGroupMember -SID S-1-5-32-544 -Member '{login}'
+}}
+"""
+
+
+def windows_script(login: str, public_key: str, password: str | None = None) -> str:
+    _check(login, public_key, password)
     return f"""# ForgeHub - preparacao da estacao (rodar UMA vez, PowerShell como administrador)
 $ErrorActionPreference = 'Stop'
 
@@ -42,8 +71,8 @@ Set-Service sshd -StartupType Automatic
 Start-Service sshd
 
 # 1b) Shell padrao do SSH = PowerShell (padrao das estacoes Windows)
-New-Item -Path 'HKLM:\SOFTWARE\OpenSSH' -Force | Out-Null
-New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell `
+New-Item -Path 'HKLM:\\SOFTWARE\\OpenSSH' -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\\SOFTWARE\\OpenSSH' -Name DefaultShell `
     -Value "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -PropertyType String -Force | Out-Null
 
 # 2) Firewall: SSH somente pela tailnet ({TAILNET_CIDR})
@@ -53,6 +82,7 @@ if (-not (Get-NetFirewallRule -Name sshd-tailnet -ErrorAction SilentlyContinue))
         -Protocol TCP -LocalPort 22 -RemoteAddress {TAILNET_CIDR} -Action Allow | Out-Null
 }}
 
+{_windows_account_block(login, password) if password else ""}
 # 3) Chave do ForgeHub autorizada para '{login}'
 $key = '{public_key}'
 $isAdmin = (Get-LocalGroupMember -SID S-1-5-32-544 -ErrorAction SilentlyContinue |
@@ -89,11 +119,22 @@ chown -R "$U" "$H/.ssh"
 """
 
 
-def linux_script(login: str, public_key: str) -> str:
-    _check(login, public_key)
+def _linux_account_block(login: str, password: str) -> str:
+    return f"""# 2b) Conta '{login}' com a senha gerada pelo ForgeHub e sudo sem senha
+#     (os comandos do ForgeHub rodam sem terminal)
+id {login} >/dev/null 2>&1 || useradd -m -s /bin/bash {login}
+echo '{login}:{password}' | chpasswd
+echo '{login} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{login}
+chmod 440 /etc/sudoers.d/{login}
+"""
+
+
+def linux_script(login: str, public_key: str, password: str | None = None) -> str:
+    _check(login, public_key, password)
     return f"""#!/bin/sh
 # ForgeHub - preparacao da estacao (rodar UMA vez como root: sudo sh preparar.sh)
 set -e
+if [ "$(id -u)" -ne 0 ]; then echo "Rode como root (ou com sudo)." >&2; exit 1; fi
 
 # 1) Servidor SSH instalado, ligado e iniciando com a maquina
 if ! command -v sshd >/dev/null 2>&1 && [ ! -x /usr/sbin/sshd ]; then
@@ -109,6 +150,7 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q active; then
     ufw allow from {TAILNET_CIDR} to any port 22 proto tcp
 fi
 
+{_linux_account_block(login, password) if password else ""}
 {_posix_key_block(login, public_key)}
 echo 'Pronto: volte ao ForgeHub e clique em "Verificar agora".'
 """
@@ -128,12 +170,17 @@ echo 'Pronto: volte ao ForgeHub e clique em "Verificar agora".'
 """
 
 
-def preparation_script(os_family: str | None, login: str, public_key: str) -> tuple[str, str]:
-    """(script, language) for the machine's OS."""
+def preparation_script(
+    os_family: str | None, login: str, public_key: str, password: str | None = None
+) -> tuple[str, str]:
+    """(script, language) for the machine's OS. With `password`, the login is
+    created/reset as an administrator with it (Windows, Linux)."""
     if os_family == "windows":
-        return windows_script(login, public_key), "powershell"
+        return windows_script(login, public_key, password), "powershell"
     if os_family == "linux":
-        return linux_script(login, public_key), "sh"
+        return linux_script(login, public_key, password), "sh"
+    if password is not None:
+        raise PreparationError("Creating the account is supported on Windows and Linux for now")
     if os_family == "macos":
         return macos_script(login, public_key), "sh"
     raise PreparationError("Set the machine's operating system first")

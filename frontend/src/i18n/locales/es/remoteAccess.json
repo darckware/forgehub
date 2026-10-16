@@ -270,7 +270,25 @@
     "copy": "Copiar",
     "copied": "Copiado",
     "safeNote": "El script puede ejecutarse más de una vez. Solo activa SSH (aceptando solo la tailnet) y agrega la clave de ForgeHub; nunca elimina cuentas ni otras claves.",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "dialogTitle": "Preparar estación",
+    "intro": "Pone la máquina bajo la cuenta darckware de ForgeHub: activa OpenSSH (solo por la tailnet), crea darckware como administradora con una contraseña fuerte generada para esta máquina y autoriza la clave de ForgeHub.",
+    "machine": "Máquina",
+    "pickMachine": "Elija la máquina",
+    "noCandidates": "Todas las máquinas con Windows o Linux ya están Listas.",
+    "mode": "Cómo preparar",
+    "modes": {
+      "ssh": "Por SSH con el administrador",
+      "copy": "Copiar script (RustDesk)"
+    },
+    "sshHelp": "ForgeHub entra una vez con el administrador de la máquina (la contraseña se usa solo en esta conexión y no se guarda), prepara, prueba el login de darckware con la clave y, solo si la prueba pasa, bloquea al administrador.",
+    "adminUser": "Login del administrador",
+    "adminPassword": "Contraseña del administrador",
+    "disableAdmin": "Bloquear la cuenta \"{{user}}\" tras confirmar que darckware entra con la clave",
+    "copyHelp": "Genera el script de esta máquina para pegarlo una vez por RustDesk, en un PowerShell de administrador (Windows) o como root (Linux). En este modo el administrador no se bloquea.",
+    "vaultNote": "La contraseña de darckware la genera ForgeHub y se guarda en ForgeVault (proyecto infra); nunca queda en el registro.",
+    "runSsh": "Preparar ahora",
+    "generateCopy": "Generar script"
   },
   "policy": {
     "title": "Política de la tailnet (ACL)",
@@ -346,7 +364,8 @@
     "title": "Instalaciones",
     "tailscale_install": "Instalar Tailscale",
     "rustdesk_install": "Instalar RustDesk",
-    "rustdesk_password": "Cambiar contraseña de RustDesk"
+    "rustdesk_password": "Cambiar contraseña de RustDesk",
+    "prepare": "Preparar estación"
   },
   "composer": {
     "machines_one": "Máquinas ({{count}} seleccionada)",

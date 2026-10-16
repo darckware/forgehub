@@ -270,7 +270,25 @@
     "copy": "Copiar",
     "copied": "Copiado",
     "safeNote": "O script pode ser rodado mais de uma vez. Ele só liga o SSH (aceitando conexões apenas da tailnet) e adiciona a chave do ForgeHub; não remove contas nem outras chaves.",
-    "close": "Fechar"
+    "close": "Fechar",
+    "dialogTitle": "Preparar estação",
+    "intro": "Coloca a máquina sob a conta darckware do ForgeHub: liga o OpenSSH (só pela tailnet), cria a conta darckware como administradora com uma senha forte gerada para esta máquina e autoriza a chave do ForgeHub.",
+    "machine": "Máquina",
+    "pickMachine": "Escolha a máquina",
+    "noCandidates": "Todas as máquinas com Windows ou Linux já estão Prontas.",
+    "mode": "Como preparar",
+    "modes": {
+      "ssh": "Pelo SSH com o administrador",
+      "copy": "Copiar script (RustDesk)"
+    },
+    "sshHelp": "O ForgeHub entra uma vez com o administrador da máquina (a senha é usada só nesta conexão e não é gravada), prepara, testa o login da darckware pela chave e, só se o teste passar, bloqueia o administrador.",
+    "adminUser": "Login do administrador",
+    "adminPassword": "Senha do administrador",
+    "disableAdmin": "Bloquear a conta \"{{user}}\" depois de confirmar que a darckware entra pela chave",
+    "copyHelp": "Gera o script desta máquina para colar uma vez pelo RustDesk, num PowerShell de administrador (Windows) ou como root (Linux). O bloqueio do administrador não é feito neste modo.",
+    "vaultNote": "A senha da darckware é gerada pelo ForgeHub e guardada na ForgeVault (projeto infra); ela nunca fica no cadastro.",
+    "runSsh": "Preparar agora",
+    "generateCopy": "Gerar script"
   },
   "policy": {
     "title": "Política da tailnet (ACL)",
@@ -346,7 +364,8 @@
     "title": "Instalações",
     "tailscale_install": "Instalar Tailscale",
     "rustdesk_install": "Instalar RustDesk",
-    "rustdesk_password": "Trocar senha do RustDesk"
+    "rustdesk_password": "Trocar senha do RustDesk",
+    "prepare": "Preparar estação"
   },
   "composer": {
     "machines_one": "Máquinas ({{count}} selecionada)",

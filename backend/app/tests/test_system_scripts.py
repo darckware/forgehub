@@ -12,7 +12,6 @@ from sqlalchemy import delete, select
 from app.api.routes import host_execution as exec_routes
 from app.core import host_exec_runner
 from app.core.host_scripts import render_script, resolve_values, validate_parameters
-from app.core.secrets import decrypt_secret
 from app.core.system_scripts import RUSTDESK_KEY, SYSTEM_SCRIPTS, seed_system_scripts
 from app.db.base import AsyncSessionLocal
 from app.db.models.governance import AuditEvent
@@ -63,6 +62,14 @@ async def machine():
         await db.commit()
 
 
+VAULT: dict[str, str] = {}
+
+
+async def _fake_store(name, value, description, secret_type="Password"):
+    VAULT[name] = value
+    return "11111111-2222-3333-4444-555555555555"
+
+
 async def _run(machine, outcome):
     await seed_system_scripts()
     async with AsyncSessionLocal() as db:
@@ -74,7 +81,10 @@ async def _run(machine, outcome):
             assert "$RUSTDESK_PASSWORD = 'Nova#Senha2026'" in body
             return outcome
 
-        with patch.object(host_exec_runner, "call_bridge_exec", bridge):
+        with (
+            patch.object(host_exec_runner, "call_bridge_exec", bridge),
+            patch.object(exec_routes, "vault_store", _fake_store),
+        ):
             execution = await exec_routes.launch_execution(
                 db, servers=[await db.get(Server, machine.id)], command=command, shell=shell, timeout_seconds=60,
                 actor="t", target_summary="rd-test", secrets=secrets, script=script, values_for_hook=values)
@@ -86,12 +96,18 @@ async def _run(machine, outcome):
 async def test_rustdesk_password_recorded_only_after_success(machine):
     await _run(machine, {"exit_code": 1, "stdout": "", "stderr": "recusou", "duration_ms": 1, "failure": "command"})
     async with AsyncSessionLocal() as db:
-        assert (await db.get(Server, machine.id)).rustdesk_password_encrypted is None
+        row = await db.get(Server, machine.id)
+        assert row.rustdesk_password_ref is None and row.rustdesk_password_encrypted is None
+    assert VAULT == {}
 
     execution = await _run(machine, {"exit_code": 0, "stdout": "RUSTDESK_ID=123456789\n", "stderr": "", "duration_ms": 1, "failure": None})
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, machine.id)
         assert row.rustdesk_id == "123456789"
-        assert decrypt_secret(row.rustdesk_password_encrypted) == "Nova#Senha2026"
+        assert row.rustdesk_password_ref == "11111111-2222-3333-4444-555555555555"
+        assert row.rustdesk_password_encrypted is None
+    assert list(VAULT.values()) == ["Nova#Senha2026"]
+    assert list(VAULT)[0].endswith("_RUSTDESK")
+    async with AsyncSessionLocal() as db:
         detail = await exec_routes._detail(db, await db.get(HostExecution, execution.id))
     assert "Nova#Senha2026" not in detail.command  # secret parameter masked in the stored command

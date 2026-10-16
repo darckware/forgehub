@@ -16,7 +16,6 @@ from app.api.routes import server as server_routes
 from app.api.routes import vpn as vpn_routes
 from app.api.schemas.vpn import VpnNode, VpnStatus
 from app.core.host_enrollment import EnrollmentError, enrollment_script, generate_password
-from app.core.secrets import decrypt_secret
 from app.db.base import AsyncSessionLocal
 from app.db.models.governance import AuditEvent
 from app.db.models.server import Server
@@ -101,7 +100,18 @@ async def test_enroll_link_and_reveal(client, station_name):
         return _resp({"private_key": "PRIV", "public_key": KEY, "key_path": "x"})
 
     mint = AsyncMock(return_value=AUTH)
+    vault: dict[str, str] = {}
+
+    async def fake_store(name, value, description, secret_type="Password"):
+        vault[name] = value
+        return "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+    async def fake_reveal(secret_id):
+        return next(iter(vault.values()))
+
     with (
+        patch.object(server_routes, "vault_store", fake_store),
+        patch.object(server_routes, "vault_reveal", fake_reveal),
         patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=bridge)),
         patch.object(server_routes, "load_api_key", AsyncMock(return_value="tskey-api-x")),
         patch.object(server_routes, "create_auth_key", mint),
@@ -124,7 +134,8 @@ async def test_enroll_link_and_reveal(client, station_name):
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, uuid.UUID(server_id))
         assert row.remote_user == "darckware" and row.ip_address == "" and row.kind == "workstation"
-        password = decrypt_secret(row.login_password_encrypted)
+        assert row.login_password_ref == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        password = next(iter(vault.values()))
         assert password in body["script"]
         audit = (await db.execute(select(AuditEvent).where(AuditEvent.entity_id == row.id))).scalar_one()
         assert password not in str(audit.payload) and AUTH not in str(audit.payload)
@@ -149,7 +160,8 @@ async def test_enroll_link_and_reveal(client, station_name):
     listed = next(s for s in (await client.get("/api/v1/servers")).json() if s["id"] == server_id)
     assert listed["login_password_stored"] is True and password not in str(listed)
 
-    revealed = await client.get(f"/api/v1/servers/{server_id}/login-password")
+    with patch.object(server_routes, "vault_reveal", fake_reveal):
+        revealed = await client.get(f"/api/v1/servers/{server_id}/login-password")
     assert revealed.json() == {"server_id": server_id, "login": "darckware", "password": password}
     async with AsyncSessionLocal() as db:
         events = (await db.execute(select(AuditEvent.event_type).where(AuditEvent.entity_id == uuid.UUID(server_id)))).scalars().all()
