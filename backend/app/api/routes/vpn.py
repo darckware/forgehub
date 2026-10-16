@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,6 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.vpn import (
+    TailnetPolicyAnalysisOut,
+    TailnetPolicyCreate,
+    TailnetPolicyOut,
+    TailnetPolicyStateOut,
+    TailnetPolicyVersionOut,
     VpnActionRequest,
     VpnActionResult,
     VpnNode,
@@ -21,7 +27,9 @@ from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.user import User
-from app.db.models.vpn import VpnOperationEvent
+from app.core.tailnet_policy import SERVER_TAG, PolicyParseError, analyze_policy, parse_hujson
+from app.db.models.governance import AuditEvent
+from app.db.models.vpn import TailnetPolicyVersion, VpnOperationEvent
 
 router = APIRouter(prefix="/api/v1/vpn", tags=["vpn"])
 
@@ -219,3 +227,59 @@ async def list_vpn_operations(
         for row in rows
     ]
     return VpnOperationsOut(operations=operations, limit=limit)
+
+
+def _policy_out(row: TailnetPolicyVersion) -> TailnetPolicyOut:
+    out = TailnetPolicyOut(id=row.id, note=row.note, saved_by=row.saved_by, created_at=row.created_at, content=row.content)
+    try:
+        analysis = analyze_policy(parse_hujson(row.content))
+    except PolicyParseError as exc:
+        out.parse_error = str(exc)
+        return out
+    out.analysis = TailnetPolicyAnalysisOut(**analysis.__dict__, server_tag=SERVER_TAG)
+    return out
+
+
+@router.get("/policy", response_model=TailnetPolicyStateOut)
+async def get_tailnet_policy(
+    version_id: uuid.UUID | None = None,
+    _user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TailnetPolicyStateOut:
+    """The recorded tailnet policy (latest, or `version_id`), analyzed, plus
+    the version history."""
+    rows = list(
+        (await db.execute(select(TailnetPolicyVersion).order_by(TailnetPolicyVersion.created_at.desc()).limit(50))).scalars()
+    )
+    current = next((r for r in rows if r.id == version_id), None) if version_id else (rows[0] if rows else None)
+    if version_id and current is None:
+        current = await db.get(TailnetPolicyVersion, version_id)
+        if current is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Policy version not found")
+    return TailnetPolicyStateOut(
+        current=_policy_out(current) if current else None,
+        versions=[TailnetPolicyVersionOut(id=r.id, note=r.note, saved_by=r.saved_by, created_at=r.created_at) for r in rows],
+    )
+
+
+@router.post("/policy", response_model=TailnetPolicyOut, status_code=status.HTTP_201_CREATED)
+async def save_tailnet_policy(
+    payload: TailnetPolicyCreate,
+    user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TailnetPolicyOut:
+    """Records a pasted copy of the policy. Refused when it doesn't parse --
+    a record that can't be read back is no record. Saving here does not
+    change Tailscale; the admin console stays the place the policy is applied."""
+    try:
+        parse_hujson(payload.content)
+    except PolicyParseError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    row = TailnetPolicyVersion(content=payload.content, note=(payload.note or "").strip() or None, saved_by=user.username)
+    db.add(row)
+    await db.flush()
+    db.add(AuditEvent(entity_type="tailnet_policy", entity_id=row.id, event_type="recorded", actor=user.username,
+                      payload={"note": row.note}))
+    await db.commit()
+    await db.refresh(row)
+    return _policy_out(row)

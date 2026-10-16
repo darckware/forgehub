@@ -125,3 +125,49 @@ export function useVpnAction() {
     },
   });
 }
+
+/** Tailscale policy file as recorded on the Remote Access page (the admin
+ * console stays where it is applied), analyzed for the server -> client tags
+ * SSH rule maintenance depends on. */
+export interface TailnetPolicyAnalysis {
+  client_tags: string[];
+  tags_with_ssh: string[];
+  missing_ssh: string[];
+  snippet: string | null;
+  style: string;
+  warnings: string[];
+  server_tag: string;
+}
+
+export interface TailnetPolicyVersion {
+  id: string;
+  note: string | null;
+  saved_by: string;
+  created_at: string;
+}
+
+export interface TailnetPolicy extends TailnetPolicyVersion {
+  content: string;
+  analysis: TailnetPolicyAnalysis | null;
+  parse_error: string | null;
+}
+
+export interface TailnetPolicyState {
+  current: TailnetPolicy | null;
+  versions: TailnetPolicyVersion[];
+}
+
+export function useTailnetPolicy(versionId: string | null) {
+  return useQuery<TailnetPolicyState>({
+    queryKey: ["vpn", "policy", versionId],
+    queryFn: () => apiClient.get(`/api/v1/vpn/policy${versionId ? `?version_id=${versionId}` : ""}`),
+  });
+}
+
+export function useSaveTailnetPolicy() {
+  const qc = useQueryClient();
+  return useMutation<TailnetPolicy, Error, { content: string; note: string | null }>({
+    mutationFn: (data) => apiClient.post("/api/v1/vpn/policy", data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["vpn", "policy"] }),
+  });
+}

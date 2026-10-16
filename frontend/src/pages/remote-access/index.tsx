@@ -28,6 +28,7 @@ import { useRemoteAccessViewModel, type DeviceStateFilter } from "@/hooks/useRem
 import type { VpnNode, VpnOperation } from "@/hooks/useVpn";
 import { cn } from "@/lib/utils";
 import { ExecutionsCard } from "./ExecutionsCard";
+import { TailnetPolicyCard } from "./TailnetPolicyCard";
 import { WorkstationsCard } from "./WorkstationsCard";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
@@ -184,6 +185,8 @@ export default function RemoteAccessPage() {
           <StatTile label={t("totals.offline")} value={vm.totals.offline} tone={vm.totals.offline > 0 ? "muted" : undefined} />
         </div>
       </div>
+
+      <TailnetPolicyCard />
 
       <WorkstationsCard />
 

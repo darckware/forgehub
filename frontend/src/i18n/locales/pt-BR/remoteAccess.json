@@ -259,5 +259,29 @@
     "copied": "Copiado",
     "safeNote": "O script pode ser rodado mais de uma vez. Ele só liga o SSH (aceitando conexões apenas da tailnet) e adiciona a chave do ForgeHub; não remove contas nem outras chaves.",
     "close": "Fechar"
+  },
+  "policy": {
+    "title": "Política da tailnet (ACL)",
+    "subtitle": "Cópia da política do painel da Tailscale, com a verificação da regra de que a manutenção depende: o servidor do ForgeHub poder abrir SSH nas tags dos clientes.",
+    "openConsole": "Abrir no painel da Tailscale",
+    "record": "Registrar política",
+    "recordNew": "Registrar nova versão",
+    "loadFailed": "Não foi possível carregar a política.",
+    "pasteHelp": "Cole a política inteira do painel da Tailscale (Access controls › Edit file). Registrar aqui não altera a Tailscale: a mudança é aplicada lá.",
+    "content": "Política (HuJSON)",
+    "note": "Nota da versão",
+    "notePlaceholder": "O que mudou (opcional)",
+    "save": "Registrar",
+    "empty": "Nenhuma política registrada ainda. Registre a cópia atual para o ForgeHub verificar se consegue alcançar as estações.",
+    "recordedBy": "Registrada por {{who}} em {{when}}",
+    "versions": "Versões",
+    "latest": "Versão mais recente",
+    "allGood": "O servidor ({{server}}) pode abrir SSH em todas as tags de cliente.",
+    "missing_one": "O servidor ({{server}}) não pode abrir SSH em {{count}} tag de cliente. As estações dela vão aparecer como \"Offline\" ou \"Não preparada\" mesmo com o SSH ligado. Acrescente a regra abaixo na Tailscale e registre a nova versão aqui:",
+    "missing_other": "O servidor ({{server}}) não pode abrir SSH em {{count}} tags de cliente. As estações delas vão aparecer como \"Offline\" ou \"Não preparada\" mesmo com o SSH ligado. Acrescente a regra abaixo na Tailscale e registre a nova versão aqui:",
+    "whereGrants": "Onde colar: dentro de \"grants\": [ ... ].",
+    "whereAcls": "Onde colar: dentro de \"acls\": [ ... ].",
+    "showContent": "Ver a política registrada",
+    "hideContent": "Esconder a política"
   }
 }

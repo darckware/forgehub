@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,3 +49,20 @@ class VpnOperationEvent(Base, TimestampMixin):
     summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     actor: Mapped[object | None] = relationship("User", lazy="joined")
+
+
+class TailnetPolicyVersion(Base, TimestampMixin):
+    """A copy of the Tailscale policy file, pasted on the Remote Access page.
+
+    Tailscale's admin console is where the policy actually lives; this is the
+    record of what it said and who recorded it when, analyzed for the one rule
+    Remote Access depends on (server -> client tags on SSH, see
+    core/tailnet_policy.py). Append-only: a new paste is a new row.
+    """
+
+    __tablename__ = "tailnet_policy_versions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    saved_by: Mapped[str] = mapped_column(String(150), nullable=False)

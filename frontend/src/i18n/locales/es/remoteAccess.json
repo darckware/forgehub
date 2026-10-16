@@ -259,5 +259,29 @@
     "copied": "Copiado",
     "safeNote": "El script puede ejecutarse más de una vez. Solo activa SSH (aceptando solo la tailnet) y agrega la clave de ForgeHub; nunca elimina cuentas ni otras claves.",
     "close": "Cerrar"
+  },
+  "policy": {
+    "title": "Política de la tailnet (ACL)",
+    "subtitle": "Copia de la política del panel de Tailscale, con la verificación de la regla de la que depende el mantenimiento: que el servidor de ForgeHub pueda abrir SSH en las etiquetas de los clientes.",
+    "openConsole": "Abrir en el panel de Tailscale",
+    "record": "Registrar política",
+    "recordNew": "Registrar nueva versión",
+    "loadFailed": "No se pudo cargar la política.",
+    "pasteHelp": "Pegue la política completa del panel de Tailscale (Access controls › Edit file). Registrarla aquí no cambia Tailscale: los cambios se aplican allí.",
+    "content": "Política (HuJSON)",
+    "note": "Nota de la versión",
+    "notePlaceholder": "Qué cambió (opcional)",
+    "save": "Registrar",
+    "empty": "Aún no hay política registrada. Registre la copia actual para que ForgeHub verifique si alcanza las estaciones.",
+    "recordedBy": "Registrada por {{who}} el {{when}}",
+    "versions": "Versiones",
+    "latest": "Versión más reciente",
+    "allGood": "El servidor ({{server}}) puede abrir SSH en todas las etiquetas de cliente.",
+    "missing_one": "El servidor ({{server}}) no puede abrir SSH en {{count}} etiqueta de cliente. Sus estaciones aparecerán como \"Desconectada\" o \"No preparada\" aun con SSH activo. Agregue la regla de abajo en Tailscale y registre la nueva versión aquí:",
+    "missing_other": "El servidor ({{server}}) no puede abrir SSH en {{count}} etiquetas de cliente. Sus estaciones aparecerán como \"Desconectada\" o \"No preparada\" aun con SSH activo. Agregue la regla de abajo en Tailscale y registre la nueva versión aquí:",
+    "whereGrants": "Dónde pegar: dentro de \"grants\": [ ... ].",
+    "whereAcls": "Dónde pegar: dentro de \"acls\": [ ... ].",
+    "showContent": "Ver la política registrada",
+    "hideContent": "Ocultar la política"
   }
 }

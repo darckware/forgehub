@@ -101,3 +101,38 @@ class VpnOperationOut(BaseModel):
 class VpnOperationsOut(BaseModel):
     operations: list[VpnOperationOut]
     limit: int = Field(ge=1, le=100)
+
+
+class TailnetPolicyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=2, max_length=500_000)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class TailnetPolicyAnalysisOut(BaseModel):
+    client_tags: list[str]
+    tags_with_ssh: list[str]
+    missing_ssh: list[str]
+    snippet: str | None = None
+    style: str
+    warnings: list[str] = Field(default_factory=list)
+    server_tag: str
+
+
+class TailnetPolicyVersionOut(BaseModel):
+    id: uuid.UUID
+    note: str | None
+    saved_by: str
+    created_at: datetime
+
+
+class TailnetPolicyOut(TailnetPolicyVersionOut):
+    content: str
+    analysis: TailnetPolicyAnalysisOut | None = None
+    parse_error: str | None = None
+
+
+class TailnetPolicyStateOut(BaseModel):
+    current: TailnetPolicyOut | None
+    versions: list[TailnetPolicyVersionOut]

@@ -259,5 +259,29 @@
     "copied": "Copied",
     "safeNote": "The script can be run more than once. It only turns SSH on (accepting the tailnet only) and adds ForgeHub's key; it never removes accounts or other keys.",
     "close": "Close"
+  },
+  "policy": {
+    "title": "Tailnet policy (ACL)",
+    "subtitle": "Copy of the Tailscale console policy, checked for the rule maintenance depends on: ForgeHub's server being able to open SSH to the client tags.",
+    "openConsole": "Open in the Tailscale console",
+    "record": "Record policy",
+    "recordNew": "Record new version",
+    "loadFailed": "Could not load the policy.",
+    "pasteHelp": "Paste the whole policy from the Tailscale console (Access controls › Edit file). Recording it here doesn't change Tailscale: changes are applied there.",
+    "content": "Policy (HuJSON)",
+    "note": "Version note",
+    "notePlaceholder": "What changed (optional)",
+    "save": "Record",
+    "empty": "No policy recorded yet. Record the current copy so ForgeHub can check whether it can reach the stations.",
+    "recordedBy": "Recorded by {{who}} on {{when}}",
+    "versions": "Versions",
+    "latest": "Latest version",
+    "allGood": "The server ({{server}}) can open SSH to every client tag.",
+    "missing_one": "The server ({{server}}) can't open SSH to {{count}} client tag. Its stations will read \"Offline\" or \"Not prepared\" even with SSH on. Add the rule below in Tailscale and record the new version here:",
+    "missing_other": "The server ({{server}}) can't open SSH to {{count}} client tags. Their stations will read \"Offline\" or \"Not prepared\" even with SSH on. Add the rule below in Tailscale and record the new version here:",
+    "whereGrants": "Where to paste: inside \"grants\": [ ... ].",
+    "whereAcls": "Where to paste: inside \"acls\": [ ... ].",
+    "showContent": "Show the recorded policy",
+    "hideContent": "Hide the policy"
   }
 }
