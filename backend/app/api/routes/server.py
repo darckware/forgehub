@@ -936,10 +936,19 @@ async def _store_key_in_vault(server: Server) -> None:
     """Copies the machine's private key (host file) into ForgeVault and keeps
     its id on the row. Raises 502/503 when the bridge or the vault refuse."""
     resp = await _bridge_post("/v1/servers/read-private-key", {"key_path": server.ssh_key_path})
-    if resp.status_code != 200:
+    if resp.status_code == 200:
+        private_key = resp.json()["private_key"]
+    elif server.private_key_encrypted:
+        # The host file is gone but the older encrypted copy on the row
+        # survived -- exactly what that copy was kept for.
+        try:
+            private_key = decrypt_secret(server.private_key_encrypted)
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="Key file missing and the stored copy can't be decrypted") from exc
+    else:
         raise HTTPException(status_code=502, detail=f"Could not read the key: {_bridge_detail(resp)}")
     server.ssh_key_ref = await vault_store(
-        machine_secret_name(server, "SSH_KEY"), resp.json()["private_key"],
+        machine_secret_name(server, "SSH_KEY"), private_key,
         f"Chave SSH privada do ForgeHub para {server.name} ({server.darckware_client_name or 'sem cliente'})",
         "SshPrivateKey",
     )

@@ -163,3 +163,25 @@ async def test_keys_to_vault_is_idempotent(client, station):
         assert first["stored"] == [station.name]
         second = (await client.post(f"/api/v1/servers/keys:to-vault?server_ids={station.id}")).json()
         assert station.name in second["already"]
+
+
+@pytest.mark.asyncio
+async def test_keys_to_vault_falls_back_to_the_encrypted_copy(client, station):
+    from app.core.secrets import encrypt_secret
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        row.private_key_encrypted = encrypt_secret("COPY-PRIV")
+        await db.commit()
+    vault = FakeVault()
+
+    async def missing(path, payload, timeout=20.0):
+        return _resp({"detail": "No identity file"}, 404)
+
+    with (
+        patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=missing)),
+        patch.object(server_routes, "vault_store", vault.store),
+    ):
+        out = (await client.post(f"/api/v1/servers/keys:to-vault?server_ids={station.id}")).json()
+    assert out["stored"] == [station.name]
+    assert list(vault.versions.values()) == [["COPY-PRIV"]]
