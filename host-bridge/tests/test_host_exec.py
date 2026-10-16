@@ -167,3 +167,53 @@ def test_detect_os(monkeypatch):
     monkeypatch.setattr(host_exec, "_exec_once", refused)
     with pytest.raises(ValueError, match="auth"):
         asyncio.run(host_exec.detect_os(TARGET))
+
+
+def test_ephemeral_agent_holds_the_key_only_inside_the_block(tmp_path):
+    import os
+    import subprocess
+
+    keyfile = tmp_path / "k"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(keyfile)], check=True)
+    private_key = keyfile.read_text()
+
+    async def scenario():
+        async with host_exec.ephemeral_agent(private_key) as sock:
+            listed = subprocess.run(["ssh-add", "-l"], env={**os.environ, "SSH_AUTH_SOCK": sock},
+                                    capture_output=True, text=True)
+            return sock, listed.returncode, listed.stdout
+
+    sock, code, out = asyncio.run(scenario())
+    assert code == 0 and "ED25519" in out
+    assert not os.path.exists(sock) and not os.path.exists(os.path.dirname(sock))
+
+
+def test_route_uses_the_vault_key_through_an_agent(monkeypatch):
+    seen = {}
+
+    async def fake_run(target, shell, script, timeout, **kw):
+        seen["target"] = target
+        return {"exit_code": 0, "stdout": "ok", "stderr": "", "truncated": False, "timed_out": False, "duration_ms": 1, "failure": None}
+
+    import contextlib as _c
+
+    @_c.asynccontextmanager
+    async def fake_agent(private_key):
+        seen["key"] = private_key
+        yield "/dev/shm/fake.sock"
+
+    async def reveal(ref):
+        return "PRIVATE-KEY-FROM-VAULT"
+
+    monkeypatch.setattr(host_exec, "run_script", fake_run)
+    monkeypatch.setattr(host_exec, "ephemeral_agent", fake_agent)
+    app = FastAPI()
+    app.include_router(host_exec.make_host_exec_router(_check_token, lambda raw: raw, reveal))
+    client = TestClient(app)
+    ref = "12345678-1234-1234-1234-123456789012"
+    resp = client.post("/v1/servers/exec", json={"host": "ws01", "user": "darckware", "shell": "sh", "script": "uptime", "key_ref": ref},
+                       headers={"X-Bridge-Token": TOKEN})
+    assert resp.status_code == 200
+    assert seen["key"] == "PRIVATE-KEY-FROM-VAULT"
+    assert seen["target"].agent_sock == "/dev/shm/fake.sock" and seen["target"].key is None
+    assert "IdentityAgent=/dev/shm/fake.sock" in " ".join(host_exec.ssh_base(seen["target"]))

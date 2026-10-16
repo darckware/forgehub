@@ -153,6 +153,10 @@ class Server(Base, TimestampMixin):
     # passwords live since 2026-10-16. The *_encrypted columns above are the
     # pre-vault stand-ins: read as a fallback, never written any more.
     login_password_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # The machine's SSH private key in ForgeVault. Executions use it (the
+    # bridge loads it into a per-run ssh-agent, never a file); ssh_key_path
+    # stays for the interactive terminal/Explorer until they move too.
+    ssh_key_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
     rustdesk_password_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
     rustdesk_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rustdesk_password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -163,6 +167,10 @@ class Server(Base, TimestampMixin):
         Surfaced instead of the material itself so the key never reaches a
         response body."""
         return bool(self.private_key_encrypted)
+
+    @property
+    def ssh_key_in_vault(self) -> bool:
+        return bool(self.ssh_key_ref)
 
     @property
     def rustdesk_password_stored(self) -> bool:

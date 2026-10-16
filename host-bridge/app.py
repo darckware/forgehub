@@ -64,7 +64,7 @@ from agent_runtime import resolve_runtime_executable, validate_working_directory
 from vpn_control import VpnControl, VpnPolicyError
 from remote_fs import make_remote_fs_router
 from host_exec import make_host_exec_router
-from forgevault_proxy import make_forgevault_router
+from forgevault_proxy import VaultClient, make_forgevault_router
 from hindsight_retention import read_status as read_hindsight_retention_status
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
@@ -5079,7 +5079,8 @@ async def fs_upload(
 # See remote_fs.py.
 app.include_router(make_remote_fs_router(_check_token, _resolve_key_path))
 # See host_exec.py (Remote Access phase 4: one script on one machine).
-app.include_router(make_host_exec_router(_check_token, _resolve_key_path))
+_vault_client = VaultClient()
+app.include_router(make_host_exec_router(_check_token, _resolve_key_path, _vault_client.reveal))
 # See forgevault_proxy.py (Remote Access secrets in ForgeVault, infra/Production only).
 app.include_router(make_forgevault_router(_check_token))
 

@@ -113,14 +113,16 @@ async def test_copy_mode_creates_key_stores_password_in_vault_and_returns_script
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["language"] == "powershell" and body["key_created"] is True and body["execution_id"] is None
-    (name, password), = VAULT.items()
-    assert name == f"WS_SEM_CLIENTE_{station.name.upper().replace('-', '_')}_LOGIN"
+    base = f"WS_SEM_CLIENTE_{station.name.upper().replace('-', '_')}"
+    assert set(VAULT) == {f"{base}_LOGIN", f"{base}_SSH_KEY"}  # password AND private key in the vault
+    assert VAULT[f"{base}_SSH_KEY"] == PRIV
+    password = VAULT[f"{base}_LOGIN"]
     assert password in body["script"] and KEY in body["script"] and "New-LocalUser" in body["script"]
     assert PRIV not in resp.text
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, station.id)
         assert row.remote_user == "darckware" and row.admin_user == "administrador"
-        assert row.login_password_ref and row.login_password_encrypted is None
+        assert row.login_password_ref and row.login_password_encrypted is None and row.ssh_key_ref
         assert decrypt_secret(row.private_key_encrypted) == PRIV
 
 

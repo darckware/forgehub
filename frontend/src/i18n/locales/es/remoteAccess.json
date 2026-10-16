@@ -365,7 +365,9 @@
     "tailscale_install": "Instalar Tailscale",
     "rustdesk_install": "Instalar RustDesk",
     "rustdesk_password": "Cambiar contraseña de RustDesk",
-    "prepare": "Preparar estación"
+    "prepare": "Preparar estación",
+    "rotate_login_password": "Rotar contraseña",
+    "rotate_ssh_key": "Rotar clave SSH"
   },
   "composer": {
     "machines_one": "Máquinas ({{count}} seleccionada)",
@@ -508,5 +510,23 @@
     "deleteFor": "Eliminar {{name}}",
     "deleteTitle": "¿Eliminar la programación?",
     "deleteDescription": "Se eliminará la programación {{name}}. Las ejecuciones que ya hizo siguen en el historial."
+  },
+  "rotation": {
+    "login_password": {
+      "title": "Rotar la contraseña de darckware",
+      "help": "Para cada máquina: genera una contraseña fuerte nueva, la guarda como nueva versión en ForgeVault, la aplica y prueba el login. Si algo falla, la contraseña anterior sigue vigente."
+    },
+    "ssh_key": {
+      "title": "Rotar la clave SSH",
+      "help": "Para cada máquina: genera una clave nueva, la instala con la actual, prueba el login con la nueva y solo entonces quita la antigua. La nueva clave privada va a ForgeVault."
+    },
+    "selected_one": "{{count}} máquina seleccionada",
+    "selected_other": "{{count}} máquinas seleccionadas",
+    "selectAll": "Marcar todas",
+    "none": "Ninguna máquina Lista.",
+    "confirm_one": "¿Rotar en {{count}} máquina? El resultado aparece en la pantalla de ejecución.",
+    "confirm_other": "¿Rotar en {{count}} máquinas? El resultado aparece en la pantalla de ejecución.",
+    "run_one": "Rotar ({{count}})",
+    "run_other": "Rotar ({{count}})"
   }
 }

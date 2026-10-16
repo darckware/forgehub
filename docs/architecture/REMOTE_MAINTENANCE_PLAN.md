@@ -224,8 +224,15 @@ A página Servidores continua para serviços web e cofre de chave de infraestrut
       comando local `host-bootstrap` da ForgeVault); o bridge (`host-bridge/forgevault_proxy.py`) é o único que
       fala com o cofre; senhas da darckware e do RustDesk vão para lá e o cadastro guarda só o id
       (`login_password_ref`, `rustdesk_password_ref`). `RUSTDESK_SERVER_PUBLIC_KEY` gravada.
-- [ ] Chaves SSH das máquinas na ForgeVault (hoje: arquivo no host + cópia Fernet no cadastro) com `ssh-agent`
-      efêmero no bridge — próxima etapa.
+- [x] Chaves SSH das máquinas na ForgeVault (`WS_<CLIENTE>_<MÁQUINA>_SSH_KEY`, `ssh_key_ref`): as execuções
+      buscam a chave no cofre e o bridge a carrega num `ssh-agent` efêmero em `/dev/shm` só durante a conexão.
+      Migração das chaves existentes: `POST /servers/keys:to-vault`. O terminal e o Explorer interativos ainda
+      usam o arquivo do host (próxima melhoria: mesma troca para eles).
+- [x] **Rotação sob demanda** (aba Máquinas → Rotacionar senha / Rotacionar chave SSH, uma ou várias máquinas,
+      vira execução): senha da darckware (nova versão no cofre → aplica → testa; falha restaura a anterior) e
+      chave SSH (nova instalada e testada antes de remover a antiga; nova privada no cofre).
+- [x] Estação piloto `gat-adm-pc01` preparada de verdade pelo modo SSH (2026-10-16): darckware criada, login
+      pela chave confirmado, `administrador` bloqueado.
 
 ### Ordem de entrega (revisada)
 0. **ForgeVault**: projeto + ServiceAccount do ForgeHub; senhas/chaves passam a ser gravadas lá (bloqueia 1–3).

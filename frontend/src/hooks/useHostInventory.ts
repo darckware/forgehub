@@ -323,3 +323,16 @@ export function useRevealLoginPassword(kind: "login" | "rustdesk" = "login") {
       apiClient.get(`/api/v1/servers/${serverId}/${kind === "rustdesk" ? "rustdesk-password" : "login-password"}`),
   });
 }
+
+export type RotationKind = "login_password" | "ssh_key";
+
+/** Rotation on demand: the darckware password (new version in ForgeVault,
+ * applied, verified; previous restored on failure) or the SSH key (new one
+ * installed and verified before the old one is removed). One execution. */
+export function useRotateMachines() {
+  const qc = useQueryClient();
+  return useMutation<{ execution_id: string }, Error, { server_ids: string[]; kind: RotationKind }>({
+    mutationFn: (body) => apiClient.post("/api/v1/servers/rotations", body),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["host-executions"] }),
+  });
+}

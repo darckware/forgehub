@@ -77,6 +77,8 @@ class ServerOut(BaseModel):
     login_password_stored: bool = False
     rustdesk_id: str | None = None
     rustdesk_password_stored: bool = False
+    # The private key is kept in ForgeVault (only its id is on the row).
+    ssh_key_in_vault: bool = False
     # ForgeHub-side access switch: false parks the server (no probe, no
     # terminal) without touching any key -- see Server.access_enabled.
     access_enabled: bool = True
@@ -413,3 +415,23 @@ class LoginPasswordOut(BaseModel):
     server_id: uuid.UUID
     login: str
     password: str
+
+
+class RotationRequest(BaseModel):
+    """Rotates, per machine: the `darckware` login password, or the SSH key.
+    Runs as an ordinary execution (one result per machine)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    server_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    kind: Literal["login_password", "ssh_key"]
+
+
+class RotationOut(BaseModel):
+    execution_id: uuid.UUID
+
+
+class KeysToVaultOut(BaseModel):
+    stored: list[str] = Field(default_factory=list)
+    already: list[str] = Field(default_factory=list)
+    failed: dict[str, str] = Field(default_factory=dict)

@@ -32,6 +32,7 @@ import type { VpnNode, VpnOperation } from "@/hooks/useVpn";
 import { cn } from "@/lib/utils";
 import { ExecutionsCard } from "./ExecutionsCard";
 import { PrepareDialog } from "./PrepareDialog";
+import { RotationDialog } from "./RotationDialog";
 import { TailnetPolicyCard } from "./TailnetPolicyCard";
 import { WorkstationsCard } from "./WorkstationsCard";
 import { ExecutionComposer } from "./ExecutionComposer";
@@ -359,6 +360,7 @@ export default function RemoteAccessPage() {
   const sub = (params.get("sub") as ScriptsTab) || "run";
   const system = params.get("system");
   const [preparing, setPreparing] = useState(false);
+  const [rotating, setRotating] = useState<"login_password" | "ssh_key" | null>(null);
 
   useEffect(() => {
     document.title = `${t("title")} · ForgeHub`;
@@ -392,6 +394,11 @@ export default function RemoteAccessPage() {
             <Button type="button" size="sm" className="cursor-pointer gap-1.5" onClick={() => setPreparing(true)}>
               <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t("quick.prepare")}
             </Button>
+            {(["login_password", "ssh_key"] as const).map((kind) => (
+              <Button key={kind} type="button" variant="outline" size="sm" className="cursor-pointer gap-1.5" onClick={() => setRotating(kind)}>
+                <RotateCw className="h-3.5 w-3.5" aria-hidden="true" /> {t(`quick.rotate_${kind}`)}
+              </Button>
+            ))}
             {(["tailscale_install", "rustdesk_install", "rustdesk_password"] as const).map((action) => (
               <Button key={action} type="button" variant="outline" size="sm" className="cursor-pointer gap-1.5"
                 onClick={() => go({ tab: "scripts", sub: "run", system: action })}>
@@ -400,6 +407,13 @@ export default function RemoteAccessPage() {
             ))}
           </div>
           <WorkstationsCard />
+          {rotating && (
+            <RotationDialog
+              kind={rotating}
+              onClose={() => setRotating(null)}
+              onExecution={(id) => navigate(`/remote-access/executions/${id}`)}
+            />
+          )}
           {preparing && (
             <PrepareDialog
               onClose={() => setPreparing(false)}

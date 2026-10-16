@@ -65,7 +65,7 @@ async def busy_server_ids(db: AsyncSession) -> set[uuid.UUID]:
 
 
 def skip_reason(
-    server: Server, shell: str, busy: set[uuid.UUID], platform: str | None = None
+    server: Server, shell: str, busy: set[uuid.UUID], platform: str | None = None, shell_agnostic: bool = False
 ) -> str | None:
     if not server.access_enabled:
         return "Access is turned off in ForgeHub"
@@ -73,7 +73,9 @@ def skip_reason(
         return "No login set for this machine yet"
     if not server.ip_address:
         return "Waiting for the machine to join the tailnet"
-    if platform is not None:
+    if shell_agnostic:
+        pass  # the executor picks the right shell per machine
+    elif platform is not None:
         if not compatible(platform, server.os_family):
             return f"This script is for {platform.capitalize()} machines"
     elif shell == "powershell" and server.os_family != "windows":
@@ -173,6 +175,7 @@ async def launch_execution(
     values_for_hook: dict | None = None,
     executor=None,
     script_label: str | None = None,
+    shell_agnostic: bool = False,
 ) -> HostExecution:
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
@@ -201,7 +204,7 @@ async def launch_execution(
     db.add(execution)
     await db.flush()
     for server in servers:
-        reason = skip_reason(server, shell, busy, script.platform if script else None)
+        reason = skip_reason(server, shell, busy, script.platform if script else None, shell_agnostic)
         db.add(
             HostExecutionResult(
                 execution_id=execution.id,

@@ -39,7 +39,7 @@ STATE_FILE = CRED_DIR / "forgehub-remote-access.json"
 TOKEN_FILE = CRED_DIR / "forgehub-remote-access-token"
 TOKEN_NAME = "forgehub-remote-access-token"
 NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,119}$")
-SECRET_TYPES = ("Password", "GenericSecret", "SshKey", "ApiKey")
+SECRET_TYPES = ("Password", "GenericSecret", "SshPrivateKey", "ApiKey")
 
 
 class VaultUnavailable(Exception):

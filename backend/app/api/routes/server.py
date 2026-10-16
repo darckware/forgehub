@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import paramiko
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -49,6 +49,9 @@ from app.api.schemas.server import (
     EnrollmentOut,
     HostPreparationOut,
     HostPreparationRequest,
+    KeysToVaultOut,
+    RotationOut,
+    RotationRequest,
     LoginPasswordOut,
     HostReadinessEntry,
     HostReadinessResult,
@@ -929,6 +932,213 @@ async def backup_server_key(
     )
 
 
+async def _store_key_in_vault(server: Server) -> None:
+    """Copies the machine's private key (host file) into ForgeVault and keeps
+    its id on the row. Raises 502/503 when the bridge or the vault refuse."""
+    resp = await _bridge_post("/v1/servers/read-private-key", {"key_path": server.ssh_key_path})
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Could not read the key: {_bridge_detail(resp)}")
+    server.ssh_key_ref = await vault_store(
+        machine_secret_name(server, "SSH_KEY"), resp.json()["private_key"],
+        f"Chave SSH privada do ForgeHub para {server.name} ({server.darckware_client_name or 'sem cliente'})",
+        "SshPrivateKey",
+    )
+
+
+@router.post("/keys:to-vault", response_model=KeysToVaultOut)
+async def keys_to_vault(
+    server_ids: list[uuid.UUID] | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Moves every machine key ForgeHub knows into ForgeVault (decision
+    2026-10-16: all keys in the vault). Idempotent: rows already holding a
+    reference are skipped. The host files stay for the interactive terminal
+    and Explorer, which still authenticate with them."""
+    out = KeysToVaultOut()
+    query = select(Server).where(Server.ssh_key_path.is_not(None)).order_by(Server.name)
+    if server_ids:
+        query = query.where(Server.id.in_(server_ids))
+    rows = list((await db.execute(query)).scalars())
+    for server in rows:
+        if server.ssh_key_ref:
+            out.already.append(server.name)
+            continue
+        try:
+            await _store_key_in_vault(server)
+            out.stored.append(server.name)
+        except HTTPException as exc:
+            out.failed[server.name] = str(exc.detail)
+    db.add(AuditEvent(entity_type="server", entity_id=uuid.uuid5(uuid.NAMESPACE_URL, "keys-to-vault"),
+                      event_type="ssh_keys_to_vault", actor=admin.username,
+                      payload={"stored": out.stored, "failed": list(out.failed)}))
+    await db.commit()
+    return out
+
+
+_PUB_RE = re.compile(r"^(ssh-(?:ed25519|rsa)) ([A-Za-z0-9+/=]+)(?: [\w.@:-]+)?$")
+
+
+def _add_key_script(os_family: str, public_key: str) -> str:
+    if os_family == "windows":
+        return (
+            "$f = \"$env:ProgramData\\ssh\\administrators_authorized_keys\"\n"
+            f"$k = '{public_key}'\n"
+            "if (-not (Select-String -Path $f -SimpleMatch $k -Quiet)) { Add-Content -Path $f -Value $k }\n"
+            "icacls $f /inheritance:r /grant '*S-1-5-32-544:F' /grant 'SYSTEM:F' | Out-Null\n'ok'"
+        )
+    return f"mkdir -p ~/.ssh && chmod 700 ~/.ssh && (grep -qxF '{public_key}' ~/.ssh/authorized_keys 2>/dev/null || echo '{public_key}' >> ~/.ssh/authorized_keys) && chmod 600 ~/.ssh/authorized_keys && echo ok"
+
+
+def _remove_key_script(os_family: str, key_body: str) -> str:
+    if os_family == "windows":
+        return (
+            "$f = \"$env:ProgramData\\ssh\\administrators_authorized_keys\"\n"
+            f"$old = '{key_body}'\n"
+            "$keep = Get-Content $f | Where-Object { $_ -notlike \"*$old*\" }\n"
+            "Set-Content -Path $f -Value $keep\n"
+            "icacls $f /inheritance:r /grant '*S-1-5-32-544:F' /grant 'SYSTEM:F' | Out-Null\n'ok'"
+        )
+    return f"grep -vF '{key_body}' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new; mv ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo ok"
+
+
+def _set_password_script(os_family: str, login: str, password: str) -> str:
+    if os_family == "windows":
+        return f"$pw = ConvertTo-SecureString '{password}' -AsPlainText -Force; Set-LocalUser -Name '{login}' -Password $pw; 'ok'"
+    return f"echo '{login}:{password}' | sudo -n chpasswd && echo ok"
+
+
+def _shell(os_family: str | None) -> str:
+    return "powershell" if os_family == "windows" else "sh"
+
+
+@router.post("/rotations", response_model=RotationOut, status_code=status.HTTP_201_CREATED)
+async def rotate_machines(
+    payload: RotationRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)
+):
+    """Rotation on demand (decision 2), per machine, as one execution:
+
+    * login_password: new strong password -> new version in ForgeVault first
+      -> applied over SSH (key) -> verified by logging in with it (Windows)
+      -> on any failure the previous password is written back as the vault's
+      current version, so the vault never holds a password the machine
+      doesn't have.
+    * ssh_key: new key pair -> installed with the current key -> login with
+      the new key verified -> the old key removed from the machine -> the new
+      private key stored in ForgeVault. The machine is never left without a
+      working key: the old one goes only after the new one worked.
+    """
+    servers = list((await db.execute(select(Server).where(Server.id.in_(payload.server_ids)).order_by(Server.name))).scalars())
+    if len(servers) != len(set(payload.server_ids)):
+        raise HTTPException(status_code=422, detail="Unknown machine")
+    kind = payload.kind
+
+    async def executor(server: Server) -> dict:
+        async with AsyncSessionLocal() as session:
+            row = await session.get(Server, server.id)
+            return await (_rotate_password(session, row) if kind == "login_password" else _rotate_key(session, row))
+
+    label = "Rotacionar senha da darckware" if kind == "login_password" else "Rotacionar chave SSH"
+    execution = await launch_execution(
+        db, servers=servers, command=f"# {label} (ForgeHub)", shell="sh", timeout_seconds=300,
+        actor=admin.username, target_summary=", ".join(s.name for s in servers)[:200],
+        executor=executor, script_label=label, shell_agnostic=True,
+    )
+    return RotationOut(execution_id=execution.id)
+
+
+def _fail(log: list[str], step: dict) -> dict:
+    return {"exit_code": step.get("exit_code") or 1, "failure": step.get("failure") or "command",
+            "stdout": "\n".join(log), "stderr": step.get("stderr"), "duration_ms": step.get("duration_ms")}
+
+
+async def _run_as(server: Server, script: str, *, key_path: str | None = None, key_ref: str | None = None,
+                  password: str | None = None, user: str | None = None) -> dict:
+    return await call_bridge_exec_as(
+        host=server.ip_address, user=user or server.remote_user, port=server.ssh_port,
+        key_path=None if password else (key_path if key_path is not None else server.ssh_key_path),
+        key_ref=None if password or key_path else (key_ref if key_ref is not None else server.ssh_key_ref),
+        password=password, shell=_shell(server.os_family), script=script, timeout_seconds=120,
+    )
+
+
+async def _rotate_password(db: AsyncSession, server: Server) -> dict:
+    log: list[str] = []
+    login = server.remote_user
+    name = machine_secret_name(server, "LOGIN")
+    old = await vault_reveal(server.login_password_ref) if server.login_password_ref else None
+    new = generate_password()
+    ref = await vault_store(name, new, f"Senha da conta {login} em {server.name} ({server.darckware_client_name or 'sem cliente'})")
+    log.append("== 1/3 Nova senha gravada na ForgeVault: ok")
+    applied = await _run_as(server, _set_password_script(server.os_family or "linux", login, new))
+    if applied.get("failure"):
+        log.append("== 2/3 Aplicar na máquina: FALHOU")
+        if old:
+            await vault_store(name, old, "Senha anterior restaurada (rotação falhou)")
+            log.append("   a senha anterior voltou a ser a atual na ForgeVault")
+        return _fail(log, applied)
+    log.append("== 2/3 Aplicar na máquina: ok")
+    if server.os_family == "windows":
+        check = await _run_as(server, "whoami", password=new)
+        if check.get("failure"):
+            log.append("== 3/3 Login com a nova senha: FALHOU")
+            if old:
+                await _run_as(server, _set_password_script("windows", login, old))
+                await vault_store(name, old, "Senha anterior restaurada (rotação falhou)")
+                log.append("   senha anterior reaplicada e restaurada na ForgeVault")
+            return _fail(log, check)
+        log.append("== 3/3 Login com a nova senha: ok")
+    else:
+        log.append("== 3/3 Login com a nova senha: não verificado no Linux (login por senha costuma estar desligado)")
+    server.login_password_ref = ref
+    server.login_password_encrypted = None
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="login_password_rotated", actor="forgehub", payload={"login": login}))
+    await db.commit()
+    return {"exit_code": 0, "failure": None, "stdout": "\n".join(log), "stderr": "", "duration_ms": applied.get("duration_ms")}
+
+
+async def _rotate_key(db: AsyncSession, server: Server) -> dict:
+    log: list[str] = []
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    resp = await _bridge_post("/v1/servers/ensure-key", {"key_name": f"ws_{server.id.hex}_{stamp}", "comment": f"forgehub@{re.sub(r'[^A-Za-z0-9.-]', '-', server.name)}"})
+    if resp.status_code != 200:
+        return _fail(["== 1/4 Gerar a nova chave: FALHOU"], {"stderr": _bridge_detail(resp)})
+    new_path, new_pub = resp.json()["key_path"], resp.json()["public_key"]
+    if not _PUB_RE.match(new_pub):
+        return _fail(["== 1/4 Gerar a nova chave: chave pública inválida"], {})
+    log.append("== 1/4 Nova chave gerada: ok")
+    added = await _run_as(server, _add_key_script(server.os_family or "linux", new_pub))
+    if added.get("failure"):
+        log.append("== 2/4 Instalar a nova chave (com a atual): FALHOU")
+        return _fail(log, added)
+    log.append("== 2/4 Instalar a nova chave (com a atual): ok")
+    check = await _run_as(server, "whoami", key_path=new_path)
+    if check.get("failure"):
+        log.append("== 3/4 Login com a nova chave: FALHOU (a chave atual continua valendo)")
+        return _fail(log, check)
+    log.append("== 3/4 Login com a nova chave: ok")
+    old_match = _PUB_RE.match(server.public_key or "")
+    if old_match and old_match.group(2) not in new_pub:
+        removed = await _run_as(server, _remove_key_script(server.os_family or "linux", old_match.group(2)), key_path=new_path)
+        log.append("== 4/4 Remover a chave antiga da máquina: " + ("ok" if not removed.get("failure") else "FALHOU (a nova já vale)"))
+    else:
+        log.append("== 4/4 Remover a chave antiga: não havia chave antiga registrada")
+    read = await _bridge_post("/v1/servers/read-private-key", {"key_path": new_path})
+    server.ssh_key_path, server.public_key = new_path, new_pub
+    if read.status_code == 200:
+        private_key = read.json()["private_key"]
+        server.private_key_encrypted = encrypt_secret(private_key)
+        server.ssh_key_ref = await vault_store(
+            machine_secret_name(server, "SSH_KEY"), private_key,
+            f"Chave SSH privada do ForgeHub para {server.name} ({server.darckware_client_name or 'sem cliente'})",
+            "SshPrivateKey",
+        )
+        log.append("   nova chave privada gravada na ForgeVault")
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="ssh_key_rotated", actor="forgehub", payload={"key_path": new_path}))
+    await db.commit()
+    return {"exit_code": 0, "failure": None, "stdout": "\n".join(log), "stderr": "", "duration_ms": check.get("duration_ms")}
+
+
 STATION_LOGIN = "darckware"
 
 
@@ -989,6 +1199,8 @@ async def prepare_host(
         if vault.status_code == 200:
             server.private_key_encrypted = encrypt_secret(vault.json()["private_key"])
 
+    if not server.ssh_key_ref:
+        await _store_key_in_vault(server)
     password = generate_password()
     try:
         script, language = preparation_script(server.os_family, STATION_LOGIN, server.public_key or "", password)

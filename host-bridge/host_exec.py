@@ -30,10 +30,12 @@ import contextlib
 import html
 import os
 import re
+import shutil
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Callable, Literal
+from typing import Awaitable, Callable, Literal
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -57,6 +59,9 @@ class ExecTarget:
     # station" over SSH). Travels to sshpass through the environment, never
     # argv, and is never logged or stored.
     password: str | None = field(default=None, repr=False)
+    # ssh-agent socket holding a key fetched from ForgeVault for this one run
+    # (ephemeral_agent below); replaces `key` when set.
+    agent_sock: str | None = None
 
 
 def ssh_base(target: ExecTarget) -> list[str]:
@@ -85,11 +90,45 @@ def ssh_base(target: ExecTarget) -> list[str]:
         "-o", "ServerAliveInterval=15",
         "-o", "ServerAliveCountMax=4",
     ]
-    if target.key:
+    if target.agent_sock:
+        args += ["-o", f"IdentityAgent={target.agent_sock}"]
+    elif target.key:
         args += ["-i", target.key, "-o", "IdentitiesOnly=yes"]
     if target.port != 22:
         args += ["-p", str(target.port)]
     return [*args, f"{target.user}@{target.host}"]
+
+
+@contextlib.asynccontextmanager
+async def ephemeral_agent(private_key: str):
+    """An ssh-agent living only for one run, holding one key fetched from
+    ForgeVault. The key goes to `ssh-add -` on stdin -- never to a file -- and
+    the agent (and its socket dir, 0700) is gone when the block exits."""
+    tmp = tempfile.mkdtemp(prefix="fh-agent-", dir="/dev/shm" if os.path.isdir("/dev/shm") else None)
+    os.chmod(tmp, 0o700)
+    sock = os.path.join(tmp, "agent.sock")
+    agent = await asyncio.create_subprocess_exec(
+        "ssh-agent", "-D", "-a", sock, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+    )
+    try:
+        for _ in range(50):
+            if os.path.exists(sock):
+                break
+            await asyncio.sleep(0.05)
+        add = await asyncio.create_subprocess_exec(
+            "ssh-add", "-q", "-",
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "SSH_AUTH_SOCK": sock},
+        )
+        _, err = await add.communicate((private_key.rstrip("\n") + "\n").encode())
+        if add.returncode != 0:
+            raise ValueError("Could not load the machine's key from ForgeVault")
+        yield sock
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            agent.kill()
+        await agent.wait()
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # Prepended to every PowerShell script: no progress records (PowerShell
@@ -301,6 +340,8 @@ class ExecRequest(BaseModel):
     user: str
     port: int = Field(default=22, ge=1, le=65535)
     key_path: str | None = None
+    # ForgeVault secret id of the machine's private key; preferred over key_path.
+    key_ref: str | None = Field(default=None, min_length=36, max_length=36)
     password: str | None = Field(default=None, min_length=1, max_length=256)
     shell: Shell
     script: str = Field(min_length=1, max_length=200_000)
@@ -312,13 +353,29 @@ class DetectOsRequest(BaseModel):
     user: str
     port: int = Field(default=22, ge=1, le=65535)
     key_path: str | None = None
+    key_ref: str | None = Field(default=None, min_length=36, max_length=36)
     password: str | None = Field(default=None, min_length=1, max_length=256)
 
 
 def make_host_exec_router(
-    check_token: Callable[[str | None], None], resolve_key_path: Callable[[str], str]
+    check_token: Callable[[str | None], None],
+    resolve_key_path: Callable[[str], str],
+    reveal_secret: Callable[[str], Awaitable[str]] | None = None,
 ) -> APIRouter:
     router = APIRouter()
+
+    @contextlib.asynccontextmanager
+    async def target_for(req):
+        """The run's ExecTarget; with key_ref, the key comes from ForgeVault into
+        an agent that exists only inside this block."""
+        if req.key_ref:
+            if reveal_secret is None:
+                raise HTTPException(status_code=503, detail="ForgeVault is not available on this bridge")
+            private_key = await reveal_secret(req.key_ref)
+            async with ephemeral_agent(private_key) as sock:
+                yield ExecTarget(host=req.host, user=req.user, port=req.port, agent_sock=sock)
+            return
+        yield _target(req)
 
     @router.post("/v1/servers/exec")
     async def exec_on_server(req: ExecRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
@@ -328,7 +385,8 @@ def make_host_exec_router(
         if not _USER_RE.match(req.user):
             raise HTTPException(status_code=400, detail="Invalid user")
         try:
-            return await run_script(_target(req), req.shell, req.script, req.timeout_seconds)
+            async with target_for(req) as target:
+                return await run_script(target, req.shell, req.script, req.timeout_seconds)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -340,7 +398,8 @@ def make_host_exec_router(
         if not _USER_RE.match(req.user):
             raise HTTPException(status_code=400, detail="Invalid user")
         try:
-            return await detect_os(_target(req))
+            async with target_for(req) as target:
+                return await detect_os(target)
         except ValueError as exc:
             reason = str(exc)
             detail = "Login refused (check user and password)" if reason == "auth" else "Machine unreachable on SSH"

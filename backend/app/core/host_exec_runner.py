@@ -54,14 +54,14 @@ def _now() -> datetime:
 async def call_bridge_exec(server: Server, shell: str, script: str, timeout_seconds: int) -> dict:
     return await call_bridge_exec_as(
         host=server.ip_address, user=server.remote_user, port=server.ssh_port,
-        key_path=server.ssh_key_path, password=None,
+        key_path=server.ssh_key_path, key_ref=server.ssh_key_ref, password=None,
         shell=shell, script=script, timeout_seconds=timeout_seconds,
     )
 
 
 async def call_bridge_exec_as(
     *, host: str, user: str, port: int, key_path: str | None, password: str | None,
-    shell: str, script: str, timeout_seconds: int,
+    shell: str, script: str, timeout_seconds: int, key_ref: str | None = None,
 ) -> dict:
     """One machine. Never raises: a bridge that can't be reached is reported
     as a connection failure on that machine, like an unreachable station."""
@@ -69,7 +69,10 @@ async def call_bridge_exec_as(
         "host": host,
         "user": user,
         "port": port,
-        "key_path": key_path,
+        # A key kept in ForgeVault wins over the file path (the bridge loads it
+        # into a per-run agent).
+        "key_path": None if key_ref else key_path,
+        "key_ref": key_ref,
         "password": password,
         "shell": shell,
         "script": script,
