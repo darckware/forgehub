@@ -21,7 +21,7 @@ PRIV = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-
 
 
 @pytest.mark.parametrize("os_family, language, must_have", [
-    ("windows", "powershell", ["OpenSSH.Server~~~~0.0.1.0", "-RemoteAddress 100.64.0.0/10", "administrators_authorized_keys", "Select-String"]),
+    ("windows", "powershell", ["OpenSSH.Server~~~~0.0.1.0", "-RemoteAddress 100.64.0.0/10", "administrators_authorized_keys", "Select-String", "DefaultShell"]),
     ("linux", "sh", ["systemctl enable --now", "grep -qxF", "100.64.0.0/10"]),
     ("macos", "sh", ["systemsetup -setremotelogin on", "grep -qxF"]),
 ])

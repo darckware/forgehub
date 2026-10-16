@@ -1,5 +1,7 @@
-/// <reference types="vitest" />
-import { defineConfig } from "vite";
+// defineConfig from vitest/config: since Vitest 4 the triple-slash reference
+// no longer adds `test` to Vite's config type, and the Docker build (a clean
+// install, no local tsbuildinfo cache) fails on it.
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
