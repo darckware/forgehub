@@ -95,8 +95,12 @@ if ($state -ne 'Running') {{
 }}
 
 # 2) Servidor OpenSSH ligado, so pela tailnet, PowerShell como shell padrao
-if ((Get-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0).State -ne 'Installed') {{
-    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null
+# (so instala se o servico sshd ainda nao existir: ha maquinas com o OpenSSH
+#  instalado pelo MSI avulso, onde o recurso do Windows nao aparece e a instalacao e negada)
+if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {{
+    if ((Get-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0).State -ne 'Installed') {{
+        Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null
+    }}
 }}
 Set-Service sshd -StartupType Automatic
 Start-Service sshd

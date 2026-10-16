@@ -64,8 +64,12 @@ def windows_script(login: str, public_key: str, password: str | None = None) -> 
 $ErrorActionPreference = 'Stop'
 
 # 1) Servidor OpenSSH instalado, ligado e iniciando com a maquina
-if ((Get-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0).State -ne 'Installed') {{
-    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null
+# (so instala se o servico sshd ainda nao existir: ha maquinas com o OpenSSH
+#  instalado pelo MSI avulso, onde o recurso do Windows nao aparece e a instalacao e negada)
+if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {{
+    if ((Get-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0).State -ne 'Installed') {{
+        Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null
+    }}
 }}
 Set-Service sshd -StartupType Automatic
 Start-Service sshd
