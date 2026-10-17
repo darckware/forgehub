@@ -11,9 +11,11 @@ from sqlalchemy import delete
 
 from app.core import personal_schedule
 from app.core.config import settings
+from app.core.security import create_access_token, hash_password
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.personal import PersonalEvent, PersonalNote, PersonalTask
+from app.db.models.user import User
 from app.main import app
 
 BASE = "/api/v1/personal"
@@ -135,8 +137,20 @@ async def test_only_allowed_agent_and_never_deletes(client, admin_headers, creat
         await _drop_agent(other_id)
 
 
-async def test_non_admin_user_is_refused(client, auth_headers):
-    assert (await client.get(f"{BASE}/notes", headers=auth_headers)).status_code in (401, 403)
+async def test_non_admin_user_is_refused(client):
+    # A real, active non-admin row: auth_headers' "test-suite" subject is made an
+    # admin by other modules' session-scoped fixtures, so it can't stand in here.
+    username = f"test-nonadmin-{uuid.uuid4().hex[:12]}"
+    async with AsyncSessionLocal() as db:
+        db.add(User(username=username, hashed_password=hash_password(uuid.uuid4().hex), is_admin=False))
+        await db.commit()
+    try:
+        headers = {"Authorization": f"Bearer {create_access_token(username)}"}
+        assert (await client.get(f"{BASE}/notes", headers=headers)).status_code == 403
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(User).where(User.username == username))
+            await db.commit()
 
 
 async def test_validation(client, admin_headers):

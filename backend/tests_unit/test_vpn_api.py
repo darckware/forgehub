@@ -10,29 +10,28 @@ from app.api.routes.vpn import normalize_status, sanitize_summary, validate_acti
 def _bridge_status() -> dict:
     return {
         "backend_state": "Running",
-        "local": {
-            "role": "local",
-            "hostname": "NotebookSTI-wsl",
-            "tailscale_ipv4": "100.119.242.42",
-            "state": "online",
-            "online": True,
-            "active": True,
-            "last_seen": "2026-09-03T18:00:00Z",
-            "rx_bytes": 100,
-            "tx_bytes": 200,
-        },
-        "remote": {
-            "role": "remote",
+        "self": {
             "hostname": "vmi3547248",
             "tailscale_ipv4": "100.105.235.114",
             "state": "online",
             "online": True,
             "active": True,
             "last_seen": "2026-09-03T18:01:00Z",
-            "rx_bytes": 300,
-            "tx_bytes": 400,
         },
-        "connection": {"kind": "derp", "relay": "fra"},
+        "peers": [
+            {
+                "id": "nKqVMEy38E11CNTRL",
+                "hostname": "NotebookSTI-wsl",
+                "tailscale_ipv4": "100.119.242.42",
+                "state": "online",
+                "online": True,
+                "active": True,
+                "last_seen": "2026-09-03T18:00:00Z",
+                "rx_bytes": 100,
+                "tx_bytes": 200,
+                "connection": {"kind": "derp", "relay": "fra"},
+            },
+        ],
     }
 
 
@@ -41,21 +40,31 @@ def test_normalize_status_exposes_only_typed_vpn_state():
 
     status = normalize_status(_bridge_status(), checked_at=checked_at)
 
-    assert status.independent_from_cloudflare is True
-    assert [node.role for node in status.nodes] == ["local", "remote"]
-    assert status.nodes[1].hostname == "vmi3547248"
-    assert status.connection.kind == "derp"
-    assert status.connection.relay == "fra"
+    assert status.server.id == "self"
+    assert status.server.hostname == "vmi3547248"
+    assert [peer.hostname for peer in status.peers] == ["NotebookSTI-wsl"]
+    assert status.peers[0].connection.kind == "derp"
+    assert status.peers[0].connection.relay == "fra"
     assert status.checked_at == checked_at
+
+
+def test_normalize_status_without_self_reads_as_unavailable():
+    status = normalize_status({"peers": "garbage"})
+
+    assert status.backend_state == "Unavailable"
+    assert status.server.state == "unavailable"
+    assert status.peers == []
 
 
 @pytest.mark.parametrize(
     ("node", "action"),
     [
-        ("remote", "disconnect"),
-        ("remote", "connect"),
-        ("unknown", "test"),
-        ("local", "delete"),
+        ("self", "test"),
+        ("self", "disconnect"),
+        ("nKqVMEy38E11CNTRL", "restart"),
+        ("nKqVMEy38E11CNTRL", "connect"),
+        ("../etc/passwd", "test"),
+        ("", "test"),
     ],
 )
 def test_validate_action_rejects_unsafe_combinations(node: str, action: str):
@@ -64,18 +73,14 @@ def test_validate_action_rejects_unsafe_combinations(node: str, action: str):
 
 
 @pytest.mark.parametrize(
-    ("node", "action"),
+    ("node", "action", "kind"),
     [
-        ("local", "connect"),
-        ("local", "disconnect"),
-        ("local", "restart"),
-        ("local", "test"),
-        ("remote", "restart"),
-        ("remote", "test"),
+        ("self", "restart", "self"),
+        ("nKqVMEy38E11CNTRL", "test", "peer"),
     ],
 )
-def test_validate_action_accepts_only_documented_combinations(node: str, action: str):
-    assert validate_action(node, action) == (node, action)
+def test_validate_action_accepts_only_documented_combinations(node: str, action: str, kind: str):
+    assert validate_action(node, action) == kind
 
 
 def test_sanitize_summary_removes_login_urls_and_private_paths():
@@ -93,21 +98,14 @@ def test_sanitize_summary_removes_login_urls_and_private_paths():
 
 def test_normalize_status_keeps_partial_failure_as_usable_state():
     payload = _bridge_status()
-    payload["remote"] = {
-        "role": "remote",
-        "hostname": "vmi3547248",
-        "tailscale_ipv4": None,
-        "state": "unavailable",
-        "online": False,
-        "active": False,
-        "last_seen": None,
-        "rx_bytes": 0,
-        "tx_bytes": 0,
-    }
+    payload["peers"].append(
+        {"id": "nOffline1CNTRL", "hostname": "gat-srv-01", "state": "unavailable"}
+    )
+    payload["peers"].append({"hostname": "no-id-and-no-state"})
     payload["error"] = {"code": "peer_offline", "summary": "Remote peer is unavailable."}
 
     status = normalize_status(payload)
 
-    assert status.nodes[0].state == "online"
-    assert status.nodes[1].state == "unavailable"
+    assert status.server.state == "online"
+    assert [peer.state for peer in status.peers] == ["online", "unavailable"]
     assert status.source_error == "Remote peer is unavailable."

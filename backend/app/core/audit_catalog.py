@@ -82,6 +82,7 @@ _CHECK_ROWS = (
     ('ECO-056', 'provider', 'atlas', 'Every active agent has a matching configured ForgeRouter key', 55, False, 'Secret-safe comparison with ForgeRouter agent key registry'),
     ('ECO-057', 'memory', 'mnemosyne', 'ForgeHub Hindsight retention timer is active and its latest run succeeded', 55, True),
     ('ECO-058', 'backup', 'hephaestus', 'Offsite backup has a snapshot within 36 hours and the latest repository check succeeded', 120, False, 'First offsite snapshot and sample restore verified by the operator'),
+    ('ECO-059', 'security', 'aegis', 'Shared skills (ecosystem-foundation, forgehub, forgevault, darckware, forgerouter) and the knowledge_cycle hook are immutable (chattr +i), match MANIFEST.sha256 and are linked into every agent profile. Hermes >= v0.21.7 lets background review edit pinned skills; the OS lock is the protection.', 60, True),
 )
 
 CANONICAL_AUDIT_CHECKS: dict[str, CheckSpec] = {

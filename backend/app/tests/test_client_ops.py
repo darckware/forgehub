@@ -11,7 +11,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app.api.routes.client_ops import run_client_ops_notification_pass
 from app.core import darckware_client
@@ -23,7 +23,7 @@ from app.db.models.notification import Notification
 from app.main import app
 
 CLIENT_ID = str(uuid.uuid4())
-REGISTRATION_ID = "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f"
+REGISTRATION_ID = str(uuid.uuid4())
 TICKET_ID = str(uuid.uuid4())
 DEMAND_ID = str(uuid.uuid4())
 EMAIL_ID = str(uuid.uuid4())
@@ -368,19 +368,30 @@ async def test_darckware_down_is_502(client, monkeypatch, darckware):
 @pytest.mark.asyncio
 async def test_notification_pass_is_deduplicated(client, darckware):
     darckware.demand = {**darckware.demand, "status": "aberta"}
+    # The fake's project ids are fixed, so a run that died before cleanup would
+    # leave their keys behind and make the next first pass count fewer.
+    own = or_(*(Notification.event_key.like(f"darckware:%{ref}%") for ref in (
+        EMAIL_ID, TICKET_ID, DEMAND_ID, PROPOSAL_ID, ESCALATION_ID, NEW_LEAD_ID, REGISTRATION_ID,
+        "project:p-ajuste:", "project:p-ok:",
+    )))
     async with AsyncSessionLocal() as db:
-        first = await run_client_ops_notification_pass(db)
-        second = await run_client_ops_notification_pass(db)
-    assert first == 9  # email, ticket, demand, conversion, escalation, recent lead, registration, 2 project answers
-    assert second == 0
-    async with AsyncSessionLocal() as db:
-        rows = (await db.execute(select(Notification).where(Notification.event_key.like("darckware:project:%")))).scalars().all()
-        by_key = {n.event_key: n for n in rows}
-        assert by_key["darckware:project:p-ajuste:v1:ajuste"].message == "ACME: Estoque — Incluir app de celular"
-        assert by_key["darckware:project:p-ok:aprovado"].message == "ACME: Site — R$ 2.500,00"
-        for n in rows:
-            await db.delete(n)
+        await db.execute(delete(Notification).where(own))
         await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            first = await run_client_ops_notification_pass(db)
+            second = await run_client_ops_notification_pass(db)
+        assert first == 9  # email, ticket, demand, conversion, escalation, recent lead, registration, 2 project answers
+        assert second == 0
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(select(Notification).where(Notification.event_key.like("darckware:project:%")))).scalars().all()
+            by_key = {n.event_key: n for n in rows}
+            assert by_key["darckware:project:p-ajuste:v1:ajuste"].message == "ACME: Estoque — Incluir app de celular"
+            assert by_key["darckware:project:p-ok:aprovado"].message == "ACME: Site — R$ 2.500,00"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Notification).where(own))
+            await db.commit()
 
 
 SUPPORT = {"contract_type": "suporte_horas", "plan_name": "Plano 8 Horas", "monthly_hours_quota": 8, "monthly_price": 900}

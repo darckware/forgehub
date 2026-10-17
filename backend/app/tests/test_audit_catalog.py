@@ -14,9 +14,9 @@ VERIFIER = Path("/root/.hermes/profiles/athos/scripts/checklist_verifier.py")
 
 
 def test_catalog_v2_ids_are_contiguous_and_unique():
-    expected = {f"ECO-{number:03d}" for number in range(1, 59)}
+    expected = {f"ECO-{number:03d}" for number in range(1, 60)}
     assert set(CANONICAL_AUDIT_CHECKS) | set(RETIRED_AUDIT_CHECKS) == expected
-    assert len(CANONICAL_AUDIT_CHECKS) == 57
+    assert len(CANONICAL_AUDIT_CHECKS) == 58
     assert {name for name, check in CANONICAL_AUDIT_CHECKS.items() if not check.enabled} == {
         "ECO-048", "ECO-050", "ECO-055", "ECO-056", "ECO-058"
     }
@@ -43,7 +43,7 @@ def test_verifier_parser_does_not_execute_source():
 
 
 def test_new_checks_have_bounded_commands_and_owners():
-    for number in range(42, 59):
+    for number in range(42, 60):
         name = f"ECO-{number:03d}"
         check = CANONICAL_AUDIT_CHECKS[name]
         assert check.name == name
