@@ -6,6 +6,7 @@ import {
   addDays,
   joinLocal,
   todayLocal,
+  useCompletePersonalEvent,
   useCompletePersonalTask,
   useCreatePersonalDemand,
   useCreatePersonalDemandType,
@@ -151,6 +152,7 @@ export function usePersonalAgendaViewModel() {
   const query = usePersonalAgenda(start, end);
   const create = useCreatePersonalEvent();
   const cancel = useUpdatePersonalEvent();
+  const completeEvent = useCompletePersonalEvent();
   const completeTask = useCompletePersonalTask();
   const [draft, setDraft] = useState<EventDraft>({ title: "", date: todayLocal(), time: "", location: "", reminder: 60, recurrence: "" });
   const [status, setStatus] = useState<FormStatus>("idle");
@@ -189,6 +191,7 @@ export function usePersonalAgendaViewModel() {
     error,
     submit,
     cancelEvent: (id: string) => cancel.mutate({ id, body: { status: "cancelled" } }),
+    completeEvent: (id: string) => completeEvent.mutate(id),
     completeTask: (id: string) => completeTask.mutate(id),
   };
 }

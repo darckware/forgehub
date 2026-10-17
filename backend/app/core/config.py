@@ -139,6 +139,15 @@ class Settings(BaseSettings):
     # read-only here, for the Pessoal screen's "Maia" tab. Bind mount of /root/.hermes/profiles.
     PERSONAL_WHATSAPP_STATE_DIR: str = "/profiles/maia/whatsapp"
 
+    # Optional Open-Meteo integration for Pessoal. No API key is required;
+    # leaving coordinates unset keeps weather out of summaries.
+    WEATHER_ENABLED: bool = False
+    WEATHER_LATITUDE: float | None = None
+    WEATHER_LONGITUDE: float | None = None
+    WEATHER_LOCATION: str = ""
+    WEATHER_TIMEZONE: str = "America/Sao_Paulo"
+    WEATHER_API_URL: str = "https://api.open-meteo.com/v1/forecast"
+
     # Hindsight/Foundation PostgreSQL instance.
     FOUNDATION_POSTGRES_HOST: str = "hindsight_postgres"
     FOUNDATION_POSTGRES_PORT: int = 5432

@@ -37,7 +37,7 @@ export interface PersonalEvent {
   all_day: boolean;
   location: string | null;
   notes: string | null;
-  status: "scheduled" | "cancelled";
+  status: "scheduled" | "done" | "cancelled";
   recurrence: Recurrence;
   reminders: number[];
   created_by: string;
@@ -179,6 +179,14 @@ export function useCompletePersonalTask() {
   const invalidate = useInvalidatePersonal();
   return useMutation<PersonalTask, Error, string>({
     mutationFn: (id) => apiClient.post(`${BASE}/tasks/${id}:complete`),
+    onSettled: invalidate,
+  });
+}
+
+export function useCompletePersonalEvent() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<PersonalEvent, Error, string>({
+    mutationFn: (id) => apiClient.post(`${BASE}/events/${id}:complete`),
     onSettled: invalidate,
   });
 }

@@ -178,9 +178,24 @@ class RemindersDueOut(BaseModel):
     lines: list[str]
 
 
+class WeatherOut(BaseModel):
+    location: str
+    latitude: float
+    longitude: float
+    timezone: str
+    date: str | None
+    condition: str
+    weather_code: int | None
+    temperature_max: float | None
+    temperature_min: float | None
+    precipitation_sum: float | None
+    current: dict
+
+
 class DaySummaryOut(BaseModel):
     day: str
     text: str
+    weather: WeatherOut | None = None
 
 
 class PersonalDemandTypeCreate(BaseModel):

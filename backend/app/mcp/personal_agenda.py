@@ -172,10 +172,12 @@ def atualizar(item_id: str, tipo: str, **mudancas: Any) -> dict[str, Any]:
             body["due_at"], body["due_has_time"] = _parse_quando(mudancas["quando"])
         path = f"/tasks/{item_id}"
     elif tipo == "compromisso":
+        if status == "realizado":
+            return _call("POST", f"/events/{item_id}:complete")
         body = {}
         if status:
             if status not in ("cancelado", "agendado"):
-                raise AgendaError("Status de compromisso: cancelado ou agendado.")
+                raise AgendaError("Status de compromisso: realizado, cancelado ou agendado.")
             body["status"] = "cancelled" if status == "cancelado" else "scheduled"
         if mudancas.get("quando"):
             body["starts_at"], tem_hora = _parse_quando(mudancas["quando"])
@@ -199,6 +201,11 @@ def lembretes_devidos() -> list[str]:
 
 def resumo_do_dia(dia: str = "") -> str:
     return _call("GET", "/summary", query={"day": dia})["text"]
+
+
+def clima(dia: str = "") -> dict[str, Any]:
+    """Consulta a previsão Open-Meteo para a localização configurada no ForgeHub."""
+    return _call("GET", "/weather", query={"day": dia})
 
 
 def register(mcp) -> None:
@@ -244,9 +251,19 @@ def register(mcp) -> None:
                             notas: str | None = None, recorrencia: str | None = None,
                             status: str | None = None) -> dict[str, Any]:
         """Altera um compromisso ou tarefa (tipo: compromisso|tarefa). status da tarefa: concluido
-        (recorrente agenda a próxima), cancelado ou pendente; do compromisso: cancelado. Nunca apaga."""
+        (recorrente agenda a próxima), cancelado ou pendente; do compromisso: realizado (recorrente agenda a próxima) ou cancelado. Nunca apaga."""
         return _safe(atualizar, item_id, tipo, titulo=titulo, quando=quando, lembretes=lembretes_minutos,
                      local=local, notas=notas, recorrencia=recorrencia, status=status)
+
+    @mcp.tool()
+    async def personal_weather(data: str = "") -> dict[str, Any]:
+        """Consulta o clima do dia (ou hoje) na localização configurada no ForgeHub.
+        data: dd/mm/aaaa. Só use quando Marcelo pedir previsão ou clima."""
+        try:
+            dia = _parse_quando(data)[0][:10] if data else ""
+        except AgendaError as exc:
+            return {"success": False, "error": str(exc)}
+        return _safe(clima, dia)
 
     @mcp.tool()
     async def agenda_day_summary(data: str = "") -> dict[str, Any]:

@@ -25,6 +25,7 @@ from app.api.schemas.personal import (
     PersonalDemandTypeOut,
     PersonalDemandUpdate,
     DaySummaryOut,
+    WeatherOut,
     PersonalEventCreate,
     PersonalEventOut,
     PersonalEventUpdate,
@@ -38,6 +39,7 @@ from app.api.schemas.personal import (
 )
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, get_actor_principal
+from app.core.weather import WeatherError, format_summary, get_weather
 from app.core.personal_schedule import (
     DEFAULT_REMINDERS,
     collect_due,
@@ -213,12 +215,39 @@ async def update_event(event_id: uuid.UUID, payload: PersonalEventUpdate, actor:
                        db: AsyncSession = Depends(get_db)) -> PersonalEvent:
     event = await _get(db, PersonalEvent, event_id)
     data = payload.model_dump(exclude_unset=True)
+    new_status = data.pop("status", None) if data.get("status") == "done" else None
     for key, value in data.items():
         setattr(event, key, value)
     if event.ends_at and event.ends_at < event.starts_at:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "ends_at must not be before starts_at")
     if {"starts_at", "reminders"} & data.keys():
         event.reminders_sent = []
+    if new_status == "done":
+        _complete_event(event)
+    await db.commit()
+    await db.refresh(event)
+    return event
+
+
+def _complete_event(event: PersonalEvent) -> None:
+    """Realizado (2026-10-16, Marcelo: "uma forma de finalizar a agenda"). A recurring event
+    moves to its next occurrence and stays scheduled, like a recurring task."""
+    if event.recurrence:
+        nxt = next_occurrence(event.starts_at, event.recurrence)
+        if event.ends_at:
+            event.ends_at = nxt + (event.ends_at - event.starts_at)
+        event.starts_at = nxt
+        event.reminders_sent = []
+        event.status = "scheduled"
+    else:
+        event.status = "done"
+
+
+@router.post("/events/{event_id}:complete", response_model=PersonalEventOut)
+async def complete_event(event_id: uuid.UUID, actor: str = Depends(personal_actor),
+                         db: AsyncSession = Depends(get_db)) -> PersonalEvent:
+    event = await _get(db, PersonalEvent, event_id)
+    _complete_event(event)
     await db.commit()
     await db.refresh(event)
     return event
@@ -430,6 +459,14 @@ async def reminders_due(actor: str = Depends(personal_actor), db: AsyncSession =
     return RemindersDueOut(lines=lines)
 
 
+@router.get("/weather", response_model=WeatherOut)
+async def weather(day: date | None = None, actor: str = Depends(personal_actor)) -> WeatherOut:
+    try:
+        return await get_weather(day or now_local().date())
+    except WeatherError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+
+
 @router.get("/summary", response_model=DaySummaryOut)
 async def summary(day: date | None = None, actor: str = Depends(personal_actor),
                   db: AsyncSession = Depends(get_db)) -> DaySummaryOut:
@@ -443,4 +480,13 @@ async def summary(day: date | None = None, actor: str = Depends(personal_actor),
         PersonalTask.status == "pending", PersonalTask.due_at.is_not(None),
         PersonalTask.due_at < start + timedelta(days=4),
     )))).scalars())
-    return DaySummaryOut(day=day.isoformat(), text=day_summary(day, events, tasks))
+    text = day_summary(day, events, tasks)
+    weather = None
+    if settings.WEATHER_ENABLED and settings.WEATHER_LATITUDE is not None and settings.WEATHER_LONGITUDE is not None:
+        try:
+            weather = await get_weather(day)
+            text += "\n" + format_summary(weather)
+        except WeatherError:
+            # Weather is an optional enrichment; agenda summaries remain available.
+            pass
+    return DaySummaryOut(day=day.isoformat(), text=text, weather=weather)

@@ -23,7 +23,7 @@ from app.db.base import Base, TimestampMixin
 PERSONAL_RECURRENCES = ("", "daily", "weekly", "monthly", "yearly")
 PERSONAL_TASK_STATUSES = ("pending", "done", "cancelled")
 PERSONAL_TASK_PRIORITIES = ("low", "normal", "high")
-PERSONAL_EVENT_STATUSES = ("scheduled", "cancelled")
+PERSONAL_EVENT_STATUSES = ("scheduled", "done", "cancelled")
 PERSONAL_DEMAND_STATUSES = ("open", "done")
 #: Built-in contact categories (the Maia's original set); more can be added as rows.
 PERSONAL_CONTACT_DEFAULT_CATEGORIES = (

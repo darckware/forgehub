@@ -455,6 +455,7 @@ function AgendaTab({ onDelete }: { onDelete: (t: DeleteTarget) => void }) {
           <Button size="sm" variant="ghost" onClick={() => vm.completeTask(item.id)}>{t("actions.complete")}</Button>
         ) : (
           <>
+            <Button size="sm" variant="ghost" onClick={() => vm.completeEvent(item.id)}>{t("actions.done")}</Button>
             <Button size="sm" variant="ghost" onClick={() => vm.cancelEvent(item.id)}>{t("actions.cancel")}</Button>
             <Button size="icon" variant="ghost" aria-label={t("actions.delete")} className="opacity-60 hover:opacity-100"
               onClick={() => onDelete({ kind: "events", id: item.id, title: item.title })}>
