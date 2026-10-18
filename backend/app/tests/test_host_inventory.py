@@ -13,7 +13,7 @@ from sqlalchemy import delete, select
 
 from app.api.routes import host_group as host_group_routes
 from app.api.routes import server as server_routes
-from app.api.schemas.vpn import VpnNode, VpnStatus
+from app.api.schemas.vpn import VpnNode, VpnPosture, VpnStatus
 from app.db.base import AsyncSessionLocal
 from app.db.models.server import HostGroup, Server
 
@@ -219,4 +219,60 @@ async def test_readiness_combines_tailnet_and_cached_probe(client, marker):
     assert states[str(ready.id)] == "ready"
     assert states[str(offline.id)] == "offline"
     assert states[str(unprepared.id)] == "not_prepared"
+    server_routes._ssh_probe_cache.update({"at": None, "statuses": {}})
+
+
+_ROUTERS = [("nSUP", "srv-sup", ["172.15.0.0/16"]), ("nLAB", "lab", ["172.15.9.0/24"])]
+
+
+@pytest.mark.parametrize(
+    "ip, available, accept, expected",
+    [
+        ("100.107.175.100", True, False, ("tailscale", None, None)),
+        ("172.15.2.2", True, True, ("subnet", "nSUP", "srv-sup")),
+        # The most specific route wins.
+        ("172.15.9.7", True, True, ("subnet", "nLAB", "lab")),
+        ("172.15.2.2", True, False, ("subnet_not_accepted", "nSUP", "srv-sup")),
+        # Posture unread: not claimed as usable.
+        ("172.15.2.2", True, None, ("subnet_not_accepted", "nSUP", "srv-sup")),
+        ("10.0.0.5", True, True, ("none", None, None)),
+        ("", True, True, ("none", None, None)),
+        # An unreadable tailnet is "unknown", never "none".
+        ("172.15.2.2", False, True, ("unknown", None, None)),
+    ],
+)
+def test_classify_access_path(ip, available, accept, expected):
+    server = _row(ip_address=ip)
+    assert server_routes.classify_access_path(
+        server, tailnet_available=available, accept_routes=accept, routers=_ROUTERS
+    ) == expected
+
+
+@pytest.mark.asyncio
+async def test_readiness_reports_access_path_and_tailscale_ip(client, marker):
+    async with AsyncSessionLocal() as db:
+        lan = _row(name=f"lan-{marker}", ip_address="172.15.77.1", tailnet_node_id=f"{marker}L")
+        orphan = _row(name=f"orphan-{marker}", ip_address="10.66.0.1")
+        db.add_all([lan, orphan])
+        await db.commit()
+
+    router = _peer(f"{marker}S", "srv-sup", "100.127.9.1", os="linux")
+    router.subnet_routes = ["172.15.0.0/16"]
+    status = _status([router, _peer(f"{marker}L", "lan-box", "100.127.9.2", os="linux")])
+    status.server.posture = VpnPosture(
+        accept_dns=False, accept_routes=True, advertise_exit_node=False,
+        tailscale_ssh=False, exit_node=False, restricted=False,
+    )
+    server_routes._ssh_probe_cache.update({"at": None, "statuses": {}})
+    with (
+        patch.object(server_routes, "fetch_tailnet_status", AsyncMock(return_value=status)),
+        patch.object(server_routes, "_probe_many_via_bridge", AsyncMock(return_value={})),
+    ):
+        resp = await client.get("/api/v1/servers/readiness")
+    assert resp.status_code == 200, resp.text
+    by_id = {e["server_id"]: e for e in resp.json()["entries"]}
+    assert by_id[str(lan.id)]["access_path"] == "subnet"
+    assert by_id[str(lan.id)]["access_via_name"] == "srv-sup"
+    assert by_id[str(lan.id)]["tailscale_ipv4"] == "100.127.9.2"
+    assert by_id[str(orphan.id)]["access_path"] == "none"
     server_routes._ssh_probe_cache.update({"at": None, "statuses": {}})

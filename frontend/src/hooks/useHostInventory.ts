@@ -35,12 +35,21 @@ export type HostReadiness =
   | "disabled"
   | "unknown";
 
+/** How the VPS reaches the machine's registered address (backend
+ * `classify_access_path`): a Tailscale IP, a subnet routed by another node, or
+ * nothing it can see. "unknown" = tailnet unreadable, never shown as "none". */
+export type AccessPath = "tailscale" | "subnet" | "subnet_not_accepted" | "none" | "unknown";
+
 export interface HostReadinessEntry {
   server_id: string;
   readiness: HostReadiness;
   tailnet_online: boolean | null;
   ssh: string | null;
   detail: string | null;
+  access_path?: AccessPath;
+  access_via_node_id?: string | null;
+  access_via_name?: string | null;
+  tailscale_ipv4?: string | null;
 }
 
 export interface HostReadinessResult {

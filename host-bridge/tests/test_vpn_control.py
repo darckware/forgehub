@@ -249,3 +249,18 @@ def test_login_url_is_replaced_by_stable_needs_login_error():
 
     assert result == {"success": False, "code": "needs_login", "summary": "Tailscale authorization is required on the host."}
     assert "login.tailscale.com" not in json.dumps(result)
+
+
+def test_parse_status_reports_only_real_subnet_routes():
+    router = _peer(
+        "nCCC11CNTRL",
+        "srv-sup",
+        PrimaryRoutes=["172.15.0.0/16"],
+        AllowedIPs=["100.107.175.100/32", "fd7a:115c:a1e0::9/128", "172.15.0.0/16", "10.9.0.0/24", "0.0.0.0/0", "::/0"],
+    )
+    status = parse_status(_status([router, _peer("nDDD11CNTRL", "gat-ges-nb01", AllowedIPs=["100.114.210.69/32"])]))
+
+    by_name = {peer["name"]: peer for peer in status["peers"]}
+    assert by_name["srv-sup"]["subnet_routes"] == ["10.9.0.0/24", "172.15.0.0/16"]
+    assert by_name["gat-ges-nb01"]["subnet_routes"] == []
+    assert status["self"]["subnet_routes"] == []

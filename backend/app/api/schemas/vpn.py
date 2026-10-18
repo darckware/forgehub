@@ -45,6 +45,9 @@ class VpnNode(BaseModel):
     os: str | None = None
     tags: list[str] = Field(default_factory=list)
     tailscale_ipv4: str | None = None
+    # Subnets this node routes that the VPS can see (approved and allowed by
+    # its ACL); empty does not mean the node advertises nothing.
+    subnet_routes: list[str] = Field(default_factory=list)
     state: VpnNodeState
     online: bool = False
     active: bool = False

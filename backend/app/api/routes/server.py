@@ -24,6 +24,7 @@ Endpoints:
 import asyncio
 import csv
 import io
+import ipaddress
 import logging
 import re
 import socket
@@ -576,6 +577,44 @@ def classify_readiness(
     return "unknown", "Could not probe SSH"
 
 
+_TAILSCALE_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
+def classify_access_path(
+    server: Server,
+    *,
+    tailnet_available: bool,
+    accept_routes: bool | None,
+    routers: list[tuple[str, str | None, list[str]]],
+) -> tuple[str, str | None, str | None]:
+    """How the VPS reaches `server.ip_address`: (path, via node id, via name).
+    `routers` is (node id, name, subnet routes) for every peer that routes a
+    subnet. A Tailscale address is direct; a LAN address needs a route the
+    VPS can see *and* accepts. Pure, so the decision table is testable."""
+    if not tailnet_available:
+        return "unknown", None, None
+    try:
+        address = ipaddress.ip_address((server.ip_address or "").strip())
+    except ValueError:
+        return "none", None, None
+    if address.version == 4 and address in _TAILSCALE_NETWORK:
+        return "tailscale", None, None
+    best: tuple[int, str, str | None] | None = None
+    for node_id, name, routes in routers:
+        for route in routes:
+            try:
+                network = ipaddress.ip_network(route, strict=False)
+            except ValueError:
+                continue
+            if address.version == network.version and address in network:
+                if best is None or network.prefixlen > best[0]:
+                    best = (network.prefixlen, node_id, name)
+    if best is None:
+        return "none", None, None
+    path = "subnet" if accept_routes else "subnet_not_accepted"
+    return path, best[1], best[2]
+
+
 @router.get("/readiness", response_model=HostReadinessResult)
 async def get_readiness(
     refresh: bool = False,
@@ -591,6 +630,9 @@ async def get_readiness(
     tailnet = await fetch_tailnet_status()
     tailnet_available = tailnet.server.state != "unavailable"
     online_by_node = {p.id: p.online for p in tailnet.peers}
+    tailscale_ip_by_node = {p.id: p.tailscale_ipv4 for p in tailnet.peers}
+    routers = [(p.id, p.name or p.hostname, p.subnet_routes) for p in tailnet.peers if p.subnet_routes]
+    accept_routes = tailnet.server.posture.accept_routes if tailnet.server.posture else None
 
     def tailnet_online(server: Server) -> bool | None:
         if not server.tailnet_node_id or not tailnet_available:
@@ -631,9 +673,20 @@ async def get_readiness(
         )
         if server.id in busy and readiness != "disabled":
             readiness, detail = "busy", "Running a command"
+        path, via_id, via_name = classify_access_path(
+            server, tailnet_available=tailnet_available, accept_routes=accept_routes, routers=routers
+        )
         entries.append(
             HostReadinessEntry(
-                server_id=server.id, readiness=readiness, tailnet_online=online, ssh=ssh, detail=detail
+                server_id=server.id,
+                readiness=readiness,
+                tailnet_online=online,
+                ssh=ssh,
+                detail=detail,
+                access_path=path,
+                access_via_node_id=via_id,
+                access_via_name=via_name,
+                tailscale_ipv4=tailscale_ip_by_node.get(server.tailnet_node_id) if server.tailnet_node_id else None,
             )
         )
     return HostReadinessResult(

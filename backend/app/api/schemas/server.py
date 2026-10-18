@@ -337,12 +337,30 @@ HostReadiness = Literal[
 ]
 
 
+# How the VPS reaches the machine's registered address (2026-10-17, see
+# docs/architecture/REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md).
+AccessPath = Literal[
+    "tailscale",            # the address is a Tailscale IP -- reached directly
+    "subnet",               # inside a route another node advertises, and the VPS accepts routes
+    "subnet_not_accepted",  # inside such a route, but the VPS has accept-routes off
+    "none",                 # no Tailscale IP and no route this VPS can see
+    "unknown",              # tailnet unreadable -- never shown as "none"
+]
+
+
 class HostReadinessEntry(BaseModel):
     server_id: uuid.UUID
     readiness: HostReadiness
     tailnet_online: bool | None = None
     ssh: str | None = None
     detail: str | None = None
+    access_path: AccessPath = "unknown"
+    # The subnet router, for "subnet"/"subnet_not_accepted".
+    access_via_node_id: str | None = None
+    access_via_name: str | None = None
+    # The linked tailnet device's own 100.x address -- lets the UI suggest it
+    # when the registered address is a LAN IP the VPS can't reach.
+    tailscale_ipv4: str | None = None
 
 
 class HostReadinessResult(BaseModel):

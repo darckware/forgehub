@@ -51,6 +51,31 @@ def _tailscale_ipv4(addresses: object) -> str | None:
     return None
 
 
+def _subnet_routes(data: dict[str, Any]) -> list[str]:
+    """Subnets this peer routes for us: its approved routes as this node sees
+    them (``PrimaryRoutes`` plus the non-host ``AllowedIPs``). The tailnet only
+    hands a node the routes its ACL lets it reach, so an empty list means "no
+    usable route from here", not "advertises nothing" -- that needs the
+    Tailscale API. Exit-node defaults are not subnets and are left out."""
+    candidates: list[object] = []
+    for key in ("PrimaryRoutes", "AllowedIPs"):
+        value = data.get(key)
+        if isinstance(value, list):
+            candidates.extend(value)
+    routes: set[ipaddress.IPv4Network | ipaddress.IPv6Network] = set()
+    for value in candidates:
+        try:
+            network = ipaddress.ip_network(value, strict=False)
+        except (TypeError, ValueError):
+            continue
+        if network.prefixlen == 0 or network.prefixlen == network.max_prefixlen:
+            continue
+        if network.version == 4 and network.subnet_of(TAILSCALE_NETWORK):
+            continue
+        routes.add(network)
+    return [str(net) for net in sorted(routes, key=lambda net: (net.version, net))][:50]
+
+
 def _str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
@@ -100,6 +125,7 @@ def _node_common(data: dict[str, Any]) -> dict[str, Any]:
         "os": _str(data.get("OS")),
         "tags": _tags(data.get("Tags")),
         "tailscale_ipv4": _tailscale_ipv4(data.get("TailscaleIPs")),
+        "subnet_routes": _subnet_routes(data),
         "rx_bytes": _int(data.get("RxBytes")),
         "tx_bytes": _int(data.get("TxBytes")),
         "key_expiry": _timestamp(data.get("KeyExpiry")),

@@ -29,6 +29,8 @@ export interface VpnNode {
   os: string | null;
   tags: string[];
   tailscale_ipv4: string | null;
+  /** Subnets this node routes that the VPS can see (approved + allowed by its ACL). */
+  subnet_routes?: string[];
   state: VpnNodeState;
   online: boolean;
   active: boolean;
