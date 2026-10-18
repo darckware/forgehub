@@ -354,7 +354,8 @@
     "schedule": "Agendar",
     "copyScript": "Copiar script pronto",
     "copyHelp": "Para máquina ainda sem SSH: copia o script com os parâmetros preenchidos para colar pelo RustDesk.",
-    "copyTitle": "Script pronto para colar"
+    "copyTitle": "Script pronto para colar",
+    "usesDefault": "Em branco, usa o valor padrão do script."
   },
   "library": {
     "title": "Biblioteca de scripts",

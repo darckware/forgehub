@@ -21,6 +21,7 @@ const SCRIPTS = [
   script({}),
   script({ id: "rw", name: "Instalar RustDesk", system_key: "rustdesk_install:windows", parameters: [], is_system: true }),
   script({ id: "rl", name: "Instalar RustDesk", platform: "linux", system_key: "rustdesk_install:linux", parameters: [], is_system: true }),
+  script({ id: "dflt", name: "Com padrão", parameters: [{ name: "ID_SERVER", label: "Servidor de ID", required: true, default: "100.105.235.114", secret: false }] }),
 ];
 
 function renderComposer(props: Partial<Parameters<typeof ExecutionComposer>[0]> = {}) {
@@ -94,5 +95,18 @@ describe("ExecutionComposer", () => {
     fireEvent.click(screen.getByRole("button", { name: /Copiar script pronto/ }));
     expect(await screen.findByText(/Restart/)).toBeInTheDocument();
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-scripts/s1:render", { parameter_values: { SERVICE: "x" } });
+  });
+
+  it("never shows a parameter's default value on screen, only that blank uses it", async () => {
+    renderComposer();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /PC-01/ }));
+    fireEvent.change(screen.getByLabelText("Script"), { target: { value: "dflt" } });
+    const field = screen.getByLabelText("Servidor de ID *");
+    expect(field).toHaveValue("");
+    expect(field).not.toHaveAttribute("placeholder", "100.105.235.114");
+    expect(screen.queryByText(/100\.105\.235\.114/)).not.toBeInTheDocument();
+    expect(screen.getByText("Em branco, usa o valor padrão do script.")).toBeInTheDocument();
+    // Blank still counts as filled: the backend applies the default.
+    expect(screen.queryByText("Preencha os parâmetros obrigatórios.")).not.toBeInTheDocument();
   });
 });

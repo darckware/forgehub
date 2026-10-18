@@ -354,7 +354,8 @@
     "schedule": "Programar",
     "copyScript": "Copiar script listo",
     "copyHelp": "Para una máquina aún sin SSH: copia el script con los parámetros completados para pegarlo por RustDesk.",
-    "copyTitle": "Script listo para pegar"
+    "copyTitle": "Script listo para pegar",
+    "usesDefault": "En blanco, se usa el valor predeterminado del script."
   },
   "library": {
     "title": "Biblioteca de scripts",
