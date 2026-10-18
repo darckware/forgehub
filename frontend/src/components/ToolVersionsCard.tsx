@@ -27,13 +27,13 @@ import { useToolUpdateStore } from "@/store/toolUpdate";
 // (rather than a page-theme-reactive one) so it doesn't wash out into
 // whichever theme is active -- a black glyph directly on this card's dark
 // mode is otherwise invisible.
-const TOOL_META: Record<MonitoredTool, { label: string; icon?: string; iconBg?: string }> = {
+const TOOL_META: Record<MonitoredTool, { label: string; icon?: string; iconBg?: string; canInstall?: boolean }> = {
   hermes: { label: "Hermes", icon: hermesIcon, iconBg: "bg-white" },
-  claude: { label: "Claude Code", icon: claudeIcon },
-  codex: { label: "Codex", icon: codexIcon },
+  claude: { label: "Claude Code", icon: claudeIcon, canInstall: true },
+  codex: { label: "Codex", icon: codexIcon, canInstall: true },
   antigravity: { label: "Antigravity", icon: antigravityIcon },
-  pi: { label: "PI", icon: piIcon, iconBg: "bg-black" },
-  opencode: { label: "Opencode", icon: opencodeIcon, iconBg: "bg-white" },
+  pi: { label: "PI", icon: piIcon, iconBg: "bg-black", canInstall: true },
+  opencode: { label: "Opencode", icon: opencodeIcon, iconBg: "bg-white", canInstall: true },
 };
 
 const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode"];
@@ -188,7 +188,7 @@ export function ToolVersionsCard() {
                         )}
                       </Button>
                     )}
-                    {version && !version.installed_version && !errorText && (
+                    {meta.canInstall && version && !version.installed_version && !errorText && (
                       <Button
                         id={`tool-install-${tool}`}
                         data-testid={`tool-install-${tool}`}

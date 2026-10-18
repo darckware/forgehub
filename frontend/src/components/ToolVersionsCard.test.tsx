@@ -102,4 +102,40 @@ describe("ToolVersionsCard - Install button", () => {
     fireEvent.click(installButton);
     expect(mockRunInstall).toHaveBeenCalledWith("pi");
   });
+
+  it("renders Antigravity installed version and does not show 'Instalar' button for Antigravity", () => {
+    const mockVersions = [
+      {
+        id: "1",
+        tool: "antigravity",
+        installed_version: "1.4.2",
+        latest_version: "1.4.2",
+        update_available: false,
+        last_error: null,
+        created_at: "2026-10-17T00:00:00Z",
+        updated_at: "2026-10-17T00:00:00Z",
+      },
+    ];
+
+    const { unmount } = renderCard(mockVersions);
+    expect(screen.getByText("1.4.2")).toBeInTheDocument();
+    expect(screen.queryByTestId("tool-install-antigravity")).not.toBeInTheDocument();
+    unmount();
+
+    // Even if installed_version is null in cache, Antigravity has no npm install command
+    renderCard([
+      {
+        id: "1",
+        tool: "antigravity",
+        installed_version: null,
+        latest_version: null,
+        update_available: false,
+        last_error: null,
+        created_at: "2026-10-17T00:00:00Z",
+        updated_at: "2026-10-17T00:00:00Z",
+      },
+    ]);
+    expect(screen.queryByTestId("tool-install-antigravity")).not.toBeInTheDocument();
+  });
 });
+

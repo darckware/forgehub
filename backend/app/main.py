@@ -487,10 +487,12 @@ async def _tool_version_poll_loop() -> None:
             async with AsyncSessionLocal() as db:
                 setting = await toolversions.get_or_create_sync_setting(db)
                 if setting.enabled:
-                    # POLL_TOOLS excludes antigravity -- its "check" is a
-                    # real `agy update`, and it already self-updates on its
-                    # own cadence independent of this loop.
-                    await toolversions.refresh_all_tool_versions(db, tools=toolversions.POLL_TOOLS)
+                    # POLL_NO_MUTATE checks antigravity via `agy --version`
+                    # without running a mutating `agy update` (it already
+                    # self-updates on its own cadence independent of this loop).
+                    await toolversions.refresh_all_tool_versions(
+                        db, tools=toolversions.POLL_TOOLS, no_mutate=toolversions.POLL_NO_MUTATE
+                    )
         except Exception:
             logger.exception("Tool version poll failed")
         await asyncio.sleep(TOOL_VERSION_POLL_INTERVAL_SECONDS)
