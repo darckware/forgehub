@@ -11,6 +11,8 @@ import { useTranslation } from "react-i18next";
 import {
   Activity,
   FolderPlus,
+  Vault,
+  Wrench,
   KeyRound,
   Loader2,
   MonitorSmartphone,
@@ -46,11 +48,12 @@ import {
   type PathFilter,
   type ReadinessFilter,
 } from "@/hooks/useMachinesViewModel";
-import { buildSshCommand, type Server } from "@/hooks/useServers";
+import { buildSshCommand, resolveSshCommand, type Server } from "@/hooks/useServers";
 import { ImportCsvModal, InstallKeyModal } from "@/pages/servers/ServerDialogs";
 import { ServerForm } from "@/pages/servers/ServerForm";
 import { ServerServicesPanel } from "@/pages/servers/ServerServicesPanel";
 import { serverHome } from "@/pages/workspace/workspaceState";
+import { PrepareDialog } from "./PrepareDialog";
 import { RevealPasswordDialog } from "./RevealPasswordDialog";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
@@ -130,16 +133,15 @@ export function MachinesCard() {
         .join(" · ") || t("workstations.sync.nothing")
     : null;
 
-  const openTerminal = (s: Server) =>
-    navigate("/workspace", {
-      state: {
-        openSsh: {
-          label: s.name,
-          command: buildSshCommand(s),
-          server: { id: s.id, name: s.name, home: serverHome(s.remote_user) },
-        },
-      },
-    });
+  // Same resolution as the Workspace SSH menu: a ForgeVault key goes through
+  // the bridge's in-memory agent, never a key file.
+  const openTerminal = (s: Server) => {
+    const launch = (command: string) =>
+      navigate("/workspace", {
+        state: { openSsh: { label: s.name, command, server: { id: s.id, name: s.name, home: serverHome(s.remote_user) } } },
+      });
+    void resolveSshCommand(s).then(launch).catch(() => launch(buildSshCommand(s)));
+  };
 
   const renderRow = ({ machine, readiness, node }: MachineRow) => {
     const ready = readiness?.readiness === "ready";
@@ -183,9 +185,9 @@ export function MachinesCard() {
                   <SquareTerminal className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
-              {vm.isAdmin && machine.access_enabled && !ready && machine.kind === "server" && (
-                <IconButton label={t("machines.actions.installKey", { name: machine.name })} onClick={() => vm.install(machine)} className="text-amber-500">
-                  <KeyRound className="h-4 w-4" aria-hidden="true" />
+              {vm.isAdmin && machine.access_enabled && !ready && (
+                <IconButton label={t("machines.actions.configure", { name: machine.name })} onClick={() => vm.configure(machine)} className="text-amber-500">
+                  <Wrench className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
               {vm.isAdmin && node && (
@@ -270,6 +272,12 @@ export function MachinesCard() {
                 {t("workstations.syncTailnet")}
               </Button>
             )}
+            {vm.isAdmin && (
+              <Button type="button" size="sm" variant="outline" onClick={vm.askMigrate} disabled={vm.migrating} className="cursor-pointer gap-1.5">
+                {vm.migrating ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Vault className="h-3.5 w-3.5" aria-hidden="true" />}
+                {t("machines.migrate.action")}
+              </Button>
+            )}
             <Button type="button" size="sm" variant="outline" onClick={vm.probeNow} disabled={vm.probing} className="cursor-pointer gap-1.5">
               {vm.probing ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
               {t("workstations.probeNow")}
@@ -287,6 +295,14 @@ export function MachinesCard() {
           </div>
         </div>
 
+        {vm.migration && (
+          <div role="status" className="space-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+            <p>{t("machines.migrate.summary", { switched: vm.migration.switched.length, already: vm.migration.already.length, failed: Object.keys(vm.migration.failed).length })}</p>
+            {Object.entries(vm.migration.failed).map(([name, reason]) => (
+              <p key={name} className="text-amber-700 dark:text-amber-400"><span className="font-medium">{name}</span>: {reason}</p>
+            ))}
+          </div>
+        )}
         {syncSummary && <p role="status" className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">{syncSummary}</p>}
         {vm.syncError && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">{t("workstations.sync.failed")}</p>}
         {vm.testResult && (
@@ -521,6 +537,27 @@ export function MachinesCard() {
       {vm.installing && (
         <InstallKeyModal server={vm.installing} onClose={vm.closeInstall} onInstalled={vm.probeNow} />
       )}
+      {vm.preparing && (
+        <PrepareDialog
+          initialServerId={vm.preparing.id}
+          onClose={vm.closePrepare}
+          onExecution={(id) => navigate(`/remote-access/executions/${id}`)}
+        />
+      )}
+      <ConfirmDialog
+        open={vm.confirmingMigration}
+        title={t("machines.migrate.title")}
+        description={t("machines.migrate.description")}
+        confirmLabel={t("machines.migrate.confirm")}
+        cancelLabel={t("cancel")}
+        icon="wrench"
+        variant="default"
+        loading={vm.migrating}
+        dismissDisabled={vm.migrating}
+        error={vm.confirmingMigration ? vm.migrationError : null}
+        onConfirm={vm.confirmMigrate}
+        onCancel={vm.cancelMigrate}
+      />
       {revealing && <RevealPasswordDialog machine={revealing.machine} kind={revealing.kind} onClose={() => setRevealing(null)} />}
 
       <ConfirmDialog

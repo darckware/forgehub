@@ -141,6 +141,14 @@ export function InstallKeyModal({ server, onClose, onInstalled }: { server: Serv
                 {t("install.failedAt", { step: result.failed_step, error: result.error })}
               </p>
             )}
+            {result.ok && result.vault && (
+              <p className={`flex items-start gap-1.5 ${result.vault === "switched" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+                {result.vault === "switched"
+                  ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  : <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                {result.vault === "switched" ? t("install.vaultSwitched") : t("install.vaultFailed", { reason: result.vault.replace(/^failed:\s*/, "") })}
+              </p>
+            )}
             {result.ok && result.public_key && (
               <div className="space-y-1 pt-1">
                 <Label className="text-[11px]">{t("install.installedPublicKey")}</Label>

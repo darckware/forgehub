@@ -157,6 +157,9 @@ class ServerInstallKeyResult(BaseModel):
     failed_step: str | None = None
     key_path: str | None = None
     public_key: str | None = None
+    # ForgeVault outcome of the new key: "switched" (vault key verified, the
+    # file path released), or "failed: <reason>" (still on the file).
+    vault: str | None = None
 
 
 class ServerImportRequest(BaseModel):
@@ -450,8 +453,13 @@ class RotationOut(BaseModel):
 
 
 class KeysToVaultOut(BaseModel):
+    # Copied into ForgeVault by this run.
     stored: list[str] = Field(default_factory=list)
+    # Vault key verified on its own; the file path is no longer used.
+    switched: list[str] = Field(default_factory=list)
+    # Already on the vault key only.
     already: list[str] = Field(default_factory=list)
+    # Not switched, with the reason; these keep using their key file.
     failed: dict[str, str] = Field(default_factory=dict)
 
 

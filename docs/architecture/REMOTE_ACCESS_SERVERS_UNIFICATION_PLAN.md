@@ -144,10 +144,27 @@ Cada fase é entregue, testada (vitest + pytest quando houver backend), verifica
       `RequireAdmin.test.tsx`, `navSections.test.tsx`. Verificado em 390px e 1440px (2026-10-17).
 
 ### Fase 5 — Um fluxo de "Configurar acesso"
-- [ ] Botão único que escolhe o roteiro por tipo/SO (servidor → instalar chave com admin;
-      estação → preparar estação), funcionando pelo IP Tailscale ou pelo IP da sub-rede.
-- [ ] Toda chave nova na ForgeVault (`ssh_key_ref`); migração em lote das chaves em disco, com
-      `/check` em cada servidor antes de abandonar o caminho em disco.
+- [x] Botão único **Configurar acesso** por máquina (admin, máquina não pronta): servidor → instalar chave
+      com conta de admin; estação → Preparar estação com a máquina já escolhida. Funciona pelo IP Tailscale
+      ou da sub-rede (o SSH sai da VPS, que já roteia 172.15.0.0/16).
+- [x] Toda chave nova na ForgeVault: "Instalar chave" grava a chave na ForgeVault e troca para ela
+      (`ServerInstallKeyResult.vault`); a preparação nunca gera uma segunda chave para uma máquina que já
+      está na chave da ForgeVault; a rotação já gravava.
+- [x] Migração em lote verificada (`POST /servers/keys:to-vault`, botão "Migrar chaves para a ForgeVault"):
+      grava na ForgeVault se preciso → **probe estrito só com a chave da ForgeVault** (bridge
+      `check-status` com `strict`: `-F /dev/null`, `IdentitiesOnly`, a `.pub` da chave do agente) → só então
+      `ssh_key_path` vira NULL (arquivo fica no disco; caminho antigo no `AuditEvent ssh_key_path_released`).
+      Falhou → continua no arquivo, motivo na tela. O backend recusa o probe estrito de um bridge antigo
+      (`vault_strict` na resposta).
+- [x] Prontidão e `/check` usam a chave da ForgeVault quando há uma (mesma ordem do terminal, execuções
+      e Explorer); o terminal aberto pela aba Máquinas passa pelo agente da ForgeVault.
+- [ ] Produção: reiniciar `forgehub-chat-bridge`, implantar, rodar a migração.
+
+Probe real em 2026-10-17 (cópia do bridge na 8911, só `exit`): srv-app01/02/05 **recusam a chave em
+arquivo e aceitam a da ForgeVault** (a prontidão os mostrava sem acesso); host-pve01/02 recusam a chave
+em arquivo (ficarão no arquivo); desk-semed-admin, srv-sup e vmi3547248 passam nos três modos;
+gat-adm-pc01/gat-ges-nb01 offline. **srv-sup e srv-app05 estão cadastrados com o mesmo IP 172.15.2.5**
+(o arquivo da chave do srv-sup indica 100.107.175.100) — corrigir o cadastro.
 
 ### Fase 6 — Limpeza e documentação
 - [ ] Remover hooks/componentes/testes sem uso; atualizar `CLAUDE.md`,

@@ -553,17 +553,24 @@
     },
     "actions": {
       "terminal": "Abrir terminal SSH en {{name}}",
-      "installKey": "Instalar clave SSH en {{name}}",
       "testTailscale": "Probar conexión Tailscale con {{name}}",
       "services": "Servicios publicados por {{name}}",
       "turnOff": "Desactivar el acceso de ForgeHub a {{name}}",
       "turnOn": "Activar el acceso de ForgeHub a {{name}}",
       "delete": "Eliminar {{name}}",
-      "register": "Registrar"
+      "register": "Registrar",
+      "configure": "Configurar acceso a {{name}}"
     },
     "delete": "Eliminar",
     "deleteTitle": "¿Eliminar la máquina?",
-    "deleteDescription": "{{name}} se quitará del inventario de ForgeHub. No cambia nada en la máquina ni en la tailnet."
+    "deleteDescription": "{{name}} se quitará del inventario de ForgeHub. No cambia nada en la máquina ni en la tailnet.",
+    "migrate": {
+      "action": "Migrar claves a ForgeVault",
+      "title": "¿Migrar claves a ForgeVault?",
+      "description": "Para cada máquina con clave en archivo: guarda la clave en ForgeVault, prueba el inicio de sesión solo con ella y, si entra, ForgeHub deja de usar el archivo (que sigue en el disco). Si la prueba falla, la máquina sigue con el archivo.",
+      "confirm": "Migrar",
+      "summary": "{{switched}} migradas · {{already}} ya estaban · {{failed}} mantenidas en el archivo"
+    }
   },
   "servers": {
     "install": {
@@ -579,7 +586,9 @@
       "installing": "Generando la clave, instalándola en el servidor y verificando…",
       "failedAt": "Falló en \"{{step}}\": {{error}}",
       "installedPublicKey": "Clave pública instalada (guardada en el registro del servidor)",
-      "action": "Instalar clave"
+      "action": "Instalar clave",
+      "vaultSwitched": "Clave guardada en ForgeVault y verificada; el archivo ya no se usa.",
+      "vaultFailed": "La clave funciona, pero no fue a ForgeVault: {{reason}}"
     },
     "import": {
       "title": "Importar servidores (CSV)",

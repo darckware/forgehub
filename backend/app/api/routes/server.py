@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import paramiko
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 # paramiko's Transport runs its handshake in a background thread and logs
@@ -138,6 +138,7 @@ async def _check_via_bridge(server: Server) -> tuple[str, str] | None:
                 "remote_user": server.remote_user,
                 "ssh_port": server.ssh_port,
                 "ssh_key_path": server.ssh_key_path,
+                "ssh_key_ref": server.ssh_key_ref,
             }
         ]
     }
@@ -528,6 +529,7 @@ async def _probe_many_via_bridge(servers: list[Server]) -> dict[str, str] | None
                 "remote_user": s.remote_user,
                 "ssh_port": s.ssh_port,
                 "ssh_key_path": s.ssh_key_path,
+                "ssh_key_ref": s.ssh_key_ref,
             }
             for s in servers
         ]
@@ -875,14 +877,23 @@ async def install_server_key(
 
     server.ssh_key_path = data["key_path"]
     server.public_key = data["public_key"]
+    # A fresh key replaces whatever the vault held for this machine.
+    server.ssh_key_ref = None
     if remote_user != server.remote_user:
         server.remote_user = remote_user
     await db.commit()
+    # Every new key goes to ForgeVault (phase 5). The install already worked
+    # with the file, so a vault hiccup is reported, not turned into a failure.
+    try:
+        vault = await _adopt_vault_key(db, server, _admin.username)
+    except HTTPException as exc:
+        vault = f"failed: {exc.detail}"
     return ServerInstallKeyResult(
         ok=True,
         steps=data.get("steps", []),
         key_path=data["key_path"],
         public_key=data["public_key"],
+        vault=vault,
     )
 
 
@@ -1013,33 +1024,94 @@ async def _store_key_in_vault(server: Server) -> None:
     )
 
 
+async def _vault_key_logs_in(server: Server) -> bool:
+    """Strict probe: does the ForgeVault key alone log in? No host config,
+    no default identities (the bridge's `strict` mode) -- so a pass can't come
+    from some other key the host happens to have."""
+    resp = await _bridge_post(
+        "/v1/servers/check-status",
+        {"servers": [{
+            "id": str(server.id), "ip_address": server.ip_address, "remote_user": server.remote_user,
+            "ssh_port": server.ssh_port, "ssh_key_ref": server.ssh_key_ref, "strict": True,
+        }]},
+        timeout=40.0,
+    )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host bridge error: {_bridge_detail(resp)}")
+    body = resp.json()
+    if not body.get("vault_strict"):
+        # An older bridge ignores ssh_key_ref/strict, so "active" there could
+        # come from any key on the host: not proof of anything.
+        raise HTTPException(status_code=503, detail="Host bridge too old for the strict key check -- restart it")
+    return body.get("statuses", {}).get(str(server.id)) == "active"
+
+
+async def _adopt_vault_key(db: AsyncSession, server: Server, actor: str) -> str:
+    """Moves one machine onto its ForgeVault key (phase 5 of
+    REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md): store the key file in the
+    vault if it isn't there, prove the vault key logs in on its own, and only
+    then stop pointing at the file. Returns "switched", "already" or raises
+    with the reason; a failed check leaves the row exactly as it was usable
+    before (file path kept). The file itself stays on disk -- nothing here
+    deletes key material -- and its old path goes into the audit trail."""
+    if not server.ssh_key_ref and not server.ssh_key_path:
+        raise HTTPException(status_code=409, detail="No key known for this machine -- configure access first")
+    if server.ssh_key_ref and not server.ssh_key_path:
+        return "already"
+    if not server.ssh_key_ref:
+        await _store_key_in_vault(server)
+        await db.commit()
+    if not server.access_enabled or not server.ip_address or not server.remote_user:
+        raise HTTPException(status_code=409, detail="Stored in ForgeVault; not verified (access off or no address/login), file kept")
+    if not await _vault_key_logs_in(server):
+        raise HTTPException(status_code=409, detail="Stored in ForgeVault, but the vault key did not log in on its own -- file kept")
+    old_path = server.ssh_key_path
+    server.ssh_key_path = None
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="ssh_key_path_released", actor=actor,
+                      payload={"old_key_path": old_path, "verified_with": "forgevault"}))
+    await db.commit()
+    return "switched"
+
+
 @router.post("/keys:to-vault", response_model=KeysToVaultOut)
 async def keys_to_vault(
     server_ids: list[uuid.UUID] | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Moves every machine key ForgeHub knows into ForgeVault (decision
-    2026-10-16: all keys in the vault). Idempotent: rows already holding a
-    reference are skipped. The host files stay for the interactive terminal
-    and Explorer, which still authenticate with them."""
+    """Moves every machine key ForgeHub knows onto ForgeVault (decision
+    2026-10-16: all keys in the vault; verified switch since 2026-10-17).
+    Per machine: store in the vault if needed, log in with the vault key
+    alone, and only then drop the file path (see _adopt_vault_key).
+    Idempotent: a machine already vault-only is reported as `already`; one
+    whose check fails keeps its file and is reported in `failed`."""
     out = KeysToVaultOut()
-    query = select(Server).where(Server.ssh_key_path.is_not(None)).order_by(Server.name)
+    query = (
+        select(Server)
+        .where(or_(Server.ssh_key_path.is_not(None), Server.ssh_key_ref.is_not(None)))
+        .order_by(Server.name)
+    )
     if server_ids:
         query = query.where(Server.id.in_(server_ids))
     rows = list((await db.execute(query)).scalars())
     for server in rows:
-        if server.ssh_key_ref:
-            out.already.append(server.name)
-            continue
+        name, had_ref = server.name, bool(server.ssh_key_ref)
         try:
-            await _store_key_in_vault(server)
-            out.stored.append(server.name)
+            outcome = await _adopt_vault_key(db, server, admin.username)
         except HTTPException as exc:
-            out.failed[server.name] = str(exc.detail)
+            # Nothing is pending here: a failed store changes nothing, and a
+            # stored key was committed before the check (it stays useful).
+            out.failed[name] = str(exc.detail)
+            continue
+        if outcome == "already":
+            out.already.append(name)
+        else:
+            out.switched.append(name)
+            if not had_ref:
+                out.stored.append(name)
     db.add(AuditEvent(entity_type="server", entity_id=uuid.uuid5(uuid.NAMESPACE_URL, "keys-to-vault"),
                       event_type="ssh_keys_to_vault", actor=admin.username,
-                      payload={"stored": out.stored, "failed": list(out.failed)}))
+                      payload={"switched": out.switched, "stored": out.stored, "failed": list(out.failed)}))
     await db.commit()
     return out
 
@@ -1280,7 +1352,9 @@ async def prepare_host(
             raise HTTPException(status_code=422, detail="Use the client's administrator account, not darckware")
 
     key_created = False
-    if not server.ssh_key_path or not server.public_key:
+    # A machine already on its ForgeVault key keeps that key: minting a file
+    # here would hand the script a public key the vault doesn't hold.
+    if not (server.ssh_key_ref and server.public_key) and (not server.ssh_key_path or not server.public_key):
         resp = await _bridge_post(
             "/v1/servers/ensure-key",
             {"key_name": f"ws_{server.id.hex}", "comment": f"forgehub@{re.sub(r'[^A-Za-z0-9.-]', '-', server.name)}"},
@@ -1326,7 +1400,7 @@ async def prepare_host(
         )
 
     await db.commit()
-    host, port, key_path = server.ip_address, server.ssh_port, server.ssh_key_path
+    host, port, key_path, key_ref = server.ip_address, server.ssh_port, server.ssh_key_path, server.ssh_key_ref
     admin_password, os_family, disable = payload.admin_password, server.os_family, payload.disable_admin
     station_id = server.id
 
@@ -1341,7 +1415,7 @@ async def prepare_host(
         if prep.get("failure"):
             return {**prep, "stdout": "\n".join(log), "stderr": prep.get("stderr")}
         check = await call_bridge_exec_as(
-            host=host, user=STATION_LOGIN, port=port, key_path=key_path, password=None,
+            host=host, user=STATION_LOGIN, port=port, key_path=key_path, key_ref=key_ref, password=None,
             shell=language, script="whoami", timeout_seconds=60,
         )
         ok = not check.get("failure") and STATION_LOGIN in (check.get("stdout") or "").lower()
@@ -1355,7 +1429,7 @@ async def prepare_host(
             await session.commit()
         if disable:
             lock = await call_bridge_exec_as(
-                host=host, user=STATION_LOGIN, port=port, key_path=key_path, password=None,
+                host=host, user=STATION_LOGIN, port=port, key_path=key_path, key_ref=key_ref, password=None,
                 shell=language, script=_lock_admin_script(os_family, admin_user), timeout_seconds=60,
             )
             log.append(f"== 3/3 Bloqueio de {admin_user}: " + ("ok" if not lock.get("failure") else "FALHOU"))

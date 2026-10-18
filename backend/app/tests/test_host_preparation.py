@@ -186,3 +186,26 @@ async def test_prepare_validations(client, station):
         row.os_family = None
         await db.commit()
     assert (await client.post(f"/api/v1/servers/{station.id}/preparation")).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_machine_on_its_vault_key_keeps_it(client, station):
+    """After the phase-5 switch a row has the vault ref and public key but no
+    file path; preparing again must reuse that key, not mint a file whose
+    public half the vault doesn't hold."""
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        row.ssh_key_ref, row.public_key, row.ssh_key_path = "00000000-0000-0000-0000-00000000dddd", KEY, None
+        await db.commit()
+    bridge = AsyncMock(side_effect=_bridge)
+    with (
+        patch.object(server_routes, "_bridge_post", bridge),
+        patch.object(server_routes, "vault_store", AsyncMock(side_effect=_fake_store)),
+    ):
+        resp = await client.post(f"/api/v1/servers/{station.id}/preparation", json={"mode": "copy", "admin_user": "administrador"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["key_created"] is False
+    assert all(call.args[0] != "/v1/servers/ensure-key" for call in bridge.call_args_list)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+    assert row.ssh_key_ref.endswith("dddd") and row.ssh_key_path is None

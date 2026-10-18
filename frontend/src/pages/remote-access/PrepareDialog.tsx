@@ -14,9 +14,14 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { usePreparationViewModel } from "@/hooks/usePreparationViewModel";
 
-export function PrepareDialog({ onClose, onExecution }: { onClose: () => void; onExecution: (id: string) => void }) {
+export function PrepareDialog({ onClose, onExecution, initialServerId }: {
+  onClose: () => void;
+  onExecution: (id: string) => void;
+  /** Opened from a machine's "Configure access": that machine is preselected. */
+  initialServerId?: string;
+}) {
   const { t } = useTranslation("remoteAccess");
-  const vm = usePreparationViewModel(onExecution);
+  const vm = usePreparationViewModel(onExecution, initialServerId);
   const [copied, setCopied] = useState(false);
   const busy = vm.status === "submitting";
 

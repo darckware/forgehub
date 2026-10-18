@@ -553,17 +553,24 @@
     },
     "actions": {
       "terminal": "Open SSH terminal on {{name}}",
-      "installKey": "Install SSH key on {{name}}",
       "testTailscale": "Test Tailscale connection to {{name}}",
       "services": "Services published by {{name}}",
       "turnOff": "Turn off ForgeHub access to {{name}}",
       "turnOn": "Turn on ForgeHub access to {{name}}",
       "delete": "Delete {{name}}",
-      "register": "Register"
+      "register": "Register",
+      "configure": "Configure access to {{name}}"
     },
     "delete": "Delete",
     "deleteTitle": "Delete the machine?",
-    "deleteDescription": "{{name}} will be removed from ForgeHub's inventory. Nothing changes on the machine itself or on the tailnet."
+    "deleteDescription": "{{name}} will be removed from ForgeHub's inventory. Nothing changes on the machine itself or on the tailnet.",
+    "migrate": {
+      "action": "Move keys to ForgeVault",
+      "title": "Move keys to ForgeVault?",
+      "description": "For every machine with a key file: stores the key in ForgeVault, tests logging in with it alone and, if that works, ForgeHub stops using the file (which stays on disk). If the test fails, the machine keeps using the file.",
+      "confirm": "Move",
+      "summary": "{{switched}} moved · {{already}} already there · {{failed}} kept on the file"
+    }
   },
   "servers": {
     "install": {
@@ -579,7 +586,9 @@
       "installing": "Generating key, installing on the server and verifying…",
       "failedAt": "Failed at \"{{step}}\": {{error}}",
       "installedPublicKey": "Installed public key (saved on the server record)",
-      "action": "Install key"
+      "action": "Install key",
+      "vaultSwitched": "Key stored in ForgeVault and verified; the file is no longer used.",
+      "vaultFailed": "The key works, but did not go to ForgeVault: {{reason}}"
     },
     "import": {
       "title": "Import servers (CSV)",

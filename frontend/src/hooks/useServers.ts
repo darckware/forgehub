@@ -249,6 +249,28 @@ export interface ServerInstallKeyResult {
   failed_step: string | null;
   key_path: string | null;
   public_key: string | null;
+  /** "switched" (the new key is in ForgeVault and verified) or "failed: …". */
+  vault?: string | null;
+}
+
+export interface KeysToVaultResult {
+  stored: string[];
+  /** Vault key verified on its own; the key file is no longer used. */
+  switched: string[];
+  already: string[];
+  /** Kept on their key file, with the reason. */
+  failed: Record<string, string>;
+}
+
+/** Moves every known machine key onto ForgeVault, switching a machine only
+ * after its vault key logged in on its own (phase 5 of
+ * REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md). Admin-only. */
+export function useKeysToVault() {
+  const qc = useQueryClient();
+  return useMutation<KeysToVaultResult, Error, void>({
+    mutationFn: () => apiClient.post("/api/v1/servers/keys:to-vault", {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
+  });
 }
 
 /** One-shot dedicated-key installation (generate on host + ssh-copy-id +

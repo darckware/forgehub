@@ -139,12 +139,30 @@ describe("MachinesCard", () => {
     expect(within(screen.getByRole("region", { name: "Sem caminho" })).getByText("srv-old")).toBeInTheDocument();
   });
 
-  it("offers the terminal when ready and the key install for a server that refuses the key", async () => {
+  it("offers the terminal when ready and one Configure access otherwise", async () => {
     renderCard();
     await screen.findByText("srv-ad03");
     expect(screen.getByRole("button", { name: "Abrir terminal SSH em srv-sup" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Instalar chave SSH em srv-ad03" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Instalar chave SSH em GAT-ADM-PC01" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Configurar acesso a GAT-ADM-PC01" })).not.toBeInTheDocument();
+    // A server: the key install dialog.
+    fireEvent.click(screen.getByRole("button", { name: "Configurar acesso a srv-ad03" }));
+    expect(await screen.findByText(/Instalar chave SSH — srv-ad03/)).toBeInTheDocument();
+  });
+
+  it("moves keys to ForgeVault only after confirmation and lists what stayed on the file", async () => {
+    vi.mocked(apiClient.post).mockImplementation(async (url: string) => {
+      if (url === "/api/v1/servers/keys:to-vault") {
+        return { stored: ["srv-sup"], switched: ["srv-sup"], already: [], failed: { "srv-ad03": "file kept" } } as never;
+      }
+      return READINESS as never;
+    });
+    renderCard();
+    await screen.findByText("srv-ad03");
+    fireEvent.click(screen.getByRole("button", { name: /Migrar chaves para a ForgeVault/ }));
+    expect(apiClient.post).not.toHaveBeenCalledWith("/api/v1/servers/keys:to-vault", {});
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Migrar" }));
+    expect(await screen.findByText(/1 migradas · 0 já estavam · 1 mantidas no arquivo/)).toBeInTheDocument();
+    expect(screen.getByText(": file kept", { exact: false })).toBeInTheDocument();
   });
 
   it("registers an unregistered tailnet device through the tailnet sync", async () => {
@@ -173,9 +191,10 @@ describe("MachinesCard", () => {
     expect(apiClient.get).not.toHaveBeenCalledWith("/api/v1/vpn/status");
     expect(screen.queryByRole("region", { name: "Na tailnet, não cadastrados" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir terminal SSH em srv-sup" })).toBeInTheDocument();
-    for (const name of ["Instalar chave SSH em srv-ad03", "Excluir srv-ad03"]) {
+    for (const name of ["Configurar acesso a srv-ad03", "Excluir srv-ad03"]) {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     }
     expect(screen.queryByRole("button", { name: /Nova máquina/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Migrar chaves/ })).not.toBeInTheDocument();
   });
 });

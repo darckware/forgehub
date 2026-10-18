@@ -25,11 +25,14 @@ export interface PreparationViewModel {
   error: string | null;
 }
 
-export function usePreparationViewModel(onExecution: (executionId: string) => void): PreparationViewModel {
+export function usePreparationViewModel(
+  onExecution: (executionId: string) => void,
+  initialServerId = "",
+): PreparationViewModel {
   const { data: servers } = useServers();
   const readiness = useHostReadiness();
   const prepare = usePrepareHost();
-  const [serverId, setServerIdState] = useState("");
+  const [serverId, setServerIdState] = useState(initialServerId);
   const [mode, setMode] = useState<"ssh" | "copy">("ssh");
   const [adminUser, setAdminUser] = useState("administrador");
   const [adminPassword, setAdminPassword] = useState("");

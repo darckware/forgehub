@@ -3341,10 +3341,37 @@ class ServerCheckEntry(BaseModel):
     remote_user: str
     ssh_port: int = 22
     ssh_key_path: str | None = None
+    # ForgeVault secret id of the machine's key; preferred over ssh_key_path,
+    # the same order the terminal, executions and Explorer use.
+    ssh_key_ref: str | None = Field(default=None, min_length=36, max_length=36)
+    # Prove that *this* key logs in: no ~/.ssh/config, no default identities,
+    # only the vault key. Used before ForgeHub stops pointing at a key file
+    # (phase 5 of REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md) -- a plain probe
+    # could pass on some other key the host happens to have.
+    strict: bool = False
 
 
 class ServerCheckRequest(BaseModel):
     servers: list[ServerCheckEntry]
+
+
+async def _vault_identity_args(key_ref: str) -> list[str]:
+    """ssh options that authenticate with the ForgeVault key alone: its agent
+    socket plus its public half as the only identity (ssh then asks the agent
+    for the matching private key). The .pub sits in the agent's 0700 dir."""
+    sock = await _agent_socket_for(key_ref)
+    proc = await asyncio.create_subprocess_exec(
+        "ssh-add", "-L", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        env={**os.environ, "SSH_AUTH_SOCK": sock},
+    )
+    out, _ = await proc.communicate()
+    public = out.decode().strip().splitlines()
+    if proc.returncode != 0 or not public:
+        raise ValueError("The ForgeVault agent holds no key")
+    pub_path = os.path.join(os.path.dirname(sock), "identity.pub")
+    with open(pub_path, "w") as fh:
+        fh.write(public[0] + "\n")
+    return ["-F", "/dev/null", "-o", f"IdentityAgent={sock}", "-i", pub_path, "-o", "IdentitiesOnly=yes"]
 
 
 async def _check_one_server(entry: ServerCheckEntry) -> str:
@@ -3366,8 +3393,21 @@ async def _check_one_server(entry: ServerCheckEntry) -> str:
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
     ]
-    if entry.ssh_key_path:
+    if entry.ssh_key_ref:
+        if not re.fullmatch(r"[0-9a-f-]{36}", entry.ssh_key_ref):
+            return "not_installed"
+        try:
+            if entry.strict:
+                ssh_args += await _vault_identity_args(entry.ssh_key_ref)
+            else:
+                ssh_args += ["-o", f"IdentityAgent={await _agent_socket_for(entry.ssh_key_ref)}"]
+        except Exception:
+            # The vault or its agent failed: nothing proves the key works.
+            return "not_installed"
+    elif entry.ssh_key_path:
         ssh_args += ["-i", entry.ssh_key_path]
+        if entry.strict:
+            ssh_args += ["-F", "/dev/null", "-o", "IdentitiesOnly=yes"]
     if entry.ssh_port != 22:
         ssh_args += ["-p", str(entry.ssh_port)]
     # `exit`, not `true`: it is a builtin of sh, cmd.exe and PowerShell alike,
@@ -3394,7 +3434,10 @@ async def check_server_status(
 ) -> dict:
     _check_token(x_bridge_token)
     results = await asyncio.gather(*(_check_one_server(e) for e in req.servers))
-    return {"statuses": {e.id: status for e, status in zip(req.servers, results)}}
+    # "vault_strict": this bridge honours ssh_key_ref/strict. An older one
+    # ignores both fields and would probe with whatever keys the host has --
+    # the backend refuses to trust a strict check without this flag.
+    return {"statuses": {e.id: status for e, status in zip(req.servers, results)}, "vault_strict": True}
 
 
 # ---------------------------------------------------------------------------
