@@ -102,11 +102,6 @@ class Settings(BaseSettings):
     # refuses every event (fail-closed: it is reachable without a JWT).
     AGENT_ACTIVITY_WEBHOOK_SECRET: str = ""
 
-    # Nexo Remote Agent artifacts are built by the host bridge and exposed to
-    # this backend beneath a separate, read-only mount root.
-    NEXO_ARTIFACT_ROOT: Path = Path("/tmp/forgehub-nexo-artifacts")
-    NEXO_INGESTION_URL: str = ""
-
     # ForgeRouter dashboard SSO (see api/routes/forgerouter.py). URL is the
     # backend-to-backend address; the browser reaches ForgeRouter directly
     # via VITE_FORGEROUTER_URL on the frontend side. Container name on
@@ -179,10 +174,6 @@ class Settings(BaseSettings):
     }
     GIT_CONTROL_DEFAULT_REPO: str = "hermes"
     BACKUP_ROOT: str = "/root/backup"
-    # Host path, written through the host-bridge, from which Headscale loads
-    # the ForgeHub-managed file-mode ACL policy.
-    HEADSCALE_ACL_POLICY_PATH: str = "/etc/headscale/acl-policy.hujson"
-    HEADSCALE_ADMIN_PRINCIPAL: str = "marcelo@"
     # Trash path passed by System Control to the authoritative Athos cleanup
     # script. The weekly foundation-clear cron invokes that same script with
     # /root/trash as its default, avoiding duplicated cleanup policies.

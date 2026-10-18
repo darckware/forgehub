@@ -1,5 +1,7 @@
 # Pacotes e monitoramento do Nexo Remote Agent
 
+> **Aposentado em 2026-10-17.** O domínio Nexo (clientes, estações, irregularidades, relatórios, pacotes do agente) foi removido do ForgeHub — código, rotas, telas e tabelas (migration `a9c4e7f2b1d6`; dump em `/root/backup/forgehub-nexo/`). Este documento fica só como histórico.
+
 Este runbook orienta administradores a produzir os binários do agente, baixar um pacote de instalação
 por estação e acompanhar sua confirmação. A operação é interna ao ForgeHub; não cadastra clientes no
 Darckware e não altera o ForgeRouter.

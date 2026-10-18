@@ -20,7 +20,6 @@ MODULES = [
     "product", "projects", "pipeline", "backlog", "tasks", "agents",
     "artifacts", "governance", "forgerouter", "obsidian",
     "foundation", "crons", "deploy", "database", "users", "profiles",
-    "clients",
 ]
 
 SENSITIVE_ACTIONS = (

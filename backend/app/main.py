@@ -23,7 +23,6 @@ from app.core.security import decode_access_token
 from app.api.routes import (
     agent,
     agent_activity,
-    agent_report,
     ai_draft,
     artifact,
     audit,
@@ -31,10 +30,7 @@ from app.api.routes import (
     backlog,
     channel,
     chat,
-    client,
     client_ops,
-    client_access,
-    client_report,
     cron_scripts,
     database,
     deploy,
@@ -52,13 +48,10 @@ from app.api.routes import (
     governance,
     governed_approval,
     hindsight,
-    irregularity,
     mcp_catalog,
-    nexo_installation,
     notifications,
     operations,
     orchestration,
-    peer_grant,
     pipeline,
     progress,
     prompt_commands,
@@ -84,7 +77,6 @@ from app.api.routes import (
     vault,
     vpn,
     workspace_browser,
-    workstation,
 )
 
 
@@ -162,11 +154,6 @@ _PUBLIC_API_PATHS = {
     # Agent runtime activity webhooks -- authenticated by the HMAC signature
     # over the body (AGENT_ACTIVITY_WEBHOOK_SECRET), checked in the route.
     "/api/v1/agent-activity/events",
-    # Nexo Remote Agent ingestion -- authenticated by its own X-Device-Token
-    # header (hashed and matched against Workstation.device_token_hash, see
-    # agent_report.py), never a User/Agent JWT/agt_ principal. Same "this
-    # route does its own auth" trust boundary as /demands/submit above.
-    "/api/v1/agent-reports",
     # An agent's own cron/loop pulling its pending mail -- see
     # demand.py's list_pending_for_agent docstring.
     "/api/v1/demands/pending",
@@ -192,8 +179,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        client_access_path = request.method == "GET" and path.startswith("/api/v1/client-access/clients/")
-        if request.method == "OPTIONS" or not path.startswith("/api/v1/") or path in _PUBLIC_API_PATHS or client_access_path:
+        if request.method == "OPTIONS" or not path.startswith("/api/v1/") or path in _PUBLIC_API_PATHS:
             return await call_next(request)
         auth_header = request.headers.get("authorization", "")
         token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
@@ -364,14 +350,7 @@ app.include_router(progress.router)
 app.include_router(execution.router)
 app.include_router(factory.router)
 app.include_router(backlog.router)
-app.include_router(client.router)
-app.include_router(client_report.router)
-app.include_router(client_access.router)
 app.include_router(client_ops.router)
-app.include_router(workstation.router)
-app.include_router(peer_grant.router)
-app.include_router(agent_report.router)
-app.include_router(irregularity.router)
 app.include_router(task.router)
 app.include_router(task.responsibility_router)
 app.include_router(agent.router)
@@ -384,7 +363,6 @@ app.include_router(audit.router)
 app.include_router(governance.router)
 app.include_router(governed_approval.router)
 app.include_router(hindsight.router)
-app.include_router(nexo_installation.router)
 app.include_router(foundation.router)
 app.include_router(foundation_docs.router)
 app.include_router(foundation_script.router)
@@ -492,14 +470,6 @@ BACKGROUND_TEST_COMPLETION_POLL_INTERVAL_SECONDS = 15
 # periodic, non-urgent maintenance sweep (e.g. the Auditor's own checks).
 DEMAND_RETENTION_POLL_INTERVAL_SECONDS = 21600
 
-# How often workstations that stopped reporting are detected and marked
-# as unreachable. 5 minutes is sufficient for the 15-minute staleness
-# threshold.
-WORKSTATION_STALENESS_POLL_INTERVAL_SECONDS = 300
-
-# Reports are monthly documents; an hourly pass gives restarts and transient
-# database failures another chance without delaying ordinary app startup.
-CLIENT_REPORT_POLL_INTERVAL_SECONDS = 3600
 #: The Maia's per-message context pass over WhatsApp contacts (2026-10-14).
 PERSONAL_CONTEXT_POLL_INTERVAL_SECONDS = 30
 #: ForgeRouter registry -> Agent.forgerouter_api_key_encrypted (2026-10-14).
@@ -803,34 +773,6 @@ async def _active_turn_sweep_loop() -> None:
         await asyncio.sleep(ACTIVE_TURN_SWEEP_INTERVAL_SECONDS)
 
 
-async def _workstation_staleness_poll_loop() -> None:
-    """Detects workstations that stopped reporting and raises agent_unreachable
-    Irregularities. Own task like the other passes: this only touches our
-    database and must keep running independent of other sweeps."""
-    from app.core.workstation_staleness import run_workstation_staleness_sweep
-    from app.db.base import AsyncSessionLocal
-
-    while True:
-        try:
-            async with AsyncSessionLocal() as db:
-                await run_workstation_staleness_sweep(db)
-        except Exception:
-            logger.exception("Workstation staleness poll failed")
-        await asyncio.sleep(WORKSTATION_STALENESS_POLL_INTERVAL_SECONDS)
-
-
-async def _client_report_poll_loop() -> None:
-    from app.core.client_reports import run_monthly_report_pass
-    from app.db.base import AsyncSessionLocal
-
-    while True:
-        try:
-            await run_monthly_report_pass(AsyncSessionLocal)
-        except Exception:
-            logger.exception("Client report poll failed")
-        await asyncio.sleep(CLIENT_REPORT_POLL_INTERVAL_SECONDS)
-
-
 async def _personal_context_poll_loop() -> None:
     """Context + capture suggestions for each WhatsApp message a contact sent (2026-10-14) -- see
     core/personal_context.py. Own task: a ForgeRouter outage must not stall any other pass."""
@@ -912,7 +854,6 @@ async def _start_background_tasks() -> None:
         ("scheduled-dispatch-poll", _scheduled_dispatch_poll_loop),
         ("dispatch-timeout-poll", _dispatch_timeout_poll_loop),
         ("active-turn-sweep", _active_turn_sweep_loop),
-        ("client-report-poll", _client_report_poll_loop),
         ("client-ops-poll", _client_ops_poll_loop),
         ("forgerouter-key-sync-poll", _forgerouter_key_sync_poll_loop),
         ("personal-context-poll", _personal_context_poll_loop),
@@ -925,7 +866,6 @@ async def _start_background_tasks() -> None:
         ("evidence-verification-poll", _evidence_verification_poll_loop),
         ("demand-retention-poll", _demand_retention_poll_loop),
         ("agent-activity-retention", _agent_activity_retention_loop),
-        ("workstation-staleness-poll", _workstation_staleness_poll_loop),
         ("host-schedule-poll", _host_schedule_poll_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]

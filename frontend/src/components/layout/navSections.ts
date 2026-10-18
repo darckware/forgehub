@@ -139,7 +139,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
   {
     // Client demands console (2026-10-04): Darckware stores clients, tickets,
     // demands and e-mails; these screens operate them. Its own section, not
-    // Operations -- that one is infra/ops tooling (Nexo's /clients stays there).
+    // Operations -- that one is infra/ops tooling.
     type: "section",
     labelKey: "nav.section.clientOps",
     entries: [

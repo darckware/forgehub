@@ -19,8 +19,10 @@ def base(tmp_path, monkeypatch):
     monkeypatch.setattr(pg, "GRUPOS", grupos)
     monkeypatch.setattr(pg, "RASCUNHOS", grupos / "_rascunhos.json")
     monkeypatch.setattr(pg, "ENVIOS_LOG", grupos / "_envios.jsonl")
+    monkeypatch.setattr(pg, "MONITORAMENTO", grupos / "_monitoramento.json")
     (grupos / "_grupos.json").write_text(json.dumps({CHAT: {"nome": "Família Ferreira"},
                                                      "2@g.us": {"nome": "Condomínio"}}))
+    pg.MONITORAMENTO.write_text(json.dumps({"enabled": [CHAT, "2@g.us"]}))
     (grupos / "120363000000000001.jsonl").write_text(
         json.dumps({"ts": 1000.0, "quando": "12/10/2026 10:00", "chat": CHAT, "autor": "Ana", "texto": "almoço domingo?"}) + "\n")
     return grupos
@@ -53,9 +55,32 @@ def _runner(calls, ok=True):
 
 def test_list_and_read_groups(base):
     grupos = pg.list_groups(agora=1000.0 + 60)
-    assert grupos[0] == {"grupo": "Família Ferreira", "id": CHAT, "status": "active", "mensagens_24h": 1, "ultima_mensagem": "12/10/2026 10:00"}
+    assert grupos[0] == {"grupo": "Família Ferreira", "id": CHAT, "status": "active", "monitorado": True,
+                         "mensagens_24h": 1, "ultima_mensagem": "12/10/2026 10:00"}
     msgs = pg.group_messages("família", horas=24, agora=1000.0 + 60)
     assert msgs["mensagens"] == [{"quando": "12/10/2026 10:00", "autor": "Ana", "texto": "almoço domingo?"}]
+
+
+def test_monitoring_can_remove_and_add_group_without_deleting_history(base):
+    pg.MONITORAMENTO.write_text(json.dumps({"enabled": [CHAT, "2@g.us"]}))
+    stopped = pg.set_group_monitoring("Família", False)
+    assert stopped["monitorado"] is False
+    assert next(group for group in pg.list_groups(agora=1060) if group["id"] == CHAT)["monitorado"] is False
+    assert (base / "120363000000000001.jsonl").exists()
+    with pytest.raises(pg.GroupError, match="monitorado"):
+        pg.group_messages("Família", horas=24, agora=1060)
+    resumed = pg.set_group_monitoring(CHAT, True)
+    assert resumed["monitorado"] is True
+    assert pg.group_messages("Família", horas=24, agora=1060)["mensagens"]
+
+
+def test_new_group_can_be_added_by_id_after_bridge_verifies_membership(base, monkeypatch):
+    novo = "120363999999999999@g.us"
+    monkeypatch.setattr(pg, "_bridge_group_name", lambda chat: "Grupo Novo" if chat == novo else None)
+    result = pg.set_group_monitoring(novo, True)
+    assert result["monitorado"] is True and result["grupo"] == "Grupo Novo"
+    assert novo in json.loads(pg.MONITORAMENTO.read_text())["enabled"]
+    assert json.loads((base / "_grupos.json").read_text())[novo]["nome"] == "Grupo Novo"
 
 
 def test_sync_is_read_only_and_reports_bridge_limitation(base, monkeypatch):
@@ -81,6 +106,31 @@ def test_sync_merges_observed_group_without_network_or_send(base, monkeypatch):
     assert salvo[novo]["nome"] == "Grupo Novo"
     assert salvo[novo]["id"] == novo
     assert salvo[novo]["status"] == "active"
+
+
+def test_group_name_lookup_rejects_a_different_whatsapp_session(base, monkeypatch):
+    class Response:
+        def __init__(self, data):
+            self.data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return json.dumps(self.data).encode()
+
+    calls = []
+
+    def urlopen(url, timeout=0):
+        calls.append(url)
+        return Response({"status": "connected", "session": "/root/.hermes/profiles/lara/whatsapp/session"})
+
+    monkeypatch.setattr(pg.urllib.request, "urlopen", urlopen)
+    assert pg._bridge_group_name(CHAT) is None
+    assert len(calls) == 1
 
 
 def test_resolve_rejects_unknown_and_ambiguous(base):

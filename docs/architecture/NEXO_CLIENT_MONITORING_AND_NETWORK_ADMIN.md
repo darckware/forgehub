@@ -1,5 +1,7 @@
 # Nexo Client Monitoring, Network Administration, and Installer Distribution
 
+> **Aposentado em 2026-10-17.** O domínio Nexo (clientes, estações, irregularidades, relatórios, pacotes do agente) foi removido do ForgeHub — código, rotas, telas e tabelas (migration `a9c4e7f2b1d6`; dump em `/root/backup/forgehub-nexo/`). Este documento fica só como histórico.
+
 **Status:** proposed, not yet implemented
 **Owner:** Athos (governance) / Daedalus (implementation)
 **Upstream:** `/root/project/nexo` (Remote Agent, merged to `main`; ACL/Headscale overlay, Fase 1

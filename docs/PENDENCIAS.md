@@ -1,5 +1,7 @@
 # Pendências — Nexo, Headscale e Darckware
 
+> **Aposentado em 2026-10-17.** O domínio Nexo (clientes, estações, irregularidades, relatórios, pacotes do agente) foi removido do ForgeHub — código, rotas, telas e tabelas (migration `a9c4e7f2b1d6`; dump em `/root/backup/forgehub-nexo/`). Este documento fica só como histórico.
+
 > **Atualizado em:** 2026-09-17
 > **Escopo:** acompanhamento da entrega descrita em
 > [`architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md`](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md).

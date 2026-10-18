@@ -18,19 +18,19 @@ describe("authenticated file downloads", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(blob, {
         status: 200,
-        headers: { "Content-Disposition": 'attachment; filename="nexo-package.zip"' },
+        headers: { "Content-Disposition": 'attachment; filename="report.zip"' },
       }),
     );
 
-    const result = await apiClient.postDownload("/api/v1/workstations/abc/installation-package", {
+    const result = await apiClient.postDownload("/api/v1/reports/abc/export", {
       build_id: "build-123",
     });
 
-    expect(result.filename).toBe("nexo-package.zip");
+    expect(result.filename).toBe("report.zip");
     expect(result.blob).toBeInstanceOf(Blob);
     expect(result.blob.size).toBe(13);
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/workstations/abc/installation-package"),
+      expect.stringContaining("/api/v1/reports/abc/export"),
       expect.objectContaining({
         method: "POST",
         headers: {

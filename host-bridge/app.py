@@ -59,7 +59,6 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request, UploadFile, 
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from nexo_builds import build_agent, inspect_source
 from agent_runtime import resolve_runtime_executable, validate_working_directory
 from vpn_control import VpnControl, VpnPolicyError
 from remote_fs import make_remote_fs_router
@@ -256,37 +255,9 @@ app = FastAPI(title="ForgeHub chat bridge")
 _vpn_control = VpnControl()
 
 
-class NexoSourceResponse(BaseModel):
-    git_sha: str
-    agent_version: str
-
-
-class NexoBuildResponse(NexoSourceResponse):
-    os_kind: Literal["linux", "windows"]
-    artifact_path: str
-    artifact_size: int
-    sha256: str
-    log_excerpt: str
-
-
 def _check_token(x_bridge_token: str | None) -> None:
     if not x_bridge_token or x_bridge_token != BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid or missing bridge token")
-
-
-@app.get("/v1/nexo/source", response_model=NexoSourceResponse)
-async def nexo_source(x_bridge_token: str | None = Header(default=None)):
-    _check_token(x_bridge_token)
-    return inspect_source()
-
-
-@app.post("/v1/nexo/build/{os_kind}", response_model=NexoBuildResponse)
-async def nexo_build(
-    os_kind: Literal["linux", "windows"],
-    x_bridge_token: str | None = Header(default=None),
-):
-    _check_token(x_bridge_token)
-    return await asyncio.to_thread(build_agent, os_kind)
 
 
 def _workspace_browser_running() -> bool:
