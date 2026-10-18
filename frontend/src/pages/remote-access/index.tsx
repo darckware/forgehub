@@ -34,7 +34,7 @@ import { ExecutionsCard } from "./ExecutionsCard";
 import { PrepareDialog } from "./PrepareDialog";
 import { RotationDialog } from "./RotationDialog";
 import { TailnetPolicyCard } from "./TailnetPolicyCard";
-import { WorkstationsCard } from "./WorkstationsCard";
+import { MachinesCard } from "./MachinesCard";
 import { ExecutionComposer } from "./ExecutionComposer";
 import { SchedulesPanel } from "./SchedulesPanel";
 import { ScriptLibrary } from "./ScriptLibrary";
@@ -406,7 +406,7 @@ export default function RemoteAccessPage() {
               </Button>
             ))}
           </div>
-          <WorkstationsCard />
+          <MachinesCard />
           {rotating && (
             <RotationDialog
               kind={rotating}

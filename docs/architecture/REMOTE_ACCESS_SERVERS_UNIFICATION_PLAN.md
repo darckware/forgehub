@@ -116,12 +116,15 @@ Cada fase é entregue, testada (vitest + pytest quando houver backend), verifica
 - [ ] Conferir que 172.15.x.x:22 responde a partir da VPS e que as redes Docker seguem intactas.
 
 ### Fase 3 — Tabela única de máquinas
-- [ ] Aba **Máquinas** lista servidores, estações e dispositivos não cadastrados juntos, com a
-      coluna/grupo **Caminho** e os filtros acima; roteadores mostram as rotas que anunciam.
-- [ ] Ações por linha conforme tipo e caminho: terminal SSH, verificar, testar conexão Tailscale,
+- [x] Aba **Máquinas** (`pages/remote-access/MachinesCard.tsx`) lista servidores, estações e
+      dispositivos não cadastrados juntos, em seções por caminho, com filtros caminho/tipo/cliente/
+      prontidão; roteadores mostram as rotas que anunciam; IP 100.x exibido quando o cadastro usa o da LAN.
+- [x] Ações por linha conforme tipo e caminho: terminal SSH, verificar, testar conexão Tailscale,
       Configurar acesso, serviços publicados, senhas/RustDesk, editar, excluir, Cadastrar.
-- [ ] `useMachinesViewModel` (§21), absorvendo `useWorkstationsViewModel`, o estado de
+- [x] `useMachinesViewModel` (§21), absorvendo `useWorkstationsViewModel`, o estado de
       `pages/servers/index.tsx` e a lista de dispositivos de `useRemoteAccessViewModel`.
+      `WorkstationsCard`/`useWorkstationsViewModel` removidos; diálogos de servidor extraídos para
+      `pages/servers/ServerDialogs.tsx`. Verificado em 390px e 1440px (2026-10-17).
 
 ### Fase 4 — Uma tela, uma entrada no menu, Rede só diagnóstico
 - [ ] `/servers` → `/remote-access?tab=machines`; sidebar/Ctrl+K com uma entrada.

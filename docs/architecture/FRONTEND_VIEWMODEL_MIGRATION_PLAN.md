@@ -151,6 +151,9 @@ sub-conversion, ticked off independently.
       on 2026-08-14 is already a ViewModel pair (`useServerKeyVaultViewModel.ts` +
       `KeyVaultSection`); the rest of the page (form modal, install-key modal, status probes) is
       still inline state, so the box stays unchecked.
+      Being replaced (2026-10-17) by Remote Access › Machines, already a ViewModel pair
+      (`useMachinesViewModel.ts` + `pages/remote-access/MachinesCard.tsx`); the page itself is
+      removed in phase 4 of `REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md`.
 - [ ] `frontend/src/pages/crons/index.tsx` (633 lines)
 - [ ] `frontend/src/pages/auditor/index.tsx` (628 lines)
 - [ ] `frontend/src/pages/system-control/index.tsx` (604 lines)

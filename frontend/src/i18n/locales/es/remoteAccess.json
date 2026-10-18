@@ -528,5 +528,62 @@
     "confirm_other": "¿Rotar en {{count}} máquinas? El resultado aparece en la pantalla de ejecución.",
     "run_one": "Rotar ({{count}})",
     "run_other": "Rotar ({{count}})"
+  },
+  "machines": {
+    "title": "Máquinas",
+    "totals": "{{ready}} de {{total}} listas · {{attention}} requieren atención · {{offline}} offline",
+    "new": "Nueva máquina",
+    "importCsv": "Importar CSV",
+    "groups": "Grupos:",
+    "search": "Buscar por nombre, IP, cliente o ubicación",
+    "loadFailed": "No se pudieron cargar las máquinas.",
+    "empty": "No hay máquinas registradas. Use \"Nueva máquina\" o \"Sincronizar desde la tailnet\".",
+    "tailscaleIpHint": "Dirección Tailscale de este dispositivo; el registro usa la IP de la red local.",
+    "routerOf": "Enruta {{routes}}",
+    "notAccepted": "La VPS ve esta ruta, pero tiene \"aceptar rutas\" desactivado: estas máquinas no son alcanzables hasta activarlo.",
+    "kind": {
+      "server": "Servidor",
+      "workstation": "Estación"
+    },
+    "sections": {
+      "tailscale": "Tailscale",
+      "subnet": "Vía subred · {{router}}",
+      "none": "Sin camino",
+      "unknown": "Camino desconocido",
+      "unregistered": "En la tailnet, sin registrar"
+    },
+    "sectionHelp": {
+      "tailscale": "Tienen Tailscale instalado; la VPS llega directo por la IP 100.x.",
+      "subnet": "Sin Tailscale; la VPS llega por la subred {{routes}} que anuncia este enrutador.",
+      "none": "Sin Tailscale y fuera de toda subred que la VPS vea: ForgeHub no alcanza estas máquinas.",
+      "unknown": "No se pudo leer la tailnet ahora para saber el camino.",
+      "unregistered": "Dispositivos de la tailnet sin registro en ForgeHub (celulares, notebooks, máquinas aún no importadas)."
+    },
+    "filters": {
+      "path": "Camino",
+      "allPaths": "Todos los caminos",
+      "subnet": "Vía subred",
+      "kind": "Tipo",
+      "allKinds": "Todos los tipos",
+      "allClients": "Todos los clientes"
+    },
+    "columns": {
+      "name": "Máquina",
+      "kind": "Tipo / SO",
+      "client": "Cliente / grupo"
+    },
+    "actions": {
+      "terminal": "Abrir terminal SSH en {{name}}",
+      "installKey": "Instalar clave SSH en {{name}}",
+      "testTailscale": "Probar conexión Tailscale con {{name}}",
+      "services": "Servicios publicados por {{name}}",
+      "turnOff": "Desactivar el acceso de ForgeHub a {{name}}",
+      "turnOn": "Activar el acceso de ForgeHub a {{name}}",
+      "delete": "Eliminar {{name}}",
+      "register": "Registrar"
+    },
+    "delete": "Eliminar",
+    "deleteTitle": "¿Eliminar la máquina?",
+    "deleteDescription": "{{name}} se quitará del inventario de ForgeHub. No cambia nada en la máquina ni en la tailnet."
   }
 }

@@ -528,5 +528,62 @@
     "confirm_other": "Rotate on {{count}} machines? The result shows on the execution screen.",
     "run_one": "Rotate ({{count}})",
     "run_other": "Rotate ({{count}})"
+  },
+  "machines": {
+    "title": "Machines",
+    "totals": "{{ready}} of {{total}} ready · {{attention}} need attention · {{offline}} offline",
+    "new": "New machine",
+    "importCsv": "Import CSV",
+    "groups": "Groups:",
+    "search": "Search by name, IP, client or location",
+    "loadFailed": "Could not load the machines.",
+    "empty": "No machines registered. Use \"New machine\" or \"Sync from tailnet\".",
+    "tailscaleIpHint": "This device's Tailscale address; the record uses the local network IP.",
+    "routerOf": "Routes {{routes}}",
+    "notAccepted": "The VPS sees this route but has \"accept routes\" off: these machines are unreachable until it is turned on.",
+    "kind": {
+      "server": "Server",
+      "workstation": "Workstation"
+    },
+    "sections": {
+      "tailscale": "Tailscale",
+      "subnet": "Via subnet · {{router}}",
+      "none": "No path",
+      "unknown": "Path unknown",
+      "unregistered": "On the tailnet, not registered"
+    },
+    "sectionHelp": {
+      "tailscale": "Tailscale installed; the VPS reaches them directly on their 100.x IP.",
+      "subnet": "No Tailscale; the VPS reaches them through the {{routes}} subnet this router advertises.",
+      "none": "No Tailscale and outside every subnet the VPS can see: ForgeHub cannot reach these machines.",
+      "unknown": "The tailnet could not be read right now to tell the path.",
+      "unregistered": "Tailnet devices with no ForgeHub record (phones, laptops, machines not imported yet)."
+    },
+    "filters": {
+      "path": "Path",
+      "allPaths": "All paths",
+      "subnet": "Via subnet",
+      "kind": "Type",
+      "allKinds": "All types",
+      "allClients": "All clients"
+    },
+    "columns": {
+      "name": "Machine",
+      "kind": "Type / OS",
+      "client": "Client / group"
+    },
+    "actions": {
+      "terminal": "Open SSH terminal on {{name}}",
+      "installKey": "Install SSH key on {{name}}",
+      "testTailscale": "Test Tailscale connection to {{name}}",
+      "services": "Services published by {{name}}",
+      "turnOff": "Turn off ForgeHub access to {{name}}",
+      "turnOn": "Turn on ForgeHub access to {{name}}",
+      "delete": "Delete {{name}}",
+      "register": "Register"
+    },
+    "delete": "Delete",
+    "deleteTitle": "Delete the machine?",
+    "deleteDescription": "{{name}} will be removed from ForgeHub's inventory. Nothing changes on the machine itself or on the tailnet."
   }
 }
