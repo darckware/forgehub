@@ -197,4 +197,14 @@ describe("MachinesCard", () => {
     expect(screen.queryByRole("button", { name: /Nova máquina/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Migrar chaves/ })).not.toBeInTheDocument();
   });
+
+  it("edits a machine in a right-hand panel that Escape closes", async () => {
+    renderCard();
+    await screen.findByText("srv-ad03");
+    fireEvent.click(screen.getByRole("button", { name: "Editar srv-ad03" }));
+    const panel = await screen.findByRole("dialog", { name: "Editar servidor" });
+    expect(panel.className).toContain("justify-end");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Editar servidor" })).not.toBeInTheDocument();
+  });
 });

@@ -15,7 +15,7 @@
  * (colocated in `useServers.ts`), the standard the rest of the codebase's
  * forms follow -- the previous version hand-rolled an if-chain.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -371,18 +371,31 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
     }
   }
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // A confirm dialog inside the panel handles its own Escape first
+      // (preventDefault): that must close the dialog, not the panel.
+      if (e.key === "Escape" && !e.defaultPrevented && !pending) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, pending]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      {/* Capped height + a single scrolling region: the header and the actions
-          must stay reachable however long the form grows. */}
+    // A right-hand panel, not a centered modal (2026-10-18, Marcelo: "remover a
+    // tela de editar servidor do modal, adicione a tela a direita"): full
+    // height, the machine list still visible beside it; full width on a phone.
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-labelledby="server-form-title">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      {/* A single scrolling region between a fixed header and fixed actions:
+          both stay reachable however long the form grows. */}
       <form noValidate
         onSubmit={handleSubmit(onSubmit)}
-        className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+        className="relative z-10 flex h-full w-full max-w-xl flex-col overflow-hidden border-l border-border bg-card shadow-2xl motion-safe:animate-in motion-safe:slide-in-from-right"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <h2 className="text-base font-semibold">{initial ? t("form.editTitle") : t("form.newTitle")}</h2>
-          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <h2 id="server-form-title" className="text-base font-semibold">{initial ? t("form.editTitle") : t("form.newTitle")}</h2>
+          <button type="button" onClick={onClose} aria-label={t("form.cancel")} className="cursor-pointer text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
