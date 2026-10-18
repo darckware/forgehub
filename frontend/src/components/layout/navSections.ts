@@ -32,7 +32,6 @@ import {
   Sparkles,
   Users,
   Wrench,
-  Network,
   ShieldEllipsis,
   UserRound,
 } from "lucide-react";
@@ -163,8 +162,10 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       // the "auditor" module in Access Profiles for non-admin visibility.
       { type: "link", to: "/auditor", labelKey: "nav.auditor", icon: ClipboardCheck, module: "auditor" },
       { type: "link", to: "/deploy", labelKey: "nav.deployControl", icon: Server, module: "deploy" },
-      { type: "link", to: "/servers", labelKey: "nav.servers", icon: Network, module: "servers" },
-      { type: "link", to: "/remote-access", labelKey: "nav.remoteAccess", icon: ShieldEllipsis, module: "vpn", adminOnly: true },
+      // Servers and Remote Access are one screen since 2026-10-17
+      // (REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md): gated on the "servers"
+      // module; the admin-only parts (scripts, network, passwords) gate inside.
+      { type: "link", to: "/remote-access", labelKey: "nav.remoteAccess", icon: ShieldEllipsis, module: "servers" },
       {
         type: "group",
         labelKey: "nav.database",

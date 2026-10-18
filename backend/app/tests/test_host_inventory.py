@@ -15,7 +15,10 @@ from app.api.routes import host_group as host_group_routes
 from app.api.routes import server as server_routes
 from app.api.schemas.vpn import VpnNode, VpnPosture, VpnStatus
 from app.db.base import AsyncSessionLocal
+from app.core.security import create_access_token, hash_password
+from app.db.models.profile import Profile, ProfilePermission
 from app.db.models.server import HostGroup, Server
+from app.db.models.user import User
 
 
 @pytest_asyncio.fixture
@@ -276,3 +279,42 @@ async def test_readiness_reports_access_path_and_tailscale_ip(client, marker):
     assert by_id[str(lan.id)]["tailscale_ipv4"] == "100.127.9.2"
     assert by_id[str(orphan.id)]["access_path"] == "none"
     server_routes._ssh_probe_cache.update({"at": None, "statuses": {}})
+
+
+@pytest.mark.asyncio
+async def test_readiness_is_open_to_the_servers_module():
+    """Remote Access › Machines replaced the Servers page for the "servers"
+    module (2026-10-17): a non-admin with servers.view reads readiness, one
+    without it does not, and the tailnet sync stays admin-only."""
+    tag = uuid.uuid4().hex[:12]
+    async with AsyncSessionLocal() as db:
+        profile = Profile(name=f"test-servers-{tag}")
+        db.add(profile)
+        await db.flush()
+        db.add(ProfilePermission(profile_id=profile.id, module="servers", can_view=True))
+        db.add(User(username=f"test-servers-{tag}", hashed_password=hash_password(tag), profile_id=profile.id))
+        db.add(User(username=f"test-noperm-{tag}", hashed_password=hash_password(tag)))
+        await db.commit()
+        profile_id = profile.id
+    app = FastAPI()
+    app.include_router(server_routes.router)
+    server_routes._ssh_probe_cache.update({"at": None, "statuses": {}})
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            with (
+                patch.object(server_routes, "fetch_tailnet_status", AsyncMock(return_value=_status([]))),
+                patch.object(server_routes, "_probe_many_via_bridge", AsyncMock(return_value={})),
+            ):
+                allowed = {"Authorization": f"Bearer {create_access_token(f'test-servers-{tag}')}"}
+                denied = {"Authorization": f"Bearer {create_access_token(f'test-noperm-{tag}')}"}
+                resp = await c.get("/api/v1/servers/readiness", headers=allowed)
+                assert resp.status_code == 200, resp.text
+                assert (await c.get("/api/v1/servers/readiness", headers=denied)).status_code == 403
+                sync = await c.post("/api/v1/servers/tailnet:sync", json={"import_node_ids": []}, headers=allowed)
+                assert sync.status_code == 403
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(User).where(User.username.in_([f"test-servers-{tag}", f"test-noperm-{tag}"])))
+            await db.execute(delete(ProfilePermission).where(ProfilePermission.profile_id == profile_id))
+            await db.execute(delete(Profile).where(Profile.id == profile_id))
+            await db.commit()

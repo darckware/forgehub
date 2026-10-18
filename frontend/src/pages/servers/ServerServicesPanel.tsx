@@ -24,7 +24,7 @@ import { useServerServicesViewModel } from "@/hooks/useServerServicesViewModel";
 import type { Server } from "@/hooks/useServers";
 
 export function ServerServicesPanel({ server }: { server: Server }) {
-  const { t } = useTranslation("servers");
+  const { t } = useTranslation("remoteAccess", { keyPrefix: "servers" });
   const vm = useServerServicesViewModel(server.id);
 
   return (

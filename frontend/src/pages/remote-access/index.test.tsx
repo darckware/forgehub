@@ -5,7 +5,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import i18n from "@/i18n";
 import type { VpnNode, VpnStatus } from "@/hooks/useVpn";
+import { useAuthStore, type AuthUser } from "@/store/authStore";
 import RemoteAccessPage from ".";
+
+const user = (isAdmin: boolean): AuthUser => ({
+  id: "11111111-1111-4111-8111-111111111111",
+  username: isAdmin ? "admin" : "operator",
+  email: null,
+  full_name: null,
+  avatar_data_url: null,
+  totp_enabled: false,
+  is_active: true,
+  is_admin: isAdmin,
+  profile_id: null,
+  ui_language: "pt-BR",
+});
 
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
@@ -91,7 +105,7 @@ const STATUS: VpnStatus = {
   }),
   peers: [
     node({}),
-    node({ id: "nBBB11CNTRL", name: "srv-sup", hostname: "srv-sup", os: "linux", tags: ["tag:semed-srv"], tailscale_ipv4: "100.107.175.100" }),
+    node({ id: "nBBB11CNTRL", name: "srv-sup", hostname: "srv-sup", os: "linux", tags: ["tag:semed-srv"], tailscale_ipv4: "100.107.175.100", subnet_routes: ["172.15.0.0/16"] }),
     node({
       id: "nCCC11CNTRL",
       name: "desk-semed-admin",
@@ -109,6 +123,7 @@ const STATUS: VpnStatus = {
 beforeEach(async () => {
   await i18n.changeLanguage("pt-BR");
   vi.clearAllMocks();
+  useAuthStore.setState({ user: user(true), permissions: {} });
   mocks.status.mockReturnValue({ data: STATUS, isLoading: false, isError: false, isFetching: false, refetch: mocks.refetch });
   mocks.operations.mockReturnValue({
     data: {
@@ -134,18 +149,17 @@ beforeEach(async () => {
 });
 
 describe("Remote Access page", () => {
-  it("shows this server and every tailnet device grouped by tag", () => {
+  it("shows this server and the subnet routers, not a device list", () => {
     renderAt();
 
     expect(screen.getByRole("heading", { name: "Acesso Remoto" })).toBeInTheDocument();
     expect(screen.getByText("darckware-srv")).toBeInTheDocument();
-    for (const group of ["gatling-users", "semed-srv", "semed-users"]) {
-      expect(screen.getByRole("region", { name: group })).toBeInTheDocument();
-    }
-    const offline = screen.getByRole("region", { name: "semed-users" });
-    expect(within(offline).getByText("desk-semed-admin")).toBeInTheDocument();
-    expect(within(offline).getByText("88480281099")).toBeInTheDocument();
-    expect(within(offline).getByText("0 de 1 online")).toBeInTheDocument();
+    // Devices live in Machines now; the network tab lists only routers.
+    expect(screen.queryByText("desk-semed-admin")).not.toBeInTheDocument();
+    expect(screen.getByText("srv-sup")).toBeInTheDocument();
+    expect(screen.getByText("172.15.0.0/16")).toBeInTheDocument();
+    // The VPS does not accept routes in this fixture.
+    expect(screen.getByText(/não aceita rotas de sub-rede/)).toBeInTheDocument();
   });
 
   it("never offers connect/disconnect on this server", () => {
@@ -153,14 +167,6 @@ describe("Remote Access page", () => {
 
     expect(screen.queryByRole("button", { name: /conectar/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /desconectar/i })).not.toBeInTheDocument();
-  });
-
-  it("tests an online device by its stable id and disables offline ones", () => {
-    renderAt();
-
-    fireEvent.click(screen.getByRole("button", { name: "Testar conexão com gat-adm-pc01" }));
-    expect(mocks.mutate).toHaveBeenCalledWith({ node: "nAAA11CNTRL", action: "test" }, expect.any(Object));
-    expect(screen.getByRole("button", { name: "Testar conexão com desk-semed-admin" })).toBeDisabled();
   });
 
   it("asks for confirmation before restarting Tailscale on this server", () => {
@@ -171,19 +177,6 @@ describe("Remote Access page", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Reiniciar" }));
     expect(mocks.mutate).toHaveBeenCalledWith({ node: "self", action: "restart" }, expect.any(Object));
-  });
-
-  it("filters by group, state and search text", () => {
-    renderAt();
-
-    fireEvent.change(screen.getByPlaceholderText(/Buscar por nome/), { target: { value: "srv-sup" } });
-    expect(screen.getByRole("region", { name: "semed-srv" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "gatling-users" })).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByPlaceholderText(/Buscar por nome/), { target: { value: "" } });
-    fireEvent.change(screen.getByDisplayValue("Todos"), { target: { value: "offline" } });
-    expect(screen.getByRole("region", { name: "semed-users" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "semed-srv" })).not.toBeInTheDocument();
   });
 
   it("labels history rows with the device name", () => {
@@ -207,5 +200,14 @@ describe("Remote Access page", () => {
     expect(screen.getByTestId("where").textContent).toContain("system=rustdesk_install");
     fireEvent.click(screen.getByRole("tab", { name: "Biblioteca" }));
     expect(screen.getByText("library")).toBeInTheDocument();
+  });
+
+  it("shows a non-admin only the machine list: no tabs, no quick actions", () => {
+    useAuthStore.setState({ user: user(false), permissions: { servers: { can_view: true, can_query: true, can_write: false, can_delete: false } } });
+    renderAt("?tab=network");
+
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Instalar RustDesk/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("darckware-srv")).not.toBeInTheDocument();
   });
 });

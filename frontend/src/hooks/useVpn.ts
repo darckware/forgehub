@@ -97,10 +97,13 @@ export function tagLabel(tag: string): string {
   return tag.startsWith("tag:") ? tag.slice(4) : tag;
 }
 
-export function useVpnStatus() {
+/** `enabled: false` for non-admins: the route is admin-only, and Machines
+ * (open to the "servers" module) reads it only to enrich its rows. */
+export function useVpnStatus({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery<VpnStatus>({
     queryKey: vpnKeys.status,
     queryFn: () => apiClient.get("/api/v1/vpn/status"),
+    enabled,
     refetchInterval: () => (document.visibilityState === "visible" ? 15_000 : false),
     retry: false,
   });

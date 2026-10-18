@@ -183,12 +183,12 @@ export function MachinesCard() {
                   <SquareTerminal className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
-              {machine.access_enabled && !ready && machine.kind === "server" && (
+              {vm.isAdmin && machine.access_enabled && !ready && machine.kind === "server" && (
                 <IconButton label={t("machines.actions.installKey", { name: machine.name })} onClick={() => vm.install(machine)} className="text-amber-500">
                   <KeyRound className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
-              {node && (
+              {vm.isAdmin && node && (
                 <IconButton
                   label={t("machines.actions.testTailscale", { name: machine.name })}
                   onClick={() => vm.testNode(node.id)}
@@ -199,12 +199,12 @@ export function MachinesCard() {
                     : <Activity className="h-4 w-4" aria-hidden="true" />}
                 </IconButton>
               )}
-              {machine.rustdesk_password_stored && (
+              {vm.isAdmin && machine.rustdesk_password_stored && (
                 <IconButton label={t("password.rustdeskFor", { name: machine.name })} onClick={() => setRevealing({ machine, kind: "rustdesk" })}>
                   <MonitorSmartphone className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
-              {machine.login_password_stored && (
+              {vm.isAdmin && machine.login_password_stored && (
                 <IconButton label={t("password.for", { name: machine.name })} onClick={() => setRevealing({ machine, kind: "login" })}>
                   <KeyRound className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
@@ -214,20 +214,26 @@ export function MachinesCard() {
                   <Network className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
-              <IconButton
-                label={t(machine.access_enabled ? "machines.actions.turnOff" : "machines.actions.turnOn", { name: machine.name })}
-                onClick={() => vm.toggleAccess(machine)}
-                disabled={vm.togglingAccess}
-                className={machine.access_enabled ? "text-emerald-600" : "text-muted-foreground"}
-              >
-                {machine.access_enabled ? <Power className="h-4 w-4" aria-hidden="true" /> : <PowerOff className="h-4 w-4" aria-hidden="true" />}
-              </IconButton>
-              <IconButton label={t("workstations.editFor", { name: machine.name })} onClick={() => vm.openForm(machine)}>
-                <Pencil className="h-4 w-4" aria-hidden="true" />
-              </IconButton>
-              <IconButton label={t("machines.actions.delete", { name: machine.name })} onClick={() => vm.askDelete(machine)} className="text-destructive hover:text-destructive">
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </IconButton>
+              {vm.canWrite && (
+                <IconButton
+                  label={t(machine.access_enabled ? "machines.actions.turnOff" : "machines.actions.turnOn", { name: machine.name })}
+                  onClick={() => vm.toggleAccess(machine)}
+                  disabled={vm.togglingAccess}
+                  className={machine.access_enabled ? "text-emerald-600" : "text-muted-foreground"}
+                >
+                  {machine.access_enabled ? <Power className="h-4 w-4" aria-hidden="true" /> : <PowerOff className="h-4 w-4" aria-hidden="true" />}
+                </IconButton>
+              )}
+              {vm.canWrite && (
+                <IconButton label={t("workstations.editFor", { name: machine.name })} onClick={() => vm.openForm(machine)}>
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                </IconButton>
+              )}
+              {vm.canDelete && (
+                <IconButton label={t("machines.actions.delete", { name: machine.name })} onClick={() => vm.askDelete(machine)} className="text-destructive hover:text-destructive">
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                </IconButton>
+              )}
             </div>
           </TableCell>
         </TableRow>
@@ -253,23 +259,31 @@ export function MachinesCard() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={() => vm.openForm("new")} className="cursor-pointer gap-1.5">
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" /> {t("machines.new")}
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={vm.sync} disabled={vm.syncing} className="cursor-pointer gap-1.5">
-              {vm.syncing ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Waypoints className="h-3.5 w-3.5" aria-hidden="true" />}
-              {t("workstations.syncTailnet")}
-            </Button>
+            {vm.canWrite && (
+              <Button type="button" size="sm" onClick={() => vm.openForm("new")} className="cursor-pointer gap-1.5">
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" /> {t("machines.new")}
+              </Button>
+            )}
+            {vm.isAdmin && (
+              <Button type="button" size="sm" variant="outline" onClick={vm.sync} disabled={vm.syncing} className="cursor-pointer gap-1.5">
+                {vm.syncing ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Waypoints className="h-3.5 w-3.5" aria-hidden="true" />}
+                {t("workstations.syncTailnet")}
+              </Button>
+            )}
             <Button type="button" size="sm" variant="outline" onClick={vm.probeNow} disabled={vm.probing} className="cursor-pointer gap-1.5">
               {vm.probing ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
               {t("workstations.probeNow")}
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => vm.setImportingCsv(true)} className="cursor-pointer gap-1.5">
-              <Upload className="h-3.5 w-3.5" aria-hidden="true" /> {t("machines.importCsv")}
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={vm.startGroup} className="cursor-pointer gap-1.5">
-              <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" /> {t("workstations.newGroup")}
-            </Button>
+            {vm.canWrite && (
+              <Button type="button" size="sm" variant="outline" onClick={() => vm.setImportingCsv(true)} className="cursor-pointer gap-1.5">
+                <Upload className="h-3.5 w-3.5" aria-hidden="true" /> {t("machines.importCsv")}
+              </Button>
+            )}
+            {vm.canWrite && (
+              <Button type="button" size="sm" variant="outline" onClick={vm.startGroup} className="cursor-pointer gap-1.5">
+                <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" /> {t("workstations.newGroup")}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -378,14 +392,14 @@ export function MachinesCard() {
                 <span key={group.id} className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs">
                   {group.name}
                   <span className="text-muted-foreground">{counts ? `${counts.ready}/${counts.total}` : "0/0"}</span>
-                  <button
+                  {vm.canDelete && <button
                     type="button"
                     onClick={() => vm.askDeleteGroup(group)}
                     aria-label={t("workstations.deleteGroupFor", { name: group.name })}
                     className="cursor-pointer text-muted-foreground hover:text-destructive"
                   >
                     <Trash2 className="h-3 w-3" aria-hidden="true" />
-                  </button>
+                  </button>}
                 </span>
               );
             })}

@@ -14,19 +14,23 @@ function remoteAccessEntry(): NavLinkEntry {
 
 
 describe("Remote Access navigation policy", () => {
-  it("places Remote Access in Operations as an administrator-only page", () => {
+  // Servers and Remote Access became one screen (2026-10-17): one entry,
+  // gated on the "servers" module, open to non-admins who have it.
+  it("places Remote Access in Operations on the servers module", () => {
     const entry = remoteAccessEntry();
 
     expect(entry.labelKey).toBe("nav.remoteAccess");
-    expect(entry.module).toBe("vpn");
-    expect(entry.adminOnly).toBe(true);
+    expect(entry.module).toBe("servers");
+    expect(entry.adminOnly).toBeFalsy();
+    expect(isNavEntryVisible(entry, false)).toBe(true);
   });
 
-  it("hides administrator-only links from non-admin navigation consumers", () => {
-    const entry = remoteAccessEntry();
+  it("no longer links the old /servers page", () => {
+    const links = NAV_SECTIONS.flatMap((section) => section.entries)
+      .filter((candidate) => candidate.type === "link")
+      .map((candidate) => candidate.to);
 
-    expect(isNavEntryVisible(entry, false)).toBe(false);
-    expect(isNavEntryVisible(entry, true)).toBe(true);
+    expect(links).not.toContain("/servers");
   });
 });
 

@@ -9,7 +9,21 @@ import type { HostReadinessEntry } from "@/hooks/useHostInventory";
 import type { Server } from "@/hooks/useServers";
 import type { VpnNode } from "@/hooks/useVpn";
 import { apiClient } from "@/lib/api";
+import { useAuthStore, type AuthUser } from "@/store/authStore";
 import { MachinesCard } from "./MachinesCard";
+
+const user = (isAdmin: boolean): AuthUser => ({
+  id: "11111111-1111-4111-8111-111111111111",
+  username: isAdmin ? "admin" : "operator",
+  email: null,
+  full_name: null,
+  avatar_data_url: null,
+  totp_enabled: false,
+  is_active: true,
+  is_admin: isAdmin,
+  profile_id: null,
+  ui_language: "pt-BR",
+});
 
 vi.mock("@/lib/api", () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
@@ -107,6 +121,7 @@ describe("buildMachineSections", () => {
 describe("MachinesCard", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    useAuthStore.setState({ user: user(true), permissions: {} });
     await i18n.changeLanguage("pt-BR");
   });
 
@@ -148,5 +163,19 @@ describe("MachinesCard", () => {
     fireEvent.change(screen.getByLabelText("Filtrar por prontidão"), { target: { value: "attention" } });
     expect(screen.getByText("srv-ad03")).toBeInTheDocument();
     expect(screen.queryByText("GAT-ADM-PC01")).not.toBeInTheDocument();
+  });
+
+  it("gives a view-only servers user the sections without admin actions or the tailnet", async () => {
+    useAuthStore.setState({ user: user(false), permissions: { servers: { can_view: true, can_query: true, can_write: false, can_delete: false } } });
+    renderCard();
+    await screen.findByText("srv-ad03");
+    expect(screen.getByRole("region", { name: "Via sub-rede · srv-sup" })).toBeInTheDocument();
+    expect(apiClient.get).not.toHaveBeenCalledWith("/api/v1/vpn/status");
+    expect(screen.queryByRole("region", { name: "Na tailnet, não cadastrados" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abrir terminal SSH em srv-sup" })).toBeInTheDocument();
+    for (const name of ["Instalar chave SSH em srv-ad03", "Excluir srv-ad03"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: /Nova máquina/ })).not.toBeInTheDocument();
   });
 });

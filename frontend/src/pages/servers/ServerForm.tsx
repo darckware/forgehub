@@ -55,7 +55,7 @@ import { useServerKeyVaultViewModel } from "@/hooks/useServerKeyVaultViewModel";
  * backup directory, and the Workspace terminal simply lost those servers.
  */
 function KeyVaultSection({ server }: { server: Server }) {
-  const { t } = useTranslation("servers");
+  const { t } = useTranslation("remoteAccess", { keyPrefix: "servers" });
   const vm = useServerKeyVaultViewModel(server);
 
   return (
@@ -154,7 +154,7 @@ function KeyVaultSection({ server }: { server: Server }) {
  * passphrase can be stored or cleared without validating the rest of the form.
  */
 function PassphraseSection({ server }: { server: Server }) {
-  const { t } = useTranslation("servers");
+  const { t } = useTranslation("remoteAccess", { keyPrefix: "servers" });
   const { data: detail, isLoading } = useServer(server.id);
   const updateServer = useUpdateServer();
   const [value, setValue] = useState("");
@@ -248,7 +248,7 @@ function PassphraseSection({ server }: { server: Server }) {
  * with nothing to validate, and it must work whether or not the rest of the
  * form is currently valid. */
 function AccessSection({ server }: { server: Server }) {
-  const { t } = useTranslation("servers");
+  const { t } = useTranslation("remoteAccess", { keyPrefix: "servers" });
   const toggleAccess = useToggleServerAccess();
   const enabled = server.access_enabled;
 
@@ -280,7 +280,7 @@ function AccessSection({ server }: { server: Server }) {
 }
 
 export function ServerForm({ initial, onClose }: { initial: Server | null; onClose: () => void }) {
-  const { t } = useTranslation("servers");
+  const { t } = useTranslation("remoteAccess", { keyPrefix: "servers" });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pubKeyCopied, setPubKeyCopied] = useState(false);

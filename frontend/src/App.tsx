@@ -1,6 +1,6 @@
 import { Navigate, Routes, Route, useLocation } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { RequireAdmin } from "@/components/auth/RequireAdmin";
+import { RequireAdmin, RequireModule } from "@/components/auth/RequireAdmin";
 import { useAuthStore } from "@/store/authStore";
 import LoginPage from "@/pages/auth/LoginPage";
 import Dashboard from "@/pages/Dashboard";
@@ -40,7 +40,6 @@ import FoundationPage from "@/pages/foundation";
 import CronsPage from "@/pages/crons";
 import SystemControlPage from "@/pages/system-control";
 import DeployPage from "@/pages/deploy";
-import ServersPage from "@/pages/servers";
 import ClientDemandsPage from "@/pages/client-demands";
 import ClientEmailsPage from "@/pages/client-emails";
 import PersonalPage from "@/pages/personal";
@@ -129,13 +128,13 @@ export default function App() {
         <Route path="operations" element={<OperationsPage />} />
         <Route path="docs" element={<DocsPage />} />
         <Route path="deploy" element={<DeployPage />} />
-        <Route path="servers" element={<ServersPage />} />
+        <Route path="servers" element={<Navigate to="/remote-access?tab=machines" replace />} />
         <Route path="client-demands" element={<ClientDemandsPage />} />
         <Route path="client-emails" element={<ClientEmailsPage />} />
         <Route path="personal" element={<PersonalPage />} />
         <Route path="client-accounts" element={<ClientAccountsPage />} />
         <Route path="client-accounts/:id" element={<ClientAccountPage />} />
-        <Route path="remote-access" element={<RequireAdmin><RemoteAccessPage /></RequireAdmin>} />
+        <Route path="remote-access" element={<RequireModule module="servers"><RemoteAccessPage /></RequireModule>} />
         <Route path="remote-access/executions/:id" element={<RequireAdmin><ExecutionPage /></RequireAdmin>} />
         <Route path="vpn" element={<Navigate to="/remote-access" replace />} />
         <Route path="users" element={<UsersPage />} />

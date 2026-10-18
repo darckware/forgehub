@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import "@/i18n";
 import { useAuthStore, type AuthUser } from "@/store/authStore";
-import { RequireAdmin } from "./RequireAdmin";
+import { RequireAdmin, RequireModule } from "./RequireAdmin";
 
 const user = (isAdmin: boolean): AuthUser => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -42,5 +42,36 @@ describe("RequireAdmin", () => {
     expect(screen.getByRole("heading", { name: "Acesso negado" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Voltar ao painel" })).toHaveAttribute("href", "/");
     expect(screen.queryByText("Controle VPN")).not.toBeInTheDocument();
+  });
+});
+
+describe("RequireModule", () => {
+  function renderModuleGuard(isAdmin: boolean, canView: boolean) {
+    useAuthStore.setState({
+      user: user(isAdmin),
+      permissions: canView ? { servers: { can_view: true, can_query: true, can_write: false, can_delete: false } } : {},
+    });
+    render(
+      <MemoryRouter initialEntries={["/remote-access"]}>
+        <Routes>
+          <Route path="/remote-access" element={<RequireModule module="servers"><p>Máquinas</p></RequireModule>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it("allows a non-admin with the module", () => {
+    renderModuleGuard(false, true);
+    expect(screen.getByText("Máquinas")).toBeInTheDocument();
+  });
+
+  it("rejects a non-admin without it", () => {
+    renderModuleGuard(false, false);
+    expect(screen.getByRole("heading", { name: "Acesso negado" })).toBeInTheDocument();
+  });
+
+  it("always allows administrators", () => {
+    renderModuleGuard(true, false);
+    expect(screen.getByText("Máquinas")).toBeInTheDocument();
   });
 });

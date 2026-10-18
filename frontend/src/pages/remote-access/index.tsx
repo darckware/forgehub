@@ -3,17 +3,13 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   Activity,
-  Cable,
   CheckCircle2,
-  Laptop,
   Loader2,
   RefreshCw,
   RotateCw,
-  Search,
-  Server,
   ShieldCheck,
-  Smartphone,
   TriangleAlert,
+  Waypoints,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -23,13 +19,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useRemoteAccessViewModel, type DeviceStateFilter } from "@/hooks/useRemoteAccessViewModel";
+import { useRemoteAccessViewModel } from "@/hooks/useRemoteAccessViewModel";
 import type { VpnNode, VpnOperation } from "@/hooks/useVpn";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/authStore";
 import { ExecutionsCard } from "./ExecutionsCard";
 import { PrepareDialog } from "./PrepareDialog";
 import { RotationDialog } from "./RotationDialog";
@@ -55,12 +50,6 @@ function stateBadge(node: VpnNode, t: T) {
 function operationBadge(operation: VpnOperation, t: T) {
   const variant = operation.status === "succeeded" ? "success" : operation.status === "running" ? "warning" : "destructive";
   return <Badge variant={variant}>{t(`operationStatus.${operation.status}`)}</Badge>;
-}
-
-function osIcon(os: string | null) {
-  if (os === "android" || os === "iOS") return Smartphone;
-  if (os === "linux") return Server;
-  return Laptop;
 }
 
 function NetworkTab() {
@@ -187,102 +176,42 @@ function NetworkTab() {
 
 
       <Card>
-        <CardHeader className="flex flex-col gap-3 space-y-0 pb-3">
-          <CardTitle className="text-base">{t("devices.title")}</CardTitle>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_200px_160px]">
-            <label className="relative">
-              <span className="sr-only">{t("devices.search")}</span>
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <Input value={vm.query} onChange={(event) => vm.setQuery(event.target.value)} placeholder={t("devices.search")} className="pl-8 max-md:text-base" />
-            </label>
-            <label>
-              <span className="sr-only">{t("devices.group")}</span>
-              <Select value={vm.groupFilter} onChange={(event) => vm.setGroupFilter(event.target.value)} className="max-md:text-base">
-                <option value="all">{t("devices.allGroups")}</option>
-                {vm.groupOptions.map((option) => (
-                  <option key={option.tag || "none"} value={option.tag}>{option.label || t("devices.noGroup")}</option>
-                ))}
-              </Select>
-            </label>
-            <label>
-              <span className="sr-only">{t("devices.state")}</span>
-              <Select value={vm.stateFilter} onChange={(event) => vm.setStateFilter(event.target.value as DeviceStateFilter)} className="max-md:text-base">
-                <option value="all">{t("devices.all")}</option>
-                <option value="online">{t("state.online")}</option>
-                <option value="offline">{t("state.offline")}</option>
-              </Select>
-            </label>
-          </div>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Waypoints className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> {t("routes.title")}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">{t("routes.description")}</p>
         </CardHeader>
-        <CardContent className="space-y-6">
-          {vm.groups.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">{t("devices.empty")}</p>
-          ) : (
-            vm.groups.map((group) => (
-              <section key={group.tag || "none"} aria-label={group.label || t("devices.noGroup")}>
-                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                  <h2 className="text-sm font-semibold">{group.label || t("devices.noGroup")}</h2>
-                  <span className="text-xs text-muted-foreground">{t("devices.groupSummary", { online: group.online, total: group.devices.length })}</span>
-                </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("devices.name")}</TableHead>
-                      <TableHead>{t("devices.os")}</TableHead>
-                      <TableHead>{t("devices.ip")}</TableHead>
-                      <TableHead>{t("devices.status")}</TableHead>
-                      <TableHead>{t("devices.path")}</TableHead>
-                      <TableHead>{t("devices.lastSeen")}</TableHead>
-                      <TableHead className="text-right">{t("devices.actions")}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {group.devices.map((device) => {
-                      const Icon = osIcon(device.os);
-                      const name = device.name ?? device.hostname ?? device.id;
-                      const testing = vm.testingId === device.id;
-                      return (
-                        <TableRow key={device.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Icon className={cn("h-4 w-4 shrink-0", device.online ? "text-emerald-500" : "text-muted-foreground")} aria-hidden="true" />
-                              <div className="min-w-0">
-                                <p className="font-medium">{name}</p>
-                                {device.hostname && device.hostname.toLowerCase() !== name.toLowerCase() && (
-                                  <p className="text-xs text-muted-foreground">{device.hostname}</p>
-                                )}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="capitalize">{device.os ?? "—"}</TableCell>
-                          <TableCell className="font-mono text-xs">{device.tailscale_ipv4 ?? "—"}</TableCell>
-                          <TableCell>{stateBadge(device, t)}</TableCell>
-                          <TableCell className="whitespace-nowrap text-xs">
-                            {t(`path.${device.connection?.kind ?? "unavailable"}`, { relay: device.connection?.relay ?? "" })}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-xs">{device.online ? t("devices.now") : dateTime(device.last_seen, locale)}</TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => vm.testDevice(device)}
-                              disabled={!device.online || vm.testingId !== null}
-                              aria-label={t("devices.testFor", { name })}
-                              className="cursor-pointer gap-1.5"
-                            >
-                              {testing ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Cable className="h-3.5 w-3.5" aria-hidden="true" />}
-                              {t("devices.test")}
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </section>
-            ))
+        <CardContent className="space-y-3">
+          {vm.acceptRoutes === false && vm.routers.length > 0 && (
+            <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">{t("routes.notAccepted")}</p>
           )}
+          {vm.routers.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">{t("routes.empty")}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("routes.router")}</TableHead>
+                  <TableHead>{t("devices.status")}</TableHead>
+                  <TableHead>{t("routes.routes")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {vm.routers.map((router) => (
+                  <TableRow key={router.id}>
+                    <TableCell>
+                      <p className="font-medium">{router.name ?? router.hostname ?? router.id}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{router.tailscale_ipv4 ?? "—"}</p>
+                    </TableCell>
+                    <TableCell>{stateBadge(router, t)}</TableCell>
+                    <TableCell className="font-mono text-xs">{(router.subnet_routes ?? []).join(", ")}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          <p className="text-xs text-muted-foreground">{t("routes.approvedOnly")}</p>
         </CardContent>
       </Card>
 
@@ -351,12 +280,19 @@ type ScriptsTab = "run" | "library" | "schedules" | "history";
 /** Remote Access (2026-10-16 restructure, docs/architecture/REMOTE_MAINTENANCE_PLAN.md):
  * Machines / Scripts and executions / Network. Tabs live in the URL
  * (?tab=&sub=&system=) so the Machines tab's install buttons can open the
- * execution screen with a system script already chosen. */
+ * execution screen with a system script already chosen.
+ *
+ * Since 2026-10-17 this is also the old Servers page (/servers redirects
+ * here), so it opens for the "servers" module. Everything past the machine
+ * list -- quick actions, scripts, network -- is admin-only, as the backend
+ * routes behind them are; a non-admin sees Machines with no tab strip. */
 export default function RemoteAccessPage() {
   const { t } = useTranslation("remoteAccess");
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const tab = (params.get("tab") as MainTab) || "machines";
+  const isAdmin = useAuthStore((state) => state.user?.is_admin ?? false);
+  const requested = (params.get("tab") as MainTab) || "machines";
+  const tab: MainTab = isAdmin ? requested : "machines";
   const sub = (params.get("sub") as ScriptsTab) || "run";
   const system = params.get("system");
   const [preparing, setPreparing] = useState(false);
@@ -383,14 +319,16 @@ export default function RemoteAccessPage() {
         description={t("subtitle")}
       />
       <Tabs value={tab} onValueChange={(v) => go({ tab: v, system: null })} className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="machines">{t("tabs.machines")}</TabsTrigger>
-          <TabsTrigger value="scripts">{t("tabs.scripts")}</TabsTrigger>
-          <TabsTrigger value="network">{t("tabs.network")}</TabsTrigger>
-        </TabsList>
+        {isAdmin && (
+          <TabsList>
+            <TabsTrigger value="machines">{t("tabs.machines")}</TabsTrigger>
+            <TabsTrigger value="scripts">{t("tabs.scripts")}</TabsTrigger>
+            <TabsTrigger value="network">{t("tabs.network")}</TabsTrigger>
+          </TabsList>
+        )}
 
         <TabsContent value="machines" className="space-y-6">
-          <div className="flex flex-wrap gap-2" role="group" aria-label={t("quick.title")}>
+          {isAdmin && <div className="flex flex-wrap gap-2" role="group" aria-label={t("quick.title")}>
             <Button type="button" size="sm" className="cursor-pointer gap-1.5" onClick={() => setPreparing(true)}>
               <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t("quick.prepare")}
             </Button>
@@ -405,7 +343,7 @@ export default function RemoteAccessPage() {
                 <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t(`quick.${action}`)}
               </Button>
             ))}
-          </div>
+          </div>}
           <MachinesCard />
           {rotating && (
             <RotationDialog

@@ -82,7 +82,7 @@ from app.core.host_exec_runner import call_bridge_exec_as
 from app.db.base import AsyncSessionLocal
 from app.api.routes.vpn import fetch_tailnet_status
 from app.core.config import settings
-from app.core.deps import get_current_admin
+from app.core.deps import get_current_admin, require_perm
 from app.core.forgevault import machine_secret_name, vault_reveal, vault_store
 from app.core.host_enrollment import (
     LOGIN as ENROLL_LOGIN,
@@ -619,12 +619,17 @@ def classify_access_path(
 async def get_readiness(
     refresh: bool = False,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(get_current_admin),
+    _user: User = Depends(require_perm("servers", "view")),
 ):
-    """Whether each machine can take a command right now. The tailnet is read
-    on every call; the SSH probe is cached for 5 minutes (`refresh=true`
-    forces it) and only runs for machines that could answer (enabled, with a
-    login, not offline in the tailnet). "busy" arrives with phase 4 (command
+    """Whether each machine can take a command right now. Open to the
+    "servers" module, not just admins (2026-10-17): Remote Access › Machines
+    replaced the Servers page, and this is the read side of what `/{id}/check`
+    already lets that module do -- the admin-only parts stay behind their own
+    routes.
+
+    The tailnet is read on every call; the SSH probe is cached for 5 minutes
+    (`refresh=true` forces it) and only runs for machines that could answer
+    (enabled, with a login, not offline in the tailnet). "busy" arrives with phase 4 (command
     executions) -- a machine with a command queued or running."""
     servers = list((await db.execute(select(Server).order_by(Server.name))).scalars().all())
     tailnet = await fetch_tailnet_status()

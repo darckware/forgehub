@@ -127,10 +127,21 @@ Cada fase é entregue, testada (vitest + pytest quando houver backend), verifica
       `pages/servers/ServerDialogs.tsx`. Verificado em 390px e 1440px (2026-10-17).
 
 ### Fase 4 — Uma tela, uma entrada no menu, Rede só diagnóstico
-- [ ] `/servers` → `/remote-access?tab=machines`; sidebar/Ctrl+K com uma entrada.
-- [ ] Remover `pages/servers/index.tsx` (reaproveitar `ServerForm` e `ServerServicesPanel`).
-- [ ] Aba **Rede Tailscale**: VPS (+ aceita rotas), rotas anunciadas × aprovadas, ACL, histórico.
-- [ ] i18n: juntar chaves de `servers.json` em `remoteAccess.json`; apagar órfãs.
+- [x] `/servers` → `/remote-access?tab=machines`; sidebar/Ctrl+K com uma entrada (módulo `servers`).
+      Rota guardada por `RequireModule` (`components/auth/RequireAdmin.tsx`); `/remote-access/executions/:id`
+      continua só admin.
+- [x] `pages/servers/index.tsx` removido; `ServerForm`, `ServerServicesPanel` e `ServerDialogs` ficam
+      em `pages/servers/` e são usados por Máquinas.
+- [x] Aba **Rede Tailscale**: VPS (+ aceita rotas), rotas de sub-rede por roteador, totais, histórico, ACL.
+      A lista de dispositivos saiu (está em Máquinas). Anunciadas × aprovadas segue dependendo da chave de API.
+- [x] i18n: `servers.json` incorporado a `remoteAccess.json` (chave `servers`, via `keyPrefix`); órfãs
+      (`devices.*` da lista antiga, `path.*`, `servers.page.*`, `servers.status.*`, `nav.servers`) apagadas.
+- [x] Permissão: não-admin com `servers.view` vê só Máquinas (sem abas, sem ações rápidas); dentro do
+      card, criar/editar/importar/ligar-desligar pedem `can_write`, excluir `can_delete`; sincronizar/
+      cadastrar/testar Tailscale, instalar chave e senhas só admin. `/vpn/status` não é buscado para
+      não-admin. Backend: `GET /servers/readiness` passou de admin para `require_perm("servers","view")`.
+      Testes: `test_readiness_is_open_to_the_servers_module`, `MachinesCard.test.tsx`, `index.test.tsx`,
+      `RequireAdmin.test.tsx`, `navSections.test.tsx`. Verificado em 390px e 1440px (2026-10-17).
 
 ### Fase 5 — Um fluxo de "Configurar acesso"
 - [ ] Botão único que escolhe o roteiro por tipo/SO (servidor → instalar chave com admin;

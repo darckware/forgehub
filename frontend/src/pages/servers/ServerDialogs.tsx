@@ -31,7 +31,7 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
  * .pub via ssh-copy-id and verifies BatchMode auth. Mirrors the manual
  * procedure in /root/.hermes/scripts/configure_ssh.sh, parameterized. */
 export function InstallKeyModal({ server, onClose, onInstalled }: { server: Server; onClose: () => void; onInstalled: () => void }) {
-  const { t } = useTranslation("servers");
+  const { t } = useTranslation("remoteAccess", { keyPrefix: "servers" });
   // The account to log in with (and create, in admin mode) is the server
   // record's own remote_user -- not re-typed here.
   const remoteUser = server.remote_user;
@@ -171,7 +171,7 @@ const CSV_PLACEHOLDER = `SERVER_NAME,SERVER_IP,REMOTE_USER,DESCRIPTION
 srv-app01,172.15.2.2,aegis,"Main application server"`;
 
 export function ImportCsvModal({ onClose }: { onClose: () => void }) {
-  const { t } = useTranslation("servers");
+  const { t } = useTranslation("remoteAccess", { keyPrefix: "servers" });
   const [csvText, setCsvText] = useState("");
   const [result, setResult] = useState<{ created: number; updated: number; errors: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

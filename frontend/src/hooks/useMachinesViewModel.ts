@@ -8,6 +8,11 @@
  * Sections come from `access_path` on /servers/readiness: Tailscale (direct
  * 100.x), one per subnet router ("via srv-sup"), no path, and unknown. Tailnet
  * devices with no inventory row are listed apart, each with "Register".
+ *
+ * Open to the "servers" module since phase 4 (the old Servers page redirects
+ * here). /vpn/status is admin-only, so for anyone else it isn't fetched: the
+ * sections still come from readiness, without router routes or unregistered
+ * devices.
  */
 import { useMemo, useState } from "react";
 import { useDeleteServer, useServers, useToggleServerAccess, type HostKind, type Server } from "@/hooks/useServers";
@@ -25,7 +30,9 @@ import {
   type ReadinessCounts,
   type TailnetSyncResult,
 } from "@/hooks/useHostInventory";
+import { usePermission } from "@/hooks/usePermission";
 import { useVpnAction, useVpnStatus, type VpnActionResult, type VpnNode } from "@/hooks/useVpn";
+import { useAuthStore } from "@/store/authStore";
 
 export type ReadinessFilter = "all" | "ready" | "attention" | "offline";
 export type KindFilter = "all" | HostKind;
@@ -148,6 +155,12 @@ export function unregisteredDevices(machines: Server[], peers: VpnNode[], query:
 
 export interface MachinesViewModel {
   status: "loading" | "error" | "ready";
+  /** Admin-only parts (tailnet sync/register/test, install key, passwords):
+   * their backend routes require an admin. */
+  isAdmin: boolean;
+  /** The "servers" module's flags: create/edit/import/toggle and delete. */
+  canWrite: boolean;
+  canDelete: boolean;
   sections: MachineSection[];
   unregistered: VpnNode[];
   totals: ReadinessCounts;
@@ -206,10 +219,12 @@ export interface MachinesViewModel {
 const EMPTY_FILTERS: MachineFilters = { query: "", kind: "all", client: "all", readiness: "all", path: "all" };
 
 export function useMachinesViewModel(): MachinesViewModel {
+  const isAdmin = useAuthStore((state) => state.user?.is_admin ?? false);
+  const perm = usePermission("servers");
   const servers = useServers();
   const groups = useHostGroups();
   const readiness = useHostReadiness();
-  const vpn = useVpnStatus();
+  const vpn = useVpnStatus({ enabled: isAdmin });
   const tailnetSync = useTailnetSync();
   const vpnAction = useVpnAction();
   const toggle = useToggleServerAccess();
@@ -263,6 +278,9 @@ export function useMachinesViewModel(): MachinesViewModel {
 
   return {
     status,
+    isAdmin,
+    canWrite: perm.can_write,
+    canDelete: perm.can_delete,
     sections,
     unregistered,
     totals: countReadiness(machines.map((m) => m.id), readinessById),
