@@ -4526,6 +4526,7 @@ async def terminal_ws(
         )
 
     master_fd, slave_fd = pty.openpty()
+    slave_tty = os.ttyname(slave_fd)
     _set_winsize(master_fd, initial_rows, initial_cols)
 
     proc = subprocess.Popen(
@@ -4595,6 +4596,7 @@ async def terminal_ws(
                     os.kill(proc.pid, signal.SIGWINCH)
                 except ProcessLookupError:
                     pass
+                _tmux("refresh-client", "-t", slave_tty)
             elif payload.get("type") == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
     except WebSocketDisconnect:

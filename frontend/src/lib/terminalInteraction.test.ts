@@ -2,12 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import {
   copyTerminalText,
   findLastHttpUrl,
+  isTerminalContainerVisible,
   prepareTerminalContextMenu,
   terminalBufferToText,
   type TerminalBufferLike,
 } from "./terminalInteraction";
 
 describe("terminal interaction helpers", () => {
+  it("reports container visibility based on non-zero layout dimensions", () => {
+    expect(isTerminalContainerVisible(null)).toBe(false);
+    expect(isTerminalContainerVisible({ offsetWidth: 0, offsetHeight: 0 })).toBe(false);
+    expect(isTerminalContainerVisible({ offsetWidth: 800, offsetHeight: 0 })).toBe(false);
+    expect(isTerminalContainerVisible({ offsetWidth: 0, offsetHeight: 600 })).toBe(false);
+    expect(isTerminalContainerVisible({ offsetWidth: 800, offsetHeight: 600 })).toBe(true);
+  });
+
   it("suppresses the browser menu and returns selected terminal text", () => {
     const event = new MouseEvent("contextmenu", { cancelable: true });
 

@@ -675,7 +675,7 @@ export default function WorkspacePage() {
 
   const [tabs, setTabs] = useState<WorkspaceTab[]>(restoredState.tabs);
   const [activeTabId, setActiveTabId] = useState<string>(restoredState.activeTabId);
-  const [workingDir, setWorkingDir] = useState<string | undefined>(restoredState.workingDir);
+  const [workingDir] = useState<string | undefined>(restoredState.workingDir);
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
   const [terminateTarget, setTerminateTarget] = useState<{
     kind: "terminal" | "chat";
@@ -722,9 +722,8 @@ export default function WorkspacePage() {
   }, [activeTabId]);
 
   useEffect(() => {
-    if (workingDir) localStorage.setItem(WORKSPACE_STORAGE_KEYS.workingDir, workingDir);
-    else localStorage.removeItem(WORKSPACE_STORAGE_KEYS.workingDir);
-  }, [workingDir]);
+    localStorage.removeItem(WORKSPACE_STORAGE_KEYS.workingDir);
+  }, []);
 
 
   function openChatTab(agentId: string) {
@@ -780,7 +779,7 @@ export default function WorkspacePage() {
 
   function openTerminalTab(label: string, command?: string, cwdOverride?: string, server?: TabServer) {
     const id = crypto.randomUUID();
-    setTabs((t) => [...t, { kind: "terminal", id, label, command, cwd: cwdOverride ?? workingDir, server }]);
+    setTabs((t) => [...t, { kind: "terminal", id, label, command, cwd: cwdOverride, server }]);
     setActiveTabId(id);
   }
 
@@ -798,7 +797,7 @@ export default function WorkspacePage() {
       setActiveTabId(existing.id);
       return;
     }
-    setTabs((t) => [...t, { kind: "terminal", id: sessionId, label, cwd: workingDir }]);
+    setTabs((t) => [...t, { kind: "terminal", id: sessionId, label }]);
     setActiveTabId(sessionId);
   }
 
@@ -841,18 +840,16 @@ export default function WorkspacePage() {
       return;
     }
     const id = crypto.randomUUID();
-    const path = server ? server.home : workingDir || "/root";
+    const path = server ? server.home : "/root";
     setTabs((current) => [...current, { kind: "explorer", id, label: tExplorer("tabLabel"), path, server }]);
     setActiveTabId(id);
   }
 
   const updateExplorerTabPath = useCallback((tabId: string, path: string) => {
-    const explorerTab = tabs.find((tab) => tab.id === tabId && tab.kind === "explorer");
     setTabs((current) =>
       current.map((tab) => (tab.id === tabId && tab.kind === "explorer" ? { ...tab, path } : tab))
     );
-    if (explorerTab?.kind === "explorer" && !explorerTab.server) setWorkingDir(path);
-  }, [tabs]);
+  }, []);
 
   const explorerQuickAccess = useMemo<QuickAccessItem[]>(() => {
     const items: QuickAccessItem[] = [

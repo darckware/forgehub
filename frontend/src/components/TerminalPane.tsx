@@ -11,6 +11,7 @@ import { attachTerminalImeInput } from "@/lib/terminalImeInput";
 import {
   copyTerminalText,
   findLastHttpUrl,
+  isTerminalContainerVisible,
   prepareTerminalContextMenu,
   terminalBufferToText,
 } from "@/lib/terminalInteraction";
@@ -254,6 +255,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     const term = termRef.current;
     const socket = wsRef.current;
     if (!term || socket?.readyState !== WebSocket.OPEN) return;
+    if (!isTerminalContainerVisible(containerRef.current)) return;
     const c = cols ?? term.cols;
     const r = rows ?? term.rows;
     if (c > 0 && r > 0) {
@@ -284,8 +286,10 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       } catch {}
       if (termRef.current) {
         termRef.current.options.fontSize = next;
-        fitAddonRef.current?.fit();
-        sendResize();
+        if (isTerminalContainerVisible(containerRef.current)) {
+          fitAddonRef.current?.fit();
+          sendResize();
+        }
       }
       return next;
     });
@@ -299,8 +303,10 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       } catch {}
       if (termRef.current) {
         termRef.current.options.fontSize = next;
-        fitAddonRef.current?.fit();
-        sendResize();
+        if (isTerminalContainerVisible(containerRef.current)) {
+          fitAddonRef.current?.fit();
+          sendResize();
+        }
       }
       return next;
     });
@@ -313,8 +319,10 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       } catch {}
       if (termRef.current) {
         termRef.current.options.fontSize = DEFAULT_FONT_SIZE;
-        fitAddonRef.current?.fit();
-        sendResize();
+        if (isTerminalContainerVisible(containerRef.current)) {
+          fitAddonRef.current?.fit();
+          sendResize();
+        }
       }
       return DEFAULT_FONT_SIZE;
     });
@@ -413,7 +421,9 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     container.addEventListener("touchmove", onTouchMove, { passive: false });
     container.addEventListener("touchend", onTouchEnd);
     container.addEventListener("touchcancel", onTouchEnd);
-    fitAddon.fit();
+    if (isTerminalContainerVisible(container)) {
+      fitAddon.fit();
+    }
     fitAddonRef.current = fitAddon;
     termRef.current = term;
     // Same rule as the touch-input effect above, which ran before this
@@ -459,6 +469,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     // /ws-ticket + /ws), and put only that short-lived ticket in the URL.
     let ws: WebSocket | null = null;
     let cancelled = false;
+    let hasConnectedOnce = false;
     let pingTimer: ReturnType<typeof setInterval> | undefined;
     const PING_INTERVAL_MS = 25_000;
 
@@ -500,6 +511,9 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
     }
 
     async function connect() {
+      if (isTerminalContainerVisible(container)) {
+        fitAddon.fit();
+      }
       const params = new URLSearchParams();
       params.set("session", sessionId);
       if (command) params.set("command", command);
@@ -553,9 +567,21 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
         term.write(data);
       };
       socket.onopen = () => {
+        const isReconnect = hasConnectedOnce;
+        hasConnectedOnce = true;
         reconnectAttempt = 0;
-        fitAddon.fit();
-        socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        if (isReconnect) {
+          // Clear any stale disconnect notices ("Conexão perdida...") and
+          // reset scroll regions before `tmux attach-session` paints the
+          // current screen.
+          term.reset();
+          wheelUpNotchesRef.current = 0;
+          setScrolledAway(false);
+        }
+        if (isTerminalContainerVisible(container)) {
+          fitAddon.fit();
+          socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        }
         startHeartbeat(socket);
       };
       // Fires for both a clean server-initiated close and a dropped
@@ -659,13 +685,13 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
 
     const resizeObserver = new ResizeObserver(() => {
       // While the tab is inactive its container is display:none, which
-      // collapses offsetWidth/offsetHeight to 0 -- FitAddon then proposes
-      // its hard-coded floor of {cols:2, rows:1} and that bogus size gets
-      // pushed straight to the real PTY (host-bridge's TIOCSWINSZ), visibly
+      // collapses offsetWidth/offsetHeight to 0 and makes getComputedStyle
+      // return percentage strings ("100%"), which FitAddon parses as 100px
+      // ({cols:11, rows:5}) and pushes straight to the real PTY, visibly
       // corrupting whatever was rendering in the background tmux session.
       // Skip fitting while hidden; the `active` effect below re-fits with
       // the real size once the tab is shown again.
-      if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
+      if (!isTerminalContainerVisible(container)) return;
       fitAddon.fit();
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
@@ -700,7 +726,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
   }, []);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || !isTerminalContainerVisible(containerRef.current)) return;
     fitAddonRef.current?.fit();
     // The pane's parent toggles display:none while inactive, so the
     // background process can keep redrawing (e.g. Hermes's live activity

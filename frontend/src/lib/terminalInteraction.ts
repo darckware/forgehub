@@ -8,6 +8,17 @@ export interface TerminalBufferLike {
   getLine(index: number): TerminalBufferLineLike | undefined;
 }
 
+export interface TerminalContainerDimensionsLike {
+  readonly offsetWidth: number;
+  readonly offsetHeight: number;
+}
+
+export function isTerminalContainerVisible(
+  container: TerminalContainerDimensionsLike | null | undefined,
+): boolean {
+  return Boolean(container && container.offsetWidth > 0 && container.offsetHeight > 0);
+}
+
 const HTTP_URL_PATTERN = /https?:\/\/[^\s\x00-\x1f"'<>]+/gi;
 
 export function findLastHttpUrl(text: string): string | null {

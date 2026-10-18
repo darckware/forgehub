@@ -118,12 +118,11 @@ export function restoreWorkspaceState(storage: StorageReader): RestoredWorkspace
   }
 
   const requestedActiveTab = storage.getItem(WORKSPACE_STORAGE_KEYS.activeTab) ?? "";
-  const storedWorkingDir = storage.getItem(WORKSPACE_STORAGE_KEYS.workingDir)?.trim();
   return {
     tabs,
     activeTabId: repairActiveTabId(tabs, requestedActiveTab),
     viewMode,
-    workingDir: storedWorkingDir || undefined,
+    workingDir: undefined,
   };
 }
 

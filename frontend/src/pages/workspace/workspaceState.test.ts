@@ -16,18 +16,18 @@ describe("restoreWorkspaceState", () => {
     expect(restored).toEqual({ tabs: [], activeTabId: "", viewMode: "conversas", workingDir: undefined });
   });
 
-  it("repairs a stale active tab and restores a valid working directory", () => {
+  it("repairs a stale active tab and does not restore a sticky workingDir from storage", () => {
     const restored = restoreWorkspaceState(storage({
       "forgehub-workspace-tabs": JSON.stringify([
         { kind: "terminal", id: "terminal-1", label: "bash", cwd: "/work/project" },
       ]),
       "forgehub-workspace-active-tab": "removed-tab",
       "forgehub-workspace-view-mode": "canais",
-      "forgehub-workspace-working-dir": "/work/project",
+      "forgehub-workspace-working-dir": "/root/project/darckware/docs/imagem",
     }));
 
     expect(restored.activeTabId).toBe("terminal-1");
-    expect(restored.workingDir).toBe("/work/project");
+    expect(restored.workingDir).toBeUndefined();
     expect(restored.viewMode).toBe("canais");
   });
 
