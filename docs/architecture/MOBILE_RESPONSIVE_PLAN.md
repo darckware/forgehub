@@ -92,7 +92,7 @@ não significa "está bom" (uma coluna fixa pode espremer o conteúdo sem sair d
 | [x] | Chat Commands | `/prompt-commands` | Coluna ACTIONS parecia cortada, mas a tabela já usa o primitivo com rolagem — sem mudança | P3 |
 | [x] | Usuários | `/users` | Revalidar tabela com dados | P3 |
 | [x] | Perfis de Acesso | `/profiles` | Revalidar com dados | P1 |
-| [x] | Clientes / Novo cliente | `/clients`, `/clients/new` | OK no teste | — |
+| [x] | ~~Clientes / Novo cliente~~ (tela Nexo removida em 2026-10-17) | ~~`/clients`, `/clients/new`~~ | — | — |
 | [x] | Atividade dos Agentes | `/agent-activity` | OK no teste — revalidar topologia com dados | — |
 | [x] | MCP / Central de Sistemas | `/mcp`, `/systems-hub` | OK no teste; abas da Central com rótulo em 2 linhas | P4 |
 | [x] | Ferramentas / Skills | `/tools`, `/skills` | Cabeçalho com contador espremido; revalidar com dados | P1 |

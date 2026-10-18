@@ -41,14 +41,11 @@ import CronsPage from "@/pages/crons";
 import SystemControlPage from "@/pages/system-control";
 import DeployPage from "@/pages/deploy";
 import ServersPage from "@/pages/servers";
-import ClientsPage from "@/pages/clients";
 import ClientDemandsPage from "@/pages/client-demands";
 import ClientEmailsPage from "@/pages/client-emails";
 import PersonalPage from "@/pages/personal";
 import ClientAccountsPage from "@/pages/client-accounts";
 import ClientAccountPage from "@/pages/client-accounts/[id]";
-import NewClientPage from "@/pages/clients/new";
-import ClientDetailPage from "@/pages/clients/[id]";
 import DatabaseLayout from "@/pages/database/DatabaseLayout";
 import DatabaseSchemaPage from "@/pages/database/SchemaPage";
 import DatabaseDiagramPage from "@/pages/database/DiagramPage";
@@ -133,14 +130,11 @@ export default function App() {
         <Route path="docs" element={<DocsPage />} />
         <Route path="deploy" element={<DeployPage />} />
         <Route path="servers" element={<ServersPage />} />
-        <Route path="clients" element={<ClientsPage />} />
         <Route path="client-demands" element={<ClientDemandsPage />} />
         <Route path="client-emails" element={<ClientEmailsPage />} />
         <Route path="personal" element={<PersonalPage />} />
         <Route path="client-accounts" element={<ClientAccountsPage />} />
         <Route path="client-accounts/:id" element={<ClientAccountPage />} />
-        <Route path="clients/new" element={<NewClientPage />} />
-        <Route path="clients/:id" element={<ClientDetailPage />} />
         <Route path="remote-access" element={<RequireAdmin><RemoteAccessPage /></RequireAdmin>} />
         <Route path="remote-access/executions/:id" element={<RequireAdmin><ExecutionPage /></RequireAdmin>} />
         <Route path="vpn" element={<Navigate to="/remote-access" replace />} />

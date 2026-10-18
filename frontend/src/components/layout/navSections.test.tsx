@@ -31,12 +31,14 @@ describe("Remote Access navigation policy", () => {
 });
 
 describe("Clients navigation policy", () => {
-  it("places Clients in Operations under the clients module", () => {
-    const operations = NAV_SECTIONS.find((section) => section.labelKey === "nav.section.operations");
-    const entry = operations?.entries.find(
-      (candidate) => candidate.type === "link" && candidate.to === "/clients",
-    );
+  // The Nexo /clients screen was removed (2026-10-17); Darckware clients live
+  // under the "Clientes" section at /client-accounts.
+  it("no longer links the retired Nexo /clients screen", () => {
+    const links = NAV_SECTIONS.flatMap((section) => section.entries)
+      .filter((candidate) => candidate.type === "link")
+      .map((candidate) => candidate.to);
 
-    expect(entry).toMatchObject({ labelKey: "nav.clients", module: "clients" });
+    expect(links).not.toContain("/clients");
+    expect(links).toContain("/client-accounts");
   });
 });
