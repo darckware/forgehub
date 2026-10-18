@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ChevronDown, ChevronRight, CornerDownRight, Loader2, Play, Square, TerminalSquare, Wrench } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, CornerDownRight, Lightbulb, Loader2, Play, Square, TerminalSquare, Wrench } from "lucide-react";
 
 import { CopyButton } from "@/components/CopyButton";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,8 +20,29 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useExecutionViewModel } from "@/hooks/useExecutionViewModel";
-import { formatDuration, type HostExecutionResult } from "@/hooks/useHostExecutions";
+import { detectKnownFailure, formatDuration, type HostExecutionResult, type KnownFailure } from "@/hooks/useHostExecutions";
 import { VerdictBadge } from "./VerdictBadge";
+
+/** What to do about a failure ForgeHub recognizes (detectKnownFailure),
+ * shown on the machine's row without having to open the raw output. */
+function KnownFailureHint({ failure }: { failure: KnownFailure }) {
+  const { t } = useTranslation("remoteAccess");
+  const k = `knownFailure.${failure.kind}`;
+  const owner = failure.owner ?? t(`${k}.someone`);
+  const steps = t(`${k}.steps`, { returnObjects: true, owner }) as unknown as string[];
+  return (
+    <div role="note" className="mt-3 ml-7 space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+      <p className="flex items-start gap-2 font-medium">
+        <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
+        {t(`${k}.title`)}
+      </p>
+      <p className="text-muted-foreground">{t(`${k}.why`, { owner })}</p>
+      <ol className="list-decimal space-y-1 pl-5">
+        {steps.map((step, i) => <li key={i}>{step}</li>)}
+      </ol>
+    </div>
+  );
+}
 
 function OutputBlock({ label, text, tone }: { label: string; text: string | null; tone?: "error" }) {
   if (!text) return null;
@@ -67,8 +88,11 @@ export default function ExecutionPage() {
   }
 
   const e = vm.execution;
-  const resultDetail = (r: HostExecutionResult) => {
+  const knownFailureOf = (r: HostExecutionResult) =>
+    r.status === "failed" ? detectKnownFailure([r.stderr, r.stdout].filter(Boolean).join("\n")) : null;
+  const resultDetail = (r: HostExecutionResult, known: KnownFailure | null) => {
     if (r.status === "skipped") return r.skip_reason;
+    if (known) return t(`knownFailure.${known.kind}.short`);
     if (r.status === "failed" && r.failure) return t(`failure.${r.failure}`);
     return null;
   };
@@ -182,7 +206,8 @@ export default function ExecutionPage() {
           {e.results.map((r) => {
             const open = vm.expanded.has(r.id);
             const hasOutput = Boolean(r.stdout || r.stderr);
-            const detail = resultDetail(r);
+            const known = knownFailureOf(r);
+            const detail = resultDetail(r, known);
             return (
               <section key={r.id} className="px-6 py-3">
                 <button
@@ -199,6 +224,7 @@ export default function ExecutionPage() {
                   <span className="text-xs text-muted-foreground">{formatDuration(r.duration_ms)}</span>
                   {detail && <span className="text-xs text-muted-foreground">· {detail}</span>}
                 </button>
+                {known && <KnownFailureHint failure={known} />}
                 {open && (
                   <div className="mt-3 space-y-3 pl-7">
                     <OutputBlock label={t("execution.stdout")} text={r.stdout} />

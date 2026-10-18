@@ -161,6 +161,32 @@ export function shellForOs(osFamilies: (string | null)[]): ExecShell | null {
   return null;
 }
 
+/** A failure ForgeHub knows how to explain, recognized in a machine's output. */
+export interface KnownFailure {
+  kind: "tailscale_not_unattended";
+  /** The Windows account the local Tailscale is bound to, when the output names it. */
+  owner: string | null;
+}
+
+/** Recognizes failures whose fix is outside the script, so the screen can say
+ * what to do instead of only showing the raw PowerShell error.
+ *
+ * tailscale_not_unattended (2026-10-18, desk-semed-admin): a Tailscale set up
+ * from the Windows app, logged in as a person, only answers that person's
+ * session; `tailscale status` from any other account -- the `darckware` login
+ * ForgeHub runs as -- gets "401 Unauthorized: Tailscale already in use by
+ * <owner>". The darckware-remote installer checks Tailscale before touching
+ * RustDesk, so "Install RustDesk" fails there until the owner turns on
+ * "Run unattended". ForgeHub can't fix it from that account by design. */
+export function detectKnownFailure(output: string | null): KnownFailure | null {
+  if (!output) return null;
+  const match = /Tailscale already in use by\s+(.+?),\s*pid/i.exec(output);
+  if (match || /failed to connect to local tailscaled[\s\S]*401 Unauthorized/i.test(output)) {
+    return { kind: "tailscale_not_unattended", owner: match?.[1]?.trim() ?? null };
+  }
+  return null;
+}
+
 export function formatDuration(ms: number | null): string {
   if (ms === null) return "—";
   if (ms < 1000) return `${ms} ms`;

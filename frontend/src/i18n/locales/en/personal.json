@@ -91,6 +91,24 @@
     "confirm": "Delete"
   },
   "byAgent": "created by {{agent}}",
+  "suggestions": {
+    "title": "Suggestions",
+    "description": "Proposals captured by Maia; nothing is created without your decision.",
+    "empty": "No suggestions in this filter.",
+    "loadError": "Suggestions could not be loaded.",
+    "retry": "Try again",
+    "loadMore": "Load more",
+    "all": "All",
+    "kind": "Convert as",
+    "details": "Proposal details",
+    "suggestedKind": "Suggested type",
+    "createdAt": "Captured",
+    "decidedAt": "Decided",
+    "unknownContact": "Unnamed contact",
+    "dismissTitle": "Dismiss suggestion?",
+    "dismissDescription": "The suggestion will be dismissed and will not create an item.",
+    "status": { "pending": "Pending", "accepted": "Accepted", "dismissed": "Dismissed" }
+  },
   "demands": {
     "newPlaceholder": "New demand...",
     "notesPlaceholder": "Details (optional)",

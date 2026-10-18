@@ -26,6 +26,7 @@
     "workspace": "Workspace",
     "notifications": "Notifications",
     "inbox": "Messages",
+    "suggestions": "Suggestions",
     "clientDemands": "Client demands",
     "clientEmails": "E-mail approval",
     "clientAccounts": "Clients and contracts",

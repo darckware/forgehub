@@ -91,6 +91,24 @@
     "confirm": "Eliminar"
   },
   "byAgent": "creada por {{agent}}",
+  "suggestions": {
+    "title": "Sugerencias",
+    "description": "Propuestas capturadas por Maia; nada se crea sin tu decisión.",
+    "empty": "No hay sugerencias en este filtro.",
+    "loadError": "No se pudieron cargar las sugerencias.",
+    "retry": "Reintentar",
+    "loadMore": "Cargar más",
+    "all": "Todas",
+    "kind": "Convertir como",
+    "details": "Detalles de la propuesta",
+    "suggestedKind": "Tipo sugerido",
+    "createdAt": "Capturada",
+    "decidedAt": "Decidida",
+    "unknownContact": "Contacto sin nombre",
+    "dismissTitle": "¿Descartar sugerencia?",
+    "dismissDescription": "La sugerencia se marcará como descartada y no creará ningún elemento.",
+    "status": { "pending": "Pendiente", "accepted": "Aceptada", "dismissed": "Descartada" }
+  },
   "demands": {
     "newPlaceholder": "Nueva demanda...",
     "notesPlaceholder": "Detalles (opcional)",

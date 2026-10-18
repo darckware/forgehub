@@ -654,5 +654,17 @@
     "empty": "Nenhuma rota de sub-rede aprovada visível para esta VPS.",
     "notAccepted": "Esta VPS não aceita rotas de sub-rede (tailscale set --accept-routes): as máquinas dessas faixas ficam inalcançáveis.",
     "approvedOnly": "Só aparecem rotas aprovadas no painel da Tailscale e liberadas pela ACL para esta VPS."
+  },
+  "knownFailure": {
+    "tailscale_not_unattended": {
+      "short": "Tailscale da máquina não está em modo autônomo",
+      "title": "O Tailscale desta máquina está preso a uma conta do Windows",
+      "why": "Ele foi configurado pelo aplicativo, logado como {{owner}}, e só responde a essa sessão. O ForgeHub entra como darckware e recebe \"acesso negado\" — o instalador para antes de mexer no RustDesk. Não dá para corrigir pelo ForgeHub; isso também faz a máquina sair da tailnet quando essa pessoa sai do Windows.",
+      "someone": "o usuário logado",
+      "steps": [
+        "Na máquina, logado como {{owner}}: ícone do Tailscale na bandeja → Preferences → marque \"Run unattended\" (ou, num PowerShell dessa sessão: tailscale set --unattended).",
+        "Rode este script de novo pelo ForgeHub."
+      ]
+    }
   }
 }

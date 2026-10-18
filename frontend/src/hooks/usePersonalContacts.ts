@@ -88,6 +88,7 @@ const keys = {
   contact: (phone: string) => ["personal", "contact", phone] as const,
   messages: (phone: string) => ["personal", "contact-messages", phone] as const,
   suggestions: (phone: string) => ["personal", "suggestions", phone] as const,
+  allSuggestions: (status: string) => ["personal", "suggestions-all", status] as const,
   categories: ["personal", "contact-categories"] as const,
   settings: ["personal", "assistant-settings"] as const,
   state: ["personal", "assistant-state"] as const,
@@ -141,6 +142,17 @@ export function useContactSuggestions(phone: string | undefined) {
   });
 }
 
+/** Global capture inbox; suggestions remain proposals until the explicit decision. */
+export function usePersonalSuggestions(status = "pending") {
+  return useInfiniteQuery<CaptureSuggestion[]>({
+    queryKey: keys.allSuggestions(status),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => apiClient.get(`${BASE}/suggestions${qs({ status, limit: String(PAGE), offset: String(pageParam) })}`),
+    getNextPageParam: (last, _pages, offset) => (last.length === PAGE ? Number(offset) + PAGE : undefined),
+    refetchInterval: 30_000,
+  });
+}
+
 export function useContactCategories() {
   return useQuery<string[]>({ queryKey: keys.categories, queryFn: () => apiClient.get(`${BASE}/contact-categories`) });
 }
@@ -188,7 +200,7 @@ export function useReprocessMessage() {
 
 export function useAcceptSuggestion() {
   const invalidate = useInvalidatePersonal();
-  return useMutation<CaptureSuggestion, Error, { id: string; kind?: SuggestionKind; title?: string; type_id?: string | null }>({
+  return useMutation<CaptureSuggestion, Error, { id: string; kind?: SuggestionKind; title?: string; details?: string; type_id?: string | null }>({
     mutationFn: ({ id, ...body }) => apiClient.post(`${BASE}/suggestions/${id}:accept`, body),
     onSettled: invalidate,
   });

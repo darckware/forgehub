@@ -50,6 +50,7 @@ def test_tools_are_registered_only_for_allowed_agents(monkeypatch):
         names = set(server._tool_manager._tools)
         assert ("personal_contact_upsert" in names) is expected
         assert ("personal_capture_accept" in names) is expected
+        assert ("personal_weather" in names) is expected
 
 
 def test_get_contact_keeps_the_maias_format(api):

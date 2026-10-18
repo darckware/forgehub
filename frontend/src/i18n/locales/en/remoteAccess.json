@@ -654,5 +654,17 @@
     "empty": "No approved subnet route visible to this VPS.",
     "notAccepted": "This VPS does not accept subnet routes (tailscale set --accept-routes): machines in those ranges are unreachable.",
     "approvedOnly": "Only routes approved in the Tailscale admin console and allowed to this VPS by the ACL appear."
+  },
+  "knownFailure": {
+    "tailscale_not_unattended": {
+      "short": "The machine's Tailscale is not in unattended mode",
+      "title": "This machine's Tailscale is bound to one Windows account",
+      "why": "It was set up from the app while signed in as {{owner}} and only answers that session. ForgeHub signs in as darckware and gets \"access denied\" — the installer stops before touching RustDesk. ForgeHub can't fix this itself; it also drops the machine off the tailnet when that person signs out of Windows.",
+      "someone": "the signed-in user",
+      "steps": [
+        "On the machine, signed in as {{owner}}: Tailscale tray icon → Preferences → check \"Run unattended\" (or, in a PowerShell in that session: tailscale set --unattended).",
+        "Run this script again from ForgeHub."
+      ]
+    }
   }
 }

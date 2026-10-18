@@ -427,17 +427,19 @@ async def whatsapp_message(payload: WhatsappMessageIn, actor: str = Depends(pers
 async def list_suggestions(
     suggestion_status: str | None = Query("pending", alias="status"),
     contact_phone: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     actor: str = Depends(personal_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[SuggestionOut]:
     stmt = select(PersonalCaptureSuggestion, PersonalContact).join(
         PersonalContact, PersonalContact.id == PersonalCaptureSuggestion.contact_id
     )
-    if suggestion_status:
+    if suggestion_status and suggestion_status != "all":
         stmt = stmt.where(PersonalCaptureSuggestion.status == suggestion_status)
     if contact_phone:
         stmt = stmt.where(PersonalContact.phone == rules.normalize_phone(contact_phone))
-    stmt = stmt.order_by(PersonalCaptureSuggestion.created_at.desc()).limit(200)
+    stmt = stmt.order_by(PersonalCaptureSuggestion.created_at.desc()).limit(limit).offset(offset)
     result = []
     for suggestion, contact in (await db.execute(stmt)).all():
         out = SuggestionOut.model_validate(suggestion)

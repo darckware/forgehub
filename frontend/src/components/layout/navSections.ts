@@ -72,6 +72,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       { type: "link", to: "/workspace", labelKey: "nav.workspace", icon: LayoutPanelLeft },
       { type: "link", to: "/notifications", labelKey: "nav.notifications", icon: Bell },
       { type: "link", to: "/demands", labelKey: "nav.inbox", icon: Mail, module: "demands" },
+      { type: "link", to: "/suggestions", labelKey: "nav.suggestions", icon: Lightbulb, adminOnly: true },
       { type: "link", to: "/docs", labelKey: "nav.docs", icon: BookOpen, module: "docs" },
     ],
   },

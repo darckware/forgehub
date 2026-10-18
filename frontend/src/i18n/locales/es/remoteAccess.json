@@ -654,5 +654,17 @@
     "empty": "Ninguna ruta de subred aprobada visible para esta VPS.",
     "notAccepted": "Esta VPS no acepta rutas de subred (tailscale set --accept-routes): las máquinas de esos rangos quedan inalcanzables.",
     "approvedOnly": "Solo aparecen las rutas aprobadas en el panel de Tailscale y permitidas a esta VPS por la ACL."
+  },
+  "knownFailure": {
+    "tailscale_not_unattended": {
+      "short": "El Tailscale de la máquina no está en modo desatendido",
+      "title": "El Tailscale de esta máquina está atado a una cuenta de Windows",
+      "why": "Se configuró desde la aplicación con la sesión de {{owner}} y solo responde a esa sesión. ForgeHub entra como darckware y recibe \"acceso denegado\": el instalador se detiene antes de tocar RustDesk. ForgeHub no puede corregirlo; además, la máquina sale de la tailnet cuando esa persona cierra la sesión de Windows.",
+      "someone": "el usuario conectado",
+      "steps": [
+        "En la máquina, con la sesión de {{owner}}: icono de Tailscale en la bandeja → Preferences → marque \"Run unattended\" (o, en un PowerShell de esa sesión: tailscale set --unattended).",
+        "Vuelva a ejecutar este script desde ForgeHub."
+      ]
+    }
   }
 }
