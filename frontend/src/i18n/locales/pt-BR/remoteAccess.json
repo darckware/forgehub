@@ -204,7 +204,8 @@
     "exitCode": "código {{code}}",
     "stdout": "Saída",
     "stderr": "Erros",
-    "truncated": "Saída cortada em 64 KB."
+    "truncated": "Saída cortada em 64 KB.",
+    "copyCommand": "Copiar o comando (segredos continuam mascarados)"
   },
   "prepare": {
     "step1": "Abra a estação pelo RustDesk.",

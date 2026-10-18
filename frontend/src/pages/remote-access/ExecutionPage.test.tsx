@@ -65,6 +65,14 @@ describe("ExecutionPage", () => {
     expect(screen.getByText("Access denied")).toBeInTheDocument();
   });
 
+  it("copies the command to the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Copiar o comando/ }));
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("Get-ComputerInfo"));
+  });
+
   it("runs a fix only on the failed machines", async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ ...EXECUTION, id: "e2" } as never);
     renderPage();

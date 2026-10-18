@@ -204,7 +204,8 @@
     "exitCode": "exit {{code}}",
     "stdout": "Output",
     "stderr": "Errors",
-    "truncated": "Output cut at 64 KB."
+    "truncated": "Output cut at 64 KB.",
+    "copyCommand": "Copy the command (secrets stay masked)"
   },
   "prepare": {
     "step1": "Open the station through RustDesk.",

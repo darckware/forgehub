@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, CornerDownRight, Loader2, Play, Square, TerminalSquare, Wrench } from "lucide-react";
 
+import { CopyButton } from "@/components/CopyButton";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -109,8 +110,10 @@ export default function ExecutionPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="flex flex-row items-center gap-2 space-y-0 pb-3">
           <CardTitle className="text-base">{t("execution.command", { shell: t(`run.shells.${e.shell}`) })}</CardTitle>
+          {/* Copies the command as stored: secrets stay masked (********). */}
+          <CopyButton getText={() => e.command} title={t("execution.copyCommand")} />
         </CardHeader>
         <CardContent className="space-y-3">
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/40 p-3 font-mono text-xs">{e.command}</pre>
