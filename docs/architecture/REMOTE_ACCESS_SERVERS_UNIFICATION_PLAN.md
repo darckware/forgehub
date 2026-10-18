@@ -158,7 +158,10 @@ Cada fase é entregue, testada (vitest + pytest quando houver backend), verifica
       (`vault_strict` na resposta).
 - [x] Prontidão e `/check` usam a chave da ForgeVault quando há uma (mesma ordem do terminal, execuções
       e Explorer); o terminal aberto pela aba Máquinas passa pelo agente da ForgeVault.
-- [ ] Produção: reiniciar `forgehub-chat-bridge`, implantar, rodar a migração.
+- [x] Produção (2026-10-17): bridge reiniciado, implantado, migração rodada. Na ForgeVault e verificadas,
+      sem arquivo: desk-semed-admin, srv-app01/02/05, srv-sup, vmi3547248 (srv-app01/02/05 passaram de
+      "sem acesso" a prontas). Ficaram no arquivo: gat-adm-pc01/gat-ges-nb01 (offline; rodar de novo quando
+      voltarem) e host-pve01/02 (o arquivo da chave nem existe no host -- precisam de "Configurar acesso").
 
 Probe real em 2026-10-17 (cópia do bridge na 8911, só `exit`): srv-app01/02/05 **recusam a chave em
 arquivo e aceitam a da ForgeVault** (a prontidão os mostrava sem acesso); host-pve01/02 recusam a chave
