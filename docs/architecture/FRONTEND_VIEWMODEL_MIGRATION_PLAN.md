@@ -147,7 +147,7 @@ sub-conversion, ticked off independently.
 - [ ] `frontend/src/pages/docs/index.tsx` (904 lines)
 - [ ] `frontend/src/pages/database/SchemaPage.tsx` (807 lines)
 - [ ] `frontend/src/pages/skills/index.tsx` (762 lines)
-- [ ] `frontend/src/pages/servers/index.tsx` (672 lines) — *partially*: the key-vault section added
+- [x] ~~`frontend/src/pages/servers/index.tsx`~~ — removed 2026-10-17 (phase 4 of `REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md`); its role is Remote Access › Machines, a ViewModel pair (`useMachinesViewModel.ts` + `MachinesCard.tsx`). Original note: (672 lines) — *partially*: the key-vault section added
       on 2026-08-14 is already a ViewModel pair (`useServerKeyVaultViewModel.ts` +
       `KeyVaultSection`); the rest of the page (form modal, install-key modal, status probes) is
       still inline state, so the box stays unchecked.

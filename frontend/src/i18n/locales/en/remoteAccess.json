@@ -100,8 +100,6 @@
     "macos": "macOS"
   },
   "workstations": {
-    "title": "Workstations",
-    "totals": "{{ready}} of {{total}} ready · {{attention}} need attention · {{offline}} offline",
     "counts": "{{ready}}/{{total}} ready",
     "attentionCount": "{{count}} need attention",
     "offlineCount": "{{count}} offline",
@@ -112,25 +110,16 @@
     "client": "Client",
     "noClient": "No client",
     "createGroup": "Create group",
-    "search": "Search by name, IP, location or client",
     "filter": "Filter by readiness",
     "filters": {
       "all": "All",
       "attention": "Need attention"
     },
     "tailnetUnavailable": "The tailnet could not be read right now; readiness uses the SSH probe only, and anything unread shows as Unknown.",
-    "loadFailed": "Could not load the workstations.",
-    "empty": "No workstations yet. Use \"Sync from tailnet\" to bring in the private network's computers.",
-    "noMachines": "No workstations for this client.",
     "columns": {
-      "name": "Workstation",
-      "os": "OS",
-      "location": "Location",
-      "groups": "Groups",
       "login": "Login",
       "readiness": "Readiness"
     },
-    "edit": "Edit",
     "editFor": "Edit {{name}}",
     "deleteGroup": "Delete group",
     "deleteGroupFor": "Delete group {{name}}",
@@ -144,13 +133,7 @@
       "nothing": "Nothing changed in the tailnet.",
       "failed": "Could not read the tailnet to sync.",
       "available": "{{count}} available to import"
-    },
-    "import": {
-      "help": "Tailnet devices not in the inventory yet. Tick the ones that are client workstations; the rest stay in the tailnet only and never come back by themselves.",
-      "action": "Import selected ({{count}})"
-    },
-    "run": "Run",
-    "runFor": "Run a command on {{name}}"
+    }
   },
   "verdict": {
     "running": "Running",
@@ -168,31 +151,18 @@
     "interrupted": "Interrupted by a ForgeHub restart"
   },
   "run": {
-    "title": "Run a command",
-    "targets": "Where to run",
-    "groupLabel": "Group {{name}} ({{size}})",
-    "targetCount_one": "{{count}} machine selected",
-    "targetCount_other": "{{count}} machines selected",
     "shell": "Command type",
     "shells": {
       "sh": "Linux/macOS (sh)",
       "powershell": "Windows (PowerShell)"
     },
     "timeout": "Timeout (seconds)",
-    "mixedOs": "The selection mixes Windows with Linux/macOS: machines that don't fit the chosen type show as \"Not run\".",
     "command": "Command",
-    "maskingNote": "Passwords, tokens and keys in the command and output are masked before being stored.",
     "review": "Review",
-    "back": "Back",
-    "reviewSummary_one": "Will run on {{count}} machine, as {{shell}}, with a {{timeout}} s limit:",
-    "reviewSummary_other": "Will run on {{count}} machines, as {{shell}}, with a {{timeout}} s limit:",
-    "reviewNote": "Machines that are disabled, have no login, run an incompatible OS or are busy with another command are skipped and show the reason.",
-    "confirm_one": "Run on {{count}} machine",
-    "confirm_other": "Run on {{count}} machines"
+    "back": "Back"
   },
   "executions": {
     "title": "Executions",
-    "run": "Run a command",
     "loadFailed": "Could not load executions.",
     "empty": "No commands run yet.",
     "when": "When",
@@ -237,18 +207,12 @@
     "truncated": "Output cut at 64 KB."
   },
   "prepare": {
-    "title": "Prepare {{name}}",
-    "action": "Prepare",
-    "for": "Prepare {{name}} for remote access",
-    "loading": "Generating the key and script…",
     "step1": "Open the station through RustDesk.",
     "step2Windows": "Open PowerShell as administrator, paste the script below and press Enter.",
     "step2Posix": "Open Terminal, save the script as preparar.sh and run: sudo sh preparar.sh",
     "step3": "Come back and click \"Check now\": the station should become Ready.",
-    "keyCreated": "A new key was generated for this station and stored (encrypted copy).",
     "copy": "Copy",
     "copied": "Copied",
-    "safeNote": "The script can be run more than once. It only turns SSH on (accepting the tailnet only) and adds ForgeHub's key; it never removes accounts or other keys.",
     "close": "Close",
     "dialogTitle": "Prepare station",
     "intro": "Puts the machine under ForgeHub's darckware account: turns on OpenSSH (tailnet only), creates darckware as an administrator with a strong password generated for this machine and authorizes ForgeHub's key.",
@@ -294,31 +258,7 @@
     "hideContent": "Hide the policy"
   },
   "enroll": {
-    "action": "Enroll station",
-    "title": "Enroll a station in remote support",
-    "keyTitle": "First, the Tailscale API key (once)",
-    "keyStep1": "In the Tailscale console, open Settings › Keys.",
-    "keyStep2": "Under \"API access tokens\", click \"Generate access token\" (up to 90 days) and copy it.",
-    "keyStep3": "Paste it here. ForgeHub stores it encrypted and only uses it to mint a single-use key per station.",
-    "openKeys": "Open Tailscale keys",
-    "apiKey": "Tailscale API key",
-    "keyNote": "It is never shown again. To change it, paste a new one.",
-    "saveKey": "Save key",
-    "name": "Station name",
-    "nameHelp": "Lowercase letters, digits and hyphens (e.g. gat-adm-pc02). Becomes its tailnet name.",
-    "os": "System",
-    "tag": "Tailnet tag",
-    "tagHelp": "Which client the station belongs to on the network (e.g. tag:gatling-users).",
-    "location": "Location",
-    "tagNoSsh": "The recorded policy doesn't let the server open SSH on this tag yet: the station will join the tailnet but won't become Ready until the rule is added (see the policy card).",
-    "keyConfigured": "Tailscale key configured (…{{hint}}) — change",
-    "generate": "Generate enrollment script",
-    "step2Linux": "Open Terminal, save the script as ingressar.sh and run: sudo sh ingressar.sh",
-    "step3": "Wait here: ForgeHub detects the station by itself when it joins the tailnet.",
-    "secretNote": "The script contains this station's darckware password and a single-use Tailscale key valid for {{hours}} h. The password is stored on the record (key icon on the station's row).",
-    "waiting": "Waiting for {{name}} to join the tailnet…",
-    "joined": "Joined the tailnet ({{ip}}). Checking SSH access…",
-    "ready": "{{name}} is Ready ({{ip}}). You can run commands on it now."
+    "step2Linux": "Open Terminal, save the script as ingressar.sh and run: sudo sh ingressar.sh"
   },
   "password": {
     "title": "{{name}} password",
@@ -711,6 +651,6 @@
     "routes": "Routes",
     "empty": "No approved subnet route visible to this VPS.",
     "notAccepted": "This VPS does not accept subnet routes (tailscale set --accept-routes): machines in those ranges are unreachable.",
-    "approvedOnly": "Only routes approved and allowed to this VPS by the ACL appear. Announced but unapproved routes need the Tailscale API key."
+    "approvedOnly": "Only routes approved in the Tailscale admin console and allowed to this VPS by the ACL appear."
   }
 }

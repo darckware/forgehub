@@ -1,7 +1,7 @@
 # Unificação de Servidores e Acesso Remoto
 
 Plano (2026-10-17, Marcelo: "preciso unificar as duas telas Acesso remoto e servidores").
-Status: **proposto, aguardando aprovação.** Marque cada item na mesma mudança que o entrega.
+Status: **concluído em 2026-10-17** (fases 0–6). Pendências operacionais no fim da Fase 5.
 
 ## Problema
 
@@ -92,7 +92,21 @@ Cada fase é entregue, testada (vitest + pytest quando houver backend), verifica
 
 ### Fase 0 — Decisões e equivalência
 - [x] Marcelo aprova as decisões 1–5 (2026-10-17).
-- [ ] Tabela "antes → depois" de toda ação das duas telas, para nada se perder.
+- [x] Tabela "antes → depois" de toda ação das duas telas (feita ao fechar, 2026-10-17):
+
+| Antes | Depois |
+|---|---|
+| Servidores › Verificar estado (todos) | Máquinas › Verificar agora (probe da prontidão, `refresh=true`) |
+| Servidores › ↻ por linha | *sem botão por linha*: a prontidão reprova a cada 5 min e "Verificar agora" força todas |
+| Servidores › Importar CSV / Novo servidor | Máquinas › Importar CSV / Nova máquina (módulo `servers`, escrita) |
+| Servidores › abas VPS / SEMED (`environment`) | filtros caminho (Tailscale / via sub-rede) e cliente; `environment` segue no formulário |
+| Servidores › ligar/desligar, terminal, editar, excluir, serviços publicados | mesmas ações na linha da máquina |
+| Servidores › Instalar chave | Configurar acesso (servidor), chave vai para a ForgeVault |
+| Servidores › botão do assistente (`AssistantToggleButton`) | *removido* (o assistente segue no restante do app) |
+| Acesso Remoto › Máquinas (estações por cliente, grupos, senhas, RustDesk, sync) | Máquinas, mesma linha para servidor e estação |
+| Acesso Remoto › Preparar estação | Configurar acesso (estação) e o botão rápido Preparar estação |
+| Rede › dispositivos (busca, grupo por tag, testar) | Máquinas: dispositivo cadastrado = a linha da máquina (testar Tailscale); não cadastrado = seção própria com Cadastrar |
+| Rede › VPS, reiniciar Tailscale, histórico, ACL | Rede Tailscale, + rotas de sub-rede por roteador |
 
 ### Fase 1 — Rotas de sub-rede no backend (só leitura)
 - [x] `/api/v1/vpn/status` traz `subnet_routes` por nó (`PrimaryRoutes`/`AllowedIPs` sem host,
@@ -170,8 +184,13 @@ gat-adm-pc01/gat-ges-nb01 offline. **srv-sup e srv-app05 estão cadastrados com 
 (o arquivo da chave do srv-sup indica 100.107.175.100) — corrigir o cadastro.
 
 ### Fase 6 — Limpeza e documentação
-- [ ] Remover hooks/componentes/testes sem uso; atualizar `CLAUDE.md`,
-      `MOBILE_RESPONSIVE_PLAN.md`, `REMOTE_MAINTENANCE_PLAN.md`, `FRONTEND_VIEWMODEL_MIGRATION_PLAN.md`.
+- [x] Removidos: `pages/servers/index.tsx` (fase 4), hooks de ingresso/chave de API da Tailscale sem tela
+      (`useEnrollStation`, `useEnrollmentCheck`, `useTailscaleApiKey`, `useSaveTailscaleApiKey` — o diálogo
+      saiu em 2026-10-16; as rotas do backend ficam) e ~60 traduções órfãs de `remoteAccess.json`.
+- [x] `CLAUDE.md` (bullet "Servers and Remote Access are one screen"), `MOBILE_RESPONSIVE_PLAN.md`,
+      `REMOTE_MAINTENANCE_PLAN.md`, `FRONTEND_VIEWMODEL_MIGRATION_PLAN.md` atualizados.
+- Não implementado (registrado para não parecer feito): rotas **anunciadas × aprovadas** — a chave de API
+  da Tailscale só serve hoje ao ingresso de estação, e a aba Rede mostra apenas rotas aprovadas.
 
 ## Fora do escopo
 

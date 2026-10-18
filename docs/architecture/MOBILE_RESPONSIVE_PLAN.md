@@ -83,7 +83,7 @@ não significa "está bom" (uma coluna fixa pode espremer o conteúdo sem sair d
 
 | ✓ | Tela | Rota | Problema observado | Padrão |
 |---|---|---|---|---|
-| [x] | Servers | `/servers` | Tabela cortada (colunas PORT/DESC fora); abas de grupo cortadas; cabeçalho em coluna estreita | P1, P3, P4 |
+| [x] | Servers | `/servers` | Tabela cortada (colunas PORT/DESC fora); abas de grupo cortadas; cabeçalho em coluna estreita. *2026-10-17: tela removida; `/servers` redireciona para Acesso Remoto › Máquinas (verificada em 390px).* | P1, P3, P4 |
 | [x] | Irregularities | `/irregularities` | Tabela cortada à direita | P3 |
 | [x] | Documentação (Foundation) | `/foundation` | Tela dividida, conteúdo espremido | P2 |
 | [x] | Base de Conhecimento | `/obsidian` | Tela dividida, 26 elementos cortados | P2 |

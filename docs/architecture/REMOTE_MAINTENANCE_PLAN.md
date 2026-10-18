@@ -1,5 +1,8 @@
 # Acesso Remoto e manutenção de estações via SSH
 
+> **2026-10-17:** a separação Servidores × Acesso Remoto descrita abaixo foi desfeita — uma tela só, em
+> `docs/architecture/REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md`. As linhas que falam da "página Servidores" são histórico.
+
 Plano vivo (2026-10-15, Marcelo). Marque cada item na mesma mudança que o entrega.
 
 ## Objetivo
@@ -201,6 +204,7 @@ A página Servidores continua para serviços web e cofre de chave de infraestrut
 - **Explorer remoto** (`/v1/remote-fs`) usa os mesmos dados e scripts POSIX: mesma troca de autenticação;
   em máquina Windows o botão fica oculto até existir o Explorer em PowerShell (Fase 4, pendente).
 - Página Servidores **descontinuada** ao fim da migração; a rota `/servers` redireciona para Acesso Remoto › Máquinas.
+  *Feito em 2026-10-17 — ver `REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md` (tela única, caminhos de acesso, chaves na ForgeVault com verificação).*
 
 ### Entregue em 2026-10-16 (passo 1, ainda sem commit/deploy na redação desta nota)
 - [x] Acesso Remoto em abas: **Máquinas / Scripts e execuções / Rede** (`?tab=&sub=&system=`).

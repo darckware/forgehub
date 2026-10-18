@@ -100,8 +100,6 @@
     "macos": "macOS"
   },
   "workstations": {
-    "title": "Estações de trabalho",
-    "totals": "{{ready}} de {{total}} prontas · {{attention}} pedem atenção · {{offline}} offline",
     "counts": "{{ready}}/{{total}} prontas",
     "attentionCount": "{{count}} pedem atenção",
     "offlineCount": "{{count}} offline",
@@ -112,25 +110,16 @@
     "client": "Cliente",
     "noClient": "Sem cliente",
     "createGroup": "Criar grupo",
-    "search": "Buscar por nome, IP, local ou cliente",
     "filter": "Filtrar por prontidão",
     "filters": {
       "all": "Todas",
       "attention": "Pedem atenção"
     },
     "tailnetUnavailable": "Não foi possível ler a tailnet agora; a prontidão usa só a sonda SSH e o que não pôde ser lido aparece como Desconhecido.",
-    "loadFailed": "Não foi possível carregar as estações.",
-    "empty": "Nenhuma estação cadastrada. Use \"Sincronizar da tailnet\" para trazer os computadores da rede privada.",
-    "noMachines": "Nenhuma estação neste cliente.",
     "columns": {
-      "name": "Estação",
-      "os": "SO",
-      "location": "Local",
-      "groups": "Grupos",
       "login": "Login",
       "readiness": "Prontidão"
     },
-    "edit": "Editar",
     "editFor": "Editar {{name}}",
     "deleteGroup": "Excluir grupo",
     "deleteGroupFor": "Excluir o grupo {{name}}",
@@ -144,13 +133,7 @@
       "nothing": "Nada mudou na tailnet.",
       "failed": "Não foi possível ler a tailnet para sincronizar.",
       "available": "{{count}} disponível(is) para importar"
-    },
-    "import": {
-      "help": "Dispositivos da tailnet que ainda não estão no inventário. Marque os que são estações de clientes; os demais continuam só na tailnet e não voltam sozinhos.",
-      "action": "Importar selecionadas ({{count}})"
-    },
-    "run": "Executar",
-    "runFor": "Executar comando em {{name}}"
+    }
   },
   "verdict": {
     "running": "Em execução",
@@ -168,31 +151,18 @@
     "interrupted": "Interrompida por reinício do ForgeHub"
   },
   "run": {
-    "title": "Executar comando",
-    "targets": "Onde executar",
-    "groupLabel": "Grupo {{name}} ({{size}})",
-    "targetCount_one": "{{count}} máquina selecionada",
-    "targetCount_other": "{{count}} máquinas selecionadas",
     "shell": "Tipo de comando",
     "shells": {
       "sh": "Linux/macOS (sh)",
       "powershell": "Windows (PowerShell)"
     },
     "timeout": "Tempo limite (segundos)",
-    "mixedOs": "A seleção mistura Windows com Linux/macOS: as máquinas incompatíveis com o tipo escolhido ficam como \"Não executada\".",
     "command": "Comando",
-    "maskingNote": "Senhas, tokens e chaves no comando e na saída são mascarados antes de serem gravados.",
     "review": "Revisar",
-    "back": "Voltar",
-    "reviewSummary_one": "Será executado em {{count}} máquina, como {{shell}}, com limite de {{timeout}} s:",
-    "reviewSummary_other": "Será executado em {{count}} máquinas, como {{shell}}, com limite de {{timeout}} s:",
-    "reviewNote": "Máquinas desativadas, sem login, com sistema incompatível ou ocupadas com outro comando são puladas e aparecem com o motivo.",
-    "confirm_one": "Executar em {{count}} máquina",
-    "confirm_other": "Executar em {{count}} máquinas"
+    "back": "Voltar"
   },
   "executions": {
     "title": "Execuções",
-    "run": "Executar comando",
     "loadFailed": "Não foi possível carregar as execuções.",
     "empty": "Nenhum comando executado ainda.",
     "when": "Quando",
@@ -237,18 +207,12 @@
     "truncated": "Saída cortada em 64 KB."
   },
   "prepare": {
-    "title": "Preparar {{name}}",
-    "action": "Preparar",
-    "for": "Preparar {{name}} para acesso remoto",
-    "loading": "Gerando a chave e o script…",
     "step1": "Abra a estação pelo RustDesk.",
     "step2Windows": "Abra o PowerShell como administrador, cole o script abaixo e pressione Enter.",
     "step2Posix": "Abra o Terminal, salve o script como preparar.sh e rode: sudo sh preparar.sh",
     "step3": "Volte aqui e clique em \"Verificar agora\": a estação deve ficar Pronta.",
-    "keyCreated": "Uma chave nova foi gerada para esta estação e guardada (cópia criptografada).",
     "copy": "Copiar",
     "copied": "Copiado",
-    "safeNote": "O script pode ser rodado mais de uma vez. Ele só liga o SSH (aceitando conexões apenas da tailnet) e adiciona a chave do ForgeHub; não remove contas nem outras chaves.",
     "close": "Fechar",
     "dialogTitle": "Preparar estação",
     "intro": "Coloca a máquina sob a conta darckware do ForgeHub: liga o OpenSSH (só pela tailnet), cria a conta darckware como administradora com uma senha forte gerada para esta máquina e autoriza a chave do ForgeHub.",
@@ -294,31 +258,7 @@
     "hideContent": "Esconder a política"
   },
   "enroll": {
-    "action": "Ingressar estação",
-    "title": "Ingressar estação no suporte remoto",
-    "keyTitle": "Primeiro, a chave de API da Tailscale (uma vez só)",
-    "keyStep1": "No painel da Tailscale, abra Settings › Keys.",
-    "keyStep2": "Em \"API access tokens\", clique em \"Generate access token\" (validade de até 90 dias) e copie.",
-    "keyStep3": "Cole aqui. O ForgeHub guarda criptografada e usa só para gerar uma chave de uso único por estação.",
-    "openKeys": "Abrir as chaves da Tailscale",
-    "apiKey": "Chave de API da Tailscale",
-    "keyNote": "Nunca é mostrada de novo. Para trocar, cole uma nova.",
-    "saveKey": "Salvar chave",
-    "name": "Nome da estação",
-    "nameHelp": "Letras minúsculas, números e hífen (ex.: gat-adm-pc02). Vira o nome dela na tailnet.",
-    "os": "Sistema",
-    "tag": "Tag da tailnet",
-    "tagHelp": "Define a que cliente a estação pertence na rede (ex.: tag:gatling-users).",
-    "location": "Local",
-    "tagNoSsh": "A política registrada ainda não deixa o servidor abrir SSH nesta tag: a estação vai entrar na tailnet, mas não vai ficar Pronta até a regra ser acrescentada (veja o card da política).",
-    "keyConfigured": "Chave da Tailscale configurada (…{{hint}}) — trocar",
-    "generate": "Gerar script de ingresso",
-    "step2Linux": "Abra o Terminal, salve o script como ingressar.sh e rode: sudo sh ingressar.sh",
-    "step3": "Aguarde aqui: o ForgeHub detecta a estação sozinho quando ela entrar na tailnet.",
-    "secretNote": "O script contém a senha da conta darckware desta estação e uma chave da Tailscale de uso único, válida por {{hours}} h. A senha fica guardada no cadastro (ícone de chave na linha da estação).",
-    "waiting": "Aguardando {{name}} entrar na tailnet…",
-    "joined": "Entrou na tailnet ({{ip}}). Verificando o acesso SSH…",
-    "ready": "{{name}} está Pronta ({{ip}}). Já pode executar comandos nela."
+    "step2Linux": "Abra o Terminal, salve o script como ingressar.sh e rode: sudo sh ingressar.sh"
   },
   "password": {
     "title": "Senha de {{name}}",
@@ -711,6 +651,6 @@
     "routes": "Rotas",
     "empty": "Nenhuma rota de sub-rede aprovada visível para esta VPS.",
     "notAccepted": "Esta VPS não aceita rotas de sub-rede (tailscale set --accept-routes): as máquinas dessas faixas ficam inalcançáveis.",
-    "approvedOnly": "Só aparecem rotas aprovadas e liberadas pela ACL para esta VPS. Rotas anunciadas e ainda não aprovadas exigem a chave de API da Tailscale."
+    "approvedOnly": "Só aparecem rotas aprovadas no painel da Tailscale e liberadas pela ACL para esta VPS."
   }
 }
