@@ -729,8 +729,17 @@ async def get_readiness(
 
 
 _EVENT_TITLES = {
+    "enrollment_started": "Cadastro na tailnet iniciado",
     "preparation_started": "Preparação do acesso iniciada",
+    "preparation_script_generated": "Script de preparação gerado (RustDesk)",
     "rustdesk_password_recorded": "Senha do RustDesk registrada",
+    "rustdesk_password_revealed": "Senha do RustDesk consultada",
+    "login_password_revealed": "Senha da conta darckware consultada",
+    "login_password_rotated": "Senha da conta darckware trocada",
+    "ssh_key_rotated": "Chave SSH trocada",
+    "ssh_keys_to_vault": "Chave SSH guardada no ForgeVault",
+    "ssh_key_path_released": "Arquivo da chave SSH liberado (chave no ForgeVault)",
+    "server_deleted": "Máquina removida",
 }
 
 
