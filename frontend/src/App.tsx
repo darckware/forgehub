@@ -43,7 +43,6 @@ import DeployPage from "@/pages/deploy";
 import ClientDemandsPage from "@/pages/client-demands";
 import ClientEmailsPage from "@/pages/client-emails";
 import PersonalPage from "@/pages/personal";
-import SuggestionsPage from "@/pages/suggestions";
 import ClientAccountsPage from "@/pages/client-accounts";
 import ClientAccountPage from "@/pages/client-accounts/[id]";
 import DatabaseLayout from "@/pages/database/DatabaseLayout";
@@ -125,7 +124,7 @@ export default function App() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="auditor" element={<AuditorPage />} />
         <Route path="demands" element={<DemandsPage />} />
-        <Route path="suggestions" element={<RequireAdmin><SuggestionsPage /></RequireAdmin>} />
+        <Route path="suggestions" element={<Navigate to="/personal?tab=suggestions" replace />} />
         <Route path="agent-activity" element={<AgentActivityPage />} />
         <Route path="operations" element={<OperationsPage />} />
         <Route path="docs" element={<DocsPage />} />

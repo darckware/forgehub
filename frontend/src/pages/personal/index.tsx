@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import {
   Archive,
   ArchiveRestore,
@@ -9,6 +10,7 @@ import {
   ClipboardList,
   Contact,
   Bot,
+  Lightbulb,
   ListTodo,
   Loader2,
   MapPin,
@@ -44,6 +46,7 @@ import {
 } from "@/hooks/usePersonalViewModel";
 import { cn } from "@/lib/utils";
 import { ContactsTab } from "./ContactsTab";
+import { SuggestionsTab } from "./SuggestionsTab";
 import { MaiaTab } from "./MaiaTab";
 
 const RECURRENCES: Recurrence[] = ["", "daily", "weekly", "monthly", "yearly"];
@@ -64,7 +67,9 @@ function whenLabel(task: PersonalTask, locale: string): string | null {
 
 export default function PersonalPage() {
   const { t } = useTranslation("personal");
-  const [tab, setTab] = useState("tasks");
+  // ?tab= opens a tab directly (the old /suggestions route redirects to ?tab=suggestions).
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(params.get("tab") || "tasks");
   const del = usePersonalDeleteViewModel();
 
   return (
@@ -78,6 +83,7 @@ export default function PersonalPage() {
           <TabsTrigger value="demands"><ClipboardList className="mr-1.5 h-4 w-4" />{t("tabs.demands")}</TabsTrigger>
           <TabsTrigger value="contacts"><Contact className="mr-1.5 h-4 w-4" />{t("tabs.contacts")}</TabsTrigger>
           <TabsTrigger value="maia"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.maia")}</TabsTrigger>
+          <TabsTrigger value="suggestions"><Lightbulb className="mr-1.5 h-4 w-4" />{t("tabs.suggestions")}</TabsTrigger>
         </TabsList>
         <TabsContent value="tasks"><TasksTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="agenda"><AgendaTab onDelete={del.ask} /></TabsContent>
@@ -85,6 +91,7 @@ export default function PersonalPage() {
         <TabsContent value="demands"><DemandsTab /></TabsContent>
         <TabsContent value="contacts"><ContactsTab /></TabsContent>
         <TabsContent value="maia"><MaiaTab /></TabsContent>
+        <TabsContent value="suggestions"><SuggestionsTab /></TabsContent>
       </Tabs>
       <ConfirmDialog
         open={Boolean(del.target)}

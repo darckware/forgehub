@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Lightbulb, Loader2, X } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { Check, Loader2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -93,7 +92,8 @@ function SuggestionCard({ suggestion }: { suggestion: CaptureSuggestion }) {
   );
 }
 
-export default function SuggestionsPage() {
+/** The Maia's capture suggestions, a tab of Pessoal since 2026-10-19 (it was its own /suggestions page). */
+export function SuggestionsTab() {
   const { t } = useTranslation("personal");
   const [status, setStatus] = useState("pending");
   const query = usePersonalSuggestions(status || "all");
@@ -101,7 +101,7 @@ export default function SuggestionsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t("suggestions.title")} description={t("suggestions.description")} icon={<Lightbulb className="h-6 w-6" />} />
+      <p className="text-sm text-muted-foreground">{t("suggestions.description")}</p>
       <div className="flex flex-wrap items-center gap-2">
         {(["pending", "accepted", "dismissed", ""] as const).map((value) => (
           <Button key={value || "all"} size="sm" variant={status === value ? "default" : "outline"} onClick={() => setStatus(value)}>
