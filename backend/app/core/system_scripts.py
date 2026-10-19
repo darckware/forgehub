@@ -121,6 +121,35 @@ try {
 """,
     },
     {
+        "system_key": "tailscale_unattended:windows",
+        "name": "Tailscale em modo autônomo",
+        "platform": "windows",
+        "category": "manutencao",
+        "risk": "change",
+        "timeout_seconds": 120,
+        "description": (
+            "Liga o modo autônomo (unattended) da Tailscale pela política de sistema UnattendedMode=always: a "
+            "máquina continua na tailnet sem ninguém logado e depois de reiniciar. Necessário quando a Tailscale "
+            "foi conectada pelo ícone da bandeja, o que a prende ao usuário daquela sessão. O serviço é reiniciado "
+            "segundos depois do fim da execução, então a conexão cai por um instante."
+        ),
+        "parameters": [],
+        # The restart runs as a CIM-created process: a child of this SSH session
+        # would be killed with it, and the session itself rides on the tailnet.
+        "content": """$ErrorActionPreference = 'Stop'
+if (-not (Get-Service Tailscale -ErrorAction SilentlyContinue)) { throw 'A Tailscale nao esta instalada nesta maquina' }
+$key = 'HKLM:\\SOFTWARE\\Policies\\Tailscale'
+$current = (Get-ItemProperty $key -ErrorAction SilentlyContinue).UnattendedMode
+if ($current -eq 'always') { 'Modo autonomo ja ativo (UnattendedMode=always)'; exit 0 }
+New-Item -Path $key -Force | Out-Null
+New-ItemProperty -Path $key -Name 'UnattendedMode' -Value 'always' -PropertyType String -Force | Out-Null
+$cmd = 'powershell.exe -NoProfile -Command "Start-Sleep 5; Restart-Service Tailscale -Force"'
+$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
+if ($r.ReturnValue -ne 0) { throw "Politica gravada, mas o reinicio do servico falhou (codigo $($r.ReturnValue))" }
+'Modo autonomo ativado (UnattendedMode=always); a Tailscale reinicia em 5 segundos'
+""",
+    },
+    {
         "system_key": "tailscale_install:linux",
         "name": "Instalar Tailscale",
         "platform": "linux",

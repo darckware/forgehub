@@ -27,7 +27,7 @@ def test_system_scripts_render_safely(spec):
     resolved, _ = resolve_values(params, values)
     text = render_script(spec["platform"], spec["content"], resolved)
     assert not [c for c in text if ord(c) < 32 and c not in "\n\r\t"]
-    if spec["platform"] == "windows":
+    if spec["platform"] == "windows" and values:
         assert "x''; evil" in text  # quoted for PowerShell
     if spec["system_key"].startswith("rustdesk_install"):
         assert RUSTDESK_KEY in text and "RUSTDESK_ID=" in text
