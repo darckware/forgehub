@@ -3,7 +3,7 @@
  * useExecutionComposerViewModel. */
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CalendarClock, Check, ClipboardCopy, Copy, Loader2, Play, Search, TriangleAlert, X } from "lucide-react";
+import { CalendarClock, Check, ClipboardCopy, Copy, KeyRound, Loader2, Play, Search, TriangleAlert, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -143,7 +143,20 @@ export function ExecutionComposer({
                           {t("composer.fits", { fit: vm.fitCount, total: vm.selected.size })}
                         </p>
                       )}
-                      {vm.script.parameters.map((p) => (
+                      {/* Fixed infrastructure (e.g. the RustDesk server) is read from
+                          ForgeVault when the script runs: never typed, never shown. */}
+                      {Object.entries(
+                        vm.script.parameters.reduce<Record<string, string[]>>((acc, p) => {
+                          if (p.vault_secret) (acc[p.vault_secret] ??= []).push(p.label || p.name);
+                          return acc;
+                        }, {}),
+                      ).map(([secret, labels]) => (
+                        <p key={secret} className="flex items-start gap-2 rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+                          <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span>{t("composer.fromVault", { fields: labels.join(", "), secret })}</span>
+                        </p>
+                      ))}
+                      {vm.script.parameters.filter((p) => !p.vault_secret).map((p) => (
                         <div key={p.name} className="space-y-1">
                           <Label htmlFor={`param-${p.name}`}>{p.label || p.name}{p.required && " *"}</Label>
                           {p.options?.length ? (

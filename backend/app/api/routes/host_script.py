@@ -208,7 +208,7 @@ async def render_script_text(
     has no SSH yet (through RustDesk). Contains the parameter values as
     typed -- secrets included -- so it is audited and never stored."""
     script = await _get_script(db, script_id)
-    command, shell, _secrets = prepare_script_run(script, payload.parameter_values)
+    command, shell, _secrets = await prepare_script_run(script, payload.parameter_values)
     _audit(db, "host_script", script.id, "rendered_for_copy", admin.username, {"version": script.current_version})
     await db.commit()
     return ScriptRendered(script_id=script.id, version=script.current_version, shell=shell, script=command)
@@ -269,7 +269,7 @@ async def list_schedules(db: AsyncSession = Depends(get_db), _admin: User = Depe
 @schedules_router.post("", response_model=ScheduleOut, status_code=status.HTTP_201_CREATED)
 async def create_schedule(payload: ScheduleCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
     script = await _get_script(db, payload.script_id)
-    prepare_script_run(script, payload.parameter_values)  # parameters valid now, not at 3 a.m.
+    await prepare_script_run(script, payload.parameter_values)  # parameters valid now, not at 3 a.m.
     servers, _ = await resolve_targets(db, payload.server_ids, payload.group_ids)
     if not servers:
         raise HTTPException(status_code=422, detail="Pick at least one machine or a group with machines")
@@ -314,7 +314,7 @@ async def update_schedule(
     for key, value in fields.items():
         setattr(schedule, key, value)
     if "parameter_values" in fields:
-        prepare_script_run(await _get_script(db, schedule.script_id), schedule.parameter_values)
+        await prepare_script_run(await _get_script(db, schedule.script_id), schedule.parameter_values)
     if "server_ids" in fields or "group_ids" in fields:
         servers, _ = await resolve_targets(db, schedule.server_ids, schedule.group_ids)
         if not servers:
@@ -341,7 +341,7 @@ async def fire_schedule(db: AsyncSession, schedule: HostSchedule, actor: str):
     script = await db.get(HostScript, schedule.script_id)
     if script is None or script.archived:
         return None
-    command, shell, secrets = prepare_script_run(script, schedule.parameter_values)
+    command, shell, secrets = await prepare_script_run(script, schedule.parameter_values)
     servers, group_names = await resolve_targets(db, schedule.server_ids, schedule.group_ids)
     if not servers:
         return None

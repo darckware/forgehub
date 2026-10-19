@@ -12,8 +12,9 @@ on the host and does both, narrowly:
 * scope: only the `infra/Production` environment recorded in
   ~/.config/forgevault/forgehub-remote-access.json -- the account's role exists
   nowhere else, so even a wrong call can't touch another project;
-* two operations: upsert (create, or rotate = new immutable version) a secret
-  by name, and reveal one by id. Names are restricted to UPPER_SNAKE so a
+* three operations: upsert (create, or rotate = new immutable version) a secret
+  by name, reveal one by id, and reveal one by name (a shared value a script
+  reads at run time, e.g. the RustDesk server key). Names are restricted to UPPER_SNAKE so a
   request body can't smuggle anything else.
 
 Values travel only in request/response bodies between the backend and this
@@ -87,17 +88,21 @@ class VaultClient:
 
     async def upsert(self, name: str, value: str, description: str | None, secret_type: str) -> dict:
         env_id = _state()["environmentId"]
-        existing = await self._call("GET", f"/api/v1/secrets?environmentId={env_id}") or []
-        match = next((s for s in existing if s.get("name") == name), None)
+        match = await self.find(name)
         if match:
-            rotated = await self._call("POST", f"/api/v1/secrets/{match['id']}/rotate", {"value": value})
+            rotated = await self._call("POST", f"/api/v1/secrets/{match}/rotate", {"value": value})
             version = (rotated or {}).get("currentVersion") if isinstance(rotated, dict) else None
-            return {"id": match["id"], "created": False, "version": version}
+            return {"id": match, "created": False, "version": version}
         created = await self._call("POST", "/api/v1/secrets", {
             "environmentId": env_id, "name": name, "type": secret_type, "provider": "forgehub",
             "description": description, "value": value, "expiresAt": None,
         })
         return {"id": created["id"], "created": True, "version": 1}
+
+    async def find(self, name: str) -> str | None:
+        env_id = _state()["environmentId"]
+        existing = await self._call("GET", f"/api/v1/secrets?environmentId={env_id}") or []
+        return next((s["id"] for s in existing if s.get("name") == name), None)
 
     async def reveal(self, secret_id: str) -> str:
         got = await self._call("GET", f"/api/v1/secrets/{secret_id}/value?mode=REVEAL")
@@ -116,6 +121,10 @@ class UpsertRequest(BaseModel):
 
 class RevealRequest(BaseModel):
     id: str = Field(min_length=36, max_length=36)
+
+
+class RevealByNameRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
 
 
 def make_forgevault_router(check_token: Callable[[str | None], None], client: VaultClient | None = None) -> APIRouter:
@@ -139,6 +148,19 @@ def make_forgevault_router(check_token: Callable[[str | None], None], client: Va
         check_token(x_bridge_token)
         try:
             return {"value": await vault.reveal(req.id)}
+        except VaultUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @router.post("/secrets:reveal-by-name")
+    async def reveal_secret_by_name(req: RevealByNameRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+        check_token(x_bridge_token)
+        if not NAME_RE.match(req.name):
+            raise HTTPException(status_code=400, detail="Secret name must be UPPER_SNAKE_CASE")
+        try:
+            secret_id = await vault.find(req.name)
+            if secret_id is None:
+                raise HTTPException(status_code=404, detail=f"Secret {req.name} not found in ForgeVault")
+            return {"id": secret_id, "value": await vault.reveal(secret_id)}
         except VaultUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 

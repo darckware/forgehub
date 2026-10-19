@@ -34,6 +34,9 @@ class FakeVault:
         self.secrets[name] = {"id": sid, "versions": [value]}
         return {"id": sid, "created": True, "version": 1}
 
+    async def find(self, name):
+        return self.secrets.get(name, {}).get("id")
+
     async def reveal(self, secret_id):
         for s in self.secrets.values():
             if s["id"] == secret_id:
@@ -61,3 +64,13 @@ def test_rejects_bad_names_types_and_missing_token():
     assert c.post("/v1/forgevault/secrets:upsert", json={"name": "ws_lower", "value": "x"}, headers=H).status_code == 400
     assert c.post("/v1/forgevault/secrets:upsert", json={"name": "WS_OK_NAME", "value": "x", "type": "Certificate"}, headers=H).status_code == 400
     assert c.post("/v1/forgevault/secrets:upsert", json={"name": "WS_OK_NAME", "value": "x"}).status_code == 401
+
+
+def test_reveal_by_name():
+    c = _client()
+    c.post("/v1/forgevault/secrets:upsert", json={"name": "RUSTDESK_SERVER_KEY", "value": "k1"}, headers=H)
+    got = c.post("/v1/forgevault/secrets:reveal-by-name", json={"name": "RUSTDESK_SERVER_KEY"}, headers=H).json()
+    assert got["value"] == "k1"
+    assert c.post("/v1/forgevault/secrets:reveal-by-name", json={"name": "MISSING_KEY"}, headers=H).status_code == 404
+    assert c.post("/v1/forgevault/secrets:reveal-by-name", json={"name": "lower"}, headers=H).status_code == 400
+    assert c.post("/v1/forgevault/secrets:reveal-by-name", json={"name": "RUSTDESK_SERVER_KEY"}).status_code == 401

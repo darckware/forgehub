@@ -68,3 +68,8 @@ async def vault_store(name: str, value: str, description: str, secret_type: str 
 
 async def vault_reveal(secret_id: str) -> str:
     return (await _bridge("secrets:reveal", {"id": secret_id}))["value"]
+
+
+async def vault_reveal_name(name: str) -> str:
+    """A shared secret by its name (e.g. RUSTDESK_SERVER_KEY); 503 when missing or unreadable."""
+    return (await _bridge("secrets:reveal-by-name", {"name": name}))["value"]

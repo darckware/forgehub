@@ -15,6 +15,8 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 PARAM_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,40}$")
+VAULT_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,119}$")
+VAULT_FIELD_RE = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
@@ -55,6 +57,20 @@ def validate_parameters(parameters: list) -> list[dict]:
             "default": default,
             "secret": bool(p.get("secret", False)),
         }
+        # Left blank, the value is read from ForgeVault by this name at run time
+        # (fixed infrastructure such as the RustDesk server, never kept in the
+        # script). With `vault_field` the secret holds a JSON object and the
+        # parameter takes that one field, so related values stay together.
+        if vault := p.get("vault_secret"):
+            vault = str(vault).strip()
+            if not VAULT_NAME_RE.match(vault):
+                raise ScriptError(f"Parameter '{name}': vault_secret must be an UPPER_SNAKE secret name")
+            param["vault_secret"] = vault
+            if field := p.get("vault_field"):
+                field = str(field).strip()
+                if not VAULT_FIELD_RE.match(field):
+                    raise ScriptError(f"Parameter '{name}': vault_field must be a lower_snake field name")
+                param["vault_field"] = field
         # A choice parameter: the value must be one of `options` (shown as a
         # select). Only stored when set, so plain parameters keep their shape.
         if options := p.get("options"):

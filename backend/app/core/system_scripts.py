@@ -30,9 +30,10 @@ from app.core.host_scripts import validate_parameters
 logger = logging.getLogger(__name__)
 
 INSTALLER_COMMIT = "6df30b11023eaefe6a36d13bc87f2cfa106e0f20"
-RUSTDESK_ID_SERVER = "100.105.235.114"
-RUSTDESK_RELAY_SERVER = "100.105.235.114:21117"
-RUSTDESK_KEY = "30OQH25Eg+VmQH06Y6h7GXiuHML4V8Km4MltPVfP4ys="
+# The RustDesk server (ID server, relay, public key) lives only in ForgeVault
+# (infra/Production), as one JSON secret; a script reads it at run time when
+# those fields are left blank.
+RUSTDESK_SERVER_SECRET = "RUSTDESK_SERVER"
 RUSTDESK_LINUX_DEB = "https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.deb"
 
 RUSTDESK_ID_MARKER = "RUSTDESK_ID="
@@ -143,9 +144,12 @@ _TAILSCALE_PARAMS_OPTIONAL = [
 ]
 
 _RUSTDESK_NETWORK_PARAMS = [
-    {"name": "RUSTDESK_ID_SERVER", "label": "Servidor de ID", "required": True, "default": RUSTDESK_ID_SERVER},
-    {"name": "RUSTDESK_RELAY_SERVER", "label": "Servidor de Relay", "required": True, "default": RUSTDESK_RELAY_SERVER},
-    {"name": "RUSTDESK_KEY", "label": "Key", "required": True, "default": RUSTDESK_KEY},
+    {"name": "RUSTDESK_ID_SERVER", "label": "Servidor de ID", "required": True,
+     "vault_secret": RUSTDESK_SERVER_SECRET, "vault_field": "id_server"},
+    {"name": "RUSTDESK_RELAY_SERVER", "label": "Servidor de Relay", "required": True,
+     "vault_secret": RUSTDESK_SERVER_SECRET, "vault_field": "relay_server"},
+    {"name": "RUSTDESK_KEY", "label": "Key", "required": True, "secret": True,
+     "vault_secret": RUSTDESK_SERVER_SECRET, "vault_field": "key"},
 ]
 _RUSTDESK_PASSWORD_PARAM = {"name": "RUSTDESK_PASSWORD", "label": "Senha permanente do RustDesk", "required": True, "secret": True}
 _RUSTDESK_PASSWORD_OPTIONAL = {**_RUSTDESK_PASSWORD_PARAM, "required": False,

@@ -7,12 +7,13 @@ from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 from sqlalchemy import delete, select
 
 from app.api.routes import host_execution as exec_routes
 from app.core import host_exec_runner
 from app.core.host_scripts import ScriptError, render_script, resolve_values, validate_parameters
-from app.core.system_scripts import RUSTDESK_KEY, SYSTEM_SCRIPTS, seed_system_scripts
+from app.core.system_scripts import RUSTDESK_SERVER_SECRET, SYSTEM_SCRIPTS, seed_system_scripts
 from app.db.base import AsyncSessionLocal
 from app.db.models.governance import AuditEvent
 from app.db.models.host_execution import HostExecution
@@ -30,7 +31,12 @@ def test_system_scripts_render_safely(spec):
     if spec["platform"] == "windows" and values:
         assert "x''; evil" in text  # quoted for PowerShell
     if spec["system_key"].startswith(("rustdesk_install", "remote_access_install")):
-        assert RUSTDESK_KEY in text and "RUSTDESK_ID=" in text
+        assert "RUSTDESK_ID=" in text
+        fixed = {p["name"]: p for p in params if p.get("vault_secret") == RUSTDESK_SERVER_SECRET}
+        assert {n: p["vault_field"] for n, p in fixed.items()} == {
+            "RUSTDESK_ID_SERVER": "id_server", "RUSTDESK_RELAY_SERVER": "relay_server", "RUSTDESK_KEY": "key"}
+        assert not any(p["default"] for p in fixed.values())  # nothing fixed is kept in the script
+        assert fixed["RUSTDESK_KEY"]["secret"] and not fixed["RUSTDESK_ID_SERVER"]["secret"]
 
 
 def _render(system_key, values):
@@ -51,6 +57,10 @@ def test_user_password_scripts(platform):
         _render(f"user_password:{platform}", {"USER_LOGIN": "maria", "USER_PASSWORD": "x", "ACCOUNT_STATE": "apagada"})
 
 
+# What prepare_script_run would read from ForgeVault (these tests render directly).
+_RD_SERVER = {"RUSTDESK_ID_SERVER": "10.0.0.9", "RUSTDESK_RELAY_SERVER": "10.0.0.9:21117", "RUSTDESK_KEY": "k="}
+
+
 @pytest.mark.parametrize("platform", ["windows", "linux"])
 def test_remote_access_installer_options(platform):
     spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == f"remote_access_install:{platform}")
@@ -59,10 +69,38 @@ def test_remote_access_installer_options(platform):
     # Only Tailscale needs no RustDesk password, only RustDesk no auth key.
     assert not params["TAILSCALE_AUTHKEY"]["required"] and not params["RUSTDESK_PASSWORD"]["required"]
     assert ("ROUTER_IP" in params) == (platform == "windows")  # router mode is Windows-only
-    text, _ = _render(f"remote_access_install:{platform}", {"COMPONENTES": "somente_tailscale", "TAILSCALE_AUTHKEY": "tskey-x"})
+    text, _ = _render(f"remote_access_install:{platform}", {"COMPONENTES": "somente_tailscale", "TAILSCALE_AUTHKEY": "tskey-x", **_RD_SERVER})
     assert "Validacao" in text
     with pytest.raises(ScriptError):
-        _render(f"remote_access_install:{platform}", {"COMPONENTES": "tudo"})
+        _render(f"remote_access_install:{platform}", {"COMPONENTES": "tudo", **_RD_SERVER})
+
+
+@pytest.mark.asyncio
+async def test_rustdesk_server_read_from_forgevault_when_blank():
+    spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == "rustdesk_install:windows")
+    script = HostScript(system_key=spec["system_key"], platform="windows", content=spec["content"],
+                        parameters=validate_parameters(spec["parameters"]), archived=False)
+    asked = []
+
+    async def reveal(name):
+        asked.append(name)
+        return '{"id_server": "10.0.0.9", "relay_server": "10.0.0.9:21117", "key": "vault-key="}'
+
+    with patch.object(exec_routes, "vault_reveal_name", reveal):
+        text, _, secrets = await exec_routes.prepare_script_run(script, {"RUSTDESK_PASSWORD": "Senha#2026x"})
+        assert asked == [RUSTDESK_SERVER_SECRET]  # one read for the three fields
+        assert "$RUSTDESK_ID_SERVER = '10.0.0.9'" in text and "$RUSTDESK_KEY = 'vault-key='" in text
+        assert "vault-key=" in secrets and "10.0.0.9" not in secrets  # only the key is masked
+        text, _, _ = await exec_routes.prepare_script_run(script, {
+            "RUSTDESK_PASSWORD": "Senha#2026x", "RUSTDESK_ID_SERVER": "1.2.3.4",
+            "RUSTDESK_RELAY_SERVER": "1.2.3.4:21117", "RUSTDESK_KEY": "typed="})
+        assert asked == [RUSTDESK_SERVER_SECRET] and "'typed='" in text  # typed values never touch the vault
+
+    async def broken(name):
+        return '{"id_server": "10.0.0.9"}'
+
+    with patch.object(exec_routes, "vault_reveal_name", broken), pytest.raises(HTTPException):
+        await exec_routes.prepare_script_run(script, {"RUSTDESK_PASSWORD": "Senha#2026x"})
 
 
 def test_installer_records_rustdesk_password_only_when_rustdesk_installed():
@@ -113,7 +151,7 @@ async def _run(machine, outcome):
     async with AsyncSessionLocal() as db:
         script = (await db.execute(select(HostScript).where(HostScript.system_key == "rustdesk_password:windows"))).scalar_one()
         values = {"RUSTDESK_PASSWORD": "Nova#Senha2026"}
-        command, shell, secrets = exec_routes.prepare_script_run(script, values)
+        command, shell, secrets = await exec_routes.prepare_script_run(script, values)
 
         async def bridge(server, shell_, body, timeout):
             assert "$RUSTDESK_PASSWORD = 'Nova#Senha2026'" in body

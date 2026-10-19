@@ -25,6 +25,10 @@ const SCRIPTS = [
     { name: "USER_LOGIN", label: "Login do usuário", required: true, default: null, secret: false },
     { name: "ACCOUNT_STATE", label: "Conta", required: false, default: "manter", secret: false, options: ["manter", "ativa", "desativada"] },
   ] }),
+  script({ id: "vk", name: "Com cofre", parameters: [
+    { name: "RUSTDESK_ID_SERVER", label: "Servidor de ID", required: true, default: null, secret: false, vault_secret: "RUSTDESK_SERVER" },
+    { name: "RUSTDESK_KEY", label: "Key", required: true, default: null, secret: true, vault_secret: "RUSTDESK_SERVER" },
+  ] }),
   script({ id: "dflt", name: "Com padrão", parameters: [{ name: "ID_SERVER", label: "Servidor de ID", required: true, default: "100.105.235.114", secret: false }] }),
 ];
 
@@ -116,6 +120,20 @@ describe("ExecutionComposer", () => {
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-executions", expect.objectContaining({
       script_id: "pw", parameter_values: { USER_LOGIN: "maria", ACCOUNT_STATE: "desativada" },
     }));
+  });
+
+  it("hides ForgeVault-backed parameters and sends none of them", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ id: "e3" } as never);
+    const { onRan } = renderComposer();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /PC-01/ }));
+    fireEvent.change(screen.getByLabelText("Script"), { target: { value: "vk" } });
+    expect(screen.queryByLabelText("Key *")).not.toBeInTheDocument();
+    expect(screen.getByText("Servidor de ID, Key: lidos do ForgeVault (RUSTDESK_SERVER) na execução.")).toBeInTheDocument();
+    expect(screen.queryByText("Preencha os parâmetros obrigatórios.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Executar agora" }));
+    await vi.waitFor(() => expect(onRan).toHaveBeenCalled());
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-executions", expect.objectContaining({ script_id: "vk", parameter_values: {} }));
   });
 
   it("never shows a parameter's default value on screen, only that blank uses it", async () => {

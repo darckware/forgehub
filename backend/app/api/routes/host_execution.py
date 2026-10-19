@@ -16,6 +16,7 @@ ForgeHub, no login yet, OS incompatible with the shell, or already running
 another command (one execution per machine at a time).
 """
 import re
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -36,7 +37,7 @@ from app.core import host_exec_runner
 from app.core.host_scripts import ScriptError, compatible, render_script, resolve_values, shell_for
 from app.core.deps import get_current_admin
 from app.core.secret_masking import mask_secrets
-from app.core.forgevault import machine_secret_name, vault_store
+from app.core.forgevault import machine_secret_name, vault_reveal_name, vault_store
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
 from app.db.models.agent import Agent
@@ -300,10 +301,27 @@ def system_script_hook(script: HostScript, values: dict | None):
     return record
 
 
-def prepare_script_run(script: HostScript, values: dict | None) -> tuple[str, str, list[str]]:
-    """(rendered script, shell, secrets to mask) -- 422 on bad parameters."""
+async def prepare_script_run(script: HostScript, values: dict | None) -> tuple[str, str, list[str]]:
+    """(rendered script, shell, secrets to mask) -- 422 on bad parameters. A
+    blank `vault_secret` parameter is read from ForgeVault here, so the value
+    lives only in the vault and in this one rendered command (masked)."""
     if script.archived:
         raise HTTPException(status_code=409, detail="This script is archived")
+    values = dict(values or {})
+    revealed: dict[str, str] = {}
+    for p in script.parameters:
+        if not p.get("vault_secret") or str(values.get(p["name"]) or "").strip() or p.get("default"):
+            continue
+        name = p["vault_secret"]
+        if name not in revealed:
+            revealed[name] = await vault_reveal_name(name)
+        value = revealed[name]
+        if field := p.get("vault_field"):
+            try:
+                value = json.loads(value)[field]
+            except (ValueError, TypeError, KeyError) as exc:
+                raise HTTPException(status_code=503, detail=f"ForgeVault: {name} has no field '{field}'") from exc
+        values[p["name"]] = str(value)
     try:
         resolved, secrets = resolve_values(script.parameters, values)
     except ScriptError as exc:
@@ -326,7 +344,7 @@ async def create_execution(
         script = await db.get(HostScript, payload.script_id)
         if not script:
             raise HTTPException(status_code=404, detail="Script not found")
-        command, shell, secrets = prepare_script_run(script, payload.parameter_values)
+        command, shell, secrets = await prepare_script_run(script, payload.parameter_values)
         timeout = payload.timeout_seconds if "timeout_seconds" in payload.model_fields_set else script.timeout_seconds
     else:
         if not payload.command or not payload.shell:
@@ -427,7 +445,7 @@ async def follow_up_execution(
         script = await db.get(HostScript, payload.script_id)
         if not script:
             raise HTTPException(status_code=404, detail="Script not found")
-        command, shell, secrets = prepare_script_run(script, payload.parameter_values)
+        command, shell, secrets = await prepare_script_run(script, payload.parameter_values)
         timeout = payload.timeout_seconds if "timeout_seconds" in payload.model_fields_set else script.timeout_seconds
     else:
         if not payload.command or not payload.shell:

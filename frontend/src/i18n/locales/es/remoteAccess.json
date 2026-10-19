@@ -358,6 +358,7 @@
     "copyHelp": "Para una máquina aún sin SSH: copia el script con los parámetros completados para pegarlo por RustDesk.",
     "copyTitle": "Script listo para pegar",
     "usesDefault": "En blanco, se usa el valor predeterminado del script.",
+    "fromVault": "{{fields}}: se leen de ForgeVault ({{secret}}) al ejecutar.",
     "optionNone": "Seleccione...",
     "options": {
       "manter": "Mantener como está",

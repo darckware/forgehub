@@ -22,6 +22,8 @@ export interface ScriptParameter {
   required: boolean;
   default: string | null;
   secret: boolean;
+  /** Left blank, the value is read from ForgeVault under this name when the script runs. */
+  vault_secret?: string | null;
   /** A choice parameter: the allowed values, rendered as a select. */
   options?: string[] | null;
 }

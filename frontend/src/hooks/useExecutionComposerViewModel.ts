@@ -180,7 +180,7 @@ export function useExecutionComposerViewModel(handlers: {
     if (!script) problems.push("noScript");
     else {
       if (fitCount === 0 && selectedMachines.length > 0) problems.push("noCompatible");
-      for (const p of script.parameters) if (p.required && !(paramValues[p.name] ?? p.default ?? "").trim()) problems.push("missingParams");
+      for (const p of script.parameters) if (p.required && !p.vault_secret && !(paramValues[p.name] ?? p.default ?? "").trim()) problems.push("missingParams");
     }
   } else if (!command.trim()) problems.push("noCommand");
   if (when !== "now") {
