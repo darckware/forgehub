@@ -21,6 +21,10 @@ const SCRIPTS = [
   script({}),
   script({ id: "rw", name: "Instalar RustDesk", system_key: "rustdesk_install:windows", parameters: [], is_system: true }),
   script({ id: "rl", name: "Instalar RustDesk", platform: "linux", system_key: "rustdesk_install:linux", parameters: [], is_system: true }),
+  script({ id: "pw", name: "Alterar senha de usuário", parameters: [
+    { name: "USER_LOGIN", label: "Login do usuário", required: true, default: null, secret: false },
+    { name: "ACCOUNT_STATE", label: "Conta", required: false, default: "manter", secret: false, options: ["manter", "ativa", "desativada"] },
+  ] }),
   script({ id: "dflt", name: "Com padrão", parameters: [{ name: "ID_SERVER", label: "Servidor de ID", required: true, default: "100.105.235.114", secret: false }] }),
 ];
 
@@ -95,6 +99,23 @@ describe("ExecutionComposer", () => {
     fireEvent.click(screen.getByRole("button", { name: /Copiar script pronto/ }));
     expect(await screen.findByText(/Restart/)).toBeInTheDocument();
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-scripts/s1:render", { parameter_values: { SERVICE: "x" } });
+  });
+
+  it("renders a choice parameter as a select and sends the picked value", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ id: "e2" } as never);
+    const { onRan } = renderComposer();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /PC-01/ }));
+    fireEvent.change(screen.getByLabelText("Script"), { target: { value: "pw" } });
+    const state = screen.getByLabelText("Conta");
+    expect(state).toHaveDisplayValue("Manter como está");
+    fireEvent.change(state, { target: { value: "desativada" } });
+    fireEvent.change(screen.getByLabelText("Login do usuário *"), { target: { value: "maria" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Executar agora" }));
+    await vi.waitFor(() => expect(onRan).toHaveBeenCalled());
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-executions", expect.objectContaining({
+      script_id: "pw", parameter_values: { USER_LOGIN: "maria", ACCOUNT_STATE: "desativada" },
+    }));
   });
 
   it("never shows a parameter's default value on screen, only that blank uses it", async () => {

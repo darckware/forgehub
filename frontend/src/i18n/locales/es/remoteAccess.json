@@ -356,7 +356,15 @@
     "copyScript": "Copiar script listo",
     "copyHelp": "Para una máquina aún sin SSH: copia el script con los parámetros completados para pegarlo por RustDesk.",
     "copyTitle": "Script listo para pegar",
-    "usesDefault": "En blanco, se usa el valor predeterminado del script."
+    "usesDefault": "En blanco, se usa el valor predeterminado del script.",
+    "optionNone": "Seleccione...",
+    "options": {
+      "manter": "Mantener como está",
+      "sim": "Sí",
+      "nao": "No",
+      "ativa": "Activa",
+      "desativada": "Desactivada"
+    }
   },
   "library": {
     "title": "Biblioteca de scripts",

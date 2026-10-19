@@ -356,7 +356,15 @@
     "copyScript": "Copy ready script",
     "copyHelp": "For a machine without SSH yet: copies the script with its parameters filled, to paste through RustDesk.",
     "copyTitle": "Script ready to paste",
-    "usesDefault": "Left blank, the script's default value is used."
+    "usesDefault": "Left blank, the script's default value is used.",
+    "optionNone": "Select...",
+    "options": {
+      "manter": "Keep as is",
+      "sim": "Yes",
+      "nao": "No",
+      "ativa": "Enabled",
+      "desativada": "Disabled"
+    }
   },
   "library": {
     "title": "Script library",

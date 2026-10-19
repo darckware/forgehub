@@ -50,6 +50,21 @@ def test_parameter_validation():
     assert resolve_values(params, {"PW": "s3cret"}) == ({"PW": "s3cret"}, ["s3cret"])
 
 
+def test_choice_parameters():
+    params = validate_parameters([{"name": "MODE", "default": "manter", "options": ["manter", "sim", "nao"]},
+                                  {"name": "PLAIN"}])
+    assert params[0]["options"] == ["manter", "sim", "nao"]
+    assert "options" not in params[1]  # plain parameters keep their stored shape
+    assert resolve_values(params, {})[0]["MODE"] == "manter"
+    assert resolve_values(params, {"MODE": "sim"})[0]["MODE"] == "sim"
+    with pytest.raises(ScriptError):
+        resolve_values(params, {"MODE": "talvez"})
+    with pytest.raises(ScriptError):
+        validate_parameters([{"name": "MODE", "default": "x", "options": ["sim", "nao"]}])
+    with pytest.raises(ScriptError):
+        validate_parameters([{"name": "MODE", "options": ["sim", "sim"]}])
+
+
 def test_platform_compatibility():
     assert compatible("windows", "windows") and not compatible("windows", "linux")
     assert compatible("linux", None) and compatible("linux", "linux") and not compatible("linux", "macos")

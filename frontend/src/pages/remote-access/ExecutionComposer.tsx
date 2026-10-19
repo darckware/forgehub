@@ -146,18 +146,34 @@ export function ExecutionComposer({
                       {vm.script.parameters.map((p) => (
                         <div key={p.name} className="space-y-1">
                           <Label htmlFor={`param-${p.name}`}>{p.label || p.name}{p.required && " *"}</Label>
-                          <Input
-                            id={`param-${p.name}`}
-                            type={p.secret ? "password" : "text"}
-                            autoComplete="off"
-                            value={vm.paramValues[p.name] ?? ""}
-                            onChange={(e) => vm.setParam(p.name, e.target.value)}
-                            className="max-md:text-base"
-                          />
-                          {/* The default isn't echoed as a placeholder: it showed
-                              infrastructure values (servers, keys) on screen.
-                              It still applies when the field is left blank. */}
-                          {p.default && <p className="text-xs text-muted-foreground">{t("composer.usesDefault")}</p>}
+                          {p.options?.length ? (
+                            <Select
+                              id={`param-${p.name}`}
+                              value={vm.paramValues[p.name] ?? p.default ?? ""}
+                              onChange={(e) => vm.setParam(p.name, e.target.value)}
+                              className="max-md:text-base"
+                            >
+                              {!p.default && <option value="">{t("composer.optionNone")}</option>}
+                              {p.options.map((o) => (
+                                <option key={o} value={o}>{t(`composer.options.${o}`, { defaultValue: o })}</option>
+                              ))}
+                            </Select>
+                          ) : (
+                            <>
+                              <Input
+                                id={`param-${p.name}`}
+                                type={p.secret ? "password" : "text"}
+                                autoComplete="off"
+                                value={vm.paramValues[p.name] ?? ""}
+                                onChange={(e) => vm.setParam(p.name, e.target.value)}
+                                className="max-md:text-base"
+                              />
+                              {/* The default isn't echoed as a placeholder: it showed
+                                  infrastructure values (servers, keys) on screen.
+                                  It still applies when the field is left blank. */}
+                              {p.default && <p className="text-xs text-muted-foreground">{t("composer.usesDefault")}</p>}
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>

@@ -89,7 +89,137 @@ _RUSTDESK_NETWORK_PARAMS = [
 ]
 _RUSTDESK_PASSWORD_PARAM = {"name": "RUSTDESK_PASSWORD", "label": "Senha permanente do RustDesk", "required": True, "secret": True}
 
+# Local user password change (2026-10-18, Marcelo: "preciso de uma para
+# alteração da senha do usuário do windows ... campo para digitar do login e
+# senha ... algumas propriedades do usuário"). "manter" leaves a property as
+# it is. The maintenance account itself is refused: its password lives in
+# ForgeVault and changes only through the machine's password rotation, which
+# keeps the vault in step.
+_KEEP = "manter"
+_YES_NO_KEEP = [_KEEP, "sim", "nao"]
+_USER_LOGIN_PARAM = {"name": "USER_LOGIN", "label": "Login do usuário", "required": True}
+_USER_PASSWORD_PARAM = {"name": "USER_PASSWORD", "label": "Nova senha", "required": True, "secret": True}
+_USER_FULL_NAME_PARAM = {"name": "USER_FULL_NAME", "label": "Nome completo (vazio = não alterar)"}
+_MUST_CHANGE_PARAM = {"name": "MUST_CHANGE_AT_LOGON", "label": "Trocar a senha no próximo logon",
+                      "default": "nao", "options": ["nao", "sim"]}
+_NEVER_EXPIRES_PARAM = {"name": "PASSWORD_NEVER_EXPIRES", "label": "Senha nunca expira",
+                        "default": _KEEP, "options": _YES_NO_KEEP}
+_ACCOUNT_STATE_PARAM = {"name": "ACCOUNT_STATE", "label": "Conta",
+                        "default": _KEEP, "options": [_KEEP, "ativa", "desativada"]}
+_UNLOCK_PARAM = {"name": "UNLOCK_ACCOUNT", "label": "Desbloquear a conta (tentativas de senha erradas)",
+                 "default": "sim", "options": ["sim", "nao"]}
+
+_SH_USER_CHECKS = """[ -n "$USER_LOGIN" ] || { echo "Informe o login" >&2; exit 2; }
+[ "$USER_LOGIN" != "darckware" ] || { echo "A conta darckware muda de senha pela rotacao da maquina (a senha fica na ForgeVault)" >&2; exit 2; }
+id "$USER_LOGIN" >/dev/null 2>&1 || { echo "Usuario $USER_LOGIN nao existe nesta maquina" >&2; exit 2; }
+if [ "$MUST_CHANGE_AT_LOGON" = "sim" ] && [ "$PASSWORD_NEVER_EXPIRES" = "sim" ]; then
+    echo "Escolha entre 'trocar no proximo logon' e 'senha nunca expira'" >&2; exit 2
+fi
+"""
+
 SYSTEM_SCRIPTS: list[dict] = [
+    {
+        "system_key": "user_password:windows",
+        "name": "Alterar senha de usuário",
+        "platform": "windows",
+        "category": "seguranca",
+        "risk": "change",
+        "timeout_seconds": 120,
+        "description": (
+            "Define a senha de uma conta local do Windows e, opcionalmente, nome completo, descrição, "
+            "\"trocar no próximo logon\", \"senha nunca expira\", \"usuário pode trocar a senha\", conta "
+            "ativa/desativada e desbloqueio. \"manter\" não mexe na propriedade. Não vale para conta de "
+            "domínio nem para a conta darckware (essa usa a rotação de senha da máquina)."
+        ),
+        "parameters": [
+            _USER_LOGIN_PARAM, _USER_PASSWORD_PARAM, _USER_FULL_NAME_PARAM,
+            {"name": "USER_DESCRIPTION", "label": "Descrição (vazio = não alterar)"},
+            _MUST_CHANGE_PARAM, _NEVER_EXPIRES_PARAM,
+            {"name": "USER_MAY_CHANGE_PASSWORD", "label": "Usuário pode trocar a senha",
+             "default": _KEEP, "options": _YES_NO_KEEP},
+            _ACCOUNT_STATE_PARAM, _UNLOCK_PARAM,
+        ],
+        "content": """$ErrorActionPreference = 'Stop'
+if (-not $USER_LOGIN) { throw 'Informe o login' }
+if ($USER_LOGIN -eq 'darckware') { throw 'A conta darckware muda de senha pela rotacao da maquina (a senha fica na ForgeVault)' }
+$user = Get-LocalUser -Name $USER_LOGIN -ErrorAction SilentlyContinue
+if (-not $user) { throw "Conta local $USER_LOGIN nao existe nesta maquina (conta de dominio nao e alterada aqui)" }
+if ($MUST_CHANGE_AT_LOGON -eq 'sim' -and ($PASSWORD_NEVER_EXPIRES -eq 'sim' -or ($PASSWORD_NEVER_EXPIRES -eq 'manter' -and -not $user.PasswordExpires))) {
+    throw "O Windows nao aceita 'trocar no proximo logon' com 'senha nunca expira': escolha 'nao' em 'senha nunca expira'"
+}
+if ($MUST_CHANGE_AT_LOGON -eq 'sim' -and $USER_MAY_CHANGE_PASSWORD -eq 'nao') {
+    throw "'Trocar no proximo logon' exige que o usuario possa trocar a senha"
+}
+$set = @{ Name = $USER_LOGIN; Password = (ConvertTo-SecureString $USER_PASSWORD -AsPlainText -Force) }
+if ($USER_FULL_NAME) { $set.FullName = $USER_FULL_NAME }
+if ($USER_DESCRIPTION) { $set.Description = $USER_DESCRIPTION }
+if ($PASSWORD_NEVER_EXPIRES -ne 'manter') { $set.PasswordNeverExpires = ($PASSWORD_NEVER_EXPIRES -eq 'sim') }
+if ($USER_MAY_CHANGE_PASSWORD -ne 'manter') { $set.UserMayChangePassword = ($USER_MAY_CHANGE_PASSWORD -eq 'sim') }
+Set-LocalUser @set
+if ($ACCOUNT_STATE -eq 'ativa') { Enable-LocalUser -Name $USER_LOGIN }
+if ($ACCOUNT_STATE -eq 'desativada') { Disable-LocalUser -Name $USER_LOGIN }
+$adsi = [ADSI]"WinNT://./$USER_LOGIN,user"
+if ($UNLOCK_ACCOUNT -eq 'sim' -and $adsi.IsAccountLocked) { $adsi.IsAccountLocked = $false; $adsi.SetInfo(); 'Conta desbloqueada' }
+if ($MUST_CHANGE_AT_LOGON -eq 'sim') { $adsi.PasswordExpired = 1; $adsi.SetInfo() }
+$u = Get-LocalUser -Name $USER_LOGIN
+"Senha de $USER_LOGIN alterada"
+"Conta ativa: $($u.Enabled) | Senha expira em: $(if ($u.PasswordExpires) { $u.PasswordExpires } else { 'nunca' }) | Pode trocar a senha: $($u.UserMayChangePassword) | Trocar no proximo logon: $($MUST_CHANGE_AT_LOGON -eq 'sim')"
+""",
+    },
+    {
+        "system_key": "user_password:linux",
+        "name": "Alterar senha de usuário",
+        "platform": "linux",
+        "category": "seguranca",
+        "risk": "change",
+        "timeout_seconds": 120,
+        "description": (
+            "Define a senha de um usuário local do Linux e, opcionalmente, nome completo, \"trocar no próximo "
+            "logon\", \"senha nunca expira\", conta ativa/bloqueada e desbloqueio de tentativas erradas "
+            "(faillock). \"manter\" não mexe na propriedade. Não vale para a conta darckware (rotação da máquina)."
+        ),
+        "parameters": [
+            _USER_LOGIN_PARAM, _USER_PASSWORD_PARAM, _USER_FULL_NAME_PARAM,
+            _MUST_CHANGE_PARAM, _NEVER_EXPIRES_PARAM, _ACCOUNT_STATE_PARAM, _UNLOCK_PARAM,
+        ],
+        # chpasswd reads the password on stdin, so it never shows in a process list.
+        "content": _SH_PRELUDE + _SH_USER_CHECKS + """printf '%s:%s\\n' "$USER_LOGIN" "$USER_PASSWORD" | $SUDO chpasswd
+[ -z "$USER_FULL_NAME" ] || $SUDO usermod -c "$USER_FULL_NAME" "$USER_LOGIN"
+[ "$PASSWORD_NEVER_EXPIRES" != "sim" ] || $SUDO chage -M -1 "$USER_LOGIN"
+[ "$PASSWORD_NEVER_EXPIRES" != "nao" ] || $SUDO chage -M 90 "$USER_LOGIN"
+[ "$ACCOUNT_STATE" != "ativa" ] || { $SUDO usermod -U "$USER_LOGIN"; $SUDO chage -E -1 "$USER_LOGIN"; }
+[ "$ACCOUNT_STATE" != "desativada" ] || { $SUDO usermod -L "$USER_LOGIN"; $SUDO chage -E 0 "$USER_LOGIN"; }
+if [ "$UNLOCK_ACCOUNT" = "sim" ] && command -v faillock >/dev/null 2>&1; then $SUDO faillock --user "$USER_LOGIN" --reset; fi
+[ "$MUST_CHANGE_AT_LOGON" != "sim" ] || $SUDO chage -d 0 "$USER_LOGIN"
+echo "Senha de $USER_LOGIN alterada"
+$SUDO chage -l "$USER_LOGIN"
+""",
+    },
+    {
+        "system_key": "user_password:macos",
+        "name": "Alterar senha de usuário",
+        "platform": "macos",
+        "category": "seguranca",
+        "risk": "change",
+        "timeout_seconds": 120,
+        "description": (
+            "Define a senha de um usuário local do macOS e, opcionalmente, nome completo, \"trocar no próximo "
+            "logon\" e conta ativa/desativada. Atenção: a troca feita pelo administrador não atualiza as "
+            "chaves do usuário (Keychain) e, com FileVault, a senha de desbloqueio do disco pode continuar a "
+            "antiga até o usuário entrar. Não vale para a conta darckware (rotação da máquina)."
+        ),
+        "parameters": [
+            _USER_LOGIN_PARAM, _USER_PASSWORD_PARAM, _USER_FULL_NAME_PARAM,
+            _MUST_CHANGE_PARAM, _ACCOUNT_STATE_PARAM,
+        ],
+        "content": _SH_PRELUDE + _SH_USER_CHECKS + """$SUDO dscl . -passwd "/Users/$USER_LOGIN" "$USER_PASSWORD"
+[ -z "$USER_FULL_NAME" ] || $SUDO dscl . -create "/Users/$USER_LOGIN" RealName "$USER_FULL_NAME"
+[ "$ACCOUNT_STATE" != "ativa" ] || $SUDO pwpolicy -u "$USER_LOGIN" -enableuser
+[ "$ACCOUNT_STATE" != "desativada" ] || $SUDO pwpolicy -u "$USER_LOGIN" -disableuser
+[ "$MUST_CHANGE_AT_LOGON" != "sim" ] || $SUDO pwpolicy -u "$USER_LOGIN" -setpolicy "newPasswordRequired=1"
+echo "Senha de $USER_LOGIN alterada"
+""",
+    },
     {
         "system_key": "tailscale_install:windows",
         "name": "Instalar Tailscale",

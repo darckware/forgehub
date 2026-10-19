@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 
 from app.api.routes import host_execution as exec_routes
 from app.core import host_exec_runner
-from app.core.host_scripts import render_script, resolve_values, validate_parameters
+from app.core.host_scripts import ScriptError, render_script, resolve_values, validate_parameters
 from app.core.system_scripts import RUSTDESK_KEY, SYSTEM_SCRIPTS, seed_system_scripts
 from app.db.base import AsyncSessionLocal
 from app.db.models.governance import AuditEvent
@@ -31,6 +31,24 @@ def test_system_scripts_render_safely(spec):
         assert "x''; evil" in text  # quoted for PowerShell
     if spec["system_key"].startswith("rustdesk_install"):
         assert RUSTDESK_KEY in text and "RUSTDESK_ID=" in text
+
+
+def _render(system_key, values):
+    spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == system_key)
+    params = validate_parameters(spec["parameters"])
+    resolved, secrets = resolve_values(params, values)
+    return render_script(spec["platform"], spec["content"], resolved), secrets
+
+
+@pytest.mark.parametrize("platform", ["windows", "linux", "macos"])
+def test_user_password_scripts(platform):
+    text, secrets = _render(f"user_password:{platform}", {"USER_LOGIN": "maria", "USER_PASSWORD": "N0va'Senha"})
+    assert secrets == ["N0va'Senha"]  # masked in the stored command and output
+    assert "darckware" in text  # the maintenance account is refused by the script
+    if platform == "linux":
+        assert '| $SUDO chpasswd' in text  # password on stdin, not in argv
+    with pytest.raises(ScriptError):
+        _render(f"user_password:{platform}", {"USER_LOGIN": "maria", "USER_PASSWORD": "x", "ACCOUNT_STATE": "apagada"})
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,8 @@ export interface ScriptParameter {
   required: boolean;
   default: string | null;
   secret: boolean;
+  /** A choice parameter: the allowed values, rendered as a select. */
+  options?: string[] | null;
 }
 
 export interface HostScript {

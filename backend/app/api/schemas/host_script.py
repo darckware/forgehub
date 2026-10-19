@@ -16,6 +16,8 @@ class ScriptParameter(BaseModel):
     default: str | None = None
     # Masked in stored command/output.
     secret: bool = False
+    # A choice parameter: the allowed values, shown as a select.
+    options: list[str] | None = Field(default=None, max_length=20)
 
 
 class CategoryOut(BaseModel):

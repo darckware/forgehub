@@ -47,13 +47,24 @@ def validate_parameters(parameters: list) -> list[dict]:
             raise ScriptError(f"Parameter '{name}' declared twice")
         seen.add(name)
         default = p.get("default")
-        out.append({
+        default = None if default in (None, "") else str(default)
+        param = {
             "name": name,
             "label": str(p.get("label") or name)[:120],
             "required": bool(p.get("required", False)),
-            "default": None if default in (None, "") else str(default),
+            "default": default,
             "secret": bool(p.get("secret", False)),
-        })
+        }
+        # A choice parameter: the value must be one of `options` (shown as a
+        # select). Only stored when set, so plain parameters keep their shape.
+        if options := p.get("options"):
+            options = [str(o) for o in options]
+            if len(options) > 20 or any(not o or len(o) > 60 for o in options) or len(set(options)) != len(options):
+                raise ScriptError(f"Parameter '{name}': options must be 1-20 distinct, non-empty values")
+            if default is not None and default not in options:
+                raise ScriptError(f"Parameter '{name}': the default must be one of its options")
+            param["options"] = options
+        out.append(param)
     return out
 
 
@@ -74,6 +85,8 @@ def resolve_values(parameters: list[dict], values: dict | None) -> tuple[dict[st
             value = ""
         if "\x00" in value:
             raise ScriptError(f"Parameter '{p['label']}' has an invalid character")
+        if value and p.get("options") and value not in p["options"]:
+            raise ScriptError(f"Parameter '{p['label']}' must be one of: {', '.join(p['options'])}")
         resolved[p["name"]] = value
         if p["secret"] and value:
             secrets.append(value)
