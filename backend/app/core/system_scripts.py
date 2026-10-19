@@ -29,7 +29,7 @@ from app.core.host_scripts import validate_parameters
 
 logger = logging.getLogger(__name__)
 
-INSTALLER_COMMIT = "9cd068903f4a46500760c364f531d8648c220d1d"
+INSTALLER_COMMIT = "6df30b11023eaefe6a36d13bc87f2cfa106e0f20"
 RUSTDESK_ID_SERVER = "100.105.235.114"
 RUSTDESK_RELAY_SERVER = "100.105.235.114:21117"
 RUSTDESK_KEY = "30OQH25Eg+VmQH06Y6h7GXiuHML4V8Km4MltPVfP4ys="
