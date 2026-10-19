@@ -70,6 +70,9 @@ export interface HostExecutionCreate {
   server_ids: string[];
   group_ids: string[];
   timeout_seconds: number;
+  /** For machines without ForgeHub's own login: used this run only, never stored. */
+  login_user?: string;
+  login_password?: string;
 }
 
 const KEY = ["host-executions"] as const;

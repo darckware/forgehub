@@ -85,10 +85,24 @@
     "succeeded": "Completada",
     "failed": "Falló"
   },
+  "status": {
+    "complete": "Lista",
+    "partial_no_rustdesk": "Sin RustDesk",
+    "partial_no_ssh": "Solo RustDesk (sin SSH)",
+    "not_prepared": "No preparada",
+    "offline": "Desconectada",
+    "disabled": "Desactivada",
+    "unknown": "Desconocido",
+    "channels": {
+      "sshOk": "SSH de ForgeHub funcionando",
+      "sshMissing": "Sin SSH de ForgeHub",
+      "rustdeskOk": "RustDesk {{id}}",
+      "rustdeskMissing": "Sin RustDesk registrado"
+    }
+  },
   "readiness": {
     "ready": "Lista",
     "busy": "Ocupada",
-    "online_no_access": "En línea sin acceso",
     "offline": "Desconectada",
     "not_prepared": "No preparada",
     "disabled": "Desactivada",
@@ -225,7 +239,11 @@
       "ssh": "Por SSH con el administrador",
       "copy": "Copiar script (RustDesk)"
     },
-    "sshHelp": "ForgeHub entra una vez con el administrador de la máquina (la contraseña se usa solo en esta conexión y no se guarda), prepara, prueba el login de darckware con la clave y, solo si la prueba pasa, bloquea al administrador.",
+    "sshHelp": "ForgeHub entra una vez con esa cuenta (la contraseña se usa solo en esta conexión y no se guarda), prepara la máquina, prueba el acceso de darckware con la clave y, solo si la prueba pasa y la opción de abajo está marcada, bloquea esa cuenta.",
+    "loginRequired": "Para instalar y configurar el acceso SSH de ForgeHub (cuenta darckware) hay que entrar una vez con una cuenta administradora de esta máquina.",
+    "accountLabel": "Cuenta usada en la configuración",
+    "accounts": {"registered": "Cuenta registrada: {{user}}", "other": "Otra cuenta"},
+    "thisAccount": "usada",
     "adminUser": "Login del administrador",
     "adminPassword": "Contraseña del administrador",
     "disableAdmin": "Bloquear la cuenta \"{{user}}\" tras confirmar que darckware entra con la clave",
@@ -336,7 +354,16 @@
     "time": "Hora (Brasilia)",
     "window": "Ventana (minutos)",
     "windowHelp": "Una máquina apagada o fuera de la red se reintenta hasta el fin de la ventana; después queda como \"No ejecutada\".",
+    "login": {
+      "title": "Inicio de sesión para las máquinas sin acceso de ForgeHub",
+      "help_one": "{{names}} todavía no tiene el acceso de ForgeHub. Indique una cuenta con permisos de administrador en ella: se usa solo en esta ejecución y no se guarda.",
+      "help_other": "{{names}} todavía no tienen el acceso de ForgeHub. Indique una cuenta con permisos de administrador en ellas: se usa solo en esta ejecución y no se guarda.",
+      "user": "Usuario",
+      "password": "Contraseña"
+    },
     "problems": {
+      "missingLogin": "Indique el usuario y la contraseña para las máquinas sin acceso de ForgeHub.",
+      "scheduleNeedsAccess": "Las programaciones solo corren en máquinas con el acceso de ForgeHub (use \"Configurar acceso\" antes).",
       "noMachines": "Seleccione al menos una máquina.",
       "noScript": "Elija un script.",
       "noCompatible": "Ninguna máquina seleccionada es compatible con este script.",
@@ -361,6 +388,11 @@
     "fromVault": "{{fields}}: se leen de ForgeVault ({{secret}}) al ejecutar.",
     "optionNone": "Seleccione...",
     "options": {
+      "ver_configuracao": "Solo ver la configuración",
+      "anunciar_subrede": "Anunciar subred (ser enrutador)",
+      "parar_de_rotear": "Dejar de anunciar subredes",
+      "aceitar_rotas": "Usar las subredes de la tailnet",
+      "nao_aceitar_rotas": "No usar las subredes de la tailnet",
       "manter": "Mantener como está",
       "sim": "Sí",
       "nao": "No",

@@ -17,14 +17,8 @@ import type { HostExecutionDetail } from "@/hooks/useHostExecutions";
 import type { HostSchedule } from "@/hooks/useHostScripts";
 import { scriptFits } from "@/hooks/useHostScripts";
 import { cn } from "@/lib/utils";
+import { STATUS_DOT, statusKey } from "./machineStatus";
 
-const READY_DOT: Record<string, string> = {
-  ready: "bg-emerald-500",
-  busy: "bg-sky-500",
-  online_no_access: "bg-amber-500",
-  not_prepared: "bg-amber-500",
-  offline: "bg-muted-foreground/40",
-};
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
 
 export function ExecutionComposer({
@@ -81,20 +75,21 @@ export function ExecutionComposer({
           <ul className="max-h-[50vh] divide-y divide-border overflow-y-auto rounded-md border border-border">
             {vm.visibleMachines.length === 0 && <li className="p-3 text-sm text-muted-foreground">{t("composer.noMachines")}</li>}
             {vm.visibleMachines.map((m) => {
-              const state = vm.readinessOf(m.id);
+              const entry = vm.entryOf(m.id);
+              const label = entry ? t(`status.${statusKey(entry)}`) : undefined;
               const fits = !vm.script || scriptFits(vm.script.platform, m.os_family);
               return (
                 <li key={m.id}>
                   <label className={cn("flex cursor-pointer items-center gap-2 px-3 py-2 text-sm", !fits && "opacity-50")}>
                     <input type="checkbox" checked={vm.selected.has(m.id)} onChange={() => vm.toggleMachine(m.id)} />
-                    <span className={cn("h-2 w-2 shrink-0 rounded-full", READY_DOT[state ?? ""] ?? "bg-muted-foreground/40")} title={state ? t(`readiness.${state}`) : undefined} aria-hidden="true" />
+                    <span className={cn("h-2 w-2 shrink-0 rounded-full", entry?.readiness === "busy" ? "bg-sky-500" : STATUS_DOT[entry?.status ?? "unknown"])} title={label} aria-hidden="true" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{m.name}</span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {[m.os_family ? t(`os.${m.os_family}`) : null, m.darckware_client_name, m.kind === "server" ? t("composer.server") : null].filter(Boolean).join(" · ")}
                       </span>
                     </span>
-                    {state && state !== "ready" && <span className="text-[10px] text-muted-foreground">{t(`readiness.${state}`)}</span>}
+                    {entry && entry.status !== "complete" && <span className="text-[10px] text-muted-foreground">{entry.readiness === "busy" ? t("readiness.busy") : label}</span>}
                   </label>
                 </li>
               );
@@ -250,6 +245,24 @@ export function ExecutionComposer({
                 )}
               </fieldset>
 
+              {vm.noAccessMachines.length > 0 && vm.when === "now" && (
+                <fieldset className="space-y-2 rounded-md border border-orange-500/40 bg-orange-500/5 p-3">
+                  <legend className="px-1 text-sm font-medium">{t("composer.login.title")}</legend>
+                  <p className="text-xs text-muted-foreground">
+                    {t("composer.login.help", { count: vm.noAccessMachines.length, names: vm.noAccessMachines.map((m) => m.name).join(", ") })}
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="run-login">{t("composer.login.user")}</Label>
+                      <Input id="run-login" autoComplete="off" value={vm.loginUser} onChange={(e) => vm.setLoginUser(e.target.value)} className="max-md:text-base" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="run-password">{t("composer.login.password")}</Label>
+                      <Input id="run-password" type="password" autoComplete="off" value={vm.loginPassword} onChange={(e) => vm.setLoginPassword(e.target.value)} className="max-md:text-base" />
+                    </div>
+                  </div>
+                </fieldset>
+              )}
               {vm.problems.length > 0 && (vm.selected.size > 0 || vm.script || vm.command) && (
                 <ul className="space-y-1 text-xs text-amber-600">
                   {[...new Set(vm.problems)].map((p) => (

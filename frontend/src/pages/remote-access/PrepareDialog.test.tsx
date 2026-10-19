@@ -8,15 +8,19 @@ import { PrepareDialog } from "./PrepareDialog";
 
 vi.mock("@/lib/api", () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 
-const machine = (id: string, name: string, os: string, admin: string | null = null) => ({
-  id, name, os_family: os, kind: "workstation", admin_user: admin, darckware_client_name: "Gatling", group_ids: [],
+const machine = (id: string, name: string, os: string, admin: string | null = null, kind = "workstation") => ({
+  id, name, os_family: os, kind, admin_user: admin, darckware_client_name: "Gatling", group_ids: [],
 });
 
 function renderDialog() {
   vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
-    if (url === "/api/v1/servers") return [machine("w1", "gat-adm-pc01", "windows", "administrador"), machine("w2", "desk", "windows")] as never;
+    if (url === "/api/v1/servers") {
+      return [machine("w1", "gat-adm-pc01", "windows", "administrador"), machine("w2", "desk", "windows"),
+        machine("s1", "gat-srv-01", "windows", null, "server")] as never;
+    }
     if (url.startsWith("/api/v1/servers/readiness")) {
-      return { entries: [{ server_id: "w1", readiness: "online_no_access" }, { server_id: "w2", readiness: "ready" }] } as never;
+      return { entries: [{ server_id: "w1", readiness: "not_prepared", status: "not_prepared" }, { server_id: "w2", readiness: "ready" },
+        { server_id: "s1", readiness: "not_prepared", status: "not_prepared" }] } as never;
     }
     return [] as never;
   });
@@ -43,6 +47,29 @@ describe("PrepareDialog", () => {
     await vi.waitFor(() => expect(onExecution).toHaveBeenCalledWith("e1"));
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/w1/preparation", {
       mode: "ssh", admin_user: "administrador", admin_password: "S3nha!", disable_admin: true,
+    });
+  });
+
+  it("asks login and password for another account, and keeps a server's administrator by default", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ execution_id: "e2", script: null } as never);
+    const onExecution = renderDialog();
+    await screen.findByRole("option", { name: /gat-srv-01/ });
+    fireEvent.change(screen.getByLabelText("Máquina"), { target: { value: "w1" } });
+    expect(screen.getByRole("radio", { name: "Conta cadastrada: administrador" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByLabelText("Login do administrador")).not.toBeInTheDocument(); // only the password is asked
+    fireEvent.click(screen.getByRole("radio", { name: "Outra conta" }));
+    expect(screen.getByLabelText("Login do administrador")).toBeInTheDocument();
+
+    // A machine with no account on record opens both fields straight away.
+    fireEvent.change(screen.getByLabelText("Máquina"), { target: { value: "s1" } });
+    expect(screen.queryByRole("radio", { name: "Outra conta" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Login do administrador"), { target: { value: "suporte" } });
+    fireEvent.change(screen.getByLabelText("Senha do administrador"), { target: { value: "X1!" } });
+    expect(screen.getByRole("checkbox")).not.toBeChecked(); // a server keeps its administrator
+    fireEvent.click(screen.getByRole("button", { name: "Preparar agora" }));
+    await vi.waitFor(() => expect(onExecution).toHaveBeenCalledWith("e2"));
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/s1/preparation", {
+      mode: "ssh", admin_user: "suporte", admin_password: "X1!", disable_admin: false,
     });
   });
 

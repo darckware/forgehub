@@ -127,6 +127,90 @@ _TAILSCALE_PARAMS = [
 
 # Pasted into a console (the "copy ready script" path for a machine without
 # SSH), the script runs as whoever opened it; over SSH, as darckware (admin).
+# Tailscale routing on an already-connected machine (2026-10-19, Marcelo:
+# "script de ajuste do tailscale como por exemplo subrede, não rotear").
+# `tailscale set` changes only the flag given, never the login or other prefs.
+_TAILSCALE_ADJUST_PARAMS = [
+    {"name": "AJUSTE", "label": "Ajuste", "required": True, "default": "ver_configuracao",
+     "options": ["ver_configuracao", "anunciar_subrede", "parar_de_rotear", "aceitar_rotas", "nao_aceitar_rotas"]},
+    {"name": "ROTAS", "label": "Sub-redes a anunciar (ex.: 192.168.0.0/24, separadas por vírgula)"},
+]
+_TAILSCALE_ADJUST_DESCRIPTION = (
+    "Ajusta o roteamento da Tailscale numa máquina já conectada: anunciar sub-redes (a máquina vira roteador "
+    "da rede local dela para a tailnet; a rota ainda precisa ser aprovada no painel da Tailscale), parar de "
+    "anunciar, passar a usar ou deixar de usar as sub-redes anunciadas por outras máquinas. Cuidado: aceitar "
+    "rotas numa máquina que está dentro da própria sub-rede anunciada pode desviar o tráfego local dela. "
+    "Sempre mostra a configuração resultante."
+)
+_WIN_TAILSCALE_ADJUST = """$ErrorActionPreference = 'Stop'
+$ts = Join-Path $env:ProgramFiles 'Tailscale\\tailscale.exe'
+if (-not (Test-Path $ts)) { throw 'A Tailscale nao esta instalada nesta maquina' }
+# tailscale.exe writes errors to stderr: read them under Continue, judge by the exit code.
+function Invoke-Ts([string[]]$TsArgs) {
+    $ErrorActionPreference = 'Continue'
+    $out = & $ts @TsArgs 2>&1 | ForEach-Object { [string]$_ }
+    $text = $out -join ' '
+    if ($text -match 'already in use by ([^\\s,]+)') {
+        throw ("A Tailscale desta maquina esta presa ao usuario $($Matches[1]) (conectada pelo icone da bandeja): " +
+               'o Windows recusa comandos de outra conta enquanto o icone dele estiver aberto. Feche a Tailscale ' +
+               'na sessao desse usuario (ou saia dela) e rode de novo.')
+    }
+    if ($LASTEXITCODE -ne 0) { throw "tailscale $($TsArgs -join ' ') falhou: $text" }
+    $out
+}
+switch ($AJUSTE) {
+    'anunciar_subrede' {
+        $routes = @($ROTAS -split '[,; ]+' | Where-Object { $_ })
+        if (-not $routes) { throw 'Informe as sub-redes (ex.: 192.168.0.0/24)' }
+        foreach ($r in $routes) { if ($r -notmatch '^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$') { throw "Sub-rede invalida: $r" } }
+        Invoke-Ts @('set', "--advertise-routes=$($routes -join ',')") | Out-Null
+        "Anunciando $($routes -join ', '). Aprove a rota no painel da Tailscale (Machines > Edit route settings)."
+    }
+    'parar_de_rotear' { Invoke-Ts @('set', '--advertise-routes=') | Out-Null; 'A maquina deixou de anunciar sub-redes.' }
+    'aceitar_rotas' { Invoke-Ts @('set', '--accept-routes=true') | Out-Null; 'A maquina passou a usar as sub-redes anunciadas na tailnet.' }
+    'nao_aceitar_rotas' { Invoke-Ts @('set', '--accept-routes=false') | Out-Null; 'A maquina deixou de usar as sub-redes anunciadas na tailnet.' }
+}
+$prefs = (Invoke-Ts @('debug', 'prefs')) -join "`n" | ConvertFrom-Json
+'=== Configuracao atual'
+"Sub-redes anunciadas: $(if ($prefs.AdvertiseRoutes) { $prefs.AdvertiseRoutes -join ', ' } else { 'nenhuma' })"
+"Usa sub-redes da tailnet: $(if ($prefs.RouteAll) { 'sim' } else { 'nao' })"
+"IP na tailnet: $((Invoke-Ts @('ip', '-4')) -join ' ')"
+"""
+_SH_TAILSCALE_ADJUST = """command -v tailscale >/dev/null 2>&1 || { echo "A Tailscale nao esta instalada nesta maquina" >&2; exit 2; }
+case "$AJUSTE" in
+    anunciar_subrede)
+        ROUTES=$(echo "$ROTAS" | tr ';, ' '\\n\\n\\n' | grep -v '^$' | paste -sd, -)
+        [ -n "$ROUTES" ] || { echo "Informe as sub-redes (ex.: 192.168.0.0/24)" >&2; exit 2; }
+        for R in $(echo "$ROUTES" | tr ',' ' '); do
+            echo "$R" | grep -Eq '^[0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,2}$' || { echo "Sub-rede invalida: $R" >&2; exit 2; }
+        done
+        # A Linux subnet router forwards packets itself: IP forwarding must be on (persisted).
+        printf 'net.ipv4.ip_forward = 1\\nnet.ipv6.conf.all.forwarding = 1\\n' | $SUDO tee /etc/sysctl.d/99-tailscale.conf >/dev/null
+        $SUDO sysctl -p /etc/sysctl.d/99-tailscale.conf >/dev/null
+        $SUDO tailscale set --advertise-routes="$ROUTES"
+        echo "Anunciando $ROUTES. Aprove a rota no painel da Tailscale (Machines > Edit route settings)."
+        ;;
+    parar_de_rotear)
+        $SUDO tailscale set --advertise-routes=
+        echo "A maquina deixou de anunciar sub-redes."
+        ;;
+    aceitar_rotas)
+        $SUDO tailscale set --accept-routes=true
+        echo "A maquina passou a usar as sub-redes anunciadas na tailnet."
+        ;;
+    nao_aceitar_rotas)
+        $SUDO tailscale set --accept-routes=false
+        echo "A maquina deixou de usar as sub-redes anunciadas na tailnet."
+        ;;
+esac
+PREFS=$($SUDO tailscale debug prefs)
+ADV=$(echo "$PREFS" | tr -d ' \\n' | grep -o '"AdvertiseRoutes":\\[[^]]*\\]' | sed 's/.*\\[//; s/\\]//; s/"//g')
+echo "=== Configuracao atual"
+echo "Sub-redes anunciadas: ${ADV:-nenhuma}"
+echo "$PREFS" | grep -q '"RouteAll": *true' && echo "Usa sub-redes da tailnet: sim" || echo "Usa sub-redes da tailnet: nao"
+echo "IP na tailnet: $(tailscale ip -4)"
+"""
+
 _WIN_REQUIRE_ADMIN = """$ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -188,7 +272,7 @@ SYSTEM_SCRIPTS: list[dict] = [
         "system_key": "user_password:windows",
         "name": "Alterar senha de usuário",
         "platform": "windows",
-        "category": "seguranca",
+        "category": "contas",
         "risk": "change",
         "timeout_seconds": 120,
         "description": (
@@ -236,7 +320,7 @@ $u = Get-LocalUser -Name $USER_LOGIN
         "system_key": "user_password:linux",
         "name": "Alterar senha de usuário",
         "platform": "linux",
-        "category": "seguranca",
+        "category": "contas",
         "risk": "change",
         "timeout_seconds": 120,
         "description": (
@@ -265,7 +349,7 @@ $SUDO chage -l "$USER_LOGIN"
         "system_key": "user_password:macos",
         "name": "Alterar senha de usuário",
         "platform": "macos",
-        "category": "seguranca",
+        "category": "contas",
         "risk": "change",
         "timeout_seconds": 120,
         "description": (
@@ -290,7 +374,7 @@ echo "Senha de $USER_LOGIN alterada"
         "system_key": "tailscale_install:windows",
         "name": "Instalar Tailscale",
         "platform": "windows",
-        "category": "instalacao",
+        "category": "tailscale",
         "risk": "change",
         "timeout_seconds": 900,
         "description": (
@@ -317,7 +401,7 @@ try {
         "system_key": "tailscale_unattended:windows",
         "name": "Tailscale em modo autônomo",
         "platform": "windows",
-        "category": "manutencao",
+        "category": "tailscale",
         "risk": "change",
         "timeout_seconds": 120,
         "description": (
@@ -346,7 +430,7 @@ if ($r.ReturnValue -ne 0) { throw "Politica gravada, mas o reinicio do servico f
         "system_key": "tailscale_install:linux",
         "name": "Instalar Tailscale",
         "platform": "linux",
-        "category": "instalacao",
+        "category": "tailscale",
         "risk": "change",
         "timeout_seconds": 900,
         "description": (
@@ -357,10 +441,32 @@ if ($r.ReturnValue -ne 0) { throw "Politica gravada, mas o reinicio do servico f
         "content": _SH_PRELUDE + _SH_TAILSCALE_UP,
     },
     {
+        "system_key": "tailscale_adjust:windows",
+        "name": "Ajustar roteamento da Tailscale",
+        "platform": "windows",
+        "category": "tailscale",
+        "risk": "change",
+        "timeout_seconds": 120,
+        "description": _TAILSCALE_ADJUST_DESCRIPTION,
+        "parameters": _TAILSCALE_ADJUST_PARAMS,
+        "content": _WIN_TAILSCALE_ADJUST,
+    },
+    {
+        "system_key": "tailscale_adjust:linux",
+        "name": "Ajustar roteamento da Tailscale",
+        "platform": "linux",
+        "category": "tailscale",
+        "risk": "change",
+        "timeout_seconds": 120,
+        "description": _TAILSCALE_ADJUST_DESCRIPTION,
+        "parameters": _TAILSCALE_ADJUST_PARAMS,
+        "content": _SH_PRELUDE + _SH_TAILSCALE_ADJUST,
+    },
+    {
         "system_key": "rustdesk_install:windows",
         "name": "Instalar RustDesk",
         "platform": "windows",
-        "category": "instalacao",
+        "category": "rustdesk",
         "risk": "change",
         "timeout_seconds": 900,
         "description": (
@@ -389,7 +495,7 @@ $id = (Invoke-RustDesk @('--get-id')).Out
         "system_key": "rustdesk_install:linux",
         "name": "Instalar RustDesk",
         "platform": "linux",
-        "category": "instalacao",
+        "category": "rustdesk",
         "risk": "change",
         "timeout_seconds": 900,
         "description": (
@@ -403,7 +509,7 @@ $id = (Invoke-RustDesk @('--get-id')).Out
         "system_key": "remote_access_install:windows",
         "name": "Instalador Darckware Remoto",
         "platform": "windows",
-        "category": "instalacao",
+        "category": "acesso_remoto",
         "risk": "change",
         "timeout_seconds": 1200,
         "description": (
@@ -488,7 +594,7 @@ if ($failed.Count) { throw "Validacao falhou: $($failed -join ', ')" }
         "system_key": "remote_access_install:linux",
         "name": "Instalador Darckware Remoto",
         "platform": "linux",
-        "category": "instalacao",
+        "category": "acesso_remoto",
         "risk": "change",
         "timeout_seconds": 1200,
         "description": (
@@ -533,7 +639,7 @@ echo "Validacao concluida"
         "system_key": "rustdesk_password:windows",
         "name": "Trocar senha do RustDesk",
         "platform": "windows",
-        "category": "seguranca",
+        "category": "rustdesk",
         "risk": "change",
         "timeout_seconds": 120,
         "description": "Define uma nova senha permanente do RustDesk. A nova senha só é guardada no cadastro se a troca der certo.",
@@ -549,7 +655,7 @@ $id = (Invoke-RustDesk @('--get-id')).Out
         "system_key": "rustdesk_password:linux",
         "name": "Trocar senha do RustDesk",
         "platform": "linux",
-        "category": "seguranca",
+        "category": "rustdesk",
         "risk": "change",
         "timeout_seconds": 120,
         "description": "Define uma nova senha permanente do RustDesk. A nova senha só é guardada no cadastro se a troca der certo.",
@@ -562,6 +668,18 @@ echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"
 ]
 
 
+# How the library groups the scripts (2026-10-19, Marcelo: "os scripts precisam
+# serem classificados. Exemplo: tailscale, rustdesk, criação de conta,
+# manutenção"). Created on startup when missing; never renamed afterwards.
+SYSTEM_CATEGORIES = [
+    ("tailscale", "Tailscale", "Instalação e ajustes da Tailscale"),
+    ("rustdesk", "RustDesk", "Instalação e senha do RustDesk"),
+    ("acesso_remoto", "Acesso remoto", "Instalador Darckware Remoto (Tailscale + RustDesk)"),
+    ("contas", "Contas de usuário", "Criação de contas, senhas e propriedades de usuários"),
+    ("manutencao", "Manutenção", None),
+]
+
+
 async def seed_system_scripts() -> int:
     """Creates missing system scripts and versions changed ones. Idempotent;
     safe when two processes (dev + production) start together."""
@@ -571,6 +689,12 @@ async def seed_system_scripts() -> int:
     changed = 0
     async with AsyncSessionLocal() as db:
         categories = {c.slug: c.id for c in (await db.execute(select(HostScriptCategory))).scalars()}
+        for slug, label, description in SYSTEM_CATEGORIES:
+            if slug not in categories:
+                category = HostScriptCategory(slug=slug, label=label, description=description)
+                db.add(category)
+                await db.flush()
+                categories[slug] = category.id
         for spec in SYSTEM_SCRIPTS:
             params = validate_parameters(spec["parameters"])
             row = (await db.execute(select(HostScript).where(HostScript.system_key == spec["system_key"]))).scalar_one_or_none()

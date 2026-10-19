@@ -39,7 +39,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDarckwareClients } from "@/hooks/useClientOps";
-import type { HostReadiness, HostReadinessEntry, ReadinessCounts } from "@/hooks/useHostInventory";
+import type { HostReadinessEntry, ReadinessCounts } from "@/hooks/useHostInventory";
 import {
   useMachinesViewModel,
   type KindFilter,
@@ -53,27 +53,44 @@ import { ImportCsvModal, InstallKeyModal } from "@/pages/servers/ServerDialogs";
 import { ServerForm } from "@/pages/servers/ServerForm";
 import { ServerServicesPanel } from "@/pages/servers/ServerServicesPanel";
 import { serverHome } from "@/pages/workspace/workspaceState";
+import { STATUS_BADGE, hasSsh, statusKey } from "./machineStatus";
 import { PrepareDialog } from "./PrepareDialog";
 import { RevealPasswordDialog } from "./RevealPasswordDialog";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
-const READINESS_VARIANT: Record<HostReadiness, "success" | "warning" | "destructive" | "outline" | "secondary"> = {
-  ready: "success",
-  busy: "secondary",
-  online_no_access: "warning",
-  not_prepared: "warning",
-  offline: "outline",
-  disabled: "outline",
-  unknown: "outline",
-};
-
+/** The color says what can be done with the machine; the two icons say which
+ * channel works (SSH for scripts, RustDesk for the technician). */
 function ReadinessBadge({ entry, t }: { entry: HostReadinessEntry | undefined; t: T }) {
-  const state = entry?.readiness ?? "unknown";
+  const status = entry?.status ?? "unknown";
+  const online = status !== "offline" && status !== "disabled" && status !== "unknown";
+  const ssh = hasSsh(entry);
+  const rustdesk = Boolean(entry?.rustdesk_id);
   return (
-    <Badge variant={READINESS_VARIANT[state]} title={entry?.detail ?? undefined} className="whitespace-nowrap">
-      {t(`readiness.${state}`)}
-    </Badge>
+    <span className="inline-flex items-center gap-1.5">
+      <Badge variant="outline" title={entry?.detail ?? undefined} className={`whitespace-nowrap ${STATUS_BADGE[status]}`}>
+        {t(`status.${statusKey(entry)}`)}
+      </Badge>
+      {entry?.readiness === "busy" && (
+        <Loader2 className="h-3.5 w-3.5 text-sky-500 motion-safe:animate-spin" aria-label={t("readiness.busy")} />
+      )}
+      {online && (
+        <>
+          <SquareTerminal
+            className={`h-3.5 w-3.5 ${ssh ? "text-emerald-600" : "text-muted-foreground/40"}`}
+            aria-label={t(ssh ? "status.channels.sshOk" : "status.channels.sshMissing")}
+          >
+            <title>{t(ssh ? "status.channels.sshOk" : "status.channels.sshMissing")}</title>
+          </SquareTerminal>
+          <MonitorSmartphone
+            className={`h-3.5 w-3.5 ${rustdesk ? "text-emerald-600" : "text-muted-foreground/40"}`}
+            aria-label={rustdesk ? t("status.channels.rustdeskOk", { id: entry?.rustdesk_id }) : t("status.channels.rustdeskMissing")}
+          >
+            <title>{rustdesk ? t("status.channels.rustdeskOk", { id: entry?.rustdesk_id }) : t("status.channels.rustdeskMissing")}</title>
+          </MonitorSmartphone>
+        </>
+      )}
+    </span>
   );
 }
 
@@ -392,7 +409,7 @@ export function MachinesCard() {
             <span className="sr-only">{t("workstations.filter")}</span>
             <Select value={vm.filters.readiness} onChange={(e) => vm.setFilter("readiness", e.target.value as ReadinessFilter)} className="max-md:text-base">
               <option value="all">{t("workstations.filters.all")}</option>
-              <option value="ready">{t("readiness.ready")}</option>
+              <option value="ready">{t("status.complete")}</option>
               <option value="attention">{t("workstations.filters.attention")}</option>
               <option value="offline">{t("readiness.offline")}</option>
             </Select>

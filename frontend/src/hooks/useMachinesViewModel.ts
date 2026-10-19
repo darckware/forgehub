@@ -33,8 +33,8 @@ import {
   useTailnetSync,
   type AccessPath,
   type HostGroup,
-  type HostReadiness,
   type HostReadinessEntry,
+  type HostStatus,
   type ReadinessCounts,
   type TailnetSyncResult,
 } from "@/hooks/useHostInventory";
@@ -75,12 +75,13 @@ export interface MachineFilters {
   path: PathFilter;
 }
 
-const ATTENTION: HostReadiness[] = ["online_no_access", "not_prepared"];
+const ATTENTION: HostStatus[] = ["partial", "not_prepared"];
 const SECTION_ORDER: Record<SectionKind, number> = { tailscale: 0, subnet: 1, none: 2, unknown: 3 };
 
-function matchesReadiness(state: HostReadiness | undefined, filter: ReadinessFilter): boolean {
+function matchesReadiness(state: HostStatus | undefined, filter: ReadinessFilter): boolean {
   if (filter === "all") return true;
   if (filter === "attention") return state !== undefined && ATTENTION.includes(state);
+  if (filter === "ready") return state === "complete";
   return state === filter;
 }
 
@@ -112,7 +113,7 @@ export function buildMachineSections(
     if (filters.kind !== "all" && machine.kind !== filters.kind) continue;
     if (filters.client === "none" && machine.darckware_client_id) continue;
     if (filters.client !== "all" && filters.client !== "none" && machine.darckware_client_id !== filters.client) continue;
-    if (!matchesReadiness(readiness?.readiness, filters.readiness)) continue;
+    if (!matchesReadiness(readiness?.status, filters.readiness)) continue;
     if (!matchesPath(kind, filters.path)) continue;
     if (
       q &&

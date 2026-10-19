@@ -85,10 +85,24 @@
     "succeeded": "Succeeded",
     "failed": "Failed"
   },
+  "status": {
+    "complete": "Ready",
+    "partial_no_rustdesk": "No RustDesk",
+    "partial_no_ssh": "RustDesk only (no SSH)",
+    "not_prepared": "Not prepared",
+    "offline": "Offline",
+    "disabled": "Disabled",
+    "unknown": "Unknown",
+    "channels": {
+      "sshOk": "ForgeHub SSH working",
+      "sshMissing": "No ForgeHub SSH",
+      "rustdeskOk": "RustDesk {{id}}",
+      "rustdeskMissing": "No RustDesk on record"
+    }
+  },
   "readiness": {
     "ready": "Ready",
     "busy": "Busy",
-    "online_no_access": "Online, no access",
     "offline": "Offline",
     "not_prepared": "Not prepared",
     "disabled": "Disabled",
@@ -225,7 +239,11 @@
       "ssh": "Over SSH with the administrator",
       "copy": "Copy script (RustDesk)"
     },
-    "sshHelp": "ForgeHub signs in once with the machine's administrator (the password is used for this connection only and never stored), prepares it, checks the darckware login with the key and, only if that check passes, disables the administrator.",
+    "sshHelp": "ForgeHub logs in once with that account (the password is used for this connection only and never stored), prepares the machine, tests the darckware login with the key and, only if that test passes and the option below is checked, locks that account.",
+    "loginRequired": "Installing and configuring ForgeHub's SSH access (the darckware account) needs one login with an administrator account on this machine.",
+    "accountLabel": "Account used for the setup",
+    "accounts": {"registered": "Account on record: {{user}}", "other": "Another account"},
+    "thisAccount": "used",
     "adminUser": "Administrator login",
     "adminPassword": "Administrator password",
     "disableAdmin": "Disable \"{{user}}\" after confirming darckware signs in with the key",
@@ -336,7 +354,16 @@
     "time": "Time (Brasília)",
     "window": "Window (minutes)",
     "windowHelp": "A machine that is off or off the network is retried until the window ends; then it reads \"Not run\".",
+    "login": {
+      "title": "Login for machines without ForgeHub access",
+      "help_one": "{{names}} doesn't have ForgeHub's login yet. Enter an account with administrator rights on it: used for this run only, never stored.",
+      "help_other": "{{names}} don't have ForgeHub's login yet. Enter an account with administrator rights on them: used for this run only, never stored.",
+      "user": "Login",
+      "password": "Password"
+    },
     "problems": {
+      "missingLogin": "Enter the login and password for the machines without ForgeHub access.",
+      "scheduleNeedsAccess": "Schedules only run on machines with ForgeHub's login (use \"Configure access\" first).",
       "noMachines": "Select at least one machine.",
       "noScript": "Pick a script.",
       "noCompatible": "No selected machine fits this script.",
@@ -361,6 +388,11 @@
     "fromVault": "{{fields}}: read from ForgeVault ({{secret}}) when it runs.",
     "optionNone": "Select...",
     "options": {
+      "ver_configuracao": "Only show the configuration",
+      "anunciar_subrede": "Advertise subnet (become a router)",
+      "parar_de_rotear": "Stop advertising subnets",
+      "aceitar_rotas": "Use the tailnet's subnets",
+      "nao_aceitar_rotas": "Don't use the tailnet's subnets",
       "manter": "Keep as is",
       "sim": "Yes",
       "nao": "No",

@@ -4,7 +4,13 @@ import { useServers, type Server } from "@/hooks/useServers";
 
 /** "Prepare station" (Machines tab): pick a station that isn't ready yet,
  * then either run the preparation over SSH as the client's administrator or
- * copy the script for RustDesk. idle -> submitting -> (copied script | execution). */
+ * copy the script for RustDesk. idle -> submitting -> (copied script | execution).
+ *
+ * Installing ForgeHub's SSH login always needs one administrator login on the
+ * machine (Marcelo, 2026-10-19): the account on record (only its password is
+ * asked), or "another account", which opens login + password. Neither is
+ * stored. Locking that account afterwards defaults on for a workstation and
+ * off for a server -- a client server keeps its administrator. */
 export interface PreparationViewModel {
   status: "idle" | "submitting" | "error" | "copy_ready";
   candidates: Server[];
@@ -13,8 +19,14 @@ export interface PreparationViewModel {
   selected: Server | null;
   mode: "ssh" | "copy";
   setMode: (mode: "ssh" | "copy") => void;
+  /** The administrator login on record for the machine, if any. */
+  registeredUser: string | null;
+  account: "registered" | "other";
+  setAccount: (value: "registered" | "other") => void;
+  otherUser: string;
+  setOtherUser: (value: string) => void;
+  /** The login actually used: the one on record, or the one typed. */
   adminUser: string;
-  setAdminUser: (value: string) => void;
   adminPassword: string;
   setAdminPassword: (value: string) => void;
   disableAdmin: boolean;
@@ -34,9 +46,10 @@ export function usePreparationViewModel(
   const prepare = usePrepareHost();
   const [serverId, setServerIdState] = useState(initialServerId);
   const [mode, setMode] = useState<"ssh" | "copy">("ssh");
-  const [adminUser, setAdminUser] = useState("administrador");
+  const [accountChoice, setAccountChoice] = useState<"registered" | "other">("registered");
+  const [otherUser, setOtherUser] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
-  const [disableAdmin, setDisableAdmin] = useState(true);
+  const [disableAdminChoice, setDisableAdminChoice] = useState<boolean | null>(null);
 
   const notReady = useMemo(
     () => new Set((readiness.data?.entries ?? []).filter((e) => e.readiness !== "ready").map((e) => e.server_id)),
@@ -51,6 +64,10 @@ export function usePreparationViewModel(
     [servers, notReady],
   );
   const selected = (servers ?? []).find((s) => s.id === serverId) ?? null;
+  const registeredUser = selected?.admin_user && selected.admin_user.toLowerCase() !== "darckware" ? selected.admin_user : null;
+  const account = registeredUser ? accountChoice : "other";
+  const adminUser = (account === "registered" ? registeredUser ?? "" : otherUser).trim();
+  const disableAdmin = disableAdminChoice ?? selected?.kind === "workstation";
 
   const status = prepare.isPending ? "submitting" : prepare.isError ? "error" : prepare.data?.script ? "copy_ready" : "idle";
   return {
@@ -60,8 +77,9 @@ export function usePreparationViewModel(
     setServerId: (id) => {
       prepare.reset();
       setServerIdState(id);
-      const machine = (servers ?? []).find((s) => s.id === id);
-      if (machine?.admin_user && machine.admin_user !== "darckware") setAdminUser(machine.admin_user);
+      setAccountChoice("registered");
+      setAdminPassword("");
+      setDisableAdminChoice(null);
     },
     selected,
     mode,
@@ -69,20 +87,24 @@ export function usePreparationViewModel(
       prepare.reset();
       setMode(m);
     },
+    registeredUser,
+    account,
+    setAccount: setAccountChoice,
+    otherUser,
+    setOtherUser,
     adminUser,
-    setAdminUser,
     adminPassword,
     setAdminPassword,
     disableAdmin,
-    setDisableAdmin,
-    canSubmit: Boolean(selected) && (mode === "copy" || (adminUser.trim().length > 0 && adminPassword.length > 0)),
+    setDisableAdmin: setDisableAdminChoice,
+    canSubmit: Boolean(selected) && (mode === "copy" || (adminUser.length > 0 && adminPassword.length > 0)),
     submit: () => {
       if (!selected) return;
       prepare.mutate(
         {
           serverId: selected.id,
           mode,
-          admin_user: adminUser.trim() || null,
+          admin_user: adminUser || null,
           admin_password: mode === "ssh" ? adminPassword : null,
           disable_admin: disableAdmin,
         },

@@ -332,12 +332,19 @@ class TailnetSyncResult(BaseModel):
 HostReadiness = Literal[
     "ready",            # reachable and the key logs in -- commands can run
     "busy",             # an execution is running on it (from phase 4 on)
-    "online_no_access", # answers SSH, but our key is refused
     "offline",          # tailnet says offline / port unreachable
-    "not_prepared",     # online in the tailnet, but SSH is not enabled yet
+    "not_prepared",     # ForgeHub has no SSH access yet (no login, SSH off, or its key not installed)
     "disabled",         # parked in ForgeHub (access_enabled = false)
     "unknown",          # a source could not be read -- never shown as offline
 ]
+
+
+# The color on screen (2026-10-19, Marcelo): what can be done with the machine,
+# by channel. "complete" = every channel its kind needs works (workstation: SSH
+# + RustDesk; server: SSH); "partial" = online with one of them missing;
+# "not_prepared" = online but no channel for ForgeHub. `readiness` stays the
+# operational answer (can a command run now).
+HostStatus = Literal["complete", "partial", "not_prepared", "offline", "disabled", "unknown"]
 
 
 # How the VPS reaches the machine's registered address (2026-10-17, see
@@ -354,6 +361,9 @@ AccessPath = Literal[
 class HostReadinessEntry(BaseModel):
     server_id: uuid.UUID
     readiness: HostReadiness
+    status: HostStatus = "unknown"
+    # The RustDesk ID ForgeHub recorded (installer or by hand); None = no RustDesk known.
+    rustdesk_id: str | None = None
     tailnet_online: bool | None = None
     ssh: str | None = None
     detail: str | None = None

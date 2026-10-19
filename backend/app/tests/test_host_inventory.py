@@ -71,7 +71,8 @@ def _row(**kw) -> Server:
         (dict(remote_user=""), True, None, "not_prepared"),
         (dict(tailnet_node_id="n1"), False, None, "offline"),
         (dict(tailnet_node_id="n1"), True, "active", "ready"),
-        (dict(tailnet_node_id="n1"), True, "not_installed", "online_no_access"),
+        # The key not being accepted means "not prepared yet", not a refusal.
+        (dict(tailnet_node_id="n1"), True, "not_installed", "not_prepared"),
         (dict(tailnet_node_id="n1"), True, "off", "not_prepared"),
         (dict(), None, "off", "offline"),
         # A probe that couldn't be read is "unknown", never "offline".
@@ -85,6 +86,24 @@ def test_classify_readiness(row, tailnet_online, ssh, expected):
         server, tailnet_available=True, tailnet_online=tailnet_online, ssh=ssh
     )
     assert readiness == expected
+
+
+@pytest.mark.parametrize(
+    "kind, rustdesk_id, readiness, expected",
+    [
+        ("workstation", "217385777", "ready", "complete"),
+        ("workstation", None, "ready", "partial"),        # SSH without RustDesk
+        ("server", None, "ready", "complete"),            # a server needs only SSH
+        ("workstation", "217385777", "not_prepared", "partial"),  # RustDesk without SSH
+        ("server", None, "not_prepared", "not_prepared"),
+        ("workstation", "217385777", "offline", "offline"),
+        ("workstation", None, "unknown", "unknown"),
+        ("workstation", "1", "disabled", "disabled"),
+    ],
+)
+def test_classify_status(kind, rustdesk_id, readiness, expected):
+    server = _row(kind=kind, rustdesk_id=rustdesk_id)
+    assert server_routes.classify_status(server, readiness)[0] == expected
 
 
 @pytest.mark.asyncio
@@ -219,6 +238,8 @@ async def test_readiness_combines_tailnet_and_cached_probe(client, marker):
         assert probe.await_count == 1
 
     states = {e["server_id"]: e["readiness"] for e in resp.json()["entries"]}
+    colors = {e["server_id"]: e["status"] for e in resp.json()["entries"]}
+    assert colors[str(ready.id)] == "complete" and colors[str(unprepared.id)] == "not_prepared"
     assert states[str(ready.id)] == "ready"
     assert states[str(offline.id)] == "offline"
     assert states[str(unprepared.id)] == "not_prepared"

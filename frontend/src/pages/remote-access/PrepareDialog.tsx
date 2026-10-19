@@ -65,11 +65,24 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
           {vm.mode === "ssh" ? (
             <div className="space-y-3 rounded-md border border-border p-3">
               <p className="text-xs text-muted-foreground">{t("prepare.sshHelp")}</p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label htmlFor="prep-admin">{t("prepare.adminUser")}</Label>
-                  <Input id="prep-admin" value={vm.adminUser} onChange={(e) => vm.setAdminUser(e.target.value)} autoComplete="off" className="max-md:text-base" />
+              <p className="text-sm font-medium">{t("prepare.loginRequired")}</p>
+              {vm.registeredUser && (
+                <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("prepare.accountLabel")}>
+                  {(["registered", "other"] as const).map((a) => (
+                    <Button key={a} type="button" size="sm" variant={vm.account === a ? "default" : "outline"} role="radio" aria-checked={vm.account === a}
+                      onClick={() => vm.setAccount(a)} className="cursor-pointer max-md:h-auto max-md:whitespace-normal">
+                      {a === "registered" ? t("prepare.accounts.registered", { user: vm.registeredUser }) : t("prepare.accounts.other")}
+                    </Button>
+                  ))}
                 </div>
+              )}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {vm.account === "other" && (
+                  <div className="space-y-1">
+                    <Label htmlFor="prep-admin">{t("prepare.adminUser")}</Label>
+                    <Input id="prep-admin" value={vm.otherUser} onChange={(e) => vm.setOtherUser(e.target.value)} autoComplete="off" className="max-md:text-base" />
+                  </div>
+                )}
                 <div className="space-y-1">
                   <Label htmlFor="prep-password">{t("prepare.adminPassword")}</Label>
                   <Input id="prep-password" type="password" value={vm.adminPassword} onChange={(e) => vm.setAdminPassword(e.target.value)} autoComplete="off" className="max-md:text-base" />
@@ -77,7 +90,7 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
               </div>
               <label className="flex items-start gap-2 text-sm">
                 <input type="checkbox" className="mt-1" checked={vm.disableAdmin} onChange={(e) => vm.setDisableAdmin(e.target.checked)} />
-                <span>{t("prepare.disableAdmin", { user: vm.adminUser || "administrador" })}</span>
+                <span>{t("prepare.disableAdmin", { user: vm.adminUser || t("prepare.thisAccount") })}</span>
               </label>
             </div>
           ) : (

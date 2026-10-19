@@ -85,10 +85,24 @@
     "succeeded": "Concluída",
     "failed": "Falhou"
   },
+  "status": {
+    "complete": "Pronta",
+    "partial_no_rustdesk": "Sem RustDesk",
+    "partial_no_ssh": "Só RustDesk (sem SSH)",
+    "not_prepared": "Não preparada",
+    "offline": "Offline",
+    "disabled": "Desativada",
+    "unknown": "Desconhecido",
+    "channels": {
+      "sshOk": "SSH do ForgeHub funcionando",
+      "sshMissing": "Sem SSH do ForgeHub",
+      "rustdeskOk": "RustDesk {{id}}",
+      "rustdeskMissing": "Sem RustDesk registrado"
+    }
+  },
   "readiness": {
     "ready": "Pronta",
     "busy": "Ocupada",
-    "online_no_access": "Online sem acesso",
     "offline": "Offline",
     "not_prepared": "Não preparada",
     "disabled": "Desativada",
@@ -225,7 +239,11 @@
       "ssh": "Pelo SSH com o administrador",
       "copy": "Copiar script (RustDesk)"
     },
-    "sshHelp": "O ForgeHub entra uma vez com o administrador da máquina (a senha é usada só nesta conexão e não é gravada), prepara, testa o login da darckware pela chave e, só se o teste passar, bloqueia o administrador.",
+    "sshHelp": "O ForgeHub entra uma vez com essa conta (a senha é usada só nesta conexão e não é gravada), prepara, testa o login da darckware pela chave e, só se o teste passar e a opção abaixo estiver marcada, bloqueia essa conta.",
+    "loginRequired": "Para instalar e configurar o acesso SSH do ForgeHub (conta darckware) é preciso entrar uma vez com uma conta administradora desta máquina.",
+    "accountLabel": "Conta usada na configuração",
+    "accounts": {"registered": "Conta cadastrada: {{user}}", "other": "Outra conta"},
+    "thisAccount": "usada",
     "adminUser": "Login do administrador",
     "adminPassword": "Senha do administrador",
     "disableAdmin": "Bloquear a conta \"{{user}}\" depois de confirmar que a darckware entra pela chave",
@@ -336,7 +354,16 @@
     "time": "Horário (Brasília)",
     "window": "Janela (minutos)",
     "windowHelp": "Máquina desligada ou fora da rede é tentada de novo até o fim da janela; depois fica como \"Não executada\".",
+    "login": {
+      "title": "Login para as máquinas sem acesso do ForgeHub",
+      "help_one": "{{names}} ainda não tem o login do ForgeHub. Informe uma conta com permissão de administrador nela: usada só nesta execução, não fica gravada.",
+      "help_other": "{{names}} ainda não têm o login do ForgeHub. Informe uma conta com permissão de administrador nelas: usada só nesta execução, não fica gravada.",
+      "user": "Login",
+      "password": "Senha"
+    },
     "problems": {
+      "missingLogin": "Informe o login e a senha para as máquinas sem acesso do ForgeHub.",
+      "scheduleNeedsAccess": "Agendamento só em máquinas com o login do ForgeHub (use \"Configurar acesso\" antes).",
       "noMachines": "Selecione ao menos uma máquina.",
       "noScript": "Escolha um script.",
       "noCompatible": "Nenhuma máquina selecionada é compatível com este script.",
@@ -361,6 +388,11 @@
     "fromVault": "{{fields}}: lidos do ForgeVault ({{secret}}) na execução.",
     "optionNone": "Selecione...",
     "options": {
+      "ver_configuracao": "Só ver a configuração",
+      "anunciar_subrede": "Anunciar sub-rede (virar roteador)",
+      "parar_de_rotear": "Parar de anunciar sub-redes",
+      "aceitar_rotas": "Usar sub-redes da tailnet",
+      "nao_aceitar_rotas": "Não usar sub-redes da tailnet",
       "manter": "Manter como está",
       "sim": "Sim",
       "nao": "Não",

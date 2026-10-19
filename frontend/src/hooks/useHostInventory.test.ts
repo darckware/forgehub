@@ -34,12 +34,12 @@ describe("bucketByClient", () => {
 });
 
 describe("countReadiness", () => {
-  it("counts ready/offline/attention and keeps unknown only in the total", () => {
-    const entry = (server_id: string, readiness: HostReadinessEntry["readiness"]): [string, HostReadinessEntry] =>
-      [server_id, { server_id, readiness, tailnet_online: null, ssh: null, detail: null }];
+  it("counts by color: complete is ready, partial/not prepared need attention, unknown only in the total", () => {
+    const entry = (server_id: string, status: HostReadinessEntry["status"]): [string, HostReadinessEntry] =>
+      [server_id, { server_id, readiness: "ready", status, tailnet_online: null, ssh: null, detail: null }];
     const byId = new Map([
-      entry("1", "ready"), entry("2", "offline"), entry("3", "not_prepared"),
-      entry("4", "online_no_access"), entry("5", "unknown"),
+      entry("1", "complete"), entry("2", "offline"), entry("3", "not_prepared"),
+      entry("4", "partial"), entry("5", "unknown"),
     ]);
     expect(countReadiness(["1", "2", "3", "4", "5", "6"], byId)).toEqual({ total: 6, ready: 1, offline: 1, attention: 2 });
   });

@@ -29,11 +29,15 @@ export interface HostGroupInput {
 export type HostReadiness =
   | "ready"
   | "busy"
-  | "online_no_access"
   | "offline"
   | "not_prepared"
   | "disabled"
   | "unknown";
+
+/** The color (backend `classify_status`): what can be done with the machine.
+ * complete = every channel its kind needs (workstation: SSH + RustDesk; server:
+ * SSH); partial = online with one missing; not_prepared = no channel yet. */
+export type HostStatus = "complete" | "partial" | "not_prepared" | "offline" | "disabled" | "unknown";
 
 /** How the VPS reaches the machine's registered address (backend
  * `classify_access_path`): a Tailscale IP, a subnet routed by another node, or
@@ -43,6 +47,8 @@ export type AccessPath = "tailscale" | "subnet" | "subnet_not_accepted" | "none"
 export interface HostReadinessEntry {
   server_id: string;
   readiness: HostReadiness;
+  status?: HostStatus;
+  rustdesk_id?: string | null;
   tailnet_online: boolean | null;
   ssh: string | null;
   detail: string | null;
@@ -155,18 +161,18 @@ export interface ReadinessCounts {
   attention: number;
 }
 
-/** "attention" = needs someone: online without access or not prepared yet.
- * "unknown"/"disabled"/"busy" count only toward the total. */
+/** By color: "ready" = complete; "attention" = partial or not prepared (a
+ * channel is missing). "unknown"/"disabled" count only toward the total. */
 export function countReadiness(
   serverIds: string[],
   byId: Map<string, HostReadinessEntry>,
 ): ReadinessCounts {
   const counts: ReadinessCounts = { total: serverIds.length, ready: 0, offline: 0, attention: 0 };
   for (const id of serverIds) {
-    const state = byId.get(id)?.readiness;
-    if (state === "ready") counts.ready += 1;
+    const state = byId.get(id)?.status;
+    if (state === "complete") counts.ready += 1;
     else if (state === "offline") counts.offline += 1;
-    else if (state === "online_no_access" || state === "not_prepared") counts.attention += 1;
+    else if (state === "partial" || state === "not_prepared") counts.attention += 1;
   }
   return counts;
 }

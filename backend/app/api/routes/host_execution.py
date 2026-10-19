@@ -15,8 +15,8 @@ recorded as "skipped" with the reason, never silently dropped: parked in
 ForgeHub, no login yet, OS incompatible with the shell, or already running
 another command (one execution per machine at a time).
 """
-import re
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -66,11 +66,12 @@ async def busy_server_ids(db: AsyncSession) -> set[uuid.UUID]:
 
 
 def skip_reason(
-    server: Server, shell: str, busy: set[uuid.UUID], platform: str | None = None, shell_agnostic: bool = False
+    server: Server, shell: str, busy: set[uuid.UUID], platform: str | None = None, shell_agnostic: bool = False,
+    login_given: bool = False,
 ) -> str | None:
     if not server.access_enabled:
         return "Access is turned off in ForgeHub"
-    if not server.remote_user:
+    if not server.remote_user and not login_given:
         return "No login set for this machine yet"
     if not server.ip_address:
         return "Waiting for the machine to join the tailnet"
@@ -177,6 +178,7 @@ async def launch_execution(
     executor=None,
     script_label: str | None = None,
     shell_agnostic: bool = False,
+    login_given: bool = False,
 ) -> HostExecution:
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
@@ -205,7 +207,7 @@ async def launch_execution(
     db.add(execution)
     await db.flush()
     for server in servers:
-        reason = skip_reason(server, shell, busy, script.platform if script else None, shell_agnostic)
+        reason = skip_reason(server, shell, busy, script.platform if script else None, shell_agnostic, login_given)
         db.add(
             HostExecutionResult(
                 execution_id=execution.id,
@@ -329,6 +331,26 @@ async def prepare_script_run(script: HostScript, values: dict | None) -> tuple[s
     return render_script(script.platform, script.content, resolved), shell_for(script.platform), secrets
 
 
+def login_executor(shell: str, command: str, timeout: int, user: str, password: str):
+    """Runs on each machine with ForgeHub's own login when it works there (the
+    SSH probe said "active"), and with the login typed for this run on a
+    machine ForgeHub has no access to yet (Marcelo, 2026-10-19: "caso não tenha
+    login, precisa ser informado"). The typed password lives only in this
+    closure -- never stored, masked in the output."""
+    from app.api.routes.server import _ssh_probe_cache
+
+    async def run(server: Server) -> dict:
+        statuses = _ssh_probe_cache.get("statuses") or {}
+        if server.remote_user and statuses.get(str(server.id)) == "active":
+            return await host_exec_runner.call_bridge_exec(server, shell, command, timeout)
+        return await host_exec_runner.call_bridge_exec_as(
+            host=server.ip_address, user=user, port=server.ssh_port or 22, key_path=None, password=password,
+            shell=shell, script=command, timeout_seconds=timeout,
+        )
+
+    return run
+
+
 @router.post("", response_model=HostExecutionDetail, status_code=status.HTTP_201_CREATED)
 async def create_execution(
     payload: HostExecutionCreate,
@@ -351,6 +373,12 @@ async def create_execution(
             raise HTTPException(status_code=422, detail="Pick a script or write a command")
         command, shell, timeout = payload.command, payload.shell, payload.timeout_seconds
 
+    login = None
+    if payload.login_user or payload.login_password:
+        if not (payload.login_user and payload.login_password):
+            raise HTTPException(status_code=422, detail="Inform both the login and the password")
+        login = (payload.login_user.strip(), payload.login_password)
+
     loose = len(payload.server_ids)
     parts = [*group_names]
     if loose:
@@ -363,10 +391,16 @@ async def create_execution(
         timeout_seconds=timeout,
         actor=admin.username,
         target_summary=" + ".join(parts),
-        secrets=secrets,
+        secrets=[*secrets, payload.login_password] if login else secrets,
         script=script,
         values_for_hook=payload.parameter_values,
+        executor=login_executor(shell, command, timeout, login[0], login[1]) if login else None,
+        login_given=bool(login),
     )
+    if login:
+        db.add(AuditEvent(entity_type="host_execution", entity_id=execution.id, event_type="typed_login_used",
+                          actor=admin.username, payload={"login": login[0]}))
+        await db.commit()
     return await _detail(db, execution)
 
 

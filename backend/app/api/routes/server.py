@@ -571,12 +571,31 @@ def classify_readiness(
     if ssh == "active":
         return "ready", None
     if ssh == "not_installed":
-        return "online_no_access", "Answers SSH, but the key was refused"
+        # Not a refusal by ForgeHub: the machine simply doesn't have ForgeHub's
+        # login/key yet -- "Configure access" installs it.
+        return "not_prepared", "Answers SSH, but ForgeHub's login is not installed yet"
     if ssh == "off":
         if tailnet_online:
             return "not_prepared", "Online in the tailnet, but SSH is not enabled"
         return "offline", "SSH port unreachable"
     return "unknown", "Could not probe SSH"
+
+
+def classify_status(server: Server, readiness: str) -> tuple[str, str | None]:
+    """The color for one machine, from its operational readiness (before the
+    "busy" overlay) and the channels its kind needs: a workstation is
+    maintained by SSH (scripts) and RustDesk (the technician), a server by SSH.
+    RustDesk counts as present when ForgeHub has its ID on record."""
+    if readiness in ("disabled", "offline", "unknown"):
+        return readiness, None
+    has_rustdesk = bool(server.rustdesk_id)
+    if readiness == "ready":
+        if server.kind == "workstation" and not has_rustdesk:
+            return "partial", "SSH ok, RustDesk not installed"
+        return "complete", None
+    if has_rustdesk:
+        return "partial", "RustDesk only, ForgeHub has no SSH access yet"
+    return "not_prepared", None
 
 
 _TAILSCALE_NETWORK = ipaddress.ip_network("100.64.0.0/10")
@@ -678,6 +697,8 @@ async def get_readiness(
         readiness, detail = classify_readiness(
             server, tailnet_available=tailnet_available, tailnet_online=online, ssh=ssh
         )
+        status, status_detail = classify_status(server, readiness)
+        detail = detail or status_detail
         if server.id in busy and readiness != "disabled":
             readiness, detail = "busy", "Running a command"
         path, via_id, via_name = classify_access_path(
@@ -687,6 +708,8 @@ async def get_readiness(
             HostReadinessEntry(
                 server_id=server.id,
                 readiness=readiness,
+                status=status,
+                rustdesk_id=server.rustdesk_id or None,
                 tailnet_online=online,
                 ssh=ssh,
                 detail=detail,

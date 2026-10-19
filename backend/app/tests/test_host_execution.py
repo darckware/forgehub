@@ -110,6 +110,54 @@ async def test_run_skips_with_reasons_and_masks_output(client, machines):
 
 
 @pytest.mark.asyncio
+async def test_typed_login_runs_where_forgehub_has_no_access(client, machines):
+    """ForgeHub's own login where its SSH probe works; the login typed for
+    this run on a machine it can't reach yet -- password never stored."""
+    rows, created = machines
+    own, typed = [], []
+
+    async def fake_own(server, shell, script, timeout):
+        own.append(server.name)
+        return {"exit_code": 0, "stdout": "own", "stderr": "", "duration_ms": 1, "failure": None}
+
+    async def fake_as(**kw):
+        typed.append((kw["host"], kw["user"], kw["password"], kw["key_path"]))
+        return {"exit_code": 0, "stdout": "typed Pw-9x!typed", "stderr": "", "duration_ms": 1, "failure": None}
+
+    server_routes._ssh_probe_cache.update({"at": None, "statuses": {str(rows["linux"].id): "active"}})
+    try:
+        assert (await client.post("/api/v1/host-executions", json={
+            "command": "uptime", "shell": "sh", "server_ids": [str(rows["linux"].id)], "login_user": "suporte",
+        })).status_code == 422  # login without password
+        with (
+            patch.object(host_exec_runner, "call_bridge_exec", fake_own),
+            patch.object(host_exec_runner, "call_bridge_exec_as", fake_as),
+        ):
+            resp = await client.post("/api/v1/host-executions", json={
+                "command": "uptime", "shell": "sh",
+                "server_ids": [str(rows["linux"].id), str(rows["linux2"].id), str(rows["nologin"].id)],
+                "login_user": "suporte", "login_password": "Pw-9x!typed",
+            })
+            assert resp.status_code == 201, resp.text
+            execution_id = resp.json()["id"]
+            created.append(uuid.UUID(execution_id))
+            await _wait(execution_id)
+    finally:
+        server_routes._ssh_probe_cache.update({"at": None, "statuses": {}})
+
+    assert own == [rows["linux"].name]
+    assert sorted(t[0] for t in typed) == ["100.127.9.2", "100.127.9.5"]  # incl. the machine with no login
+    assert all(t[1:] == ("suporte", "Pw-9x!typed", None) for t in typed)
+    detail = (await client.get(f"/api/v1/host-executions/{execution_id}")).json()
+    assert detail["counts"]["succeeded"] == 3
+    assert all("Pw-9x!typed" not in (r["stdout"] or "") for r in detail["results"])
+    async with AsyncSessionLocal() as db:
+        events = (await db.execute(select(AuditEvent).where(AuditEvent.entity_id == uuid.UUID(execution_id)))).scalars().all()
+    assert {e.event_type for e in events} == {"started", "typed_login_used"}
+    assert all("Pw-9x!typed" not in str(e.payload) for e in events)
+
+
+@pytest.mark.asyncio
 async def test_failure_then_follow_up_only_on_failed(client, machines):
     rows, created = machines
     ok_id, bad_id = rows["linux"].id, rows["linux2"].id

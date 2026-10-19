@@ -54,10 +54,10 @@ const entry = (server_id: string, readiness: string, access_path: string, extra:
 const READINESS = {
   checked_at: "2026-10-17T15:00:00Z", tailnet_available: true, ssh_checked_at: null,
   entries: [
-    entry("m1", "ready", "tailscale", { tailscale_ipv4: "100.64.0.1" }),
-    entry("s1", "ready", "subnet", { access_via_node_id: "nSUP", access_via_name: "srv-sup", tailscale_ipv4: "100.107.175.100" }),
-    entry("s2", "online_no_access", "subnet", { access_via_node_id: "nSUP", access_via_name: "srv-sup" }),
-    entry("s3", "offline", "none"),
+    entry("m1", "ready", "tailscale", { status: "partial", tailscale_ipv4: "100.64.0.1" }),
+    entry("s1", "ready", "subnet", { status: "complete", access_via_node_id: "nSUP", access_via_name: "srv-sup", tailscale_ipv4: "100.107.175.100" }),
+    entry("s2", "not_prepared", "subnet", { status: "not_prepared", access_via_node_id: "nSUP", access_via_name: "srv-sup" }),
+    entry("s3", "offline", "none", { status: "offline" }),
   ],
 };
 const node = (id: string, name: string, extra: Partial<VpnNode> = {}) =>
@@ -178,9 +178,24 @@ describe("MachinesCard", () => {
   it("filters by readiness", async () => {
     renderCard();
     await screen.findByText("srv-ad03");
+    // Attention = a channel is missing: not prepared, or a station without RustDesk.
     fireEvent.change(screen.getByLabelText("Filtrar por prontidão"), { target: { value: "attention" } });
     expect(screen.getByText("srv-ad03")).toBeInTheDocument();
+    expect(screen.getByText("GAT-ADM-PC01")).toBeInTheDocument();
+    expect(screen.queryByText("srv-old")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Filtrar por prontidão"), { target: { value: "ready" } });
+    expect(screen.getAllByText("srv-sup").length).toBeGreaterThan(0);
+    expect(screen.queryByText("srv-ad03")).not.toBeInTheDocument();
     expect(screen.queryByText("GAT-ADM-PC01")).not.toBeInTheDocument();
+  });
+
+  it("colors each machine by what can be done with it and shows its channels", async () => {
+    renderCard();
+    await screen.findByText("srv-ad03");
+    expect(screen.getAllByText("Sem RustDesk").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Não preparada").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Online sem acesso")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText("Sem RustDesk registrado").length).toBeGreaterThan(0);
   });
 
   it("gives a view-only servers user the sections without admin actions or the tailnet", async () => {

@@ -37,7 +37,10 @@ function renderComposer(props: Partial<Parameters<typeof ExecutionComposer>[0]> 
     if (url === "/api/v1/servers") return [machine("w1", "PC-01", "windows"), machine("l1", "srv-lin", "linux")] as never;
     if (url.startsWith("/api/v1/host-scripts/categories")) return [{ id: "cat", slug: "diag", label: "Diagnóstico", description: null }] as never;
     if (url.startsWith("/api/v1/host-scripts")) return SCRIPTS as never;
-    if (url.startsWith("/api/v1/servers/readiness")) return { entries: [{ server_id: "w1", readiness: "ready" }], tailnet_available: true } as never;
+    if (url.startsWith("/api/v1/servers/readiness")) {
+      return { entries: [{ server_id: "w1", readiness: "ready", status: "complete" },
+        { server_id: "l1", readiness: "not_prepared", status: "not_prepared" }], tailnet_available: true } as never;
+    }
     return [] as never;
   });
   const onRan = vi.fn();
@@ -134,6 +137,24 @@ describe("ExecutionComposer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Executar agora" }));
     await vi.waitFor(() => expect(onRan).toHaveBeenCalled());
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-executions", expect.objectContaining({ script_id: "vk", parameter_values: {} }));
+  });
+
+  it("asks a login for a machine without ForgeHub access and sends it with the run", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ id: "e4" } as never);
+    const { onRan } = renderComposer();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /srv-lin/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Comando avulso" }));
+    fireEvent.change(screen.getByLabelText("Comando"), { target: { value: "uptime" } });
+    expect(screen.getByText(/srv-lin ainda não tem o login do ForgeHub/)).toBeInTheDocument();
+    expect(screen.getByText("Informe o login e a senha para as máquinas sem acesso do ForgeHub.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Login"), { target: { value: "suporte" } });
+    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "X1!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Executar agora" }));
+    await vi.waitFor(() => expect(onRan).toHaveBeenCalled());
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-executions", expect.objectContaining({
+      command: "uptime", server_ids: ["l1"], login_user: "suporte", login_password: "X1!",
+    }));
   });
 
   it("never shows a parameter's default value on screen, only that blank uses it", async () => {

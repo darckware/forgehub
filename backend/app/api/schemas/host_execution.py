@@ -23,6 +23,10 @@ class HostExecutionCreate(BaseModel):
     server_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_TARGETS)
     group_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
     timeout_seconds: int = Field(default=300, ge=5, le=1800)
+    # A login for the machines ForgeHub has no access to yet (no SSH login of
+    # its own there): used for this run only, never stored, masked in output.
+    login_user: str | None = Field(default=None, min_length=1, max_length=100)
+    login_password: str | None = Field(default=None, min_length=1, max_length=256, repr=False)
 
 
 class HostExecutionFollowUp(BaseModel):

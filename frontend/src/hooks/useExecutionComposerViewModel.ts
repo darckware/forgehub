@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useCreateHostExecution, type ExecShell, type HostExecutionDetail } from "@/hooks/useHostExecutions";
-import { useHostGroups, useHostReadiness, type HostReadiness } from "@/hooks/useHostInventory";
+import { useHostGroups, useHostReadiness, type HostReadinessEntry } from "@/hooks/useHostInventory";
 import {
   scriptFits,
   systemScriptFor,
@@ -40,7 +40,8 @@ export interface ExecutionComposerViewModel {
   clients: { id: string; name: string }[];
   groups: { id: string; name: string }[];
   visibleMachines: Server[];
-  readinessOf: (id: string) => HostReadiness | undefined;
+  /** Readiness and color of a machine (undefined until read). */
+  entryOf: (id: string) => HostReadinessEntry | undefined;
   selected: Set<string>;
   toggleMachine: (id: string) => void;
   selectAllVisible: () => void;
@@ -78,6 +79,14 @@ export interface ExecutionComposerViewModel {
   setTimeOfDay: (value: string) => void;
   windowMinutes: number;
   setWindowMinutes: (value: number) => void;
+  // login for machines ForgeHub has no SSH login on yet
+  /** Selected machines online but without ForgeHub's own login: they run with
+   * the login typed below (this run only, never stored). */
+  noAccessMachines: Server[];
+  loginUser: string;
+  setLoginUser: (value: string) => void;
+  loginPassword: string;
+  setLoginPassword: (value: string) => void;
   // flow
   /** Script with parameters filled, to paste through RustDesk on a machine
    * without SSH yet. */
@@ -127,9 +136,11 @@ export function useExecutionComposerViewModel(handlers: {
   const [timeOfDay, setTimeOfDay] = useState("22:00");
   const [windowMinutes, setWindowMinutes] = useState(120);
   const [confirming, setConfirming] = useState(false);
+  const [loginUser, setLoginUser] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
 
   const readinessById = useMemo(
-    () => new Map((readiness.data?.entries ?? []).map((e) => [e.server_id, e.readiness])),
+    () => new Map((readiness.data?.entries ?? []).map((e) => [e.server_id, e])),
     [readiness.data],
   );
   const machines = useMemo(() => [...(servers ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [servers]);
@@ -144,7 +155,8 @@ export function useExecutionComposerViewModel(handlers: {
       if (filters.clientId === "none" ? m.darckware_client_id : filters.clientId && m.darckware_client_id !== filters.clientId) return false;
       if (filters.groupId && !groupMembers.get(filters.groupId)?.has(m.id)) return false;
       if (filters.os && (m.os_family ?? "linux") !== filters.os) return false;
-      if (filters.onlyReady && readinessById.get(m.id) !== "ready") return false;
+      // "Only ready" = ForgeHub can run a script there now (SSH works).
+      if (filters.onlyReady && readinessById.get(m.id)?.readiness !== "ready") return false;
       if (q && ![m.name, m.ip_address, m.location, m.darckware_client_name].some((v) => v?.toLowerCase().includes(q))) return false;
       return true;
     });
@@ -174,6 +186,9 @@ export function useExecutionComposerViewModel(handlers: {
   const script = (scriptList ?? []).find((s) => s.id === scriptId) ?? null;
   const fitCount = script ? selectedMachines.filter((m) => scriptFits(script.platform, m.os_family)).length : selectedMachines.length;
 
+  const noAccessMachines = selectedMachines.filter((m) => readinessById.get(m.id)?.readiness === "not_prepared");
+  const typedLogin = noAccessMachines.length > 0 && when === "now";
+
   const problems: string[] = [];
   if (selectedMachines.length === 0) problems.push("noMachines");
   if (source === "library") {
@@ -188,7 +203,10 @@ export function useExecutionComposerViewModel(handlers: {
     if (!scheduleName.trim()) problems.push("noScheduleName");
     if (when === "once" && !runAt) problems.push("noRunAt");
     if (when === "weekly" && weekdays.size === 0) problems.push("noWeekdays");
+    // A typed login is used once and never stored, so a schedule can't carry it.
+    if (noAccessMachines.length > 0) problems.push("scheduleNeedsAccess");
   }
+  if (typedLogin && !(loginUser.trim() && loginPassword)) problems.push("missingLogin");
 
   const status = run.isPending || schedule.isPending ? "submitting" : run.isError || schedule.isError ? "error" : confirming ? "confirming" : "idle";
 
@@ -206,7 +224,7 @@ export function useExecutionComposerViewModel(handlers: {
     clients,
     groups: (hostGroups ?? []).map((g) => ({ id: g.id, name: g.darckware_client_name ? `${g.name} · ${g.darckware_client_name}` : g.name })),
     visibleMachines,
-    readinessOf: (id) => readinessById.get(id),
+    entryOf: (id) => readinessById.get(id),
     selected,
     toggleMachine: (id) => setSelected((cur) => toggle(cur, id)),
     selectAllVisible: () => setSelected((cur) => new Set([...cur, ...visibleMachines.map((m) => m.id)])),
@@ -255,6 +273,11 @@ export function useExecutionComposerViewModel(handlers: {
       render.mutate({ id: script.id, parameter_values: values });
     },
     closeRendered: () => render.reset(),
+    noAccessMachines,
+    loginUser,
+    setLoginUser,
+    loginPassword,
+    setLoginPassword,
     problems,
     review: () => {
       run.reset();
@@ -266,12 +289,14 @@ export function useExecutionComposerViewModel(handlers: {
       const serverIds = selectedMachines.map((m) => m.id);
       const values = Object.fromEntries(Object.entries(paramValues).filter(([, v]) => v !== ""));
       if (when === "now") {
+        const login = typedLogin ? { login_user: loginUser.trim(), login_password: loginPassword } : {};
         run.mutate(
           source === "library"
-            ? { script_id: script!.id, parameter_values: values, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds }
-            : { command, shell, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds },
+            ? { script_id: script!.id, parameter_values: values, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login }
+            : { command, shell, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login },
           {
             onSuccess: (execution) => {
+              setLoginPassword("");
               setConfirming(false);
               handlers.onRan(execution);
             },

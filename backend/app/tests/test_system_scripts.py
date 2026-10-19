@@ -109,6 +109,26 @@ def test_installer_records_rustdesk_password_only_when_rustdesk_installed():
     assert exec_routes.system_script_hook(script, {"COMPONENTES": "somente_rustdesk", "RUSTDESK_PASSWORD": "x"}) is not None
 
 
+@pytest.mark.parametrize("platform", ["windows", "linux"])
+def test_tailscale_adjust(platform):
+    text, _ = _render(f"tailscale_adjust:{platform}", {"AJUSTE": "anunciar_subrede", "ROTAS": "192.168.0.0/24"})
+    assert "--advertise-routes=" in text and "--accept-routes=" in text and "Configuracao atual" in text
+    if platform == "linux":
+        assert "net.ipv4.ip_forward = 1" in text  # a Linux router must forward
+    else:
+        assert "Tailscale\\tailscale.exe" in text
+    assert "ver_configuracao" in text or "AJUSTE" in text
+    with pytest.raises(ScriptError):
+        _render(f"tailscale_adjust:{platform}", {"AJUSTE": "rotear_tudo"})
+
+
+def test_every_system_script_is_classified():
+    from app.core.system_scripts import SYSTEM_CATEGORIES
+
+    slugs = {slug for slug, _, _ in SYSTEM_CATEGORIES}
+    assert all(spec["category"] in slugs for spec in SYSTEM_SCRIPTS)
+
+
 @pytest.mark.asyncio
 async def test_seed_is_idempotent():
     await seed_system_scripts()
