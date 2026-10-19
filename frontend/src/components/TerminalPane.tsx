@@ -53,6 +53,9 @@ interface TerminalPaneProps {
   /** Whether this pane's tab is currently selected -- panes for inactive
    * tabs stay mounted (so the session keeps running) but hidden. */
   active: boolean;
+  /** The inventory machine an SSH tab opened on: recorded with the session
+   * so it shows in that machine's maintenance history. */
+  serverId?: string;
 }
 
 /** Phones/tablets: xterm.js takes keyboard input through a hidden textarea,
@@ -167,7 +170,7 @@ function TerminalTouchInput({ send }: { send: (data: string) => void }) {
   );
 }
 
-export function TerminalPane({ sessionId, command, cwd, active }: TerminalPaneProps) {
+export function TerminalPane({ sessionId, command, cwd, active, serverId }: TerminalPaneProps) {
   const { t } = useTranslation("workspace");
   const containerRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -518,6 +521,7 @@ export function TerminalPane({ sessionId, command, cwd, active }: TerminalPanePr
       params.set("session", sessionId);
       if (command) params.set("command", command);
       if (cwd) params.set("cwd", cwd);
+      if (serverId) params.set("server_id", serverId);
       params.set("cols", String(term.cols || 80));
       params.set("rows", String(term.rows || 24));
       try {

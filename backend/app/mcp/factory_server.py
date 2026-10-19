@@ -10,7 +10,10 @@ server and registers nine factory tools on the same FastMCP instance, yielding
 the 21-tool ``forgehub`` catalog documented by Foundation.
 
 Factory reads and task mutations require ``FORGEHUB_AGENT_TOKEN`` (an
-``agt_`` AgentServiceCredential). Messages continues to use its narrowly
+``agt_`` AgentServiceCredential). So do the machine-maintenance tools
+(2026-10-19): an agent runs library scripts on client machines as itself --
+recorded with its name and the reason -- and only with an active delegation
+for ``remote_access.execute`` whose risk ceiling fits the script. Messages continues to use its narrowly
 scoped bridge token. API failures are always surfaced as tool errors.
 """
 
@@ -444,6 +447,61 @@ async def close_version_and_publish(
         await _factory_call("PUT", f"/api/v1/products/versions/{version_id}", json={"release_notes": release_notes})
     version = await _factory_call("POST", f"/api/v1/products/versions/{version_id}:publish")
     return {"success": True, "published_version": version}
+
+
+@mcp.tool()
+async def list_maintenance_machines() -> list[dict[str, Any]]:
+    """Machines (servers and workstations) you may maintain. `runnable` = ForgeHub
+    can run a script there now; a machine that isn't must be prepared by a person
+    ("Configure access") before any agent can touch it."""
+    return await _factory_call("GET", "/api/v1/host-executions/agent/machines")
+
+
+@mcp.tool()
+async def list_maintenance_scripts(platform: str | None = None, category: str | None = None) -> list[dict[str, Any]]:
+    """Library scripts you may run (filter by platform windows/linux/macos or by
+    category name, e.g. Tailscale, RustDesk, Contas de usuário, Manutenção).
+    Each lists its risk and parameters; a parameter with `vault_secret` or
+    `has_default` may be left out."""
+    scripts = await _factory_call("GET", "/api/v1/host-executions/agent/scripts")
+    return [
+        s for s in scripts
+        if (not platform or s["platform"] == platform)
+        and (not category or (s.get("category") or "").lower() == category.lower())
+    ]
+
+
+@mcp.tool()
+async def run_maintenance_script(
+    script_id: str,
+    machine_ids: list[str],
+    reason: str,
+    parameters: dict[str, str] | None = None,
+    darckware_ticket_id: str | None = None,
+    darckware_demand_id: str | None = None,
+) -> dict[str, Any]:
+    """Run a library script on machines, recorded as yours. `reason` is required
+    (what the maintenance is for); pass the client's Darckware ticket or demand
+    id when the work serves one. Returns the execution -- poll it with
+    get_maintenance_execution until its status is no longer "running"."""
+    if darckware_ticket_id and darckware_demand_id:
+        raise FactoryError("Pass a Darckware ticket or a demand, not both.")
+    body: dict[str, Any] = {
+        "script_id": script_id, "server_ids": machine_ids, "reason": reason,
+        "parameter_values": parameters or {},
+    }
+    if darckware_ticket_id:
+        body |= {"darckware_item_kind": "ticket", "darckware_item_id": darckware_ticket_id}
+    elif darckware_demand_id:
+        body |= {"darckware_item_kind": "demand", "darckware_item_id": darckware_demand_id}
+    return await _factory_call("POST", "/api/v1/host-executions/agent", json=body)
+
+
+@mcp.tool()
+async def get_maintenance_execution(execution_id: str) -> dict[str, Any]:
+    """One of your maintenance runs: per-machine status, exit code and output
+    (secrets masked)."""
+    return await _factory_call("GET", f"/api/v1/host-executions/agent/{execution_id}")
 
 
 if __name__ == "__main__":

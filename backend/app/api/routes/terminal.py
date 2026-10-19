@@ -199,6 +199,9 @@ async def terminal_ws(
     session: str = Query(...),
     command: str | None = Query(default=None),
     cwd: str | None = Query(default=None),
+    # The inventory machine an SSH tab opened on, so the session shows in that
+    # machine's maintenance history.
+    server_id: uuid.UUID | None = Query(default=None),
     ticket: str = Query(...),
     cols: int = Query(default=80),
     rows: int = Query(default=24),
@@ -220,7 +223,10 @@ async def terminal_ws(
         await websocket.close(code=4403)
         return
     await websocket.accept()
-    await _audit_terminal_event(session, "opened", user.username, {"command": command, "cwd": cwd})
+    await _audit_terminal_event(
+        session, "opened", user.username,
+        {"command": command, "cwd": cwd, "server_id": str(server_id) if server_id else None},
+    )
 
     bridge_ws_url = settings.CHAT_BRIDGE_URL.replace("http://", "ws://").replace("https://", "wss://")
     bridge_ws_url += f"/v1/terminal/ws?token={settings.CHAT_BRIDGE_TOKEN}&session={quote(session)}"

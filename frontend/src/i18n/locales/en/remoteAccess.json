@@ -85,6 +85,19 @@
     "succeeded": "Succeeded",
     "failed": "Failed"
   },
+  "maintenance": {
+    "open": "Maintenance of {{name}}",
+    "title": "Maintenance · {{name}}",
+    "help": "Everything that reached this machine through ForgeHub: scripts and commands (by a person or an agent, with the reason and the client item), SSH terminal sessions and access events. The machine has one account (darckware); who did what is recorded here.",
+    "loading": "Loading",
+    "loadError": "Couldn't load the history.",
+    "empty": "No maintenance recorded yet.",
+    "byAgent": "agent {{name}}",
+    "item": {
+      "ticket": "ticket {{id}}",
+      "demand": "demand {{id}}"
+    }
+  },
   "status": {
     "complete": "Ready",
     "partial_no_rustdesk": "No RustDesk",
@@ -200,6 +213,7 @@
     }
   },
   "execution": {
+    "record": "Maintenance record",
     "title": "Execution",
     "subtitle": "By {{who}} on {{when}} · {{targets}}",
     "notFound": "Execution not found.",
@@ -354,6 +368,13 @@
     "time": "Time (Brasília)",
     "window": "Window (minutes)",
     "windowHelp": "A machine that is off or off the network is retried until the window ends; then it reads \"Not run\".",
+    "record": {
+      "title": "Maintenance record",
+      "reason": "Reason",
+      "reasonPlaceholder": "E.g. the client reported slow printing",
+      "item": "Client ticket or demand",
+      "itemNone": "None"
+    },
     "login": {
       "title": "Login for machines without ForgeHub access",
       "help_one": "{{names}} doesn't have ForgeHub's login yet. Enter an account with administrator rights on it: used for this run only, never stored.",

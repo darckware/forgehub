@@ -13,6 +13,7 @@ import {
   type RenderedScript,
 } from "@/hooks/useHostScripts";
 import { useServers, type Server } from "@/hooks/useServers";
+import { useWorkItems, type WorkItem } from "@/hooks/useClientOps";
 
 /**
  * The single execution screen (Marcelo, 2026-10-16: "tela única que eu possa
@@ -87,6 +88,15 @@ export interface ExecutionComposerViewModel {
   setLoginUser: (value: string) => void;
   loginPassword: string;
   setLoginPassword: (value: string) => void;
+  // maintenance record
+  /** Why it runs (kept with the execution and in each machine's history). */
+  reason: string;
+  setReason: (value: string) => void;
+  /** Open tickets/demands of the selected machines' client (one client only). */
+  clientItems: WorkItem[];
+  /** "" or "<kind>:<id>" of the client item this run serves. */
+  itemKey: string;
+  setItemKey: (value: string) => void;
   // flow
   /** Script with parameters filled, to paste through RustDesk on a machine
    * without SSH yet. */
@@ -136,6 +146,8 @@ export function useExecutionComposerViewModel(handlers: {
   const [timeOfDay, setTimeOfDay] = useState("22:00");
   const [windowMinutes, setWindowMinutes] = useState(120);
   const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const [itemKey, setItemKey] = useState("");
   const [loginUser, setLoginUser] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
 
@@ -186,6 +198,10 @@ export function useExecutionComposerViewModel(handlers: {
   const script = (scriptList ?? []).find((s) => s.id === scriptId) ?? null;
   const fitCount = script ? selectedMachines.filter((m) => scriptFits(script.platform, m.os_family)).length : selectedMachines.length;
 
+  const clientIds = new Set(selectedMachines.map((m) => m.darckware_client_id ?? ""));
+  const clientId = clientIds.size === 1 ? [...clientIds][0] : "";
+  const workItems = useWorkItems({ client_account_id: clientId, stage: "open" }, Boolean(clientId));
+  const clientItems = clientId ? workItems.data?.items ?? [] : [];
   const noAccessMachines = selectedMachines.filter((m) => readinessById.get(m.id)?.readiness === "not_prepared");
   const typedLogin = noAccessMachines.length > 0 && when === "now";
 
@@ -273,6 +289,11 @@ export function useExecutionComposerViewModel(handlers: {
       render.mutate({ id: script.id, parameter_values: values });
     },
     closeRendered: () => render.reset(),
+    reason,
+    setReason,
+    clientItems,
+    itemKey: clientItems.some((i) => `${i.kind}:${i.id}` === itemKey) ? itemKey : "",
+    setItemKey,
     noAccessMachines,
     loginUser,
     setLoginUser,
@@ -290,10 +311,16 @@ export function useExecutionComposerViewModel(handlers: {
       const values = Object.fromEntries(Object.entries(paramValues).filter(([, v]) => v !== ""));
       if (when === "now") {
         const login = typedLogin ? { login_user: loginUser.trim(), login_password: loginPassword } : {};
+        const [kind, id] = itemKey.split(":");
+        const record = {
+          ...(reason.trim() ? { reason: reason.trim() } : {}),
+          ...(id && clientItems.some((i) => `${i.kind}:${i.id}` === itemKey)
+            ? { darckware_item_kind: kind as "ticket" | "demand", darckware_item_id: id } : {}),
+        };
         run.mutate(
           source === "library"
-            ? { script_id: script!.id, parameter_values: values, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login }
-            : { command, shell, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login },
+            ? { script_id: script!.id, parameter_values: values, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login, ...record }
+            : { command, shell, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login, ...record },
           {
             onSuccess: (execution) => {
               setLoginPassword("");

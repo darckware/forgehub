@@ -245,6 +245,28 @@ export function ExecutionComposer({
                 )}
               </fieldset>
 
+              {vm.when === "now" && (
+                <fieldset className="space-y-2 rounded-md border border-border p-3">
+                  <legend className="px-1 text-sm font-medium">{t("composer.record.title")}</legend>
+                  <div className="space-y-1">
+                    <Label htmlFor="run-reason">{t("composer.record.reason")}</Label>
+                    <Input id="run-reason" value={vm.reason} onChange={(e) => vm.setReason(e.target.value)} placeholder={t("composer.record.reasonPlaceholder")} className="max-md:text-base" />
+                  </div>
+                  {vm.clientItems.length > 0 && (
+                    <div className="space-y-1">
+                      <Label htmlFor="run-item">{t("composer.record.item")}</Label>
+                      <Select id="run-item" value={vm.itemKey} onChange={(e) => vm.setItemKey(e.target.value)} className="max-md:text-base">
+                        <option value="">{t("composer.record.itemNone")}</option>
+                        {vm.clientItems.map((i) => (
+                          <option key={`${i.kind}:${i.id}`} value={`${i.kind}:${i.id}`}>
+                            {t(`maintenance.item.${i.kind}`, { id: i.id })} · {i.title}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  )}
+                </fieldset>
+              )}
               {vm.noAccessMachines.length > 0 && vm.when === "now" && (
                 <fieldset className="space-y-2 rounded-md border border-orange-500/40 bg-orange-500/5 p-3">
                   <legend className="px-1 text-sm font-medium">{t("composer.login.title")}</legend>

@@ -477,3 +477,21 @@ class TerminalCommandOut(BaseModel):
     command: str
     # True when authentication comes from the machine's ForgeVault key.
     vault_key: bool
+
+
+class MaintenanceEntry(BaseModel):
+    """One line of a machine's maintenance history: a script/command run, an
+    SSH terminal session, or an access event (preparation, keys, RustDesk)."""
+
+    at: datetime
+    kind: Literal["execution", "terminal", "event"]
+    # Who: the person's username or the agent's name.
+    actor: str
+    agent_name: str | None = None
+    trigger: str | None = None
+    title: str
+    status: str | None = None
+    reason: str | None = None
+    darckware_item_kind: str | None = None
+    darckware_item_id: str | None = None
+    execution_id: uuid.UUID | None = None

@@ -15,6 +15,7 @@ from app.api.routes import host_execution as routes
 from app.api.routes import server as server_routes
 from app.core import host_exec_runner
 from app.core.secret_masking import MASK, mask_secrets
+from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
 from app.db.models.governance import AuditEvent
 from app.db.models.host_execution import HostExecution
@@ -297,3 +298,105 @@ async def test_recovery_closes_only_stale_executions(machines):
         # Close the live one so it doesn't leave the machine "busy".
         (await db.get(HostExecution, live.id)).status = "completed"
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(machines):
+    """Agents run library scripts with their own agt_ credential: deny by
+    default, risk capped by the delegation, only on machines ForgeHub already
+    has its login on, and the run is recorded as theirs with its reason --
+    then shows in the machine's maintenance history."""
+    import hashlib
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.core.security import hash_password
+    from app.db.models.agent import Agent, AgentServiceCredential
+    from app.db.models.governance import AuthorityDelegation
+    from app.db.models.host_script import HostScript, HostScriptCategory
+    from app.db.models.user import User
+    from app.main import app
+
+    rows, created = machines
+    tag = uuid.uuid4().hex[:8]
+    token = f"agt_test_{tag}"
+    async with AsyncSessionLocal() as db:
+        grantor = User(username=f"grantor-{tag}", hashed_password=hash_password("x"), is_admin=True)
+        agent = Agent(name=f"maint-agent-{tag}", agent_type="executor")
+        category = (await db.execute(select(HostScriptCategory).limit(1))).scalar_one()
+        script = HostScript(name=f"diag-{tag}", category_id=category.id, platform="linux", risk="read",
+                            timeout_seconds=30, parameters=[], content="uptime", current_version=1,
+                            created_by="t", updated_by="t")
+        risky = HostScript(name=f"wipe-{tag}", category_id=category.id, platform="linux", risk="destructive",
+                           timeout_seconds=30, parameters=[], content="true", current_version=1,
+                           created_by="t", updated_by="t")
+        db.add_all([grantor, agent, script, risky])
+        await db.flush()
+        db.add(AgentServiceCredential(agent_id=agent.id, label="test", token_hash=hashlib.sha256(token.encode()).hexdigest()))
+        await db.commit()
+        ids = SimpleNamespace(grantor=grantor.id, agent=agent.id, script=script.id, risky=risky.id)
+
+    ready = {rows["linux"].id: "ready"}
+
+    async def fake_readiness(**_kw):
+        return SimpleNamespace(entries=[
+            SimpleNamespace(server_id=r.id, readiness=ready.get(r.id, "not_prepared"), status="complete")
+            for r in rows.values()
+        ])
+
+    async def fake_bridge(server, shell, script, timeout):
+        return {"exit_code": 0, "stdout": "up 3 days", "stderr": "", "duration_ms": 5, "failure": None}
+
+    body = {"script_id": str(ids.script), "server_ids": [str(rows["linux"].id)], "reason": "Cliente relatou lentidão"}
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers) as ac:
+            with (
+                patch.object(server_routes, "get_readiness", fake_readiness),
+                patch.object(host_exec_runner, "call_bridge_exec", fake_bridge),
+            ):
+                assert (await ac.post("/api/v1/host-executions/agent", json=body)).status_code == 403  # no delegation
+                async with AsyncSessionLocal() as db:
+                    now = datetime.now(timezone.utc)
+                    db.add(AuthorityDelegation(
+                        grantor_user_id=ids.grantor, grantee_type="agent", grantee_id=ids.agent,
+                        allowed_actions=["remote_access.execute"], max_risk="medium",
+                        valid_from=now - timedelta(minutes=1), expires_at=now + timedelta(hours=1),
+                    ))
+                    await db.commit()
+                machines_list = (await ac.get("/api/v1/host-executions/agent/machines")).json()
+                assert {m["name"]: m["runnable"] for m in machines_list}[rows["linux"].name] is True
+                scripts = (await ac.get("/api/v1/host-executions/agent/scripts")).json()
+                assert any(s["id"] == str(ids.script) for s in scripts)
+                assert (await ac.post("/api/v1/host-executions/agent", json={**body, "script_id": str(ids.risky)})).status_code == 403
+                assert (await ac.post("/api/v1/host-executions/agent", json={**body, "reason": ""})).status_code == 422
+                not_ready = await ac.post("/api/v1/host-executions/agent", json={**body, "server_ids": [str(rows["linux2"].id)]})
+                assert not_ready.status_code == 409 and rows["linux2"].name in not_ready.json()["detail"]
+
+                resp = await ac.post("/api/v1/host-executions/agent", json={**body, "darckware_item_kind": "ticket", "darckware_item_id": "T-42"})
+                assert resp.status_code == 201, resp.text
+                execution_id = resp.json()["id"]
+                created.append(uuid.UUID(execution_id))
+                await _wait(execution_id)
+                got = (await ac.get(f"/api/v1/host-executions/agent/{execution_id}")).json()
+                assert got["trigger"] == "agent" and got["agent_name"] == f"maint-agent-{tag}"
+                assert got["reason"] == "Cliente relatou lentidão" and got["darckware_item_id"] == "T-42"
+                assert got["counts"]["succeeded"] == 1
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test",
+                               headers={"Authorization": f"Bearer {create_access_token(f'grantor-{tag}')}"}) as ac:
+            history = (await ac.get(f"/api/v1/servers/{rows['linux'].id}/maintenance")).json()
+        entry = next(h for h in history if h["execution_id"] == execution_id)
+        assert entry["actor"] == f"maint-agent-{tag}" and entry["reason"] == "Cliente relatou lentidão"
+        assert entry["kind"] == "execution" and entry["darckware_item_kind"] == "ticket"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(created)))
+            await db.execute(delete(HostExecution).where(HostExecution.id.in_(created)))
+            created.clear()
+            await db.execute(delete(AuthorityDelegation).where(AuthorityDelegation.grantee_id == ids.agent))
+            await db.execute(delete(AgentServiceCredential).where(AgentServiceCredential.agent_id == ids.agent))
+            await db.execute(delete(HostScript).where(HostScript.id.in_([ids.script, ids.risky])))
+            await db.execute(delete(Agent).where(Agent.id == ids.agent))
+            await db.execute(delete(User).where(User.id == ids.grantor))
+            await db.commit()

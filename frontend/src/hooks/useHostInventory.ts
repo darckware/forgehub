@@ -280,3 +280,29 @@ export function useRotateMachines() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["host-executions"] }),
   });
 }
+
+
+/** One line of a machine's maintenance history (backend `machine_maintenance`):
+ * a run (person or agent, why, which client item), an SSH session, or an
+ * access event. One machine account, so this is the "who did what". */
+export interface MaintenanceEntry {
+  at: string;
+  kind: "execution" | "terminal" | "event";
+  actor: string;
+  agent_name: string | null;
+  trigger: string | null;
+  title: string;
+  status: string | null;
+  reason: string | null;
+  darckware_item_kind: "ticket" | "demand" | null;
+  darckware_item_id: string | null;
+  execution_id: string | null;
+}
+
+export function useMachineMaintenance(serverId: string | null) {
+  return useQuery<MaintenanceEntry[]>({
+    queryKey: ["servers", serverId, "maintenance"],
+    queryFn: () => apiClient.get(`/api/v1/servers/${serverId}/maintenance`),
+    enabled: Boolean(serverId),
+  });
+}

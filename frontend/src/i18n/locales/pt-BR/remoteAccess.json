@@ -85,6 +85,19 @@
     "succeeded": "Concluída",
     "failed": "Falhou"
   },
+  "maintenance": {
+    "open": "Manutenções de {{name}}",
+    "title": "Manutenções · {{name}}",
+    "help": "Tudo o que chegou a esta máquina pelo ForgeHub: scripts e comandos (por pessoa ou agente, com o motivo e o atendimento), sessões de terminal SSH e eventos de acesso. A máquina tem uma única conta (darckware); quem fez cada coisa fica registrado aqui.",
+    "loading": "Carregando",
+    "loadError": "Não foi possível carregar o histórico.",
+    "empty": "Nenhuma manutenção registrada ainda.",
+    "byAgent": "agente {{name}}",
+    "item": {
+      "ticket": "chamado {{id}}",
+      "demand": "demanda {{id}}"
+    }
+  },
   "status": {
     "complete": "Pronta",
     "partial_no_rustdesk": "Sem RustDesk",
@@ -200,6 +213,7 @@
     }
   },
   "execution": {
+    "record": "Registro da manutenção",
     "title": "Execução",
     "subtitle": "Por {{who}} em {{when}} · {{targets}}",
     "notFound": "Execução não encontrada.",
@@ -354,6 +368,13 @@
     "time": "Horário (Brasília)",
     "window": "Janela (minutos)",
     "windowHelp": "Máquina desligada ou fora da rede é tentada de novo até o fim da janela; depois fica como \"Não executada\".",
+    "record": {
+      "title": "Registro da manutenção",
+      "reason": "Motivo",
+      "reasonPlaceholder": "Ex.: cliente relatou lentidão na impressão",
+      "item": "Atendimento do cliente",
+      "itemNone": "Nenhum"
+    },
     "login": {
       "title": "Login para as máquinas sem acesso do ForgeHub",
       "help_one": "{{names}} ainda não tem o login do ForgeHub. Informe uma conta com permissão de administrador nela: usada só nesta execução, não fica gravada.",

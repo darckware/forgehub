@@ -199,6 +199,9 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             # 2026-10-07: Marcelo's personal tasks/agenda/notes; the route itself only admits the
             # agents in settings.PERSONAL_AGENT_SLUGS (Maia).
             "/api/v1/personal/",
+            # 2026-10-19: machine maintenance by agents; the routes check the
+            # delegation for "remote_access.execute" themselves.
+            "/api/v1/host-executions/agent",
         )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
         factory_read_path = request.method == "GET" and path.startswith((
             "/api/v1/projects",

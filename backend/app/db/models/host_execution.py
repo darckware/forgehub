@@ -36,6 +36,11 @@ class HostExecution(Base, TimestampMixin):
         CheckConstraint(
             "trigger IN ('manual', 'schedule', 'agent')", name="ck_host_executions_trigger"
         ),
+        CheckConstraint(
+            "(darckware_item_kind IS NULL AND darckware_item_id IS NULL) OR "
+            "(darckware_item_kind IN ('ticket', 'demand') AND darckware_item_id IS NOT NULL)",
+            name="ck_host_executions_darckware_item",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -75,6 +80,12 @@ class HostExecution(Base, TimestampMixin):
     # share this database, so "I just started, so everything running is
     # mine and dead" would kill the other process's live runs.
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The maintenance record (2026-10-19): why it ran -- required when an
+    # agent asks -- and the Darckware client ticket/demand it serves
+    # (Darckware's id, no FK: the item lives in Darckware).
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    darckware_item_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    darckware_item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class HostExecutionResult(Base, TimestampMixin):

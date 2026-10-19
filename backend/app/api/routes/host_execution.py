@@ -26,6 +26,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.host_execution import (
     MAX_TARGETS,
+    AgentExecutionCreate,
+    AgentMachineOut,
+    AgentScriptOut,
     HostExecutionCounts,
     HostExecutionCreate,
     HostExecutionDetail,
@@ -35,7 +38,7 @@ from app.api.schemas.host_execution import (
 )
 from app.core import host_exec_runner
 from app.core.host_scripts import ScriptError, compatible, render_script, resolve_values, shell_for
-from app.core.deps import get_current_admin
+from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal, get_current_admin
 from app.core.secret_masking import mask_secrets
 from app.core.forgevault import machine_secret_name, vault_reveal_name, vault_store
 from app.db.base import get_db
@@ -179,6 +182,8 @@ async def launch_execution(
     script_label: str | None = None,
     shell_agnostic: bool = False,
     login_given: bool = False,
+    reason: str | None = None,
+    darckware_item: tuple[str, str] | None = None,
 ) -> HostExecution:
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
@@ -203,6 +208,9 @@ async def launch_execution(
         script_version=script.current_version if script else None,
         script_name=script.name if script else script_label,
         retry_until=retry_until,
+        reason=reason,
+        darckware_item_kind=darckware_item[0] if darckware_item else None,
+        darckware_item_id=darckware_item[1] if darckware_item else None,
     )
     db.add(execution)
     await db.flush()
@@ -232,6 +240,8 @@ async def launch_execution(
                 "trigger": trigger,
                 "agent_id": str(agent_id) if agent_id else None,
                 "script": f"{script.name} v{script.current_version}" if script else None,
+                "reason": reason,
+                "darckware_item": f"{darckware_item[0]}:{darckware_item[1]}" if darckware_item else None,
             },
         )
     )
@@ -331,6 +341,13 @@ async def prepare_script_run(script: HostScript, values: dict | None) -> tuple[s
     return render_script(script.platform, script.content, resolved), shell_for(script.platform), secrets
 
 
+def darckware_item_of(kind: str | None, item_id: str | None) -> tuple[str, str] | None:
+    """The client ticket/demand an execution serves: both or neither."""
+    if bool(kind) != bool(item_id):
+        raise HTTPException(status_code=422, detail="Inform both the Darckware item kind and its id")
+    return (kind, item_id.strip()) if kind and item_id else None
+
+
 def login_executor(shell: str, command: str, timeout: int, user: str, password: str):
     """Runs on each machine with ForgeHub's own login when it works there (the
     SSH probe said "active"), and with the login typed for this run on a
@@ -373,6 +390,7 @@ async def create_execution(
             raise HTTPException(status_code=422, detail="Pick a script or write a command")
         command, shell, timeout = payload.command, payload.shell, payload.timeout_seconds
 
+    item = darckware_item_of(payload.darckware_item_kind, payload.darckware_item_id)
     login = None
     if payload.login_user or payload.login_password:
         if not (payload.login_user and payload.login_password):
@@ -396,11 +414,122 @@ async def create_execution(
         values_for_hook=payload.parameter_values,
         executor=login_executor(shell, command, timeout, login[0], login[1]) if login else None,
         login_given=bool(login),
+        reason=(payload.reason or "").strip() or None,
+        darckware_item=item,
     )
     if login:
         db.add(AuditEvent(entity_type="host_execution", entity_id=execution.id, event_type="typed_login_used",
                           actor=admin.username, payload={"login": login[0]}))
         await db.commit()
+    return await _detail(db, execution)
+
+
+# --- Agents (MCP) -----------------------------------------------------------
+# 2026-10-19 (Marcelo approved): agents maintain machines through ForgeHub with
+# their own agt_ credential, so every run is recorded as theirs -- one machine
+# account (`darckware`), who did what kept here. Deny by default: the agent
+# needs an active AuthorityDelegation for AGENT_ACTION, and the script's risk
+# must fit the delegation's max_risk. Library scripts only, machines with
+# ForgeHub's own login only (no typed passwords), and always a reason.
+AGENT_ACTION = "remote_access.execute"
+_RISK_FOR_DELEGATION = {"read": "low", "change": "medium", "destructive": "high"}
+
+
+async def _agent_readiness(db: AsyncSession) -> dict[uuid.UUID, tuple[bool, str]]:
+    from app.api.routes.server import get_readiness
+
+    result = await get_readiness(refresh=False, db=db, _user=None)
+    return {e.server_id: (e.readiness == "ready", e.status) for e in result.entries}
+
+
+@router.get("/agent/machines", response_model=list[AgentMachineOut])
+async def agent_list_machines(
+    db: AsyncSession = Depends(get_db), principal: ActorPrincipal = Depends(get_actor_principal)
+):
+    """The machines an agent may maintain, with whether a script can run now."""
+    await authorize_action(db, principal, AGENT_ACTION)
+    readiness = await _agent_readiness(db)
+    servers = (await db.execute(select(Server).where(Server.access_enabled.is_(True)).order_by(Server.name))).scalars()
+    return [
+        AgentMachineOut(
+            id=s.id, name=s.name, kind=s.kind, os_family=s.os_family, darckware_client_name=s.darckware_client_name,
+            location=s.location, runnable=readiness.get(s.id, (False, "unknown"))[0],
+            status=readiness.get(s.id, (False, "unknown"))[1],
+        )
+        for s in servers
+    ]
+
+
+@router.get("/agent/scripts", response_model=list[AgentScriptOut])
+async def agent_list_scripts(
+    db: AsyncSession = Depends(get_db), principal: ActorPrincipal = Depends(get_actor_principal)
+):
+    await authorize_action(db, principal, AGENT_ACTION)
+    from app.db.models.host_script import HostScriptCategory
+
+    labels = dict((await db.execute(select(HostScriptCategory.id, HostScriptCategory.label))).all())
+    scripts = (await db.execute(select(HostScript).where(HostScript.archived.is_(False)).order_by(HostScript.name))).scalars()
+    return [
+        AgentScriptOut(id=s.id, name=s.name, category=labels.get(s.category_id), platform=s.platform, risk=s.risk,
+                       description=s.description,
+                       # Defaults stay server-side: they can be infrastructure values.
+                       parameters=[{k: v for k, v in p.items() if k != "default"} | {"has_default": bool(p.get("default"))}
+                                   for p in s.parameters])
+        for s in scripts
+    ]
+
+
+@router.post("/agent", response_model=HostExecutionDetail, status_code=status.HTTP_201_CREATED)
+async def agent_create_execution(
+    payload: AgentExecutionCreate,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    script = await db.get(HostScript, payload.script_id)
+    if not script or script.archived:
+        raise HTTPException(status_code=404, detail="Script not found")
+    await authorize_action(db, principal, AGENT_ACTION, action_risk=_RISK_FOR_DELEGATION.get(script.risk, "high"))
+    servers, _ = await resolve_targets(db, payload.server_ids, [])
+    readiness = await _agent_readiness(db)
+    blocked = [s.name for s in servers if not readiness.get(s.id, (False, ""))[0]]
+    if blocked:
+        raise HTTPException(
+            status_code=409,
+            detail=f"ForgeHub has no working login on: {', '.join(blocked)} (a person must configure access first)",
+        )
+    item = darckware_item_of(payload.darckware_item_kind, payload.darckware_item_id)
+    command, shell, secrets = await prepare_script_run(script, payload.parameter_values)
+    agent = await db.get(Agent, principal.principal_id) if principal.principal_type == "agent" else None
+    execution = await launch_execution(
+        db,
+        servers=servers,
+        command=command,
+        shell=shell,
+        timeout_seconds=script.timeout_seconds,
+        actor=principal.display_name,
+        target_summary=servers[0].name if len(servers) == 1 else f"{len(servers)} machine(s)",
+        secrets=secrets,
+        trigger="agent" if agent else "manual",
+        agent_id=agent.id if agent else None,
+        script=script,
+        values_for_hook=payload.parameter_values,
+        reason=payload.reason.strip(),
+        darckware_item=item,
+    )
+    return await _detail(db, execution)
+
+
+@router.get("/agent/{execution_id}", response_model=HostExecutionDetail)
+async def agent_get_execution(
+    execution_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+):
+    """An agent reads back only the runs it asked for."""
+    await authorize_action(db, principal, AGENT_ACTION)
+    execution = await db.get(HostExecution, execution_id)
+    if not execution or (principal.principal_type == "agent" and execution.agent_id != principal.principal_id):
+        raise HTTPException(status_code=404, detail="Execution not found")
     return await _detail(db, execution)
 
 

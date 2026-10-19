@@ -40,6 +40,10 @@ export interface HostExecutionSummary {
   trigger: ExecTrigger;
   agent_id: string | null;
   agent_name: string | null;
+  /** Maintenance record: why it ran and the client ticket/demand it served. */
+  reason?: string | null;
+  darckware_item_kind?: "ticket" | "demand" | null;
+  darckware_item_id?: string | null;
   schedule_id: string | null;
   script_id: string | null;
   script_name: string | null;
@@ -73,6 +77,9 @@ export interface HostExecutionCreate {
   /** For machines without ForgeHub's own login: used this run only, never stored. */
   login_user?: string;
   login_password?: string;
+  reason?: string;
+  darckware_item_kind?: "ticket" | "demand";
+  darckware_item_id?: string;
 }
 
 const KEY = ["host-executions"] as const;

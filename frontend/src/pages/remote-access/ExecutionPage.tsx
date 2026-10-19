@@ -133,6 +133,15 @@ export default function ExecutionPage() {
         ))}
       </div>
 
+      {(e.reason || e.darckware_item_id || e.agent_name) && (
+        <div className="space-y-1 rounded-lg border border-border bg-card p-4 text-sm">
+          <p className="text-xs font-medium text-muted-foreground">{t("execution.record")}</p>
+          {e.agent_name && <p>{t("maintenance.byAgent", { name: e.agent_name })}</p>}
+          {e.reason && <p>{e.reason}</p>}
+          {e.darckware_item_id && <p className="text-muted-foreground">{t(`maintenance.item.${e.darckware_item_kind}`, { id: e.darckware_item_id })}</p>}
+        </div>
+      )}
+
       <Card>
         <CardHeader className="flex flex-row items-center gap-2 space-y-0 pb-3">
           <CardTitle className="text-base">{t("execution.command", { shell: t(`run.shells.${e.shell}`) })}</CardTitle>

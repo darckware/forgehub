@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import {
   Activity,
   FolderPlus,
+  History,
   Vault,
   Wrench,
   KeyRound,
@@ -55,6 +56,7 @@ import { ServerServicesPanel } from "@/pages/servers/ServerServicesPanel";
 import { serverHome } from "@/pages/workspace/workspaceState";
 import { STATUS_BADGE, hasSsh, statusKey } from "./machineStatus";
 import { PrepareDialog } from "./PrepareDialog";
+import { MaintenanceDialog } from "./MaintenanceDialog";
 import { RevealPasswordDialog } from "./RevealPasswordDialog";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
@@ -138,6 +140,7 @@ export function MachinesCard() {
   const vm = useMachinesViewModel();
   const { data: clientList } = useDarckwareClients();
   const [revealing, setRevealing] = useState<{ machine: Server; kind: "login" | "rustdesk" } | null>(null);
+  const [historyOf, setHistoryOf] = useState<Server | null>(null);
 
   const syncSummary = vm.syncResult
     ? (["created", "linked", "updated"] as const)
@@ -228,6 +231,9 @@ export function MachinesCard() {
                   <KeyRound className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
+              <IconButton label={t("maintenance.open", { name: machine.name })} onClick={() => setHistoryOf(machine)}>
+                <History className="h-4 w-4" aria-hidden="true" />
+              </IconButton>
               {machine.kind === "server" && (
                 <IconButton label={t("machines.actions.services", { name: machine.name })} onClick={() => vm.toggleExpanded(machine.id)}>
                   <Network className="h-4 w-4" aria-hidden="true" />
@@ -575,6 +581,7 @@ export function MachinesCard() {
         onConfirm={vm.confirmMigrate}
         onCancel={vm.cancelMigrate}
       />
+      {historyOf && <MaintenanceDialog machine={historyOf} onClose={() => setHistoryOf(null)} />}
       {revealing && <RevealPasswordDialog machine={revealing.machine} kind={revealing.kind} onClose={() => setRevealing(null)} />}
 
       <ConfirmDialog

@@ -37,6 +37,9 @@ function renderComposer(props: Partial<Parameters<typeof ExecutionComposer>[0]> 
     if (url === "/api/v1/servers") return [machine("w1", "PC-01", "windows"), machine("l1", "srv-lin", "linux")] as never;
     if (url.startsWith("/api/v1/host-scripts/categories")) return [{ id: "cat", slug: "diag", label: "Diagnóstico", description: null }] as never;
     if (url.startsWith("/api/v1/host-scripts")) return SCRIPTS as never;
+    if (url.startsWith("/api/v1/client-ops/work-items")) {
+      return { items: [{ kind: "ticket", id: "T-7", title: "Impressora parada", tipo: "servico", status: "aberto", stage: "open" }], total: 1, by_stage: {} } as never;
+    }
     if (url.startsWith("/api/v1/servers/readiness")) {
       return { entries: [{ server_id: "w1", readiness: "ready", status: "complete" },
         { server_id: "l1", readiness: "not_prepared", status: "not_prepared" }], tailnet_available: true } as never;
@@ -154,6 +157,22 @@ describe("ExecutionComposer", () => {
     await vi.waitFor(() => expect(onRan).toHaveBeenCalled());
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-executions", expect.objectContaining({
       command: "uptime", server_ids: ["l1"], login_user: "suporte", login_password: "X1!",
+    }));
+  });
+
+  it("records the reason and the client's ticket with the run", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ id: "e5" } as never);
+    const { onRan } = renderComposer();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /PC-01/ }));
+    fireEvent.change(screen.getByLabelText("Script"), { target: { value: "s1" } });
+    fireEvent.change(screen.getByLabelText("Serviço *"), { target: { value: "spooler" } });
+    fireEvent.change(screen.getByLabelText("Motivo"), { target: { value: "Fila travada" } });
+    fireEvent.change(await screen.findByLabelText("Atendimento do cliente"), { target: { value: "ticket:T-7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Executar agora" }));
+    await vi.waitFor(() => expect(onRan).toHaveBeenCalled());
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-executions", expect.objectContaining({
+      reason: "Fila travada", darckware_item_kind: "ticket", darckware_item_id: "T-7",
     }));
   });
 

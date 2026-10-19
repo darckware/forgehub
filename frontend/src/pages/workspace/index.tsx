@@ -1454,7 +1454,7 @@ export default function WorkspacePage() {
             </div>
           ) : tab.kind === "terminal" ? (
             <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0 p-2", tab.id !== activeTabId && "hidden")}>
-              <TerminalPane sessionId={tab.id} command={tab.command} cwd={tab.cwd} active={tab.id === activeTabId} />
+              <TerminalPane sessionId={tab.id} command={tab.command} cwd={tab.cwd} serverId={tab.server?.id} active={tab.id === activeTabId} />
             </div>
           ) : tab.kind === "telegram" ? (
             <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>

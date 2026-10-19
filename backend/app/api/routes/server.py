@@ -50,19 +50,14 @@ from app.api.schemas.server import (
     EnrollmentOut,
     HostPreparationOut,
     HostPreparationRequest,
-    KeysToVaultOut,
-    RotationOut,
-    RotationRequest,
-    TerminalCommandOut,
-    LoginPasswordOut,
     HostReadinessEntry,
     HostReadinessResult,
+    KeysToVaultOut,
+    LoginPasswordOut,
+    MaintenanceEntry,
+    RotationOut,
+    RotationRequest,
     ServerCheckResult,
-    ServerPortScanEntry,
-    ServerPortScanResult,
-    ServerServiceCreate,
-    ServerServiceOut,
-    ServerServiceUpdate,
     ServerCreate,
     ServerDetailOut,
     ServerImportRequest,
@@ -72,10 +67,16 @@ from app.api.schemas.server import (
     ServerKeyStoreRequest,
     ServerKeyVaultResult,
     ServerOut,
+    ServerPortScanEntry,
+    ServerPortScanResult,
+    ServerServiceCreate,
+    ServerServiceOut,
+    ServerServiceUpdate,
     ServerUpdate,
     TailnetSyncEntry,
     TailnetSyncRequest,
     TailnetSyncResult,
+    TerminalCommandOut,
 )
 from app.api.routes.host_execution import busy_server_ids, launch_execution
 from app.core.host_exec_runner import call_bridge_exec_as
@@ -725,6 +726,68 @@ async def get_readiness(
         tailnet_available=tailnet_available,
         ssh_checked_at=ssh_checked_at,  # type: ignore[arg-type]
     )
+
+
+_EVENT_TITLES = {
+    "preparation_started": "Preparação do acesso iniciada",
+    "rustdesk_password_recorded": "Senha do RustDesk registrada",
+}
+
+
+@router.get("/{server_id}/maintenance", response_model=list[MaintenanceEntry])
+async def machine_maintenance(
+    server_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_perm("servers", "view")),
+):
+    """A machine's maintenance history, newest first (2026-10-19): every
+    execution that reached it (who asked -- person or agent -- why, and the
+    client ticket/demand it served), SSH terminal sessions opened on it, and
+    access events. One machine account (`darckware`), so this is where "who
+    did what" lives."""
+    from app.db.models.agent import Agent
+    from app.db.models.host_execution import HostExecution, HostExecutionResult
+
+    if not await db.get(Server, server_id):
+        raise HTTPException(status_code=404, detail="Server not found")
+    entries: list[MaintenanceEntry] = []
+    rows = (await db.execute(
+        select(HostExecutionResult, HostExecution, Agent.name)
+        .join(HostExecution, HostExecution.id == HostExecutionResult.execution_id)
+        .outerjoin(Agent, Agent.id == HostExecution.agent_id)
+        .where(HostExecutionResult.server_id == server_id)
+        .order_by(HostExecution.started_at.desc())
+        .limit(limit)
+    )).all()
+    for result, execution, agent_name in rows:
+        entries.append(MaintenanceEntry(
+            at=result.started_at or execution.started_at, kind="execution",
+            actor=agent_name or execution.requested_by, agent_name=agent_name, trigger=execution.trigger,
+            title=execution.script_name or (execution.command.splitlines() or [""])[0][:120],
+            status=result.status, reason=execution.reason,
+            darckware_item_kind=execution.darckware_item_kind, darckware_item_id=execution.darckware_item_id,
+            execution_id=execution.id,
+        ))
+    sessions = (await db.execute(
+        select(AuditEvent)
+        .where(AuditEvent.entity_type == "terminal_session", AuditEvent.event_type == "opened",
+               AuditEvent.payload["server_id"].astext == str(server_id))
+        .order_by(AuditEvent.created_at.desc()).limit(limit)
+    )).scalars()
+    for event in sessions:
+        entries.append(MaintenanceEntry(at=event.created_at, kind="terminal", actor=event.actor, title="Terminal SSH aberto"))
+    events = (await db.execute(
+        select(AuditEvent).where(AuditEvent.entity_type == "server", AuditEvent.entity_id == server_id)
+        .order_by(AuditEvent.created_at.desc()).limit(limit)
+    )).scalars()
+    for event in events:
+        entries.append(MaintenanceEntry(
+            at=event.created_at, kind="event", actor=event.actor,
+            title=_EVENT_TITLES.get(event.event_type, event.event_type.replace("_", " ")),
+        ))
+    entries.sort(key=lambda e: e.at, reverse=True)
+    return entries[:limit]
 
 
 @router.get("/{server_id}", response_model=ServerDetailOut)

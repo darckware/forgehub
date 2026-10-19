@@ -27,6 +27,10 @@ class HostExecutionCreate(BaseModel):
     # its own there): used for this run only, never stored, masked in output.
     login_user: str | None = Field(default=None, min_length=1, max_length=100)
     login_password: str | None = Field(default=None, min_length=1, max_length=256, repr=False)
+    # Maintenance record: why it runs and the client ticket/demand it serves.
+    reason: str | None = Field(default=None, max_length=2000)
+    darckware_item_kind: Literal["ticket", "demand"] | None = None
+    darckware_item_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class HostExecutionFollowUp(BaseModel):
@@ -94,8 +98,47 @@ class HostExecutionSummary(BaseModel):
     # "succeeded" only when every machine that ran succeeded and nothing is
     # still pending; "failed" as soon as any machine failed.
     verdict: Literal["running", "succeeded", "failed", "nothing_ran"] = "running"
+    reason: str | None = None
+    darckware_item_kind: str | None = None
+    darckware_item_id: str | None = None
 
 
 class HostExecutionDetail(HostExecutionSummary):
     results: list[HostExecutionResultOut] = Field(default_factory=list)
     follow_up_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class AgentExecutionCreate(BaseModel):
+    """An agent's maintenance run (MCP): a library script only, on machines
+    ForgeHub already has its own login on, always with the reason."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    script_id: uuid.UUID
+    parameter_values: dict[str, str | None] = Field(default_factory=dict)
+    server_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_TARGETS)
+    reason: str = Field(min_length=5, max_length=2000)
+    darckware_item_kind: Literal["ticket", "demand"] | None = None
+    darckware_item_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class AgentMachineOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: str
+    os_family: str | None
+    darckware_client_name: str | None
+    location: str | None
+    # Whether ForgeHub can run a script there now (its own SSH login works).
+    runnable: bool
+    status: str
+
+
+class AgentScriptOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    category: str | None
+    platform: str
+    risk: str
+    description: str | None
+    parameters: list
