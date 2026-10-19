@@ -272,7 +272,7 @@ def system_script_hook(script: HostScript, values: dict | None):
     RustDesk install/password change -> the new permanent password and the
     RustDesk ID, on the machine's row. Never before success, so a failed
     change can't leave a password on file that the machine doesn't have."""
-    if not (script.system_key or "").startswith(("rustdesk_install:", "rustdesk_password:")):
+    if not (script.system_key or "").startswith(("rustdesk_install:", "remote_access_install:", "rustdesk_password:")):
         return None
     password = (values or {}).get("RUSTDESK_PASSWORD")
     if not password:

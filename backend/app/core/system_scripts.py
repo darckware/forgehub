@@ -82,6 +82,45 @@ SUDO=""
 [ "$(id -u)" -eq 0 ] || SUDO="sudo -n"
 """
 
+_SH_TAILSCALE_UP = """if command -v tailscale >/dev/null 2>&1 && tailscale status --json 2>/dev/null | grep -q '"BackendState": *"Running"'; then
+    echo "Tailscale ja conectado: $(tailscale ip -4)"
+else
+    command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | $SUDO sh
+    HN="${TAILSCALE_HOSTNAME:-$(hostname | tr 'A-Z' 'a-z')}"
+    $SUDO tailscale up --authkey="$TAILSCALE_AUTHKEY" --hostname="$HN"
+    echo "Tailscale conectado: $(tailscale ip -4)"
+fi
+"""
+
+_SH_RUSTDESK_INSTALL = f"""if ! command -v rustdesk >/dev/null 2>&1; then
+    command -v apt-get >/dev/null 2>&1 || {{ echo "Instalacao automatica so em Debian/Ubuntu" >&2; exit 2; }}
+    [ "$(uname -m)" = "x86_64" ] || {{ echo "Arquitetura $(uname -m) nao suportada" >&2; exit 2; }}
+    TMP=$(mktemp -d)
+    curl -fsSL -o "$TMP/rustdesk.deb" {RUSTDESK_LINUX_DEB}
+    $SUDO apt-get install -y -qq "$TMP/rustdesk.deb"
+    rm -rf "$TMP"
+fi
+$SUDO rustdesk --option custom-rendezvous-server "$RUSTDESK_ID_SERVER"
+$SUDO rustdesk --option relay-server "$RUSTDESK_RELAY_SERVER"
+$SUDO rustdesk --option key "$RUSTDESK_KEY"
+$SUDO rustdesk --password "$RUSTDESK_PASSWORD" >/dev/null
+echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"
+"""
+
+_TAILSCALE_PARAMS = [
+    {"name": "TAILSCALE_AUTHKEY", "label": "Chave de autenticação da Tailscale (tskey-auth-...)", "required": True, "secret": True},
+    {"name": "TAILSCALE_HOSTNAME", "label": "Nome na tailnet (vazio = nome do computador)"},
+]
+
+# Pasted into a console (the "copy ready script" path for a machine without
+# SSH), the script runs as whoever opened it; over SSH, as darckware (admin).
+_WIN_REQUIRE_ADMIN = """$ErrorActionPreference = 'Stop'
+$principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Execute no PowerShell aberto como Administrador'
+}
+"""
+
 _RUSTDESK_NETWORK_PARAMS = [
     {"name": "RUSTDESK_ID_SERVER", "label": "Servidor de ID", "required": True, "default": RUSTDESK_ID_SERVER},
     {"name": "RUSTDESK_RELAY_SERVER", "label": "Servidor de Relay", "required": True, "default": RUSTDESK_RELAY_SERVER},
@@ -231,10 +270,7 @@ echo "Senha de $USER_LOGIN alterada"
             "Instala o Tailscale (instalador oficial validado pelo darckware-remote) e conecta a máquina à "
             "tailnet com a chave informada. Se já estiver conectada, não mexe na conexão."
         ),
-        "parameters": [
-            {"name": "TAILSCALE_AUTHKEY", "label": "Chave de autenticação da Tailscale (tskey-auth-...)", "required": True, "secret": True},
-            {"name": "TAILSCALE_HOSTNAME", "label": "Nome na tailnet (vazio = nome do computador)"},
-        ],
+        "parameters": _TAILSCALE_PARAMS,
         "content": _WIN_FETCH_INSTALLER + """
 $ts = Join-Path $env:ProgramFiles 'Tailscale\\tailscale.exe'
 if (Test-Path $ts) {
@@ -290,18 +326,8 @@ if ($r.ReturnValue -ne 0) { throw "Politica gravada, mas o reinicio do servico f
             "Instala o Tailscale (script oficial) e conecta a máquina à tailnet com a chave informada. "
             "Se já estiver conectada, não mexe na conexão."
         ),
-        "parameters": [
-            {"name": "TAILSCALE_AUTHKEY", "label": "Chave de autenticação da Tailscale (tskey-auth-...)", "required": True, "secret": True},
-            {"name": "TAILSCALE_HOSTNAME", "label": "Nome na tailnet (vazio = nome da máquina)"},
-        ],
-        "content": _SH_PRELUDE + """if command -v tailscale >/dev/null 2>&1 && tailscale status --json 2>/dev/null | grep -q '"BackendState": *"Running"'; then
-    echo "Tailscale ja conectado: $(tailscale ip -4)"; exit 0
-fi
-command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | $SUDO sh
-HN="${TAILSCALE_HOSTNAME:-$(hostname | tr 'A-Z' 'a-z')}"
-$SUDO tailscale up --authkey="$TAILSCALE_AUTHKEY" --hostname="$HN"
-echo "Tailscale conectado: $(tailscale ip -4)"
-""",
+        "parameters": _TAILSCALE_PARAMS,
+        "content": _SH_PRELUDE + _SH_TAILSCALE_UP,
     },
     {
         "system_key": "rustdesk_install:windows",
@@ -344,20 +370,58 @@ $id = (Invoke-RustDesk @('--get-id')).Out
             "a senha permanente. Só para máquinas com interface gráfica — não instalar em servidor sem tela."
         ),
         "parameters": [*_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_PARAM],
-        "content": _SH_PRELUDE + f"""if ! command -v rustdesk >/dev/null 2>&1; then
-    command -v apt-get >/dev/null 2>&1 || {{ echo "Instalacao automatica so em Debian/Ubuntu" >&2; exit 2; }}
-    [ "$(uname -m)" = "x86_64" ] || {{ echo "Arquitetura $(uname -m) nao suportada" >&2; exit 2; }}
-    TMP=$(mktemp -d)
-    curl -fsSL -o "$TMP/rustdesk.deb" {RUSTDESK_LINUX_DEB}
-    $SUDO apt-get install -y -qq "$TMP/rustdesk.deb"
-    rm -rf "$TMP"
-fi
-$SUDO rustdesk --option custom-rendezvous-server "$RUSTDESK_ID_SERVER"
-$SUDO rustdesk --option relay-server "$RUSTDESK_RELAY_SERVER"
-$SUDO rustdesk --option key "$RUSTDESK_KEY"
-$SUDO rustdesk --password "$RUSTDESK_PASSWORD" >/dev/null
-echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"
+        "content": _SH_PRELUDE + _SH_RUSTDESK_INSTALL,
+    },
+    {
+        "system_key": "remote_access_install:windows",
+        "name": "Instalar Tailscale e RustDesk",
+        "platform": "windows",
+        "category": "instalacao",
+        "risk": "change",
+        "timeout_seconds": 1200,
+        "description": (
+            "Instalação completa em um comando: Tailscale (conecta à tailnet com a chave informada; se já "
+            "estiver conectada, reaproveita) e RustDesk (servidor de ID/Relay, Key e senha permanente), pelo "
+            "instalador validado do darckware-remote. Roda por SSH ou colado no PowerShell como Administrador "
+            "(\"Copiar script pronto\"). A senha e o ID do RustDesk ficam guardados no cadastro da máquina."
+        ),
+        "parameters": [*_TAILSCALE_PARAMS, *_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_PARAM],
+        "content": _WIN_REQUIRE_ADMIN + _WIN_FETCH_INSTALLER + _WIN_RUSTDESK_CLI + """
+$cfgPath = Join-Path $dir 'config\\deployment.json'
+$cfg = Get-Content -Raw $cfgPath | ConvertFrom-Json
+$cfg.rustdesk.idServer = $RUSTDESK_ID_SERVER
+$cfg.rustdesk.relayServer = $RUSTDESK_RELAY_SERVER
+$cfg.rustdesk.publicKey = $RUSTDESK_KEY
+$cfg | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 $cfgPath
+$hn = if ($TAILSCALE_HOSTNAME) { $TAILSCALE_HOSTNAME } else { $env:COMPUTERNAME.ToLower() }
+$sec = New-SecretDir
+try {
+    [IO.File]::WriteAllText((Join-Path $sec 'ts.txt'), $TAILSCALE_AUTHKEY)
+    [IO.File]::WriteAllText((Join-Path $sec 'rd.txt'), $RUSTDESK_PASSWORD)
+    Invoke-Installer @('-NonInteractive', '-InstallTailscale', '-TailscaleHostname', $hn,
+        '-TailscaleAuthKeyFile', (Join-Path $sec 'ts.txt'), '-InstallRustDesk',
+        '-RustDeskPasswordFile', (Join-Path $sec 'rd.txt'))
+} finally { Remove-Item -Recurse -Force $sec -ErrorAction SilentlyContinue }
+$ts = Join-Path $env:ProgramFiles 'Tailscale\\tailscale.exe'
+"Tailscale: $((& $ts ip -4 2>$null) -join ' ')"
+$id = (Invoke-RustDesk @('--get-id')).Out
+"RUSTDESK_ID=$id"
 """,
+    },
+    {
+        "system_key": "remote_access_install:linux",
+        "name": "Instalar Tailscale e RustDesk",
+        "platform": "linux",
+        "category": "instalacao",
+        "risk": "change",
+        "timeout_seconds": 1200,
+        "description": (
+            "Instalação completa em um comando: Tailscale (script oficial; se já estiver conectada, "
+            "reaproveita) e RustDesk 1.4.9 (Debian/Ubuntu x86_64, servidor de ID/Relay, Key e senha "
+            "permanente). Roda por SSH ou colado num terminal com sudo. Só para máquinas com interface gráfica."
+        ),
+        "parameters": [*_TAILSCALE_PARAMS, *_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_PARAM],
+        "content": _SH_PRELUDE + _SH_TAILSCALE_UP + _SH_RUSTDESK_INSTALL,
     },
     {
         "system_key": "rustdesk_password:windows",
