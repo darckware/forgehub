@@ -40,14 +40,26 @@ RUSTDESK_ID_MARKER = "RUSTDESK_ID="
 _WIN_FETCH_INSTALLER = f"""$ErrorActionPreference = 'Stop'
 $commit = '{INSTALLER_COMMIT}'
 $base = Join-Path $env:ProgramData 'Darckware'
-$dir = Join-Path $base "darckware-remote-$commit"
-if (-not (Test-Path (Join-Path $dir 'install.ps1'))) {{
+$dir = Join-Path $base 'remoto'
+$marker = Join-Path $dir '.commit'
+$installed = if (Test-Path $marker) {{ (Get-Content -Raw $marker).Trim() }} else {{ '' }}
+if ($installed -ne $commit -or -not (Test-Path (Join-Path $dir 'install.ps1'))) {{
     New-Item -ItemType Directory -Force -Path $base | Out-Null
     $zip = Join-Path $env:TEMP "darckware-remote-$commit.zip"
-    Invoke-WebRequest -UseBasicParsing "https://github.com/darckware/darckware-remote/archive/$commit.zip" -OutFile $zip
-    Expand-Archive -Path $zip -DestinationPath $base -Force
-    Remove-Item -Force $zip
+    $tmp = Join-Path $base ('x-' + [guid]::NewGuid().ToString('N'))
+    try {{
+        Invoke-WebRequest -UseBasicParsing "https://github.com/darckware/darckware-remote/archive/$commit.zip" -OutFile $zip
+        Expand-Archive -Path $zip -DestinationPath $tmp -Force
+        if (Test-Path $dir) {{ Remove-Item -Recurse -Force $dir }}
+        Move-Item (Join-Path $tmp "darckware-remote-$commit") $dir
+        Set-Content -Path $marker -Value $commit -Encoding ASCII
+    }} finally {{
+        Remove-Item -Recurse -Force $tmp, $zip -ErrorAction SilentlyContinue
+    }}
+    # Older layout: one folder per installer commit.
+    Get-ChildItem $base -Directory -Filter 'darckware-remote-*' | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }}
+Set-Location $dir
 function New-SecretDir {{
     $path = Join-Path $base ('s-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $path | Out-Null
