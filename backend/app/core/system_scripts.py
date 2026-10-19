@@ -177,6 +177,10 @@ $prefs = (Invoke-Ts @('debug', 'prefs')) -join "`n" | ConvertFrom-Json
 "IP na tailnet: $((Invoke-Ts @('ip', '-4')) -join ' ')"
 """
 _SH_TAILSCALE_ADJUST = """command -v tailscale >/dev/null 2>&1 || { echo "A Tailscale nao esta instalada nesta maquina" >&2; exit 2; }
+# Reading needs no root; changing does.
+if [ "$AJUSTE" != "ver_configuracao" ] && [ -n "$SUDO" ] && ! $SUDO true 2>/dev/null; then
+    echo "A conta $(id -un) precisa de sudo sem senha para alterar a Tailscale (ou rode com a conta root)" >&2; exit 2
+fi
 case "$AJUSTE" in
     anunciar_subrede)
         ROUTES=$(echo "$ROTAS" | tr ';, ' '\\n\\n\\n' | grep -v '^$' | paste -sd, -)
@@ -203,7 +207,7 @@ case "$AJUSTE" in
         echo "A maquina deixou de usar as sub-redes anunciadas na tailnet."
         ;;
 esac
-PREFS=$($SUDO tailscale debug prefs)
+PREFS=$(tailscale debug prefs 2>/dev/null || $SUDO tailscale debug prefs)
 ADV=$(echo "$PREFS" | tr -d ' \\n' | grep -o '"AdvertiseRoutes":\\[[^]]*\\]' | sed 's/.*\\[//; s/\\]//; s/"//g')
 echo "=== Configuracao atual"
 echo "Sub-redes anunciadas: ${ADV:-nenhuma}"
