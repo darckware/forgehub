@@ -208,7 +208,7 @@ case "$AJUSTE" in
         ;;
 esac
 PREFS=$(tailscale debug prefs 2>/dev/null || $SUDO tailscale debug prefs)
-ADV=$(echo "$PREFS" | tr -d ' \\n' | grep -o '"AdvertiseRoutes":\\[[^]]*\\]' | sed 's/.*\\[//; s/\\]//; s/"//g')
+ADV=$(echo "$PREFS" | tr -d ' \\t\\n' | grep -o '"AdvertiseRoutes":\\[[^]]*\\]' | sed 's/.*\\[//; s/\\]//; s/"//g')
 echo "=== Configuracao atual"
 echo "Sub-redes anunciadas: ${ADV:-nenhuma}"
 echo "$PREFS" | grep -q '"RouteAll": *true' && echo "Usa sub-redes da tailnet: sim" || echo "Usa sub-redes da tailnet: nao"
