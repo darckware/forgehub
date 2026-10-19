@@ -275,7 +275,7 @@ def system_script_hook(script: HostScript, values: dict | None):
     if not (script.system_key or "").startswith(("rustdesk_install:", "remote_access_install:", "rustdesk_password:")):
         return None
     password = (values or {}).get("RUSTDESK_PASSWORD")
-    if not password:
+    if not password or (values or {}).get("COMPONENTES") == "somente_tailscale":
         return None
 
     async def record(server_id: uuid.UUID, outcome: dict) -> None:

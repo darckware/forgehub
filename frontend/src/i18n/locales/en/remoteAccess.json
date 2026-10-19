@@ -282,7 +282,7 @@
   },
   "quick": {
     "title": "Installs",
-    "remote_access_install": "Install Tailscale and RustDesk",
+    "remote_access_install": "Darckware Remote installer",
     "tailscale_install": "Install Tailscale",
     "rustdesk_install": "Install RustDesk",
     "rustdesk_password": "Change RustDesk password",
@@ -364,7 +364,12 @@
       "sim": "Yes",
       "nao": "No",
       "ativa": "Enabled",
-      "desativada": "Disabled"
+      "desativada": "Disabled",
+      "tailscale_e_rustdesk": "Tailscale and RustDesk",
+      "somente_tailscale": "Tailscale only",
+      "somente_rustdesk": "RustDesk only",
+      "tailscale_local": "Through this machine's Tailscale",
+      "roteador_subrede": "Through a Tailscale subnet-router host on the local network"
     }
   },
   "library": {

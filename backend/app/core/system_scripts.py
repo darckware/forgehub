@@ -104,7 +104,7 @@ else
 fi
 """
 
-_SH_RUSTDESK_INSTALL = f"""if ! command -v rustdesk >/dev/null 2>&1; then
+_SH_RUSTDESK_SETUP = f"""if ! command -v rustdesk >/dev/null 2>&1; then
     command -v apt-get >/dev/null 2>&1 || {{ echo "Instalacao automatica so em Debian/Ubuntu" >&2; exit 2; }}
     [ "$(uname -m)" = "x86_64" ] || {{ echo "Arquitetura $(uname -m) nao suportada" >&2; exit 2; }}
     TMP=$(mktemp -d)
@@ -116,8 +116,8 @@ $SUDO rustdesk --option custom-rendezvous-server "$RUSTDESK_ID_SERVER"
 $SUDO rustdesk --option relay-server "$RUSTDESK_RELAY_SERVER"
 $SUDO rustdesk --option key "$RUSTDESK_KEY"
 $SUDO rustdesk --password "$RUSTDESK_PASSWORD" >/dev/null
-echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"
 """
+_SH_RUSTDESK_INSTALL = _SH_RUSTDESK_SETUP + 'echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"\n'
 
 _TAILSCALE_PARAMS = [
     {"name": "TAILSCALE_AUTHKEY", "label": "Chave de autenticação da Tailscale (tskey-auth-...)", "required": True, "secret": True},
@@ -133,12 +133,23 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 """
 
+_COMPONENTS_PARAM = {"name": "COMPONENTES", "label": "O que instalar", "required": True,
+                     "default": "tailscale_e_rustdesk",
+                     "options": ["tailscale_e_rustdesk", "somente_tailscale", "somente_rustdesk"]}
+# Required only for the components that use them; the script checks.
+_TAILSCALE_PARAMS_OPTIONAL = [
+    {"name": "TAILSCALE_AUTHKEY", "label": "Chave de autenticação da Tailscale (tskey-auth-...; quando instalar a Tailscale)", "secret": True},
+    {"name": "TAILSCALE_HOSTNAME", "label": "Nome na tailnet (vazio = nome do computador)"},
+]
+
 _RUSTDESK_NETWORK_PARAMS = [
     {"name": "RUSTDESK_ID_SERVER", "label": "Servidor de ID", "required": True, "default": RUSTDESK_ID_SERVER},
     {"name": "RUSTDESK_RELAY_SERVER", "label": "Servidor de Relay", "required": True, "default": RUSTDESK_RELAY_SERVER},
     {"name": "RUSTDESK_KEY", "label": "Key", "required": True, "default": RUSTDESK_KEY},
 ]
 _RUSTDESK_PASSWORD_PARAM = {"name": "RUSTDESK_PASSWORD", "label": "Senha permanente do RustDesk", "required": True, "secret": True}
+_RUSTDESK_PASSWORD_OPTIONAL = {**_RUSTDESK_PASSWORD_PARAM, "required": False,
+                               "label": "Senha permanente do RustDesk (quando instalar o RustDesk)"}
 
 # Local user password change (2026-10-18, Marcelo: "preciso de uma para
 # alteração da senha do usuário do windows ... campo para digitar do login e
@@ -386,54 +397,133 @@ $id = (Invoke-RustDesk @('--get-id')).Out
     },
     {
         "system_key": "remote_access_install:windows",
-        "name": "Instalar Tailscale e RustDesk",
+        "name": "Instalador Darckware Remoto",
         "platform": "windows",
         "category": "instalacao",
         "risk": "change",
         "timeout_seconds": 1200,
         "description": (
-            "Instalação completa em um comando: Tailscale (conecta à tailnet com a chave informada; se já "
-            "estiver conectada, reaproveita) e RustDesk (servidor de ID/Relay, Key e senha permanente), pelo "
-            "instalador validado do darckware-remote. Roda por SSH ou colado no PowerShell como Administrador "
-            "(\"Copiar script pronto\"). A senha e o ID do RustDesk ficam guardados no cadastro da máquina."
+            "O instalador darckware-remote com as mesmas opções da tela dele: Tailscale e RustDesk, só "
+            "Tailscale ou só RustDesk. Só RustDesk chega ao servidor pela Tailscale desta máquina ou por um host "
+            "Tailscale da rede local configurado como roteador de sub-rede (cria a rota do servidor RustDesk via "
+            "o IP dele). No fim valida Tailscale, rota, serviço e portas do RustDesk e mostra o ID. Roda por SSH "
+            "ou colado no PowerShell como Administrador. A senha e o ID do RustDesk ficam no cadastro da máquina."
         ),
-        "parameters": [*_TAILSCALE_PARAMS, *_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_PARAM],
+        "parameters": [
+            _COMPONENTS_PARAM, *_TAILSCALE_PARAMS_OPTIONAL,
+            {"name": "CONEXAO_RUSTDESK", "label": "Conexão do RustDesk (só quando instalar somente o RustDesk)",
+             "default": "tailscale_local", "options": ["tailscale_local", "roteador_subrede"]},
+            {"name": "ROUTER_IP", "label": "IPv4 na rede local do host Tailscale roteador (modo roteador)"},
+            {"name": "SUBSTITUIR_ROTA", "label": "Substituir a rota que o instalador criou antes (modo roteador)",
+             "default": "nao", "options": ["nao", "sim"]},
+            *_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_OPTIONAL,
+        ],
         "content": _WIN_REQUIRE_ADMIN + _WIN_FETCH_INSTALLER + _WIN_RUSTDESK_CLI + """
+$wantTs = $COMPONENTES -ne 'somente_rustdesk'
+$wantRd = $COMPONENTES -ne 'somente_tailscale'
+$router = $COMPONENTES -eq 'somente_rustdesk' -and $CONEXAO_RUSTDESK -eq 'roteador_subrede'
+if ($wantTs -and -not $TAILSCALE_AUTHKEY) { throw 'Informe a chave de autenticacao da Tailscale' }
+if ($wantRd -and -not $RUSTDESK_PASSWORD) { throw 'Informe a senha permanente do RustDesk' }
+if ($router -and -not ($ROUTER_IP -match '^\\d{1,3}(\\.\\d{1,3}){3}$')) { throw 'Informe o IPv4 do host roteador na rede local' }
 $cfgPath = Join-Path $dir 'config\\deployment.json'
 $cfg = Get-Content -Raw $cfgPath | ConvertFrom-Json
 $cfg.rustdesk.idServer = $RUSTDESK_ID_SERVER
 $cfg.rustdesk.relayServer = $RUSTDESK_RELAY_SERVER
 $cfg.rustdesk.publicKey = $RUSTDESK_KEY
+$cfg.route.destinationPrefix = "$RUSTDESK_ID_SERVER/32"
 $cfg | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 $cfgPath
 $hn = if ($TAILSCALE_HOSTNAME) { $TAILSCALE_HOSTNAME } else { $env:COMPUTERNAME.ToLower() }
+$installerArgs = @('-NonInteractive')
 $sec = New-SecretDir
 try {
-    [IO.File]::WriteAllText((Join-Path $sec 'ts.txt'), $TAILSCALE_AUTHKEY)
-    [IO.File]::WriteAllText((Join-Path $sec 'rd.txt'), $RUSTDESK_PASSWORD)
-    Invoke-Installer @('-NonInteractive', '-InstallTailscale', '-TailscaleHostname', $hn,
-        '-TailscaleAuthKeyFile', (Join-Path $sec 'ts.txt'), '-InstallRustDesk',
-        '-RustDeskPasswordFile', (Join-Path $sec 'rd.txt'))
+    if ($wantTs) {
+        [IO.File]::WriteAllText((Join-Path $sec 'ts.txt'), $TAILSCALE_AUTHKEY)
+        $installerArgs += @('-InstallTailscale', '-TailscaleHostname', $hn, '-TailscaleAuthKeyFile', (Join-Path $sec 'ts.txt'))
+    }
+    if ($wantRd) {
+        [IO.File]::WriteAllText((Join-Path $sec 'rd.txt'), $RUSTDESK_PASSWORD)
+        $installerArgs += @('-InstallRustDesk', '-RustDeskPasswordFile', (Join-Path $sec 'rd.txt'))
+        if (-not $wantTs) {
+            if ($router) {
+                $installerArgs += @('-ConnectivityMode', 'Router', '-RouterIp', $ROUTER_IP)
+                if ($SUBSTITUIR_ROTA -eq 'sim') { $installerArgs += '-ConfirmRouteReplacement' }
+            } else { $installerArgs += @('-ConnectivityMode', 'LocalTailscale') }
+        }
+    }
+    Invoke-Installer $installerArgs
 } finally { Remove-Item -Recurse -Force $sec -ErrorAction SilentlyContinue }
-$ts = Join-Path $env:ProgramFiles 'Tailscale\\tailscale.exe'
-"Tailscale: $((& $ts ip -4 2>$null) -join ' ')"
-$id = (Invoke-RustDesk @('--get-id')).Out
-"RUSTDESK_ID=$id"
+
+'=== Validacao'
+$failed = @()
+if ($wantTs -or -not $router) {
+    $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceAlias -like 'Tailscale*' -and $_.IPAddress -like '100.*' } | ForEach-Object { $_.IPAddress })
+    if ($ips.Count) { "Tailscale: conectada ($($ips -join ' '))" } else { 'Tailscale: SEM endereco na tailnet'; $failed += 'Tailscale' }
+}
+if ($router) {
+    $route = Get-NetRoute -DestinationPrefix "$RUSTDESK_ID_SERVER/32" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($route -and $route.NextHop -eq $ROUTER_IP) { "Rota: $RUSTDESK_ID_SERVER/32 via $ROUTER_IP" }
+    else { "Rota: $RUSTDESK_ID_SERVER/32 NAO aponta para $ROUTER_IP"; $failed += 'Rota' }
+}
+if ($wantRd) {
+    $svc = Get-Service -Name 'RustDesk' -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -eq 'Running') { 'Servico RustDesk: em execucao' } else { 'Servico RustDesk: PARADO ou ausente'; $failed += 'Servico RustDesk' }
+    foreach ($port in $cfg.rustdesk.tcpPorts) {
+        $okPort = (Test-NetConnection $RUSTDESK_ID_SERVER -Port $port -WarningAction SilentlyContinue).TcpTestSucceeded
+        "Porta $($RUSTDESK_ID_SERVER):$($port): $(if ($okPort) { 'acessivel' } else { 'SEM resposta' })"
+        if (-not $okPort) { $failed += "Porta $port" }
+    }
+    $id = (Invoke-RustDesk @('--get-id')).Out
+    if ($id) { "RUSTDESK_ID=$id" } else { $failed += 'ID do RustDesk' }
+}
+if ($failed.Count) { throw "Validacao falhou: $($failed -join ', ')" }
+'Validacao concluida'
 """,
     },
     {
         "system_key": "remote_access_install:linux",
-        "name": "Instalar Tailscale e RustDesk",
+        "name": "Instalador Darckware Remoto",
         "platform": "linux",
         "category": "instalacao",
         "risk": "change",
         "timeout_seconds": 1200,
         "description": (
-            "Instalação completa em um comando: Tailscale (script oficial; se já estiver conectada, "
-            "reaproveita) e RustDesk 1.4.9 (Debian/Ubuntu x86_64, servidor de ID/Relay, Key e senha "
-            "permanente). Roda por SSH ou colado num terminal com sudo. Só para máquinas com interface gráfica."
+            "Tailscale e RustDesk, só Tailscale ou só RustDesk (Tailscale pelo script oficial; RustDesk 1.4.9 "
+            "para Debian/Ubuntu x86_64 com servidor de ID/Relay, Key e senha). No fim valida a Tailscale, as "
+            "portas do servidor RustDesk e mostra o ID. Roda por SSH ou colado num terminal com sudo. RustDesk "
+            "só em máquina com interface gráfica; o modo roteador do darckware-remote existe só no Windows."
         ),
-        "parameters": [*_TAILSCALE_PARAMS, *_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_PARAM],
-        "content": _SH_PRELUDE + _SH_TAILSCALE_UP + _SH_RUSTDESK_INSTALL,
+        "parameters": [_COMPONENTS_PARAM, *_TAILSCALE_PARAMS_OPTIONAL, *_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_OPTIONAL],
+        "content": _SH_PRELUDE + """WANT_TS=1; WANT_RD=1
+[ "$COMPONENTES" != "somente_rustdesk" ] || WANT_TS=0
+[ "$COMPONENTES" != "somente_tailscale" ] || WANT_RD=0
+[ "$WANT_TS" = 0 ] || [ -n "$TAILSCALE_AUTHKEY" ] || { echo "Informe a chave de autenticacao da Tailscale" >&2; exit 2; }
+[ "$WANT_RD" = 0 ] || [ -n "$RUSTDESK_PASSWORD" ] || { echo "Informe a senha permanente do RustDesk" >&2; exit 2; }
+if [ "$WANT_TS" = 1 ]; then
+""" + _SH_TAILSCALE_UP + """fi
+if [ "$WANT_RD" = 1 ]; then
+""" + _SH_RUSTDESK_SETUP + """RD_ID="$($SUDO rustdesk --get-id)"
+fi
+echo "=== Validacao"
+FAILED=""
+if command -v tailscale >/dev/null 2>&1 && TS_IP=$(tailscale ip -4 2>/dev/null) && [ -n "$TS_IP" ]; then
+    echo "Tailscale: conectada ($TS_IP)"
+else
+    echo "Tailscale: SEM endereco na tailnet"; FAILED="$FAILED Tailscale"
+fi
+if [ "$WANT_RD" = 1 ]; then
+    for PORT in 21116 21117; do
+        if timeout 5 bash -c "</dev/tcp/$RUSTDESK_ID_SERVER/$PORT" 2>/dev/null || nc -z -w 5 "$RUSTDESK_ID_SERVER" "$PORT" 2>/dev/null; then
+            echo "Porta $RUSTDESK_ID_SERVER:$PORT: acessivel"
+        else
+            echo "Porta $RUSTDESK_ID_SERVER:$PORT: SEM resposta"; FAILED="$FAILED porta-$PORT"
+        fi
+    done
+    if [ -n "$RD_ID" ]; then echo "RUSTDESK_ID=$RD_ID"; else FAILED="$FAILED ID-RustDesk"; fi
+fi
+[ -z "$FAILED" ] || { echo "Validacao falhou:$FAILED" >&2; exit 1; }
+echo "Validacao concluida"
+""",
     },
     {
         "system_key": "rustdesk_password:windows",

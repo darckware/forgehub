@@ -51,6 +51,26 @@ def test_user_password_scripts(platform):
         _render(f"user_password:{platform}", {"USER_LOGIN": "maria", "USER_PASSWORD": "x", "ACCOUNT_STATE": "apagada"})
 
 
+@pytest.mark.parametrize("platform", ["windows", "linux"])
+def test_remote_access_installer_options(platform):
+    spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == f"remote_access_install:{platform}")
+    params = {p["name"]: p for p in validate_parameters(spec["parameters"])}
+    assert params["COMPONENTES"]["options"] == ["tailscale_e_rustdesk", "somente_tailscale", "somente_rustdesk"]
+    # Only Tailscale needs no RustDesk password, only RustDesk no auth key.
+    assert not params["TAILSCALE_AUTHKEY"]["required"] and not params["RUSTDESK_PASSWORD"]["required"]
+    assert ("ROUTER_IP" in params) == (platform == "windows")  # router mode is Windows-only
+    text, _ = _render(f"remote_access_install:{platform}", {"COMPONENTES": "somente_tailscale", "TAILSCALE_AUTHKEY": "tskey-x"})
+    assert "Validacao" in text
+    with pytest.raises(ScriptError):
+        _render(f"remote_access_install:{platform}", {"COMPONENTES": "tudo"})
+
+
+def test_installer_records_rustdesk_password_only_when_rustdesk_installed():
+    script = HostScript(system_key="remote_access_install:windows")
+    assert exec_routes.system_script_hook(script, {"COMPONENTES": "somente_tailscale", "RUSTDESK_PASSWORD": "x"}) is None
+    assert exec_routes.system_script_hook(script, {"COMPONENTES": "somente_rustdesk", "RUSTDESK_PASSWORD": "x"}) is not None
+
+
 @pytest.mark.asyncio
 async def test_seed_is_idempotent():
     await seed_system_scripts()
