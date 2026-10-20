@@ -52,16 +52,20 @@ manutenções agendadas, credenciais na ForgeVault e tudo documentado/auditado.
       "Ocupada" fica reservado para a Fase 4. Pendente: conferência visual em 390/1440 px.
 
 ### Fase 3 — ForgeVault e preparação
-- [ ] ServiceAccount do ForgeHub na ForgeVault (**precisa token admin de organização**).
-- [ ] Projeto `infra`, ambiente por cliente; chaves por identidade.
+- [x] ServiceAccount do ForgeHub na ForgeVault (`forgehub-remote-access`; só a bridge fala com o cofre).
+- [x] Projeto `infra`, ambiente único `Production` (não por cliente); segredos por máquina
+      (`WS_<CLIENTE>_<MAQUINA>_<FINALIDADE>`) e o servidor RustDesk em `RUSTDESK_SERVER` (2026-10-19).
 - [x] Comando de preparação por SO — botão **Preparar** (`POST /servers/{id}/preparation`,
       `core/host_preparation.py`): garante a chave da estação (bridge `/v1/servers/ensure-key`, cópia
       criptografada no cadastro) e devolve o script para colar uma vez pelo RustDesk (Windows: OpenSSH +
       firewall só da tailnet + `administrators_authorized_keys`; Linux: sshd + ufw; macOS: Login Remoto).
       Idempotente; só adiciona, nunca remove contas ou chaves.
-- [ ] Host key fixada na preparação (hoje: aceita na primeira conexão, recusa se mudar).
-- [ ] Migrar as chaves Fernet de `servers` e arquivos em `/root/agents/aegis/...` para a ForgeVault.
-- [ ] Rotação de senha admin e RustDesk (manual, com validação).
+- [ ] Host key fixada na preparação. **Parcial (2026-10-19):** aceita na primeira conexão e recusa se mudar;
+      a tela reconhece a troca e oferece "Aceitar a nova chave desta máquina" (auditado). Falta gravar a
+      chave esperada no cadastro já na preparação.
+- [x] Migrar as chaves para a ForgeVault (`POST /servers/keys:to-vault`, `ssh_key_ref`). **Pendente:**
+      host-pve01/02 — a chave em arquivo é recusada pelas máquinas; precisam ser preparadas de novo.
+- [x] Rotação de senha da conta darckware e da chave SSH (Rotacionar), senha do RustDesk (script), com validação.
 
 ### Fase 4 — Execução avulsa
 - [x] Comando numa estação/grupo, resultado por estação, AuditEvent, mascaramento de segredos
@@ -74,35 +78,45 @@ manutenções agendadas, credenciais na ForgeVault e tudo documentado/auditado.
 - [x] **Em caso de erro, encadear correção**: "Corrigir as que falharam" roda outro comando só nas estações
       que falharam; a nova execução fica ligada à original (falha → correção → resultado).
       Escolher o script da biblioteca entra com a Fase 5.
-- [ ] Terminal/Explorer para Windows (PowerShell) — os atuais assumem shell POSIX.
-- [ ] Validar PowerShell numa estação Windows real (piloto). **Pendente (2026-10-15):** `gat-adm-pc01`
+- [ ] Explorer para Windows — o Explorer remoto assume shell POSIX (o terminal SSH já abre PowerShell).
+- [x] Validar PowerShell numa estação Windows real (piloto): desk-semed-admin e gat-adm-pc01 (2026-10-19).
+      Histórico: `gat-adm-pc01`
       importada (cliente HW Clube de Tiros, login `administrador`, chave `.../ssh_keys/100_82_42_10_key`
       com cópia no cofre); as três máquinas Gatling respondem na tailnet mas sem SSH — falta rodar o
       script do "Preparar" nelas pelo RustDesk. Depois: validar login, `Get-ComputerInfo` e a tela de execução. PowerShell por enquanto limitado a ~2.800
       caracteres (linha de comando do cmd.exe); scripts maiores chegam com a biblioteca (cópia para a estação).
 
 ### Fase 5 — Roteiros, lote e agendamento
-- [ ] **Biblioteca de scripts (tarefas pré-cadastradas)**, reutilizáveis, versionados,
+- [x] **Biblioteca de scripts (tarefas pré-cadastradas)**, reutilizáveis, versionados,
       classificados pelo tipo de comando: **Linux** (bash/sh), **PowerShell** (Windows) e
       **macOS** (zsh/bash). O tipo filtra onde o script pode rodar: só aparece/roda em estações
       do SO compatível. Cada script: nome, descrição, categoria, parâmetros, risco
       (leitura/alteração/destrutivo), timeout, e quem cadastrou/alterou.
-- [ ] Lote com canário e parada por limite de falhas; uma execução por estação.
-- [ ] Agendamento com janela no fuso do cliente; offline aguarda; janela fechada = "não executada".
-- [ ] Aprovação (Approval) para destrutivo/avulso; botão "parar todas as execuções".
+- [x] Lote com canário (primeira máquina sozinha; as demais só se ela der certo); uma execução por estação.
+      Falta: parada por limite de falhas (% de falhas) em lotes grandes.
+- [x] Agendamento com janela no fuso do cliente; offline aguarda; janela fechada = "não executada".
+- [x] Confirmação digitada (CONFIRMAR) para script destrutivo e comando avulso em várias máquinas, validada no
+      backend; botão "Parar N execuções". Aprovação por outra pessoa não se aplica hoje (um único admin).
 - [ ] Rotação em lote (sob demanda — sem rotação periódica, decisão 2).
 
 ### Fase 6 — Agente
-- [ ] MCP `list_hosts`/`host_exec`/`run_runbook`; despacho pelo Messages.
-- [ ] Saída de comando tratada como dado, nunca instrução; allowlist por risco.
+- [x] MCP `list_maintenance_machines`/`list_maintenance_scripts`/`run_maintenance_script`/
+      `get_maintenance_execution` com a credencial `agt_` do agente; "Pedir ao agente" cria a tarefa no
+      Messages (uma por agente); o agente só executa sobre a tarefa (`message_number`) e dentro das máquinas e
+      scripts dela; conta única `darckware`, quem fez o quê no ForgeHub.
+- [x] Saída de comando marcada como dado não confiável (`untrusted_output_notice`); allowlist por risco = o
+      risco máximo da delegação `remote_access.execute` (nega por padrão; aviso 7 dias antes de vencer).
 
 ### Fase 7 — Documentação
-- [ ] Histórico por estação, relatório por execução, vínculo com chamado/demanda Darckware,
-      horas na franquia e informe mensal.
+- [x] Histórico por estação (execuções por pessoa/agente com motivo e tarefa, terminal SSH com duração,
+      eventos de acesso), relatório por execução, vínculo com chamado/demanda Darckware.
+- [ ] Horas da manutenção lançadas na franquia do cliente e no informe mensal (hoje manual, no atendimento).
 
 ## Lacunas a cobrir antes de estação real
-Host key fixada · acesso de emergência (backup da ForgeVault fora do VPS) · Windows no
-Terminal/Explorer · saída como dado · lote em etapas · desligamento de cliente/estação.
+Host key gravada na preparação · acesso de emergência (backup da ForgeVault fora do VPS) · Explorer no
+Windows · desligamento de cliente/estação · Tailscale de estação conectada na sessão de um usuário do
+Windows (fica em "modo servidor" desse usuário e recusa o ForgeHub; só reconectando pela conta darckware
+com uma auth key nova, gerada por uma pessoa no painel da Tailscale — nunca automática).
 Depois: aviso ao usuário, limites do SSH no Windows (sessão 0), repositório de instaladores,
 permissões por cliente, fuso, sudo sem senha (Linux/macOS), inventário, alertas, relatório,
 retenção/mascaramento de logs, LGPD/contrato, estação de testes.

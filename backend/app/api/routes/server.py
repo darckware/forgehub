@@ -790,8 +790,21 @@ async def machine_maintenance(
                AuditEvent.payload["server_id"].astext == str(server_id))
         .order_by(AuditEvent.created_at.desc()).limit(limit)
     )).scalars()
+    sessions = list(sessions)
+    closed = dict((await db.execute(
+        select(AuditEvent.entity_id, func.max(AuditEvent.created_at))
+        .where(AuditEvent.entity_type == "terminal_session", AuditEvent.event_type == "closed",
+               AuditEvent.entity_id.in_([e.entity_id for e in sessions]))
+        .group_by(AuditEvent.entity_id)
+    )).all()) if sessions else {}
     for event in sessions:
-        entries.append(MaintenanceEntry(at=event.created_at, kind="terminal", actor=event.actor, title="Terminal SSH aberto"))
+        ended = closed.get(event.entity_id)
+        if ended and ended >= event.created_at:
+            minutes = max(1, round((ended - event.created_at).total_seconds() / 60))
+            title = f"Terminal SSH ({minutes} min)"
+        else:
+            title = "Terminal SSH aberto"
+        entries.append(MaintenanceEntry(at=event.created_at, kind="terminal", actor=event.actor, title=title))
     events = (await db.execute(
         select(AuditEvent).where(AuditEvent.entity_type == "server", AuditEvent.entity_id == server_id)
         .order_by(AuditEvent.created_at.desc()).limit(limit)

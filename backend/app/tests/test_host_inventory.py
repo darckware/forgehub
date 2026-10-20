@@ -405,3 +405,31 @@ async def test_forget_host_key_is_audited(client, marker):
         assert event.event_type == "host_key_forgotten"
         await db.delete(event)
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_history_shows_terminal_session_duration(client, marker):
+    from datetime import timedelta
+
+    from app.db.models.governance import AuditEvent
+
+    session = uuid.uuid4()
+    async with AsyncSessionLocal() as db:
+        row = _row(name=f"term-{marker}", ip_address="100.127.6.1")
+        db.add(row)
+        await db.flush()
+        start = datetime.now(timezone.utc) - timedelta(minutes=30)
+        db.add_all([
+            AuditEvent(entity_type="terminal_session", entity_id=session, event_type="opened", actor="marcelo",
+                       payload={"server_id": str(row.id)}, created_at=start),
+            AuditEvent(entity_type="terminal_session", entity_id=session, event_type="closed", actor="marcelo",
+                       payload={}, created_at=start + timedelta(minutes=12)),
+        ])
+        await db.commit()
+    try:
+        history = (await client.get(f"/api/v1/servers/{row.id}/maintenance")).json()
+        assert [h["title"] for h in history if h["kind"] == "terminal"] == ["Terminal SSH (12 min)"]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == session))
+            await db.commit()
