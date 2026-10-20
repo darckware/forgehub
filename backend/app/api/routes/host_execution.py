@@ -18,7 +18,7 @@ another command (one execution per machine at a time).
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -551,6 +551,44 @@ async def agent_create_execution(
         agent_demand_id=demand_id,
     )
     return await _detail(db, execution)
+
+
+DELEGATION_WARN_DAYS = 7
+
+
+async def run_delegation_expiry_pass() -> int:
+    """One notification per remote-access delegation entering its last
+    DELEGATION_WARN_DAYS (deduplicated by event_key): an agent losing its
+    access silently would only show up as refused maintenance."""
+    from sqlalchemy.dialects.postgresql import insert
+
+    from app.db.base import AsyncSessionLocal
+    from app.db.models.governance import AuthorityDelegation
+    from app.db.models.notification import Notification
+
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(
+            select(AuthorityDelegation, Agent.name)
+            .join(Agent, Agent.id == AuthorityDelegation.grantee_id)
+            .where(AuthorityDelegation.grantee_type == "agent", AuthorityDelegation.status == "active",
+                   AuthorityDelegation.expires_at > now,
+                   AuthorityDelegation.expires_at <= now + timedelta(days=DELEGATION_WARN_DAYS))
+        )).all()
+        created = 0
+        for delegation, agent_name in rows:
+            if AGENT_ACTION not in (delegation.allowed_actions or []):
+                continue
+            result = await db.execute(insert(Notification).values(
+                id=uuid.uuid4(), source="system", severity="warning",
+                title=f"Acesso de manutenção do agente {agent_name} vence em breve",
+                message=(f"A autorização de {agent_name} para manutenção de máquinas vence em "
+                         f"{delegation.expires_at:%d/%m/%Y}. Renove em Acesso Remoto › Máquinas › Agentes autorizados."),
+                event_key=f"delegation-expiring:{delegation.id}", occurred_at=now,
+            ).on_conflict_do_nothing(index_elements=["event_key"]))
+            created += result.rowcount or 0
+        await db.commit()
+    return created
 
 
 REQUEST_EVENT = "agent_maintenance_request"

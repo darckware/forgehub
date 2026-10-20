@@ -640,6 +640,46 @@ echo "Validacao concluida"
 """,
     },
     {
+        "system_key": "rustdesk_firewall:windows",
+        "name": "Liberar o RustDesk no firewall do Windows",
+        "platform": "windows",
+        "category": "rustdesk",
+        "risk": "change",
+        "timeout_seconds": 120,
+        "description": (
+            "Cria (ou recria) as regras do Firewall do Windows para o programa do RustDesk, entrada e saída, e "
+            "testa as portas do servidor RustDesk da Darckware (lido do ForgeVault). Use quando o RustDesk não "
+            "conecta numa máquina com firewall restritivo. Remove só as regras que ele mesmo criou."
+        ),
+        "parameters": [
+            {"name": "PERFIS", "label": "Perfis de rede", "required": True, "default": "todos",
+             "options": ["todos", "dominio_e_privado"]},
+            {"name": "RUSTDESK_ID_SERVER", "label": "Servidor de ID", "required": True,
+             "vault_secret": RUSTDESK_SERVER_SECRET, "vault_field": "id_server"},
+        ],
+        "content": r"""$ErrorActionPreference = 'Stop'
+$exe = Join-Path $env:ProgramFiles 'RustDesk\rustdesk.exe'
+if (-not (Test-Path $exe)) { throw 'O RustDesk nao esta instalado nesta maquina' }
+$profile = if ($PERFIS -eq 'dominio_e_privado') { 'Domain,Private' } else { 'Any' }
+$group = 'Darckware RustDesk'
+Get-NetFirewallRule -Group $group -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+foreach ($dir in 'Inbound', 'Outbound') {
+    New-NetFirewallRule -DisplayName "RustDesk ($dir)" -Group $group -Direction $dir -Program $exe `
+        -Action Allow -Profile $profile | Out-Null
+}
+"Regras criadas: RustDesk entrada e saida (perfis: $profile)"
+$svc = Get-Service RustDesk -ErrorAction SilentlyContinue
+"Servico RustDesk: $(if ($svc) { $svc.Status } else { 'nao encontrado' })"
+$failed = @()
+foreach ($port in 21116, 21117) {
+    $ok = (Test-NetConnection $RUSTDESK_ID_SERVER -Port $port -WarningAction SilentlyContinue).TcpTestSucceeded
+    "Porta $($RUSTDESK_ID_SERVER):$($port): $(if ($ok) { 'acessivel' } else { 'SEM resposta' })"
+    if (-not $ok) { $failed += $port }
+}
+if ($failed) { throw "Firewall liberado, mas o servidor RustDesk nao responde nas portas $($failed -join ', ') (rota/Tailscale)" }
+""",
+    },
+    {
         "system_key": "rustdesk_get_id:windows",
         "name": "Obter ID do RustDesk",
         "platform": "windows",

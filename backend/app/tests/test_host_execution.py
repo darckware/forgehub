@@ -530,3 +530,44 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
             await db.execute(delete(Agent).where(Agent.id.in_([ids.low, ids.mid, ids.none])))
             await db.execute(delete(User).where(User.id == ids.grantor))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_delegation_expiry_warns_once_in_the_last_week():
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.security import hash_password
+    from app.db.models.agent import Agent
+    from app.db.models.governance import AuthorityDelegation
+    from app.db.models.notification import Notification
+    from app.db.models.user import User
+
+    tag = uuid.uuid4().hex[:8]
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        grantor = User(username=f"exp-{tag}", hashed_password=hash_password("x"), is_admin=True)
+        agent = Agent(name=f"exp-agent-{tag}", agent_type="executor")
+        db.add_all([grantor, agent])
+        await db.flush()
+        soon = AuthorityDelegation(grantor_user_id=grantor.id, grantee_type="agent", grantee_id=agent.id,
+                                   allowed_actions=["remote_access.execute"], max_risk="low",
+                                   valid_from=now, expires_at=now + timedelta(days=3))
+        later = AuthorityDelegation(grantor_user_id=grantor.id, grantee_type="agent", grantee_id=agent.id,
+                                    allowed_actions=["remote_access.execute"], max_risk="low",
+                                    valid_from=now, expires_at=now + timedelta(days=30))
+        db.add_all([soon, later])
+        await db.commit()
+    keys = [f"delegation-expiring:{soon.id}", f"delegation-expiring:{later.id}"]
+    try:
+        await routes.run_delegation_expiry_pass()
+        await routes.run_delegation_expiry_pass()  # deduplicated
+        async with AsyncSessionLocal() as db:
+            found = (await db.execute(select(Notification).where(Notification.event_key.in_(keys)))).scalars().all()
+        assert [n.event_key for n in found] == [keys[0]] and f"exp-agent-{tag}" in found[0].title
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Notification).where(Notification.event_key.in_(keys)))
+            await db.execute(delete(AuthorityDelegation).where(AuthorityDelegation.grantee_id == agent.id))
+            await db.execute(delete(Agent).where(Agent.id == agent.id))
+            await db.execute(delete(User).where(User.id == grantor.id))
+            await db.commit()

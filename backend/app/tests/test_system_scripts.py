@@ -27,7 +27,9 @@ def test_system_scripts_render_safely(spec):
     values = {p["name"]: "x'; evil" for p in params if p["required"] and not p["default"]}
     resolved, _ = resolve_values(params, values)
     text = render_script(spec["platform"], spec["content"], resolved)
-    assert not [c for c in text if ord(c) < 32 and c not in "\n\r\t"]
+    # No control character but newline/tab: a stray "\r" in a Python
+    # template once turned 'RustDesk\rustdesk.exe' into a broken path.
+    assert not [c for c in text if ord(c) < 32 and c not in "\n\t"]
     if spec["platform"] == "windows" and values:
         assert "x''; evil" in text  # quoted for PowerShell
     if spec["system_key"].startswith(("rustdesk_install", "remote_access_install")):
@@ -142,6 +144,20 @@ def test_tailscale_adjust(platform):
     assert "ver_configuracao" in text or "AJUSTE" in text
     with pytest.raises(ScriptError):
         _render(f"tailscale_adjust:{platform}", {"AJUSTE": "rotear_tudo"})
+
+
+def test_windows_paths_survive_python_escapes():
+    """A path like 'RustDesk\\rustdesk.exe' written in a non-raw template
+    turns "\\r" into a line break; every quoted Windows path stays on one line."""
+    import re
+
+    for spec in SYSTEM_SCRIPTS:
+        if spec["platform"] != "windows":
+            continue
+        for match in re.finditer(r"'(?:[A-Za-z]:|HKLM:|RustDesk|Tailscale)[^']*'", spec["content"]):
+            assert "\n" not in match.group(0), (spec["system_key"], match.group(0))
+    fw = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == "rustdesk_firewall:windows")
+    assert "'RustDesk\\rustdesk.exe'" in fw["content"]
 
 
 def test_every_system_script_is_classified():

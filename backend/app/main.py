@@ -836,6 +836,7 @@ HOST_SCHEDULE_POLL_SECONDS = 60
 async def _host_schedule_poll_loop() -> None:
     """Remote Access schedules (api/routes/host_script.py). Its own loop: a
     stuck host-bridge must not hold other workers back, and vice versa."""
+    from app.api.routes.host_execution import run_delegation_expiry_pass
     from app.api.routes.host_script import run_due_schedules
 
     while True:
@@ -843,6 +844,10 @@ async def _host_schedule_poll_loop() -> None:
             await run_due_schedules()
         except Exception:
             logger.exception("Host schedule poll failed")
+        try:
+            await run_delegation_expiry_pass()
+        except Exception:
+            logger.exception("Delegation expiry pass failed")
         await asyncio.sleep(HOST_SCHEDULE_POLL_SECONDS)
 
 

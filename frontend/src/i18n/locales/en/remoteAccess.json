@@ -388,6 +388,7 @@
     "title": "Installs",
     "remote_access_install": "Darckware Remote installer",
     "rustdesk_get_id": "Get RustDesk ID",
+    "rustdesk_firewall": "Allow RustDesk in the firewall",
     "tailscale_install": "Install Tailscale",
     "rustdesk_install": "Install RustDesk",
     "rustdesk_password": "Change RustDesk password",
@@ -482,6 +483,8 @@
     "fromVault": "{{fields}}: read from ForgeVault ({{secret}}) when it runs.",
     "optionNone": "Select...",
     "options": {
+      "todos": "All",
+      "dominio_e_privado": "Domain and private only",
       "ver_configuracao": "Only show the configuration",
       "anunciar_subrede": "Advertise subnet (become a router)",
       "parar_de_rotear": "Stop advertising subnets",
