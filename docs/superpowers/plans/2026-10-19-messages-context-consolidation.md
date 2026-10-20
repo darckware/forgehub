@@ -1,12 +1,12 @@
 # Messages — consolidação por projeto e área
 
-**Estado:** análise, desenho e implementação concluídos; consolidação operacional autorizada e pendente de publicação.
+**Estado:** concluído em 2026-10-20; código publicado e consolidação operacional aplicada.
 
 **Objetivo:** substituir o contexto espalhado em falhas e incubações antigas por resumos rastreáveis em Incubação, sem reexecutar trabalho nem apagar o histórico.
 
 ## Situação da implementação — 2026-10-20
 
-Código concluído e testado (serviço, endpoint administrativo `POST /demands/consolidate`, filtro por projeto/área, navegação resumo ↔ origens, guardas). A prévia somente leitura confirmou os 34 IDs e cinco grupos. Aplicar `scripts/consolidate_messages_20261020.py --apply` após a publicação e conferir os invariantes registrados abaixo.
+Código concluído e testado (serviço, endpoint administrativo `POST /demands/consolidate`, filtro por projeto/área, navegação resumo ↔ origens, guardas). A prévia somente leitura confirmou os 34 IDs e cinco grupos. A aplicação transacional criou os resumos #39617–#39621; a verificação posterior confirmou 34 origens arquivadas e vinculadas, cinco Incubações pendentes sem agendamento, cinco eventos de auditoria e 81 sugestões pessoais preservadas. O script também verificou que texto, run, erro e tentativas de cada origem não mudaram durante a consolidação.
 
 ## Diagnóstico e desenho aprovado
 
@@ -49,7 +49,7 @@ Cada resumo informa objetivo, situação comprovada, entregas parciais, pendênc
 - [x] Adicionar migração e serviço de consolidação, endpoint autenticado e guardas de execução/exclusão/maturação.
 - [x] Implementar filtro contextual, detalhe e navegação por vínculo; testar o comportamento em React.
 - [x] Executar testes backend afetados, testes frontend, build, linter e verificação visual em navegador.
-- [ ] Aplicar a consolidação dos 34 registros em cinco resumos; conferir origens arquivadas, auditoria, ausência de execução automática e preservação das sugestões pessoais.
-- [ ] Registrar os números dos novos resumos e o resultado real da publicação/validação.
+- [x] Aplicar a consolidação dos 34 registros em cinco resumos; conferir origens arquivadas, auditoria, ausência de execução automática e preservação das sugestões pessoais.
+- [x] Registrar os números dos novos resumos e o resultado real da publicação/validação.
 
 **Aceite final:** cinco resumos em Incubação; os 34 registros anteriores arquivados e vinculados; consulta por área/projeto em Messages; resultados incertos preservados; nenhum trabalho reexecutado pela consolidação.

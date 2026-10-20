@@ -17,8 +17,10 @@
 - Chromium headless at 1440px and 390px: no page errors and no horizontal overflow; investigation and inactive-confirmation actions appeared after selecting the task.
 - The read-only production preview matched the approved five groups and all 34 source IDs: 15 agent-operations, 3 infrastructure, 6 backup, 9 security, 1 Maia/WhatsApp.
 
-## Operational status
+## Published and operational status
 
-The application is ready to publish. The approved five-summary consolidation has not yet been applied; its preview is saved at `/tmp/forgehub-messages-consolidation-preview-final.json`. Apply it after deployment, then verify all 34 originals are archived and linked, the five summaries are unscheduled incubations, and no personal suggestions or run evidence changed.
+Published from commit `35ae489` (`0.1.0`). The production API is healthy, the current schema is `e6a1c8d3f9b2 (head)`, and a read-only API request returned the five new Incubation rows: **#39617–#39621**.
 
-Other historical failures still need evidence-based review before any retry. No old run was restarted or marked complete as part of this work.
+The approved consolidation completed in one transaction: all 34 selected originals are archived and linked; all five summaries remain unscheduled, pending incubations; five audit events were written; all 81 personal suggestions were preserved. The transaction asserted that source text, run ID, error, and attempt count were unchanged. The post-deploy API and database checks passed. The sanitized per-message triage report is [messages-passive-review-2026-10-20.md](messages-passive-review-2026-10-20.md).
+
+The 12 uncertain historical results remain blocked until an operator reconciles them or confirms inactivity with evidence. The five summaries await human prioritization; no source was re-run, marked complete, or individually discarded by this consolidation.

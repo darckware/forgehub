@@ -12,7 +12,7 @@
 
 ## Situação da implementação — 2026-10-20
 
-Etapas 1 a 4 concluídas no código. A recuperação de resultado incerto exige investigação registrada e confirmação digitada do `agent_run_id` (ou do número da mensagem quando não há run); nenhuma dessas ações enfileira trabalho. O frontend, backend e validação de navegador passaram. A publicação e a consolidação inicial de 34 origens em cinco resumos de Incubação são as próximas ações autorizadas. A revisão individual de outras falhas históricas continua separada: exige evidência atual antes de qualquer retentativa.
+Etapas 1 a 4 concluídas no código e publicadas no commit `35ae489`. A recuperação de resultado incerto exige investigação registrada e confirmação digitada do `agent_run_id` (ou do número da mensagem quando não há run); nenhuma dessas ações enfileira trabalho. A API e a interface estão saudáveis. A consolidação aprovada criou os resumos #39617–#39621 sem agendamento; os 34 originais permanecem arquivados e vinculados. A triagem sanitizada está em `docs/messages-passive-review-2026-10-20.md`. Retentativas ainda exigem evidência atual e autorização no fluxo.
 
 - Proteções: reserva atômica (advisory lock + `agent_run_id` gravado antes do início externo) em todos os caminhos; arquivar/excluir recusados com execução ativa; excluir recusado com resultado incerto; restaurar limpa o agendamento e exige nova aprovação; incubação arquivada não amadurece.
 - Recuperação: `POST /demands/{id}/reconcile`; decisões `record_investigation` (só registra evidência, mantém o bloqueio) e `confirm_inactive` (exige motivo, evidência e o identificador da execução digitado; a falha passa a ser conhecida, nada executa); `authorize_retry` renova o orçamento do ciclo (`retry_limit`) sem zerar `dispatch_attempts`. Histórico durável em `AuditEvent(entity_type="agent_demand")`, exposto em `GET /demands/{id}/history`.
@@ -171,9 +171,9 @@ Cada item inclui `allowed_actions` e motivos de bloqueio calculados no backend. 
 - [x] Executar testes backend afetados e `cd backend && ruff check app`; executar testes frontend afetados e build. Registrar comandos e resultados reais.
 - [x] Validar com registros de teste: incubar → vencer → decidir → enfileirar → executar → concluir → arquivar → restaurar sem disparo.
 - [x] Validar falha → reconciliar → corrigir → autorizar novo ciclo → tentar novamente; simular indisponibilidade e resultado incerto sem executar trabalho externo real.
-- [ ] Preparar relatório dos registros existentes por ID, agente, categoria e ação recomendada. Revisar primeiro os 11 casos incertos, depois as falhas com tentativas esgotadas e as demais falhas.
-- [ ] Apresentar as 12 incubações para decisão de promover, adiar, descartar ou arquivar. Vencimento sozinho não autoriza execução nem exclusão.
-- [ ] Após a aprovação das ações concretas sobre o passivo, aplicá-las com trilha de auditoria e conferir as contagens finais.
+- [x] Preparar relatório dos 34 registros selecionados por número, responsável, categoria e ação recomendada. Os 12 resultados incertos continuam bloqueados até reconciliação ou confirmação operacional.
+- [x] Apresentar as 12 origens de Incubação em cinco resumos para decisão humana. Vencimento sozinho não autoriza execução nem exclusão.
+- [ ] Após a aprovação das decisões restantes sobre o passivo, aplicá-las com trilha de auditoria e conferir as contagens finais.
 - [x] Atualizar a documentação operacional com as novas ações, restrições e procedimento para futuras falhas.
 
 ## Ordem de entrega e limites
