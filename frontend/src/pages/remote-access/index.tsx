@@ -337,7 +337,7 @@ export default function RemoteAccessPage() {
                 <RotateCw className="h-3.5 w-3.5" aria-hidden="true" /> {t(`quick.rotate_${kind}`)}
               </Button>
             ))}
-            {(["remote_access_install", "tailscale_install", "rustdesk_install", "rustdesk_password"] as const).map((action) => (
+            {(["remote_access_install", "tailscale_install", "rustdesk_install", "rustdesk_get_id", "rustdesk_password"] as const).map((action) => (
               <Button key={action} type="button" variant="outline" size="sm" className="cursor-pointer gap-1.5"
                 onClick={() => go({ tab: "scripts", sub: "run", system: action })}>
                 <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t(`quick.${action}`)}

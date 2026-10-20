@@ -280,11 +280,35 @@ async def resolve_targets(
 _RUSTDESK_ID_RE = re.compile(r"RUSTDESK_ID=(\d{6,15})")
 
 
+def _record_rustdesk_id(script: HostScript):
+    """"Obter ID do RustDesk": only the ID, read from the run's output."""
+
+    async def record(server_id: uuid.UUID, outcome: dict) -> None:
+        from app.db.base import AsyncSessionLocal
+
+        match = _RUSTDESK_ID_RE.search(outcome.get("stdout") or "")
+        if not match:
+            return
+        async with AsyncSessionLocal() as db:
+            server = await db.get(Server, server_id)
+            if server is None:
+                return
+            previous, server.rustdesk_id = server.rustdesk_id, match.group(1)
+            db.add(AuditEvent(entity_type="server", entity_id=server_id, event_type="rustdesk_id_recorded",
+                              actor="forgehub", payload={"script": script.system_key, "rustdesk_id": server.rustdesk_id,
+                                                         "previous": previous}))
+            await db.commit()
+
+    return record
+
+
 def system_script_hook(script: HostScript, values: dict | None):
     """What a system script records on a machine once it succeeded there:
     RustDesk install/password change -> the new permanent password and the
     RustDesk ID, on the machine's row. Never before success, so a failed
     change can't leave a password on file that the machine doesn't have."""
+    if (script.system_key or "").startswith("rustdesk_get_id:"):
+        return _record_rustdesk_id(script)
     if not (script.system_key or "").startswith(("rustdesk_install:", "remote_access_install:", "rustdesk_password:")):
         return None
     password = (values or {}).get("RUSTDESK_PASSWORD")

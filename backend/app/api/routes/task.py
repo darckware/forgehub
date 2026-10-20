@@ -71,6 +71,7 @@ from app.api.schemas.task import (
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action
 from app.core.responsibility import resolve_responsibility_owner
+from app.core.task_dependencies import ensure_task_dependencies_satisfied
 from app.db.base import get_db
 from app.db.models.agent import Agent, AgentServiceCredential, SubAgent
 from app.db.models.backlog import PLANNING_ITEM_TYPES, PlanningItem
@@ -416,8 +417,9 @@ async def update_task(
             raise HTTPException(status_code=400, detail="A task cannot be its own parent")
         await _get_task_or_404(db, data["parent_task_id"])
 
-    if data.get("status") == "done":
+    if data.get("status") in ("in_progress", "done", "deployed"):
         await _ensure_dependencies_satisfied(db, task_id)
+    if data.get("status") == "done":
         await _ensure_evidence_verified(db, task_id)
         await _ensure_subtasks_completed(db, task_id)
 
@@ -455,20 +457,7 @@ async def delete_task(task_id: uuid.UUID, db: AsyncSession = Depends(get_db)) ->
 
 
 async def _ensure_dependencies_satisfied(db: AsyncSession, task_id: uuid.UUID) -> None:
-    """Business rule: a task cannot complete while a task it depends on
-    is not itself done (mirrors SPEC 6.2.9 blocked-stage propagation)."""
-    stmt = (
-        select(ProjectTask.id, ProjectTask.status)
-        .join(TaskDependency, TaskDependency.depends_on_task_id == ProjectTask.id)
-        .where(TaskDependency.task_id == task_id)
-    )
-    result = await db.execute(stmt)
-    for dep_id, dep_status in result.all():
-        if dep_status != "done":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Cannot complete task: dependency {dep_id} is not done (status={dep_status})",
-            )
+    await ensure_task_dependencies_satisfied(db, task_id)
 
 
 async def _ensure_subtasks_completed(db: AsyncSession, task_id: uuid.UUID) -> None:
@@ -556,6 +545,7 @@ async def create_task_execution(
     task_id: uuid.UUID, payload: TaskExecutionCreate, db: AsyncSession = Depends(get_db)
 ) -> TaskExecution:
     task = await _get_task_or_404(db, task_id)
+    await ensure_task_dependencies_satisfied(db, task_id)
 
     if payload.assignment_id is not None:
         assignment = await db.get(TaskAssignment, payload.assignment_id)
@@ -723,14 +713,17 @@ async def create_task_dependency(
     await _get_task_or_404(db, task_id)
     await _get_task_or_404(db, payload.depends_on_task_id)
 
-    # Guard against a direct A->B / B->A cycle.
-    reverse = await db.execute(
-        select(TaskDependency).where(
-            TaskDependency.task_id == payload.depends_on_task_id,
-            TaskDependency.depends_on_task_id == task_id,
+    # Serialize graph edits so concurrent A->B and B->A cannot both pass.
+    await db.execute(select(func.pg_advisory_xact_lock(0x464854444550)))
+    reachable = select(TaskDependency.depends_on_task_id.label("task_id")).where(
+        TaskDependency.task_id == payload.depends_on_task_id
+    ).cte("dependency_ancestors", recursive=True)
+    reachable = reachable.union(
+        select(TaskDependency.depends_on_task_id).join(
+            reachable, TaskDependency.task_id == reachable.c.task_id
         )
     )
-    if reverse.scalars().first() is not None:
+    if await db.scalar(select(reachable.c.task_id).where(reachable.c.task_id == task_id).limit(1)):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This dependency would create a cycle between the two tasks",
@@ -1019,25 +1012,7 @@ async def _dispatch_task_by_id(
             agent_run_id=uncertain.agent_run_id,
         )
 
-    # Same rule as execution.py's _preflight (Execution Wave/Work Package
-    # pipeline), ported here rather than reimplemented differently: a task
-    # cannot dispatch while any of its declared predecessors hasn't reached
-    # a terminal "delivered" state. Messages stays the single executor
-    # (2026-07-26 decision) -- this only adds the gate, not a second path.
-    dependencies = list((await db.execute(
-        select(TaskDependency).where(TaskDependency.task_id == task.id)
-    )).scalars())
-    blocking: list[dict] = []
-    for dependency in dependencies:
-        predecessor = await db.get(ProjectTask, dependency.depends_on_task_id)
-        if predecessor is not None and predecessor.status not in ("done", "deployed"):
-            blocking.append({"task_id": str(predecessor.id), "task_number": predecessor.number,
-                              "title": predecessor.title, "status": predecessor.status})
-    if blocking:
-        raise HTTPException(status_code=409, detail={
-            "message": "Task has unfinished dependencies and cannot be dispatched yet",
-            "blocking": blocking,
-        })
+    await ensure_task_dependencies_satisfied(db, task.id)
 
     project_id = await _resolve_task_project_id(db, task)
     project = await db.get(Project, project_id)

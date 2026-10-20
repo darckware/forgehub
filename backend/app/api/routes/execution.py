@@ -18,6 +18,7 @@ from app.api.schemas.execution import (
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.secrets import decrypt_secret
+from app.core.task_dependencies import blocking_task_dependencies, ensure_task_dependencies_satisfied
 from app.db.base import get_db
 from app.db.models.agent import Agent, SubAgent
 from app.db.models.backlog import PlanningItem
@@ -118,11 +119,8 @@ async def _preflight(db: AsyncSession, wave: ExecutionWave) -> dict:
                 reasons.append(f"task_status_{task.status}")
             if not task.description or not task.description.strip():
                 reasons.append("description_missing")
-            dependencies = list((await db.execute(select(TaskDependency).where(TaskDependency.task_id == task.id))).scalars())
-            for dependency in dependencies:
-                predecessor = await db.get(ProjectTask, dependency.depends_on_task_id)
-                if not predecessor or predecessor.status not in {"done", "deployed"}:
-                    reasons.append(f"dependency_incomplete:{dependency.depends_on_task_id}")
+            for dependency in await blocking_task_dependencies(db, task.id):
+                reasons.append(f"dependency_incomplete:{dependency['task_id']}")
             assignment = (await db.execute(select(TaskAssignment).where(TaskAssignment.task_id == task.id, TaskAssignment.status == "active", TaskAssignment.membership_id.is_not(None)).limit(1))).scalar_one_or_none()
             if not assignment:
                 reasons.append("active_assignment_missing")
@@ -357,6 +355,7 @@ def _prompt(package: ExecutionWorkPackage) -> str:
 async def dispatch_package(package_id: uuid.UUID, principal: ActorPrincipal = Depends(get_actor_principal), db: AsyncSession = Depends(get_db)) -> DispatchOut:
     package = await _package(db, package_id); wave = await _wave(db, package.execution_wave_id); await authorize_action(db, principal, "planning.execution.dispatch", project_id=wave.project_id)
     if package.status != "issued" or wave.status != "active": raise HTTPException(409, "Issued package and active wave are required")
+    await ensure_task_dependencies_satisfied(db, package.task_id)
     running = int(await db.scalar(select(func.count(TaskExecution.id)).join(ExecutionWorkPackage, ExecutionWorkPackage.id == TaskExecution.work_package_id).where(ExecutionWorkPackage.execution_wave_id == wave.id, TaskExecution.status.in_(ACTIVE_EXECUTION_STATES))) or 0)
     if running >= wave.wip_limit: raise HTTPException(409, "Wave WIP limit reached")
     if await db.scalar(select(TaskExecution.id).where(TaskExecution.work_package_id == package.id, TaskExecution.status.in_(ACTIVE_EXECUTION_STATES))): raise HTTPException(409, "Work package already has an active execution")

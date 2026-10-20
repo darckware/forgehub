@@ -640,6 +640,45 @@ echo "Validacao concluida"
 """,
     },
     {
+        "system_key": "rustdesk_get_id:windows",
+        "name": "Obter ID do RustDesk",
+        "platform": "windows",
+        "category": "rustdesk",
+        "risk": "read",
+        "timeout_seconds": 90,
+        "description": (
+            "Lê o ID do RustDesk já instalado na máquina e grava no cadastro (coluna ID RustDesk). "
+            "Não altera nada na máquina; útil quando o RustDesk não foi instalado pelo ForgeHub."
+        ),
+        "parameters": [],
+        "content": "$ErrorActionPreference = 'Stop'\n" + _WIN_RUSTDESK_CLI + """
+$svc = Get-Service RustDesk -ErrorAction SilentlyContinue
+"Servico RustDesk: $(if ($svc) { $svc.Status } else { 'nao encontrado' })"
+$id = (Invoke-RustDesk @('--get-id')).Out
+if ($id -notmatch '^\\d{6,15}$') { throw "O RustDesk nao devolveu um ID valido ('$id'); confira se o servico esta rodando" }
+"RUSTDESK_ID=$id"
+""",
+    },
+    {
+        "system_key": "rustdesk_get_id:linux",
+        "name": "Obter ID do RustDesk",
+        "platform": "linux",
+        "category": "rustdesk",
+        "risk": "read",
+        "timeout_seconds": 90,
+        "description": (
+            "Lê o ID do RustDesk já instalado na máquina e grava no cadastro (coluna ID RustDesk). "
+            "Não altera nada na máquina; útil quando o RustDesk não foi instalado pelo ForgeHub."
+        ),
+        "parameters": [],
+        "content": _SH_PRELUDE + """command -v rustdesk >/dev/null 2>&1 || { echo "O RustDesk nao esta instalado nesta maquina" >&2; exit 2; }
+echo "Servico RustDesk: $(systemctl is-active rustdesk 2>/dev/null || echo desconhecido)"
+ID=$($SUDO rustdesk --get-id 2>/dev/null | tr -d '[:space:]')
+echo "$ID" | grep -Eq '^[0-9]{6,15}$' || { echo "O RustDesk nao devolveu um ID valido ('$ID')" >&2; exit 1; }
+echo "RUSTDESK_ID=$ID"
+""",
+    },
+    {
         "system_key": "rustdesk_password:windows",
         "name": "Trocar senha do RustDesk",
         "platform": "windows",

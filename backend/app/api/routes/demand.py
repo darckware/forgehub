@@ -42,6 +42,7 @@ from app.core.demand_thread import build_thread_prompt
 from app.core.feedback import deliver_feedback, wants_telegram_reply
 from app.core.localtime import format_local
 from app.core.markdown_docs import resolve_doc_path
+from app.core.task_dependencies import TaskDependenciesBlocked, ensure_task_dependencies_satisfied
 from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.backlog import PLANNING_ITEM_TYPES
@@ -1295,6 +1296,7 @@ async def _execute_dispatch(
     the manual POST .../dispatch route and the scheduled-send background
     loop (main.py's _scheduled_dispatch_poll_loop, triggered once
     AgentDemand.scheduled_at is reached). Caller commits."""
+    await _ensure_demand_dependencies_satisfied(db, demand)
     agent = await _get_agent_or_404(db, target_agent_id)
 
     # Independent vs. descendant: no origin, a task origin (not yet
@@ -1374,6 +1376,15 @@ async def recover_dispatch_outcome(
     await deliver_feedback(db, demand)
     await db.commit()
     return demand
+
+
+async def _ensure_demand_dependencies_satisfied(db: AsyncSession, demand: AgentDemand) -> None:
+    if demand.origin_type == "task" and demand.origin_id is not None:
+        await ensure_task_dependencies_satisfied(db, demand.origin_id)
+    elif demand.task_execution_id is not None:
+        execution = await db.get(TaskExecution, demand.task_execution_id)
+        if execution is not None:
+            await ensure_task_dependencies_satisfied(db, execution.task_id)
 
 
 def _assert_dispatchable(demand: AgentDemand) -> None:
@@ -1675,6 +1686,13 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
         if demand.target_agent_id in busy:
             deferred += 1
             continue
+        try:
+            await _ensure_demand_dependencies_satisfied(db, demand)
+        except TaskDependenciesBlocked:
+            # Waiting is not a failed attempt and must not reserve the
+            # agent's slot ahead of unrelated work that is ready to run.
+            deferred += 1
+            continue
         selected.append((demand.id, demand.target_agent_id))
         busy.add(demand.target_agent_id)
     if deferred:
@@ -1695,6 +1713,10 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             await _execute_dispatch(db, demand, target_agent_id, demand.command_text)
             known_run_id = demand.agent_run_id
             await db.commit()
+        except TaskDependenciesBlocked:
+            # A dependency may have changed after selection. Keep the item
+            # queued instead of misclassifying this as an uncertain start.
+            continue
         except AgentRunDispatchError as exc:
             # Not transient -- e.g. the target agent has no runtime_type
             # configured for CLI dispatch, so this can never succeed as-is.

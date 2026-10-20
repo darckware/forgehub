@@ -49,6 +49,130 @@ from app.api.routes import task as task_routes
 app.include_router(task_routes.router)
 
 
+@pytest_asyncio.fixture
+async def dependency_pair(client, created_ids, planning_item_id):
+    ids = []
+    for title in ("Prerequisite", "Dependent"):
+        response = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id, title=title))
+        assert response.status_code == 201, response.text
+        ids.append(response.json()["id"])
+    created_ids["project_tasks"].extend(ids)
+    response = await client.post(
+        f"/api/v1/tasks/{ids[1]}/dependencies",
+        json={"task_id": ids[1], "depends_on_task_id": ids[0]},
+    )
+    assert response.status_code == 201, response.text
+    created_ids["task_dependencies"].append(response.json()["id"])
+    return ids
+
+
+@pytest.mark.parametrize("entry", ["execution", "status", "messages", "scheduler"])
+async def test_dependencies_gate_every_execution_entry(
+    client, dependency_pair, test_suite_agent, monkeypatch, entry
+):
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock
+
+    from app.api.routes import demand as demand_routes
+    from app.db.models.demand import AgentDemand
+
+    predecessor_id, task_id = dependency_pair
+    starts = []
+
+    async def runner(run_id, agent, prompt, path):
+        starts.append(run_id)
+        return {"run_id": run_id}
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", runner)
+    monkeypatch.setattr(demand_routes, "_send_notice", AsyncMock())
+    if entry == "execution":
+        response = await client.post(f"/api/v1/tasks/{task_id}/executions", json={"executor_type": "agent"})
+        assert response.status_code == 409, response.text
+    elif entry == "status":
+        response = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "in_progress"})
+        assert response.status_code == 409, response.text
+    else:
+        due = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2001, 1, 1, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(demand_routes, "datetime", Clock)
+        monkeypatch.setattr(demand_routes, "_dispatch_slots", AsyncMock(return_value=1))
+        monkeypatch.setattr(demand_routes, "_agents_already_running", AsyncMock(return_value=set()))
+        async with AsyncSessionLocal() as db:
+            item = AgentDemand(
+                from_agent="test-suite", from_agent_id=test_suite_agent,
+                target_agent_id=test_suite_agent, subject="Dependency guard", body="test",
+                working_path="/tmp", origin_type="task", origin_id=uuid.UUID(task_id),
+                scheduled_at=due,
+            )
+            db.add(item)
+            await db.commit()
+            demand_id = item.id
+        try:
+            if entry == "messages":
+                response = await client.post(
+                    f"/api/v1/demands/{demand_id}/dispatch",
+                    json={"target_agent_id": str(test_suite_agent)},
+                )
+                assert response.status_code == 409, response.text
+                assert response.json()["detail"]["blocking"][0]["task_id"] == predecessor_id
+            else:
+                async with AsyncSessionLocal() as db:
+                    await demand_routes.run_scheduled_dispatch_pass(db)
+            async with AsyncSessionLocal() as db:
+                queued = await db.get(AgentDemand, demand_id)
+                assert queued.dispatch_status is None
+                assert queued.agent_run_id is None
+                assert queued.dispatch_attempts == 0
+                assert queued.dispatch_error is None
+            assert starts == []
+            finished = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
+            assert finished.status_code == 200, finished.text
+            async with AsyncSessionLocal() as db:
+                await demand_routes.run_scheduled_dispatch_pass(db)
+            async with AsyncSessionLocal() as db:
+                released = await db.get(AgentDemand, demand_id)
+                assert released.dispatch_status == "dispatched"
+                assert released.dispatch_attempts == 1
+            assert len(starts) == 1
+        finally:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(AgentDemand).where(AgentDemand.id == demand_id))
+                await db.commit()
+    assert starts == [] if entry in {"execution", "status"} else len(starts) == 1
+
+
+async def test_deployed_dependency_allows_completion(client, dependency_pair):
+    predecessor_id, task_id = dependency_pair
+    response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "deployed"})
+    assert response.status_code == 200, response.text
+    response = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
+    assert response.status_code == 200, response.text
+
+
+async def test_indirect_dependency_cycle_rejected(client, dependency_pair, created_ids, planning_item_id):
+    predecessor_id, task_id = dependency_pair
+    response = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id, title="Third"))
+    assert response.status_code == 201, response.text
+    third_id = response.json()["id"]
+    created_ids["project_tasks"].append(third_id)
+    response = await client.post(
+        f"/api/v1/tasks/{third_id}/dependencies",
+        json={"task_id": third_id, "depends_on_task_id": task_id},
+    )
+    assert response.status_code == 201, response.text
+    created_ids["task_dependencies"].append(response.json()["id"])
+    response = await client.post(
+        f"/api/v1/tasks/{predecessor_id}/dependencies",
+        json={"task_id": predecessor_id, "depends_on_task_id": third_id},
+    )
+    assert response.status_code == 409, response.text
+
+
 # NOTE: this module previously declared local stub `Table()` objects for the
 # other-domain FK targets (`planning_items`, `agents`, `sub_agents`,
 # `skills`) to satisfy string-FK resolution before the unified Alembic

@@ -315,6 +315,7 @@
   "quick": {
     "title": "Installs",
     "remote_access_install": "Darckware Remote installer",
+    "rustdesk_get_id": "Get RustDesk ID",
     "tailscale_install": "Install Tailscale",
     "rustdesk_install": "Install RustDesk",
     "rustdesk_password": "Change RustDesk password",

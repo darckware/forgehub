@@ -103,6 +103,28 @@ async def test_rustdesk_server_read_from_forgevault_when_blank():
         await exec_routes.prepare_script_run(script, {"RUSTDESK_PASSWORD": "Senha#2026x"})
 
 
+@pytest.mark.asyncio
+async def test_get_rustdesk_id_records_only_the_id(machine):
+    await seed_system_scripts()
+    async with AsyncSessionLocal() as db:
+        script = (await db.execute(select(HostScript).where(HostScript.system_key == "rustdesk_get_id:windows"))).scalar_one()
+        assert script.risk == "read" and script.parameters == []
+        command, shell, secrets = await exec_routes.prepare_script_run(script, {})
+
+        async def bridge(server, shell_, body, timeout):
+            assert "--get-id" in body
+            return {"exit_code": 0, "stdout": "Servico RustDesk: Running\nRUSTDESK_ID=987654321\n", "stderr": "", "duration_ms": 1, "failure": None}
+
+        with patch.object(host_exec_runner, "call_bridge_exec", bridge), patch.object(exec_routes, "vault_store", _fake_store):
+            execution = await exec_routes.launch_execution(
+                db, servers=[await db.get(Server, machine.id)], command=command, shell=shell, timeout_seconds=60,
+                actor="t", target_summary="rd-test", secrets=secrets, script=script, values_for_hook={})
+            await asyncio.wait_for(host_exec_runner._running[execution.id], timeout=10)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, machine.id)
+        assert row.rustdesk_id == "987654321" and row.rustdesk_password_ref is None
+
+
 def test_installer_records_rustdesk_password_only_when_rustdesk_installed():
     script = HostScript(system_key="remote_access_install:windows")
     assert exec_routes.system_script_hook(script, {"COMPONENTES": "somente_tailscale", "RUSTDESK_PASSWORD": "x"}) is None

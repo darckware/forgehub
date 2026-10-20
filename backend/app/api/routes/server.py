@@ -733,6 +733,7 @@ _EVENT_TITLES = {
     "preparation_started": "Preparação do acesso iniciada",
     "preparation_script_generated": "Script de preparação gerado (RustDesk)",
     "rustdesk_password_recorded": "Senha do RustDesk registrada",
+    "rustdesk_id_recorded": "ID do RustDesk registrado",
     "rustdesk_password_revealed": "Senha do RustDesk consultada",
     "login_password_revealed": "Senha da conta darckware consultada",
     "login_password_rotated": "Senha da conta darckware trocada",
