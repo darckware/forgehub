@@ -16,6 +16,7 @@ import { CONFIRMATION_WORD, useExecutionComposerViewModel, type WhenMode } from 
 import type { HostExecutionDetail } from "@/hooks/useHostExecutions";
 import type { HostSchedule } from "@/hooks/useHostScripts";
 import { scriptFits } from "@/hooks/useHostScripts";
+import { useTailscaleApiKey } from "@/hooks/useVpn";
 import { cn } from "@/lib/utils";
 import { AgentRequestDialog } from "./AgentRequestDialog";
 import { STATUS_DOT, statusKey } from "./machineStatus";
@@ -37,6 +38,7 @@ export function ExecutionComposer({
   const vm = useExecutionComposerViewModel({ onRan, onScheduled, initialSystem });
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
+  const apiKey = useTailscaleApiKey();
   const busy = vm.status === "submitting";
 
   return (
@@ -192,6 +194,7 @@ export function ExecutionComposer({
                                     <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /> {t("composer.authKey.open")}
                                   </a>
                                   <p className="text-muted-foreground">{t("composer.authKey.help")}</p>
+                                  <p className="font-medium">{t(apiKey.data?.configured ? "composer.authKey.autoOn" : "composer.authKey.autoOff")}</p>
                                 </div>
                               )}
                             </>

@@ -116,7 +116,8 @@ manutenções agendadas, credenciais na ForgeVault e tudo documentado/auditado.
 Host key gravada na preparação · acesso de emergência (backup da ForgeVault fora do VPS) · Explorer no
 Windows · desligamento de cliente/estação · Tailscale de estação conectada na sessão de um usuário do
 Windows (fica em "modo servidor" desse usuário e recusa o ForgeHub; só reconectando pela conta darckware
-com uma auth key nova, gerada por uma pessoa no painel da Tailscale — nunca automática).
+com uma auth key nova, de uso único por host — colada à mão ou gerada pelo ForgeHub pela API **sem
+pré-aprovação**, então cada máquina só entra depois de aprovada por uma pessoa no painel da Tailscale).
 Depois: aviso ao usuário, limites do SSH no Windows (sessão 0), repositório de instaladores,
 permissões por cliente, fuso, sudo sem senha (Linux/macOS), inventário, alertas, relatório,
 retenção/mascaramento de logs, LGPD/contrato, estação de testes.

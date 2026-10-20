@@ -33,13 +33,15 @@ async def load_api_key(db: AsyncSession) -> str | None:
         return None
 
 
-async def create_auth_key(api_key: str, tag: str, description: str) -> str:
-    """One-use auth key carrying `tag`. Raises HTTPException with a message a
-    person can act on (wrong key, tag not owned, Tailscale down)."""
+async def create_auth_key(api_key: str, tag: str, description: str, preauthorized: bool = True) -> str:
+    """One-use auth key carrying `tag`. `preauthorized=False` leaves the device
+    waiting for approval in the Tailscale console (the installers' choice).
+    Raises HTTPException with a message a person can act on (wrong key, tag
+    not owned, Tailscale down)."""
     body = {
         "capabilities": {
             "devices": {
-                "create": {"reusable": False, "ephemeral": False, "preauthorized": True, "tags": [tag]}
+                "create": {"reusable": False, "ephemeral": False, "preauthorized": preauthorized, "tags": [tag]}
             }
         },
         "expirySeconds": AUTH_KEY_TTL_SECONDS,

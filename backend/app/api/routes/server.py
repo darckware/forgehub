@@ -735,6 +735,7 @@ _EVENT_TITLES = {
     "rustdesk_password_recorded": "Senha do RustDesk registrada",
     "rustdesk_id_recorded": "ID do RustDesk registrado",
     "os_detected": "Sistema operacional detectado",
+    "tailscale_auth_key_minted": "Auth key da Tailscale gerada pelo ForgeHub (aguarda aprovação no painel)",
     "host_key_forgotten": "Chave SSH antiga da máquina descartada (nova chave aceita na próxima conexão)",
     "rustdesk_password_revealed": "Senha do RustDesk consultada",
     "login_password_revealed": "Senha da conta darckware consultada",

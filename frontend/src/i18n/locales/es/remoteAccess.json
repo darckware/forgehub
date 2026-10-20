@@ -155,6 +155,21 @@
     "deleteText": "No tiene scripts. La eliminación queda registrada en la auditoría.",
     "delete": "Eliminar"
   },
+  "apiKey": {
+    "title": "Credencial de la API de Tailscale",
+    "subtitle": "Con ella, ForgeHub genera la auth key de cada máquina cuando el campo queda en blanco en el instalador: una clave de un solo uso por máquina, con la tag indicada y sin preaprobación — cada máquina espera su aprobación en el panel de Tailscale.",
+    "openConsole": "Abrir Settings › Keys",
+    "configured": "Configurada (termina en {{hint}})",
+    "updated": "por {{who}} el {{when}}",
+    "notConfigured": "No configurada: el instalador solo funciona con la auth key pegada a mano.",
+    "input": "Nueva credencial de la API",
+    "save": "Guardar",
+    "replace": "Reemplazar",
+    "remove": "Quitar",
+    "help": "En el panel: Settings › Keys › Generate access token (tskey-api-…). Vence en hasta 90 días; reemplácela aquí antes. Active también \"Device approval\" en la configuración de la tailnet para que valga la aprobación por máquina.",
+    "removeTitle": "¿Quitar la credencial de la API?",
+    "removeText": "ForgeHub deja de generar auth keys: los instaladores vuelven a exigir la clave pegada a mano. Revoque el token también en el panel de Tailscale."
+  },
   "maintenance": {
     "open": "Mantenimientos de {{name}}",
     "title": "Mantenimientos · {{name}}",
@@ -403,7 +418,7 @@
     "rotate_ssh_key": "Rotar clave SSH"
   },
   "composer": {
-    "authKey": {"open": "Generar auth key en el panel de Tailscale", "help": "En Settings › Keys › Generate auth key: marque Pre-approved o apruebe la máquina en el panel después, deje Reusable desactivado (una clave por máquina) y elija la tag del cliente (estación: tag:<cliente>-users; servidor: tag:<cliente>-srv) — sin ella ForgeHub no alcanza la máquina por SSH. Pegue aquí la clave tskey-auth-…."},
+    "authKey": {"autoOn": "En blanco, ForgeHub genera una clave por máquina con la tag indicada; cada máquina espera su aprobación en el panel de Tailscale.", "autoOff": "Para que ForgeHub genere la clave solo, registre la credencial de la API en la pestaña Red Tailscale.", "open": "Generar auth key en el panel de Tailscale", "help": "En Settings › Keys › Generate auth key: marque Pre-approved o apruebe la máquina en el panel después, deje Reusable desactivado (una clave por máquina) y elija la tag del cliente (estación: tag:<cliente>-users; servidor: tag:<cliente>-srv) — sin ella ForgeHub no alcanza la máquina por SSH. Pegue aquí la clave tskey-auth-…."},
     "canary": "Canario: primero en una máquina",
     "canaryHelp": "Ejecuta en la primera máquina y solo sigue con las demás si sale bien.",
     "canaryOn": "Canario activo: las demás máquinas solo se ejecutan si la primera sale bien.",

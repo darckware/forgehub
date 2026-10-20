@@ -31,6 +31,7 @@ import { ExecutionsCard } from "./ExecutionsCard";
 import { PrepareDialog } from "./PrepareDialog";
 import { RotationDialog } from "./RotationDialog";
 import { TailnetPolicyCard } from "./TailnetPolicyCard";
+import { TailscaleApiKeyCard } from "./TailscaleApiKeyCard";
 import { MachinesCard } from "./MachinesCard";
 import { AuthorizedAgentsCard } from "./AuthorizedAgentsCard";
 import { ExecutionComposer } from "./ExecutionComposer";
@@ -400,6 +401,7 @@ export default function RemoteAccessPage() {
         </TabsContent>
 
         <TabsContent value="network" className="space-y-6">
+          <TailscaleApiKeyCard />
           <NetworkTab />
         </TabsContent>
       </Tabs>

@@ -176,3 +176,40 @@ export function useSaveTailnetPolicy() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["vpn", "policy"] }),
   });
 }
+
+
+/** The Tailscale API credential ForgeHub uses to generate one auth key per
+ * machine when an installer's key is left blank. Only its last 4 characters
+ * ever come back. */
+export interface TailscaleApiKeyStatus {
+  configured: boolean;
+  hint: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+const API_KEY_KEY = ["vpn", "tailscale-api-key"] as const;
+
+export function useTailscaleApiKey(enabled = true) {
+  return useQuery<TailscaleApiKeyStatus>({
+    queryKey: API_KEY_KEY,
+    queryFn: () => apiClient.get("/api/v1/vpn/tailscale-api-key"),
+    enabled,
+  });
+}
+
+export function useSaveTailscaleApiKey() {
+  const qc = useQueryClient();
+  return useMutation<TailscaleApiKeyStatus, Error, string>({
+    mutationFn: (apiKey) => apiClient.put("/api/v1/vpn/tailscale-api-key", { api_key: apiKey }),
+    onSuccess: (data) => qc.setQueryData(API_KEY_KEY, data),
+  });
+}
+
+export function useRemoveTailscaleApiKey() {
+  const qc = useQueryClient();
+  return useMutation<TailscaleApiKeyStatus, Error, void>({
+    mutationFn: () => apiClient.delete("/api/v1/vpn/tailscale-api-key"),
+    onSuccess: (data) => qc.setQueryData(API_KEY_KEY, data),
+  });
+}

@@ -27,6 +27,8 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)(ConvertTo-SecureString\s+(?:-String\s+)?)(\"[^\"]*\"|'[^']*'|\S+)"), r"\1" + MASK),
     (re.compile(r"(?i)\b(net\s+user\s+\S+\s+)(?!/)(\S+)"), r"\1" + MASK),
     (re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"), r"\1" + MASK),
+    # Tailscale auth/API keys (an installer may echo one in an error).
+    (re.compile(r"\btskey-[A-Za-z0-9-]{8,}"), MASK),
 ]
 
 

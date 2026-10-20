@@ -381,24 +381,65 @@ def darckware_item_of(kind: str | None, item_id: str | None) -> tuple[str, str] 
     return (kind, item_id.strip()) if kind and item_id else None
 
 
+async def _run_on(server: Server, shell: str, command: str, timeout: int, login: tuple[str, str] | None) -> dict:
+    """One machine. ForgeHub's own key first, whatever the cached probe says
+    (it is empty for 5 minutes after a restart); the login typed for this run
+    (Marcelo, 2026-10-19: "caso não tenha login, precisa ser informado") only
+    where the key isn't accepted. The typed password is never stored."""
+    if login is None:
+        return await host_exec_runner.call_bridge_exec(server, shell, command, timeout)
+    if server.remote_user and (server.ssh_key_ref or server.ssh_key_path):
+        outcome = await host_exec_runner.call_bridge_exec(server, shell, command, timeout)
+        if outcome.get("failure") != "auth":
+            return outcome
+    return await host_exec_runner.call_bridge_exec_as(
+        host=server.ip_address, user=login[0], port=server.ssh_port or 22, key_path=None, password=login[1],
+        shell=shell, script=command, timeout_seconds=timeout,
+    )
+
+
 def login_executor(shell: str, command: str, timeout: int, user: str, password: str):
-    """Runs on each machine with ForgeHub's own login when it works there (the
-    key is accepted), and with the login typed for this run on a machine
-    ForgeHub has no access to yet (Marcelo, 2026-10-19: "caso não tenha
-    login, precisa ser informado"). The typed password lives only in this
-    closure -- never stored, masked in the output."""
     async def run(server: Server) -> dict:
-        # ForgeHub's own key first, whatever the cached probe says (it is empty
-        # for 5 minutes after a restart); the typed login only where the key
-        # isn't accepted.
-        if server.remote_user and (server.ssh_key_ref or server.ssh_key_path):
-            outcome = await host_exec_runner.call_bridge_exec(server, shell, command, timeout)
-            if outcome.get("failure") != "auth":
-                return outcome
-        return await host_exec_runner.call_bridge_exec_as(
-            host=server.ip_address, user=user, port=server.ssh_port or 22, key_path=None, password=password,
-            shell=shell, script=command, timeout_seconds=timeout,
-        )
+        return await _run_on(server, shell, command, timeout, (user, password))
+
+    return run
+
+
+AUTO_KEY_SCRIPTS = ("tailscale_install:", "remote_access_install:")
+_TAG_RE = re.compile(r"^tag:[a-z0-9][a-z0-9-]{0,62}$")
+
+
+def wants_minted_auth_key(script: HostScript | None, values: dict | None) -> bool:
+    """A Tailscale installer run with the auth key left blank: ForgeHub mints
+    one per machine (2026-10-20, Marcelo: "Gerar, com aprovação no painel")."""
+    values = values or {}
+    if script is None or not (script.system_key or "").startswith(AUTO_KEY_SCRIPTS):
+        return False
+    if str(values.get("TAILSCALE_AUTHKEY") or "").strip():
+        return False
+    return (values.get("COMPONENTES") or "tailscale_e_rustdesk") != "somente_rustdesk"
+
+
+def minted_key_executor(script: HostScript, values: dict, api_key: str, tag: str, shell: str, timeout: int,
+                        login: tuple[str, str] | None, actor: str):
+    """Per machine: a single-use, NOT pre-authorized auth key carrying `tag`,
+    minted right before this machine's run, so each machine waits for a person
+    to approve it in the Tailscale console. The key lives only in this run's
+    script (masked in what is stored); its minting is audited, never its value."""
+    from app.core.tailscale_api import create_auth_key
+    from app.db.base import AsyncSessionLocal
+
+    async def run(server: Server) -> dict:
+        try:
+            key = await create_auth_key(api_key, tag, f"forgehub {server.name}", preauthorized=False)
+        except HTTPException as exc:
+            return {"failure": "command", "exit_code": None, "stdout": "", "stderr": f"Tailscale API: {exc.detail}"}
+        async with AsyncSessionLocal() as db:
+            db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="tailscale_auth_key_minted",
+                              actor=actor, payload={"tag": tag, "preauthorized": False}))
+            await db.commit()
+        command, _, _ = await prepare_script_run(script, {**values, "TAILSCALE_AUTHKEY": key})
+        return await _run_on(server, shell, command, timeout, login)
 
     return run
 
@@ -438,6 +479,21 @@ async def create_execution(
             raise HTTPException(status_code=422, detail="Inform both the login and the password")
         login = (payload.login_user.strip(), payload.login_password)
 
+    executor = login_executor(shell, command, timeout, login[0], login[1]) if login else None
+    if wants_minted_auth_key(script, payload.parameter_values):
+        from app.core.tailscale_api import load_api_key
+
+        api_key = await load_api_key(db)
+        if not api_key:
+            raise HTTPException(status_code=422, detail=(
+                "Paste the machine's Tailscale auth key, or register the Tailscale API credential "
+                "(Remote Access › Tailscale network) so ForgeHub generates one per machine"))
+        tag = str((payload.parameter_values or {}).get("TAILSCALE_TAG") or "").strip()
+        if not _TAG_RE.match(tag):
+            raise HTTPException(status_code=422, detail="Inform the Tailscale tag for the generated key (e.g. tag:gatling-users)")
+        executor = minted_key_executor(script, dict(payload.parameter_values or {}), api_key, tag, shell, timeout,
+                                       login, admin.username)
+
     loose = len(payload.server_ids)
     parts = [*group_names]
     if loose:
@@ -453,7 +509,7 @@ async def create_execution(
         secrets=[*secrets, payload.login_password] if login else secrets,
         script=script,
         values_for_hook=payload.parameter_values,
-        executor=login_executor(shell, command, timeout, login[0], login[1]) if login else None,
+        executor=executor,
         login_given=bool(login),
         reason=(payload.reason or "").strip() or None,
         darckware_item=item,

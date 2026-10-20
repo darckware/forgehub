@@ -3,7 +3,7 @@ everything else (rows, skip rules, background run, follow-up, cancel, busy)
 runs for real. Only rows created here are touched and deleted."""
 import asyncio
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -626,3 +626,54 @@ async def test_stop_all_cancels_every_running_execution(client, machines):
         await _wait(execution_id)
     detail = (await client.get(f"/api/v1/host-executions/{execution_id}")).json()
     assert detail["status"] == "cancelled" and detail["counts"]["skipped"] == 1
+
+
+@pytest.mark.asyncio
+async def test_installer_mints_one_unapproved_key_per_machine_when_left_blank(client, machines):
+    """Auth key left blank: one single-use, NOT pre-authorized key per machine
+    with the chosen tag (approved later in the Tailscale console); refused
+    without the API credential or a valid tag; the key is masked."""
+    from app.core import system_scripts
+    from app.core import tailscale_api
+    from app.db.models.host_script import HostScript
+
+    rows, created = machines
+    await system_scripts.seed_system_scripts()
+    async with AsyncSessionLocal() as db:
+        script = (await db.execute(select(HostScript).where(HostScript.system_key == "tailscale_install:linux"))).scalar_one()
+    minted, bodies = [], []
+
+    async def fake_mint(api_key, tag, description, preauthorized=True):
+        minted.append((tag, description, preauthorized))
+        return f"tskey-auth-k{len(minted)}SECRETVALUE"
+
+    async def fake_bridge(server, shell, body, timeout):
+        bodies.append(body)
+        return {"exit_code": 0, "stdout": "Tailscale conectado tskey-auth-k1SECRETVALUE", "stderr": "", "duration_ms": 1, "failure": None}
+
+    ids = [str(rows["linux"].id), str(rows["linux2"].id)]
+    base = {"script_id": str(script.id), "server_ids": ids, "parameter_values": {}}
+    with patch.object(tailscale_api, "load_api_key", AsyncMock(return_value=None)):
+        r = await client.post("/api/v1/host-executions", json=base)
+        assert r.status_code == 422 and "API credential" in r.json()["detail"]
+    with (
+        patch.object(tailscale_api, "load_api_key", AsyncMock(return_value="tskey-api-x")),
+        patch.object(tailscale_api, "create_auth_key", fake_mint),
+        patch.object(host_exec_runner, "call_bridge_exec", fake_bridge),
+    ):
+        r = await client.post("/api/v1/host-executions", json={**base, "parameter_values": {"TAILSCALE_TAG": "Gatling"}})
+        assert r.status_code == 422  # not a tag
+        r = await client.post("/api/v1/host-executions", json={**base, "parameter_values": {"TAILSCALE_TAG": "tag:gatling-users"}})
+        assert r.status_code == 201, r.text
+        execution_id = r.json()["id"]
+        created.append(uuid.UUID(execution_id))
+        await _wait(execution_id)
+    assert sorted(m[1] for m in minted) == sorted(f"forgehub {rows[n].name}" for n in ("linux", "linux2"))
+    assert all(m[0] == "tag:gatling-users" and m[2] is False for m in minted)
+    assert {b.count("tskey-auth-k") for b in bodies} == {1} and len({b for b in bodies}) == 2  # one key each
+    detail = (await client.get(f"/api/v1/host-executions/{execution_id}")).json()
+    assert "SECRETVALUE" not in detail["command"] and all("SECRETVALUE" not in (r["stdout"] or "") for r in detail["results"])
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(AuditEvent).where(AuditEvent.event_type == "tailscale_auth_key_minted",
+                                                  AuditEvent.entity_id.in_([rows["linux"].id, rows["linux2"].id])))
+        await db.commit()

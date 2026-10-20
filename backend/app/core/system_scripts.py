@@ -98,6 +98,7 @@ SUDO=""
 _SH_TAILSCALE_UP = """if command -v tailscale >/dev/null 2>&1 && tailscale status --json 2>/dev/null | grep -q '"BackendState": *"Running"'; then
     echo "Tailscale ja conectado: $(tailscale ip -4)"
 else
+    [ -n "$TAILSCALE_AUTHKEY" ] || { echo "Informe a chave de autenticacao da Tailscale" >&2; exit 2; }
     command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | $SUDO sh
     HN="${TAILSCALE_HOSTNAME:-$(hostname | tr 'A-Z' 'a-z')}"
     $SUDO tailscale up --authkey="$TAILSCALE_AUTHKEY" --hostname="$HN"
@@ -120,8 +121,15 @@ $SUDO rustdesk --password "$RUSTDESK_PASSWORD" >/dev/null
 """
 _SH_RUSTDESK_INSTALL = _SH_RUSTDESK_SETUP + 'echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"\n'
 
+# Left blank, the auth key is minted by ForgeHub through the Tailscale API: one
+# single-use, NOT pre-authorized key per machine, carrying this tag -- each
+# machine then waits for a person to approve it in the Tailscale console
+# (2026-10-20, Marcelo: "Gerar, com aprovação no painel").
+AUTO_AUTHKEY_TAG = "TAILSCALE_TAG"
+_TAILSCALE_TAG_PARAM = {"name": AUTO_AUTHKEY_TAG, "label": "Tag da Tailscale (ex.: tag:gatling-users; quando o ForgeHub gera a chave)"}
 _TAILSCALE_PARAMS = [
-    {"name": "TAILSCALE_AUTHKEY", "label": "Chave de autenticação da Tailscale (tskey-auth-...)", "required": True, "secret": True},
+    {"name": "TAILSCALE_AUTHKEY", "label": "Chave de autenticação da Tailscale (tskey-auth-...)", "secret": True},
+    _TAILSCALE_TAG_PARAM,
     {"name": "TAILSCALE_HOSTNAME", "label": "Nome na tailnet (vazio = nome do computador)"},
 ]
 
@@ -228,6 +236,7 @@ _COMPONENTS_PARAM = {"name": "COMPONENTES", "label": "O que instalar", "required
 # Required only for the components that use them; the script checks.
 _TAILSCALE_PARAMS_OPTIONAL = [
     {"name": "TAILSCALE_AUTHKEY", "label": "Chave de autenticação da Tailscale (tskey-auth-...; quando instalar a Tailscale)", "secret": True},
+    _TAILSCALE_TAG_PARAM,
     {"name": "TAILSCALE_HOSTNAME", "label": "Nome na tailnet (vazio = nome do computador)"},
 ]
 
@@ -392,6 +401,7 @@ if (Test-Path $ts) {
     $state = (& $ts status --json 2>$null | ConvertFrom-Json).BackendState
     if ($state -eq 'Running') { "Tailscale ja conectado: $((& $ts ip -4) -join ' ')"; exit 0 }
 }
+if (-not $TAILSCALE_AUTHKEY) { throw 'Informe a chave de autenticacao da Tailscale' }
 $hn = if ($TAILSCALE_HOSTNAME) { $TAILSCALE_HOSTNAME } else { $env:COMPUTERNAME.ToLower() }
 $sec = New-SecretDir
 try {
