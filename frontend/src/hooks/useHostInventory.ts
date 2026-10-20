@@ -297,6 +297,8 @@ export interface MaintenanceEntry {
   darckware_item_kind: "ticket" | "demand" | null;
   darckware_item_id: string | null;
   execution_id: string | null;
+  /** The Messages task an agent's run answered, or a request created. */
+  message_number?: number | null;
 }
 
 export function useMachineMaintenance(serverId: string | null) {
@@ -304,5 +306,22 @@ export function useMachineMaintenance(serverId: string | null) {
     queryKey: ["servers", serverId, "maintenance"],
     queryFn: () => apiClient.get(`/api/v1/servers/${serverId}/maintenance`),
     enabled: Boolean(serverId),
+  });
+}
+
+
+export interface OsDetection {
+  name: string;
+  os_family: "windows" | "linux" | "macos" | null;
+  detail?: string | null;
+}
+
+/** Fills the OS of machines registered without one, asking each over
+ * ForgeHub's own SSH login; never overwrites an OS already set. */
+export function useDetectMissingOs() {
+  const qc = useQueryClient();
+  return useMutation<OsDetection[], Error, void>({
+    mutationFn: () => apiClient.post("/api/v1/servers/os:detect"),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["servers"] }),
   });
 }

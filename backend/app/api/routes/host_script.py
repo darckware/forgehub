@@ -407,6 +407,8 @@ async def fire_schedule(db: AsyncSession, schedule: HostSchedule, actor: str):
         secrets=secrets, trigger="schedule", agent_id=schedule.agent_id, schedule_id=schedule.id,
         script=script, retry_until=_now() + timedelta(minutes=schedule.window_minutes),
         values_for_hook=schedule.parameter_values,
+        # The maintenance record of a scheduled run: which schedule fired it.
+        reason=f"Agendamento: {schedule.name}",
     )
 
 

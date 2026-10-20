@@ -411,6 +411,8 @@ class HostPreparationOut(BaseModel):
     login: str = "darckware"
     # mode="ssh": the execution that runs preparation -> check -> lock admin.
     execution_id: uuid.UUID | None = None
+    # The Messages task an agent's run answered / a request created.
+    message_number: int | None = None
 
 
 class EnrollmentCreate(BaseModel):

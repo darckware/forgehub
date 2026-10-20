@@ -150,10 +150,10 @@ function Invoke-Ts([string[]]$TsArgs) {
     $ErrorActionPreference = 'Continue'
     $out = & $ts @TsArgs 2>&1 | ForEach-Object { [string]$_ }
     $text = $out -join ' '
-    if ($text -match 'already in use by ([^\\s,]+)') {
-        throw ("A Tailscale desta maquina esta presa ao usuario $($Matches[1]) (conectada pelo icone da bandeja): " +
-               'o Windows recusa comandos de outra conta enquanto o icone dele estiver aberto. Feche a Tailscale ' +
-               'na sessao desse usuario (ou saia dela) e rode de novo.')
+    if ($text -match 'already in use by ([^\\s,]+)' -or $text -match 'server mode \\("?([^"\\)]+)') {
+        throw ("A Tailscale desta maquina pertence ao usuario $($Matches[1]) do Windows (foi conectada na sessao " +
+               'dele) e so essa conta pode altera-la. Para o ForgeHub administrar, a Tailscale precisa ser ' +
+               'reconectada pela conta darckware (instalador do ForgeHub com uma nova auth key).')
     }
     if ($LASTEXITCODE -ne 0) { throw "tailscale $($TsArgs -join ' ') falhou: $text" }
     $out

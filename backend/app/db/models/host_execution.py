@@ -86,6 +86,10 @@ class HostExecution(Base, TimestampMixin):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     darckware_item_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
     darckware_item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The Messages task an agent's run answers (agents act only on a task).
+    agent_demand_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class HostExecutionResult(Base, TimestampMixin):

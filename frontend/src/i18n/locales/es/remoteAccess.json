@@ -383,6 +383,8 @@
     "history": "Historial"
   },
   "quick": {
+    "detectOs": "Detectar sistemas operativos",
+    "detectOsResult": "Sistema detectado en {{found}} de {{total}} máquina(s) sin sistema registrado",
     "title": "Instalaciones",
     "remote_access_install": "Instalador Darckware Remoto",
     "rustdesk_get_id": "Obtener ID de RustDesk",

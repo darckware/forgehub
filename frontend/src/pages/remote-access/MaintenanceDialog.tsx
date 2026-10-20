@@ -56,6 +56,7 @@ export function MaintenanceDialog({ machine, onClose }: { machine: Server; onClo
                   <p className="text-xs text-muted-foreground">
                     {fmt.format(new Date(entry.at))} · {entry.agent_name ? t("maintenance.byAgent", { name: entry.agent_name }) : entry.actor}
                     {entry.darckware_item_id && ` · ${t(`maintenance.item.${entry.darckware_item_kind}`, { id: entry.darckware_item_id })}`}
+                    {entry.message_number && <> · <Link to="/demands" className="underline">{t("askAgent.message", { number: entry.message_number })}</Link></>}
                   </p>
                   {entry.reason && <p className="text-xs">{entry.reason}</p>}
                 </div>

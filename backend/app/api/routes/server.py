@@ -734,6 +734,7 @@ _EVENT_TITLES = {
     "preparation_script_generated": "Script de preparação gerado (RustDesk)",
     "rustdesk_password_recorded": "Senha do RustDesk registrada",
     "rustdesk_id_recorded": "ID do RustDesk registrado",
+    "os_detected": "Sistema operacional detectado",
     "rustdesk_password_revealed": "Senha do RustDesk consultada",
     "login_password_revealed": "Senha da conta darckware consultada",
     "login_password_rotated": "Senha da conta darckware trocada",
@@ -762,22 +763,25 @@ async def machine_maintenance(
     if not await db.get(Server, server_id):
         raise HTTPException(status_code=404, detail="Server not found")
     entries: list[MaintenanceEntry] = []
+    from app.db.models.demand import AgentDemand
+
     rows = (await db.execute(
-        select(HostExecutionResult, HostExecution, Agent.name)
+        select(HostExecutionResult, HostExecution, Agent.name, AgentDemand.number)
         .join(HostExecution, HostExecution.id == HostExecutionResult.execution_id)
         .outerjoin(Agent, Agent.id == HostExecution.agent_id)
+        .outerjoin(AgentDemand, AgentDemand.id == HostExecution.agent_demand_id)
         .where(HostExecutionResult.server_id == server_id)
         .order_by(HostExecution.started_at.desc())
         .limit(limit)
     )).all()
-    for result, execution, agent_name in rows:
+    for result, execution, agent_name, message_number in rows:
         entries.append(MaintenanceEntry(
             at=result.started_at or execution.started_at, kind="execution",
             actor=agent_name or execution.requested_by, agent_name=agent_name, trigger=execution.trigger,
             title=execution.script_name or (execution.command.splitlines() or [""])[0][:120],
             status=result.status, reason=execution.reason,
             darckware_item_kind=execution.darckware_item_kind, darckware_item_id=execution.darckware_item_id,
-            execution_id=execution.id,
+            execution_id=execution.id, message_number=message_number,
         ))
     sessions = (await db.execute(
         select(AuditEvent)
@@ -797,8 +801,10 @@ async def machine_maintenance(
             title = f"Tarefa pedida ao agente {payload.get('agent', '?')} (mensagem #{payload.get('demand_number')})"
         else:
             title = _EVENT_TITLES.get(event.event_type, event.event_type.replace("_", " "))
+        requested = event.event_type == "agent_task_requested"
         entries.append(MaintenanceEntry(at=event.created_at, kind="event", actor=event.actor, title=title,
-                                        reason=payload.get("instruction") if event.event_type == "agent_task_requested" else None))
+                                        reason=payload.get("instruction") if requested else None,
+                                        message_number=payload.get("demand_number") if requested else None))
     entries.sort(key=lambda e: e.at, reverse=True)
     return entries[:limit]
 
@@ -1170,6 +1176,42 @@ async def _adopt_vault_key(db: AsyncSession, server: Server, actor: str) -> str:
                       payload={"old_key_path": old_path, "verified_with": "forgevault"}))
     await db.commit()
     return "switched"
+
+
+@router.post("/os:detect")
+async def detect_missing_os(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> list[dict]:
+    """Fills the operating system of machines registered without one
+    (2026-10-19: 13 of 14 servers had none, so Windows scripts were never
+    offered to them), asking the machine itself over ForgeHub's own SSH login
+    (`uname -s`, then PowerShell). Never overwrites an OS already set; a
+    machine that doesn't answer is reported and left as it is."""
+    servers = list((await db.execute(select(Server).where(
+        Server.os_family.is_(None), Server.access_enabled.is_(True),
+        Server.remote_user.is_not(None), Server.remote_user != "", Server.ip_address.is_not(None),
+    ).order_by(Server.name))).scalars())
+
+    async def one(server: Server) -> dict:
+        if not (server.ssh_key_ref or server.ssh_key_path):
+            return {"name": server.name, "os_family": None, "detail": "No ForgeHub key for this machine"}
+        resp = await _bridge_post("/v1/servers/detect-os", {
+            "host": server.ip_address, "user": server.remote_user, "port": server.ssh_port or 22,
+            "key_ref": server.ssh_key_ref, "key_path": None if server.ssh_key_ref else server.ssh_key_path,
+        }, timeout=120.0)
+        if resp.status_code != 200:
+            return {"name": server.name, "os_family": None, "detail": _bridge_detail(resp)}
+        return {"name": server.name, **resp.json()}
+
+    results = await asyncio.gather(*(one(s) for s in servers))
+    for server, result in zip(servers, results):
+        if result.get("os_family") in ("windows", "linux", "macos"):
+            server.os_family = result["os_family"]
+            db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="os_detected",
+                              actor=admin.username, payload={"os_family": server.os_family, "detail": result.get("detail")}))
+    await db.commit()
+    return list(results)
 
 
 @router.post("/keys:to-vault", response_model=KeysToVaultOut)

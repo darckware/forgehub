@@ -101,6 +101,7 @@ class HostExecutionSummary(BaseModel):
     reason: str | None = None
     darckware_item_kind: str | None = None
     darckware_item_id: str | None = None
+    agent_demand_id: uuid.UUID | None = None
 
 
 class HostExecutionDetail(HostExecutionSummary):
@@ -118,6 +119,9 @@ class AgentExecutionCreate(BaseModel):
     parameter_values: dict[str, str | None] = Field(default_factory=dict)
     server_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_TARGETS)
     reason: str = Field(min_length=5, max_length=2000)
+    # The Messages task (its #number) this run answers. Required for agents:
+    # the run must fit what that task allowed (machines, scripts).
+    message_number: int | None = Field(default=None, ge=1)
     darckware_item_kind: Literal["ticket", "demand"] | None = None
     darckware_item_id: str | None = Field(default=None, min_length=1, max_length=64)
 

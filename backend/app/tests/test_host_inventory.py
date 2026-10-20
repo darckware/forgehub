@@ -339,3 +339,42 @@ async def test_readiness_is_open_to_the_servers_module():
             await db.execute(delete(ProfilePermission).where(ProfilePermission.profile_id == profile_id))
             await db.execute(delete(Profile).where(Profile.id == profile_id))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_detect_missing_os_fills_only_blank_and_answering_machines(client, marker):
+    """Only this test's rows get an answer: every other machine (real ones
+    share this database) gets a bridge error and must stay untouched."""
+    import httpx
+
+    from app.db.models.governance import AuditEvent
+
+    async with AsyncSessionLocal() as db:
+        win = _row(name=f"win-{marker}", ip_address="100.127.8.1", ssh_key_path="/k")
+        lin = _row(name=f"lin-{marker}", ip_address="100.127.8.2", ssh_key_path="/k")
+        set_already = _row(name=f"mac-{marker}", ip_address="100.127.8.3", ssh_key_path="/k", os_family="macos")
+        nokey = _row(name=f"nokey-{marker}", ip_address="100.127.8.4")
+        db.add_all([win, lin, set_already, nokey])
+        await db.commit()
+
+    answers = {"100.127.8.1": "windows", "100.127.8.2": "linux"}
+    asked = []
+
+    async def fake_bridge(path, payload, timeout=20.0):
+        asked.append(payload["host"])
+        if payload["host"] in answers:
+            return httpx.Response(200, json={"os_family": answers[payload["host"]], "detail": "x"})
+        return httpx.Response(502, json={"detail": "Machine unreachable on SSH"})
+
+    with patch.object(server_routes, "_bridge_post", fake_bridge):
+        resp = await client.post("/api/v1/servers/os:detect")
+    assert resp.status_code == 200, resp.text
+    by_name = {r["name"]: r for r in resp.json()}
+    assert by_name[f"nokey-{marker}"]["detail"] == "No ForgeHub key for this machine"
+    assert f"mac-{marker}" not in by_name and "100.127.8.3" not in asked
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Server, win.id)).os_family == "windows"
+        assert (await db.get(Server, lin.id)).os_family == "linux"
+        assert (await db.get(Server, set_already.id)).os_family == "macos"
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_([win.id, lin.id])))
+        await db.commit()

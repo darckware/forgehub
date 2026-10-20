@@ -7,6 +7,7 @@ import {
   Loader2,
   RefreshCw,
   RotateCw,
+  ScanSearch,
   ShieldCheck,
   TriangleAlert,
   Waypoints,
@@ -21,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDetectMissingOs } from "@/hooks/useHostInventory";
 import { useRemoteAccessViewModel } from "@/hooks/useRemoteAccessViewModel";
 import type { VpnNode, VpnOperation } from "@/hooks/useVpn";
 import { cn } from "@/lib/utils";
@@ -297,6 +299,7 @@ export default function RemoteAccessPage() {
   const sub = (params.get("sub") as ScriptsTab) || "run";
   const system = params.get("system");
   const [preparing, setPreparing] = useState(false);
+  const detectOs = useDetectMissingOs();
   const [rotating, setRotating] = useState<"login_password" | "ssh_key" | null>(null);
 
   useEffect(() => {
@@ -338,6 +341,9 @@ export default function RemoteAccessPage() {
                 <RotateCw className="h-3.5 w-3.5" aria-hidden="true" /> {t(`quick.rotate_${kind}`)}
               </Button>
             ))}
+            <Button type="button" variant="outline" size="sm" className="cursor-pointer gap-1.5" onClick={() => detectOs.mutate()} disabled={detectOs.isPending}>
+              {detectOs.isPending ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <ScanSearch className="h-3.5 w-3.5" aria-hidden="true" />} {t("quick.detectOs")}
+            </Button>
             {(["remote_access_install", "tailscale_install", "rustdesk_install", "rustdesk_get_id", "rustdesk_password"] as const).map((action) => (
               <Button key={action} type="button" variant="outline" size="sm" className="cursor-pointer gap-1.5"
                 onClick={() => go({ tab: "scripts", sub: "run", system: action })}>
@@ -345,6 +351,13 @@ export default function RemoteAccessPage() {
               </Button>
             ))}
           </div>}
+          {detectOs.data && (
+            <p role="status" className="rounded-md border border-border px-3 py-2 text-xs">
+              {t("quick.detectOsResult", { found: detectOs.data.filter((r) => r.os_family).length, total: detectOs.data.length })}
+              {detectOs.data.filter((r) => !r.os_family).map((r) => ` · ${r.name}: ${r.detail ?? "?"}`).join("")}
+            </p>
+          )}
+          {detectOs.error && <p role="alert" className="text-xs text-destructive">{detectOs.error.message}</p>}
           {isAdmin && <AuthorizedAgentsCard />}
           <MachinesCard />
           {rotating && (

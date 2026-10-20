@@ -112,20 +112,25 @@ async def test_run_skips_with_reasons_and_masks_output(client, machines):
 
 @pytest.mark.asyncio
 async def test_typed_login_runs_where_forgehub_has_no_access(client, machines):
-    """ForgeHub's own login where its SSH probe works; the login typed for
-    this run on a machine it can't reach yet -- password never stored."""
+    """ForgeHub's own key first; the login typed for this run only where that
+    key is refused or there is none -- password never stored."""
     rows, created = machines
     own, typed = [], []
+    async with AsyncSessionLocal() as db:
+        for name in ("linux", "linux2"):
+            (await db.get(Server, rows[name].id)).ssh_key_path = "/root/.ssh/forgehub_test_key"
+        await db.commit()
 
     async def fake_own(server, shell, script, timeout):
         own.append(server.name)
+        if server.id == rows["linux2"].id:
+            return {"failure": "auth", "stderr": "Permission denied"}
         return {"exit_code": 0, "stdout": "own", "stderr": "", "duration_ms": 1, "failure": None}
 
     async def fake_as(**kw):
         typed.append((kw["host"], kw["user"], kw["password"], kw["key_path"]))
         return {"exit_code": 0, "stdout": "typed Pw-9x!typed", "stderr": "", "duration_ms": 1, "failure": None}
 
-    server_routes._ssh_probe_cache.update({"at": None, "statuses": {str(rows["linux"].id): "active"}})
     try:
         assert (await client.post("/api/v1/host-executions", json={
             "command": "uptime", "shell": "sh", "server_ids": [str(rows["linux"].id)], "login_user": "suporte",
@@ -146,7 +151,7 @@ async def test_typed_login_runs_where_forgehub_has_no_access(client, machines):
     finally:
         server_routes._ssh_probe_cache.update({"at": None, "statuses": {}})
 
-    assert own == [rows["linux"].name]
+    assert sorted(own) == sorted([rows["linux"].name, rows["linux2"].name])
     assert sorted(t[0] for t in typed) == ["100.127.9.2", "100.127.9.5"]  # incl. the machine with no login
     assert all(t[1:] == ("suporte", "Pw-9x!typed", None) for t in typed)
     detail = (await client.get(f"/api/v1/host-executions/{execution_id}")).json()
@@ -312,6 +317,7 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
 
     from app.core.security import hash_password
     from app.db.models.agent import Agent, AgentServiceCredential
+    from app.db.models.demand import AgentDemand
     from app.db.models.governance import AuthorityDelegation
     from app.db.models.host_script import HostScript, HostScriptCategory
     from app.db.models.user import User
@@ -333,8 +339,18 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
         db.add_all([grantor, agent, script, risky])
         await db.flush()
         db.add(AgentServiceCredential(agent_id=agent.id, label="test", token_hash=hashlib.sha256(token.encode()).hexdigest()))
+        # A task addressed to the agent, never scheduled (nothing dispatches it).
+        task = AgentDemand(from_agent="t", subject=f"maint {tag}", body="x", origin_type="task",
+                           target_agent_id=agent.id, from_agent_id=agent.id)
+        other = AgentDemand(from_agent="t", subject=f"other {tag}", body="x", origin_type="task")
+        db.add_all([task, other])
+        await db.flush()
+        # "Pedir ao agente" recorded what this task allows.
+        db.add(AuditEvent(entity_type="agent_maintenance_request", entity_id=task.id, event_type="created", actor="t",
+                          payload={"server_ids": [str(rows["linux"].id)], "script_ids": [str(script.id)]}))
         await db.commit()
-        ids = SimpleNamespace(grantor=grantor.id, agent=agent.id, script=script.id, risky=risky.id)
+        ids = SimpleNamespace(grantor=grantor.id, agent=agent.id, script=script.id, risky=risky.id,
+                              task=task.id, number=task.number, other=other.number)
 
     ready = {rows["linux"].id: "ready"}
 
@@ -347,7 +363,8 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
     async def fake_bridge(server, shell, script, timeout):
         return {"exit_code": 0, "stdout": "up 3 days", "stderr": "", "duration_ms": 5, "failure": None}
 
-    body = {"script_id": str(ids.script), "server_ids": [str(rows["linux"].id)], "reason": "Cliente relatou lentidão"}
+    body = {"script_id": str(ids.script), "server_ids": [str(rows["linux"].id)], "reason": "Cliente relatou lentidão",
+            "message_number": ids.number}
     headers = {"Authorization": f"Bearer {token}"}
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers) as ac:
@@ -370,6 +387,13 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
                 assert any(s["id"] == str(ids.script) for s in scripts)
                 assert (await ac.post("/api/v1/host-executions/agent", json={**body, "script_id": str(ids.risky)})).status_code == 403
                 assert (await ac.post("/api/v1/host-executions/agent", json={**body, "reason": ""})).status_code == 422
+                no_task = {k: v for k, v in body.items() if k != "message_number"}
+                assert (await ac.post("/api/v1/host-executions/agent", json=no_task)).status_code == 422
+                assert (await ac.post("/api/v1/host-executions/agent", json={**body, "message_number": ids.other})).status_code == 403
+                ready[rows["linux2"].id] = "ready"  # ready, but not in the task
+                outside = await ac.post("/api/v1/host-executions/agent", json={**body, "server_ids": [str(rows["linux2"].id)]})
+                assert outside.status_code == 403 and "Not in task" in outside.json()["detail"]
+                del ready[rows["linux2"].id]
                 not_ready = await ac.post("/api/v1/host-executions/agent", json={**body, "server_ids": [str(rows["linux2"].id)]})
                 assert not_ready.status_code == 409 and rows["linux2"].name in not_ready.json()["detail"]
 
@@ -381,7 +405,7 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
                 got = (await ac.get(f"/api/v1/host-executions/agent/{execution_id}")).json()
                 assert got["trigger"] == "agent" and got["agent_name"] == f"maint-agent-{tag}"
                 assert got["reason"] == "Cliente relatou lentidão" and got["darckware_item_id"] == "T-42"
-                assert got["counts"]["succeeded"] == 1
+                assert got["counts"]["succeeded"] == 1 and got["agent_demand_id"] == str(ids.task)
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test",
                                headers={"Authorization": f"Bearer {create_access_token(f'grantor-{tag}')}"}) as ac:
@@ -396,6 +420,8 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
             created.clear()
             await db.execute(delete(AuthorityDelegation).where(AuthorityDelegation.grantee_id == ids.agent))
             await db.execute(delete(AgentServiceCredential).where(AgentServiceCredential.agent_id == ids.agent))
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == ids.task))
+            await db.execute(delete(AgentDemand).where(AgentDemand.number.in_([ids.number, ids.other])))
             await db.execute(delete(HostScript).where(HostScript.id.in_([ids.script, ids.risky])))
             await db.execute(delete(Agent).where(Agent.id == ids.agent))
             await db.execute(delete(User).where(User.id == ids.grantor))
@@ -413,6 +439,7 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
     from app.api.routes import demand as demand_routes
     from app.core.security import hash_password
     from app.db.models.agent import Agent
+    from app.db.models.demand import AgentDemand
     from app.db.models.governance import AuthorityDelegation
     from app.db.models.host_script import HostScript, HostScriptCategory
     from app.db.models.user import User
@@ -445,9 +472,13 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
 
     sent = []
 
-    async def fake_create(db, payload):
+    async def fake_create(db, payload, commit=True):
+        # A real row, never scheduled: nothing dispatches it.
         sent.append(payload)
-        return SimpleNamespace(id=uuid.uuid4(), number=900 + len(sent))
+        demand = AgentDemand(from_agent=payload.from_agent, subject=payload.subject, body=payload.body,
+                             origin_type="task", target_agent_id=payload.target_agent_id, from_agent_id=payload.from_agent_id)
+        db.add(demand)
+        return demand
 
     base = {"server_ids": [str(rows["linux"].id)], "instruction": "Reiniciar o spooler travado",
             "scripts": [{"script_id": str(ids.change), "parameter_values": {"SERVICE": "spooler"}}],
@@ -474,6 +505,13 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
             assert r.status_code == 201 and len(r.json()) == 2
         task = sent[0]
         assert task.origin_type == "task" and task.target_agent_id == task.from_agent_id == ids.mid
+        async with AsyncSessionLocal() as db:
+            stored = (await db.execute(select(AgentDemand).where(AgentDemand.subject == task.subject[:255],
+                                                                 AgentDemand.target_agent_id == ids.mid))).scalars().first()
+            assert f"Esta é a tarefa #{stored.number}" in stored.body  # the agent knows its message_number
+            spec = (await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "agent_maintenance_request",
+                                                              AuditEvent.entity_id == stored.id))).scalar_one()
+            assert spec.payload["server_ids"] == [str(rows["linux"].id)] and spec.payload["script_ids"] == [str(ids.change)]
         assert str(rows["linux"].id) in task.body and str(ids.change) in task.body and "SERVICE=spooler" in task.body
         assert 'darckware_ticket_id="T-9"' in task.body
         assert "list_maintenance_scripts" in sent[1].body and len(sent) == 3
@@ -483,6 +521,10 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
         async with AsyncSessionLocal() as db:
             await db.execute(delete(AuditEvent).where(AuditEvent.event_type == "agent_task_requested",
                                                       AuditEvent.entity_id.in_([r.id for r in rows.values()])))
+            demand_ids = list((await db.execute(select(AgentDemand.id).where(
+                AgentDemand.target_agent_id.in_([ids.low, ids.mid])))).scalars())
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(demand_ids)))
+            await db.execute(delete(AgentDemand).where(AgentDemand.id.in_(demand_ids)))
             await db.execute(delete(AuthorityDelegation).where(AuthorityDelegation.grantor_user_id == ids.grantor))
             await db.execute(delete(HostScript).where(HostScript.id == ids.change))
             await db.execute(delete(Agent).where(Agent.id.in_([ids.low, ids.mid, ids.none])))
