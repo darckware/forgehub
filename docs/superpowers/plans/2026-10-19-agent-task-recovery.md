@@ -10,9 +10,9 @@
 
 **Spec:** requisitos de Marcelo nesta conversa em 19/10/2026: analisar falhas e incubação e planejar uma aba em Pessoal para arquivar, excluir ou executar. Este documento apresenta a proposta de comportamento e o plano de implementação para revisão; implementação e tratamento dos registros existentes são etapas posteriores.
 
-## Situação da implementação — 2026-10-20 (concluída no código)
+## Situação da implementação — 2026-10-20
 
-Etapas 1 a 4 implementadas e testadas; da Etapa 5 restam só as ações sobre os registros existentes, que dependem do deploy (migrations `d4f9a2c6e8b1`, `e6a1c8d3f9b2`) e da sua decisão item a item.
+Etapas 1 a 4 concluídas no código. A recuperação de resultado incerto exige investigação registrada e confirmação digitada do `agent_run_id` (ou do número da mensagem quando não há run); nenhuma dessas ações enfileira trabalho. O frontend, backend e validação de navegador passaram. A publicação e a consolidação inicial de 34 origens em cinco resumos de Incubação são as próximas ações autorizadas. A revisão individual de outras falhas históricas continua separada: exige evidência atual antes de qualquer retentativa.
 
 - Proteções: reserva atômica (advisory lock + `agent_run_id` gravado antes do início externo) em todos os caminhos; arquivar/excluir recusados com execução ativa; excluir recusado com resultado incerto; restaurar limpa o agendamento e exige nova aprovação; incubação arquivada não amadurece.
 - Recuperação: `POST /demands/{id}/reconcile`; decisões `record_investigation` (só registra evidência, mantém o bloqueio) e `confirm_inactive` (exige motivo, evidência e o identificador da execução digitado; a falha passa a ser conhecida, nada executa); `authorize_retry` renova o orçamento do ciclo (`retry_limit`) sem zerar `dispatch_attempts`. Histórico durável em `AuditEvent(entity_type="agent_demand")`, exposto em `GET /demands/{id}/history`.
@@ -174,7 +174,7 @@ Cada item inclui `allowed_actions` e motivos de bloqueio calculados no backend. 
 - [ ] Preparar relatório dos registros existentes por ID, agente, categoria e ação recomendada. Revisar primeiro os 11 casos incertos, depois as falhas com tentativas esgotadas e as demais falhas.
 - [ ] Apresentar as 12 incubações para decisão de promover, adiar, descartar ou arquivar. Vencimento sozinho não autoriza execução nem exclusão.
 - [ ] Após a aprovação das ações concretas sobre o passivo, aplicá-las com trilha de auditoria e conferir as contagens finais.
-- [ ] Atualizar a documentação operacional com as novas ações, restrições e procedimento para futuras falhas.
+- [x] Atualizar a documentação operacional com as novas ações, restrições e procedimento para futuras falhas.
 
 ## Ordem de entrega e limites
 

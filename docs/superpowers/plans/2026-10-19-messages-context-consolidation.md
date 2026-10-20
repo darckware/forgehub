@@ -1,12 +1,12 @@
 # Messages — consolidação por projeto e área
 
-**Estado:** análise concluída; desenho aprovado por Marcelo nesta conversa; implementação em andamento.
+**Estado:** análise, desenho e implementação concluídos; consolidação operacional autorizada e pendente de publicação.
 
 **Objetivo:** substituir o contexto espalhado em falhas e incubações antigas por resumos rastreáveis em Incubação, sem reexecutar trabalho nem apagar o histórico.
 
 ## Situação da implementação — 2026-10-20
 
-Código concluído e testado (serviço, endpoint administrativo `POST /demands/consolidate`, filtro por projeto/área, navegação resumo ↔ origens, guardas). Falta aplicar a consolidação dos 34 registros, o que exige as migrations em produção: rodar `scripts/consolidate_messages_20261020.py` (prévia somente leitura) e depois com `--apply`, após o deploy.
+Código concluído e testado (serviço, endpoint administrativo `POST /demands/consolidate`, filtro por projeto/área, navegação resumo ↔ origens, guardas). A prévia somente leitura confirmou os 34 IDs e cinco grupos. Aplicar `scripts/consolidate_messages_20261020.py --apply` após a publicação e conferir os invariantes registrados abaixo.
 
 ## Diagnóstico e desenho aprovado
 

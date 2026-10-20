@@ -13,7 +13,7 @@ export const WORK_VIEWS = ["attention", "approval", "incubation", "failed", "que
 export type WorkView = typeof WORK_VIEWS[number];
 export type WorkAction = "approve" | "reject" | "postpone" | "drop" | "archive" | "restore" | "delete" | "reconcile" | "retry" | "authorize_retry" | "record_investigation" | "confirm_inactive";
 type HistoryEvent = { id: string; action: string; actor: string; created_at: string; payload: Record<string, unknown> | null };
-type BulkResult = { id: string; status: "success" | "blocked" | "missing" | "stale"; detail: string | null };
+type BulkResult = { id: string; status: "success" | "blocked" | "missing" | "stale"; detail: string | null; number?: number; subject?: string };
 
 export function workState(item: Demand & { work_state?: string }): string {
   if (item.work_state) return item.work_state;
@@ -57,7 +57,9 @@ export function useAgentTasksViewModel() {
   const client = useQueryClient(), items = query.data?.items ?? [], page = query.data?.page ?? requestedPage;
   const selected = items.find(row => row.id === selectedId) ?? null;
   const filterKey = `${view}:${context}:${agent}:${from}:${to}:${debouncedSearch}:${requestedPage}`;
-  useEffect(() => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); }, [filterKey]);
+  useEffect(() => { setSelectedId(null); setSelectedIds([]); }, [filterKey]);
+  const resultFilterKey = `${view}:${context}:${agent}:${from}:${to}:${debouncedSearch}`;
+  useEffect(() => { setBulkResults([]); }, [resultFilterKey]);
   useEffect(() => { if (query.data && query.data.page !== requestedPage) setParams(prev => { const next = new URLSearchParams(prev); next.set("workPage", String(query.data.page)); return next; }, { replace: true }); }, [query.data?.page, requestedPage, setParams]);
   const history = useQuery({ queryKey: [...demandKeys.all, "history", selectedId], queryFn: ({ signal }) => apiClient.get<HistoryEvent[]>(`/api/v1/demands/${selectedId}/history`, { signal }), enabled: Boolean(selectedId) });
   const sources = useQuery({ queryKey: [...demandKeys.all, "sources", selectedId], queryFn: ({ signal }) => apiClient.get<Demand[]>(`/api/v1/demands/${selectedId}/sources`, { signal }), enabled: Boolean(selectedId) });
@@ -75,7 +77,11 @@ export function useAgentTasksViewModel() {
   });
   const bulk = useMutation({
     mutationFn: ({ action, items: selectedItems }: { action: "archive" | "restore"; items: AgentWorkItem[] }) => apiClient.post<{ results: BulkResult[] }>("/api/v1/demands/agent-work/bulk", { action, items: selectedItems.map(item => ({ id: item.id, updated_at: item.updated_at })) }),
-    onSuccess: async result => { setBulkResults(result.results); setBulkConfirmation(null); setSelectedIds([]); await invalidate(); },
+    onSuccess: async (result, variables) => {
+      const byId = new Map(variables.items.map(item => [item.id, item]));
+      setBulkResults(result.results.map(row => ({ ...row, number: byId.get(row.id)?.number, subject: byId.get(row.id)?.subject })));
+      setBulkConfirmation(null); setSelectedIds([]); await invalidate();
+    },
   });
   const setFilter = (key: string, value: string) => setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); if (value && value !== "all") next.set(key, value); else next.delete(key); if (key !== "workPage") next.delete("workPage"); return next; }, { replace: true });
   const agentName = (item: Demand) => agents.data?.find(row => row.id === (item.incubation_owner_id ?? item.target_agent_id))?.name ?? item.from_agent;

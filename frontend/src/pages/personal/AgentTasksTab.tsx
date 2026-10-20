@@ -49,14 +49,14 @@ export function AgentTasksTab() {
       <Button variant="outline" size="sm" onClick={() => vm.askBulk(vm.view === "archived" ? "restore" : "archive")}>{t(vm.view === "archived" ? "agentTasks.bulkRestore" : "agentTasks.bulkArchive")}</Button>
     </div>}
     {vm.bulkResults.length > 0 && <ul role="status" className="space-y-1 text-sm">{vm.bulkResults.map(result => <li key={result.id}>
-      {shown.find(item => item.id === result.id)?.subject ?? result.id}: {t(`agentTasks.bulkStatus.${result.status}`)}{result.detail ? ` — ${result.detail}` : ""}
+      {result.number ? `#${result.number} · ${result.subject}` : result.subject ?? result.id}: {t(`agentTasks.bulkStatus.${result.status}`)}{result.detail ? ` — ${result.detail}` : ""}
     </li>)}</ul>}
     {vm.query.isLoading ? <p role="status" className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{t("agentTasks.loading")}</p>
       : vm.query.isError ? <div role="alert"><p>{t("agentTasks.loadError")}</p><Button variant="outline" onClick={() => void vm.query.refetch()}>{t("agentTasks.retryLoad")}</Button></div>
       : <>
         <div className="overflow-x-auto rounded-md border">
           <Table><TableHeader><TableRow>
-            <TableHead><input type="checkbox" aria-label={t("agentTasks.selectPage")} checked={shown.length > 0 && vm.selectedIds.length === shown.length} disabled={!shown.length} onChange={vm.togglePage} /></TableHead>
+            <TableHead><input ref={element => { if (element) element.indeterminate = vm.selectedIds.length > 0 && vm.selectedIds.length < shown.length; }} type="checkbox" aria-label={t("agentTasks.selectPage")} checked={shown.length > 0 && vm.selectedIds.length === shown.length} disabled={!shown.length} onChange={vm.togglePage} /></TableHead>
             <TableHead>{t("agentTasks.task")}</TableHead><TableHead>{t("agentTasks.owner")}</TableHead>
             <TableHead>{t("agentTasks.context")}</TableHead><TableHead>{t("agentTasks.state")}</TableHead><TableHead>{t("agentTasks.deadline")}</TableHead>
           </TableRow></TableHeader><TableBody>
@@ -91,6 +91,7 @@ export function AgentTasksTab() {
       </div>
       {selected.blocked_actions?.approve && selected.dispatch_status === null && <p className="text-sm text-muted-foreground">{t(`agentTasks.blocked.${selected.blocked_actions.approve}`)}</p>}
       {vm.dependenciesError && <p role="alert">{t("agentTasks.dependenciesError")}</p>}
+      {vm.sourcesError && <p role="alert">{t("agentTasks.sourcesError")}</p>}
       {vm.dependencies.length > 0 && <div><h4 className="text-sm font-medium">{t("agentTasks.dependencies")}</h4><ul className="mt-1 space-y-1 text-sm">
         {vm.dependencies.map(task => task && <li key={task.id}>#{task.number} · {task.title} — {t(`agentTasks.taskStates.${task.status}`)}</li>)}
       </ul></div>}

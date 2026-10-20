@@ -243,7 +243,7 @@ def set_group_monitoring(ref: str, enabled: bool) -> dict[str, Any]:
         chat = raw if raw.endswith("@g.us") else f"{raw}@g.us"
         nome = _bridge_group_name(chat)
         if not nome:
-            raise GroupError("Grupo não encontrado na sessão WhatsApp da Maia. Confirme o ID ou aguarde uma mensagem dele.")
+            raise GroupError("Grupo não encontrado na sessão WhatsApp da Maia. Confirme o ID ou aguarde uma mensagem dele.") from None
         indice = _ler_json(GRUPOS / "_grupos.json", {})
         indice[chat] = {"nome": nome, "id": chat, "status": "stale", "arquivo": f"{chat.split('@')[0]}.jsonl"}
         _gravar_json(GRUPOS / "_grupos.json", indice)
